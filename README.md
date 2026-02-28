@@ -1,10 +1,37 @@
 # Requirements Specification
+## CWA School — Classroom
 
-## CWA School - Classroom
+**Application Name:** Classroom  
+**Hosted at:** classroom.wizardslearninghub.co.nz  
+**Version:** 2.0 (Revised — all gaps resolved)  
+**Technology Stack:** Django 4.2+, Python 3.10, MySQL 8.0, Pillow, django-storages, stripe  
+**Timezone:** Pacific/Auckland (New Zealand)  
+**Last Revised:** 2026-02-28  
 
-**Application Name:** Classroom (currently hosted at classroom.wizardslearninghub.co.nz)
-**Technology Stack:** Django 4.2+, Python 3.10, MySQL 8.0, Pillow
-**Timezone:** Pacific/Auckland (New Zealand)
+---
+
+## Revision Log (v1 → v2)
+
+| Gap | Topic | Resolution |
+|-----|-------|------------|
+| 1 | Student self-registration | **`student` role:** No self-registration. Registered exclusively by teachers via bulk upload or Django admin. **`individual_student` role:** Can self-register at `/register/individual-student/` and select a subscription package. |
+| 2 | Payment timing | Account created first → class selection immediately → Stripe checkout activates package. |
+| 3 | Times Tables storage | **Runtime-generated.** Not stored in the database. Consistent with Basic Facts. |
+| 4 | Colour coding — insufficient data | Colour requires minimum **2 attempts** on the platform. Below threshold: no colour, raw score only. |
+| 4b | Colour coding — dual indicator | Dashboard shows **two separate indicators**: (a) personal trend vs own attempt history, (b) platform average via TopicLevelStatistics. |
+| 5 | Teacher class progress | **Both** class averages and individual student drill-down. Mixed Quiz results include per-topic breakdown (e.g. "80% Measurements, 20% Fractions"). |
+| 6 | Text answer validation | Numeric tolerance: fixed global default **±0.05**. Multiple valid answers: teacher defines comma-separated alternatives in the answer text field. |
+| 7 | Practice Mode feedback | Full feedback shown (correct/incorrect + explanations). Results **not saved** to database. |
+| 8 | Drag & drop question type | `drag_drop` is a **first-class DB question type**. Student sorts answer tiles into the correct sequence. |
+| 9 | Image storage | Local disk (`MEDIA_ROOT`) in development; AWS S3 via `django-storages` in production (`USE_S3` env var). |
+| 10 | Discount codes | 100% discount codes at registration skip Stripe entirely and activate the package immediately. |
+| 11 | Trial period | 14-day free trial on all paid packages. No card required upfront. After trial: no card or payment failure = Basic Facts only access. |
+| 12 | Billing cycle | Starts from trial end date. First charge exactly 14 days after registration. |
+| 13 | Package upgrade | Existing class selections kept. Student adds more up to new limit. |
+| 14 | Package downgrade | Student must manually remove excess classes before downgrade is confirmed. Takes effect at billing period end. |
+| 15 | Mixed Quiz topic tracking | `StudentAnswer` stores `topic` FK, enabling per-topic breakdown in teacher progress views. |
+| 16 | Question ingestion | Teachers upload **one JSON file per topic/level** via `/upload-questions/` UI or Django admin. Duplicate detection by question text — identical text overwrites. Images referenced by file path in JSON. |
+| 17 | Drag & drop interaction | Student **sorts tiles into the correct sequence** by dragging. |
 
 ---
 
@@ -16,11 +43,6 @@
 4. [Functional Requirements](#4-functional-requirements)
    - 4.1 [Registration and Authentication](#41-registration-and-authentication)
    - 4.2 [Classroom Management](#42-classroom-management)
-     - 4.2.1 [Create Class](#fr-421-create-class-teacher-only)
-     - 4.2.2 [Assign Students to Class](#fr-422-assign-students-to-class-teacher-only)
-     - 4.2.3 [Assign Teachers to Class](#fr-423-assign-teachers-to-class-teacher-only)
-     - 4.2.4 [Individual Student Class Selection](#fr-424-individual-student-class-selection)
-     - 4.2.5 [Level Access Control](#fr-425-level-access-control)
    - 4.3 [Student Dashboard](#43-student-dashboard)
    - 4.4 [Teacher Dashboard](#44-teacher-dashboard)
    - 4.4a [HeadOfDepartment Dashboard](#44a-headofdepartment-dashboard)
@@ -29,17 +51,19 @@
    - 4.6 [Basic Facts Module](#46-basic-facts-module)
    - 4.7 [Topic-Based Quizzes](#47-topic-based-quizzes)
    - 4.8 [Mixed (Take Quiz) Quizzes](#48-mixed-take-quiz-quizzes)
-   - 4.9 [Times Tables (Multiplication and Division)](#49-times-tables-multiplication-and-division)
+   - 4.9 [Times Tables](#49-times-tables-multiplication-and-division)
    - 4.10 [Practice Mode](#410-practice-mode)
    - 4.11 [Scoring and Points System](#411-scoring-and-points-system)
    - 4.12 [Progress Tracking and Statistics](#412-progress-tracking-and-statistics)
    - 4.13 [Time Tracking](#413-time-tracking)
    - 4.14 [User Profile Management](#414-user-profile-management)
-   - 4.15 [Question Management (Teacher)](#415-question-management-teacher)
+   - 4.15 [Question Management](#415-question-management)
+   - 4.16 [Payments and Subscriptions](#416-payments-and-subscriptions-stripe)
 5. [Non-Functional Requirements](#5-non-functional-requirements)
 6. [Data Model](#6-data-model)
 7. [API Endpoints](#7-api-endpoints)
-8. [Appendix: Mathematics Year-Topic Mapping](#8-appendix-mathematics-year-topic-mapping)
+8. [Appendix A: Mathematics Year-Topic Mapping](#8-appendix-a-mathematics-year-topic-mapping)
+9. [Appendix B: JSON Upload Field Reference](#9-appendix-b-json-upload-field-reference)
 
 ---
 
@@ -47,111 +71,108 @@
 
 ### 1.1 Purpose
 
-This document specifies the functional and non-functional requirements for the **Classroom** web application, an educational platform designed for primary and intermediate school students (approximately Years 1-8) to practise curriculum content across multiple subjects. **Mathematics is the first supported subject**, with the platform designed to support additional subjects in the future. The system supports class-based learning managed by teachers as well as self-directed individual students.
+This document specifies the functional and non-functional requirements for the **Classroom** web application — an educational platform for primary and intermediate school students (Years 1–8) to practise curriculum content. **Mathematics is the first supported subject**, designed for expansion to additional subjects in the future. The system supports class-based learning managed by teachers, and self-directed individual students with subscription packages.
 
 ### 1.2 Scope
 
-The application covers:
-
-- User registration and authentication with a flexible, extensible role-based access control system.
-- Built-in roles: Admin, Teacher, Student, IndividualStudent, Accountant, HeadOfDepartment -- with the ability to add custom roles.
-- Class-centric management: classes with many-to-many relationships to both teachers and students.
-- HeadOfDepartment can assign classes to teachers; teachers can assign students to classes.
-- Subscription packages for individual students (1, 3, 5, or unlimited classes).
-- Level-based access control determined by class membership.
-- A structured curriculum organised by **Year levels** (Years 1-8) and **Subjects** (e.g., Mathematics), where each subject is broken down into **Topics** (e.g., Measurements, Multiplication).
-- Mathematics subject modules: **Basic Facts** drills (Addition, Subtraction, Multiplication, Division, Place Value Facts) and **Times Tables** quizzes (1x through 12x).
-- Timed quizzes with an automated scoring/points system.
-- Progress tracking with statistical comparison (mean and standard deviation colour-coding).
-- Daily and weekly time-on-task tracking.
-- Teacher tools for question management, class management, and bulk student registration.
+- Flexible, extensible role-based access control (Admin, Teacher, Student, IndividualStudent, Accountant, HeadOfDepartment, plus custom roles).
+- Class-centric management with many-to-many teacher/student relationships.
+- **`student` role:** Registered exclusively by teachers (bulk upload or Django admin) — no self-registration.
+- **`individual_student` role:** Can self-register, select a subscription package, and choose their own classes.
+- Subscription packages for Individual Students (1, 3, 5, or unlimited classes) with Stripe recurring billing, 14-day free trial (no card required upfront), and 100% discount codes for complimentary access.
+- Curriculum structured by Year (1–8), Subject (Mathematics first), and Topic.
+- Mathematics modules: Basic Facts drills, Times Tables (both runtime-generated), Topic-Based Quizzes, Mixed Quizzes, and Practice Mode.
+- Timed quizzes with points formula rewarding accuracy and speed.
+- Dual colour-coded progress tracking: personal trend + platform average comparison.
+- Teacher question management via JSON file upload (one file per topic/level) with image path support.
+- Media storage: local disk in development, AWS S3 in production.
 
 ### 1.3 Intended Audience
 
-- Developers maintaining or extending the application.
-- Teachers and school administrators evaluating the system.
-- QA testers validating functionality.
+Developers building or maintaining the system, teachers and administrators evaluating it, and QA testers validating functionality.
 
 ---
 
 ## 2. System Overview
 
-Classroom is a server-rendered Django web application. The core Django app is named `classroom`. The application uses a **flexible role-based access control** system where each user account can be assigned one or more roles. Built-in roles include Admin, Teacher, Student, IndividualStudent, Accountant, and HeadOfDepartment, with the ability to define additional custom roles as needed. A **Class** is the central organisational unit linking teachers and students in a many-to-many relationship. Curriculum content is organised into **Levels** (Year levels for curriculum content, numeric IDs >= 100 for Basic Facts), **Subjects** (e.g., Mathematics), and **Topics** within each subject (e.g., Measurements, Fractions, BODMAS/PEMDAS). Each role receives a role-specific dashboard and set of permissions.
+Classroom is a server-rendered Django web application. The core app is named `classroom`. Content is organised into **Levels** (Year 1–8; `level_number` ≥ 100 for Basic Facts), **Subjects**, and **Topics**. Each role receives a dedicated dashboard and permission set.
 
 ### 2.1 High-Level Architecture
 
 ```
-Browser (HTML/CSS/JS)
-  |
-Django Application (Classroom platform; current core app: `classroom`)
-  |
-Database (MySQL 8.0)
-  |
-Media Storage (uploaded question images)
+Browser (HTML / CSS / JS)
+    |
+Django Application  (core app: `classroom`)
+    |
+MySQL 8.0 Database
+    |
+Media Storage
+    ├── Development : Local disk  (MEDIA_ROOT)
+    └── Production  : AWS S3      (django-storages, USE_S3=true)
+    |
+Stripe API  (Checkout, Subscriptions, Webhooks)
 ```
 
 ### 2.2 Deployment
 
-- **Production host:** classroom.wizardslearninghub.co.nz
-- **Database:** MySQL 8.0 for both local development and production environments.
-- **Email:** Console backend in development; Gmail SMTP in production.
+| Concern | Detail |
+|---------|--------|
+| Production host | classroom.wizardslearninghub.co.nz |
+| Database | MySQL 8.0 (all environments) |
+| Email | Console backend (dev) · Gmail SMTP (production) |
+| Media | `USE_S3` env var switches local ↔ S3 |
+| Stripe keys | `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET` — env vars only, never committed to source control |
 
 ---
 
 ## 3. User Roles and Authentication
 
-### 3.1 User Model
+### 3.1 User Model (`CustomUser` extends `AbstractUser`)
 
-The system uses a custom user model (`CustomUser`) extending Django's `AbstractUser` with the following additional fields:
-
-| Field            | Type        | Description                         |
-|------------------|-------------|-------------------------------------|
-| `date_of_birth`  | Date (optional) | Used for age-based Basic Facts statistics |
-| `country`        | String (optional) | User's country                  |
-| `region`         | String (optional) | User's region/state/province    |
-| `package`        | FK (optional) | The subscription package for IndividualStudent users (null for all other roles) |
-| `roles`          | M2M to `Role` | One or more roles assigned to the user (via `UserRole` through table) |
+| Field | Type | Description |
+|-------|------|-------------|
+| `date_of_birth` | Date (optional) | Age-based Basic Facts statistics |
+| `country` | String (optional) | User's country |
+| `region` | String (optional) | User's region/state/province |
+| `package` | FK → `Package` (optional) | Active subscription package; null for non-IndividualStudent roles |
+| `roles` | M2M → `Role` via `UserRole` | One or more assigned roles |
 
 ### 3.2 Role Model
 
-Roles are stored in a dedicated `Role` database table, making the system **extensible** -- new roles can be added at any time via the Django admin without code changes.
+Stored in a dedicated `Role` table. New roles added via Django admin without code changes.
 
-| Field            | Type        | Description                         |
-|------------------|-------------|-------------------------------------|
-| `name`           | String (unique) | Machine-readable role identifier (e.g., `admin`, `teacher`, `student`, `individual_student`, `accountant`, `head_of_department`) |
-| `display_name`   | String      | Human-readable label (e.g., "Head of Department") |
-| `description`    | Text (optional) | Description of the role's purpose |
-| `is_active`      | Boolean     | Whether this role is currently available for assignment |
-| `created_at`     | DateTime    | When the role was created           |
-
-A user can hold **multiple roles simultaneously** (e.g., a user could be both a Teacher and a HeadOfDepartment).
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | String (unique) | Machine identifier e.g. `teacher`, `individual_student` |
+| `display_name` | String | Human-readable label |
+| `description` | Text (optional) | Role purpose |
+| `is_active` | Boolean | Whether available for assignment |
+| `created_at` | DateTime | Creation timestamp |
 
 ### 3.3 Built-in Roles
 
-| Role                    | Name Identifier         | Description | Key Capabilities |
-|-------------------------|------------------------|-------------|------------------|
-| **Admin**               | `admin`                | Platform administrator. Only the admin user has this role. | Full Django admin access to all models, role management, package configuration, system settings. |
-| **Teacher**             | `teacher`              | Creates and manages classes. Can belong to multiple classes. | Create classes, assign students to classes, register students (individual + bulk), add questions, browse topics/levels, view class progress. |
-| **Student**             | `student`              | A class-enrolled student assigned to classes by a teacher. | Take quizzes, view progress, view profile. Access is limited to levels assigned to their class(es). |
-| **IndividualStudent**   | `individual_student`   | A self-registered student not managed by a teacher. Selects a subscription package during registration. | Take quizzes, view progress, view profile. Can access classes up to the limit of their selected package. |
-| **Accountant**          | `accountant`           | Financial and administrative oversight role. | View financial reports, manage subscription packages and billing, view user/class statistics. |
-| **HeadOfDepartment**    | `head_of_department`   | Departmental oversight role with authority over teacher-class assignments. | Assign classes to teachers, view all classes and their teacher/student assignments, view departmental progress reports, manage teacher workload. |
-
-**Extensibility:** Additional roles can be created at any time by an Admin via the Django admin interface. New roles are defined with a name, display name, and description. Permission checks throughout the application reference role names, so custom roles can be integrated with custom permission logic as needed.
+| Role | Identifier | Key Capabilities |
+|------|------------|-----------------|
+| Admin | `admin` | Full Django admin, role management, package config, system settings |
+| Teacher | `teacher` | Create classes, bulk-register students, manage questions (JSON upload + manual form), view class progress |
+| Student | `student` | Take quizzes, view personal progress. Access limited to class-assigned levels. **Registered by teachers only — no self-registration.** |
+| IndividualStudent | `individual_student` | **Self-registers** at `/register/individual-student/`. Selects a subscription package; accesses classes up to package limit. Take quizzes, view personal progress. |
+| Accountant | `accountant` | Financial reports, package/billing management, refunds |
+| HeadOfDepartment | `head_of_department` | Assign classes to teachers, view all classes and departmental reports |
 
 ### 3.4 Permission Resolution
 
-- Permission checks are performed by querying the user's assigned roles (e.g., `user.roles.filter(name='teacher').exists()`).
-- A user with **multiple roles** receives the **union** of all capabilities from their assigned roles.
-- Role-specific views redirect users to the appropriate dashboard based on their **primary role** (highest-priority role). Priority order: Admin > HeadOfDepartment > Accountant > Teacher > IndividualStudent > Student.
-- If a user has no roles assigned, they are treated as having no access and are redirected to a "contact administrator" page.
+- Checks use `user.roles.filter(name='...').exists()`.
+- Multiple roles → union of all capabilities.
+- Primary role priority (dashboard redirect): Admin > HeadOfDepartment > Accountant > Teacher > IndividualStudent > Student.
+- No roles assigned → redirect to "contact administrator" page.
 
 ### 3.5 Authentication Flows
 
-- **Login:** Standard Django authentication (`/accounts/login/`). After login, the user is redirected to their role-specific dashboard based on primary role priority.
-- **Logout:** Standard Django logout (`/accounts/logout/`), redirects to `/`.
-- **Password Reset:** Full email-based password reset flow (reset form, email sent, confirmation, completion). Reset links valid for 3600 seconds (1 hour) by default (configurable via `PASSWORD_RESET_TIMEOUT`).
-- **Session Management:** Django session-based authentication; `LOGIN_REDIRECT_URL` and `LOGOUT_REDIRECT_URL` both point to `/`.
+- **Login:** `/accounts/login/` → role-specific dashboard.
+- **Logout:** `/accounts/logout/` → `/`.
+- **Password Reset:** Email-based. Token valid 3600 s (configurable via `PASSWORD_RESET_TIMEOUT`).
+- **Session:** Django session auth. `LOGIN_REDIRECT_URL = LOGOUT_REDIRECT_URL = '/'`.
 
 ---
 
@@ -159,129 +180,133 @@ A user can hold **multiple roles simultaneously** (e.g., a user could be both a 
 
 ### 4.1 Registration and Authentication
 
-#### FR-4.1.1 Student Self-Registration
+#### FR-4.1.1 Student Self-Registration — NOT SUPPORTED
 
-- **URL:** `/signup/student/`
-- **Fields:** Username, Email, Password, Password Confirmation.
-- **Behaviour:** Creates a `CustomUser` and assigns the `student` role. Automatically logs the user in and redirects to the dashboard.
+Users with the `student` role cannot self-register. `/signup/student/` is not implemented. Class-enrolled students are registered exclusively by teachers (FR-4.1.4) or via Django admin.
+
+This does **not** apply to Individual Students — see FR-4.1.5 for Individual Student self-registration.
 
 #### FR-4.1.2 Teacher Self-Registration
 
 - **URL:** `/signup/teacher/`
 - **Fields:** Username, Email, Password, Password Confirmation.
-- **Behaviour:** Creates a `CustomUser` and assigns the `teacher` role. Automatically logs the user in and redirects to the dashboard.
+- **Behaviour:** Creates `CustomUser` with `teacher` role. Logs in and redirects to teacher dashboard.
 
 #### FR-4.1.3 Teacher Center Registration
 
 - **URL:** `/register/teacher-center/`
 - **Fields:** Username, Email, Password, Password Confirmation, Center/School Name.
-- **Behaviour:** Creates a user with the `teacher` role. Displays a success message with the center name. Redirects to dashboard.
+- **Behaviour:** Creates `teacher` role user. Displays success message with center name. Redirects to dashboard.
 
-#### FR-4.1.4 Individual Student Registration
-
-- **URL:** `/register/individual-student/`
-- **Fields:** Username, Email, Password, Password Confirmation, Package Selection.
-- **Package Selection:** During registration, the individual student must choose a subscription package that determines how many classes they can access:
-
-| Package Name    | Class Limit | Description                              |
-|-----------------|-------------|------------------------------------------|
-| 1 Class         | 1           | Access to a single class                 |
-| 3 Classes       | 3           | Access to up to 3 classes                |
-| 5 Classes       | 5           | Access to up to 5 classes                |
-| Unlimited       | Unlimited   | Access to any number of classes          |
-
-- **Package configuration:** Packages (names, class limits, and availability) are customisable by administrators via the Django admin interface. The tiers listed above are the default configuration.
-- **Behaviour:** Creates a user with the `individual_student` role and the selected package. Displays a success message with the chosen package details. Redirects to a class selection page where the student can browse and select available classes (up to their package limit).
-- **Class Selection (post-registration):** After registration, the individual student is presented with a list of available classes and can select which class(es) to join, up to the limit defined by their package. The student can change their class selection later from their profile, subject to the same package limit.
-
-#### FR-4.1.5 Bulk Student Registration (Teacher Only)
+#### FR-4.1.4 Bulk Student Registration (Teacher Only)
 
 - **URL:** `/bulk-student-registration/`
-- **Access:** Users with `teacher` role only (`@login_required`).
-- **Input:** Textarea with one student per line in the format: `username,email,password`.
-- **Validation:**
-  - Each line must have exactly 3 comma-separated values.
-  - Username must not be empty.
-  - Email must contain `@`.
-  - Password must be at least 8 characters.
-- **Behaviour:** Creates all student accounts (with the `student` role) atomically (within a transaction). Reports success count. Individual creation failures are reported as error messages without rolling back other creations.
+- **Access:** `teacher` role only.
+- **Input:** Textarea — one student per line: `username,email,password`.
+- **Validation:** Exactly 3 comma-separated values · non-empty username · email contains `@` · password ≥ 8 characters.
+- **Behaviour:** Creates all `student` role accounts atomically within a transaction. Reports success count. Individual failures reported as error messages without rolling back other creations. Note: `individual_student` accounts cannot be bulk-registered this way — they must self-register.
+
+#### FR-4.1.5 Individual Student Registration
+
+- **URL:** `/register/individual-student/`
+- **Fields:** Username, Email, Password, Password Confirmation, Package Selection, Discount Code (optional).
+
+**Three-step registration flow:**
+
+```
+Step 1 — Account creation
+    CustomUser created with `individual_student` role + selected package.
+    User logged in immediately.
+
+Step 2 — Class selection  (available immediately, before payment)
+    Redirected to /select-classes/.
+    Student selects classes up to their package limit straight away.
+
+Step 3 — Payment
+    If valid 100% discount code entered:
+        → Stripe skipped entirely. Package activated immediately.
+        → DiscountCode.uses incremented atomically.
+
+    If paid package, no discount code:
+        → Stripe Checkout Session created with 14-day trial period.
+        → Student redirected to Stripe-hosted checkout (card entry optional).
+        → Trial begins immediately. Full package access during trial.
+        → 3 days before trial ends: reminder email sent.
+        → On trial end day: notification email sent.
+        → After trial ends:
+            Card provided  → Stripe auto-charges monthly from trial end date.
+            No card        → Access downgraded to Basic Facts only.
+            Payment fails  → Access downgraded to Basic Facts only.
+```
+
+**Billing cycle:** Starts from trial end date. First charge = exactly 14 days after registration.
+
+**Discount Code model (`DiscountCode`):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `code` | String (unique) | Code entered at registration |
+| `discount_percent` | Integer | 100 = fully free |
+| `max_uses` | Integer (null = unlimited) | Maximum redemptions allowed |
+| `uses` | Integer | Current redemption count |
+| `is_active` | Boolean | Whether the code can be used |
+| `expires_at` | DateTime (optional) | Expiry date/time |
+
+**Package change rules:**
+- **Upgrade:** Existing class selections kept. Student can add more up to new limit. Stripe handles price difference.
+- **Downgrade:** Student must manually remove classes to meet new limit before downgrade is confirmed. Takes effect at end of current billing period.
 
 #### FR-4.1.6 Role Assignment (Admin Only)
 
-- **URL:** Via Django admin interface.
-- **Access:** Users with the `admin` role only.
-- **Behaviour:** Admins can assign or remove any role to/from any user. This includes assigning the `accountant`, `head_of_department`, or any custom role. A user can hold multiple roles simultaneously.
+Via Django admin. Admins assign/remove any role to/from any user. Users may hold multiple roles simultaneously.
 
 ---
 
 ### 4.2 Classroom Management
 
-A **Class** is the central organisational unit. Classes have a many-to-many relationship with both teachers and students:
-- A class can have **many teachers** and **many students**.
-- A teacher can belong to **multiple classes**.
-- A student can belong to **multiple classes**.
-- **Teachers** can assign students to classes.
-- **HeadOfDepartment** can assign classes to teachers (and manage teacher-class relationships).
-
 #### FR-4.2.1 Create Class (Teacher Only)
 
 - **URL:** `/create-class/`
-- **Access:** Users with the `teacher` role.
-- **Fields:** Class Name, Levels (multi-select of available levels).
-- **Behaviour:**
-  - Generates a unique 8-character class code (UUID hex prefix).
-  - The creating teacher is automatically added as a member of the class.
-  - Assigns selected levels to the class.
-  - Redirects to the teacher dashboard.
+- **Access:** `teacher` role.
+- **Fields:** Class Name, Levels (multi-select).
+- **Behaviour:** Generates unique 8-character class code (UUID hex prefix). Creating teacher added as member automatically. Redirects to teacher dashboard.
 
 #### FR-4.2.2 Assign Students to Class (Teacher Only)
 
 - **URL:** `/class/<class_id>/assign-students/`
-- **Access:** Users with the `teacher` role who are members of the class.
-- **Input:** Student username(s) or email(s), or selection from a list of registered students.
-- **Behaviour:**
-  - Adds the selected student(s) to the class, preventing duplicates.
-  - Displays a success message with the number of students added.
-  - Students **cannot** add themselves to classes -- only teachers (or HeadOfDepartment) can assign them.
+- **Access:** `teacher` role, must be a member of the class.
+- **Behaviour:** Adds student(s) to the class, preventing duplicates. Students cannot add themselves.
 
-#### FR-4.2.3 Assign Teachers to Class (Teacher or HeadOfDepartment)
+#### FR-4.2.3 Assign Teachers to Class
 
 - **URL:** `/class/<class_id>/assign-teachers/`
-- **Access:** Users with the `teacher` role who are members of the class, **or** users with the `head_of_department` role (who can assign teachers to any class).
-- **Input:** Teacher username(s) or email(s).
-- **Behaviour:**
-  - Adds the selected teacher(s) as members of the class.
-  - Multiple teachers can collaborate on and manage the same class.
-  - HeadOfDepartment users can assign teachers to classes even if the HeadOfDepartment is not a member of that class.
+- **Access:** `teacher` (must be class member) **or** `head_of_department` (can act on any class).
+- **Behaviour:** Adds teacher(s) as class members. Multiple teachers can co-manage a class.
 
 #### FR-4.2.4 HeadOfDepartment Class-Teacher Management
 
 - **URL:** `/department/manage-classes/`
-- **Access:** Users with the `head_of_department` role.
-- **Behaviour:**
-  - Displays an overview of **all classes** with their assigned teachers and student counts.
-  - HeadOfDepartment can assign or remove teachers from any class.
-  - HeadOfDepartment can view teacher workload (number of classes per teacher).
-  - Provides a consolidated view for managing teacher-class assignments across the department.
+- **Access:** `head_of_department` role.
+- **Behaviour:** Overview of all classes. HoD can assign/remove teachers from any class and view teacher workload (classes per teacher).
 
 #### FR-4.2.5 Individual Student Class Selection
 
 - **URL:** `/select-classes/`
-- **Access:** Users with the `individual_student` role.
-- **Behaviour:**
-  - Displays a list of available classes the student can browse.
-  - The student can select classes up to the limit defined by their subscription package (see [FR-4.1.4](#fr-414-individual-student-registration)).
-  - If the student has reached their package limit, they must remove an existing class before adding a new one, or upgrade their package.
-  - Selecting a class grants the student access to the levels assigned to that class.
+- **Access:** `individual_student` role.
+- **Behaviour:** Lists all available classes. Student selects up to their package limit. Available immediately after registration, before payment. Removing a class frees up a slot.
 
 #### FR-4.2.6 Level Access Control
 
-- **Students** (`student` role): Can access levels assigned to the class(es) they belong to (union of all class levels).
-- **Individual students** (`individual_student` role): Can access levels assigned to the class(es) they have selected (up to their package limit).
-- **Teachers** (`teacher` role): No level restrictions (can browse all topics and levels).
-- **HeadOfDepartment** (`head_of_department` role): No level restrictions.
-- **Accountant** (`accountant` role): No direct access to quiz content (dashboard is reporting-focused).
-- **Basic Facts levels** (level_number >= 100): Always accessible to **all** users with `student` or `individual_student` roles, regardless of class membership.
+| Role / State | Access |
+|--------------|--------|
+| `student` | Levels assigned to their class(es) — union across all classes |
+| `individual_student` — active or in trial | Levels assigned to selected classes (up to package limit) |
+| `individual_student` — trial expired, no payment | **Basic Facts only** (level_number ≥ 100) |
+| `teacher` | All levels — no restriction |
+| `head_of_department` | All levels — no restriction |
+| `accountant` | No quiz content — reporting only |
+
+Basic Facts levels (level_number ≥ 100) are **always accessible** to all students regardless of payment status.
 
 ---
 
@@ -289,58 +314,51 @@ A **Class** is the central organisational unit. Classes have a many-to-many rela
 
 #### FR-4.3.1 Home Dashboard (`/`)
 
-- **Access:** `@login_required`. Users with `student` or `individual_student` role (other roles are redirected to their respective dashboards).
+- **Access:** `@login_required`, `student` or `individual_student` role (others redirected to their dashboards).
 - **Content:**
-  - Informational box indicating whether the student is an individual student (with package details and class count) or a class-enrolled student (with list of assigned classes).
-  - **Basic Facts section:** Grid cards for Addition, Subtraction, Multiplication, Division, and Place Value Facts. Each card shows the number of available levels and links to the subtopic selection page.
-  - **Year-level sections:** Accordion layout grouped by Year (1-8). Each year expands to show topic cards (e.g., Measurements, Fractions, Multiplication, Division, BODMAS/PEMDAS) plus a "Take Quiz" card for random mixed questions.
-  - **No progress table** is shown on the home page (progress is on `/dashboard/`).
+  - Info box: package + trial status + class count (IndividualStudent) or assigned classes (Student).
+  - **Basic Facts section:** Grid cards for Addition, Subtraction, Multiplication, Division, Place Value Facts. Each shows available levels.
+  - **Year-level sections:** Accordion grouped by Year 1–8. Each expands to show topic cards plus a "Take Quiz" card for the Mixed Quiz.
+  - No progress table on home page (progress is on `/dashboard/`).
 
 #### FR-4.3.2 Detailed Dashboard (`/dashboard/`)
 
-- **Access:** `@login_required`. Users with `student` or `individual_student` role.
-- **Content:** Same layout as home dashboard plus:
-  - **Year-Level Progress Table:** Shows the student's best points, time, date, and number of attempts for each topic-level combination they have attempted.
-  - **Basic Facts Progress Table:** Accordion per subtopic showing level-by-level progress (display level, completed time, points, date, attempts).
-  - **Colour coding** based on statistical comparison (see [FR-4.12.3](#fr-4123-colour-coding)).
-- **Data Sources (Priority Order):**
-  1. **Primary:** `StudentFinalAnswer` table (aggregated quiz results).
-  2. **Fallback:** `StudentAnswer` table (individual question-level records, for older data not yet in `StudentFinalAnswer`).
+- **Access:** `@login_required`, `student` or `individual_student`.
+- **Content:** Same layout as home, plus:
+  - **Year-Level Progress Table:** Best points, time, date, attempt count per topic-level combination attempted.
+  - **Basic Facts Progress Table:** Accordion per subtopic with level-by-level progress.
+  - **Dual colour coding** (see FR-4.12.3).
+- **Data source priority:** `StudentFinalAnswer` first; fallback to `StudentAnswer` for older records.
 
 ---
 
 ### 4.4 Teacher Dashboard
 
-#### FR-4.4.1 Teacher Dashboard (`/`)
+#### FR-4.4.1 Teacher Home Dashboard (`/`)
 
-- **Access:** `@login_required`, user has `teacher` role.
+- **Access:** `@login_required`, `teacher` role.
 - **Content:**
-  - List of **all classes the teacher belongs to** with names, class codes, student count, and co-teacher count.
-  - Per-class actions:
-    - "Manage Students" (assign/remove students).
-    - "Manage Teachers" (assign/remove co-teachers).
-    - "View Class Progress" (see aggregated student progress for the class).
-  - Global action buttons:
-    - "Create a new class" (links to `/create-class/`).
-    - "Bulk Register Students" (links to `/bulk-student-registration/`).
-    - "Browse topics / assign levels" (links to `/topics/`).
+  - All classes the teacher belongs to: name, code, student count, co-teacher count.
+  - Per-class actions: Manage Students · Manage Teachers · View Class Progress.
+  - Global actions: Create Class · Bulk Register Students · Browse Topics · Upload Questions.
+
+#### FR-4.4.2 Class Progress View (`/class/<class_id>/progress/`)
+
+- **Access:** `@login_required`, `teacher` role, member of the class.
+- **Content:**
+  - **Class averages panel:** Average best score per topic/level across all students in the class.
+  - **Individual student drill-down:** Expandable rows per student showing best score, attempt count, and last attempt date per topic/level.
+  - **Mixed Quiz topic breakdown:** For Mixed Quiz attempts, a percentage-correct summary per topic sourced from `StudentAnswer.topic` (e.g. "Measurements 80% · Fractions 40% · Place Values 100%").
+  - Colour coding consistent with student dashboard (FR-4.12.3).
 
 ---
 
 ### 4.4a HeadOfDepartment Dashboard
 
-#### FR-4.4a.1 HeadOfDepartment Dashboard (`/department/`)
+#### FR-4.4a.1 HoD Dashboard (`/department/`)
 
-- **Access:** `@login_required`, user has `head_of_department` role.
-- **Content:**
-  - **All classes overview:** Table of all classes with name, code, assigned teacher(s), student count, and levels.
-  - **Teacher workload view:** List of all teachers with the number of classes each is assigned to.
-  - **Class-teacher management:** Ability to assign/remove teachers from any class directly from the dashboard.
-  - **Departmental progress reports:** Aggregated student performance across all classes (average scores, completion rates by level/topic).
-  - Action buttons:
-    - "Manage Class-Teacher Assignments" (links to `/department/manage-classes/`).
-    - "View All Teachers" (links to teacher list with workload details).
-    - "View Departmental Reports" (links to aggregated progress reports).
+- **Access:** `@login_required`, `head_of_department` role.
+- **Content:** All classes table (name, code, teachers, student count, levels) · Teacher workload list (classes per teacher) · Class-teacher assignment controls · Departmental progress reports (average scores, completion rates by level/topic).
 
 ---
 
@@ -348,39 +366,33 @@ A **Class** is the central organisational unit. Classes have a many-to-many rela
 
 #### FR-4.4b.1 Accountant Dashboard (`/accounting/`)
 
-- **Access:** `@login_required`, user has `accountant` role.
+- **Access:** `@login_required`, `accountant` role.
 - **Content:**
-  - **Package subscription overview:** Summary of individual students grouped by package tier (1 Class, 3 Classes, 5 Classes, Unlimited), with counts and revenue potential.
-  - **User statistics:** Total registered users broken down by role, active users (logged in within last 30 days), new registrations over time.
-  - **Class statistics:** Total classes, average students per class, average teachers per class.
-  - **Financial reports:** Subscription-related data for billing and financial oversight.
-  - Action buttons:
-    - "Manage Packages" (view/edit package tiers and pricing).
-    - "Export Reports" (download CSV/PDF reports).
+  - Package subscription overview: students grouped by package tier with counts and revenue.
+  - Trial status overview: students in active trial · trial-expired with no payment.
+  - User statistics: total by role · active (logged in within last 30 days) · new registrations over time.
+  - Class statistics: total classes · average students per class · average teachers per class.
+  - Financial reports: subscription billing data.
+  - Actions: Manage Packages · Export Reports (CSV/PDF).
 
 ---
 
 ### 4.5 Year-Level Subject and Topic System
 
-The curriculum is structured as follows:
+- **Levels:** `level_number` 1–8 for Years 1–8. `level_number` ≥ 100 for Basic Facts.
+- **Subjects:** e.g. Mathematics. Designed for multiple subjects over time.
+- **Topics:** Sub-areas within a subject (e.g. Measurements, Fractions, BODMAS/PEMDAS).
 
-- **Levels** represent school years (Year 1 through Year 8, stored as `level_number` 1-8).
-- **Subjects** represent curriculum areas (e.g., Mathematics). The system is designed to support multiple subjects over time.
-- **Topics** represent sub-areas within a subject (e.g., within Mathematics: Measurements, Fractions, BODMAS/PEMDAS).
-- Each year level has a defined set of available **topics per subject**. The existing mapping described in this document is for the **Mathematics** subject (see [Appendix](#8-appendix-mathematics-year-topic-mapping)).
+#### FR-4.5.1 Topic Browsing
 
-#### FR-4.5.1 Subject and Topic Browsing
-
-- **URL (future):** `/subjects/` - Lists all available subjects.
-- **URL (future):** `/subject/<subject_id>/topics/` - Lists topics available for a given subject.
-- **URL (current / legacy):** `/topics/` - Lists all topics for the Mathematics subject.
-- **URL (current / legacy):** `/topic/<topic_id>/levels/` - Lists levels available for a given topic (filtered by student's allowed levels).
+- `/topics/` — all Mathematics topics (current implementation).
+- `/topic/<topic_id>/levels/` — levels for a topic, filtered to student's allowed levels.
+- `/subjects/` and `/subject/<id>/topics/` — reserved for future multi-subject expansion.
 
 #### FR-4.5.2 Level Detail
 
 - **URL:** `/level/<level_number>/`
-- **Access:** `@login_required`, subject to level access control.
-- **Content:** Displays the level information and its associated subjects/topics.
+- **Access:** `@login_required`, level access control enforced.
 
 ---
 
@@ -388,84 +400,49 @@ The curriculum is structured as follows:
 
 #### FR-4.6.1 Overview
 
-Basic Facts is a **Mathematics-subject** drill-based module for fundamental arithmetic operations. Questions are **dynamically generated at runtime** (not stored in the database).
+Drill-based arithmetic module. Questions are **dynamically generated at runtime — never stored in the database**. Accessible to all students regardless of class membership or payment status.
 
-**Subtopics and Level Ranges:**
-
-| Subtopic          | Internal Level Range | Display Levels | Questions per Quiz |
-|-------------------|---------------------|----------------|-------------------|
-| Addition          | 100-106             | 1-7            | 10                |
-| Subtraction       | 107-113             | 1-7            | 10                |
-| Multiplication    | 114-120             | 1-7            | 10                |
-| Division          | 121-127             | 1-7            | 10                |
-| Place Value Facts | 128-132             | 1-5            | 10                |
+| Subtopic | Internal Levels | Display Levels | Questions/Quiz |
+|----------|----------------|----------------|----------------|
+| Addition | 100–106 | 1–7 | 10 |
+| Subtraction | 107–113 | 1–7 | 10 |
+| Multiplication | 114–120 | 1–7 | 10 |
+| Division | 121–127 | 1–7 | 10 |
+| Place Value Facts | 128–132 | 1–5 | 10 |
 
 #### FR-4.6.2 Subtopic Selection
 
-- **URL:** `/basic-facts/<subtopic_name>/` (e.g., `/basic-facts/Addition/`)
+- **URL:** `/basic-facts/<subtopic_name>/`
 - **Access:** `@login_required`.
-- **Behaviour:** Displays a level selection page for the chosen subtopic (Addition, Subtraction, Multiplication, Division, or Place Value Facts). Selecting a level redirects to the quiz.
+- Displays level selection page. Selecting a level starts the quiz.
 
 #### FR-4.6.3 Dynamic Question Generation
 
-Questions are generated per quiz attempt with the following progression:
+**Addition (100–106):**
+Level 100: digits 1–5 · 101: digits 0–9 · 102: 2-digit no carry · 103: 2-digit with carry (units ≥ 10) · 104: 3-digit + 3-digit · 105: 4-digit + 4-digit · 106: 5-digit + 5-digit
 
-**Addition (Levels 100-106):**
-- Level 100: Single digits 1-5 (e.g., `3 + 4 = ?`)
-- Level 101: Single digits 0-9 (e.g., `7 + 8 = ?`)
-- Level 102: Two-digit numbers, no carry-over
-- Level 103: Two-digit numbers, with carry-over (units sum >= 10)
-- Level 104: Three-digit + three-digit
-- Level 105: Four-digit + four-digit
-- Level 106: Five-digit + five-digit
+**Subtraction (107–113):**
+Level 107: single-digit (result ≥ 0) · 108: 2d−1d no borrow · 109: 2d−1d with borrow · 110: 2d−2d (result ≥ 0) · 111: 2d−2d (may be negative) · 112: 3-digit · 113: 4-digit
 
-**Subtraction (Levels 107-113):**
-- Level 107: Single-digit subtraction (result >= 0)
-- Level 108: Two-digit minus single-digit, no borrowing
-- Level 109: Two-digit minus single-digit, with borrowing
-- Level 110: Two-digit minus two-digit (result >= 0)
-- Level 111: Two-digit minus two-digit (may be negative)
-- Level 112: Three-digit subtraction
-- Level 113: Four-digit subtraction
+**Multiplication (114–120):**
+Level 114: ×1 or ×10 · 115: ×1/10/100 · 116: ×5/10 · 117: ×2/3/5/10 · 118: ×2–5/10 (2–3 digit base) · 119: ×2–7/10 (2–3 digit base) · 120: ×2–10 (3-digit base)
 
-**Multiplication (Levels 114-120):**
-- Level 114: Multiply by 1 or 10
-- Level 115: Multiply by 1, 10, or 100
-- Level 116: Multiply by 5 or 10
-- Level 117: Multiply by 2, 3, 5, or 10
-- Level 118: Multiply by 2, 3, 4, 5, or 10 (2-3 digit base)
-- Level 119: Multiply by 2, 3, 4, 5, 6, 7, or 10 (2-3 digit base)
-- Level 120: Multiply by 2-10 (3-digit base)
+**Division (121–127):**
+Level 121: ÷1/10 (exact) · 122: ÷1/10/100 (exact) · 123: ÷5/10 · 124: ÷2/3/5/10 · 125: ÷2–5/10 · 126: ÷2–7/10 · 127: ÷2–11
 
-**Division (Levels 121-127):**
-- Level 121: Divide by 1 or 10 (exact division)
-- Level 122: Divide by 1, 10, or 100 (exact division)
-- Level 123: Divide by 5 or 10
-- Level 124: Divide by 2, 3, 5, or 10
-- Level 125: Divide by 2, 3, 4, 5, or 10
-- Level 126: Divide by 2, 3, 4, 5, 6, 7, or 10
-- Level 127: Divide by 2-11
+**Place Value Facts (128–132):**
+Level 128: make 10 · 129: make 100 · 130: make 1,000 · 131: make 10,000 · 132: make 100,000
 
-**Place Value Facts (Levels 128-132):**
-- Level 128: Combinations that make 10 (e.g., `3 + 7 = ?`, `3 + ? = 10`, `? + 7 = 10`)
-- Level 129: Combinations that make 100
-- Level 130: Combinations that make 1,000
-- Level 131: Combinations that make 10,000
-- Level 132: Combinations that make 100,000
-
-Each Place Value Facts question randomly chooses one of three formats:
-1. `a + b = ?`
-2. `a + ? = target`
-3. `? + b = target`
+Each Place Value question randomly uses one of three formats: `a + b = ?` · `a + ? = target` · `? + b = target`
 
 #### FR-4.6.4 Basic Facts Quiz Flow
 
-1. **GET request:** Generates 10 dynamic questions, stores them in the session, starts a timer.
-2. **Student answers:** All 10 questions displayed at once; student fills in answers.
-3. **POST submission:** Answers are graded, time is calculated, points are computed using the scoring formula (see [FR-4.11](#411-scoring-and-points-system)), and results are saved to `BasicFactsResult`.
-4. **Completion screen:** Shows score, time, calculated points, whether the student beat their previous record, and a question review popup.
-5. **Duplicate submission prevention:** If a result was saved within the last 5 seconds, the existing result is shown instead of saving again.
-6. **Recent result display:** If a quiz was completed within the last 30 seconds and the student refreshes, the completion screen is shown again.
+1. GET → 10 questions generated, stored in session, server timer starts.
+2. All 10 questions displayed at once; student fills in numeric answers.
+3. POST → graded, time calculated, points computed (FR-4.11), results saved to `BasicFactsResult`.
+4. Completion screen: score, time, points, new-record indicator, question review popup.
+5. Duplicate prevention: result saved within last 5 s → show existing result instead.
+6. Refresh within 30 s of completion → show completion screen again.
 
 ---
 
@@ -473,68 +450,79 @@ Each Place Value Facts question randomly chooses one of three formats:
 
 #### FR-4.7.1 Overview
 
-Each **topic within a subject** at each year level has a bank of questions stored in the database. When a student starts a topic quiz, questions are selected, shuffled, and presented one at a time with AJAX-based answer submission. (Current implementation covers the Mathematics subject.)
+Questions stored in the database per topic/level. Selected via stratified random sampling, presented one at a time with AJAX answer submission.
 
-**Supported Mathematics Topics:** Measurements, Whole Numbers, Factors, Angles, Place Values, Fractions, BODMAS/PEMDAS, Date and Time, Finance, Integers, Trigonometry (should be able to add more).
+**Supported Mathematics Topics:** Measurements · Whole Numbers · Factors · Angles · Place Values · Fractions · BODMAS/PEMDAS · Date and Time · Finance · Integers · Trigonometry *(extensible — additional topics can be added without code changes)*
 
 #### FR-4.7.2 Question Selection
 
-- Questions are selected from the database for the given level and topic.
-- **Question counts by year level:**
+Stratified random sampling: question pool divided into equal-sized blocks, one selected per block. Excluded: questions with no answers, no correct answer, or (for multiple choice) no wrong answers. Answer order randomised per question.
 
 | Year | Questions per Quiz |
-|------|-------------------|
-| 1    | 12                |
-| 2    | 10                |
-| 3    | 12                |
-| 4    | 15                |
-| 5    | 17                |
-| 6    | 20                |
-| 7    | 22                |
-| 8    | 25                |
-| 9    | 30                |
-
-- If more questions are available than the limit, **stratified random sampling** is used: the question pool is divided into equal-sized blocks, and one question is randomly selected from each block. This ensures coverage across the entire question set.
-- Questions with no answers, no correct answer, or (for multiple choice) no wrong answers are excluded.
-- Answer order is randomised for each question.
+|------|--------------------|
+| 1 | 12 |
+| 2 | 10 |
+| 3 | 12 |
+| 4 | 15 |
+| 5 | 17 |
+| 6 | 20 |
+| 7 | 22 |
+| 8 | 25 |
 
 #### FR-4.7.3 Quiz Flow (Client-Side Rendering)
 
-1. **Initial Load:** All selected questions and their shuffled answers are serialised as JSON and sent to the client. A timer starts server-side.
-2. **Question Navigation:** Questions are rendered client-side one at a time (JavaScript-driven navigation).
-3. **Answer Submission:** Each answer is submitted via AJAX to `/api/submit-topic-answer/` (see [FR-7.2](#72-submit-topic-answer)). The server returns correctness, the correct answer (if wrong), and an explanation.
-4. **Completion:** When all questions are answered, the client redirects to `?completed=1`. The server calculates the final score, time, and points, then renders the results page.
+1. **Initial Load:** All selected questions + shuffled answers serialised as JSON to client. Server timer starts.
+2. **Navigation:** Rendered client-side one question at a time (JavaScript).
+3. **Answer submission:** AJAX POST to `/api/submit-topic-answer/`. Server returns: `is_correct`, `correct_answer`, `explanation`.
+4. **Completion:** All answered → client redirects to `?completed=1`. Server calculates final score, time, points, and renders results page.
 
 #### FR-4.7.4 Question Types
 
-| Type             | Input Method                         |
-|------------------|--------------------------------------|
-| `multiple_choice`| Radio buttons (one correct answer)   |
-| `true_false`     | Radio buttons (True/False)           |
-| `short_answer`   | Text input                           |
-| `fill_blank`     | Text input                           |
-| `calculation`    | Text input                           |
+| Type | `question_type` DB value | Student Input |
+|------|--------------------------|---------------|
+| Multiple Choice | `multiple_choice` | Radio buttons (one correct answer) |
+| True / False | `true_false` | Radio buttons (True / False) |
+| Short Answer | `short_answer` | Text input |
+| Fill in the Blank | `fill_blank` | Text input |
+| Calculation | `calculation` | Text input |
+| Drag & Drop | `drag_drop` | Drag tiles into the correct sequence |
 
-#### FR-4.7.5 Question Attributes
+#### FR-4.7.5 Text Answer Validation
 
-- **Question text** (required)
-- **Question type** (default: `multiple_choice`)
-- **Difficulty** (1=Easy, 2=Medium, 3=Hard)
-- **Points** (default: 1)
-- **Explanation** (optional; shown after answering)
-- **Image** (optional; uploaded to `media/questions/`)
+Applies to `short_answer`, `fill_blank`, `calculation` types:
+
+- **Multiple valid answers:** Teacher stores comma-separated alternatives in `Answer.text` (e.g. `"6,six,Six"`). Any matching value is accepted.
+- **Numeric tolerance:** A global default of **±0.05** is applied when the correct answer is numeric. No per-question configuration.
+
+#### FR-4.7.6 Drag & Drop Questions
+
+- **Interaction:** Student is presented with answer tiles in a randomised order and must drag them into the correct sequence.
+- **Storage:** Each `Answer` record for a `drag_drop` question stores `text` (tile content) and `display_order` (correct position in sequence). `is_correct` is always `true` for all answers — correctness is determined by whether the student's submitted order matches `display_order` values.
+- **Validation:** Submitted order (array of answer IDs) compared against correct `display_order` sequence. Fully correct = full points. No partial credit.
+- **Images:** Drag & drop questions support an optional image on the question stem; tile content is text only.
+
+#### FR-4.7.7 Question Attributes
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `question_text` | Yes | The question text |
+| `question_type` | Yes | See FR-4.7.4 (default: `multiple_choice`) |
+| `difficulty` | Yes | 1 = Easy · 2 = Medium · 3 = Hard |
+| `points` | Yes | Default: 1 |
+| `explanation` | No | Shown to student after answering |
+| `image` | No | Optional image (local or S3) |
+| `topic` | Yes | FK to `Topic` |
+| `level` | Yes | FK to `Level` |
 
 ---
 
 ### 4.8 Mixed (Take Quiz) Quizzes
 
-#### FR-4.8.1 Overview
-
 - **URL:** `/level/<level_number>/quiz/`
-- **Access:** `@login_required`, subject to level access control.
-- **Behaviour:** Selects random questions from **all topics** for the given level. Presents all questions at once (similar to Basic Facts). On submission, grades all answers, calculates points, and saves results to both `StudentAnswer` and `StudentFinalAnswer` (with topic = "Quiz").
-- Uses the same question count limits as topic-based quizzes.
-- Shows a results page with question review, explanations, and record-beating status.
+- **Access:** `@login_required`, level access control applies.
+- **Behaviour:** Selects random questions from **all topics** for the given level using the same question count limits as topic-based quizzes (FR-4.7.2). Presents all questions at once. On submission, grades answers, calculates points, saves to `StudentAnswer` (with `topic` FK populated per question) and `StudentFinalAnswer` (topic label = "Quiz").
+- **Topic tracking:** Each `StudentAnswer` stores the `topic` FK from its source question, enabling per-topic breakdown in the teacher progress view.
+- **Results page:** Score, time, points, record status, question review, explanations, and a **per-topic summary** (e.g. "Measurements: 8/10 · Fractions: 4/5 · Place Values: 3/5").
 
 ---
 
@@ -542,42 +530,40 @@ Each **topic within a subject** at each year level has a bank of questions store
 
 #### FR-4.9.1 Overview
 
-Times Tables (Mathematics subject) provide structured multiplication and division practice. Questions (X times 1 through X times 12) are auto-generated and stored in the database on first access.
+Structured multiplication and division practice. Questions are **runtime-generated — not stored in the database**. Consistent with Basic Facts approach.
 
 #### FR-4.9.2 Available Tables by Year
 
-| Year | Available Tables          |
-|------|--------------------------|
-| 1    | 1x                       |
-| 2    | 1x, 2x, 10x             |
-| 3    | 1x, 2x, 3x, 4x, 5x, 10x |
-| 4    | 1x through 10x           |
-| 5    | 1x through 12x           |
-| 6    | 1x through 12x           |
-| 7    | 1x through 12x           |
-| 8    | 1x through 12x           |
+| Year | Available Tables |
+|------|-----------------|
+| 1 | 1× |
+| 2 | 1×, 2×, 10× |
+| 3 | 1×–5×, 10× |
+| 4 | 1×–10× |
+| 5–8 | 1×–12× |
 
-#### FR-4.9.3 Table Selection
+#### FR-4.9.3 Quiz Generation
 
-- **Multiplication:** `/level/<level_number>/multiplication/` - Shows a grid of available tables.
-- **Division:** `/level/<level_number>/division/` - Shows a grid of available tables.
+- **Multiplication:** Table N generates N×1 through N×12 (12 questions).
+- **Division:** Table N generates (N×1)÷N through (N×12)÷N (12 questions).
+- Format: multiple choice with 1 correct answer and 3 plausible distractors (nearby numbers).
+- Questions generated fresh on each load — never cached or stored.
 
-#### FR-4.9.4 Quiz Execution
+#### FR-4.9.4 URLs
 
-- **URL:** `/level/<level_number>/multiplication/<table_number>/` or `/level/<level_number>/division/<table_number>/`
-- Each quiz contains 12 questions (X*1 through X*12 for multiplication, or the reverse for division).
-- Questions are **multiple choice** with 1 correct answer and 3 plausible wrong answers (nearby numbers).
-- Uses the same AJAX-based topic quiz flow as other topic quizzes.
+- Table selection: `/level/<level_number>/multiplication/` · `/level/<level_number>/division/`
+- Quiz: `/level/<level_number>/multiplication/<table_number>/` · `/level/<level_number>/division/<table_number>/`
+- Uses the same AJAX-based quiz flow as topic quizzes (FR-4.7.3).
 
 ---
 
 ### 4.10 Practice Mode
 
-#### FR-4.10.1 Overview
-
 - **URL:** `/level/<level_number>/practice/`
-- **Access:** `@login_required`, subject to level access control.
-- **Behaviour:** Selects up to 10 random questions from all topics for the given level (using stratified sampling if more than 10 are available). Shuffles and displays them. Does **not** save results or track time -- purely for practice.
+- **Access:** `@login_required`, level access control applies.
+- **Behaviour:** Selects up to 10 random questions from all topics for the level (stratified sampling if >10 available). Displays all questions at once. No timer.
+- **Results are NOT saved** to any table. No time tracking.
+- **Feedback after submission:** Full feedback — correct/incorrect per question plus explanations. Student can review all answers before navigating away.
 
 ---
 
@@ -585,77 +571,76 @@ Times Tables (Mathematics subject) provide structured multiplication and divisio
 
 #### FR-4.11.1 Points Formula
 
-The points system rewards both accuracy and speed:
-
 ```
-Points = (Percentage_Correct * 100 * 60) / Time_Taken_Seconds
+Points = (Percentage_Correct × 100 × 60) / Time_Taken_Seconds
 ```
 
 Where:
-- `Percentage_Correct` = (Correct Answers / Total Questions), a value between 0 and 1.
-- `Time_Taken_Seconds` = Elapsed time from quiz start to submission (minimum 1 second).
+- `Percentage_Correct` = Correct / Total (value 0–1)
+- `Time_Taken_Seconds` = Elapsed seconds from quiz start to submission (minimum 1)
 
-**Special case for Basic Facts:**
+**Basic Facts (10 questions — shorter quiz):**
 ```
-Basic Facts Points = ((Percentage_Correct * 100 * 60) / Time_Taken_Seconds) / 10
+Basic Facts Points = ((Percentage_Correct × 100 × 60) / Time_Taken_Seconds) / 10
 ```
-Basic Facts points are divided by 10 to account for the shorter quiz length (10 questions vs. larger sets).
 
 #### FR-4.11.2 Record Tracking
 
-- Each quiz attempt is tracked with a unique `session_id` (UUID).
-- The system compares the current attempt's points against the student's **previous best** for the same level-topic combination.
-- On the completion screen:
-  - **First attempt:** Labelled as first attempt.
-  - **New record:** If the current points exceed the previous best, it is highlighted as a new record.
-  - **No improvement:** The previous best is displayed for comparison.
+- Each attempt tracked with a unique `session_id` (UUID).
+- Current attempt compared against student's **previous best** for the same level-topic combination.
+- Completion screen labels: "First attempt" · "New record!" · "Previous best: X pts".
 
 ---
 
 ### 4.12 Progress Tracking and Statistics
 
-#### FR-4.12.1 StudentFinalAnswer Table
+#### FR-4.12.1 StudentFinalAnswer
 
-Aggregated quiz results are stored in `StudentFinalAnswer`:
-- One record per quiz attempt (identified by `session_id`).
-- `attempt_number` auto-increments per student-topic-level combination.
-- Helper methods: `get_best_result()`, `get_latest_attempt()`, `get_next_attempt_number()`.
-- Atomic transaction with retry logic to prevent race conditions.
+One record per quiz attempt (`session_id`). `attempt_number` auto-increments per student-topic-level combination. Helper methods: `get_best_result()`, `get_latest_attempt()`, `get_next_attempt_number()`. Saved within an atomic transaction with retry logic to prevent race conditions.
 
 #### FR-4.12.2 TopicLevelStatistics
 
-For each topic-level combination, the system calculates and stores:
-- **Average points** across all students' best results.
-- **Standard deviation (sigma)** of those best results.
-- **Student count** (minimum 2 required for meaningful statistics).
+For each topic-level combination, stores:
+- `avg_points` — average across all students' best results
+- `sigma` — standard deviation
+- `student_count` — number of students with data
 
-Statistics are updated asynchronously (in a background thread) after each quiz completion.
+Updated **asynchronously** in a background thread after each quiz completion. Never blocks quiz responses.
 
-**Basic Facts statistics** are grouped by:
-- **Student's age** (calculated from `date_of_birth`).
-- **Formatted topic** (e.g., `100_Addition` for Addition Level 100).
-- **Age-based levels** use `level_number = 2000 + age` to avoid conflicts with regular levels.
+**Basic Facts statistics** additionally grouped by student age (`level_number = 2000 + age`).
 
-#### FR-4.12.3 Colour Coding
+#### FR-4.12.3 Dual Colour Coding
 
-Student results on the detailed dashboard are colour-coded based on their best score relative to the statistical mean and standard deviation:
+The student progress dashboard (`/dashboard/`) displays **two separate visual indicators** per topic-level row.
 
-| Colour      | Condition                    | Meaning                           |
-|-------------|------------------------------|-----------------------------------|
-| Dark Green  | Points > avg + 2 sigma              | Exceptional performance            |
-| Green       | avg + sigma < Points <= avg + 2 sigma | Above average                     |
-| Light Green | avg - sigma < Points <= avg + sigma  | Average (default if insufficient data) |
-| Yellow      | avg - 2 sigma < Points <= avg - sigma | Below average                     |
-| Orange      | avg - 3 sigma < Points <= avg - 2 sigma | Significantly below average      |
-| Red         | Points <= avg - 3 sigma              | Needs significant improvement      |
+**Indicator A — Personal Trend** (student's latest score vs their own history):
 
-If fewer than 2 students have data (`sigma = 0` or `student_count < 2`), the default colour is **Light Green**.
+| Indicator | Condition | Meaning |
+|-----------|-----------|---------|
+| ↑ Green arrow | Latest > previous best | Improving |
+| → Grey arrow | Latest = previous best | Steady |
+| ↓ Orange arrow | Latest < previous best | Declining |
+| — (none) | Fewer than 2 personal attempts | Not enough data |
 
-#### FR-4.12.4 Student Progress
+**Indicator B — Platform Average** (student's best score vs `TopicLevelStatistics`):
+
+| Colour | Condition | Meaning |
+|--------|-----------|---------|
+| No colour | Fewer than 2 total attempts on platform | Not enough data — raw score shown only |
+| Dark Green | Points > avg + 2σ | Exceptional |
+| Green | avg + σ < Points ≤ avg + 2σ | Above average |
+| Light Green | avg − σ < Points ≤ avg + σ | Average |
+| Yellow | avg − 2σ < Points ≤ avg − σ | Below average |
+| Orange | avg − 3σ < Points ≤ avg − 2σ | Significantly below average |
+| Red | Points ≤ avg − 3σ | Needs significant improvement |
+
+The threshold for both indicators is **2 attempts**. Below this threshold no colour/arrow is shown — only the raw score is displayed.
+
+#### FR-4.12.4 Student Progress Detail
 
 - **URL:** `/level/<level_number>/student-progress/`
 - **Access:** `@login_required`.
-- **Behaviour:** Shows detailed progress for all topics at a specific level, including attempt history.
+- Shows all topics at a specific level with full attempt history.
 
 ---
 
@@ -663,24 +648,14 @@ If fewer than 2 students have data (`sigma = 0` or `student_count < 2`), the def
 
 #### FR-4.13.1 TimeLog Model
 
-Each student has a single `TimeLog` record tracking:
-- `daily_total_seconds` -- Total time spent today (resets at midnight local time).
-- `weekly_total_seconds` -- Total time spent this week (resets Monday at 00:00 local time).
-- `last_reset_date` and `last_reset_week` for determining when to reset.
+One `TimeLog` record per student (1-to-1 with `CustomUser`). Tracks:
+- `daily_seconds` — time on platform today (resets at midnight NZT)
+- `weekly_seconds` — time on platform this week (resets Monday midnight NZT)
+- `last_updated` — last update timestamp
 
-#### FR-4.13.2 Time Calculation
+#### FR-4.13.2 Update Time Log API
 
-Time is **not tracked via a running clock**. Instead, it is **recalculated from completed activities**:
-- Sums unique session times from `StudentAnswer` records (regular quizzes).
-- Sums unique session times from `BasicFactsResult` records (Basic Facts quizzes).
-- Filters by local date (daily) and local week start (weekly, Monday-based).
-- This ensures accurate time tracking even if the app is closed mid-activity.
-
-#### FR-4.13.3 AJAX Time Log Endpoint
-
-- **URL:** `/api/update-time-log/` (GET or POST)
-- **Access:** Users with `student` or `individual_student` role.
-- **Behaviour:** Recalculates and returns the current daily and weekly time totals as JSON.
+See FR-7.1.
 
 ---
 
@@ -690,105 +665,175 @@ Time is **not tracked via a running clock**. Instead, it is **recalculated from 
 
 - **URL:** `/profile/`
 - **Access:** `@login_required`.
-- **Features:**
-  - **View/Edit profile:** Date of birth, country, region, email, first name, last name.
-  - **Change password:** Current password, new password, confirm new password (minimum 8 characters).
-- **Behaviour:** Separate form submission actions (`update_profile` and `change_password`). Password change keeps the session authenticated (`update_session_auth_hash`).
+- **View/edit:** Date of birth, country, region, email, first name, last name.
+- **Change password:** Current password, new password, confirm (minimum 8 characters). Uses `update_session_auth_hash` to maintain authenticated session.
+- **IndividualStudent extras:** Current package name, trial status, trial end date, next billing date, and a link to `/account/change-package/`.
 
 ---
 
-### 4.15 Question Management (Teacher)
+### 4.15 Question Management
 
 #### FR-4.15.1 View Level Questions
 
 - **URL:** `/level/<level_number>/questions/`
 - **Access:** `@login_required`.
-- **Behaviour:** Displays all questions for the specified level.
+- Displays all database questions for a level: text, type, difficulty, answer count.
 
-#### FR-4.15.2 Add Question
+#### FR-4.15.2 Manual Add Question (Teacher)
 
 - **URL:** `/level/<level_number>/add-question/`
-- **Access:** Users with `teacher` role.
-- **Fields:**
-  - Question text, question type, difficulty (1-3), points, explanation.
-  - Up to 4 answers (answer text, is_correct flag, display order).
-- **Behaviour:** Creates the question and its answers atomically. Redirects to the level questions page.
+- **Access:** `teacher` role.
+- **Fields:** Question text, type, difficulty (1–3), points, explanation, optional image, up to 4 answers (text, is_correct, display_order).
+- For `drag_drop`, all answers have `is_correct = true`; `display_order` defines the correct sequence.
+- **Behaviour:** Creates question and answers atomically. Redirects to level questions page.
+
+#### FR-4.15.3 Edit / Delete Question (Teacher)
+
+- **URLs:** `/question/<question_id>/edit/` · `/question/<question_id>/delete/`
+- **Access:** `teacher` role.
+- Edit updates question and all answers atomically.
+- Delete removes the question, all associated `Answer` records, and all associated `StudentAnswer` records.
+
+#### FR-4.15.4 JSON Question Upload
+
+**Purpose:** Primary method for loading question banks into the database. One JSON file per topic/level combination.
+
+**Access:**
+- Teacher-facing UI: `/upload-questions/` (requires `teacher` role)
+- Admin: Django admin interface
+
+**File naming convention (recommended, not enforced):** `<topic>_year<level>.json` e.g. `fractions_year3.json`
+
+**JSON File Format:**
+
+```json
+{
+  "topic": "Fractions",
+  "year_level": 3,
+  "questions": [
+    {
+      "question_text": "What is 1/2 of 10?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Half of 10 is 5. Divide 10 by 2.",
+      "image_path": "images/fractions/half_of_10.png",
+      "answers": [
+        { "text": "5",  "is_correct": true,  "display_order": 1 },
+        { "text": "2",  "is_correct": false, "display_order": 2 },
+        { "text": "4",  "is_correct": false, "display_order": 3 },
+        { "text": "20", "is_correct": false, "display_order": 4 }
+      ]
+    },
+    {
+      "question_text": "Order these fractions from smallest to largest.",
+      "question_type": "drag_drop",
+      "difficulty": 2,
+      "points": 2,
+      "explanation": "1/4 < 1/2 < 3/4 < 1. Think of pieces of a pie.",
+      "image_path": null,
+      "answers": [
+        { "text": "1/4", "is_correct": true, "display_order": 1 },
+        { "text": "1/2", "is_correct": true, "display_order": 2 },
+        { "text": "3/4", "is_correct": true, "display_order": 3 },
+        { "text": "1",   "is_correct": true, "display_order": 4 }
+      ]
+    },
+    {
+      "question_text": "0.5 + ___ = 1.0",
+      "question_type": "fill_blank",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "1.0 − 0.5 = 0.5",
+      "image_path": null,
+      "answers": [
+        { "text": "0.5,1/2,half", "is_correct": true, "display_order": 1 }
+      ]
+    }
+  ]
+}
+```
+
+**Image path handling:**
+- `image_path` is relative to `MEDIA_ROOT` (dev) or the S3 bucket root (production).
+- Images must be uploaded to media storage separately before the JSON is processed.
+- If `image_path` is provided but the file does not exist: question is still imported, a warning is logged, the image field is left blank.
+- `image_path: null` means no image.
+
+**Duplicate handling (matched by `question_text` + topic + level):**
+- Identical text for the same topic/level → **silently overwrite** all fields (type, difficulty, points, explanation, image, answers).
+- No match → insert as new question.
+
+**Upload response shows:**
+- Count of newly inserted questions.
+- Count of overwritten (updated) questions.
+- Count of failed questions (with validation error details per question).
+
+**Per-question validation errors (question skipped on failure):**
+- Missing `question_text`
+- Invalid `question_type` value
+- No answers provided
+- `drag_drop` answers missing `display_order`
 
 ---
 
 ### 4.16 Payments and Subscriptions (Stripe)
 
-The platform uses **Stripe** for processing payments related to individual student subscription packages. Stripe integration follows the **Stripe Checkout** (hosted payment page) pattern for secure, PCI-compliant payment collection.
-
 #### FR-4.16.1 Stripe Configuration
 
-- **Library:** `stripe` Python SDK (server-side) with Stripe.js on the client where needed.
-- **Keys:** Stripe API keys (`STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`) and webhook signing secret (`STRIPE_WEBHOOK_SECRET`) are stored as environment variables -- never committed to source control.
-- **Mode:** Supports both **test mode** (for development/staging) and **live mode** (for production) via separate key sets.
-- **Currency:** Configurable; default is NZD (New Zealand Dollar).
+- Library: `stripe` Python SDK (server-side) + Stripe.js (client-side where needed).
+- Keys as environment variables: `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`.
+- Supports test mode (dev/staging) and live mode (production) via separate key sets.
+- Currency: configurable; default **NZD**.
 
-#### FR-4.16.2 Package Pricing
+#### FR-4.16.2 Package Model
 
-- Each `Package` record includes a `price` field (decimal) and a `stripe_price_id` field linking to the corresponding Stripe Price object.
-- Pricing is managed via the Django admin. When an admin creates or updates a package price, the corresponding Stripe Price/Product is created or updated via the Stripe API.
-- Packages can be configured as **one-time payments** or **recurring subscriptions** (monthly/annual), configurable per package.
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | String | e.g. "3 Classes" |
+| `class_limit` | Integer | 0 = unlimited |
+| `price` | Decimal | 0.00 = free |
+| `stripe_price_id` | String (optional) | Linked Stripe Price object |
+| `billing_type` | String | `recurring` (monthly) |
+| `trial_days` | Integer | Default: 14 |
+| `is_active` | Boolean | Whether selectable at registration |
 
-#### FR-4.16.3 Checkout Flow (Individual Student Registration)
+#### FR-4.16.3 Checkout Flow
 
-1. Student selects a package during registration ([FR-4.1.4](#fr-414-individual-student-registration)).
-2. The server creates a **Stripe Checkout Session** with:
-   - The selected package's Stripe Price ID.
-   - A `success_url` pointing to the post-payment activation page.
-   - A `cancel_url` pointing back to the registration/package selection page.
-   - Metadata including the user ID and package ID for reconciliation.
-3. The student is redirected to the **Stripe-hosted checkout page** to enter payment details.
-4. On successful payment, Stripe redirects the student to the `success_url`.
-5. The application verifies payment status (via the Checkout Session ID) and activates the user's package.
+1. Student selects package + optional discount code at registration.
+2. If valid 100% discount code → package activated immediately, Stripe skipped, `DiscountCode.uses` incremented atomically.
+3. If `Package.price == 0.00` → Stripe skipped, package activated immediately.
+4. If paid package, no discount code:
+   - Server creates a Stripe Checkout Session with `trial_period_days = 14`, `success_url`, `cancel_url`, metadata (`user_id`, `package_id`).
+   - Student redirected to Stripe-hosted checkout. Card entry is optional during trial.
+   - On successful payment: `checkout.session.completed` webhook fires → package activated, `Payment` record created.
 
 #### FR-4.16.4 Package Upgrade / Downgrade
 
 - **URL:** `/account/change-package/`
-- **Access:** Users with the `individual_student` role.
-- **Behaviour:**
-  - Displays available packages with pricing.
-  - **Upgrade:** Student selects a higher-tier package and is redirected to Stripe Checkout for the price difference or new subscription.
-  - **Downgrade:** Student selects a lower-tier package. If the student currently exceeds the new package's class limit, they must remove classes before the downgrade is applied. Refund/proration policy is configurable.
-  - Changes take effect immediately upon successful payment (upgrades) or at the end of the current billing period (downgrades, if subscription-based).
+- **Access:** `individual_student` role.
+- **Upgrade:** Existing classes kept; more slots available immediately; new Stripe Checkout for price difference.
+- **Downgrade:** Student must remove excess classes first; change queued to billing period end; Stripe subscription updated via API.
 
 #### FR-4.16.5 Stripe Webhooks
 
-- **URL:** `/stripe/webhook/`
-- **Access:** Public endpoint (authenticated via Stripe webhook signature verification).
-- **Handled Events:**
+- **URL:** `/stripe/webhook/` (public; verified via `STRIPE_WEBHOOK_SECRET` signature check before any processing)
+- **Idempotent:** Same event processed multiple times produces the same result.
 
-| Stripe Event                         | Application Action                                                    |
-|--------------------------------------|-----------------------------------------------------------------------|
-| `checkout.session.completed`         | Activate user's package, record payment in `Payment` model.          |
-| `invoice.payment_succeeded`          | Renew subscription, update payment record.                           |
-| `invoice.payment_failed`             | Mark subscription as past-due, notify user via email.                |
-| `customer.subscription.updated`      | Sync subscription status (e.g., upgrade/downgrade applied).          |
-| `customer.subscription.deleted`      | Deactivate package, restrict class access.                           |
-| `charge.refunded`                    | Update payment record, optionally downgrade/deactivate package.      |
+| Stripe Event | Application Action |
+|---|---|
+| `checkout.session.completed` | Activate package; create `Payment` record |
+| `invoice.payment_succeeded` | Renew subscription; update `Payment` record |
+| `invoice.payment_failed` | Mark subscription `past_due`; downgrade access to Basic Facts only; email student |
+| `customer.subscription.updated` | Sync subscription status and period dates |
+| `customer.subscription.deleted` | Deactivate package; restrict access to Basic Facts only |
+| `charge.refunded` | Update `Payment.status` to `refunded`; optionally downgrade package |
 
-- **Idempotency:** Webhook handlers are idempotent -- processing the same event multiple times produces the same result.
-- **Signature Verification:** All incoming webhooks are verified using the `STRIPE_WEBHOOK_SECRET` before processing.
+#### FR-4.16.6 Refunds
 
-#### FR-4.16.6 Payment Records
-
-All payment activity is recorded locally for auditing and reporting:
-
-- **`Payment` model** stores: user (FK), package (FK), Stripe Payment Intent ID, Stripe Checkout Session ID, amount, currency, status (`pending`, `succeeded`, `failed`, `refunded`), and timestamps.
-- **`Subscription` model** (for recurring packages) stores: user (FK), package (FK), Stripe Subscription ID, Stripe Customer ID, status (`active`, `past_due`, `cancelled`, `expired`), current period start/end, and timestamps.
-
-#### FR-4.16.7 Refunds
-
-- **Access:** Users with the `accountant` or `admin` role.
 - **URL:** `/accounting/refund/<payment_id>/`
-- **Behaviour:** Initiates a full or partial refund via the Stripe Refunds API. Updates the local `Payment` record status to `refunded`. Optionally deactivates or downgrades the student's package depending on refund policy.
-
-#### FR-4.16.8 Free Packages
-
-- If a package has a price of $0.00 (or is marked as free), the Stripe Checkout step is skipped entirely. The package is activated immediately upon selection.
+- **Access:** `accountant` or `admin` role.
+- Initiates full or partial refund via Stripe Refunds API. Updates `Payment.status` to `refunded`. Optionally deactivates or downgrades package per refund policy.
 
 ---
 
@@ -796,44 +841,48 @@ All payment activity is recorded locally for auditing and reporting:
 
 ### NFR-5.1 Performance
 
-- Database queries use `select_related` and `prefetch_related` to minimise N+1 query issues.
-- Topic statistics are updated **asynchronously** in background threads to avoid blocking quiz responses.
-- Database operations include retry logic for transient errors.
+- `select_related` and `prefetch_related` throughout to prevent N+1 queries.
+- `TopicLevelStatistics` updated asynchronously in background threads — never blocks quiz submission responses.
+- Database operations use retry logic with exponential backoff for transient errors.
 
 ### NFR-5.2 Security
 
-- CSRF protection is enabled via Django middleware.
-- `@login_required` decorator protects all sensitive views.
-- **Role-based permission checks** query the user's assigned roles (via the `UserRole` M2M relationship) rather than boolean flags. Example: `user.roles.filter(name='teacher').exists()`.
-- Level access control prevents unauthorised access to restricted content based on class membership and role.
-- Password reset tokens expire after a configurable timeout (default: 1 hour).
-- Role assignment is restricted to Admin users only.
-- **Stripe security:** All payment processing is handled via Stripe Checkout (hosted by Stripe), so no raw credit card data ever touches the application server (PCI DSS compliance). Stripe API keys are stored as environment variables. Webhook endpoints verify Stripe signatures before processing.
-
+- CSRF protection enabled globally via Django middleware.
+- `@login_required` on all sensitive views.
+- Role checks via `user.roles.filter(name='...').exists()` — never boolean flags on the user model.
+- Level access control enforced on all quiz and content views.
+- Password reset tokens expire after 3600 s (configurable).
+- Role assignment restricted to Admin only.
+- All payments via Stripe Checkout — no raw card data on application server (PCI DSS compliant).
+- Webhook signature verified before processing.
+- AWS S3 credentials stored as environment variables only.
 
 ### NFR-5.3 Reliability
 
-- Database operations use atomic transactions where needed (bulk registration, question creation, final answer saving).
-- Retry logic with exponential backoff for transient database errors.
-- Duplicate quiz submission prevention (5-second window).
-- Graceful fallback: if `StudentFinalAnswer` records don't exist, the system falls back to `StudentAnswer` records.
+- Atomic transactions for: bulk student registration, question creation, `StudentFinalAnswer` saving, discount code redemption.
+- Retry logic with exponential backoff for transient DB errors.
+- Duplicate quiz submission prevention (5-second deduplication window).
+- Graceful fallback: `StudentFinalAnswer` → `StudentAnswer` for progress display.
+- Stripe webhook handlers are fully idempotent.
 
 ### NFR-5.4 Scalability
 
-- MySQL 8.0 used across all environments for consistent behaviour and strong concurrency support.
-- Persistent storage for database, static files, and media.
+- MySQL 8.0 across all environments for consistent behaviour.
+- S3 for media in production — no local disk dependency at scale.
 
 ### NFR-5.5 Usability
 
 - Responsive design (mobile-friendly CSS with media queries).
-- Accordion-based navigation for year levels.
-- Colour-coded progress indicators for quick visual feedback.
-- Immediate feedback on answers (AJAX-based for topic quizzes).
+- Accordion-based year-level navigation on student dashboard.
+- Dual colour-coded progress indicators (personal trend arrow + platform average background colour).
+- Immediate AJAX feedback per question in topic quizzes.
+- Full feedback in Practice Mode (not saved).
+- Trial status, trial end date, and next billing date clearly visible in student profile.
 
 ### NFR-5.6 Timezone Handling
 
-- All time-based calculations (daily/weekly resets, date comparisons) use **New Zealand local time** (`Pacific/Auckland`).
-- Database timestamps are stored in UTC; local time conversion is performed in application logic.
+- All daily/weekly time resets and date comparisons use **Pacific/Auckland** local time.
+- Database timestamps stored in UTC; converted to NZT in application logic.
 
 ---
 
@@ -842,102 +891,54 @@ All payment activity is recorded locally for auditing and reporting:
 ### 6.1 Entity Relationship Summary
 
 ```
-Role
-  |-- name (unique identifier, e.g., "teacher", "student", "head_of_department")
-  |-- display_name, description, is_active, created_at
+Role ──────────── UserRole ──────────── CustomUser
+                                             │
+                          ┌──────────────────┤
+                          │                  │
+                     ClassTeacher       ClassStudent
+                          │                  │
+                       ClassRoom ◄───────────┘
+                          │
+                       Level (M2M assigned to class)
 
-UserRole
-  |-- user_id (FK to CustomUser)
-  |-- role_id (FK to Role)
-  |-- assigned_at (DateTime)
-  |-- assigned_by (FK to CustomUser, optional)
+Subject ── Topic ── Level ── Question ── Answer
+                                │
+                         StudentAnswer  (topic FK → enables Mixed Quiz breakdown)
+                         StudentFinalAnswer
+                         BasicFactsResult
 
-CustomUser (extends AbstractUser)
-  |
-  |-- roles (M2M to Role via UserRole)  <-- Extensible role assignments
-  |-- date_of_birth, country, region
-  |-- package (FK, optional)            <-- Subscription package for IndividualStudent users
-  |
-  +-- ClassRoom (M2M via ClassTeacher)  <-- Teachers belong to classes
-  +-- ClassRoom (M2M via ClassStudent)  <-- Students belong to classes
-  |
-  +-- StudentAnswer                     <-- Individual question responses
-  +-- StudentFinalAnswer                <-- Aggregated quiz attempt results
-  +-- BasicFactsResult                  <-- Basic Facts quiz results
-  +-- TimeLog (1-to-1)                 <-- Time tracking
+CustomUser ──── TimeLog            (1-to-1)
+CustomUser ──── Package            (FK, optional — IndividualStudent only)
+CustomUser ──── Subscription       (1-to-1, optional)
+CustomUser ──── Payment            (1-to-many)
 
-Package
-  |-- name (e.g., "1 Class", "3 Classes", "Unlimited")
-  |-- class_limit (integer, 0 = unlimited)
-  |-- price (Decimal)                   <-- Package price (0.00 for free)
-  |-- stripe_price_id (String, optional) <-- Linked Stripe Price object
-  |-- billing_type (String)             <-- "one_time" or "recurring"
-  |-- billing_interval (String, optional) <-- "month" or "year" (if recurring)
-  |-- is_active (boolean)
-
-Payment
-  |-- user (FK to CustomUser)
-  |-- package (FK to Package)
-  |-- stripe_payment_intent_id (String)
-  |-- stripe_checkout_session_id (String)
-  |-- amount (Decimal)
-  |-- currency (String, e.g., "nzd")
-  |-- status (String: pending/succeeded/failed/refunded)
-  |-- created_at, updated_at (DateTime)
-
-Subscription
-  |-- user (FK to CustomUser)
-  |-- package (FK to Package)
-  |-- stripe_subscription_id (String)
-  |-- stripe_customer_id (String)
-  |-- status (String: active/past_due/cancelled/expired)
-  |-- current_period_start, current_period_end (DateTime)
-  |-- created_at, updated_at (DateTime)
-
-ClassRoom
-  +-- teachers (M2M via ClassTeacher)   <-- Many teachers per class
-  +-- students (M2M via ClassStudent)   <-- Many students per class
-  +-- Level (M2M)                      <-- Levels assigned to classes
-  +-- created_by (FK to CustomUser)    <-- Teacher who originally created the class
-
-Subject
-  +-- Topic (FK)                       <-- Topics grouped under a subject (e.g., Mathematics)
-
-Topic (belongs to Subject)
-  +-- Level (M2M)                      <-- Topics belong to levels
-  +-- Question (FK)                    <-- Questions belong to topics
-  +-- TopicLevelStatistics (FK)        <-- Statistics per topic-level
-
-Level
-  +-- Question (FK)                    <-- Questions belong to levels
-
-Question
-  +-- Answer (FK)                      <-- Multiple answers per question
+DiscountCode   (standalone — checked atomically at registration)
 ```
 
 ### 6.2 Key Models
 
-| Model                  | Purpose                                                    |
-|------------------------|------------------------------------------------------------|
-| `Role`                 | Defines a named role (e.g., teacher, student, accountant). Extensible via admin. |
-| `UserRole`             | M2M through table linking users to roles (supports auditing via assigned_at / assigned_by) |
-| `CustomUser`           | Extended user with M2M role assignments, personal info, and optional package |
-| `Package`              | Subscription tier with pricing, class limit, and Stripe Price linkage |
-| `Payment`              | Record of a one-time or initial payment via Stripe (amount, status, Stripe IDs) |
-| `Subscription`         | Recurring subscription record synced with Stripe (status, billing period, Stripe IDs) |
-| `Subject`              | Curriculum subject (e.g., Mathematics). Designed to support multiple subjects over time. |
-| `Topic`                | Topic within a subject (e.g., within Mathematics: Measurements, Fractions) |
-| `Level`                | Year level or Basic Facts level (by `level_number`)        |
-| `ClassRoom`            | Class with unique code, assigned levels, and M2M relationships to teachers and students |
-| `ClassTeacher`         | Teacher-to-class membership (M2M through table)            |
-| `ClassStudent`         | Student-to-class membership (M2M through table)            |
-| `Question`             | Quiz question with type, difficulty, points, optional image |
-| `Answer`               | Answer option for a question (with correctness flag)       |
-| `StudentAnswer`        | Individual student response to a specific question         |
-| `BasicFactsResult`     | Complete Basic Facts quiz attempt result                   |
-| `StudentFinalAnswer`   | Aggregated result per quiz attempt (session)               |
-| `TimeLog`              | Daily/weekly time tracking per student                     |
-| `TopicLevelStatistics` | Statistical averages and sigma per topic-level             |
+| Model | Purpose |
+|-------|---------|
+| `Role` | Named role definition. Extensible via Django admin. |
+| `UserRole` | M2M through table (user ↔ role) with `assigned_at`, `assigned_by` audit fields |
+| `CustomUser` | Extended user with M2M roles, personal info, optional package FK |
+| `DiscountCode` | Discount codes for free/reduced package activation |
+| `Package` | Subscription tier: price, class_limit, stripe_price_id, trial_days, is_active |
+| `Payment` | One-time or initial payment record (Stripe IDs, amount, currency, status) |
+| `Subscription` | Recurring subscription synced with Stripe (status includes `trialing`, trial_end, billing period) |
+| `Subject` | Curriculum subject (e.g. Mathematics) |
+| `Topic` | Topic within a subject (e.g. Fractions) |
+| `Level` | Year level or Basic Facts level by `level_number` |
+| `ClassRoom` | Class with unique code; M2M to teachers and students; assigned levels |
+| `ClassTeacher` | Teacher ↔ class M2M through table |
+| `ClassStudent` | Student ↔ class M2M through table |
+| `Question` | Quiz question: type, difficulty, points, optional image, topic FK, level FK |
+| `Answer` | Answer option: text (comma-separated alternatives for text types), is_correct, display_order. For `drag_drop`: all `is_correct=true`; `display_order` = correct sequence. |
+| `StudentAnswer` | Individual student response. Stores `topic` FK for Mixed Quiz per-topic breakdown. |
+| `BasicFactsResult` | Complete Basic Facts attempt (runtime-generated questions — no Question FK) |
+| `StudentFinalAnswer` | Aggregated result per quiz attempt: session_id, points, time, attempt_number |
+| `TimeLog` | Daily/weekly time-on-task per student |
+| `TopicLevelStatistics` | avg_points, sigma, student_count per topic-level (updated asynchronously) |
 
 ---
 
@@ -945,42 +946,63 @@ Question
 
 ### 7.1 Update Time Log
 
-| Property    | Value                          |
-|-------------|--------------------------------|
-| **URL**     | `/api/update-time-log/`        |
-| **Methods** | GET, POST                      |
-| **Auth**    | Login required, `student` or `individual_student` roles |
-| **Response**| `{ "success": true, "daily_seconds": int, "weekly_seconds": int }` |
+| Property | Value |
+|----------|-------|
+| **URL** | `/api/update-time-log/` |
+| **Methods** | GET, POST |
+| **Auth** | Login required · `student` or `individual_student` role |
+| **Response** | `{ "success": true, "daily_seconds": int, "weekly_seconds": int }` |
 
 ### 7.2 Submit Topic Answer
 
-| Property    | Value                               |
-|-------------|-------------------------------------|
-| **URL**     | `/api/submit-topic-answer/`         |
-| **Methods** | POST (JSON body)                    |
-| **Auth**    | Login required                      |
-| **Request** | `{ "question_id": int, "answer_id": int?, "text_answer": str?, "attempt_id": str }` |
-| **Response**| `{ "success": true, "is_correct": bool, "correct_answer_id": int?, "correct_answer_text": str, "explanation": str }` |
+| Property | Value |
+|----------|-------|
+| **URL** | `/api/submit-topic-answer/` |
+| **Method** | POST (JSON body) |
+| **Auth** | Login required |
+| **Request** | `{ "question_id": int, "answer_id": int?, "text_answer": str?, "ordered_answer_ids": [int]?, "attempt_id": str }` |
+| **Response** | `{ "success": true, "is_correct": bool, "correct_answer_id": int?, "correct_answer_text": str, "explanation": str }` |
+
+**Field usage by question type:**
+- `answer_id` → `multiple_choice`, `true_false`
+- `text_answer` → `short_answer`, `fill_blank`, `calculation`
+- `ordered_answer_ids` → `drag_drop` (array of answer IDs in student's submitted sequence)
 
 ---
 
-## 8. Appendix: Mathematics Year-Topic Mapping
+## 8. Appendix A: Mathematics Year-Topic Mapping
 
-The following table defines which **Mathematics** topics are available at each year level:
-
-| Year | Mathematics Topics Available |
+| Year | Topics Available |
 |------|-----------------|
-| 1    | Multiplication (times tables), Division (times tables) |
-| 2    | Measurements, Place Values, Multiplication (times tables), Division (times tables) |
-| 3    | Measurements, Fractions, Finance, Date and Time, Multiplication (times tables), Division (times tables) |
-| 4    | Fractions, Integers, Place Values, Multiplication (times tables), Division (times tables) |
-| 5    | Measurements, BODMAS/PEMDAS, Multiplication (times tables), Division (times tables) |
-| 6    | Measurements, BODMAS/PEMDAS, Whole Numbers, Factors, Angles |
-| 7    | Measurements, BODMAS/PEMDAS, Integers, Factors, Fractions |
-| 8    | Trigonometry, Integers, Factors, Fractions |
+| 1 | Multiplication (times tables), Division (times tables) |
+| 2 | Measurements, Place Values, Multiplication (times tables), Division (times tables) |
+| 3 | Measurements, Fractions, Finance, Date and Time, Multiplication (times tables), Division (times tables) |
+| 4 | Fractions, Integers, Place Values, Multiplication (times tables), Division (times tables) |
+| 5 | Measurements, BODMAS/PEMDAS, Multiplication (times tables), Division (times tables) |
+| 6 | Measurements, BODMAS/PEMDAS, Whole Numbers, Factors, Angles |
+| 7 | Measurements, BODMAS/PEMDAS, Integers, Factors, Fractions |
+| 8 | Trigonometry, Integers, Factors, Fractions |
 
-**Note:** Basic Facts (Addition, Subtraction, Multiplication drill, Division drill, Place Value Facts) are accessible to **all** students at all year levels, independent of the year-topic mapping above.
+**Note:** Basic Facts (Addition, Subtraction, Multiplication drill, Division drill, Place Value Facts) are accessible to **all** students at all year levels regardless of the year-topic mapping above and regardless of payment/trial status.
 
 ---
 
-*End of Requirements Specification*
+## 9. Appendix B: JSON Upload Field Reference
+
+| Field | Required | Type | Notes |
+|-------|----------|------|-------|
+| `topic` | Yes | String | Must match an existing `Topic.name` in the database |
+| `year_level` | Yes | Integer | 1–8 |
+| `questions[].question_text` | Yes | String | Duplicate detection key (matched with topic + level) |
+| `questions[].question_type` | Yes | String | `multiple_choice` / `true_false` / `short_answer` / `fill_blank` / `calculation` / `drag_drop` |
+| `questions[].difficulty` | Yes | Integer | 1 (Easy), 2 (Medium), 3 (Hard) |
+| `questions[].points` | No | Integer | Default: 1 |
+| `questions[].explanation` | No | String | Shown to student after answering |
+| `questions[].image_path` | No | String or null | Relative path in media storage. Missing file = warning logged, field left blank. |
+| `questions[].answers[].text` | Yes | String | For `fill_blank`/`short_answer`/`calculation`: comma-separated alternatives (e.g. `"0.5,1/2,half"`) |
+| `questions[].answers[].is_correct` | Yes | Boolean | For `drag_drop`: always `true`. For others: exactly one `true` per question (multiple choice) or two `true` (true/false not applicable — use `true_false` type). |
+| `questions[].answers[].display_order` | Yes for `drag_drop` | Integer | For `drag_drop`: correct position in sequence (1-indexed). For other types: display order of answer options. |
+
+---
+
+*End of Requirements Specification v2.0*
