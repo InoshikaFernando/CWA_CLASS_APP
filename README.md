@@ -1,8 +1,8 @@
 # Requirements Specification
 
-## CWA School - Maths Room
+## CWA App - Class Room
 
-**Application Name:** Maths Room (mathsroom.wizardslearninghub.co.nz)
+**Application Name:** Class Room (classroom.wizardslearninghub.co.nz)
 **Technology Stack:** Django 4.2+, Python 3.10, MySQL 8.0, Pillow
 **Timezone:** Pacific/Auckland (New Zealand)
 
@@ -47,7 +47,7 @@
 
 ### 1.1 Purpose
 
-This document specifies the functional and non-functional requirements for the **Maths Room** web application, an educational platform designed for primary and intermediate school students (approximately Years 1-8) to practise mathematics. The system supports teacher-managed classrooms as well as self-directed individual students.
+This document specifies the functional and non-functional requirements for the **Class Room** web application, an educational platform designed for primary and intermediate school students (approximately Years 1-8) to practise mathematics. The system supports teacher-managed classrooms as well as self-directed individual students.
 
 ### 1.2 Scope
 
@@ -77,14 +77,14 @@ The application covers:
 
 ## 2. System Overview
 
-Maths Room is a server-rendered Django web application. The core app is named `maths`. The application uses a **flexible role-based access control** system where each user account can be assigned one or more roles. Built-in roles include Admin, Teacher, Student, IndividualStudent, Accountant, and HeadOfDepartment, with the ability to define additional custom roles as needed. A **Class** is the central organisational unit linking teachers and students in a many-to-many relationship. Content is organised into **Levels** (Year levels for curriculum content, numeric IDs >= 100 for Basic Facts) and **Topics** (e.g., Measurements, Fractions, BODMAS/PEMDAS). Each role receives a role-specific dashboard and set of permissions.
+Class Room is a server-rendered Django web application. The core app is named `classRoom`. The application uses a **flexible role-based access control** system where each user account can be assigned one or more roles. Built-in roles include Admin, Teacher, Student, IndividualStudent, Accountant, and HeadOfDepartment, with the ability to define additional custom roles as needed. A **Class** is the central organisational unit linking teachers and students in a many-to-many relationship. Content is organised into **Levels** (Year levels for curriculum content, numeric IDs >= 100 for Basic Facts) and **Topics** (e.g., Measurements, Fractions, BODMAS/PEMDAS). Each role receives a role-specific dashboard and set of permissions.
 
 ### 2.1 High-Level Architecture
 
 ```
 Browser (HTML/CSS/JS)
   |
-Django Application (maths app)
+Django Application (cwa class app)
   |
 Database (MySQL 8.0)
   |
@@ -93,7 +93,7 @@ Media Storage (uploaded question images)
 
 ### 2.2 Deployment
 
-- **Production host:** mathsroom.wizardslearninghub.co.nz
+- **Production host:** classroom.wizardslearninghub.co.nz
 - **Database:** MySQL 8.0 for both local development and production environments.
 - **Email:** Console backend in development; Gmail SMTP in production.
 
