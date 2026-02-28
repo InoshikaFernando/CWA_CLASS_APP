@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Welcome{% endblock %} — Classroom</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            display: ['Fredoka One', 'cursive'],
+            body:    ['Nunito', 'sans-serif'],
+          },
+          colors: {
+            primary: { DEFAULT: '#16a34a', dark: '#15803d', light: '#bbf7d0' },
+            accent:  { DEFAULT: '#eab308', dark: '#ca8a04', light: '#fef9c3' },
+            border:  '#d1fae5',
+          },
+        },
+      },
+    }
+  </script>
+  {% block extra_head %}{% endblock %}
+</head>
+
+<body class="min-h-screen bg-gradient-to-br from-green-50 to-yellow-50
+             font-body flex items-center justify-center px-4 py-12">
+
+  <div class="w-full max-w-md">
+
+    <!-- Logo / branding -->
+    <div class="text-center mb-8">
+      {% if logo_url %}
+        <img src="{{ logo_url }}" alt="CWA School" class="h-16 mx-auto mb-3" />
+      {% else %}
+        <div class="font-display text-4xl text-primary mb-1">Classroom</div>
+      {% endif %}
+      <p class="text-sm text-gray-500">CWA School · Wizards Learning Hub</p>
+    </div>
+
+    <!-- Card -->
+    <div class="bg-white rounded-2xl shadow-lg p-8">
+      {% block card_content %}{% endblock %}
+    </div>
+
+    <!-- Footer links -->
+    <div class="text-center mt-6 text-sm text-gray-500 space-x-4">
+      {% block footer_links %}{% endblock %}
+    </div>
+
+  </div>
+
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

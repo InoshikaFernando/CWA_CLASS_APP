@@ -1,0 +1,80 @@
+{% load static %}
+<nav class="flex flex-col h-full p-4 gap-1">
+
+  {% with request.resolver_match.url_name as url_name %}
+
+  <!-- Home -->
+  <a href="/"
+     class="flex items-center gap-3 px-4 py-3 rounded-xl text-white font-semibold transition
+            {% if request.path == '/' %}bg-white/20{% else %}hover:bg-white/10{% endif %}">
+    <svg class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955a1.126 1.126 0 011.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"/>
+    </svg>
+    <span>Home</span>
+  </a>
+
+  <!-- Basic Facts -->
+  <a href="{% url 'basic_facts_home' %}"
+     class="flex items-center gap-3 px-4 py-3 rounded-xl text-white font-semibold transition
+            {% if 'basic_facts' in request.path %}bg-white/20{% else %}hover:bg-white/10{% endif %}">
+    <svg class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/>
+    </svg>
+    <span>Basic Facts</span>
+  </a>
+
+  <!-- Times Tables -->
+  <a href="{% url 'times_tables_home' %}"
+     class="flex items-center gap-3 px-4 py-3 rounded-xl text-white font-semibold transition
+            {% if 'times-tables' in request.path %}bg-white/20{% else %}hover:bg-white/10{% endif %}">
+    <svg class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+    </svg>
+    <span>Times Tables</span>
+  </a>
+
+  <!-- My Progress -->
+  <a href="{% url 'student_dashboard' %}"
+     class="flex items-center gap-3 px-4 py-3 rounded-xl text-white font-semibold transition
+            {% if 'dashboard' in request.path %}bg-white/20{% else %}hover:bg-white/10{% endif %}">
+    <svg class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/>
+    </svg>
+    <span>My Progress</span>
+  </a>
+
+  {% endwith %}
+
+  <!-- Spacer -->
+  <div class="flex-1"></div>
+
+  <!-- Trial banner (IndividualStudent only) -->
+  {% if is_individual_student and request.user.subscription.status == 'trialing' %}
+    <div class="mx-2 mb-2 px-3 py-2 bg-accent-light rounded-xl text-center">
+      <p class="text-xs font-semibold text-yellow-800">
+        ⏳ Trial ends in {{ request.user.subscription.trial_days_remaining }} day{{ request.user.subscription.trial_days_remaining|pluralize }}
+      </p>
+    </div>
+  {% endif %}
+
+  <!-- Billing (IndividualStudent only) -->
+  {% if is_individual_student %}
+  <a href="{% url 'change_package' %}"
+     class="flex items-center gap-3 px-4 py-3 rounded-xl text-white font-semibold transition hover:bg-white/10">
+    <svg class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z"/>
+    </svg>
+    <span>Billing</span>
+  </a>
+  {% endif %}
+
+  <!-- Profile -->
+  <a href="{% url 'profile' %}"
+     class="flex items-center gap-3 px-4 py-3 rounded-xl text-white/80 font-semibold transition hover:bg-white/10">
+    <svg class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>
+    </svg>
+    <span>Profile</span>
+  </a>
+
+</nav>

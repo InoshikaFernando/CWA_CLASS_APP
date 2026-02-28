@@ -1,0 +1,81 @@
+{% if is_student or is_individual_student %}
+<nav class="fixed bottom-0 inset-x-0 h-16 bg-white border-t border-border z-40
+            flex items-center justify-around px-2">
+
+  <!-- Home -->
+  <a href="/" class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl
+                     {% if request.path == '/' %}text-primary{% else %}text-gray-400 hover:text-primary{% endif %} transition">
+    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955a1.126 1.126 0 011.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"/>
+    </svg>
+    <span class="text-xs font-semibold">Home</span>
+  </a>
+
+  <!-- Basic Facts -->
+  <a href="{% url 'basic_facts_home' %}" class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl
+                     {% if 'basic-facts' in request.path %}text-primary{% else %}text-gray-400 hover:text-primary{% endif %} transition">
+    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/>
+    </svg>
+    <span class="text-xs font-semibold">Facts</span>
+  </a>
+
+  <!-- Times Tables -->
+  <a href="{% url 'times_tables_home' %}" class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl
+                     {% if 'times-tables' in request.path %}text-primary{% else %}text-gray-400 hover:text-primary{% endif %} transition">
+    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+    </svg>
+    <span class="text-xs font-semibold">Tables</span>
+  </a>
+
+  <!-- My Progress -->
+  <a href="{% url 'student_dashboard' %}" class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl
+                     {% if 'dashboard' in request.path %}text-primary{% else %}text-gray-400 hover:text-primary{% endif %} transition">
+    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/>
+    </svg>
+    <span class="text-xs font-semibold">Progress</span>
+  </a>
+
+  <!-- Profile -->
+  <a href="{% url 'profile' %}" class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl
+                     {% if 'profile' in request.path %}text-primary{% else %}text-gray-400 hover:text-primary{% endif %} transition">
+    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>
+    </svg>
+    <span class="text-xs font-semibold">Profile</span>
+  </a>
+
+</nav>
+
+{% elif is_teacher or is_hod or is_accountant %}
+<nav class="fixed bottom-0 inset-x-0 h-16 bg-white border-t border-border z-40
+            flex items-center justify-around px-2">
+
+  <a href="/" class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl
+                     {% if request.path == '/' %}text-primary{% else %}text-gray-400{% endif %} transition">
+    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955a1.126 1.126 0 011.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"/>
+    </svg>
+    <span class="text-xs font-semibold">Home</span>
+  </a>
+
+  <a href="{% url 'profile' %}" class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl text-gray-400 hover:text-primary transition">
+    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>
+    </svg>
+    <span class="text-xs font-semibold">Profile</span>
+  </a>
+
+  <!-- More drawer trigger -->
+  <button onclick="document.getElementById('mobile-drawer').classList.toggle('translate-x-full')"
+          class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl text-gray-400 hover:text-primary transition">
+    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/>
+    </svg>
+    <span class="text-xs font-semibold">More</span>
+  </button>
+
+</nav>
+{% endif %}

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Quiz{% endblock %} — Classroom</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            display: ['Fredoka One', 'cursive'],
+            body: ['Nunito', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            primary: { DEFAULT: '#16a34a', dark: '#15803d', light: '#bbf7d0' },
+            accent:  { DEFAULT: '#eab308', dark: '#ca8a04', light: '#fef9c3' },
+            border:  '#d1fae5',
+          },
+        },
+      },
+    }
+  </script>
+  <script src="https://unpkg.com/htmx.org@1.9.10" defer></script>
+  {% block extra_head %}{% endblock %}
+</head>
+
+<body class="bg-[#f0fdf4] font-body text-gray-700 antialiased min-h-screen">
+
+  <!-- ── Quiz topbar ─────────────────────────────────────────── -->
+  <header class="fixed top-0 inset-x-0 h-14 bg-white border-b border-border z-40
+                 flex items-center justify-between px-4 md:px-8 shadow-sm">
+
+    <!-- Left: back link + quiz title -->
+    <div class="flex items-center gap-3">
+      <a href="{{ back_url|default:'/' }}"
+         class="text-primary hover:text-primary-dark transition"
+         title="Exit quiz">
+        <!-- Heroicon: arrow-left -->
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/>
+        </svg>
+      </a>
+      <span class="font-display text-primary text-lg leading-none">
+        {% block quiz_title %}Quiz{% endblock %}
+      </span>
+      {% block quiz_meta %}{% endblock %}
+    </div>
+
+    <!-- Centre: progress (topic quiz) -->
+    <div class="hidden md:block">
+      {% block quiz_progress %}{% endblock %}
+    </div>
+
+    <!-- Right: timer -->
+    <div class="flex items-center gap-2">
+      {% block quiz_timer %}{% endblock %}
+    </div>
+  </header>
+
+  <!-- ── Content ─────────────────────────────────────────────── -->
+  <main class="pt-14 min-h-screen px-4 py-6 md:px-8 max-w-3xl mx-auto pb-24">
+    {% block content %}{% endblock %}
+  </main>
+
+  {% block extra_js %}{% endblock %}
+</body>
+</html>
