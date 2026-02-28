@@ -1,8 +1,8 @@
 # Requirements Specification
 
-## CWA App - Class Room
+## CWA School - Classroom
 
-**Application Name:** Class Room (classroom.wizardslearninghub.co.nz)
+**Application Name:** Classroom (currently hosted at classroom.wizardslearninghub.co.nz)
 **Technology Stack:** Django 4.2+, Python 3.10, MySQL 8.0, Pillow
 **Timezone:** Pacific/Auckland (New Zealand)
 
@@ -25,7 +25,7 @@
    - 4.4 [Teacher Dashboard](#44-teacher-dashboard)
    - 4.4a [HeadOfDepartment Dashboard](#44a-headofdepartment-dashboard)
    - 4.4b [Accountant Dashboard](#44b-accountant-dashboard)
-   - 4.5 [Year-Level Topic System](#45-year-level-topic-system)
+   - 4.5 [Year-Level Subject and Topic System](#45-year-level-subject-and-topic-system)
    - 4.6 [Basic Facts Module](#46-basic-facts-module)
    - 4.7 [Topic-Based Quizzes](#47-topic-based-quizzes)
    - 4.8 [Mixed (Take Quiz) Quizzes](#48-mixed-take-quiz-quizzes)
@@ -39,7 +39,7 @@
 5. [Non-Functional Requirements](#5-non-functional-requirements)
 6. [Data Model](#6-data-model)
 7. [API Endpoints](#7-api-endpoints)
-8. [Appendix: Year-Topic Mapping](#8-appendix-year-topic-mapping)
+8. [Appendix: Mathematics Year-Topic Mapping](#8-appendix-mathematics-year-topic-mapping)
 
 ---
 
@@ -47,7 +47,7 @@
 
 ### 1.1 Purpose
 
-This document specifies the functional and non-functional requirements for the **Class Room** web application, an educational platform designed for primary and intermediate school students (approximately Years 1-8) to practise mathematics. The system supports teacher-managed classrooms as well as self-directed individual students.
+This document specifies the functional and non-functional requirements for the **Classroom** web application, an educational platform designed for primary and intermediate school students (approximately Years 1-8) to practise curriculum content across multiple subjects. **Mathematics is the first supported subject**, with the platform designed to support additional subjects in the future. The system supports class-based learning managed by teachers as well as self-directed individual students.
 
 ### 1.2 Scope
 
@@ -59,9 +59,8 @@ The application covers:
 - HeadOfDepartment can assign classes to teachers; teachers can assign students to classes.
 - Subscription packages for individual students (1, 3, 5, or unlimited classes).
 - Level-based access control determined by class membership.
-- A structured curriculum organised by **Year levels** (Years 1-8) and **mathematical topics**.
-- A **Basic Facts** drill module covering Addition, Subtraction, Multiplication, Division, and Place Value Facts across multiple difficulty levels.
-- **Times Tables** quizzes for Multiplication and Division (1x through 12x tables).
+- A structured curriculum organised by **Year levels** (Years 1-8) and **Subjects** (e.g., Mathematics), where each subject is broken down into **Topics** (e.g., Measurements, Multiplication).
+- Mathematics subject modules: **Basic Facts** drills (Addition, Subtraction, Multiplication, Division, Place Value Facts) and **Times Tables** quizzes (1x through 12x).
 - Timed quizzes with an automated scoring/points system.
 - Progress tracking with statistical comparison (mean and standard deviation colour-coding).
 - Daily and weekly time-on-task tracking.
@@ -77,14 +76,14 @@ The application covers:
 
 ## 2. System Overview
 
-Class Room is a server-rendered Django web application. The core app is named `classRoom`. The application uses a **flexible role-based access control** system where each user account can be assigned one or more roles. Built-in roles include Admin, Teacher, Student, IndividualStudent, Accountant, and HeadOfDepartment, with the ability to define additional custom roles as needed. A **Class** is the central organisational unit linking teachers and students in a many-to-many relationship. Content is organised into **Levels** (Year levels for curriculum content, numeric IDs >= 100 for Basic Facts) and **Topics** (e.g., Measurements, Fractions, BODMAS/PEMDAS). Each role receives a role-specific dashboard and set of permissions.
+Classroom is a server-rendered Django web application. The core Django app is named `classroom`. The application uses a **flexible role-based access control** system where each user account can be assigned one or more roles. Built-in roles include Admin, Teacher, Student, IndividualStudent, Accountant, and HeadOfDepartment, with the ability to define additional custom roles as needed. A **Class** is the central organisational unit linking teachers and students in a many-to-many relationship. Curriculum content is organised into **Levels** (Year levels for curriculum content, numeric IDs >= 100 for Basic Facts), **Subjects** (e.g., Mathematics), and **Topics** within each subject (e.g., Measurements, Fractions, BODMAS/PEMDAS). Each role receives a role-specific dashboard and set of permissions.
 
 ### 2.1 High-Level Architecture
 
 ```
 Browser (HTML/CSS/JS)
   |
-Django Application (cwa class app)
+Django Application (Classroom platform; current core app: `classroom`)
   |
 Database (MySQL 8.0)
   |
@@ -361,24 +360,27 @@ A **Class** is the central organisational unit. Classes have a many-to-many rela
 
 ---
 
-### 4.5 Year-Level Topic System
+### 4.5 Year-Level Subject and Topic System
 
 The curriculum is structured as follows:
 
 - **Levels** represent school years (Year 1 through Year 8, stored as `level_number` 1-8).
-- **Topics** represent mathematical subjects (e.g., Measurements, Fractions, BODMAS/PEMDAS).
-- Each year has a defined set of available topics (see [Appendix](#8-appendix-year-topic-mapping)).
+- **Subjects** represent curriculum areas (e.g., Mathematics). The system is designed to support multiple subjects over time.
+- **Topics** represent sub-areas within a subject (e.g., within Mathematics: Measurements, Fractions, BODMAS/PEMDAS).
+- Each year level has a defined set of available **topics per subject**. The existing mapping described in this document is for the **Mathematics** subject (see [Appendix](#8-appendix-mathematics-year-topic-mapping)).
 
-#### FR-4.5.1 Topic Browsing
+#### FR-4.5.1 Subject and Topic Browsing
 
-- **URL:** `/topics/` - Lists all topics.
-- **URL:** `/topic/<topic_id>/levels/` - Lists levels available for a given topic (filtered by student's allowed levels).
+- **URL (future):** `/subjects/` - Lists all available subjects.
+- **URL (future):** `/subject/<subject_id>/topics/` - Lists topics available for a given subject.
+- **URL (current / legacy):** `/topics/` - Lists all topics for the Mathematics subject.
+- **URL (current / legacy):** `/topic/<topic_id>/levels/` - Lists levels available for a given topic (filtered by student's allowed levels).
 
 #### FR-4.5.2 Level Detail
 
 - **URL:** `/level/<level_number>/`
 - **Access:** `@login_required`, subject to level access control.
-- **Content:** Displays the level information and its associated topics.
+- **Content:** Displays the level information and its associated subjects/topics.
 
 ---
 
@@ -386,7 +388,7 @@ The curriculum is structured as follows:
 
 #### FR-4.6.1 Overview
 
-Basic Facts is a drill-based module for fundamental arithmetic operations. Questions are **dynamically generated at runtime** (not stored in the database).
+Basic Facts is a **Mathematics-subject** drill-based module for fundamental arithmetic operations. Questions are **dynamically generated at runtime** (not stored in the database).
 
 **Subtopics and Level Ranges:**
 
@@ -471,9 +473,9 @@ Each Place Value Facts question randomly chooses one of three formats:
 
 #### FR-4.7.1 Overview
 
-Each mathematical topic at each year level has a bank of questions stored in the database. When a student starts a topic quiz, questions are selected, shuffled, and presented one at a time with AJAX-based answer submission.
+Each **topic within a subject** at each year level has a bank of questions stored in the database. When a student starts a topic quiz, questions are selected, shuffled, and presented one at a time with AJAX-based answer submission. (Current implementation covers the Mathematics subject.)
 
-**Supported Topics:** Measurements, Whole Numbers, Factors, Angles, Place Values, Fractions, BODMAS/PEMDAS, Date and Time, Finance, Integers, Trigonometry.
+**Supported Mathematics Topics:** Measurements, Whole Numbers, Factors, Angles, Place Values, Fractions, BODMAS/PEMDAS, Date and Time, Finance, Integers, Trigonometry (should be able to add more).
 
 #### FR-4.7.2 Question Selection
 
@@ -540,7 +542,7 @@ Each mathematical topic at each year level has a bank of questions stored in the
 
 #### FR-4.9.1 Overview
 
-Times Tables provide structured multiplication and division practice. Questions (X times 1 through X times 12) are auto-generated and stored in the database on first access.
+Times Tables (Mathematics subject) provide structured multiplication and division practice. Questions (X times 1 through X times 12) are auto-generated and stored in the database on first access.
 
 #### FR-4.9.2 Available Tables by Year
 
@@ -551,6 +553,9 @@ Times Tables provide structured multiplication and division practice. Questions 
 | 3    | 1x, 2x, 3x, 4x, 5x, 10x |
 | 4    | 1x through 10x           |
 | 5    | 1x through 12x           |
+| 6    | 1x through 12x           |
+| 7    | 1x through 12x           |
+| 8    | 1x through 12x           |
 
 #### FR-4.9.3 Table Selection
 
@@ -646,11 +651,11 @@ Student results on the detailed dashboard are colour-coded based on their best s
 
 If fewer than 2 students have data (`sigma = 0` or `student_count < 2`), the default colour is **Light Green**.
 
-#### FR-4.12.4 Measurements Progress
+#### FR-4.12.4 Student Progress
 
-- **URL:** `/level/<level_number>/measurements-progress/`
+- **URL:** `/level/<level_number>/student-progress/`
 - **Access:** `@login_required`.
-- **Behaviour:** Shows detailed progress for Measurements topic at a specific level, including attempt history.
+- **Behaviour:** Shows detailed progress for all topics at a specific level, including attempt history.
 
 ---
 
@@ -711,6 +716,82 @@ Time is **not tracked via a running clock**. Instead, it is **recalculated from 
 
 ---
 
+### 4.16 Payments and Subscriptions (Stripe)
+
+The platform uses **Stripe** for processing payments related to individual student subscription packages. Stripe integration follows the **Stripe Checkout** (hosted payment page) pattern for secure, PCI-compliant payment collection.
+
+#### FR-4.16.1 Stripe Configuration
+
+- **Library:** `stripe` Python SDK (server-side) with Stripe.js on the client where needed.
+- **Keys:** Stripe API keys (`STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`) and webhook signing secret (`STRIPE_WEBHOOK_SECRET`) are stored as environment variables -- never committed to source control.
+- **Mode:** Supports both **test mode** (for development/staging) and **live mode** (for production) via separate key sets.
+- **Currency:** Configurable; default is NZD (New Zealand Dollar).
+
+#### FR-4.16.2 Package Pricing
+
+- Each `Package` record includes a `price` field (decimal) and a `stripe_price_id` field linking to the corresponding Stripe Price object.
+- Pricing is managed via the Django admin. When an admin creates or updates a package price, the corresponding Stripe Price/Product is created or updated via the Stripe API.
+- Packages can be configured as **one-time payments** or **recurring subscriptions** (monthly/annual), configurable per package.
+
+#### FR-4.16.3 Checkout Flow (Individual Student Registration)
+
+1. Student selects a package during registration ([FR-4.1.4](#fr-414-individual-student-registration)).
+2. The server creates a **Stripe Checkout Session** with:
+   - The selected package's Stripe Price ID.
+   - A `success_url` pointing to the post-payment activation page.
+   - A `cancel_url` pointing back to the registration/package selection page.
+   - Metadata including the user ID and package ID for reconciliation.
+3. The student is redirected to the **Stripe-hosted checkout page** to enter payment details.
+4. On successful payment, Stripe redirects the student to the `success_url`.
+5. The application verifies payment status (via the Checkout Session ID) and activates the user's package.
+
+#### FR-4.16.4 Package Upgrade / Downgrade
+
+- **URL:** `/account/change-package/`
+- **Access:** Users with the `individual_student` role.
+- **Behaviour:**
+  - Displays available packages with pricing.
+  - **Upgrade:** Student selects a higher-tier package and is redirected to Stripe Checkout for the price difference or new subscription.
+  - **Downgrade:** Student selects a lower-tier package. If the student currently exceeds the new package's class limit, they must remove classes before the downgrade is applied. Refund/proration policy is configurable.
+  - Changes take effect immediately upon successful payment (upgrades) or at the end of the current billing period (downgrades, if subscription-based).
+
+#### FR-4.16.5 Stripe Webhooks
+
+- **URL:** `/stripe/webhook/`
+- **Access:** Public endpoint (authenticated via Stripe webhook signature verification).
+- **Handled Events:**
+
+| Stripe Event                         | Application Action                                                    |
+|--------------------------------------|-----------------------------------------------------------------------|
+| `checkout.session.completed`         | Activate user's package, record payment in `Payment` model.          |
+| `invoice.payment_succeeded`          | Renew subscription, update payment record.                           |
+| `invoice.payment_failed`             | Mark subscription as past-due, notify user via email.                |
+| `customer.subscription.updated`      | Sync subscription status (e.g., upgrade/downgrade applied).          |
+| `customer.subscription.deleted`      | Deactivate package, restrict class access.                           |
+| `charge.refunded`                    | Update payment record, optionally downgrade/deactivate package.      |
+
+- **Idempotency:** Webhook handlers are idempotent -- processing the same event multiple times produces the same result.
+- **Signature Verification:** All incoming webhooks are verified using the `STRIPE_WEBHOOK_SECRET` before processing.
+
+#### FR-4.16.6 Payment Records
+
+All payment activity is recorded locally for auditing and reporting:
+
+- **`Payment` model** stores: user (FK), package (FK), Stripe Payment Intent ID, Stripe Checkout Session ID, amount, currency, status (`pending`, `succeeded`, `failed`, `refunded`), and timestamps.
+- **`Subscription` model** (for recurring packages) stores: user (FK), package (FK), Stripe Subscription ID, Stripe Customer ID, status (`active`, `past_due`, `cancelled`, `expired`), current period start/end, and timestamps.
+
+#### FR-4.16.7 Refunds
+
+- **Access:** Users with the `accountant` or `admin` role.
+- **URL:** `/accounting/refund/<payment_id>/`
+- **Behaviour:** Initiates a full or partial refund via the Stripe Refunds API. Updates the local `Payment` record status to `refunded`. Optionally deactivates or downgrades the student's package depending on refund policy.
+
+#### FR-4.16.8 Free Packages
+
+- If a package has a price of $0.00 (or is marked as free), the Stripe Checkout step is skipped entirely. The package is activated immediately upon selection.
+
+---
+
 ## 5. Non-Functional Requirements
 
 ### NFR-5.1 Performance
@@ -727,6 +808,8 @@ Time is **not tracked via a running clock**. Instead, it is **recalculated from 
 - Level access control prevents unauthorised access to restricted content based on class membership and role.
 - Password reset tokens expire after a configurable timeout (default: 1 hour).
 - Role assignment is restricted to Admin users only.
+- **Stripe security:** All payment processing is handled via Stripe Checkout (hosted by Stripe), so no raw credit card data ever touches the application server (PCI DSS compliance). Stripe API keys are stored as environment variables. Webhook endpoints verify Stripe signatures before processing.
+
 
 ### NFR-5.3 Reliability
 
@@ -786,7 +869,30 @@ CustomUser (extends AbstractUser)
 Package
   |-- name (e.g., "1 Class", "3 Classes", "Unlimited")
   |-- class_limit (integer, 0 = unlimited)
+  |-- price (Decimal)                   <-- Package price (0.00 for free)
+  |-- stripe_price_id (String, optional) <-- Linked Stripe Price object
+  |-- billing_type (String)             <-- "one_time" or "recurring"
+  |-- billing_interval (String, optional) <-- "month" or "year" (if recurring)
   |-- is_active (boolean)
+
+Payment
+  |-- user (FK to CustomUser)
+  |-- package (FK to Package)
+  |-- stripe_payment_intent_id (String)
+  |-- stripe_checkout_session_id (String)
+  |-- amount (Decimal)
+  |-- currency (String, e.g., "nzd")
+  |-- status (String: pending/succeeded/failed/refunded)
+  |-- created_at, updated_at (DateTime)
+
+Subscription
+  |-- user (FK to CustomUser)
+  |-- package (FK to Package)
+  |-- stripe_subscription_id (String)
+  |-- stripe_customer_id (String)
+  |-- status (String: active/past_due/cancelled/expired)
+  |-- current_period_start, current_period_end (DateTime)
+  |-- created_at, updated_at (DateTime)
 
 ClassRoom
   +-- teachers (M2M via ClassTeacher)   <-- Many teachers per class
@@ -794,7 +900,10 @@ ClassRoom
   +-- Level (M2M)                      <-- Levels assigned to classes
   +-- created_by (FK to CustomUser)    <-- Teacher who originally created the class
 
-Topic
+Subject
+  +-- Topic (FK)                       <-- Topics grouped under a subject (e.g., Mathematics)
+
+Topic (belongs to Subject)
   +-- Level (M2M)                      <-- Topics belong to levels
   +-- Question (FK)                    <-- Questions belong to topics
   +-- TopicLevelStatistics (FK)        <-- Statistics per topic-level
@@ -813,8 +922,11 @@ Question
 | `Role`                 | Defines a named role (e.g., teacher, student, accountant). Extensible via admin. |
 | `UserRole`             | M2M through table linking users to roles (supports auditing via assigned_at / assigned_by) |
 | `CustomUser`           | Extended user with M2M role assignments, personal info, and optional package |
-| `Package`              | Subscription tier defining how many classes an IndividualStudent user can access |
-| `Topic`                | Mathematical subject (e.g., "Measurements", "Fractions")   |
+| `Package`              | Subscription tier with pricing, class limit, and Stripe Price linkage |
+| `Payment`              | Record of a one-time or initial payment via Stripe (amount, status, Stripe IDs) |
+| `Subscription`         | Recurring subscription record synced with Stripe (status, billing period, Stripe IDs) |
+| `Subject`              | Curriculum subject (e.g., Mathematics). Designed to support multiple subjects over time. |
+| `Topic`                | Topic within a subject (e.g., within Mathematics: Measurements, Fractions) |
 | `Level`                | Year level or Basic Facts level (by `level_number`)        |
 | `ClassRoom`            | Class with unique code, assigned levels, and M2M relationships to teachers and students |
 | `ClassTeacher`         | Teacher-to-class membership (M2M through table)            |
@@ -852,11 +964,11 @@ Question
 
 ---
 
-## 8. Appendix: Year-Topic Mapping
+## 8. Appendix: Mathematics Year-Topic Mapping
 
-The following table defines which topics are available at each year level:
+The following table defines which **Mathematics** topics are available at each year level:
 
-| Year | Topics Available |
+| Year | Mathematics Topics Available |
 |------|-----------------|
 | 1    | Multiplication (times tables), Division (times tables) |
 | 2    | Measurements, Place Values, Multiplication (times tables), Division (times tables) |
