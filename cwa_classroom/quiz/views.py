@@ -328,10 +328,9 @@ class TimesTablesAnswerView(LoginRequiredMixin, View):
         if is_last:
             next_url = f'/times-tables/submit/{session_id}/'
 
-        return render(request, 'quiz/partials/topic_feedback.html', {
+        return render(request, 'quiz/partials/tt_feedback.html', {
             'is_correct': is_correct,
             'correct_answer': q['answer'],
-            'explanation': '',
             'is_last_question': is_last,
             'next_url': next_url,
             'next_question_url': f'/api/tt-next/{session_id}/' if not is_last else None,
@@ -345,7 +344,7 @@ class TimesTablesNextView(LoginRequiredMixin, View):
         session_key = f'tt_{session_id}'
         session_data = request.session.get(session_key)
         if not session_data:
-            return render(request, 'quiz/partials/topic_question.html', {'error': 'Session expired.'})
+            return render(request, 'quiz/partials/tt_question.html', {'error': 'Session expired.'})
 
         questions = session_data['questions']
         current = session_data['current']
@@ -353,14 +352,11 @@ class TimesTablesNextView(LoginRequiredMixin, View):
             return redirect(f'/times-tables/submit/{session_id}/')
 
         q = questions[current]
-        return render(request, 'quiz/partials/topic_question.html', {
-            'question': {'question_text': q['question'], 'question_type': 'multiple_choice', 'id': q['id']},
-            'answers': [{'id': c, 'text': str(c)} for c in q['choices']],
+        return render(request, 'quiz/partials/tt_question.html', {
+            'question': q,
             'question_number': current + 1,
             'total_questions': len(questions),
             'session_id': session_id,
-            'submit_url': '/api/tt-answer/',
-            'next_url': f'/api/tt-next/{session_id}/',
         })
 
 
