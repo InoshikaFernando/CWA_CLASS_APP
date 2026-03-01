@@ -232,42 +232,59 @@ class SelectClassesView(LoginRequiredMixin, View):
     def get(self, request):
         if not request.user.is_individual_student:
             return redirect('home')
-        from classroom.models import ClassRoom
-        all_classes = ClassRoom.objects.filter(is_active=True).prefetch_related('levels')
-        enrolled = request.user.enrolled_classes.filter(is_active=True)
+        from classroom.models import Subject, Level, StudentLevelEnrollment
+
+        subjects = Subject.objects.filter(is_active=True).order_by('order', 'name')
+        year_levels = Level.objects.filter(level_number__lte=9).order_by('level_number')
+        enrollments = StudentLevelEnrollment.objects.filter(student=request.user).values_list('subject_id', 'level_id')
+        enrolled_pairs = set(enrollments)
+
+        subjects_data = []
+        for subject in subjects:
+            subjects_data.append({
+                'subject': subject,
+                'levels': year_levels,
+                'enrolled_level_ids': {lvl_id for subj_id, lvl_id in enrolled_pairs if subj_id == subject.id},
+            })
+
         package = request.user.package
-        limit = package.class_limit if package else 0  # 0 = unlimited
+        limit = package.class_limit if package else 0
+        enrolled_count = StudentLevelEnrollment.objects.filter(student=request.user).count()
 
         return render(request, 'accounts/select_classes.html', {
-            'all_classes': all_classes,
-            'enrolled': enrolled,
-            'enrolled_ids': set(enrolled.values_list('id', flat=True)),
+            'subjects_data': subjects_data,
             'class_limit': limit,
-            'enrolled_count': enrolled.count(),
+            'enrolled_count': enrolled_count,
         })
 
     def post(self, request):
         if not request.user.is_individual_student:
             return redirect('home')
-        from classroom.models import ClassRoom, ClassStudent
+        from classroom.models import Subject, Level, StudentLevelEnrollment
 
         action = request.POST.get('action')
-        class_id = request.POST.get('class_id')
-        classroom = get_object_or_404(ClassRoom, id=class_id, is_active=True)
+        subject_id = request.POST.get('subject_id')
+        level_id = request.POST.get('level_id')
+        subject = get_object_or_404(Subject, id=subject_id, is_active=True)
+        level = get_object_or_404(Level, id=level_id)
 
         if action == 'join':
             package = request.user.package
             limit = package.class_limit if package else 0
-            current_count = request.user.enrolled_classes.count()
+            current_count = StudentLevelEnrollment.objects.filter(student=request.user).count()
             if limit != 0 and current_count >= limit:
-                messages.error(request, f'You can only join {limit} class(es) on your current plan.')
+                messages.error(request, f'You can only select {limit} year level(s) on your current plan.')
             else:
-                ClassStudent.objects.get_or_create(classroom=classroom, student=request.user)
-                messages.success(request, f'Joined {classroom.name}.')
+                StudentLevelEnrollment.objects.get_or_create(
+                    student=request.user, subject=subject, level=level
+                )
+                messages.success(request, f'Enrolled in {subject.name} {level.display_name}.')
 
         elif action == 'leave':
-            ClassStudent.objects.filter(classroom=classroom, student=request.user).delete()
-            messages.success(request, f'Left {classroom.name}.')
+            StudentLevelEnrollment.objects.filter(
+                student=request.user, subject=subject, level=level
+            ).delete()
+            messages.success(request, f'Removed {subject.name} {level.display_name}.')
 
         return redirect('select_classes')
 

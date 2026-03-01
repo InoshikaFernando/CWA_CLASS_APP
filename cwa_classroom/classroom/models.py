@@ -128,3 +128,20 @@ class ClassStudent(models.Model):
 
     def __str__(self):
         return f'{self.student.username} → {self.classroom.name}'
+
+
+class StudentLevelEnrollment(models.Model):
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='level_enrollments',
+    )
+    subject = models.ForeignKey(Subject, on_delete=models.CASCADE)
+    level = models.ForeignKey(Level, on_delete=models.CASCADE)
+    enrolled_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('student', 'subject', 'level')
+
+    def __str__(self):
+        return f'{self.student.username} → {self.subject.name} {self.level.display_name}'

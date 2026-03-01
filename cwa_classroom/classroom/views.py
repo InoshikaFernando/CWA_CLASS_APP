@@ -5,7 +5,7 @@ from django.contrib import messages
 from django.db import transaction
 
 from accounts.models import CustomUser, Role, UserRole
-from .models import ClassRoom, Subject, Topic, Level, ClassTeacher, ClassStudent
+from .models import ClassRoom, Subject, Topic, Level, ClassTeacher, ClassStudent, StudentLevelEnrollment
 
 
 class RoleRequiredMixin(LoginRequiredMixin):
@@ -25,8 +25,9 @@ def _get_individual_student_levels(user):
     try:
         sub = user.subscription
         if sub.is_active_or_trialing:
-            classrooms = ClassRoom.objects.filter(students=user, is_active=True)
-            enrolled_levels = Level.objects.filter(classrooms__in=classrooms).distinct()
+            enrolled_levels = Level.objects.filter(
+                studentlevelenrollment__student=user
+            ).distinct()
             return (enrolled_levels | basic_facts_levels).distinct()
     except Exception:
         pass
@@ -64,7 +65,7 @@ class HomeView(LoginRequiredMixin, View):
                 accessible_levels = _get_individual_student_levels(request.user)
 
             year_data = []
-            for year in range(1, 9):
+            for year in range(1, 10):
                 try:
                     level = Level.objects.get(level_number=year)
                     topics = Topic.objects.filter(levels=level, is_active=True).select_related('subject')

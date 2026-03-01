@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Subject, Level, Topic, ClassRoom, ClassTeacher, ClassStudent
+from .models import Subject, Level, Topic, ClassRoom, ClassTeacher, ClassStudent, StudentLevelEnrollment
 
 
 class ClassTeacherInline(admin.TabularInline):
@@ -44,3 +44,9 @@ class TopicAdmin(admin.ModelAdmin):
     list_filter = ('subject', 'is_active', 'levels')
     filter_horizontal = ('levels',)
     prepopulated_fields = {'slug': ('name',)}
+
+
+@admin.register(StudentLevelEnrollment)
+class StudentLevelEnrollmentAdmin(admin.ModelAdmin):
+    list_display = ('student', 'subject', 'level', 'enrolled_at')
+    list_filter = ('subject', 'level')
