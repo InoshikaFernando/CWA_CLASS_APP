@@ -22,62 +22,82 @@
   </div>
   {% endif %}
 
-  <!-- Topic quiz progress grid -->
+  <!-- ── Year Level Progress (accordion) ─────────────────────────────────── -->
   {% if progress_grid %}
-  <div>
-    <h2 class="font-bold text-xl text-gray-800 mb-4">📚 Topic Quiz Progress</h2>
-    <!-- Colour legend -->
-    <div class="flex flex-wrap gap-2 text-xs font-semibold mb-4">
-      <span class="px-3 py-1 rounded-full bg-green-600 text-white">≥ 90%</span>
-      <span class="px-3 py-1 rounded-full bg-green-400 text-white">≥ 75%</span>
-      <span class="px-3 py-1 rounded-full bg-green-200 text-green-900">≥ 60%</span>
-      <span class="px-3 py-1 rounded-full bg-yellow-200 text-yellow-900">≥ 45%</span>
-      <span class="px-3 py-1 rounded-full bg-orange-200 text-orange-900">≥ 30%</span>
-      <span class="px-3 py-1 rounded-full bg-red-200 text-red-900">&lt; 30%</span>
-      <span class="px-3 py-1 rounded-full bg-gray-100 text-gray-400">Not attempted</span>
-    </div>
+  <details class="group bg-white rounded-2xl border border-border shadow-sm overflow-hidden" open>
+    <summary class="flex items-center justify-between px-5 py-4 cursor-pointer select-none bg-primary-light hover:bg-primary/10 transition">
+      <h2 class="font-bold text-lg text-primary">📚 Year Level Progress</h2>
+      <svg class="w-5 h-5 text-primary transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+      </svg>
+    </summary>
 
-    {% for row in progress_grid %}
-    <div class="bg-white rounded-2xl border border-border shadow-sm mb-4 overflow-hidden">
-      <div class="px-5 py-3 bg-primary-light border-b border-border">
-        <h3 class="font-bold text-primary">{{ row.level.display_name }}</h3>
+    <div class="p-4 space-y-3">
+      <!-- Colour legend -->
+      <div class="flex flex-wrap gap-2 text-xs font-semibold mb-2">
+        <span class="px-3 py-1 rounded-full bg-green-600 text-white">≥ 90%</span>
+        <span class="px-3 py-1 rounded-full bg-green-400 text-white">≥ 75%</span>
+        <span class="px-3 py-1 rounded-full bg-green-200 text-green-900">≥ 60%</span>
+        <span class="px-3 py-1 rounded-full bg-yellow-200 text-yellow-900">≥ 45%</span>
+        <span class="px-3 py-1 rounded-full bg-orange-200 text-orange-900">≥ 30%</span>
+        <span class="px-3 py-1 rounded-full bg-red-200 text-red-900">&lt; 30%</span>
+        <span class="px-3 py-1 rounded-full bg-gray-100 text-gray-400">Not attempted</span>
       </div>
-      <div class="p-4">
-        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          {% for item in row.topics %}
-          <a href="{% url 'topic_quiz' level_number=row.level.level_number topic_id=item.topic.id %}"
-             class="rounded-xl border border-gray-200 p-3 hover:shadow-sm transition block">
-            <p class="text-xs font-semibold text-gray-700 mb-2">{{ item.topic.name }}</p>
-            {% if item.best %}
-            <span class="inline-block rounded-full px-2.5 py-1 text-xs font-bold {{ item.colour }}">
-              {{ item.pct }}%
-            </span>
-            <p class="text-xs text-gray-400 mt-1">{{ item.attempts }} attempt{{ item.attempts|pluralize }}</p>
-            {% else %}
-            <span class="inline-block rounded-full px-2.5 py-1 text-xs font-bold bg-gray-100 text-gray-400">
-              Not started
-            </span>
-            {% endif %}
-          </a>
-          {% endfor %}
+
+      {% for row in progress_grid %}
+      <details class="group/row border border-gray-200 rounded-xl overflow-hidden">
+        <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none bg-gray-50 hover:bg-gray-100 transition">
+          <h3 class="font-bold text-gray-800">{{ row.level.display_name }}</h3>
+          <svg class="w-4 h-4 text-gray-400 transition-transform group-open/row:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+          </svg>
+        </summary>
+        <div class="p-3">
+          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+            {% for item in row.topics %}
+            <a href="{% url 'topic_quiz' level_number=row.level.level_number topic_id=item.topic.id %}"
+               class="rounded-xl border border-gray-200 p-3 hover:shadow-sm transition block">
+              <p class="text-xs font-semibold text-gray-700 mb-2">{{ item.topic.name }}</p>
+              {% if item.best %}
+              <span class="inline-block rounded-full px-2.5 py-1 text-xs font-bold {{ item.colour }}">
+                {{ item.pct }}%
+              </span>
+              <p class="text-xs text-gray-400 mt-1">{{ item.attempts }} attempt{{ item.attempts|pluralize }}</p>
+              {% else %}
+              <span class="inline-block rounded-full px-2.5 py-1 text-xs font-bold bg-gray-100 text-gray-400">
+                Not started
+              </span>
+              {% endif %}
+            </a>
+            {% endfor %}
+          </div>
         </div>
-      </div>
+      </details>
+      {% endfor %}
     </div>
-    {% endfor %}
-  </div>
+  </details>
   {% endif %}
 
-  <!-- Basic Facts progress -->
+  <!-- ── Basic Facts Progress (accordion) ────────────────────────────────── -->
   {% if bf_grid %}
-  <div>
-    <h2 class="font-bold text-xl text-gray-800 mb-4">⚡ Basic Facts Progress</h2>
-    <div class="space-y-4">
+  <details class="group bg-white rounded-2xl border border-border shadow-sm overflow-hidden" open>
+    <summary class="flex items-center justify-between px-5 py-4 cursor-pointer select-none bg-accent-light hover:bg-yellow-100 transition">
+      <h2 class="font-bold text-lg text-yellow-800">⚡ Basic Facts Progress</h2>
+      <svg class="w-5 h-5 text-yellow-700 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+      </svg>
+    </summary>
+
+    <div class="p-4 space-y-3">
       {% for subtopic_data in bf_grid %}
-      <div class="bg-white rounded-2xl border border-border shadow-sm overflow-hidden">
-        <div class="px-5 py-3 bg-accent-light border-b border-border">
-          <h3 class="font-bold text-yellow-800">{{ subtopic_data.label }}</h3>
-        </div>
-        <div class="p-4">
+      <details class="group/bf border border-gray-200 rounded-xl overflow-hidden">
+        <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none bg-gray-50 hover:bg-gray-100 transition">
+          <h3 class="font-bold text-gray-800">{{ subtopic_data.label }}</h3>
+          <svg class="w-4 h-4 text-gray-400 transition-transform group-open/bf:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+          </svg>
+        </summary>
+        <div class="p-3">
           <div class="flex flex-wrap gap-3">
             {% for level in subtopic_data.levels %}
             <a href="{% url 'basic_facts_quiz' subtopic=subtopic_data.subtopic level_number=level.level_number %}"
@@ -94,14 +114,44 @@
             {% endfor %}
           </div>
         </div>
-      </div>
+      </details>
       {% endfor %}
     </div>
-  </div>
+  </details>
   {% endif %}
 
-  <!-- Recent activity -->
-  {% if recent_topic or recent_bf %}
+  <!-- ── Times Tables Progress (accordion) ───────────────────────────────── -->
+  {% if tt_results %}
+  <details class="group bg-white rounded-2xl border border-border shadow-sm overflow-hidden" open>
+    <summary class="flex items-center justify-between px-5 py-4 cursor-pointer select-none bg-primary-light hover:bg-primary/10 transition">
+      <h2 class="font-bold text-lg text-primary">✕ Times Tables Progress</h2>
+      <svg class="w-5 h-5 text-primary transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+      </svg>
+    </summary>
+
+    <div class="p-4">
+      <div class="flex flex-wrap gap-3">
+        {% for tt in tt_results %}
+        <div class="flex flex-col items-center gap-1 p-3 rounded-xl border border-gray-200 min-w-16">
+          <span class="text-xs text-gray-700 font-bold">{{ tt.table }}×</span>
+          {% if tt.best %}
+          <span class="inline-block rounded-full px-2 py-0.5 text-xs font-bold {{ tt.colour }}">
+            {{ tt.pct }}%
+          </span>
+          <span class="text-xs text-gray-400">{{ tt.attempts }}×</span>
+          {% else %}
+          <span class="inline-block rounded-full px-2 py-0.5 text-xs font-bold bg-gray-100 text-gray-300">—</span>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </details>
+  {% endif %}
+
+  <!-- ── Recent Activity ─────────────────────────────────────────────────── -->
+  {% if recent_topic or recent_bf or recent_tt %}
   <div>
     <h2 class="font-bold text-xl text-gray-800 mb-4">🕐 Recent Activity</h2>
     <div class="bg-white rounded-2xl border border-border shadow-sm divide-y divide-gray-50">
@@ -123,6 +173,20 @@
       <div class="flex items-center justify-between px-5 py-3">
         <div>
           <p class="font-semibold text-gray-800 text-sm">⚡ {{ r.subtopic }} Level {{ r.level_number }}</p>
+          <p class="text-xs text-gray-400">{{ r.completed_at|date:"j M Y, g:ia" }}</p>
+        </div>
+        <span class="inline-block px-3 py-1 rounded-full text-xs font-bold
+          {% if r.percentage >= 80 %}bg-primary-light text-primary
+          {% elif r.percentage >= 60 %}bg-yellow-100 text-yellow-800
+          {% else %}bg-red-100 text-red-600{% endif %}">
+          {{ r.score }}/{{ r.total_questions }} — {{ r.points|floatformat:1 }}pts
+        </span>
+      </div>
+      {% endfor %}
+      {% for r in recent_tt %}
+      <div class="flex items-center justify-between px-5 py-3">
+        <div>
+          <p class="font-semibold text-gray-800 text-sm">✕ {{ r.level.level_number }}× Times Table</p>
           <p class="text-xs text-gray-400">{{ r.completed_at|date:"j M Y, g:ia" }}</p>
         </div>
         <span class="inline-block px-3 py-1 rounded-full text-xs font-bold

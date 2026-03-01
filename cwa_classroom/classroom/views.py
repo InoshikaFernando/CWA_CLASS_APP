@@ -90,17 +90,143 @@ class StudentDashboardView(LoginRequiredMixin, View):
     def get(self, request):
         if not (request.user.is_student or request.user.is_individual_student):
             return redirect('home')
-        from progress.models import StudentFinalAnswer, BasicFactsResult
-        final_answers = StudentFinalAnswer.objects.filter(
+        from progress.models import StudentFinalAnswer, BasicFactsResult, TimeLog
+
+        # ── Topic quiz progress grid ──────────────────────────────────────────
+        topic_results = StudentFinalAnswer.objects.filter(
+            student=request.user,
+            quiz_type__in=[StudentFinalAnswer.QUIZ_TYPE_TOPIC, StudentFinalAnswer.QUIZ_TYPE_MIXED],
+        ).select_related('topic', 'level')
+
+        best_map = {}
+        attempts_map = {}
+        for r in topic_results:
+            key = (r.level_id, r.topic_id)
+            attempts_map[key] = attempts_map.get(key, 0) + 1
+            if key not in best_map or r.points > best_map[key].points:
+                best_map[key] = r
+
+        # Determine which year levels this student has access to
+        if request.user.is_individual_student:
+            enrolled_level_ids = set(
+                StudentLevelEnrollment.objects.filter(student=request.user)
+                .values_list('level_id', flat=True)
+            )
+        else:
+            classrooms = ClassRoom.objects.filter(students=request.user, is_active=True)
+            enrolled_level_ids = set(
+                Level.objects.filter(classrooms__in=classrooms).values_list('id', flat=True)
+            )
+
+        progress_grid = []
+        for year in range(1, 10):
+            try:
+                level = Level.objects.get(level_number=year)
+            except Level.DoesNotExist:
+                continue
+            if level.id not in enrolled_level_ids:
+                continue
+            topics = Topic.objects.filter(levels=level, is_active=True).select_related('subject')
+            if not topics.exists():
+                continue
+            row_topics = []
+            for topic in topics:
+                key = (level.id, topic.id)
+                best = best_map.get(key)
+                pct = best.percentage if best else None
+                row_topics.append({
+                    'topic': topic,
+                    'best': best,
+                    'pct': pct,
+                    'colour': _pct_colour(pct),
+                    'attempts': attempts_map.get(key, 0),
+                })
+            progress_grid.append({'level': level, 'topics': row_topics})
+
+        # ── Basic Facts grid ──────────────────────────────────────────────────
+        BF_SUBTOPICS = [
+            ('Addition',       'Addition',        100, 106),
+            ('Subtraction',    'Subtraction',     107, 113),
+            ('Multiplication', 'Multiplication',  114, 120),
+            ('Division',       'Division',        121, 127),
+            ('PlaceValue',     'Place Value',     128, 132),
+        ]
+        bf_grid = []
+        for subtopic, label, start, end in BF_SUBTOPICS:
+            levels_data = []
+            for i, num in enumerate(range(start, end + 1), 1):
+                best = BasicFactsResult.get_best_result(request.user, subtopic, num)
+                levels_data.append({
+                    'level_number': num,
+                    'display_level': i,
+                    'best': best,
+                    'colour': _pct_colour(best.percentage if best else None),
+                })
+            bf_grid.append({'subtopic': subtopic, 'label': label, 'levels': levels_data})
+
+        # ── Times Tables results ──────────────────────────────────────────────
+        tt_results = []
+        for table in range(1, 13):
+            best = StudentFinalAnswer.objects.filter(
+                student=request.user,
+                quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
+                level__level_number=table,
+            ).order_by('-points').first()
+            count = StudentFinalAnswer.objects.filter(
+                student=request.user,
+                quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
+                level__level_number=table,
+            ).count()
+            tt_results.append({
+                'table': table,
+                'best': best,
+                'pct': best.percentage if best else None,
+                'colour': _pct_colour(best.percentage if best else None),
+                'attempts': count,
+            })
+
+        # ── Recent activity ───────────────────────────────────────────────────
+        recent_topic = StudentFinalAnswer.objects.filter(
+            student=request.user,
+            quiz_type__in=[StudentFinalAnswer.QUIZ_TYPE_TOPIC, StudentFinalAnswer.QUIZ_TYPE_MIXED],
+        ).select_related('topic', 'level').order_by('-completed_at')[:5]
+
+        recent_bf = BasicFactsResult.objects.filter(
             student=request.user
-        ).select_related('topic', 'level').order_by('topic__name', 'level__level_number')
-        bf_results = BasicFactsResult.objects.filter(
-            student=request.user
-        ).order_by('subtopic', 'level_number')
+        ).order_by('-completed_at')[:5]
+
+        recent_tt = StudentFinalAnswer.objects.filter(
+            student=request.user,
+            quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
+        ).select_related('level').order_by('-completed_at')[:5]
+
+        time_log = TimeLog.objects.filter(student=request.user).first()
+
         return render(request, 'student/dashboard.html', {
-            'final_answers': final_answers,
-            'bf_results': bf_results,
+            'progress_grid': progress_grid,
+            'bf_grid': bf_grid,
+            'tt_results': tt_results,
+            'recent_topic': recent_topic,
+            'recent_bf': recent_bf,
+            'recent_tt': recent_tt,
+            'time_log': time_log,
         })
+
+
+def _pct_colour(pct):
+    if pct is None:
+        return 'bg-gray-100 text-gray-400'
+    if pct >= 90:
+        return 'bg-green-600 text-white'
+    if pct >= 75:
+        return 'bg-green-400 text-white'
+    if pct >= 60:
+        return 'bg-green-200 text-green-900'
+    if pct >= 45:
+        return 'bg-yellow-200 text-yellow-900'
+    if pct >= 30:
+        return 'bg-orange-200 text-orange-900'
+    return 'bg-red-200 text-red-900'
 
 
 class TopicsView(LoginRequiredMixin, View):
