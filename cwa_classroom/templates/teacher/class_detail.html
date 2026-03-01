@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}{{ classroom.name }}{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-6">
+  <div class="flex items-start justify-between">
+    <div>
+      <h1 class="font-display text-3xl text-primary">{{ classroom.name }}</h1>
+      <div class="flex items-center gap-3 mt-2">
+        <span class="font-mono text-sm bg-gray-100 text-gray-600 rounded-lg px-3 py-1 cursor-pointer"
+              onclick="navigator.clipboard.writeText('{{ classroom.code }}'); this.textContent='Copied!';"
+              title="Click to copy class code">
+          Code: {{ classroom.code }}
+        </span>
+        {% for level in classroom.levels.all %}
+          <span class="bg-accent-light text-yellow-800 rounded-full px-2.5 py-0.5 text-xs font-semibold">{{ level.display_name }}</span>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="flex gap-2">
+      <a href="{% url 'class_progress' class_id=classroom.id %}"
+         class="bg-primary hover:bg-primary-dark text-white text-sm font-semibold rounded-xl px-4 py-2.5 transition">
+        📈 View Progress
+      </a>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <!-- Students -->
+    <div class="bg-white rounded-2xl border border-border shadow-sm p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="font-bold text-gray-800">Students ({{ students.count }})</h2>
+        <a href="{% url 'assign_students' class_id=classroom.id %}"
+           class="text-xs text-primary font-semibold hover:text-primary-dark transition">+ Add</a>
+      </div>
+      {% if students %}
+      <ul class="space-y-2">
+        {% for s in students %}
+        <li class="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+          <div class="flex items-center gap-2">
+            <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-primary-light text-primary text-xs font-bold">
+              {{ s.username|slice:":2"|upper }}
+            </span>
+            <span class="text-sm font-semibold text-gray-700">{{ s.get_full_name|default:s.username }}</span>
+          </div>
+          <a href="{% url 'student_detail_progress' student_id=s.id %}" class="text-xs text-primary hover:underline">Progress</a>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+        <p class="text-sm text-gray-400">No students yet. <a href="{% url 'assign_students' class_id=classroom.id %}" class="text-primary font-semibold hover:underline">Add students →</a></p>
+      {% endif %}
+    </div>
+
+    <!-- Teachers -->
+    <div class="bg-white rounded-2xl border border-border shadow-sm p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="font-bold text-gray-800">Teachers ({{ teachers.count }})</h2>
+        <a href="{% url 'assign_teachers' class_id=classroom.id %}"
+           class="text-xs text-primary font-semibold hover:text-primary-dark transition">+ Add</a>
+      </div>
+      {% if teachers %}
+      <ul class="space-y-2">
+        {% for t in teachers %}
+        <li class="flex items-center gap-2 py-2 border-b border-gray-50 last:border-0">
+          <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-blue-100 text-blue-600 text-xs font-bold">
+            {{ t.username|slice:":2"|upper }}
+          </span>
+          <span class="text-sm font-semibold text-gray-700">{{ t.get_full_name|default:t.username }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+        <p class="text-sm text-gray-400">No other teachers.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

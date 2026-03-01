@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -26,7 +27,14 @@
       },
     }
   </script>
-  <script src="https://unpkg.com/htmx.org@1.9.10" defer></script>
+  <script src="{% static 'js/htmx.min.js' %}"></script>
+  <meta name="csrf-token" content="{{ csrf_token }}" />
+  <script>
+    // Send Django CSRF token with every HTMX request
+    document.addEventListener('htmx:configRequest', (e) => {
+      e.detail.headers['X-CSRFToken'] = document.querySelector('meta[name="csrf-token"]').content;
+    });
+  </script>
   {% block extra_head %}{% endblock %}
 </head>
 

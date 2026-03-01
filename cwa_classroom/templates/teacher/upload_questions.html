@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Upload Questions{% endblock %}
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-6">
+  <div>
+    <h1 class="font-display text-3xl text-primary">Upload Questions</h1>
+    <p class="text-gray-400 text-sm mt-1">Upload a JSON file to add or update questions for a topic.</p>
+  </div>
+
+  {% if upload_results %}
+  <div class="bg-white rounded-2xl border border-border shadow-sm p-6">
+    <h2 class="font-bold text-gray-800 mb-4">Upload Results</h2>
+    <div class="flex gap-6 mb-4">
+      <div class="text-center"><p class="font-display text-3xl text-primary">{{ upload_results.inserted }}</p><p class="text-xs text-gray-400 font-semibold">New</p></div>
+      <div class="text-center"><p class="font-display text-3xl text-accent">{{ upload_results.updated }}</p><p class="text-xs text-gray-400 font-semibold">Updated</p></div>
+      {% if upload_results.failed %}
+      <div class="text-center"><p class="font-display text-3xl text-red-500">{{ upload_results.failed }}</p><p class="text-xs text-gray-400 font-semibold">Failed</p></div>
+      {% endif %}
+    </div>
+    {% if upload_results.errors %}
+    <div class="bg-red-50 rounded-xl p-4 space-y-1 mt-3">
+      {% for err in upload_results.errors %}
+      <p class="text-sm text-red-600 font-mono">{{ err }}</p>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="bg-white rounded-2xl border border-border shadow-sm p-6">
+    <form method="post" enctype="multipart/form-data" class="space-y-5">
+      {% csrf_token %}
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1.5">JSON File</label>
+        <input type="file" name="json_file" accept=".json" required
+               class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:font-semibold file:bg-primary-light file:text-primary hover:file:bg-primary hover:file:text-white file:transition" />
+      </div>
+      <button type="submit" class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition">
+        Upload →
+      </button>
+    </form>
+  </div>
+
+  <div class="bg-gray-50 rounded-2xl border border-border p-5">
+    <p class="text-sm font-bold text-gray-700 mb-3">📄 Expected JSON format</p>
+    <pre class="font-mono text-xs bg-white rounded-xl p-4 border border-gray-200 overflow-x-auto text-gray-600">{
+  "topic": "Fractions",
+  "year_level": 4,
+  "questions": [
+    {
+      "question_text": "What is 1/2 + 1/4?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "answers": [
+        {"text": "3/4", "is_correct": true},
+        {"text": "1/2", "is_correct": false},
+        {"text": "2/6", "is_correct": false},
+        {"text": "1/4", "is_correct": false}
+      ]
+    }
+  ]
+}</pre>
+    <p class="text-xs text-gray-400 mt-2">Duplicate detection: questions with the same text for the same topic+level are updated, not duplicated.</p>
+    <p class="text-xs text-gray-400 mt-1">question_type options: <code class="font-mono">multiple_choice</code>, <code class="font-mono">true_false</code>, <code class="font-mono">short_answer</code>, <code class="font-mono">fill_blank</code>, <code class="font-mono">calculation</code>, <code class="font-mono">drag_drop</code></p>
+  </div>
+</div>
+{% endblock %}

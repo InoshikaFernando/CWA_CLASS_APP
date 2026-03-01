@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Assign Teachers — {{ classroom.name }}{% endblock %}
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+  <div>
+    <h1 class="font-display text-3xl text-primary">Assign Teachers</h1>
+    <p class="text-gray-400 text-sm mt-1">{{ classroom.name }}</p>
+  </div>
+  <div class="bg-white rounded-2xl border border-border shadow-sm p-6">
+    <form method="post">
+      {% csrf_token %}
+      <div class="space-y-2 max-h-96 overflow-y-auto mb-5">
+        {% for teacher in all_teachers %}
+        <label class="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 cursor-pointer">
+          <input type="checkbox" name="teachers" value="{{ teacher.id }}"
+                 class="w-4 h-4 text-primary rounded border-gray-300 focus:ring-primary" />
+          <span class="text-sm font-semibold text-gray-700">{{ teacher.get_full_name|default:teacher.username }}</span>
+          <span class="text-xs text-gray-400 ml-auto">{{ teacher.username }}</span>
+        </label>
+        {% empty %}
+          <p class="text-sm text-gray-400">No other teachers found.</p>
+        {% endfor %}
+      </div>
+      <div class="flex gap-3">
+        <button type="submit" class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-2.5 transition">Save</button>
+        <a href="{% url 'class_detail' class_id=classroom.id %}" class="bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl px-6 py-2.5 hover:bg-gray-50 transition">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,84 @@
+{% extends "base_quiz.html" %}
+{% block title %}Results — {{ label }} Level {{ display_level }}{% endblock %}
+{% block quiz_title %}{{ label }} — Level {{ display_level }}{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+  <!-- Record banner -->
+  {% if is_new_record %}
+  <div class="bg-accent text-white rounded-2xl px-6 py-4 text-center font-bold text-lg animate-pulse">
+    🌟 New Record! {{ result.points|floatformat:1 }} pts
+  </div>
+  {% endif %}
+
+  <!-- Hero score -->
+  <div class="bg-white rounded-2xl border border-border shadow-sm p-8 text-center">
+    <div class="inline-flex items-center justify-center w-28 h-28 rounded-full bg-primary-light mb-4">
+      <span class="font-display text-4xl text-primary">{{ result.score }}/{{ result.total_questions }}</span>
+    </div>
+    <p class="text-gray-500 text-sm mb-4">{{ result.percentage }}% correct</p>
+
+    <div class="flex justify-center gap-8 text-sm">
+      <div class="text-center">
+        <p class="font-bold text-gray-800 text-xl font-mono">{{ time_display }}</p>
+        <p class="text-gray-400 text-xs">Time taken</p>
+      </div>
+      <div class="text-center">
+        <p class="font-bold text-accent text-xl font-mono">{{ result.points|floatformat:1 }}</p>
+        <p class="text-gray-400 text-xs">Points</p>
+      </div>
+      {% if prev_best %}
+      <div class="text-center">
+        <p class="font-bold text-gray-500 text-xl font-mono">{{ prev_best.points|floatformat:1 }}</p>
+        <p class="text-gray-400 text-xs">Previous best</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Question review -->
+  <div class="bg-white rounded-2xl border border-border shadow-sm p-6">
+    <h2 class="font-bold text-gray-800 mb-4">Question Review</h2>
+    <div class="space-y-3">
+      {% for q in questions_data %}
+      <div class="flex items-start gap-3 p-3 rounded-xl {% if q.is_correct %}bg-green-50{% else %}bg-red-50{% endif %}">
+        <span class="text-xl flex-shrink-0">{% if q.is_correct %}✅{% else %}❌{% endif %}</span>
+        <div class="flex-1 text-sm">
+          <p class="font-semibold text-gray-800">{{ q.question }}</p>
+          {% if not q.is_correct %}
+            <p class="text-red-600 mt-0.5">Your answer: <strong>{{ q.student_answer|default:"(blank)" }}</strong></p>
+            <p class="text-green-700 mt-0.5">Correct: <strong>{{ q.display_answer }}</strong></p>
+          {% else %}
+            <p class="text-green-600 mt-0.5">{{ q.student_answer }} ✓</p>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Actions -->
+  <div class="flex flex-wrap gap-3 pb-6">
+    <a href="{% url 'basic_facts_quiz' subtopic=subtopic level_number=level_number %}"
+       class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-5 py-3 transition">
+      Try Again
+    </a>
+    {% if next_level_number %}
+    <a href="{% url 'basic_facts_quiz' subtopic=subtopic level_number=next_level_number %}"
+       class="bg-accent hover:bg-accent-dark text-white font-semibold rounded-xl px-5 py-3 transition">
+      Next Level →
+    </a>
+    {% endif %}
+    <a href="{% url 'basic_facts_select' subtopic=subtopic %}"
+       class="bg-white border border-border text-gray-600 hover:border-primary hover:text-primary font-semibold rounded-xl px-5 py-3 transition">
+      All Levels
+    </a>
+    <a href="/"
+       class="bg-white border border-border text-gray-600 hover:border-primary hover:text-primary font-semibold rounded-xl px-5 py-3 transition">
+      Home
+    </a>
+  </div>
+
+</div>
+{% endblock %}

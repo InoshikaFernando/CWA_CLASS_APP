@@ -1,0 +1,57 @@
+{% extends "base_quiz.html" %}
+{% block title %}{{ table }}× Tables — {{ operation|title }}{% endblock %}
+{% block quiz_title %}{{ table }}× — {{ operation|title }}{% endblock %}
+
+{% block quiz_progress %}
+  <div class="flex items-center gap-3">
+    <span class="text-xs text-gray-500 font-semibold" id="progress-text">
+      Question {{ question_number }} of {{ total_questions }}
+    </span>
+    <div class="w-32 h-2 bg-gray-200 rounded-full overflow-hidden">
+      <div id="progress-bar" class="h-full bg-primary rounded-full transition-all"
+           style="width: {% widthratio question_number total_questions 100 %}%"></div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block quiz_timer %}
+  <div class="flex items-center gap-1.5 font-mono text-sm font-bold text-gray-700 bg-gray-100 rounded-xl px-3 py-1.5">
+    <span id="timer">0:00</span>
+  </div>
+{% endblock %}
+
+{% block content %}
+<div id="question-container">
+  <div class="bg-white rounded-2xl border border-border shadow-sm p-8">
+    <div class="flex items-center gap-2 mb-6">
+      <span class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-primary text-white text-xs font-bold">
+        {{ question_number }}
+      </span>
+      <span class="text-xs text-gray-400 font-semibold">of {{ total_questions }}</span>
+    </div>
+    <p class="font-display text-3xl text-gray-800 mb-8 text-center">{{ question.question }}</p>
+    <div class="grid grid-cols-2 gap-3">
+      {% for choice in question.choices %}
+      <button type="button"
+              class="answer-btn text-center px-5 py-4 rounded-xl border-2 border-gray-200
+                     hover:border-primary hover:bg-primary-light font-display text-2xl text-gray-700
+                     transition focus:outline-none"
+              hx-post="{% url 'api_tt_answer' %}"
+              hx-target="#question-container"
+              hx-swap="innerHTML"
+              hx-vals='{"session_id": "{{ session_id }}", "answer": {{ choice }}}'>
+        {{ choice }}
+      </button>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  let s = 0;
+  setInterval(() => { s++; const m=Math.floor(s/60); document.getElementById('timer').textContent=m+':'+String(s%60).padStart(2,'0'); }, 1000);
+  document.querySelectorAll('.answer-btn').forEach(b => b.addEventListener('click', () => document.querySelectorAll('.answer-btn').forEach(x => x.disabled=true)));
+</script>
+{% endblock %}

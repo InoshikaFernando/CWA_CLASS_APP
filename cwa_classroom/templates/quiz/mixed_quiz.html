@@ -1,0 +1,89 @@
+{% extends "base_quiz.html" %}
+{% block title %}Year {{ level.level_number }} Mixed Quiz{% endblock %}
+{% block quiz_title %}Year {{ level.level_number }} Mixed Quiz{% endblock %}
+
+{% block quiz_progress %}
+  <span class="text-xs text-gray-500 font-semibold">{{ total }} questions</span>
+{% endblock %}
+
+{% block quiz_timer %}
+  <div class="flex items-center gap-1.5 font-mono text-sm font-bold text-gray-700 bg-gray-100 rounded-xl px-3 py-1.5">
+    <svg class="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    <span id="timer">0:00</span>
+  </div>
+{% endblock %}
+
+{% block content %}
+<form method="post" id="mixed-form">
+  {% csrf_token %}
+  <input type="hidden" name="session_id" value="{{ session_id }}" />
+
+  <div class="space-y-4 mb-28">
+    {% for q in questions %}
+    <div class="bg-white rounded-2xl border border-border shadow-sm p-5">
+      <div class="flex items-start gap-3 mb-4">
+        <span class="flex-shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-lg bg-primary-light text-primary text-xs font-bold">
+          {{ forloop.counter }}
+        </span>
+        <div class="flex-1">
+          <span class="inline-block text-xs bg-accent-light text-yellow-800 font-semibold rounded-full px-2.5 py-0.5 mb-2">
+            {{ q.topic.name }}
+          </span>
+          {% if q.image %}
+            <img src="{{ q.image.url }}" class="rounded-xl mb-3 max-h-40 object-contain" alt="" />
+          {% endif %}
+          <p class="font-semibold text-gray-800">{{ q.question_text }}</p>
+        </div>
+      </div>
+
+      {% if q.question_type == 'multiple_choice' or q.question_type == 'true_false' %}
+        <div class="grid grid-cols-2 gap-2">
+          {% for answer in q.answers.all %}
+          <label class="flex items-center gap-2 p-3 rounded-xl border border-gray-200 hover:border-primary hover:bg-primary-light cursor-pointer transition has-[:checked]:border-primary has-[:checked]:bg-primary-light">
+            <input type="radio" name="answer_{{ q.id }}" value="{{ answer.id }}" class="text-primary" />
+            <span class="text-sm font-semibold text-gray-700">{{ answer.text }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      {% else %}
+        <input type="text" name="text_{{ q.id }}" placeholder="Your answer..."
+               class="w-full rounded-xl border-2 border-gray-200 px-4 py-2.5 focus:outline-none focus:border-primary transition font-semibold" />
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Sticky submit -->
+  <div class="fixed bottom-0 inset-x-0 bg-white border-t border-border px-4 py-4 z-30">
+    <div class="max-w-3xl mx-auto flex items-center justify-between gap-4">
+      <span id="count" class="text-sm font-semibold text-gray-500">0 / {{ total }} answered</span>
+      <button type="submit"
+              class="bg-accent hover:bg-accent-dark text-white font-bold rounded-xl px-8 py-3 transition text-base">
+        Submit All →
+      </button>
+    </div>
+  </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  let seconds = 0;
+  setInterval(() => {
+    seconds++;
+    const m = Math.floor(seconds / 60), s = seconds % 60;
+    document.getElementById('timer').textContent = m + ':' + String(s).padStart(2,'0');
+  }, 1000);
+
+  const total = {{ total }};
+  function updateCount() {
+    const radios = document.querySelectorAll('input[type=radio]:checked').length;
+    const texts = [...document.querySelectorAll('input[type=text]')].filter(i => i.value.trim()).length;
+    document.getElementById('count').textContent = (radios + texts) + ' / ' + total + ' answered';
+  }
+  document.querySelectorAll('input').forEach(i => i.addEventListener('change', updateCount));
+  document.querySelectorAll('input[type=text]').forEach(i => i.addEventListener('input', updateCount));
+</script>
+{% endblock %}

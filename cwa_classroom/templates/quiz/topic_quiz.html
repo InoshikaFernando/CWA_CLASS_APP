@@ -1,0 +1,49 @@
+{% extends "base_quiz.html" %}
+{% block title %}{{ topic.name }} — Year {{ level.level_number }}{% endblock %}
+{% block quiz_title %}{{ topic.name }}{% endblock %}
+
+{% block quiz_meta %}
+  <span class="inline-flex items-center rounded-full bg-primary-light text-primary text-xs font-bold px-3 py-1">
+    Year {{ level.level_number }}
+  </span>
+{% endblock %}
+
+{% block quiz_progress %}
+  <div class="flex items-center gap-3">
+    <span class="text-xs text-gray-500 font-semibold" id="progress-text">
+      Question {{ question_number }} of {{ total_questions }}
+    </span>
+    <div class="w-32 h-2 bg-gray-200 rounded-full overflow-hidden">
+      <div id="progress-bar" class="h-full bg-primary rounded-full transition-all duration-300"
+           style="width: {% widthratio question_number total_questions 100 %}%"></div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block quiz_timer %}
+  <div class="flex items-center gap-1.5 font-mono text-sm font-bold text-gray-700 bg-gray-100 rounded-xl px-3 py-1.5">
+    <svg class="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    <span id="timer">0:00</span>
+  </div>
+{% endblock %}
+
+{% block content %}
+<div id="question-container">
+  {% include "quiz/partials/topic_question.html" %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  let seconds = 0;
+  const timerEl = document.getElementById('timer');
+  setInterval(() => {
+    seconds++;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    timerEl.textContent = m + ':' + String(s).padStart(2, '0');
+  }, 1000);
+</script>
+{% endblock %}

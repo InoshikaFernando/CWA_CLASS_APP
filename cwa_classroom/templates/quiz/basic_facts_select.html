@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}{% if subtopic %}{{ label }}{% else %}Basic Facts{% endif %}{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-6">
+
+  <!-- Breadcrumb -->
+  <nav class="text-sm text-gray-400 flex items-center gap-2">
+    <a href="/" class="hover:text-primary transition">Home</a>
+    <span>›</span>
+    {% if subtopic %}
+      <a href="{% url 'basic_facts_home' %}" class="hover:text-primary transition">Basic Facts</a>
+      <span>›</span>
+      <span class="text-gray-700 font-semibold">{{ label }}</span>
+    {% else %}
+      <span class="text-gray-700 font-semibold">Basic Facts</span>
+    {% endif %}
+  </nav>
+
+  {% if not subtopic %}
+  <!-- Subtopic grid -->
+  <h1 class="font-display text-3xl text-primary">⚡ Basic Facts</h1>
+  <p class="text-gray-400 text-sm">Choose a subtopic to practise.</p>
+  <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
+    {% for s in subtopics %}
+    <a href="{% url 'basic_facts_select' subtopic=s.key %}"
+       class="bg-white rounded-2xl border border-border shadow-sm p-6 text-center hover:shadow-md hover:-translate-y-0.5 transition block">
+      <div class="text-4xl mb-3">{{ s.icon }}</div>
+      <p class="font-bold text-gray-800">{{ s.label }}</p>
+      <p class="text-xs text-gray-400 mt-1">{{ s.levels }} levels</p>
+    </a>
+    {% endfor %}
+  </div>
+
+  {% else %}
+  <!-- Level grid -->
+  <div class="flex items-center gap-3">
+    <h1 class="font-display text-3xl text-primary">{{ label }}</h1>
+  </div>
+  <p class="text-gray-400 text-sm">Choose a level to start. Each quiz has 10 questions.</p>
+
+  <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+    {% for level in levels %}
+    <a href="{% url 'basic_facts_quiz' subtopic=subtopic level_number=level.level_number %}"
+       class="bg-white rounded-2xl border border-border shadow-sm p-5 text-center hover:shadow-md hover:-translate-y-0.5 hover:border-primary transition block group">
+      <div class="w-12 h-12 rounded-xl bg-primary-light text-primary font-display text-xl flex items-center justify-center mx-auto mb-3 group-hover:bg-primary group-hover:text-white transition">
+        {{ level.display_level }}
+      </div>
+      <p class="font-bold text-gray-700 text-sm">Level {{ level.display_level }}</p>
+      {% if level.best_points %}
+        <p class="text-xs text-primary font-semibold mt-1">Best: {{ level.best_points }} pts</p>
+        <p class="text-xs text-gray-400">{{ level.best_score }}</p>
+      {% else %}
+        <p class="text-xs text-gray-400 mt-1">Not attempted</p>
+      {% endif %}
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

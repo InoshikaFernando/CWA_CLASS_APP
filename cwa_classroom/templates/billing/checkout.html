@@ -1,0 +1,17 @@
+{% extends "base_auth.html" %}
+{% block title %}Checkout{% endblock %}
+{% block card_content %}
+  <h1 class="font-display text-3xl text-primary text-center mb-2">Start Your Free Trial</h1>
+  <p class="text-center text-gray-400 text-sm mb-8">14 days free — no card required until trial ends.</p>
+  <div class="bg-primary-light rounded-xl p-4 mb-6 text-center">
+    <p class="font-bold text-green-800 text-lg">{{ package.name }}</p>
+    <p class="text-sm text-green-700">
+      {% if package.class_limit == 0 %}Unlimited classes{% else %}{{ package.class_limit }} class{{ package.class_limit|pluralize }}{% endif %}
+      &nbsp;·&nbsp; ${{ package.price }}/month after trial
+    </p>
+  </div>
+  <p class="text-center text-xs text-gray-400 mb-4">Stripe payment integration coming soon. For now, your trial is active.</p>
+  <a href="{% url 'select_classes' %}" class="block w-full text-center bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-5 py-3 transition">
+    Continue to Class Selection →
+  </a>
+{% endblock %}

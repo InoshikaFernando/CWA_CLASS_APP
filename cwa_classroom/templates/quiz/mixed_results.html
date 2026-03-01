@@ -1,0 +1,49 @@
+{% extends "base_quiz.html" %}
+{% block title %}Mixed Quiz Results — Year {{ level.level_number }}{% endblock %}
+{% block quiz_title %}Year {{ level.level_number }} Mixed Quiz Results{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+  {% if result %}
+  <div class="bg-white rounded-2xl border border-border shadow-sm p-8 text-center">
+    <div class="inline-flex items-center justify-center w-24 h-24 rounded-full bg-primary-light mb-4">
+      <span class="font-display text-3xl text-primary">{{ result.score }}/{{ result.total_questions }}</span>
+    </div>
+    <div class="flex justify-center gap-8 text-sm mt-4">
+      <div><p class="font-bold text-gray-800 text-xl">{{ time_display }}</p><p class="text-gray-400 text-xs">Time</p></div>
+      <div><p class="font-bold text-accent text-xl">{{ result.points|floatformat:1 }}</p><p class="text-gray-400 text-xs">Points</p></div>
+      <div><p class="font-bold text-gray-800 text-xl">{{ result.percentage }}%</p><p class="text-gray-400 text-xs">Correct</p></div>
+    </div>
+  </div>
+
+  <!-- Per-topic breakdown -->
+  {% if topic_results %}
+  <div class="bg-white rounded-2xl border border-border shadow-sm p-6">
+    <h2 class="font-bold text-gray-800 mb-4">Per-Topic Breakdown</h2>
+    <div class="space-y-3">
+      {% for topic_name, data in topic_results.items %}
+      {% widthratio data.correct data.total 100 as pct %}
+      <div>
+        <div class="flex items-center justify-between text-sm mb-1">
+          <span class="font-semibold text-gray-700">{{ topic_name }}</span>
+          <span class="text-gray-500">{{ data.correct }}/{{ data.total }} ({{ pct }}%)</span>
+        </div>
+        <div class="h-3 bg-gray-100 rounded-full overflow-hidden">
+          <div class="h-full rounded-full transition-all
+                      {% if pct >= 80 %}bg-primary{% elif pct >= 60 %}bg-accent{% else %}bg-red-400{% endif %}"
+               style="width: {{ pct }}%"></div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+  {% endif %}
+
+  <div class="flex flex-wrap gap-3 pb-6">
+    <a href="{% url 'mixed_quiz' level_number=level.level_number %}"
+       class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-5 py-3 transition">Try Again</a>
+    <a href="/" class="bg-white border border-border text-gray-600 hover:border-primary hover:text-primary font-semibold rounded-xl px-5 py-3 transition">Home</a>
+  </div>
+</div>
+{% endblock %}

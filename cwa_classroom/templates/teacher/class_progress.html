@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Class Progress — {{ classroom.name }}{% endblock %}
+{% block content %}
+<div class="max-w-6xl mx-auto space-y-6">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="font-display text-3xl text-primary">{{ classroom.name }} — Progress</h1>
+      <p class="text-gray-400 text-sm mt-1">{{ students.count }} student{{ students.count|pluralize }} · {{ levels.count }} level{{ levels.count|pluralize }}</p>
+    </div>
+    <a href="/" class="text-sm text-gray-500 hover:text-primary transition">← Back to Classes</a>
+  </div>
+
+  <!-- Colour legend -->
+  <div class="bg-white rounded-2xl border border-border shadow-sm p-4">
+    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Colour Key (% correct)</p>
+    <div class="flex flex-wrap gap-2 text-xs font-semibold">
+      <span class="px-3 py-1 rounded-full bg-green-600 text-white">≥ 90%</span>
+      <span class="px-3 py-1 rounded-full bg-green-400 text-white">≥ 75%</span>
+      <span class="px-3 py-1 rounded-full bg-green-200 text-green-900">≥ 60%</span>
+      <span class="px-3 py-1 rounded-full bg-yellow-200 text-yellow-900">≥ 45%</span>
+      <span class="px-3 py-1 rounded-full bg-orange-200 text-orange-900">≥ 30%</span>
+      <span class="px-3 py-1 rounded-full bg-red-200 text-red-900">&lt; 30%</span>
+      <span class="px-3 py-1 rounded-full bg-gray-100 text-gray-400">Not attempted</span>
+    </div>
+  </div>
+
+  {% for level in levels %}
+  {% with topics=level.topics.all %}
+  {% if topics %}
+  <div class="bg-white rounded-2xl border border-border shadow-sm overflow-hidden">
+    <div class="px-6 py-4 border-b border-border bg-primary-light">
+      <h2 class="font-bold text-primary">{{ level.display_name }}</h2>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-gray-100">
+            <th class="text-left px-4 py-3 font-semibold text-gray-600 min-w-32">Student</th>
+            {% for topic in topics %}
+            <th class="text-center px-2 py-3 font-semibold text-gray-600 min-w-24 text-xs">{{ topic.name }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for student in students %}
+          <tr class="border-b border-gray-50 hover:bg-gray-50 transition">
+            <td class="px-4 py-3 font-semibold text-gray-700">
+              <a href="{% url 'student_detail_progress' student_id=student.id %}" class="hover:text-primary transition">
+                {{ student.get_full_name|default:student.username }}
+              </a>
+            </td>
+            {% for topic in topics %}
+            {% with best=None %}
+            <td class="px-2 py-3 text-center">
+              {% with result=student.final_answers.filter %}
+              <span class="inline-block px-2 py-1 rounded-lg text-xs font-bold bg-gray-100 text-gray-400">—</span>
+              {% endwith %}
+            </td>
+            {% endwith %}
+            {% endfor %}
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="100" class="px-6 py-8 text-center text-gray-400">No students in this class yet.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+  {% endwith %}
+  {% empty %}
+  <div class="bg-white rounded-2xl border border-border shadow-sm p-12 text-center">
+    <p class="text-gray-400">No levels assigned to this class. <a href="{% url 'create_class' %}" class="text-primary font-semibold">Edit class →</a></p>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

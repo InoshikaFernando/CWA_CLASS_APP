@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Select Classes{% endblock %}
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+  <div>
+    <h1 class="font-display text-3xl text-primary">Choose Your Classes</h1>
+    <p class="text-gray-400 text-sm mt-1">
+      You can join
+      {% if class_limit == 0 %}unlimited classes{% else %}<strong>{{ class_limit }} class{{ class_limit|pluralize }}</strong>{% endif %}
+      on your current plan.
+    </p>
+  </div>
+
+  <!-- Counter bar -->
+  <div class="bg-white rounded-2xl border border-border shadow-sm px-6 py-4 flex items-center justify-between">
+    <span class="text-sm font-semibold text-gray-700">
+      Classes joined: <span class="text-primary font-bold text-lg">{{ enrolled_count }}</span>
+      {% if class_limit != 0 %} / {{ class_limit }}{% endif %}
+    </span>
+    <a href="/" class="text-sm text-primary font-semibold hover:text-primary-dark transition">
+      Done → Go to Home
+    </a>
+  </div>
+
+  <!-- Class grid -->
+  {% if all_classes %}
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    {% for classroom in all_classes %}
+    <div class="bg-white rounded-2xl border shadow-sm p-5
+                {% if classroom.id in enrolled_ids %}border-primary{% else %}border-border{% endif %}">
+      <div class="flex items-start justify-between mb-3">
+        <div>
+          <h3 class="font-bold text-gray-800">{{ classroom.name }}</h3>
+          <p class="text-xs text-gray-400 font-mono mt-0.5">Code: {{ classroom.code }}</p>
+        </div>
+        {% if classroom.id in enrolled_ids %}
+          <span class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold bg-primary-light text-primary">
+            ✓ Joined
+          </span>
+        {% endif %}
+      </div>
+
+      <!-- Level badges -->
+      <div class="flex flex-wrap gap-1.5 mb-4">
+        {% for level in classroom.levels.all %}
+          <span class="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-accent-light text-yellow-800">
+            {{ level.display_name }}
+          </span>
+        {% endfor %}
+      </div>
+
+      <!-- Actions -->
+      {% if classroom.id in enrolled_ids %}
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="leave" />
+          <input type="hidden" name="class_id" value="{{ classroom.id }}" />
+          <button type="submit"
+                  class="w-full bg-white border border-gray-300 text-gray-500 hover:border-red-300 hover:text-red-500 font-semibold rounded-xl px-4 py-2 transition text-sm">
+            Leave Class
+          </button>
+        </form>
+      {% else %}
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="join" />
+          <input type="hidden" name="class_id" value="{{ classroom.id }}" />
+          <button type="submit"
+                  {% if class_limit != 0 and enrolled_count >= class_limit %}
+                    disabled title="Upgrade to join more classes"
+                    class="w-full bg-gray-100 text-gray-400 font-semibold rounded-xl px-4 py-2 text-sm cursor-not-allowed"
+                  {% else %}
+                    class="w-full bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-4 py-2 transition text-sm"
+                  {% endif %}>
+            Join Class
+          </button>
+        </form>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+    <div class="bg-white rounded-2xl border border-border shadow-sm p-12 text-center">
+      <p class="text-gray-400">No classes are available yet. Ask your teacher for a class code.</p>
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}

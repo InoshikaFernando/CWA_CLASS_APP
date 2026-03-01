@@ -1,0 +1,216 @@
+{% extends "base_auth.html" %}
+{% block title %}Create Student Account{% endblock %}
+
+{% block extra_head %}
+<style>
+  .package-card { cursor: pointer; transition: all 0.15s; }
+  .package-card:hover { transform: translateY(-2px); }
+  .package-card.selected { outline: 2px solid #16a34a; outline-offset: 2px; }
+</style>
+{% endblock %}
+
+{% block card_content %}
+  <h1 class="font-display text-3xl text-primary text-center mb-1">Join Classroom</h1>
+  <p class="text-center text-gray-400 text-sm mb-6">Create your student account in 3 easy steps.</p>
+
+  <!-- Step indicator -->
+  <div class="flex items-center justify-center gap-2 mb-8" id="step-indicator">
+    {% for i in "123" %}
+    <div class="step-dot flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold
+                {% if forloop.first %}bg-primary text-white{% else %}bg-gray-200 text-gray-400{% endif %}"
+         data-step="{{ forloop.counter }}">
+      {{ forloop.counter }}
+    </div>
+    {% if not forloop.last %}
+      <div class="h-0.5 w-10 bg-gray-200 step-line" data-after="{{ forloop.counter }}"></div>
+    {% endif %}
+    {% endfor %}
+  </div>
+
+  {% if errors %}
+    <div class="mb-5 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm space-y-1">
+      {% for error in errors %}<p>{{ error }}</p>{% endfor %}
+    </div>
+  {% endif %}
+
+  <form method="post" id="reg-form" class="space-y-0">
+    {% csrf_token %}
+
+    <!-- ── Step 1: Account Details ─────────────────────────── -->
+    <div id="step-1" class="step-panel space-y-4">
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1.5">Username</label>
+        <input type="text" name="username" value="{{ username|default:'' }}" id="f-username"
+               placeholder="Choose a username" autocomplete="username"
+               class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1.5">Email Address</label>
+        <input type="email" name="email" value="{{ email|default:'' }}" id="f-email"
+               placeholder="you@example.com" autocomplete="email"
+               class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1.5">Password</label>
+        <input type="password" name="password" id="f-password" minlength="8"
+               placeholder="At least 8 characters" autocomplete="new-password"
+               class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1.5">Confirm Password</label>
+        <input type="password" name="confirm_password" id="f-confirm"
+               placeholder="Re-enter your password" autocomplete="new-password"
+               class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+      </div>
+      <button type="button" onclick="goStep(2)"
+              class="w-full bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-5 py-3 transition mt-2">
+        Next: Choose Plan →
+      </button>
+    </div>
+
+    <!-- ── Step 2: Package Selection ──────────────────────── -->
+    <div id="step-2" class="step-panel hidden space-y-4">
+      <p class="text-sm text-gray-500 text-center">All plans include a <strong class="text-primary">14-day free trial</strong>. No card required.</p>
+
+      <div class="grid grid-cols-2 gap-3">
+        {% for package in packages %}
+        <label class="package-card block rounded-2xl border-2 border-gray-200 p-4 text-center
+                       {% if selected_package_id == package.id|stringformat:'s' %}selected border-primary{% endif %}">
+          <input type="radio" name="package_id" value="{{ package.id }}"
+                 {% if selected_package_id == package.id|stringformat:'s' %}checked{% endif %}
+                 class="sr-only" onchange="selectPackage(this)" />
+          <div class="font-display text-xl text-primary mb-1">{{ package.name }}</div>
+          <div class="text-xs text-gray-500 mb-2">
+            {% if package.class_limit == 0 %}Unlimited classes{% else %}{{ package.class_limit }} class{{ package.class_limit|pluralize }}{% endif %}
+          </div>
+          {% if package.price == 0 %}
+            <div class="text-lg font-bold text-green-600">Free</div>
+          {% else %}
+            <div class="text-lg font-bold text-gray-800">${{ package.price }}<span class="text-xs font-normal text-gray-400">/mo</span></div>
+          {% endif %}
+          <div class="mt-2 inline-block bg-accent-light text-yellow-800 text-xs font-semibold px-2 py-0.5 rounded-full">
+            14 days free
+          </div>
+        </label>
+        {% empty %}
+          <p class="col-span-2 text-center text-gray-400 text-sm">No packages available. Please contact an administrator.</p>
+        {% endfor %}
+      </div>
+
+      <div class="flex gap-3 pt-2">
+        <button type="button" onclick="goStep(1)"
+                class="flex-1 bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl px-5 py-3 hover:bg-gray-50 transition">
+          ← Back
+        </button>
+        <button type="button" onclick="goStep(3)"
+                class="flex-1 bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-5 py-3 transition">
+          Next: Discount →
+        </button>
+      </div>
+    </div>
+
+    <!-- ── Step 3: Discount Code + Submit ─────────────────── -->
+    <div id="step-3" class="step-panel hidden space-y-4">
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1.5">
+          Discount Code <span class="font-normal text-gray-400">(optional)</span>
+        </label>
+        <input type="text" name="discount_code" value="{{ discount_code|default:'' }}"
+               placeholder="e.g. SCHOOL2025"
+               class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 uppercase tracking-wider focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+        <p class="text-xs text-gray-400 mt-1">A 100% discount code gives you immediate free access.</p>
+      </div>
+
+      <div class="bg-primary-light rounded-xl p-4 text-sm text-green-800 space-y-1">
+        <p class="font-semibold">What happens next:</p>
+        <p>✓ With a 100% code → instant free access</p>
+        <p>✓ Otherwise → 14-day free trial starts now</p>
+        <p>✓ No card required until trial ends</p>
+      </div>
+
+      <div class="flex gap-3 pt-2">
+        <button type="button" onclick="goStep(2)"
+                class="flex-1 bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl px-5 py-3 hover:bg-gray-50 transition">
+          ← Back
+        </button>
+        <button type="submit"
+                class="flex-1 bg-accent hover:bg-accent-dark text-white font-semibold rounded-xl px-5 py-3 transition">
+          Create Account 🎉
+        </button>
+      </div>
+    </div>
+
+  </form>
+
+  <!-- Shown if server validation failed — jump straight to step 3 -->
+  {% if errors %}
+  <script>
+    document.addEventListener('DOMContentLoaded', () => goStep(3));
+  </script>
+  {% endif %}
+
+{% endblock %}
+
+{% block footer_links %}
+  Already have an account?
+  <a href="{% url 'login' %}" class="text-primary font-semibold hover:text-primary-dark transition">Log in</a>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  const TOTAL_STEPS = 3;
+
+  function goStep(n) {
+    // Hide all panels
+    document.querySelectorAll('.step-panel').forEach(el => el.classList.add('hidden'));
+    // Show target
+    document.getElementById('step-' + n).classList.remove('hidden');
+    // Update dots
+    document.querySelectorAll('.step-dot').forEach(dot => {
+      const step = parseInt(dot.dataset.step);
+      if (step < n) {
+        dot.className = dot.className.replace('bg-gray-200 text-gray-400', 'bg-primary-light text-primary');
+        dot.innerHTML = '✓';
+      } else if (step === n) {
+        dot.className = dot.className.replace('bg-gray-200 text-gray-400', 'bg-primary text-white');
+        dot.className = dot.className.replace('bg-primary-light text-primary', 'bg-primary text-white');
+        dot.innerHTML = step;
+      } else {
+        dot.className = dot.className.replace('bg-primary text-white', 'bg-gray-200 text-gray-400');
+        dot.className = dot.className.replace('bg-primary-light text-primary', 'bg-gray-200 text-gray-400');
+        dot.innerHTML = step;
+      }
+    });
+    // Update lines
+    document.querySelectorAll('.step-line').forEach(line => {
+      const after = parseInt(line.dataset.after);
+      line.classList.toggle('bg-primary', after < n);
+      line.classList.toggle('bg-gray-200', after >= n);
+    });
+  }
+
+  function selectPackage(radio) {
+    document.querySelectorAll('.package-card').forEach(card => card.classList.remove('selected', 'border-primary'));
+    radio.closest('.package-card').classList.add('selected', 'border-primary');
+  }
+
+  // Step 1 validation before advancing
+  const step1Next = document.querySelector('#step-1 button[type=button]');
+  step1Next.addEventListener('click', function(e) {
+    const username = document.getElementById('f-username').value.trim();
+    const email = document.getElementById('f-email').value.trim();
+    const password = document.getElementById('f-password').value;
+    const confirm = document.getElementById('f-confirm').value;
+    const msgs = [];
+    if (!username) msgs.push('Username is required.');
+    if (!email.includes('@')) msgs.push('Valid email required.');
+    if (password.length < 8) msgs.push('Password must be at least 8 characters.');
+    if (password !== confirm) msgs.push('Passwords do not match.');
+    if (msgs.length) {
+      alert(msgs.join('\n'));
+      return;
+    }
+    goStep(2);
+  });
+</script>
+{% endblock %}
