@@ -126,7 +126,7 @@ class StudentDashboardView(LoginRequiredMixin, View):
                 continue
             if level.id not in enrolled_level_ids:
                 continue
-            topics = Topic.objects.filter(levels=level, is_active=True).select_related('subject')
+            topics = Topic.objects.filter(levels=level, is_active=True, parent__isnull=True, subject__is_active=True).select_related('subject')
             if not topics.exists():
                 continue
             row_topics = []

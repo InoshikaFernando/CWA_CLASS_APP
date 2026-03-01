@@ -45,6 +45,13 @@ class Level(models.Model):
 
 class Topic(models.Model):
     subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name='topics')
+    parent = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='subtopics',
+        help_text='Leave blank for top-level topics; set for subtopics.',
+    )
     name = models.CharField(max_length=100)
     slug = models.SlugField(max_length=100)
     description = models.TextField(blank=True)

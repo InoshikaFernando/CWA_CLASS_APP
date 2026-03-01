@@ -15,14 +15,12 @@ from accounts.models import Role, CustomUser, UserRole
 
 SUBJECTS = [
     ('Mathematics', [
-        'Number',
         'Algebra',
-        'Measurement',
         'Geometry',
+        'Measurement',
+        'Number',
+        'Space',
         'Statistics',
-        'Fractions',
-        'Time',
-        'Factors',
     ]),
 ]
 
@@ -120,16 +118,27 @@ class Command(BaseCommand):
             )
             subject.is_active = True
             subject.save()
+
+            # Deactivate old top-level topics not in the current list
+            deactivated_topics = Topic.objects.filter(
+                subject=subject, parent__isnull=True,
+            ).exclude(name__in=topic_names).update(is_active=False)
+            if deactivated_topics:
+                self.stdout.write(f'  · Deactivated {deactivated_topics} old topic(s) under {subject_name}')
+
             for topic_name in topic_names:
                 slug = slugify(topic_name)
                 topic, created = Topic.objects.get_or_create(
                     name=topic_name,
                     subject=subject,
-                    defaults={'slug': slug, 'is_active': True},
+                    defaults={'slug': slug, 'is_active': True, 'parent': None},
                 )
-                if created:
-                    topic.levels.set(all_levels)
-                    self.stdout.write(f'  ✓ {subject_name} → {topic_name}')
+                if not topic.is_active:
+                    topic.is_active = True
+                    topic.save()
+                # Always ensure all year levels are linked
+                topic.levels.set(all_levels)
+                self.stdout.write(f'  {"✓ Created" if created else "· Updated"} {subject_name} → {topic_name}')
 
         total_topics = sum(len(t) for _, t in SUBJECTS)
         self.stdout.write(f'  Topics ready: {total_topics}')
