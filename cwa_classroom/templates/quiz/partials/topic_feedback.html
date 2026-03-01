@@ -1,39 +1,30 @@
-<div class="rounded-2xl border-2 p-6 {% if is_correct %}border-green-300 bg-green-50{% else %}border-red-200 bg-red-50{% endif %}">
+<div class="rounded-2xl border-2 p-8 text-center
+            {% if is_correct %}border-green-300 bg-green-50{% else %}border-red-200 bg-red-50{% endif %}">
 
-  <!-- Result icon + message -->
-  <div class="flex items-center gap-3 mb-4">
-    <span class="text-3xl">{% if is_correct %}✅{% else %}❌{% endif %}</span>
-    <div>
-      <p class="font-bold text-lg {% if is_correct %}text-green-700{% else %}text-red-600{% endif %}">
-        {% if is_correct %}Correct!{% else %}Not quite!{% endif %}
-      </p>
-      {% if not is_correct %}
-        <p class="text-sm text-gray-600">The answer was: <strong>{{ correct_answer_text }}</strong></p>
-      {% endif %}
-    </div>
-  </div>
+  <div class="text-5xl mb-4">{% if is_correct %}✅{% else %}❌{% endif %}</div>
 
-  <!-- Explanation -->
-  {% if explanation %}
-    <div class="bg-white rounded-xl px-4 py-3 text-sm text-gray-600 mb-4 border border-gray-100">
-      💡 {{ explanation }}
-    </div>
+  <p class="font-bold text-2xl mb-2 {% if is_correct %}text-green-700{% else %}text-red-600{% endif %}">
+    {% if is_correct %}Correct!{% else %}Not quite!{% endif %}
+  </p>
+
+  {% if not is_correct %}
+    <p class="text-gray-600 mb-6">The answer was <strong class="text-gray-800 text-xl">{{ correct_answer }}</strong></p>
+  {% else %}
+    <p class="text-green-600 mb-6 text-lg">Great work! Keep going 💪</p>
   {% endif %}
 
-  <!-- Next button -->
   {% if is_last_question %}
     <a href="{{ next_url }}"
-       class="block w-full text-center bg-primary hover:bg-primary-dark text-white font-bold rounded-xl px-5 py-3 transition">
+       class="inline-block bg-primary hover:bg-primary-dark text-white font-bold rounded-xl px-8 py-3 transition text-lg">
       See Results →
     </a>
   {% else %}
     <button type="button"
-            class="w-full bg-primary hover:bg-primary-dark text-white font-bold rounded-xl px-5 py-3 transition"
-            hx-get="{{ next_question_url|default:'' }}"
-            hx-target="#question-container"
-            hx-swap="innerHTML">
+            class="bg-primary hover:bg-primary-dark text-white font-bold rounded-xl px-8 py-3 transition text-lg"
+            onclick="loadNextTTQuestion()">
       Next Question →
     </button>
+
   {% endif %}
 
 </div>
