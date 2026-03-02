@@ -7,6 +7,38 @@ so the app is immediately usable after migrate.
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
+TOPIC_MAPPING = {
+    "Algebra": [
+        "BODMAS",
+        "Integers",
+        "Factors",
+    ],
+    "Geometry": [
+        "Angles",
+        "Trigonometry",
+    ],
+    "Measurement": [
+        "Measurements",
+        "Date and Time",
+    ],
+    "Number": [
+        "Whole Numbers",
+        "Place Values",
+        "Fractions",
+        "Multiplication",
+        "Division",
+        "Finance",
+    ],
+    "Space": [
+        # Usually 2D / 3D shapes, position, transformation
+        # (No matching subtopics yet)
+    ],
+    "Statistics": [
+        # Data handling, probability etc.
+        # (No matching subtopics yet)
+    ],
+}
+
 
 class Command(BaseCommand):
     help = 'Bootstrap dev database with roles, users, packages, levels and topics.'
@@ -88,7 +120,7 @@ class Command(BaseCommand):
             name='Mathematics', defaults={'slug': 'mathematics', 'is_active': True}
         )
 
-        # topic name → list of year level numbers
+        # subtopic name → list of year level numbers
         topic_map = {
             'Measurements':    [2, 3, 5, 6, 7],
             'Whole Numbers':   [6],
@@ -104,16 +136,27 @@ class Command(BaseCommand):
             'Multiplication':  [1, 2, 3, 4],
             'Division':        [1, 2, 3, 4],
         }
-        for i, (name, years) in enumerate(topic_map.items()):
-            topic, _ = Topic.objects.get_or_create(
-                subject=maths, slug=slugify(name),
-                defaults={'name': name, 'order': i, 'is_active': True}
+
+        subtopic_count = 0
+        for strand_order, (strand_name, subtopic_names) in enumerate(TOPIC_MAPPING.items()):
+            strand, _ = Topic.objects.get_or_create(
+                subject=maths, slug=slugify(strand_name),
+                defaults={'name': strand_name, 'order': strand_order, 'is_active': True, 'parent': None},
             )
-            for y in years:
-                level = Level.objects.filter(level_number=y).first()
-                if level:
-                    topic.levels.add(level)
-        self.stdout.write(f'  Topics: {len(topic_map)} created/verified')
+            for sub_order, sub_name in enumerate(subtopic_names):
+                subtopic, _ = Topic.objects.get_or_create(
+                    subject=maths, slug=slugify(sub_name),
+                    defaults={'name': sub_name, 'order': sub_order, 'is_active': True, 'parent': strand},
+                )
+                if subtopic.parent_id != strand.id:
+                    subtopic.parent = strand
+                    subtopic.save(update_fields=['parent'])
+                for y in topic_map.get(sub_name, []):
+                    level = Level.objects.filter(level_number=y).first()
+                    if level:
+                        subtopic.levels.add(level)
+                subtopic_count += 1
+        self.stdout.write(f'  Strands: {len(TOPIC_MAPPING)} | Subtopics: {subtopic_count} created/verified')
 
     def _create_users(self):
         from accounts.models import CustomUser, Role, UserRole

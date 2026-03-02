@@ -58,28 +58,57 @@ class HomeView(LoginRequiredMixin, View):
             return render(request, 'teacher/home.html', {'classes': classes})
 
         if role in (Role.STUDENT, Role.INDIVIDUAL_STUDENT):
-            if role == Role.STUDENT:
+            is_individual = role == Role.INDIVIDUAL_STUDENT
+            if not is_individual:
                 classrooms = ClassRoom.objects.filter(students=request.user, is_active=True)
-                accessible_levels = Level.objects.filter(classrooms__in=classrooms).distinct()
+                accessible_level_ids = set(
+                    Level.objects.filter(classrooms__in=classrooms).values_list('id', flat=True)
+                )
             else:
-                accessible_levels = _get_individual_student_levels(request.user)
+                basic_ids = set(
+                    Level.objects.filter(level_number__gte=100).values_list('id', flat=True)
+                )
+                try:
+                    sub = request.user.subscription
+                    if sub.is_active_or_trialing:
+                        enrolled_ids = set(
+                            StudentLevelEnrollment.objects.filter(student=request.user)
+                            .values_list('level_id', flat=True)
+                        )
+                        accessible_level_ids = enrolled_ids | basic_ids
+                    else:
+                        accessible_level_ids = basic_ids
+                except Exception:
+                    accessible_level_ids = basic_ids
 
             year_data = []
             for year in range(1, 10):
                 try:
                     level = Level.objects.get(level_number=year)
-                    topics = Topic.objects.filter(levels=level, is_active=True).select_related('subject')
-                    year_data.append({
-                        'level': level,
-                        'topics': topics,
-                        'accessible': level in accessible_levels,
-                    })
                 except Level.DoesNotExist:
-                    pass
+                    continue
+                subtopics = (
+                    Topic.objects
+                    .filter(levels=level, is_active=True, parent__isnull=False)
+                    .select_related('parent')
+                    .order_by('parent__order', 'order')
+                )
+                strand_dict = {}
+                for subtopic in subtopics:
+                    sid = subtopic.parent_id
+                    if sid not in strand_dict:
+                        strand_dict[sid] = {'strand': subtopic.parent, 'subtopics': []}
+                    strand_dict[sid]['subtopics'].append(subtopic)
+                year_data.append({
+                    'level': level,
+                    'strand_data': list(strand_dict.values()),
+                    'subtopic_count': subtopics.count(),
+                    'accessible': level.id in accessible_level_ids,
+                })
 
             return render(request, 'student/home.html', {
                 'year_data': year_data,
-                'accessible_levels': accessible_levels,
+                'is_individual_student': is_individual,
             })
 
         # No role at all
