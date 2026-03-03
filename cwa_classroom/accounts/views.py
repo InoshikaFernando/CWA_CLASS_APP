@@ -252,9 +252,21 @@ class SelectClassesView(LoginRequiredMixin, View):
         class_limit = _effective_class_limit(request.user)
         enrolled_count = enrolled_classrooms.count()
         redeemed_promos = PromoCode.objects.filter(redeemed_by=request.user, is_active=True)
+        has_unlimited = class_limit == 0
+
+        # For students with unlimited promo, show all classrooms they can join
+        enrolled_ids = enrolled_classrooms.values_list('id', flat=True)
+        available_classrooms = (
+            ClassRoom.objects.filter(is_active=True)
+            .exclude(id__in=enrolled_ids)
+            .prefetch_related('levels')
+            if has_unlimited else None
+        )
 
         return render(request, 'accounts/select_classes.html', {
             'enrolled_classrooms': enrolled_classrooms,
+            'available_classrooms': available_classrooms,
+            'has_unlimited': has_unlimited,
             'class_limit': class_limit,
             'enrolled_count': enrolled_count,
             'redeemed_promos': redeemed_promos,
@@ -269,15 +281,20 @@ class SelectClassesView(LoginRequiredMixin, View):
         action = request.POST.get('action')
 
         if action == 'join':
+            # Support joining by ID (unlimited students browsing the list) or by code
+            classroom_id = request.POST.get('classroom_id')
             code = request.POST.get('class_code', '').strip().upper()
-            if not code:
-                messages.error(request, 'Please enter a class code.')
-                return redirect('select_classes')
 
-            try:
-                classroom = ClassRoom.objects.get(code=code, is_active=True)
-            except ClassRoom.DoesNotExist:
-                messages.error(request, f'No active class found with code "{code}". Check with your teacher.')
+            if classroom_id:
+                classroom = get_object_or_404(ClassRoom, id=classroom_id, is_active=True)
+            elif code:
+                try:
+                    classroom = ClassRoom.objects.get(code=code, is_active=True)
+                except ClassRoom.DoesNotExist:
+                    messages.error(request, f'No active class found with code "{code}". Check with your teacher.')
+                    return redirect('select_classes')
+            else:
+                messages.error(request, 'Please enter a class code.')
                 return redirect('select_classes')
 
             if ClassStudent.objects.filter(classroom=classroom, student=request.user).exists():

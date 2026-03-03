@@ -56,6 +56,38 @@
     </form>
   </div>
 
+  {% if has_unlimited and available_classrooms %}
+  <!-- Available classrooms (unlimited users) -->
+  <div class="bg-white rounded-2xl border border-border shadow-sm p-6">
+    <h2 class="font-bold text-lg text-gray-800 mb-1">Available Classes</h2>
+    <p class="text-sm text-gray-400 mb-4">Your promo gives you unlimited access. Click Join to enroll.</p>
+    <div class="space-y-3">
+      {% for classroom in available_classrooms %}
+      <div class="flex items-center justify-between gap-4 rounded-xl border border-gray-200 px-4 py-3">
+        <div>
+          <p class="font-semibold text-gray-800">{{ classroom.name }}</p>
+          <p class="text-xs text-gray-400 mt-0.5">
+            Code: <span class="font-mono font-semibold">{{ classroom.code }}</span>
+            {% with lvls=classroom.levels.all %}
+            {% if lvls %}&middot; {{ lvls|join:", " }}{% endif %}
+            {% endwith %}
+          </p>
+        </div>
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="join" />
+          <input type="hidden" name="classroom_id" value="{{ classroom.id }}" />
+          <button type="submit"
+                  class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-5 py-2 text-sm transition">
+            Join
+          </button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Join form -->
   <div class="bg-white rounded-2xl border border-border shadow-sm p-6">
     <h2 class="font-bold text-lg text-gray-800 mb-4">Enter Class Code</h2>
