@@ -70,6 +70,12 @@ class Topic(models.Model):
 class ClassRoom(models.Model):
     name = models.CharField(max_length=200)
     code = models.CharField(max_length=8, unique=True, editable=False)
+    subject = models.ForeignKey(
+        'Subject',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='classrooms',
+    )
     levels = models.ManyToManyField(Level, related_name='classrooms', blank=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
