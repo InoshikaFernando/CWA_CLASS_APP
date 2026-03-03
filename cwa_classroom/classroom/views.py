@@ -83,9 +83,9 @@ class HomeView(LoginRequiredMixin, View):
                     continue
                 subtopics = (
                     Topic.objects
-                    .filter(levels=level, is_active=True, parent__isnull=False)
+                    .filter(levels=level, is_active=True)
                     .select_related('parent')
-                    .order_by('parent__order', 'order')
+                    .order_by('parent__order', 'order', 'name')
                 )
                 strand_dict = {}
                 for subtopic in subtopics:
