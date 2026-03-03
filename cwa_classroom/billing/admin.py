@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Package, DiscountCode, Payment, Subscription
+from .models import Package, DiscountCode, Payment, Subscription, PromoCode
 
 
 @admin.register(Package)
@@ -22,6 +22,15 @@ class PaymentAdmin(admin.ModelAdmin):
     list_filter = ('status', 'currency')
     search_fields = ('user__username', 'stripe_payment_intent_id')
     readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(PromoCode)
+class PromoCodeAdmin(admin.ModelAdmin):
+    list_display = ('code', 'description', 'class_limit', 'uses', 'max_uses', 'is_active', 'expires_at')
+    list_editable = ('is_active',)
+    search_fields = ('code', 'description')
+    filter_horizontal = ('redeemed_by',)
+    readonly_fields = ('uses', 'created_at')
 
 
 @admin.register(Subscription)

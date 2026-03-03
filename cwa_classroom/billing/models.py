@@ -108,6 +108,44 @@ class Payment(models.Model):
         return f'{self.user.username} — {self.package} — {self.status}'
 
 
+class PromoCode(models.Model):
+    code = models.CharField(max_length=50, unique=True)
+    description = models.CharField(max_length=200, blank=True)
+    class_limit = models.PositiveIntegerField(
+        default=0,
+        help_text='Class access granted. 0 = unlimited.',
+    )
+    max_uses = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text='Leave blank for unlimited uses.',
+    )
+    uses = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    redeemed_by = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        related_name='redeemed_promos',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        limit = 'unlimited' if self.class_limit == 0 else str(self.class_limit)
+        return f'{self.code} ({limit} classes)'
+
+    def is_valid(self):
+        if not self.is_active:
+            return False
+        if self.expires_at and timezone.now() > self.expires_at:
+            return False
+        if self.max_uses is not None and self.uses >= self.max_uses:
+            return False
+        return True
+
+
 class Subscription(models.Model):
     STATUS_ACTIVE = 'active'
     STATUS_TRIALING = 'trialing'

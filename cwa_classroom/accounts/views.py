@@ -228,30 +228,43 @@ class ProfileView(LoginRequiredMixin, View):
 # Class selection (IndividualStudent post-registration)
 # ---------------------------------------------------------------------------
 
+def _effective_class_limit(user):
+    """Returns the effective class limit for a user.
+    Checks redeemed promo codes first (0 = unlimited), then falls back to package limit."""
+    from billing.models import PromoCode
+    promo = PromoCode.objects.filter(redeemed_by=user, is_active=True).order_by('class_limit').first()
+    if promo is not None:
+        return promo.class_limit  # 0 = unlimited
+    return user.package.class_limit if user.package else 1
+
+
 class SelectClassesView(LoginRequiredMixin, View):
     def get(self, request):
         if not request.user.is_individual_student:
             return redirect('home')
         from classroom.models import ClassRoom
+        from billing.models import PromoCode
 
         enrolled_classrooms = ClassRoom.objects.filter(
             students=request.user, is_active=True
         ).prefetch_related('levels')
 
-        package = request.user.package
-        class_limit = package.class_limit if package else 1
+        class_limit = _effective_class_limit(request.user)
         enrolled_count = enrolled_classrooms.count()
+        redeemed_promos = PromoCode.objects.filter(redeemed_by=request.user, is_active=True)
 
         return render(request, 'accounts/select_classes.html', {
             'enrolled_classrooms': enrolled_classrooms,
             'class_limit': class_limit,
             'enrolled_count': enrolled_count,
+            'redeemed_promos': redeemed_promos,
         })
 
     def post(self, request):
         if not request.user.is_individual_student:
             return redirect('home')
         from classroom.models import ClassRoom, ClassStudent
+        from billing.models import PromoCode
 
         action = request.POST.get('action')
 
@@ -271,11 +284,10 @@ class SelectClassesView(LoginRequiredMixin, View):
                 messages.info(request, f'You are already enrolled in {classroom.name}.')
                 return redirect('select_classes')
 
-            package = request.user.package
-            class_limit = package.class_limit if package else 1
+            class_limit = _effective_class_limit(request.user)
             enrolled_count = ClassRoom.objects.filter(students=request.user, is_active=True).count()
             if class_limit != 0 and enrolled_count >= class_limit:
-                messages.error(request, f'Your plan allows up to {class_limit} class{"es" if class_limit != 1 else ""}. Upgrade your plan to join more.')
+                messages.error(request, f'Your plan allows up to {class_limit} class{"es" if class_limit != 1 else ""}. Use a promo code or upgrade to join more.')
                 return redirect('select_classes')
 
             ClassStudent.objects.create(classroom=classroom, student=request.user)
@@ -286,6 +298,33 @@ class SelectClassesView(LoginRequiredMixin, View):
             classroom = get_object_or_404(ClassRoom, id=classroom_id)
             ClassStudent.objects.filter(classroom=classroom, student=request.user).delete()
             messages.success(request, f'Left "{classroom.name}".')
+
+        elif action == 'redeem':
+            code = request.POST.get('promo_code', '').strip().upper()
+            if not code:
+                messages.error(request, 'Please enter a promo code.')
+                return redirect('select_classes')
+
+            try:
+                promo = PromoCode.objects.get(code=code)
+            except PromoCode.DoesNotExist:
+                messages.error(request, f'Promo code "{code}" is not valid.')
+                return redirect('select_classes')
+
+            if not promo.is_valid():
+                messages.error(request, f'Promo code "{code}" has expired or is no longer active.')
+                return redirect('select_classes')
+
+            if promo.redeemed_by.filter(pk=request.user.pk).exists():
+                messages.info(request, 'You have already redeemed this promo code.')
+                return redirect('select_classes')
+
+            promo.redeemed_by.add(request.user)
+            promo.uses += 1
+            promo.save(update_fields=['uses'])
+
+            limit_text = 'unlimited class access' if promo.class_limit == 0 else f'access to {promo.class_limit} class{"es" if promo.class_limit != 1 else ""}'
+            messages.success(request, f'Promo code applied! You now have {limit_text}.')
 
         return redirect('select_classes')
 
