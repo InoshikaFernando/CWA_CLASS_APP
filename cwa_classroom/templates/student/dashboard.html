@@ -67,11 +67,9 @@
               <a href="{% url 'topic_quiz' level_number=row.level.level_number topic_id=item.topic.id %}"
                  class="rounded-xl border border-transparent p-3 hover:shadow-md transition block {{ item.colour }}">
                 <p class="text-xs font-semibold mb-1">{{ item.topic.name }}</p>
+                <p class="text-sm font-bold">{% if item.best %}{{ item.pct }}{% else %}0{% endif %}%</p>
                 {% if item.best %}
-                <p class="text-sm font-bold">{{ item.pct }}%</p>
                 <p class="text-xs opacity-70 mt-0.5">{{ item.attempts }} attempt{{ item.attempts|pluralize }}</p>
-                {% else %}
-                <p class="text-xs font-semibold opacity-60">Not started</p>
                 {% endif %}
               </a>
               {% endfor %}

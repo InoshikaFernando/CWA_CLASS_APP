@@ -148,9 +148,9 @@ class StudentDashboardView(LoginRequiredMixin, View):
                 continue
             if level.id not in enrolled_level_ids:
                 continue
-            # Group topics by strand
+            # Group topics by strand (only subtopics — topics with a parent)
             all_topics = (
-                Topic.objects.filter(levels=level, is_active=True)
+                Topic.objects.filter(levels=level, is_active=True, parent__isnull=False)
                 .select_related('parent')
                 .order_by('parent__order', 'order', 'name')
             )
