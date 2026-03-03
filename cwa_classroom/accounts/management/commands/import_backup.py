@@ -214,8 +214,8 @@ class Command(BaseCommand):
         teacher_role, _ = Role.objects.get_or_create(
             name=Role.TEACHER, defaults={'display_name': 'Teacher', 'is_active': True},
         )
-        student_role, _ = Role.objects.get_or_create(
-            name=Role.STUDENT, defaults={'display_name': 'Student', 'is_active': True},
+        individual_student_role, _ = Role.objects.get_or_create(
+            name=Role.INDIVIDUAL_STUDENT, defaults={'display_name': 'Individual Student', 'is_active': True},
         )
         admin_role, _ = Role.objects.get_or_create(
             name=Role.ADMIN, defaults={'display_name': 'Admin', 'is_active': True},
@@ -251,7 +251,7 @@ class Command(BaseCommand):
                 if bool(is_teacher_flag):
                     UserRole.objects.get_or_create(user=user, role=teacher_role)
                 else:
-                    UserRole.objects.get_or_create(user=user, role=student_role)
+                    UserRole.objects.get_or_create(user=user, role=individual_student_role)
                 created += 1
             else:
                 skipped += 1
