@@ -28,6 +28,10 @@ TOPIC_MAPPING = {
         "Multiplication",
         "Division",
         "Finance",
+        "Prime Numbers",
+        "Square and Triangular Numbers",
+        "Square Roots",
+        "Operation Order",
     ],
     "Space": [
         # Usually 2D / 3D shapes, position, transformation
@@ -130,11 +134,15 @@ class Command(BaseCommand):
             'Fractions':       [3, 4, 7, 8],
             'BODMAS':          [5, 6, 7],
             'Date and Time':   [3],
-            'Finance':         [3],
+            'Finance':         [3, 4],
             'Integers':        [4, 7, 8],
             'Trigonometry':    [8],
-            'Multiplication':  [1, 2, 3, 4],
-            'Division':        [1, 2, 3, 4],
+            'Multiplication':                 [1, 2, 3, 4],
+            'Division':                      [1, 2, 3, 4],
+            'Prime Numbers':                 [7],
+            'Square and Triangular Numbers': [7],
+            'Square Roots':                  [7],
+            'Operation Order':               [7],
         }
 
         subtopic_count = 0
