@@ -135,16 +135,15 @@ class StudentDashboardView(LoginRequiredMixin, View):
             if key not in best_map or r.points > best_map[key].points:
                 best_map[key] = r
 
-        # Determine which year levels this student has access to
-        if request.user.is_individual_student:
+        # Determine which year levels this student has access to via their classrooms
+        classrooms = ClassRoom.objects.filter(students=request.user, is_active=True)
+        enrolled_level_ids = set(
+            Level.objects.filter(classrooms__in=classrooms, level_number__lte=8).values_list('id', flat=True)
+        )
+        # Fall back to all Year 1-8 levels if not in any classroom yet
+        if not enrolled_level_ids:
             enrolled_level_ids = set(
-                StudentLevelEnrollment.objects.filter(student=request.user)
-                .values_list('level_id', flat=True)
-            )
-        else:
-            classrooms = ClassRoom.objects.filter(students=request.user, is_active=True)
-            enrolled_level_ids = set(
-                Level.objects.filter(classrooms__in=classrooms).values_list('id', flat=True)
+                Level.objects.filter(level_number__lte=8).values_list('id', flat=True)
             )
 
         progress_grid = []
@@ -155,22 +154,31 @@ class StudentDashboardView(LoginRequiredMixin, View):
                 continue
             if level.id not in enrolled_level_ids:
                 continue
-            topics = Topic.objects.filter(levels=level, is_active=True, parent__isnull=True, subject__is_active=True).select_related('subject')
-            if not topics.exists():
-                continue
-            row_topics = []
-            for topic in topics:
-                key = (level.id, topic.id)
-                best = best_map.get(key)
+            # Group topics by strand
+            all_topics = (
+                Topic.objects.filter(levels=level, is_active=True)
+                .select_related('parent')
+                .order_by('parent__order', 'order', 'name')
+            )
+            strand_dict = {}
+            for topic in all_topics:
+                key = topic.parent_id if topic.parent_id else '__flat__'
+                if key not in strand_dict:
+                    strand_dict[key] = {'strand': topic.parent, 'subtopics': []}
+                lv_key = (level.id, topic.id)
+                best = best_map.get(lv_key)
                 pct = best.percentage if best else None
-                row_topics.append({
+                strand_dict[key]['subtopics'].append({
                     'topic': topic,
                     'best': best,
                     'pct': pct,
                     'colour': _pct_colour(pct),
-                    'attempts': attempts_map.get(key, 0),
+                    'attempts': attempts_map.get(lv_key, 0),
                 })
-            progress_grid.append({'level': level, 'topics': row_topics})
+            strand_data = list(strand_dict.values())
+            if not strand_data:
+                continue
+            progress_grid.append({'level': level, 'strand_data': strand_data})
 
         # ── Basic Facts grid ──────────────────────────────────────────────────
         BF_SUBTOPICS = [

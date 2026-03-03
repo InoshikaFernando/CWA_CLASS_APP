@@ -37,6 +37,7 @@
 
 {% block extra_js %}
 <script>
+  // ── Timer ────────────────────────────────────────────────────────────────
   let seconds = 0;
   const timerEl = document.getElementById('timer');
   setInterval(() => {
@@ -45,5 +46,103 @@
     const s = seconds % 60;
     timerEl.textContent = m + ':' + String(s).padStart(2, '0');
   }, 1000);
+
+  // ── Progress bar ─────────────────────────────────────────────────────────
+  let currentQ = {{ question_number }};
+  const totalQ = {{ total_questions }};
+
+  function _updateProgress() {
+    const pct = Math.round((currentQ / totalQ) * 100);
+    const bar = document.getElementById('progress-bar');
+    const txt = document.getElementById('progress-text');
+    if (bar) bar.style.width = pct + '%';
+    if (txt) txt.textContent = 'Question ' + currentQ + ' of ' + totalQ;
+  }
+
+  // ── Shared submit helper ──────────────────────────────────────────────────
+  const _csrf = document.querySelector('meta[name="csrf-token"]').content;
+
+  async function _submitAndAdvance(sessionId, payload) {
+    const resp = await fetch('/api/submit-topic-answer/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': _csrf },
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json();
+    _showFeedback(data, sessionId);
+  }
+
+  function _showFeedback(data, sessionId) {
+    const card = document.getElementById('question-card');
+    if (!card) return;
+
+    // Disable all interactive inputs
+    card.querySelectorAll('.answer-btn, button, input').forEach(el => el.disabled = true);
+
+    const fb = document.createElement('div');
+    fb.className = 'mt-5 space-y-3';
+
+    if (data.is_correct) {
+      fb.innerHTML = `
+        <div class="flex items-center gap-2 rounded-xl bg-green-50 border border-green-200 px-4 py-3 font-semibold text-green-800">
+          ✅ Correct!
+        </div>`;
+    } else {
+      fb.innerHTML = `
+        <div class="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-800">
+          <p class="font-semibold">❌ Incorrect</p>
+          ${data.correct_answer_text ? `<p class="text-sm mt-1">Correct answer: <strong>${data.correct_answer_text}</strong></p>` : ''}
+        </div>
+        ${data.explanation ? `<div class="rounded-xl bg-blue-50 border border-blue-200 px-4 py-3 text-blue-800 text-sm">${data.explanation}</div>` : ''}`;
+    }
+
+    const btnLabel = data.is_last_question ? 'View Results →' : 'Next Question →';
+    const nextBtn = document.createElement('button');
+    nextBtn.type = 'button';
+    nextBtn.className = 'w-full bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-5 py-3 transition';
+    nextBtn.textContent = btnLabel;
+    nextBtn.onclick = () => _loadNext(sessionId, data.next_url, data.is_last_question);
+    fb.appendChild(nextBtn);
+
+    card.appendChild(fb);
+  }
+
+  async function _loadNext(sessionId, nextUrl, isLast) {
+    if (isLast && nextUrl) {
+      window.location.href = nextUrl;
+      return;
+    }
+    const nextResp = await fetch('/api/topic-next/' + sessionId + '/');
+    const html = await nextResp.text();
+    document.getElementById('question-container').innerHTML = html;
+    currentQ++;
+    _updateProgress();
+  }
+
+  // ── Answer submission functions ───────────────────────────────────────────
+  function submitMCAnswer(sessionId, questionId, answerId) {
+    document.querySelectorAll('.answer-btn').forEach(b => b.disabled = true);
+    _submitAndAdvance(sessionId, {
+      session_id: sessionId, question_id: questionId, answer_id: answerId,
+    });
+  }
+
+  function submitTextAnswer(sessionId, questionId) {
+    const input = document.getElementById('text-answer-input');
+    const val = input ? input.value.trim() : '';
+    if (!val) return;
+    input.disabled = true;
+    _submitAndAdvance(sessionId, {
+      session_id: sessionId, question_id: questionId, text_answer: val,
+    });
+  }
+
+  function submitDragDrop(sessionId, questionId) {
+    const ids = [...document.querySelectorAll('#sortable-list li')]
+      .map(li => parseInt(li.dataset.id));
+    _submitAndAdvance(sessionId, {
+      session_id: sessionId, question_id: questionId, ordered_answer_ids: ids,
+    });
+  }
 </script>
 {% endblock %}

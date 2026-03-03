@@ -8,6 +8,35 @@ from classroom.models import Topic, Level
 from .models import StudentFinalAnswer, BasicFactsResult, TopicLevelStatistics, TimeLog
 
 
+def _build_strand_data(student, level, include_attempts=False):
+    """Build strand_data list for a level, grouping topics by parent strand.
+    Topics without a parent (flat/legacy) are grouped under strand=None."""
+    all_topics = (
+        Topic.objects.filter(levels=level, is_active=True)
+        .select_related('parent')
+        .order_by('parent__order', 'order', 'name')
+    )
+    strand_dict = {}
+    for topic in all_topics:
+        key = topic.parent_id if topic.parent_id else '__flat__'
+        if key not in strand_dict:
+            strand_dict[key] = {'strand': topic.parent, 'subtopics': []}
+        best = StudentFinalAnswer.get_best_result(student, topic, level)
+        pct = best.percentage if best else None
+        entry = {
+            'topic': topic,
+            'best': best,
+            'colour': _get_colour(pct),
+            'pct': pct,
+        }
+        if include_attempts:
+            entry['attempts'] = StudentFinalAnswer.objects.filter(
+                student=student, topic=topic, level=level
+            ).count()
+        strand_dict[key]['subtopics'].append(entry)
+    return list(strand_dict.values())
+
+
 def _get_colour(percentage):
     """Return Tailwind bg+text classes based on percentage."""
     if percentage is None:
@@ -33,32 +62,20 @@ class StudentDashboardView(LoginRequiredMixin, View):
 
         # ── Topic quiz results ────────────────────────────────────────
         from classroom.models import ClassRoom
-        if user.is_student:
-            classrooms = ClassRoom.objects.filter(students=user, is_active=True)
+        classrooms = ClassRoom.objects.filter(students=user, is_active=True)
+        if classrooms.exists():
             levels = Level.objects.filter(classrooms__in=classrooms, level_number__lte=8).distinct().order_by('level_number')
         else:
-            classrooms = ClassRoom.objects.filter(students=user, is_active=True)
-            levels = Level.objects.filter(classrooms__in=classrooms, level_number__lte=8).distinct().order_by('level_number')
+            # Student not in any classroom — show all available levels
+            levels = Level.objects.filter(level_number__lte=8).order_by('level_number')
 
-        # Build progress grid: level → topic → best result
+        # Build progress grid: level → strand → subtopic → best result
         progress_grid = []
         for level in levels:
-            topics = Topic.objects.filter(levels=level, is_active=True).order_by('name')
-            row = {'level': level, 'topics': []}
-            for topic in topics:
-                best = StudentFinalAnswer.get_best_result(user, topic, level)
-                latest = StudentFinalAnswer.get_latest_attempt(user, topic, level)
-                attempts = StudentFinalAnswer.objects.filter(student=user, topic=topic, level=level).count()
-                pct = best.percentage if best else None
-                row['topics'].append({
-                    'topic': topic,
-                    'best': best,
-                    'latest': latest,
-                    'attempts': attempts,
-                    'colour': _get_colour(pct),
-                    'pct': pct,
-                })
-            progress_grid.append(row)
+            progress_grid.append({
+                'level': level,
+                'strand_data': _build_strand_data(user, level, include_attempts=True),
+            })
 
         # ── Basic Facts results ───────────────────────────────────────
         from quiz.basic_facts import SUBTOPIC_CONFIG, SUBTOPIC_LABELS
@@ -117,16 +134,10 @@ class StudentDetailProgressView(LoginRequiredMixin, View):
         levels = Level.objects.filter(classrooms__in=classrooms, level_number__lte=8).distinct().order_by('level_number')
         progress_grid = []
         for level in levels:
-            topics = Topic.objects.filter(levels=level, is_active=True).order_by('name')
-            row = {'level': level, 'topics': []}
-            for topic in topics:
-                best = StudentFinalAnswer.get_best_result(student, topic, level)
-                pct = best.percentage if best else None
-                row['topics'].append({
-                    'topic': topic, 'best': best,
-                    'colour': _get_colour(pct), 'pct': pct,
-                })
-            progress_grid.append(row)
+            progress_grid.append({
+                'level': level,
+                'strand_data': _build_strand_data(student, level),
+            })
 
         return render(request, 'student/detail_progress.html', {
             'student': student,

@@ -52,21 +52,34 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
           </svg>
         </summary>
-        <div class="p-3">
-          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-            {% for item in row.topics %}
-            <a href="{% url 'topic_quiz' level_number=row.level.level_number topic_id=item.topic.id %}"
-               class="rounded-xl border border-transparent p-3 hover:shadow-md transition block {{ item.colour }}">
-              <p class="text-xs font-semibold mb-2">{{ item.topic.name }}</p>
-              {% if item.best %}
-              <p class="text-sm font-bold">{{ item.pct }}%</p>
-              <p class="text-xs opacity-70 mt-1">{{ item.attempts }} attempt{{ item.attempts|pluralize }}</p>
-              {% else %}
-              <p class="text-xs font-semibold opacity-60">Not started</p>
-              {% endif %}
-            </a>
-            {% endfor %}
+        <div class="p-3 space-y-4">
+          {% for strand_item in row.strand_data %}
+          <div>
+            <!-- Strand label (hidden for flat/legacy topics) -->
+            {% if strand_item.strand %}
+            <p class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-1">
+              {{ strand_item.strand.name }}
+            </p>
+            {% endif %}
+            <!-- Subtopics grid -->
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+              {% for item in strand_item.subtopics %}
+              <a href="{% url 'topic_quiz' level_number=row.level.level_number topic_id=item.topic.id %}"
+                 class="rounded-xl border border-transparent p-3 hover:shadow-md transition block {{ item.colour }}">
+                <p class="text-xs font-semibold mb-1">{{ item.topic.name }}</p>
+                {% if item.best %}
+                <p class="text-sm font-bold">{{ item.pct }}%</p>
+                <p class="text-xs opacity-70 mt-0.5">{{ item.attempts }} attempt{{ item.attempts|pluralize }}</p>
+                {% else %}
+                <p class="text-xs font-semibold opacity-60">Not started</p>
+                {% endif %}
+              </a>
+              {% endfor %}
+            </div>
           </div>
+          {% empty %}
+          <p class="text-sm text-gray-400 px-1">No topics available for this year yet.</p>
+          {% endfor %}
         </div>
       </details>
       {% endfor %}
