@@ -366,12 +366,12 @@ class Command(BaseCommand):
             q, new = Question.objects.get_or_create(
                 topic=topic,
                 level=level,
-                question_text=question_text,
+                question_text=self._sanitize(question_text),
                 defaults={
                     'question_type': Question.MULTIPLE_CHOICE,
                     'difficulty': int(difficulty) if difficulty else 1,
                     'points': int(points) if points else 1,
-                    'explanation': explanation or '',
+                    'explanation': self._sanitize(explanation),
                     'image': image or '',
                 },
             )
@@ -389,7 +389,7 @@ class Command(BaseCommand):
             existing_texts = set(q.answers.values_list('text', flat=True))
             for a_row in answers_by_q.get(old_q_id, []):
                 old_a_id, answer_text, is_correct, order, _ = a_row[:5]
-                text = answer_text or ''
+                text = self._sanitize(answer_text)
                 if text not in existing_texts:
                     answer = Answer.objects.create(
                         question=q,
@@ -696,6 +696,14 @@ class Command(BaseCommand):
         self.stdout.write(f'  StudentAnswer: {created} created, {skipped} skipped')
 
     # ── HELPERS ───────────────────────────────────────────────────────────────
+
+    def _sanitize(self, text):
+        """Strip 4-byte Unicode characters (e.g. math symbols) that MySQL utf8
+        charset cannot store. Use utf8mb4 on the DB to preserve them instead."""
+        if not text:
+            return text or ''
+        # Characters above U+FFFF require 4 bytes in UTF-8 and break MySQL utf8
+        return ''.join(c for c in text if ord(c) <= 0xFFFF)
 
     def _to_datetime(self, val):
         if val is None:
