@@ -103,6 +103,7 @@ class Command(BaseCommand):
                 tables.get('maths_studentanswer', []),
                 user_map, q_map, a_map,
             )
+            self._assign_unlimited_promo(user_map)
 
         self.stdout.write(self.style.SUCCESS('\n✅  Import complete!'))
 
@@ -694,6 +695,31 @@ class Command(BaseCommand):
             created += 1
 
         self.stdout.write(f'  StudentAnswer: {created} created, {skipped} skipped')
+
+    def _assign_unlimited_promo(self, user_map):
+        """Assign the UNLIMITED2026 promo code to all imported individual students."""
+        from billing.models import PromoCode
+        from accounts.models import Role
+
+        try:
+            promo = PromoCode.objects.get(code='UNLIMITED2026')
+        except PromoCode.DoesNotExist:
+            self.stdout.write(self.style.WARNING(
+                '  Promo UNLIMITED2026 not found — skipping promo assignment. Run migrate first.'
+            ))
+            return
+
+        individual_student_role = Role.objects.filter(name=Role.INDIVIDUAL_STUDENT).first()
+        if not individual_student_role:
+            return
+
+        assigned = 0
+        for user in user_map.values():
+            if user.user_roles.filter(role=individual_student_role).exists():
+                promo.redeemed_by.add(user)
+                assigned += 1
+
+        self.stdout.write(f'  Promo UNLIMITED2026 assigned to {assigned} individual student(s)')
 
     # ── HELPERS ───────────────────────────────────────────────────────────────
 
