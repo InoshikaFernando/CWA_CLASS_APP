@@ -69,16 +69,11 @@ class HomeView(LoginRequiredMixin, View):
                 Level.objects.filter(level_number__gte=100).values_list('id', flat=True)
             )
             accessible_level_ids |= basic_ids
-            # Individual students with unlimited promo (or no classroom yet): all year levels
-            if is_individual:
-                from billing.models import PromoCode
-                has_unlimited = PromoCode.objects.filter(
-                    redeemed_by=request.user, is_active=True, class_limit=0
-                ).exists()
-                if has_unlimited or not classrooms.exists():
-                    accessible_level_ids |= set(
-                        Level.objects.filter(level_number__lte=9).values_list('id', flat=True)
-                    )
+            # Individual students with no classroom: fall back to all year levels
+            if is_individual and not classrooms.exists():
+                accessible_level_ids |= set(
+                    Level.objects.filter(level_number__lte=9).values_list('id', flat=True)
+                )
 
             year_data = []
             for year in range(1, 10):
