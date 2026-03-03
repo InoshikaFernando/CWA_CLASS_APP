@@ -83,7 +83,7 @@ class HomeView(LoginRequiredMixin, View):
                     continue
                 subtopics = (
                     Topic.objects
-                    .filter(levels=level, is_active=True)
+                    .filter(levels=level, is_active=True, parent__isnull=False)
                     .select_related('parent')
                     .order_by('parent__order', 'order', 'name')
                 )
