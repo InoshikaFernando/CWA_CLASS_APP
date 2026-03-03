@@ -116,6 +116,7 @@ class StudentDashboardView(LoginRequiredMixin, View):
         from progress.models import StudentFinalAnswer, BasicFactsResult, TimeLog
 
         # ── Topic quiz progress grid ──────────────────────────────────────────
+        from progress.models import TopicLevelStatistics
         topic_results = StudentFinalAnswer.objects.filter(
             student=request.user,
             quiz_type__in=[StudentFinalAnswer.QUIZ_TYPE_TOPIC, StudentFinalAnswer.QUIZ_TYPE_MIXED],
@@ -128,6 +129,12 @@ class StudentDashboardView(LoginRequiredMixin, View):
             attempts_map[key] = attempts_map.get(key, 0) + 1
             if key not in best_map or r.points > best_map[key].points:
                 best_map[key] = r
+
+        # Pre-fetch platform statistics keyed by (level_id, topic_id)
+        stats_map = {
+            (s.level_id, s.topic_id): s
+            for s in TopicLevelStatistics.objects.all()
+        }
 
         # Determine which year levels this student has access to via their classrooms
         classrooms = ClassRoom.objects.filter(students=request.user, is_active=True)
@@ -161,12 +168,20 @@ class StudentDashboardView(LoginRequiredMixin, View):
                     strand_dict[key] = {'strand': topic.parent, 'subtopics': []}
                 lv_key = (level.id, topic.id)
                 best = best_map.get(lv_key)
-                pct = best.percentage if best else None
+                stat = stats_map.get(lv_key)
+                if best and stat:
+                    colour = stat.get_colour_band(best.points)
+                    if not colour:
+                        colour = 'bg-green-100 text-green-800'
+                elif best:
+                    colour = 'bg-green-100 text-green-800'
+                else:
+                    colour = 'bg-gray-100 text-gray-400'
                 strand_dict[key]['subtopics'].append({
                     'topic': topic,
                     'best': best,
-                    'pct': pct,
-                    'colour': _pct_colour(pct),
+                    'points': round(best.points, 1) if best else None,
+                    'colour': colour,
                     'attempts': attempts_map.get(lv_key, 0),
                 })
             strand_data = list(strand_dict.values())

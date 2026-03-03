@@ -33,14 +33,14 @@
     </summary>
 
     <div class="p-4 space-y-3">
-      <!-- Colour legend -->
+      <!-- Colour legend (deviation from class average) -->
       <div class="flex flex-wrap gap-2 text-xs font-semibold mb-2">
-        <span class="px-3 py-1 rounded-full bg-green-600 text-white">≥ 90%</span>
-        <span class="px-3 py-1 rounded-full bg-green-400 text-white">≥ 75%</span>
-        <span class="px-3 py-1 rounded-full bg-green-200 text-green-900">≥ 60%</span>
-        <span class="px-3 py-1 rounded-full bg-yellow-200 text-yellow-900">≥ 45%</span>
-        <span class="px-3 py-1 rounded-full bg-orange-200 text-orange-900">≥ 30%</span>
-        <span class="px-3 py-1 rounded-full bg-red-200 text-red-900">&lt; 30%</span>
+        <span class="px-3 py-1 rounded-full bg-green-800 text-white">&gt; avg + 2σ</span>
+        <span class="px-3 py-1 rounded-full bg-green-500 text-white">&gt; avg + σ</span>
+        <span class="px-3 py-1 rounded-full bg-green-200 text-green-900">Near average</span>
+        <span class="px-3 py-1 rounded-full bg-yellow-200 text-yellow-900">&lt; avg − σ</span>
+        <span class="px-3 py-1 rounded-full bg-orange-200 text-orange-900">&lt; avg − 2σ</span>
+        <span class="px-3 py-1 rounded-full bg-red-200 text-red-900">&lt; avg − 3σ</span>
         <span class="px-3 py-1 rounded-full bg-gray-100 text-gray-400">Not attempted</span>
       </div>
 
@@ -67,9 +67,11 @@
               <a href="{% url 'topic_quiz' level_number=row.level.level_number topic_id=item.topic.id %}"
                  class="rounded-xl border border-transparent p-3 hover:shadow-md transition block {{ item.colour }}">
                 <p class="text-xs font-semibold mb-1">{{ item.topic.name }}</p>
-                <p class="text-sm font-bold">{% if item.best %}{{ item.pct }}{% else %}0{% endif %}%</p>
                 {% if item.best %}
+                <p class="text-sm font-bold">{{ item.points }} pts</p>
                 <p class="text-xs opacity-70 mt-0.5">{{ item.attempts }} attempt{{ item.attempts|pluralize }}</p>
+                {% else %}
+                <p class="text-sm font-bold opacity-50">0 pts</p>
                 {% endif %}
               </a>
               {% endfor %}
