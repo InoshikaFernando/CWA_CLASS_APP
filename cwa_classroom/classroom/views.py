@@ -59,27 +59,21 @@ class HomeView(LoginRequiredMixin, View):
 
         if role in (Role.STUDENT, Role.INDIVIDUAL_STUDENT):
             is_individual = role == Role.INDIVIDUAL_STUDENT
-            if not is_individual:
-                classrooms = ClassRoom.objects.filter(students=request.user, is_active=True)
-                accessible_level_ids = set(
-                    Level.objects.filter(classrooms__in=classrooms).values_list('id', flat=True)
+            # Both student types: derive accessible levels from enrolled classrooms
+            classrooms = ClassRoom.objects.filter(students=request.user, is_active=True)
+            accessible_level_ids = set(
+                Level.objects.filter(classrooms__in=classrooms).values_list('id', flat=True)
+            )
+            # Always include basic facts levels
+            basic_ids = set(
+                Level.objects.filter(level_number__gte=100).values_list('id', flat=True)
+            )
+            accessible_level_ids |= basic_ids
+            # Individual students with no classroom: fall back to all year levels
+            if is_individual and not classrooms.exists():
+                accessible_level_ids |= set(
+                    Level.objects.filter(level_number__lte=9).values_list('id', flat=True)
                 )
-            else:
-                basic_ids = set(
-                    Level.objects.filter(level_number__gte=100).values_list('id', flat=True)
-                )
-                try:
-                    sub = request.user.subscription
-                    if sub.is_active_or_trialing:
-                        enrolled_ids = set(
-                            StudentLevelEnrollment.objects.filter(student=request.user)
-                            .values_list('level_id', flat=True)
-                        )
-                        accessible_level_ids = enrolled_ids | basic_ids
-                    else:
-                        accessible_level_ids = basic_ids
-                except Exception:
-                    accessible_level_ids = basic_ids
 
             year_data = []
             for year in range(1, 10):
