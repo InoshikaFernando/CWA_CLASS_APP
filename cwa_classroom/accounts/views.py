@@ -242,7 +242,7 @@ class SelectClassesView(LoginRequiredMixin, View):
     def get(self, request):
         if not request.user.is_individual_student:
             return redirect('home')
-        from classroom.models import ClassRoom
+        from classroom.models import ClassRoom, Subject
         from billing.models import PromoCode
 
         enrolled_classrooms = ClassRoom.objects.filter(
@@ -254,18 +254,38 @@ class SelectClassesView(LoginRequiredMixin, View):
         redeemed_promos = PromoCode.objects.filter(redeemed_by=request.user, is_active=True)
         has_unlimited = class_limit == 0
 
-        # For students with unlimited promo, show all classrooms they can join
-        enrolled_ids = enrolled_classrooms.values_list('id', flat=True)
-        available_classrooms = (
-            ClassRoom.objects.filter(is_active=True)
-            .exclude(id__in=enrolled_ids)
-            .prefetch_related('levels')
-            if has_unlimited else None
-        )
+        enrolled_ids = list(enrolled_classrooms.values_list('id', flat=True))
+
+        available_classrooms = None
+        subjects_with_rooms = []
+        active_subject_slug = ''
+
+        if has_unlimited:
+            active_subject_slug = request.GET.get('subject', '')
+            qs = (
+                ClassRoom.objects.filter(is_active=True)
+                .exclude(id__in=enrolled_ids)
+                .select_related('subject')
+                .prefetch_related('levels')
+            )
+            if active_subject_slug:
+                qs = qs.filter(subject__slug=active_subject_slug)
+            available_classrooms = qs
+
+            subjects_with_rooms = list(
+                Subject.objects.filter(
+                    classrooms__is_active=True,
+                    is_active=True,
+                ).exclude(
+                    classrooms__id__in=enrolled_ids
+                ).distinct().order_by('order', 'name')
+            )
 
         return render(request, 'accounts/select_classes.html', {
             'enrolled_classrooms': enrolled_classrooms,
             'available_classrooms': available_classrooms,
+            'subjects_with_rooms': subjects_with_rooms,
+            'active_subject_slug': active_subject_slug,
             'has_unlimited': has_unlimited,
             'class_limit': class_limit,
             'enrolled_count': enrolled_count,
