@@ -11,15 +11,26 @@ TOPIC_MAPPING = {
     "Algebra": [
         "BODMAS",
         "Integers",
-        "Factors",
+        "Expanding and Factorising Quadratics",
+        "Linear Equations",
+        "Simultaneous Equations",
+        "Indices and Powers",
     ],
     "Geometry": [
         "Angles",
         "Trigonometry",
+        "Pythagoras' Theorem",
+        "Circles",
+        "Composite Areas",
     ],
     "Measurement": [
         "Measurements",
         "Date and Time",
+        "Area",
+        "Perimeter",
+        "Volume",
+        "Rates",
+        "Unit Conversion",
     ],
     "Number": [
         "Whole Numbers",
@@ -28,6 +39,7 @@ TOPIC_MAPPING = {
         "Multiplication",
         "Division",
         "Finance",
+        "Factors",
         "Prime Numbers",
         "Square and Triangular Numbers",
         "Square Roots",
@@ -35,14 +47,16 @@ TOPIC_MAPPING = {
         "Number Systems",
         "Addition and Subtraction",
         "Estimation and Rounding",
+        "Ratios",
+        "Logic and Problem Solving",
     ],
     "Space": [
-        # Usually 2D / 3D shapes, position, transformation
-        # (No matching subtopics yet)
+        "3D Shapes",
     ],
     "Statistics": [
-        # Data handling, probability etc.
-        # (No matching subtopics yet)
+        "Mean and Average",
+        "Probability",
+        "Data Interpretation",
     ],
 }
 
@@ -148,7 +162,31 @@ class Command(BaseCommand):
             'Operation Order':               [7],
             'Number Systems':                [7],
             'Addition and Subtraction':      [7],
-            'Estimation and Rounding':       [7],
+            'Estimation and Rounding':                 [7],
+            'Expanding and Factorising Quadratics':    [7],
+            # Number additions
+            'Ratios':                                  [7],
+            'Logic and Problem Solving':               [7],
+            # Measurement additions
+            'Area':                                    [7],
+            'Perimeter':                               [7],
+            'Volume':                                  [8],
+            'Rates':                                   [7, 8],
+            'Unit Conversion':                         [7],
+            # Algebra additions
+            'Linear Equations':                        [8],
+            'Simultaneous Equations':                  [8],
+            'Indices and Powers':                      [7, 8],
+            # Geometry additions
+            "Pythagoras' Theorem":                     [8],
+            'Circles':                                 [8],
+            'Composite Areas':                         [8],
+            # Space
+            '3D Shapes':                               [7],
+            # Statistics
+            'Mean and Average':                        [7],
+            'Probability':                             [7],
+            'Data Interpretation':                     [7],
         }
 
         subtopic_count = 0
