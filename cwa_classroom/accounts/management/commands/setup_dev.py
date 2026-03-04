@@ -15,6 +15,9 @@ TOPIC_MAPPING = {
         "Linear Equations",
         "Simultaneous Equations",
         "Indices and Powers",
+        "Factorising Harder Quadratics",
+        "Quadratic Formula",
+        "Completing the Square",
     ],
     "Geometry": [
         "Angles",
@@ -177,6 +180,9 @@ class Command(BaseCommand):
             'Linear Equations':                        [8],
             'Simultaneous Equations':                  [8],
             'Indices and Powers':                      [7, 8],
+            'Factorising Harder Quadratics':           [7],
+            'Quadratic Formula':                       [7],
+            'Completing the Square':                   [8],
             # Geometry additions
             "Pythagoras' Theorem":                     [8],
             'Circles':                                 [8],

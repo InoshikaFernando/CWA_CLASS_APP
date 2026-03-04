@@ -432,7 +432,8 @@ class TopicQuizView(LoginRequiredMixin, View):
             return redirect('home')
 
         rnd.shuffle(questions_qs)
-        questions = questions_qs
+        limit = 8 + level_number * 2  # Y1→10, Y2→12, Y3→14, Y4→16, Y5→18, Y6→20, Y7→22, Y8→24
+        questions = questions_qs[:limit]
 
         # Serialise questions for session (just ids + shuffled answer ids)
         session_id = str(uuid.uuid4())
