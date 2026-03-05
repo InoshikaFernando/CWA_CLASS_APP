@@ -52,6 +52,9 @@ TOPIC_MAPPING = {
         "Estimation and Rounding",
         "Ratios",
         "Logic and Problem Solving",
+        "Percentages",
+        "HCF and LCM",
+        "Cube Numbers",
     ],
     "Space": [
         "3D Shapes",
@@ -149,12 +152,12 @@ class Command(BaseCommand):
             'Measurements':    [2, 3, 5, 6, 7],
             'Whole Numbers':   [6],
             'Factors':         [6, 7, 8],
-            'Angles':          [6],
+            'Angles':          [6, 7, 8],
             'Place Values':                  [2, 4, 7],
             'Fractions':       [3, 4, 7, 8],
-            'BODMAS':          [5, 6, 7],
-            'Date and Time':   [3],
-            'Finance':         [3, 4],
+            'BODMAS':          [5, 6, 7, 8],
+            'Date and Time':   [3, 8],
+            'Finance':         [3, 4, 7, 8],
             'Integers':        [4, 7, 8],
             'Trigonometry':    [8],
             'Multiplication':                 [1, 2, 3, 4, 7],
@@ -163,19 +166,19 @@ class Command(BaseCommand):
             'Square and Triangular Numbers': [7],
             'Square Roots':                  [7],
             'Operation Order':               [7],
-            'Number Systems':                [7],
+            'Number Systems':                [7, 8],
             'Addition and Subtraction':      [7],
-            'Estimation and Rounding':                 [7],
-            'Expanding and Factorising Quadratics':    [7],
+            'Estimation and Rounding':                 [7, 8],
+            'Expanding and Factorising Quadratics':    [7, 8],
             # Number additions
-            'Ratios':                                  [7],
-            'Logic and Problem Solving':               [7],
+            'Ratios':                                  [7, 8],
+            'Logic and Problem Solving':               [7, 8],
             # Measurement additions
-            'Area':                                    [7],
-            'Perimeter':                               [7],
+            'Area':                                    [7, 8],
+            'Perimeter':                               [7, 8],
             'Volume':                                  [8],
             'Rates':                                   [7, 8],
-            'Unit Conversion':                         [7],
+            'Unit Conversion':                         [7, 8],
             # Algebra additions
             'Linear Equations':                        [8],
             'Simultaneous Equations':                  [8],
@@ -190,9 +193,13 @@ class Command(BaseCommand):
             # Space
             '3D Shapes':                               [7],
             # Statistics
-            'Mean and Average':                        [7],
-            'Probability':                             [7],
-            'Data Interpretation':                     [7],
+            'Mean and Average':                        [7, 8],
+            'Probability':                             [7, 8],
+            'Data Interpretation':                     [7, 8],
+            # New Year 8 subtopics
+            'Percentages':                             [7, 8],
+            'HCF and LCM':                             [8],
+            'Cube Numbers':                            [8],
         }
 
         subtopic_count = 0
