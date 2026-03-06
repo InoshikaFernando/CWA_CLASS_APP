@@ -66,6 +66,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'accounts.context_processors.user_role',
+                'classroom.context_processors.subject_apps',
             ],
         },
     },
@@ -101,8 +102,8 @@ DATABASES = {
 AUTH_USER_MODEL = 'accounts.CustomUser'
 
 LOGIN_URL = '/accounts/login/'
-LOGIN_REDIRECT_URL = '/'
-LOGOUT_REDIRECT_URL = '/'
+LOGIN_REDIRECT_URL = '/hub/'          # Changed from '/' -- redirects to Subjects Hub after login
+LOGOUT_REDIRECT_URL = '/'             # Public landing page
 
 PASSWORD_RESET_TIMEOUT = 3600
 
@@ -202,3 +203,19 @@ QUIZ_RECENT_RESULT_WINDOW_SECONDS = 30
 # ---------------------------------------------------------------------------
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+# ---------------------------------------------------------------------------
+# Public landing page / Subject hub
+# ---------------------------------------------------------------------------
+
+SITE_NAME = 'Classroom'
+SITE_DESCRIPTION = 'A comprehensive educational platform for students ages 6-12.'
+SITE_URL = 'https://classroom.wizardslearninghub.co.nz'
+
+# Contact form rate limiting (uses django cache)
+CONTACT_RATE_LIMIT_PER_HOUR = 5
+
+# reCAPTCHA (production only -- leave blank for dev)
+RECAPTCHA_SITE_KEY = os.environ.get('RECAPTCHA_SITE_KEY', '')
+RECAPTCHA_SECRET_KEY = os.environ.get('RECAPTCHA_SECRET_KEY', '')

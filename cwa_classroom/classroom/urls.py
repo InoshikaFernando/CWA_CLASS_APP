@@ -2,7 +2,9 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
-    path('', views.HomeView.as_view(), name='home'),
+    # NOTE: The old HomeView at '/' has been replaced by PublicHomeView + SubjectsHubView
+    # in the project-level urls.py. HomeView is kept at /app-home/ as a fallback.
+    path('app-home/', views.HomeView.as_view(), name='home'),
     path('dashboard/', views.StudentDashboardView.as_view(), name='student_dashboard'),
     path('topics/', views.TopicsView.as_view(), name='topics'),
     path('topic/<int:topic_id>/levels/', views.TopicLevelsView.as_view(), name='topic_levels'),

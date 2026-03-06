@@ -1,11 +1,22 @@
+import logging
+
+from django.conf import settings
+from django.core.cache import cache
+from django.core.mail import send_mail
 from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
 from django.db import transaction
 
 from accounts.models import CustomUser, Role, UserRole
-from .models import ClassRoom, Subject, Topic, Level, ClassTeacher, ClassStudent
+from .models import (
+    ClassRoom, Subject, Topic, Level, ClassTeacher, ClassStudent,
+    SubjectApp, ContactMessage, CONTACT_SUBJECT_CHOICES,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class RoleRequiredMixin(LoginRequiredMixin):
@@ -16,7 +27,7 @@ class RoleRequiredMixin(LoginRequiredMixin):
             return self.handle_no_permission()
         if self.required_role and not request.user.has_role(self.required_role):
             messages.error(request, "You don't have permission to access that page.")
-            return redirect('home')
+            return redirect('subjects_hub')
         return super().dispatch(request, *args, **kwargs)
 
 
@@ -88,7 +99,7 @@ class HomeView(LoginRequiredMixin, View):
 class StudentDashboardView(LoginRequiredMixin, View):
     def get(self, request):
         if not (request.user.is_student or request.user.is_individual_student):
-            return redirect('home')
+            return redirect('subjects_hub')
         from progress.models import StudentFinalAnswer, BasicFactsResult
         final_answers = StudentFinalAnswer.objects.filter(
             student=request.user
@@ -141,7 +152,7 @@ class CreateClassView(RoleRequiredMixin, View):
                 classroom.levels.set(Level.objects.filter(id__in=level_ids))
             ClassTeacher.objects.create(classroom=classroom, teacher=request.user)
         messages.success(request, f'Class "{name}" created. Code: {classroom.code}')
-        return redirect('home')
+        return redirect('subjects_hub')
 
 
 class ClassDetailView(RoleRequiredMixin, View):
@@ -184,7 +195,7 @@ class AssignStudentsView(RoleRequiredMixin, View):
 class AssignTeachersView(LoginRequiredMixin, View):
     def get(self, request, class_id):
         if not (request.user.is_teacher or request.user.is_head_of_department):
-            return redirect('home')
+            return redirect('subjects_hub')
         classroom = get_object_or_404(ClassRoom, id=class_id)
         return render(request, 'teacher/assign_teachers.html', {
             'classroom': classroom,
@@ -193,7 +204,7 @@ class AssignTeachersView(LoginRequiredMixin, View):
 
     def post(self, request, class_id):
         if not (request.user.is_teacher or request.user.is_head_of_department):
-            return redirect('home')
+            return redirect('subjects_hub')
         classroom = get_object_or_404(ClassRoom, id=class_id)
         added = 0
         for tid in request.POST.getlist('teachers'):
@@ -519,3 +530,159 @@ class ProcessRefundView(RoleRequiredMixin, View):
         payment.save()
         messages.success(request, f'Refund processed for {payment.user.username}.')
         return redirect('accounting_refunds')
+
+
+# ---------------------------------------------------------------------------
+# Public Landing & Subject Hub Views
+# ---------------------------------------------------------------------------
+
+class PublicHomeView(View):
+    """Public landing page. Redirects authenticated users to the hub."""
+
+    def get(self, request):
+        if request.user.is_authenticated:
+            return redirect(reverse('subjects_hub'))
+        return render(request, 'public/home.html')
+
+
+class SubjectsHubView(LoginRequiredMixin, View):
+    """
+    Authenticated home -- shows greeting + subject cards.
+    Redirects HoD and Accountant roles to their existing dashboards.
+    """
+
+    def get(self, request):
+        user = request.user
+
+        # Redirect HoD and Accountant to their existing dashboards
+        if user.roles.filter(name=Role.HEAD_OF_DEPARTMENT).exists():
+            return redirect(reverse('hod_overview'))
+        if user.roles.filter(name=Role.ACCOUNTANT).exists():
+            return redirect(reverse('accounting_dashboard'))
+
+        # Show all visible subjects (active or coming soon)
+        subjects = SubjectApp.objects.exclude(
+            is_active=False, is_coming_soon=False
+        ).order_by('order')
+
+        return render(request, 'hub/home.html', {
+            'subjects': subjects,
+        })
+
+
+class SubjectsListView(LoginRequiredMixin, View):
+    """Convenience redirect: /subjects/ -> /hub/"""
+
+    def get(self, request):
+        return redirect(reverse('subjects_hub'))
+
+
+class ContactView(View):
+    """Public Contact Us page with form submission."""
+
+    def get(self, request):
+        sent = request.GET.get('sent') == '1'
+        return render(request, 'public/contact.html', {
+            'sent': sent,
+            'subject_choices': CONTACT_SUBJECT_CHOICES,
+        })
+
+    def post(self, request):
+        # --- Honeypot check ---
+        if request.POST.get('website', '').strip():
+            # Bot detected — silently return success
+            return redirect('/contact/?sent=1')
+
+        # --- Rate limiting (5 per IP per hour) ---
+        ip = _get_client_ip(request)
+        rate_limit = getattr(settings, 'CONTACT_RATE_LIMIT_PER_HOUR', 5)
+        cache_key = f'contact_ratelimit_{ip}'
+        submission_count = cache.get(cache_key, 0)
+        if submission_count >= rate_limit:
+            messages.error(
+                request,
+                'Too many submissions. Please try again later.',
+            )
+            return render(request, 'public/contact.html', {
+                'subject_choices': CONTACT_SUBJECT_CHOICES,
+            }, status=429)
+
+        # --- Validate form ---
+        name = request.POST.get('name', '').strip()
+        email = request.POST.get('email', '').strip()
+        subject = request.POST.get('subject', '').strip()
+        message_text = request.POST.get('message', '').strip()
+
+        errors = {}
+        if not name:
+            errors['name'] = 'Name is required.'
+        if not email or '@' not in email:
+            errors['email'] = 'A valid email address is required.'
+        valid_subjects = [c[0] for c in CONTACT_SUBJECT_CHOICES]
+        if subject not in valid_subjects:
+            errors['subject'] = 'Please select a valid subject.'
+        if not message_text:
+            errors['message'] = 'Message is required.'
+        elif len(message_text) > 2000:
+            errors['message'] = 'Message must be under 2000 characters.'
+
+        if errors:
+            return render(request, 'public/contact.html', {
+                'errors': errors,
+                'form_data': {
+                    'name': name,
+                    'email': email,
+                    'subject': subject,
+                    'message': message_text,
+                },
+                'subject_choices': CONTACT_SUBJECT_CHOICES,
+            })
+
+        # --- Save ---
+        ContactMessage.objects.create(
+            name=name,
+            email=email,
+            subject=subject,
+            message=message_text,
+            ip_address=ip,
+        )
+
+        # --- Update rate limit counter ---
+        cache.set(cache_key, submission_count + 1, 3600)
+
+        # --- Send notification email (best-effort) ---
+        try:
+            admin_email = getattr(
+                settings, 'DEFAULT_FROM_EMAIL',
+                'noreply@wizardslearninghub.co.nz',
+            )
+            subject_display = dict(CONTACT_SUBJECT_CHOICES).get(subject, subject)
+            send_mail(
+                subject=f'[Classroom] New Contact: {subject_display}',
+                message=(
+                    f'Name: {name}\nEmail: {email}\n'
+                    f'Subject: {subject_display}\n\n{message_text}'
+                ),
+                from_email=admin_email,
+                recipient_list=[admin_email],
+                fail_silently=True,
+            )
+        except Exception:
+            logger.exception('Failed to send contact form notification email')
+
+        return redirect('/contact/?sent=1')
+
+
+class JoinClassView(View):
+    """Public page showing registration options (Teacher / Individual Student)."""
+
+    def get(self, request):
+        return render(request, 'public/join_class.html')
+
+
+def _get_client_ip(request):
+    """Extract client IP from request, considering X-Forwarded-For header."""
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        return x_forwarded_for.split(',')[0].strip()
+    return request.META.get('REMOTE_ADDR', '127.0.0.1')

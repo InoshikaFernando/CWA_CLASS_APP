@@ -15,7 +15,7 @@ from .models import CustomUser, Role, UserRole
 class TeacherSignupView(View):
     def get(self, request):
         if request.user.is_authenticated:
-            return redirect('home')
+            return redirect('subjects_hub')
         return render(request, 'accounts/register_teacher.html')
 
     def post(self, request):
@@ -37,7 +37,7 @@ class TeacherSignupView(View):
                 UserRole.objects.create(user=user, role=role)
             login(request, user)
             messages.success(request, f'Welcome, {username}! Your teacher account is ready.')
-            return redirect('home')
+            return redirect('subjects_hub')
         except Exception as e:
             return render(request, 'accounts/register_teacher.html', {
                 'errors': [str(e)], 'username': username, 'email': email,
@@ -47,7 +47,7 @@ class TeacherSignupView(View):
 class TeacherCenterRegisterView(View):
     def get(self, request):
         if request.user.is_authenticated:
-            return redirect('home')
+            return redirect('subjects_hub')
         return render(request, 'accounts/register_teacher.html', {'center_mode': True})
 
     def post(self, request):
@@ -73,7 +73,7 @@ class TeacherCenterRegisterView(View):
                 UserRole.objects.create(user=user, role=role)
             login(request, user)
             messages.success(request, f'Welcome! Your teacher account for {center_name} is ready.')
-            return redirect('home')
+            return redirect('subjects_hub')
         except Exception as e:
             return render(request, 'accounts/register_teacher.html', {
                 'errors': [str(e)], 'username': username, 'email': email,
@@ -88,7 +88,7 @@ class TeacherCenterRegisterView(View):
 class IndividualStudentRegisterView(View):
     def get(self, request):
         if request.user.is_authenticated:
-            return redirect('home')
+            return redirect('subjects_hub')
         from billing.models import Package
         packages = Package.objects.filter(is_active=True).order_by('price')
         return render(request, 'accounts/register_individual_student.html', {'packages': packages})
@@ -231,7 +231,7 @@ class ProfileView(LoginRequiredMixin, View):
 class SelectClassesView(LoginRequiredMixin, View):
     def get(self, request):
         if not request.user.is_individual_student:
-            return redirect('home')
+            return redirect('subjects_hub')
         from classroom.models import ClassRoom
         all_classes = ClassRoom.objects.filter(is_active=True).prefetch_related('levels')
         enrolled = request.user.enrolled_classes.filter(is_active=True)
@@ -248,7 +248,7 @@ class SelectClassesView(LoginRequiredMixin, View):
 
     def post(self, request):
         if not request.user.is_individual_student:
-            return redirect('home')
+            return redirect('subjects_hub')
         from classroom.models import ClassRoom, ClassStudent
 
         action = request.POST.get('action')
@@ -279,7 +279,7 @@ class SelectClassesView(LoginRequiredMixin, View):
 class ChangePackageView(LoginRequiredMixin, View):
     def get(self, request):
         if not request.user.is_individual_student:
-            return redirect('home')
+            return redirect('subjects_hub')
         from billing.models import Package
         packages = Package.objects.filter(is_active=True).order_by('price')
         return render(request, 'accounts/change_package.html', {

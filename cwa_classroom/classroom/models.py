@@ -1,4 +1,5 @@
 import uuid
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.conf import settings
 
@@ -128,3 +129,83 @@ class ClassStudent(models.Model):
 
     def __str__(self):
         return f'{self.student.username} → {self.classroom.name}'
+
+
+# ---------------------------------------------------------------------------
+# Subject Hub models (public landing page & subject hub feature)
+# ---------------------------------------------------------------------------
+
+class SubjectApp(models.Model):
+    """
+    Represents a top-level subject application shown on the Subjects Hub.
+    Separate from the existing classroom.Subject model, which represents
+    internal curriculum subjects. SubjectApp represents external (or future
+    internal) subject applications that users can launch from the hub.
+    """
+    name = models.CharField(max_length=100, unique=True)
+    slug = models.SlugField(max_length=50, unique=True)
+    description = models.TextField(blank=True)
+    icon_name = models.CharField(
+        max_length=50, blank=True,
+        help_text='Heroicon name (e.g. "calculator") or emoji',
+    )
+    external_url = models.URLField(
+        blank=True, null=True,
+        help_text='Full URL to the external subject app. null = not yet available.',
+    )
+    is_active = models.BooleanField(default=False)
+    is_coming_soon = models.BooleanField(default=True)
+    order = models.PositiveIntegerField(default=0)
+    color = models.CharField(max_length=7, default='#16a34a')
+    subject = models.ForeignKey(
+        'Subject', null=True, blank=True, on_delete=models.SET_NULL,
+        help_text='Optional link to internal classroom.Subject for future use.',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['order', 'name']
+        verbose_name = 'Subject App'
+        verbose_name_plural = 'Subject Apps'
+
+    def __str__(self):
+        return self.name
+
+    def clean(self):
+        if self.is_active and self.is_coming_soon:
+            raise ValidationError(
+                'A subject cannot be both active and coming soon.'
+            )
+        if self.is_active and not self.external_url:
+            raise ValidationError(
+                'Active subjects must have an external_url.'
+            )
+
+
+CONTACT_SUBJECT_CHOICES = [
+    ('general', 'General Inquiry'),
+    ('support', 'Technical Support'),
+    ('billing', 'Billing'),
+    ('partnership', 'Partnership'),
+    ('other', 'Other'),
+]
+
+
+class ContactMessage(models.Model):
+    """Stores contact form submissions from the public Contact Us page."""
+    name = models.CharField(max_length=100)
+    email = models.EmailField()
+    subject = models.CharField(max_length=50, choices=CONTACT_SUBJECT_CHOICES)
+    message = models.TextField(max_length=2000)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_read = models.BooleanField(default=False)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Contact Message'
+        verbose_name_plural = 'Contact Messages'
+
+    def __str__(self):
+        return f'{self.name} — {self.get_subject_display()} ({self.created_at:%Y-%m-%d})'

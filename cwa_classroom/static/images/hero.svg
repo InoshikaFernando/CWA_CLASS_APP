@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400" fill="none">
+  <!-- Background circle -->
+  <circle cx="300" cy="200" r="180" fill="#bbf7d0" opacity="0.5"/>
+
+  <!-- Book -->
+  <rect x="200" y="140" width="200" height="150" rx="8" fill="#16a34a" opacity="0.9"/>
+  <rect x="205" y="145" width="90" height="140" rx="4" fill="white"/>
+  <rect x="305" y="145" width="90" height="140" rx="4" fill="white"/>
+
+  <!-- Book lines (left page) -->
+  <line x1="215" y1="170" x2="285" y2="170" stroke="#d1fae5" stroke-width="2"/>
+  <line x1="215" y1="185" x2="280" y2="185" stroke="#d1fae5" stroke-width="2"/>
+  <line x1="215" y1="200" x2="275" y2="200" stroke="#d1fae5" stroke-width="2"/>
+  <line x1="215" y1="215" x2="270" y2="215" stroke="#d1fae5" stroke-width="2"/>
+  <line x1="215" y1="230" x2="265" y2="230" stroke="#d1fae5" stroke-width="2"/>
+
+  <!-- Book lines (right page) -->
+  <line x1="315" y1="170" x2="385" y2="170" stroke="#d1fae5" stroke-width="2"/>
+  <line x1="315" y1="185" x2="380" y2="185" stroke="#d1fae5" stroke-width="2"/>
+  <line x1="315" y1="200" x2="375" y2="200" stroke="#d1fae5" stroke-width="2"/>
+  <line x1="315" y1="215" x2="370" y2="215" stroke="#d1fae5" stroke-width="2"/>
+  <line x1="315" y1="230" x2="365" y2="230" stroke="#d1fae5" stroke-width="2"/>
+
+  <!-- Spine -->
+  <line x1="300" y1="140" x2="300" y2="290" stroke="#15803d" stroke-width="3"/>
+
+  <!-- Stars -->
+  <polygon points="150,100 155,115 170,115 158,125 162,140 150,130 138,140 142,125 130,115 145,115" fill="#eab308"/>
+  <polygon points="420,80 424,92 436,92 426,100 430,112 420,104 410,112 414,100 404,92 416,92" fill="#eab308"/>
+  <polygon points="460,220 463,229 472,229 465,235 467,244 460,238 453,244 455,235 448,229 457,229" fill="#eab308" opacity="0.7"/>
+
+  <!-- Pencil -->
+  <rect x="420" y="260" width="12" height="60" rx="2" fill="#eab308" transform="rotate(-30 426 290)"/>
+  <polygon points="415,315 420,330 425,315" fill="#ca8a04" transform="rotate(-30 420 322)"/>
+
+  <!-- Graduation cap -->
+  <polygon points="300,90 240,115 300,140 360,115" fill="#16a34a"/>
+  <line x1="300" y1="140" x2="300" y2="105" stroke="#15803d" stroke-width="3"/>
+  <rect x="296" y="90" width="8" height="8" rx="2" fill="#15803d"/>
+  <line x1="360" y1="115" x2="360" y2="145" stroke="#15803d" stroke-width="2"/>
+  <circle cx="360" cy="148" r="4" fill="#eab308"/>
+</svg>

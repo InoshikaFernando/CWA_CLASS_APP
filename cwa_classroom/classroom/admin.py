@@ -1,5 +1,8 @@
 from django.contrib import admin
-from .models import Subject, Level, Topic, ClassRoom, ClassTeacher, ClassStudent
+from .models import (
+    Subject, Level, Topic, ClassRoom, ClassTeacher, ClassStudent,
+    SubjectApp, ContactMessage,
+)
 
 
 class ClassTeacherInline(admin.TabularInline):
@@ -44,3 +47,22 @@ class TopicAdmin(admin.ModelAdmin):
     list_filter = ('subject', 'is_active', 'levels')
     filter_horizontal = ('levels',)
     prepopulated_fields = {'slug': ('name',)}
+
+
+@admin.register(SubjectApp)
+class SubjectAppAdmin(admin.ModelAdmin):
+    list_display = ('name', 'slug', 'is_active', 'is_coming_soon', 'order', 'external_url')
+    list_filter = ('is_active', 'is_coming_soon')
+    list_editable = ('order', 'is_active', 'is_coming_soon')
+    prepopulated_fields = {'slug': ('name',)}
+    search_fields = ('name',)
+
+
+@admin.register(ContactMessage)
+class ContactMessageAdmin(admin.ModelAdmin):
+    list_display = ('name', 'email', 'subject', 'is_read', 'created_at')
+    list_filter = ('is_read', 'subject', 'created_at')
+    list_editable = ('is_read',)
+    search_fields = ('name', 'email', 'message')
+    readonly_fields = ('name', 'email', 'subject', 'message', 'ip_address', 'created_at')
+    date_hierarchy = 'created_at'

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Something went wrong — Code Wizard Aotearoa</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            display: ['Fredoka One', 'cursive'],
+            body: ['Nunito', 'sans-serif'],
+          },
+          colors: {
+            primary: { DEFAULT: '#16a34a', dark: '#15803d', light: '#bbf7d0' },
+          },
+        },
+      },
+    }
+  </script>
+</head>
+<body class="bg-white font-body text-gray-700 antialiased">
+  <section class="py-20 bg-gradient-to-br from-green-50 to-yellow-50 min-h-screen flex items-center">
+    <div class="max-w-2xl mx-auto px-4 text-center">
+      <div class="mb-8">
+        <span class="font-display text-8xl text-primary/30">500</span>
+      </div>
+      <h1 class="font-display text-3xl text-gray-800 mb-4">Something went wrong</h1>
+      <p class="text-gray-500 mb-8">
+        We're sorry, something went wrong on our end. Please try again later
+        or contact us at
+        <a href="mailto:contact@wizardslearninghub.co.nz" class="text-primary hover:underline">contact@wizardslearninghub.co.nz</a>.
+      </p>
+      <a href="/"
+         class="inline-block bg-primary text-white hover:bg-primary-dark rounded-xl px-6 py-3 font-semibold transition">
+        Back to Home
+      </a>
+    </div>
+  </section>
+</body>
+</html>

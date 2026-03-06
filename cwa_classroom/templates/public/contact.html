@@ -1,0 +1,179 @@
+{% extends "base_public.html" %}
+
+{% block title %}Contact Us{% endblock %}
+{% block meta_description %}Get in touch with the Classroom team.{% endblock %}
+{% block og_title %}Contact Us — Classroom{% endblock %}
+
+{% block content %}
+<section class="py-16 bg-gradient-to-br from-green-50 to-yellow-50 min-h-[60vh]">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+
+    <div class="text-center mb-12">
+      <h1 class="font-display text-4xl text-gray-800 mb-4">Get in Touch</h1>
+      <p class="text-gray-500 max-w-xl mx-auto">
+        Have a question or need help? We'd love to hear from you.
+      </p>
+    </div>
+
+    <!-- Success toast -->
+    {% if sent %}
+      <div class="max-w-2xl mx-auto mb-8" role="status" aria-live="polite">
+        <div class="bg-primary-light border border-primary text-primary-dark rounded-xl px-6 py-4 text-center font-semibold">
+          Message sent successfully! We'll get back to you soon.
+        </div>
+      </div>
+    {% endif %}
+
+    <div class="grid grid-cols-1 lg:grid-cols-5 gap-10">
+
+      <!-- Contact Form -->
+      <div class="lg:col-span-3">
+        <div class="bg-white rounded-2xl shadow-sm border border-border p-8">
+          <h2 class="text-xl font-bold text-gray-800 mb-6">Send us a message</h2>
+
+          <form method="post" action="/contact/" class="space-y-5" novalidate>
+            {% csrf_token %}
+
+            <!-- Honeypot (hidden) -->
+            <div style="display:none" aria-hidden="true">
+              <label for="website">Website</label>
+              <input type="text" name="website" id="website" tabindex="-1" autocomplete="off" />
+            </div>
+
+            <!-- Name -->
+            <div>
+              <label for="id_name" class="block text-sm font-semibold text-gray-700 mb-1.5">
+                Name <span class="text-red-500">*</span>
+              </label>
+              <input type="text" name="name" id="id_name"
+                     value="{{ form_data.name|default:'' }}"
+                     aria-required="true"
+                     {% if errors.name %}aria-describedby="name-error" aria-invalid="true"{% endif %}
+                     required
+                     class="w-full rounded-lg border {% if errors.name %}border-red-400{% else %}border-gray-300{% endif %} px-4 py-2.5 text-gray-700
+                            focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+              {% if errors.name %}
+                <p id="name-error" class="text-red-500 text-sm mt-1">{{ errors.name }}</p>
+              {% endif %}
+            </div>
+
+            <!-- Email -->
+            <div>
+              <label for="id_email" class="block text-sm font-semibold text-gray-700 mb-1.5">
+                Email <span class="text-red-500">*</span>
+              </label>
+              <input type="email" name="email" id="id_email"
+                     value="{{ form_data.email|default:'' }}"
+                     aria-required="true"
+                     {% if errors.email %}aria-describedby="email-error" aria-invalid="true"{% endif %}
+                     required
+                     class="w-full rounded-lg border {% if errors.email %}border-red-400{% else %}border-gray-300{% endif %} px-4 py-2.5 text-gray-700
+                            focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+              {% if errors.email %}
+                <p id="email-error" class="text-red-500 text-sm mt-1">{{ errors.email }}</p>
+              {% endif %}
+            </div>
+
+            <!-- Subject -->
+            <div>
+              <label for="id_subject" class="block text-sm font-semibold text-gray-700 mb-1.5">
+                Subject <span class="text-red-500">*</span>
+              </label>
+              <select name="subject" id="id_subject"
+                      aria-required="true"
+                      {% if errors.subject %}aria-describedby="subject-error" aria-invalid="true"{% endif %}
+                      required
+                      class="w-full rounded-lg border {% if errors.subject %}border-red-400{% else %}border-gray-300{% endif %} px-4 py-2.5 text-gray-700
+                             focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition">
+                <option value="">-- Select a subject --</option>
+                {% for value, label in subject_choices %}
+                  <option value="{{ value }}" {% if form_data.subject == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              {% if errors.subject %}
+                <p id="subject-error" class="text-red-500 text-sm mt-1">{{ errors.subject }}</p>
+              {% endif %}
+            </div>
+
+            <!-- Message -->
+            <div>
+              <label for="id_message" class="block text-sm font-semibold text-gray-700 mb-1.5">
+                Message <span class="text-red-500">*</span>
+              </label>
+              <textarea name="message" id="id_message" rows="5"
+                        aria-required="true"
+                        {% if errors.message %}aria-describedby="message-error" aria-invalid="true"{% endif %}
+                        required maxlength="2000"
+                        class="w-full rounded-lg border {% if errors.message %}border-red-400{% else %}border-gray-300{% endif %} px-4 py-2.5 text-gray-700
+                               focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition resize-y">{{ form_data.message|default:'' }}</textarea>
+              {% if errors.message %}
+                <p id="message-error" class="text-red-500 text-sm mt-1">{{ errors.message }}</p>
+              {% endif %}
+              <p class="text-xs text-gray-400 mt-1">Max 2000 characters</p>
+            </div>
+
+            <!-- Submit -->
+            <button type="submit"
+                    class="w-full bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-5 py-3 transition text-base">
+              Send Message
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Contact Information -->
+      <div class="lg:col-span-2">
+        <div class="bg-white rounded-2xl shadow-sm border border-border p-8 h-full">
+          <h2 class="text-xl font-bold text-gray-800 mb-6">Contact Information</h2>
+
+          <div class="space-y-6">
+            <!-- Address -->
+            <div class="flex items-start gap-3">
+              <svg class="w-6 h-6 text-primary flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+              </svg>
+              <div>
+                <p class="font-semibold text-gray-700">Address</p>
+                <p class="text-gray-500 text-sm">Auckland, New Zealand</p>
+              </div>
+            </div>
+
+            <!-- Email -->
+            <div class="flex items-start gap-3">
+              <svg class="w-6 h-6 text-primary flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+              </svg>
+              <div>
+                <p class="font-semibold text-gray-700">Email</p>
+                <a href="mailto:contact@wizardslearninghub.co.nz" class="text-primary hover:text-primary-dark text-sm transition">
+                  contact@wizardslearninghub.co.nz
+                </a>
+              </div>
+            </div>
+
+            <!-- Social -->
+            <div class="flex items-start gap-3">
+              <svg class="w-6 h-6 text-primary flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
+              </svg>
+              <div>
+                <p class="font-semibold text-gray-700">Follow Us</p>
+                <div class="flex gap-3 mt-1">
+                  <a href="https://facebook.com/codewizardaotearoa"
+                     target="_blank" rel="noopener noreferrer"
+                     class="text-gray-400 hover:text-primary transition text-sm">Facebook</a>
+                  <a href="https://linkedin.com/company/codewizardaotearoa"
+                     target="_blank" rel="noopener noreferrer"
+                     class="text-gray-400 hover:text-primary transition text-sm">LinkedIn</a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+{% endblock %}
