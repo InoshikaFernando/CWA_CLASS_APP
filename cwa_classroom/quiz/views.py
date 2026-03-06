@@ -320,6 +320,9 @@ class TimesTablesAnswerView(LoginRequiredMixin, View):
             selected = 0
 
         is_correct = (selected == q['answer'])
+        q['student_answer'] = selected
+        q['is_correct'] = is_correct
+        questions[current] = q
         session_data['current'] = current + 1
         request.session[session_key] = session_data
         is_last = (current + 1) >= len(questions)
@@ -362,12 +365,36 @@ class TimesTablesNextView(LoginRequiredMixin, View):
 
 class TimesTablesSubmitView(LoginRequiredMixin, View):
     def get(self, request, session_id):
+        import time as _time
         session_key = f'tt_{session_id}'
         session_data = request.session.get(session_key, {})
         table = session_data.get('table', 0)
         operation = session_data.get('operation', 'multiplication')
         level_number = session_data.get('level_number', 1)
-        # Redirect to results
+        questions = session_data.get('questions', [])
+        start_time = session_data.get('start_time', _time.time())
+
+        score = sum(1 for q in questions if q.get('is_correct', False))
+        total = len(questions) or 1
+        time_taken = max(1, int(_time.time() - start_time))
+        percentage = score / total
+        points = round((percentage * 100 * 60) / time_taken, 2)
+
+        # Save to DB using table number as level_number
+        from progress.models import StudentFinalAnswer
+        level_obj = Level.objects.filter(level_number=table).first()
+        if level_obj:
+            StudentFinalAnswer.objects.create(
+                student=request.user,
+                topic=None,
+                level=level_obj,
+                quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
+                score=score,
+                total_questions=total,
+                points=points,
+                time_taken_seconds=time_taken,
+            )
+
         request.session[f'tt_done_{session_id}'] = session_data
         del request.session[session_key]
         return redirect('times_tables_results_view', session_id=session_id)
@@ -405,7 +432,8 @@ class TopicQuizView(LoginRequiredMixin, View):
             return redirect('home')
 
         rnd.shuffle(questions_qs)
-        questions = questions_qs
+        limit = 8 + level_number * 2  # Y1→10, Y2→12, Y3→14, Y4→16, Y5→18, Y6→20, Y7→22, Y8→24
+        questions = questions_qs[:limit]
 
         # Serialise questions for session (just ids + shuffled answer ids)
         session_id = str(uuid.uuid4())

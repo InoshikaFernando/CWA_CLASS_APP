@@ -7,6 +7,65 @@ so the app is immediately usable after migrate.
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
+TOPIC_MAPPING = {
+    "Algebra": [
+        "BODMAS",
+        "Integers",
+        "Expanding and Factorising Quadratics",
+        "Linear Equations",
+        "Simultaneous Equations",
+        "Indices and Powers",
+        "Factorising Harder Quadratics",
+        "Quadratic Formula",
+        "Completing the Square",
+    ],
+    "Geometry": [
+        "Angles",
+        "Trigonometry",
+        "Pythagoras' Theorem",
+        "Circles",
+        "Composite Areas",
+    ],
+    "Measurement": [
+        "Measurements",
+        "Date and Time",
+        "Area",
+        "Perimeter",
+        "Volume",
+        "Rates",
+        "Unit Conversion",
+    ],
+    "Number": [
+        "Whole Numbers",
+        "Place Values",
+        "Fractions",
+        "Multiplication",
+        "Division",
+        "Finance",
+        "Factors",
+        "Prime Numbers",
+        "Square and Triangular Numbers",
+        "Square Roots",
+        "Operation Order",
+        "Number Systems",
+        "Addition and Subtraction",
+        "Estimation and Rounding",
+        "Ratios",
+        "Logic and Problem Solving",
+        "Percentages",
+        "HCF and LCM",
+        "Cube Numbers",
+    ],
+    "Space": [
+        "3D Shapes",
+    ],
+    "Statistics": [
+        "Mean and Average",
+        "Probability",
+        "Data Interpretation",
+    ],
+}
+
 
 class Command(BaseCommand):
     help = 'Bootstrap dev database with roles, users, packages, levels and topics.'
@@ -88,32 +147,81 @@ class Command(BaseCommand):
             name='Mathematics', defaults={'slug': 'mathematics', 'is_active': True}
         )
 
-        # topic name → list of year level numbers
+        # subtopic name → list of year level numbers
         topic_map = {
             'Measurements':    [2, 3, 5, 6, 7],
             'Whole Numbers':   [6],
             'Factors':         [6, 7, 8],
-            'Angles':          [6],
-            'Place Values':    [2, 4],
+            'Angles':          [6, 7, 8],
+            'Place Values':                  [2, 4, 7],
             'Fractions':       [3, 4, 7, 8],
-            'BODMAS':          [5, 6, 7],
-            'Date and Time':   [3],
-            'Finance':         [3],
+            'BODMAS':          [5, 6, 7, 8],
+            'Date and Time':   [3, 8],
+            'Finance':         [3, 4, 7, 8],
             'Integers':        [4, 7, 8],
             'Trigonometry':    [8],
-            'Multiplication':  [1, 2, 3, 4],
-            'Division':        [1, 2, 3, 4],
+            'Multiplication':                 [1, 2, 3, 4, 7],
+            'Division':                      [1, 2, 3, 4, 7],
+            'Prime Numbers':                 [7],
+            'Square and Triangular Numbers': [7],
+            'Square Roots':                  [7],
+            'Operation Order':               [7],
+            'Number Systems':                [7, 8],
+            'Addition and Subtraction':      [7],
+            'Estimation and Rounding':                 [7, 8],
+            'Expanding and Factorising Quadratics':    [7, 8],
+            # Number additions
+            'Ratios':                                  [7, 8],
+            'Logic and Problem Solving':               [7, 8],
+            # Measurement additions
+            'Area':                                    [7, 8],
+            'Perimeter':                               [7, 8],
+            'Volume':                                  [8],
+            'Rates':                                   [7, 8],
+            'Unit Conversion':                         [7, 8],
+            # Algebra additions
+            'Linear Equations':                        [8],
+            'Simultaneous Equations':                  [8],
+            'Indices and Powers':                      [7, 8],
+            'Factorising Harder Quadratics':           [7],
+            'Quadratic Formula':                       [7],
+            'Completing the Square':                   [8],
+            # Geometry additions
+            "Pythagoras' Theorem":                     [8],
+            'Circles':                                 [8],
+            'Composite Areas':                         [8],
+            # Space
+            '3D Shapes':                               [7],
+            # Statistics
+            'Mean and Average':                        [7, 8],
+            'Probability':                             [7, 8],
+            'Data Interpretation':                     [7, 8],
+            # New Year 8 subtopics
+            'Percentages':                             [7, 8],
+            'HCF and LCM':                             [8],
+            'Cube Numbers':                            [8],
         }
-        for i, (name, years) in enumerate(topic_map.items()):
-            topic, _ = Topic.objects.get_or_create(
-                subject=maths, slug=slugify(name),
-                defaults={'name': name, 'order': i, 'is_active': True}
+
+        subtopic_count = 0
+        for strand_order, (strand_name, subtopic_names) in enumerate(TOPIC_MAPPING.items()):
+            strand, _ = Topic.objects.get_or_create(
+                subject=maths, slug=slugify(strand_name),
+                defaults={'name': strand_name, 'order': strand_order, 'is_active': True, 'parent': None},
             )
-            for y in years:
-                level = Level.objects.filter(level_number=y).first()
-                if level:
-                    topic.levels.add(level)
-        self.stdout.write(f'  Topics: {len(topic_map)} created/verified')
+            for sub_order, sub_name in enumerate(subtopic_names):
+                subtopic, _ = Topic.objects.get_or_create(
+                    subject=maths, slug=slugify(sub_name),
+                    defaults={'name': sub_name, 'order': sub_order, 'is_active': True, 'parent': strand},
+                )
+                if subtopic.parent_id != strand.id:
+                    subtopic.parent = strand
+                    subtopic.save(update_fields=['parent'])
+                for y in topic_map.get(sub_name, []):
+                    level = Level.objects.filter(level_number=y).first()
+                    if level:
+                        subtopic.levels.add(level)
+                subtopic_count += 1
+        self.stdout.write(f'  Strands: {len(TOPIC_MAPPING)} | Subtopics: {subtopic_count} created/verified')
 
     def _create_users(self):
         from accounts.models import CustomUser, Role, UserRole

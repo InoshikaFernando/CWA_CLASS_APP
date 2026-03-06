@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import (
     Subject, Level, Topic, ClassRoom, ClassTeacher, ClassStudent,
-    SubjectApp, ContactMessage,
+    StudentLevelEnrollment, SubjectApp, ContactMessage,
 )
 
 
@@ -17,12 +17,13 @@ class ClassStudentInline(admin.TabularInline):
 
 @admin.register(ClassRoom)
 class ClassRoomAdmin(admin.ModelAdmin):
-    list_display = ('name', 'code', 'created_by', 'is_active', 'student_count', 'created_at')
-    list_filter = ('is_active', 'levels')
+    list_display = ('name', 'code', 'subject', 'created_by', 'is_active', 'student_count', 'created_at')
+    list_filter = ('is_active', 'subject', 'levels')
     search_fields = ('name', 'code')
     inlines = [ClassTeacherInline, ClassStudentInline]
     filter_horizontal = ('levels',)
     readonly_fields = ('code',)
+    autocomplete_fields = ('subject',)
 
     def student_count(self, obj):
         return obj.students.count()
@@ -33,6 +34,7 @@ class ClassRoomAdmin(admin.ModelAdmin):
 class SubjectAdmin(admin.ModelAdmin):
     list_display = ('name', 'slug', 'is_active', 'order')
     prepopulated_fields = {'slug': ('name',)}
+    search_fields = ('name',)
 
 
 @admin.register(Level)
@@ -47,6 +49,12 @@ class TopicAdmin(admin.ModelAdmin):
     list_filter = ('subject', 'is_active', 'levels')
     filter_horizontal = ('levels',)
     prepopulated_fields = {'slug': ('name',)}
+
+
+@admin.register(StudentLevelEnrollment)
+class StudentLevelEnrollmentAdmin(admin.ModelAdmin):
+    list_display = ('student', 'subject', 'level', 'enrolled_at')
+    list_filter = ('subject', 'level')
 
 
 @admin.register(SubjectApp)

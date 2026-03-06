@@ -28,11 +28,7 @@
               class="answer-btn w-full text-left px-5 py-3.5 rounded-xl border-2 border-gray-200
                      hover:border-primary hover:bg-primary-light font-semibold text-gray-700
                      transition focus:outline-none"
-              hx-post="{{ submit_url|default:'/api/submit-topic-answer/' }}"
-              hx-target="#question-container"
-              hx-swap="innerHTML"
-              hx-vals='{"question_id": {{ question.id }}, "answer_id": {{ answer.id }}, "session_id": "{{ session_id }}"}'
-              hx-ext="json-enc">
+              onclick="submitMCAnswer('{{ session_id }}', {{ question.id }}, {{ answer.id }})">
         {{ answer.text }}
       </button>
       {% endfor %}

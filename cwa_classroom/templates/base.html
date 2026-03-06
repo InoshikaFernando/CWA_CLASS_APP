@@ -5,6 +5,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}Classroom{% endblock %} — CWA School</title>
+  <link rel="icon" type="image/png" href="{% static 'images/logo.png' %}" />
+  <link rel="apple-touch-icon" href="{% static 'images/logo.png' %}" />
 
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -32,15 +34,7 @@
     }
   </script>
 
-  <!-- HTMX -->
-  <script src="{% static 'js/htmx.min.js' %}"></script>
   <meta name="csrf-token" content="{{ csrf_token }}" />
-  <script>
-    document.addEventListener('htmx:configRequest', (e) => {
-      e.detail.headers['X-CSRFToken'] = document.querySelector('meta[name="csrf-token"]').content;
-    });
-  </script>
-
   {% block extra_head %}{% endblock %}
 </head>
 

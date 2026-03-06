@@ -228,46 +228,140 @@ class ProfileView(LoginRequiredMixin, View):
 # Class selection (IndividualStudent post-registration)
 # ---------------------------------------------------------------------------
 
+def _effective_class_limit(user):
+    """Returns the effective class limit for a user.
+    Checks redeemed promo codes first (0 = unlimited), then falls back to package limit."""
+    from billing.models import PromoCode
+    promo = PromoCode.objects.filter(redeemed_by=user, is_active=True).order_by('class_limit').first()
+    if promo is not None:
+        return promo.class_limit  # 0 = unlimited
+    return user.package.class_limit if user.package else 1
+
+
 class SelectClassesView(LoginRequiredMixin, View):
     def get(self, request):
         if not request.user.is_individual_student:
             return redirect('subjects_hub')
-        from classroom.models import ClassRoom
-        all_classes = ClassRoom.objects.filter(is_active=True).prefetch_related('levels')
-        enrolled = request.user.enrolled_classes.filter(is_active=True)
-        package = request.user.package
-        limit = package.class_limit if package else 0  # 0 = unlimited
+        from classroom.models import ClassRoom, Subject
+        from billing.models import PromoCode
+
+        enrolled_classrooms = ClassRoom.objects.filter(
+            students=request.user, is_active=True
+        ).prefetch_related('levels')
+
+        class_limit = _effective_class_limit(request.user)
+        enrolled_count = enrolled_classrooms.count()
+        redeemed_promos = PromoCode.objects.filter(redeemed_by=request.user, is_active=True)
+        has_unlimited = class_limit == 0
+
+        enrolled_ids = list(enrolled_classrooms.values_list('id', flat=True))
+
+        available_classrooms = None
+        subjects_with_rooms = []
+        active_subject_slug = ''
+
+        if has_unlimited:
+            active_subject_slug = request.GET.get('subject', '')
+            qs = (
+                ClassRoom.objects.filter(is_active=True)
+                .exclude(id__in=enrolled_ids)
+                .select_related('subject')
+                .prefetch_related('levels')
+            )
+            if active_subject_slug:
+                qs = qs.filter(subject__slug=active_subject_slug)
+            available_classrooms = qs
+
+            subjects_with_rooms = list(
+                Subject.objects.filter(
+                    classrooms__is_active=True,
+                    is_active=True,
+                ).exclude(
+                    classrooms__id__in=enrolled_ids
+                ).distinct().order_by('order', 'name')
+            )
 
         return render(request, 'accounts/select_classes.html', {
-            'all_classes': all_classes,
-            'enrolled': enrolled,
-            'enrolled_ids': set(enrolled.values_list('id', flat=True)),
-            'class_limit': limit,
-            'enrolled_count': enrolled.count(),
+            'enrolled_classrooms': enrolled_classrooms,
+            'available_classrooms': available_classrooms,
+            'subjects_with_rooms': subjects_with_rooms,
+            'active_subject_slug': active_subject_slug,
+            'has_unlimited': has_unlimited,
+            'class_limit': class_limit,
+            'enrolled_count': enrolled_count,
+            'redeemed_promos': redeemed_promos,
         })
 
     def post(self, request):
         if not request.user.is_individual_student:
             return redirect('subjects_hub')
         from classroom.models import ClassRoom, ClassStudent
+        from billing.models import PromoCode
 
         action = request.POST.get('action')
-        class_id = request.POST.get('class_id')
-        classroom = get_object_or_404(ClassRoom, id=class_id, is_active=True)
 
         if action == 'join':
-            package = request.user.package
-            limit = package.class_limit if package else 0
-            current_count = request.user.enrolled_classes.count()
-            if limit != 0 and current_count >= limit:
-                messages.error(request, f'You can only join {limit} class(es) on your current plan.')
+            # Support joining by ID (unlimited students browsing the list) or by code
+            classroom_id = request.POST.get('classroom_id')
+            code = request.POST.get('class_code', '').strip().upper()
+
+            if classroom_id:
+                classroom = get_object_or_404(ClassRoom, id=classroom_id, is_active=True)
+            elif code:
+                try:
+                    classroom = ClassRoom.objects.get(code=code, is_active=True)
+                except ClassRoom.DoesNotExist:
+                    messages.error(request, f'No active class found with code "{code}". Check with your teacher.')
+                    return redirect('select_classes')
             else:
-                ClassStudent.objects.get_or_create(classroom=classroom, student=request.user)
-                messages.success(request, f'Joined {classroom.name}.')
+                messages.error(request, 'Please enter a class code.')
+                return redirect('select_classes')
+
+            if ClassStudent.objects.filter(classroom=classroom, student=request.user).exists():
+                messages.info(request, f'You are already enrolled in {classroom.name}.')
+                return redirect('select_classes')
+
+            class_limit = _effective_class_limit(request.user)
+            enrolled_count = ClassRoom.objects.filter(students=request.user, is_active=True).count()
+            if class_limit != 0 and enrolled_count >= class_limit:
+                messages.error(request, f'Your plan allows up to {class_limit} class{"es" if class_limit != 1 else ""}. Use a promo code or upgrade to join more.')
+                return redirect('select_classes')
+
+            ClassStudent.objects.create(classroom=classroom, student=request.user)
+            messages.success(request, f'Joined "{classroom.name}" successfully!')
 
         elif action == 'leave':
+            classroom_id = request.POST.get('classroom_id')
+            classroom = get_object_or_404(ClassRoom, id=classroom_id)
             ClassStudent.objects.filter(classroom=classroom, student=request.user).delete()
-            messages.success(request, f'Left {classroom.name}.')
+            messages.success(request, f'Left "{classroom.name}".')
+
+        elif action == 'redeem':
+            code = request.POST.get('promo_code', '').strip().upper()
+            if not code:
+                messages.error(request, 'Please enter a promo code.')
+                return redirect('select_classes')
+
+            try:
+                promo = PromoCode.objects.get(code=code)
+            except PromoCode.DoesNotExist:
+                messages.error(request, f'Promo code "{code}" is not valid.')
+                return redirect('select_classes')
+
+            if not promo.is_valid():
+                messages.error(request, f'Promo code "{code}" has expired or is no longer active.')
+                return redirect('select_classes')
+
+            if promo.redeemed_by.filter(pk=request.user.pk).exists():
+                messages.info(request, 'You have already redeemed this promo code.')
+                return redirect('select_classes')
+
+            promo.redeemed_by.add(request.user)
+            promo.uses += 1
+            promo.save(update_fields=['uses'])
+
+            limit_text = 'unlimited class access' if promo.class_limit == 0 else f'access to {promo.class_limit} class{"es" if promo.class_limit != 1 else ""}'
+            messages.success(request, f'Promo code applied! You now have {limit_text}.')
 
         return redirect('select_classes')
 

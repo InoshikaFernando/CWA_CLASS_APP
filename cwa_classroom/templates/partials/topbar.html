@@ -6,7 +6,7 @@
   <div class="flex items-center gap-3">
     <!-- Mobile hamburger -->
     <button class="md:hidden text-gray-500 hover:text-primary transition"
-            onclick="document.getElementById('mobile-drawer').classList.toggle('translate-x-full')">
+            onclick="openMobileDrawer()">
       <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/>
       </svg>
@@ -107,12 +107,17 @@
   </div>
 </header>
 
+<!-- Mobile backdrop overlay -->
+<div id="mobile-overlay"
+     class="fixed inset-0 bg-black/50 z-40 hidden md:hidden"
+     onclick="closeMobileDrawer()"></div>
+
 <!-- Mobile slide-out drawer -->
 <div id="mobile-drawer"
-     class="fixed inset-y-0 left-0 z-50 w-72 bg-primary transform translate-x-full transition-transform duration-300 ease-in-out md:hidden">
+     class="fixed inset-y-0 left-0 z-50 w-72 bg-primary transform -translate-x-full transition-transform duration-300 ease-in-out md:hidden">
   <div class="flex items-center justify-between p-4 border-b border-white/20">
     <span class="font-display text-white text-xl">Menu</span>
-    <button class="text-white" onclick="document.getElementById('mobile-drawer').classList.add('translate-x-full')">
+    <button class="text-white" onclick="closeMobileDrawer()">
       <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
       </svg>
@@ -130,3 +135,14 @@
     {% endif %}
   </nav>
 </div>
+
+<script>
+function openMobileDrawer() {
+  document.getElementById('mobile-drawer').classList.remove('-translate-x-full');
+  document.getElementById('mobile-overlay').classList.remove('hidden');
+}
+function closeMobileDrawer() {
+  document.getElementById('mobile-drawer').classList.add('-translate-x-full');
+  document.getElementById('mobile-overlay').classList.add('hidden');
+}
+</script>

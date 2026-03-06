@@ -13,7 +13,7 @@ from django.db import transaction
 from accounts.models import CustomUser, Role, UserRole
 from .models import (
     ClassRoom, Subject, Topic, Level, ClassTeacher, ClassStudent,
-    SubjectApp, ContactMessage, CONTACT_SUBJECT_CHOICES,
+    StudentLevelEnrollment, SubjectApp, ContactMessage, CONTACT_SUBJECT_CHOICES,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,8 +36,9 @@ def _get_individual_student_levels(user):
     try:
         sub = user.subscription
         if sub.is_active_or_trialing:
-            classrooms = ClassRoom.objects.filter(students=user, is_active=True)
-            enrolled_levels = Level.objects.filter(classrooms__in=classrooms).distinct()
+            enrolled_levels = Level.objects.filter(
+                studentlevelenrollment__student=user
+            ).distinct()
             return (enrolled_levels | basic_facts_levels).distinct()
     except Exception:
         pass
@@ -68,28 +69,51 @@ class HomeView(LoginRequiredMixin, View):
             return render(request, 'teacher/home.html', {'classes': classes})
 
         if role in (Role.STUDENT, Role.INDIVIDUAL_STUDENT):
-            if role == Role.STUDENT:
-                classrooms = ClassRoom.objects.filter(students=request.user, is_active=True)
-                accessible_levels = Level.objects.filter(classrooms__in=classrooms).distinct()
-            else:
-                accessible_levels = _get_individual_student_levels(request.user)
+            is_individual = role == Role.INDIVIDUAL_STUDENT
+            # Both student types: derive accessible levels from enrolled classrooms
+            classrooms = ClassRoom.objects.filter(students=request.user, is_active=True)
+            accessible_level_ids = set(
+                Level.objects.filter(classrooms__in=classrooms).values_list('id', flat=True)
+            )
+            # Always include basic facts levels
+            basic_ids = set(
+                Level.objects.filter(level_number__gte=100).values_list('id', flat=True)
+            )
+            accessible_level_ids |= basic_ids
+            # Individual students with no classroom: fall back to all year levels
+            if is_individual and not classrooms.exists():
+                accessible_level_ids |= set(
+                    Level.objects.filter(level_number__lte=9).values_list('id', flat=True)
+                )
 
             year_data = []
-            for year in range(1, 9):
+            for year in range(1, 10):
                 try:
                     level = Level.objects.get(level_number=year)
-                    topics = Topic.objects.filter(levels=level, is_active=True).select_related('subject')
-                    year_data.append({
-                        'level': level,
-                        'topics': topics,
-                        'accessible': level in accessible_levels,
-                    })
                 except Level.DoesNotExist:
-                    pass
+                    continue
+                subtopics = (
+                    Topic.objects
+                    .filter(levels=level, is_active=True, parent__isnull=False)
+                    .select_related('parent')
+                    .order_by('parent__order', 'order', 'name')
+                )
+                strand_dict = {}
+                for subtopic in subtopics:
+                    sid = subtopic.parent_id
+                    if sid not in strand_dict:
+                        strand_dict[sid] = {'strand': subtopic.parent, 'subtopics': []}
+                    strand_dict[sid]['subtopics'].append(subtopic)
+                year_data.append({
+                    'level': level,
+                    'strand_data': list(strand_dict.values()),
+                    'subtopic_count': subtopics.count(),
+                    'accessible': level.id in accessible_level_ids,
+                })
 
             return render(request, 'student/home.html', {
                 'year_data': year_data,
-                'accessible_levels': accessible_levels,
+                'is_individual_student': is_individual,
             })
 
         # No role at all
@@ -100,17 +124,166 @@ class StudentDashboardView(LoginRequiredMixin, View):
     def get(self, request):
         if not (request.user.is_student or request.user.is_individual_student):
             return redirect('subjects_hub')
-        from progress.models import StudentFinalAnswer, BasicFactsResult
-        final_answers = StudentFinalAnswer.objects.filter(
+        from progress.models import StudentFinalAnswer, BasicFactsResult, TimeLog
+
+        # ── Topic quiz progress grid ──────────────────────────────────────────
+        from progress.models import TopicLevelStatistics
+        topic_results = StudentFinalAnswer.objects.filter(
+            student=request.user,
+            quiz_type__in=[StudentFinalAnswer.QUIZ_TYPE_TOPIC, StudentFinalAnswer.QUIZ_TYPE_MIXED],
+        ).select_related('topic', 'level')
+
+        best_map = {}
+        attempts_map = {}
+        for r in topic_results:
+            key = (r.level_id, r.topic_id)
+            attempts_map[key] = attempts_map.get(key, 0) + 1
+            if key not in best_map or r.points > best_map[key].points:
+                best_map[key] = r
+
+        # Pre-fetch platform statistics keyed by (level_id, topic_id)
+        stats_map = {
+            (s.level_id, s.topic_id): s
+            for s in TopicLevelStatistics.objects.all()
+        }
+
+        # Determine which year levels this student has access to via their classrooms
+        classrooms = ClassRoom.objects.filter(students=request.user, is_active=True)
+        enrolled_level_ids = set(
+            Level.objects.filter(classrooms__in=classrooms, level_number__lte=8).values_list('id', flat=True)
+        )
+        # Fall back to all Year 1-8 levels if not in any classroom yet
+        if not enrolled_level_ids:
+            enrolled_level_ids = set(
+                Level.objects.filter(level_number__lte=8).values_list('id', flat=True)
+            )
+
+        progress_grid = []
+        for year in range(1, 10):
+            try:
+                level = Level.objects.get(level_number=year)
+            except Level.DoesNotExist:
+                continue
+            if level.id not in enrolled_level_ids:
+                continue
+            # Group topics by strand (only subtopics — topics with a parent)
+            all_topics = (
+                Topic.objects.filter(levels=level, is_active=True, parent__isnull=False)
+                .select_related('parent')
+                .order_by('parent__order', 'order', 'name')
+            )
+            strand_dict = {}
+            for topic in all_topics:
+                key = topic.parent_id if topic.parent_id else '__flat__'
+                if key not in strand_dict:
+                    strand_dict[key] = {'strand': topic.parent, 'subtopics': []}
+                lv_key = (level.id, topic.id)
+                best = best_map.get(lv_key)
+                stat = stats_map.get(lv_key)
+                if best and stat:
+                    colour = stat.get_colour_band(best.points)
+                    if not colour:
+                        colour = 'bg-green-100 text-green-800'
+                elif best:
+                    colour = 'bg-green-100 text-green-800'
+                else:
+                    colour = 'bg-gray-100 text-gray-400'
+                strand_dict[key]['subtopics'].append({
+                    'topic': topic,
+                    'best': best,
+                    'points': round(best.points, 1) if best else None,
+                    'colour': colour,
+                    'attempts': attempts_map.get(lv_key, 0),
+                })
+            strand_data = list(strand_dict.values())
+            if not strand_data:
+                continue
+            progress_grid.append({'level': level, 'strand_data': strand_data})
+
+        # ── Basic Facts grid ──────────────────────────────────────────────────
+        BF_SUBTOPICS = [
+            ('Addition',       'Addition',        100, 106),
+            ('Subtraction',    'Subtraction',     107, 113),
+            ('Multiplication', 'Multiplication',  114, 120),
+            ('Division',       'Division',        121, 127),
+            ('PlaceValue',     'Place Value',     128, 132),
+        ]
+        bf_grid = []
+        for subtopic, label, start, end in BF_SUBTOPICS:
+            levels_data = []
+            for i, num in enumerate(range(start, end + 1), 1):
+                best = BasicFactsResult.get_best_result(request.user, subtopic, num)
+                levels_data.append({
+                    'level_number': num,
+                    'display_level': i,
+                    'best': best,
+                    'colour': _pct_colour(best.percentage if best else None),
+                })
+            bf_grid.append({'subtopic': subtopic, 'label': label, 'levels': levels_data})
+
+        # ── Times Tables results ──────────────────────────────────────────────
+        tt_results = []
+        for table in range(1, 13):
+            best = StudentFinalAnswer.objects.filter(
+                student=request.user,
+                quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
+                level__level_number=table,
+            ).order_by('-points').first()
+            count = StudentFinalAnswer.objects.filter(
+                student=request.user,
+                quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
+                level__level_number=table,
+            ).count()
+            tt_results.append({
+                'table': table,
+                'best': best,
+                'pct': best.percentage if best else None,
+                'colour': _pct_colour(best.percentage if best else None),
+                'attempts': count,
+            })
+
+        # ── Recent activity ───────────────────────────────────────────────────
+        recent_topic = StudentFinalAnswer.objects.filter(
+            student=request.user,
+            quiz_type__in=[StudentFinalAnswer.QUIZ_TYPE_TOPIC, StudentFinalAnswer.QUIZ_TYPE_MIXED],
+        ).select_related('topic', 'level').order_by('-completed_at')[:5]
+
+        recent_bf = BasicFactsResult.objects.filter(
             student=request.user
-        ).select_related('topic', 'level').order_by('topic__name', 'level__level_number')
-        bf_results = BasicFactsResult.objects.filter(
-            student=request.user
-        ).order_by('subtopic', 'level_number')
+        ).order_by('-completed_at')[:5]
+
+        recent_tt = StudentFinalAnswer.objects.filter(
+            student=request.user,
+            quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
+        ).select_related('level').order_by('-completed_at')[:5]
+
+        time_log = TimeLog.objects.filter(student=request.user).first()
+
         return render(request, 'student/dashboard.html', {
-            'final_answers': final_answers,
-            'bf_results': bf_results,
+            'progress_grid': progress_grid,
+            'bf_grid': bf_grid,
+            'tt_results': tt_results,
+            'recent_topic': recent_topic,
+            'recent_bf': recent_bf,
+            'recent_tt': recent_tt,
+            'time_log': time_log,
         })
+
+
+def _pct_colour(pct):
+    if pct is None:
+        return 'bg-gray-100 text-gray-400'
+    if pct >= 90:
+        return 'bg-green-600 text-white'
+    if pct >= 75:
+        return 'bg-green-400 text-white'
+    if pct >= 60:
+        return 'bg-green-200 text-green-900'
+    if pct >= 45:
+        return 'bg-yellow-200 text-yellow-900'
+    if pct >= 30:
+        return 'bg-orange-200 text-orange-900'
+    return 'bg-red-200 text-red-900'
 
 
 class TopicsView(LoginRequiredMixin, View):
