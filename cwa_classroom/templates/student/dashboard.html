@@ -140,11 +140,12 @@
     <div class="p-4">
       <div class="flex flex-wrap gap-3">
         {% for tt in tt_results %}
-        <div class="flex flex-col items-center gap-1 p-3 rounded-xl border border-transparent min-w-16 {{ tt.colour }}">
+        <div class="flex flex-col items-center gap-0.5 p-3 rounded-xl border border-transparent min-w-20 {{ tt.colour }}">
           <span class="text-xs font-bold">{{ tt.table }}×</span>
           {% if tt.best %}
           <span class="text-sm font-bold">{{ tt.pct }}%</span>
-          <span class="text-xs opacity-60">{{ tt.attempts }}×</span>
+          <span class="text-xs font-semibold">{{ tt.best.points|floatformat:0 }} pts</span>
+          <span class="text-xs opacity-60">⏱ {{ tt.best.time_taken_seconds }}s</span>
           {% else %}
           <span class="text-sm font-bold opacity-40">—</span>
           {% endif %}
