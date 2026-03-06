@@ -83,6 +83,7 @@ class StudentFinalAnswer(models.Model):
         related_name='final_answers',
     )
     quiz_type = models.CharField(max_length=20, choices=QUIZ_TYPE_CHOICES, default=QUIZ_TYPE_TOPIC)
+    operation = models.CharField(max_length=20, blank=True, default='')
     session_id = models.UUIDField(default=uuid.uuid4, unique=True)
     attempt_number = models.PositiveIntegerField(default=1)
     score = models.PositiveSmallIntegerField(default=0)

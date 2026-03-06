@@ -389,6 +389,7 @@ class TimesTablesSubmitView(LoginRequiredMixin, View):
                 topic=None,
                 level=level_obj,
                 quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
+                operation=operation,
                 score=score,
                 total_questions=total,
                 points=points,
