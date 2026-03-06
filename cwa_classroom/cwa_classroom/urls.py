@@ -38,6 +38,12 @@ urlpatterns = [
     # --- Billing ---
     path('', include('billing.urls')),
 
+    # --- Subject apps ---
+    path('maths/', include('maths.urls', namespace='maths')),
+    path('coding/', include('coding.urls', namespace='coding')),
+    path('music/', include('music.urls', namespace='music')),
+    path('science/', include('science.urls', namespace='science')),
+
     # --- API ---
     path('api/', include('quiz.api_urls')),
     path('api/', include('progress.api_urls')),

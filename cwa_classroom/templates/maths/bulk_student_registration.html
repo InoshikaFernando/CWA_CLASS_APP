@@ -1,0 +1,78 @@
+{% extends "maths/base.html" %}
+{% block content %}
+  <h1>Bulk Student Registration</h1>
+  
+  {% if messages %}
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+  
+  <div class="bulk-registration-form">
+    <p>Register multiple students at once for your classes.</p>
+    
+    <form method="post">
+      {% csrf_token %}
+      
+      <div class="form-group">
+        <label for="{{ form.student_data.id_for_label }}">Student Information:</label>
+        {{ form.student_data }}
+        <small>Format: username,email,password (one per line)</small>
+      </div>
+      
+      <button type="submit" class="btn btn-primary">Create Student Accounts</button>
+    </form>
+    
+    <div class="back-link">
+      <a href="{% url 'maths:dashboard' %}" class="btn btn-secondary">Back to Dashboard</a>
+    </div>
+  </div>
+  
+  <style>
+    .bulk-registration-form {
+      max-width: 700px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    
+    .form-group {
+      margin: 20px 0;
+    }
+    
+    .form-group label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    
+    .form-group textarea {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+      font-family: monospace;
+      min-height: 150px;
+    }
+    
+    .btn {
+      display: inline-block;
+      padding: 10px 20px;
+      text-decoration: none;
+      border-radius: 4px;
+      border: none;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    
+    .btn-primary {
+      background: #007bff;
+      color: white;
+    }
+    
+    .btn-secondary {
+      background: #6c757d;
+      color: white;
+    }
+  </style>
+{% endblock %}

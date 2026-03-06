@@ -1,0 +1,446 @@
+{% extends "maths/base.html" %}
+{% load practice_extras %}
+{% block title %}Welcome{% endblock %}
+{% block content %}
+<style>
+.accordion {
+    max-width: 800px;
+    margin: 20px auto;
+}
+
+.accordion-item {
+    border: 1px solid #ddd;
+    margin-bottom: 10px;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.accordion-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 20px;
+    cursor: pointer;
+    font-size: 18px;
+    font-weight: bold;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: background 0.3s ease;
+}
+
+.accordion-header:hover {
+    background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+}
+
+.accordion-header::after {
+    content: '+';
+    font-size: 24px;
+    transition: transform 0.3s ease;
+}
+
+.accordion-header.active::after {
+    transform: rotate(45deg);
+}
+
+.accordion-content {
+    background: #f8f9fa;
+    padding: 0;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+}
+
+.accordion-content.active {
+    max-height: 2000px;
+    padding: 20px;
+}
+
+.topics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 15px;
+    padding: 20px;
+}
+
+.topic-card {
+    background: white;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    padding: 15px;
+    text-align: center;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    cursor: pointer;
+}
+
+.topic-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.topic-card a {
+    text-decoration: none;
+    color: #333;
+    display: block;
+}
+
+.topic-card h4 {
+    margin: 0 0 10px 0;
+    color: #667eea;
+    font-size: 16px;
+}
+
+.topic-card p {
+    margin: 0;
+    color: #666;
+    font-size: 14px;
+}
+
+.info-box {
+    background: #e3f2fd;
+    border: 1px solid #2196f3;
+    border-radius: 8px;
+    padding: 15px;
+    margin: 20px 0;
+    text-align: center;
+}
+
+.info-box a {
+    color: #1976d2;
+    text-decoration: none;
+    font-weight: bold;
+}
+
+.info-box a:hover {
+    text-decoration: underline;
+}
+
+.progress-table {
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    margin: 20px 0;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.progress-table h2 {
+    margin-top: 0;
+    color: #667eea;
+}
+
+.progress-table table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.progress-table th,
+.progress-table td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.progress-table th {
+    background: #f8f9fa;
+    font-weight: bold;
+    color: #667eea;
+}
+
+.progress-table tr:hover {
+    background: #f8f9fa;
+}
+
+/* Color coding for student results based on average and sigma */
+.progress-table tr.dark-green {
+    background-color: #1b5e20 !important; /* Dark green - > avg + 2σ */
+    color: white;
+}
+
+.progress-table tr.green {
+    background-color: #2e7d32 !important; /* Green - avg + σ to avg + 2σ */
+    color: white;
+}
+
+.progress-table tr.light-green {
+    background-color: #c8e6c9 !important; /* Light green - avg - σ to avg + σ */
+}
+
+.progress-table tr.yellow {
+    background-color: #fff9c4 !important; /* Yellow - avg - 2σ to avg - σ */
+}
+
+.progress-table tr.orange {
+    background-color: #ffcc80 !important; /* Orange - avg - 3σ to avg - 2σ */
+}
+
+.progress-table tr.red {
+    background-color: #ffcdd2 !important; /* Red - < avg - 3σ */
+}
+
+.progress-table tr.dark-green:hover,
+.progress-table tr.green:hover {
+    opacity: 0.9;
+}
+</style>
+
+<h1>Welcome</h1>
+
+{% if show_progress_table %}
+    {% if progress_by_level %}
+    <div class="progress-table">
+        <h2>📊 Your Progress by Level</h2>
+        <table id="progress-table-by-year">
+            <thead>
+                <tr>
+                    <th>Level</th>
+                    <th>Topic</th>
+                    <th>Points</th>
+                    <th>Time</th>
+                    <th>Date & Time</th>
+                    <th>Attempts</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in progress_by_level %}
+                <tr class="{{ item.color_class|default:'light-green' }}">
+                    <td>{{ item.level_name }}</td>
+                    <td>{{ item.topic_name }}</td>
+                    <td>{{ item.best_points }}</td>
+                    <td>{{ item.best_time_seconds|format_time }}</td>
+                    <td>
+                        {% if item.best_date %}
+                            {{ item.best_date|date:"M d, Y H:i" }}
+                        {% else %}
+                            N/A
+                        {% endif %}
+                    </td>
+                    <td>{{ item.total_attempts }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        {% if not show_all_content %}
+        <div class="info-box">
+            <p>📊 No progress data yet. Start practicing to see your stats!</p>
+        </div>
+        {% endif %}
+    {% endif %}
+{% endif %}
+
+{% if not show_all_content and show_progress_table and basic_facts_progress %}
+    <div style="margin-top: 50px;">
+        <h2>🧮 Basic Facts Progress</h2>
+        <div class="accordion" style="margin-top: 20px;">
+            {% for subtopic_name, levels_progress in basic_facts_progress.items %}
+                {% if levels_progress %}
+                <div class="accordion-item">
+                    <div class="accordion-header" onclick="toggleAccordion(this)">
+                        {% if subtopic_name == "Addition" %}➕
+                        {% elif subtopic_name == "Subtraction" %}➖
+                        {% elif subtopic_name == "Multiplication" %}✖️
+                        {% elif subtopic_name == "Division" %}➗
+                        {% elif subtopic_name == "Place Value Facts" %}🔢
+                        {% endif %}
+                        {{ subtopic_name }}
+                    </div>
+                    <div class="accordion-content" style="padding: 20px;">
+                        <table class="progress-table" style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+                            <thead>
+                                <tr>
+                                    <th style="padding: 12px; border: 1px solid #dee2e6; background: #f8f9fa; text-align: left;">Level</th>
+                                    <th style="padding: 12px; border: 1px solid #dee2e6; background: #f8f9fa; text-align: left;">Completed Time</th>
+                                    <th style="padding: 12px; border: 1px solid #dee2e6; background: #f8f9fa; text-align: left;">Points (Max)</th>
+                                    <th style="padding: 12px; border: 1px solid #dee2e6; background: #f8f9fa; text-align: left;">Date & Time</th>
+                                    <th style="padding: 12px; border: 1px solid #dee2e6; background: #f8f9fa; text-align: left;">Attempts</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for progress_data in levels_progress %}
+                                <tr class="{{ progress_data.color_class|default:'light-green' }}">
+                                    <td style="padding: 12px; border: 1px solid #dee2e6; font-weight: bold; color: #667eea;">Level {{ progress_data.display_level }}</td>
+                                    <td style="padding: 12px; border: 1px solid #dee2e6;">{{ progress_data.best_time_seconds|format_time }}</td>
+                                    <td style="padding: 12px; border: 1px solid #dee2e6; font-weight: bold; color: #28a745; font-size: 16px;">{{ progress_data.best_points }}</td>
+                                    <td style="padding: 12px; border: 1px solid #dee2e6;">
+                                        {% if progress_data.best_date %}
+                                            {{ progress_data.best_date|date:"M d, Y H:i" }}
+                                        {% else %}
+                                            N/A
+                                        {% endif %}
+                                    </td>
+                                    <td style="padding: 12px; border: 1px solid #dee2e6; text-align: center;">{{ progress_data.total_attempts }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+{% endif %}
+
+{% if not show_all_content and show_progress_table %}
+    <p style="text-align: center; margin-top: 30px;">
+        <a href="{% url 'maths:dashboard' %}" style="color: #667eea; text-decoration: underline;">← Back to All Topics</a>
+    </p>
+{% endif %}
+
+{% if show_all_content %}
+<div class="info-box">
+    {% if not has_class %}
+        <p>👤 You are a single student and can access all levels.</p>
+        <p>If you have a class code, <a href="{% url 'maths:join_class' %}">join your class here</a>.</p>
+    {% else %}
+        <p>🏫 You are enrolled in a class.</p>
+        <p>If you need to join another class, use the <a href="{% url 'maths:join_class' %}">Join class</a> page.</p>
+    {% endif %}
+</div>
+
+{% if show_all_content and basic_facts_by_subtopic %}
+<div style="margin: 20px 0; max-width: 800px; margin-left: auto; margin-right: auto;">
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+        <h3 style="color: white; margin: 0 0 20px 0; font-size: 24px; text-align: center;">Basic Facts 🧮</h3>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px;">
+            {% if basic_facts_by_subtopic.Addition %}
+            <div class="topic-card" style="margin: 0;">
+                <a href="{% url 'maths:basic_facts_subtopic' 'Addition' %}">
+                    <h4 style="font-size: 18px;">➕ Addition</h4>
+                    <p style="font-size: 14px;">{{ basic_facts_by_subtopic.Addition|length }} levels</p>
+                </a>
+            </div>
+            {% endif %}
+            {% if basic_facts_by_subtopic.Subtraction %}
+            <div class="topic-card" style="margin: 0;">
+                <a href="{% url 'maths:basic_facts_subtopic' 'Subtraction' %}">
+                    <h4 style="font-size: 18px;">➖ Subtraction</h4>
+                    <p style="font-size: 14px;">{{ basic_facts_by_subtopic.Subtraction|length }} levels</p>
+                </a>
+            </div>
+            {% endif %}
+            {% if basic_facts_by_subtopic.Multiplication %}
+            <div class="topic-card" style="margin: 0;">
+                <a href="{% url 'maths:basic_facts_subtopic' 'Multiplication' %}">
+                    <h4 style="font-size: 18px;">✖️ Multiplication</h4>
+                    <p style="font-size: 14px;">{{ basic_facts_by_subtopic.Multiplication|length }} levels</p>
+                </a>
+            </div>
+            {% endif %}
+            {% if basic_facts_by_subtopic.Division %}
+            <div class="topic-card" style="margin: 0;">
+                <a href="{% url 'maths:basic_facts_subtopic' 'Division' %}">
+                    <h4 style="font-size: 18px;">➗ Division</h4>
+                    <p style="font-size: 14px;">{{ basic_facts_by_subtopic.Division|length }} levels</p>
+                </a>
+            </div>
+            {% endif %}
+            {% if basic_facts_by_subtopic|lookup:"Place Value Facts" %}
+            <div class="topic-card" style="margin: 0;">
+                <a href="{% url 'maths:basic_facts_subtopic' 'Place Value Facts' %}">
+                    <h4 style="font-size: 18px;">🔢 Place Value Facts</h4>
+                    <p style="font-size: 14px;">{{ basic_facts_by_subtopic|lookup:"Place Value Facts"|length }} levels</p>
+                </a>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="accordion">
+    {% for year in sorted_years %}
+        <div class="accordion-item">
+            <div class="accordion-header" onclick="toggleAccordion(this)">
+                Year {{ year }} 📖
+            </div>
+            <div class="accordion-content">
+                <div class="topics-grid">
+                    {% with year_topics=year_topics_map|lookup:year %}
+                        {% if year_topics %}
+                            {% for level in levels_by_year|lookup:year %}
+                                {% for topic_name, url_name, display_name in year_topics %}
+                                <div class="topic-card">
+                                    <a href="{% url "maths:"|add:url_name level.level_number %}">
+                                        <h4>{{ display_name }}</h4>
+                                        <p>Year {{ level.level_number }} - {{ display_name }}</p>
+                                    </a>
+                                </div>
+                                {% endfor %}
+                                <!-- Take Quiz card (same for all years) -->
+                                <div class="topic-card">
+                                    <a href="{% url 'maths:take_quiz' level.level_number %}">
+                                        <h4>Take Quiz</h4>
+                                        <p>Random questions from all topics</p>
+                                    </a>
+                                </div>
+                            {% endfor %}
+                        {% endif %}
+                    {% endwith %}
+                </div>
+            </div>
+        </div>
+    {% empty %}
+        <div class="info-box">
+            <p>No levels available at the moment.</p>
+        </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<script>
+function toggleAccordion(header) {
+    const content = header.nextElementSibling;
+    const isActive = header.classList.contains('active');
+    
+    // Close all accordions at the same level
+    const accordion = header.closest('.accordion');
+    if (accordion) {
+        accordion.querySelectorAll('.accordion-header').forEach(h => {
+            if (h !== header) {
+                h.classList.remove('active');
+                h.nextElementSibling.classList.remove('active');
+            }
+        });
+    } else {
+        // Close all accordions if not inside a nested accordion
+        document.querySelectorAll('.accordion-header').forEach(h => {
+            h.classList.remove('active');
+            h.nextElementSibling.classList.remove('active');
+        });
+    }
+    
+    // Open clicked accordion if it wasn't active
+    if (!isActive) {
+        header.classList.add('active');
+        content.classList.add('active');
+    }
+}
+
+function toggleNestedAccordion(header) {
+    const content = header.nextElementSibling;
+    const isActive = header.classList.contains('active');
+    
+    // Toggle only this accordion (for nested accordions)
+    if (!isActive) {
+        header.classList.add('active');
+        content.classList.add('active');
+    } else {
+        header.classList.remove('active');
+        content.classList.remove('active');
+    }
+}
+
+
+// Open first accordion by default
+document.addEventListener('DOMContentLoaded', function() {
+    const firstHeader = document.querySelector('.accordion-header');
+    if (firstHeader) {
+        firstHeader.classList.add('active');
+        firstHeader.nextElementSibling.classList.add('active');
+    }
+});
+</script>
+
+{% endblock %}

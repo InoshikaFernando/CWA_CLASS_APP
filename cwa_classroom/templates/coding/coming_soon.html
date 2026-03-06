@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Coding — Coming Soon{% endblock %}
+
+{% block content %}
+<div class="flex flex-col items-center justify-center py-24 text-center">
+  <div class="w-20 h-20 rounded-2xl flex items-center justify-center mb-6" style="background-color: #8b5cf620">
+    <svg class="w-12 h-12" style="color: #8b5cf6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
+    </svg>
+  </div>
+  <h1 class="text-3xl font-bold font-display mb-3" style="color: #8b5cf6">Coding</h1>
+  <span class="inline-block bg-purple-100 text-purple-700 rounded-full px-4 py-1 text-sm font-semibold mb-4">
+    Coming Soon
+  </span>
+  <p class="text-gray-500 max-w-md mb-8">
+    We're building an exciting coding curriculum for young learners. Stay tuned for interactive
+    lessons and projects!
+  </p>
+  <a href="{% url 'subjects_hub' %}"
+     class="inline-flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl px-5 py-3 font-semibold transition text-sm">
+    ← Back to Hub
+  </a>
+</div>
+{% endblock %}

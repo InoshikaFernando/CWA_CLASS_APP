@@ -7,7 +7,7 @@
       "slug": "maths",
       "description": "Practise maths skills with quizzes, times tables, and basic facts challenges.",
       "icon_name": "calculator",
-      "external_url": "https://mathsroom.wizardslearninghub.co.nz",
+      "external_url": "/maths/",
       "is_active": true,
       "is_coming_soon": false,
       "order": 1,

@@ -1,0 +1,719 @@
+{% extends "maths/base.html" %}
+{% block content %}
+<style>
+    .question-container {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+    
+    .score-container {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 20px;
+        padding: 40px;
+        text-align: center;
+        color: white;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        margin: 50px auto;
+        max-width: 600px;
+    }
+    
+    .score-title {
+        font-size: 32px;
+        margin-bottom: 20px;
+    }
+    
+    .score-value {
+        font-size: 72px;
+        font-weight: bold;
+        margin: 20px 0;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+    }
+    
+    .score-percentage {
+        font-size: 24px;
+        margin-top: 20px;
+    }
+    
+    .back-button {
+        display: inline-block;
+        margin-top: 30px;
+        padding: 15px 40px;
+        background: white;
+        color: #667eea;
+        text-decoration: none;
+        border-radius: 30px;
+        font-weight: bold;
+        transition: transform 0.3s;
+    }
+    
+    .back-button:hover {
+        transform: scale(1.05);
+    }
+    
+    .progress-bar {
+        background: #e9ecef;
+        border-radius: 10px;
+        height: 20px;
+        margin-bottom: 20px;
+        overflow: hidden;
+    }
+    
+    .progress-fill {
+        background: #28a745;
+        height: 100%;
+        transition: width 0.3s ease;
+    }
+    
+    .question-box {
+        background: white;
+        border: 2px solid #007bff;
+        border-radius: 8px;
+        padding: 30px;
+        margin: 20px 0;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        min-height: 400px;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .question-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+    
+    .question-number {
+        font-size: 18px;
+        font-weight: bold;
+        color: #007bff;
+    }
+    
+    .speaker-btn {
+        background: #007bff;
+        color: white;
+        border: none;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        cursor: pointer;
+        font-size: 18px;
+    }
+    
+    .speaker-btn:hover {
+        background: #0056b3;
+    }
+    
+    .question-text {
+        font-size: 18px;
+        margin: 20px 0;
+        white-space: pre-wrap;
+        font-family: 'Courier New', monospace;
+    }
+    
+    .question-image {
+        max-width: 300px;
+        max-height: 300px;
+        width: auto;
+        height: auto;
+        margin: 20px auto;
+        display: block;
+        border: 2px solid #ddd;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    /* Make ruler image larger for better visibility */
+    .question-image[src*="image_ruler.png"],
+    .question-image[src*="ruler"],
+    .question-image-ruler {
+        max-width: 600px !important;
+        max-height: 400px !important;
+    }
+    
+    .answer-options {
+        margin: 20px 0 40px 0;
+        min-height: 200px;
+    }
+    
+    .answer-option {
+        background: #f8f9fa;
+        border: 2px solid #dee2e6;
+        border-radius: 6px;
+        padding: 15px;
+        margin: 10px 0;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: block;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+    }
+    
+    .answer-option:hover:not(.disabled) {
+        background: #e9ecef;
+        border-color: #007bff;
+    }
+    
+    .answer-option input[type="radio"] {
+        margin-right: 10px;
+    }
+    
+    .answer-option.correct {
+        background: #d4edda!important;
+        border-color: #28a745;
+        color: #155724;
+        font-weight: bold;
+    }
+    
+    .answer-option.incorrect {
+        background: #f8d7da!important;
+        border-color: #dc3545;
+        color: #721c24;
+        font-weight: bold;
+    }
+
+    .answer-option.disabled {
+        cursor: default;
+        pointer-events: none;
+    }
+    
+    .action-buttons {
+        display: flex;
+        gap: 10px;
+        margin-top: 30px;
+        margin-bottom: 20px;
+        clear: both;
+        position: relative;
+        z-index: 1;
+    }
+    
+    .btn {
+        padding: 12px 24px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: bold;
+        font-size: 16px;
+        transition: all 0.2s ease;
+    }
+    
+    .btn-check {
+        background: #28a745;
+        color: white;
+    }
+    
+    .btn-check:hover {
+        background: #218838;
+    }
+    
+    .btn-next {
+        background: #007bff;
+        color: white;
+    }
+    
+    .btn-next:hover {
+        background: #0056b3;
+    }
+    
+    .result-message {
+        padding: 15px;
+        border-radius: 6px;
+        margin: 15px 0;
+        font-weight: bold;
+    }
+    
+    .correct-answer {
+        background: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+    }
+    
+    .wrong-answer {
+        background: #f8d7da;
+        color: #721c24;
+        border: 1px solid #f5c6cb;
+    }
+    
+    .explanation {
+        background: #d1ecf1;
+        border: 1px solid #bee5eb;
+        border-radius: 6px;
+        padding: 15px;
+        margin: 15px 0;
+    }
+</style>
+
+<div class="question-container">
+    {% if completed %}
+    <div class="score-container">
+        <h1 class="score-title">🎉 Quiz Completed! 🎉</h1>
+        <div class="score-value">{{ total_score }}/{{ total_points }}</div>
+        {% widthratio total_score total_points 100 as percentage %}
+        <div class="score-percentage">{{ percentage }}%</div>
+        <div class="score-percentage">Time: {{ total_time_seconds }}s</div>
+        <div class="score-percentage">Points: {{ final_points }}</div>
+        <a href="{% url 'maths:dashboard_detail' %}" class="back-button">Back to Dashboard</a>
+    </div>
+
+    {% elif prefetched %}
+    {# Client-side rendered quiz with all questions prefetched #}
+    <h1>{{ level }}</h1>
+
+    <!-- Progress Bar -->
+    <div class="progress-bar">
+        <div class="progress-fill" id="progress-fill"></div>
+    </div>
+    <p style="text-align: center; color: #666;" id="progress-text">Question 1 of {{ total_questions }}</p>
+    <p style="text-align: center; color: #333; font-weight: bold;">⏱️ Time: <span id="live-timer">0s</span></p>
+
+    <!-- Question Box (rendered by JavaScript) -->
+    <div class="question-box" id="question-box">
+        <div class="question-header">
+            <div class="question-number" id="question-number-label">Question 1</div>
+            <button class="speaker-btn" onclick="speakText()" title="Read Question">🔊</button>
+        </div>
+
+        <img id="question-image" class="question-image" style="display:none;" alt="Question diagram">
+
+        <div class="question-text" id="question-text"></div>
+
+        <div id="result-area"></div>
+
+        <div class="answer-options" id="answer-options"></div>
+
+        <div class="action-buttons" id="action-buttons"></div>
+    </div>
+
+<script>
+(function() {
+    // All questions prefetched from server
+    var allQuestions = {{ questions_json|safe }};
+    var attemptId = "{{ attempt_id }}";
+    var csrfToken = "{{ csrf_token }}";
+    var submitUrl = "{% url 'maths:submit_topic_answer' %}";
+    var completionUrl = window.location.pathname + "?completed=1";
+    var totalQuestions = allQuestions.length;
+    var currentIndex = 0;
+    var checked = false;
+    var selectedAnswerId = null;
+    var selectedIsCorrect = false;
+
+    // Timer
+    var elapsed = 0;
+    var timerInterval = null;
+    var timerStopped = false;
+    var timerEl = document.getElementById('live-timer');
+
+    function renderTimer() {
+        if (timerEl && !timerStopped) {
+            timerEl.textContent = elapsed + 's';
+        }
+    }
+
+    function startTimer() {
+        renderTimer();
+        timerInterval = setInterval(function() {
+            if (timerStopped) { clearInterval(timerInterval); return; }
+            elapsed += 1;
+            renderTimer();
+        }, 1000);
+    }
+
+    function stopTimer() {
+        timerStopped = true;
+        if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+    }
+
+    startTimer();
+
+    function escapeHtml(text) {
+        var div = document.createElement('div');
+        div.appendChild(document.createTextNode(text));
+        return div.innerHTML;
+    }
+
+    // Render the current question
+    function renderQuestion() {
+        var q = allQuestions[currentIndex];
+        checked = false;
+        selectedAnswerId = null;
+        selectedIsCorrect = false;
+
+        // Update progress
+        var progressFill = document.getElementById('progress-fill');
+        progressFill.style.width = ((currentIndex + 1) / totalQuestions * 100) + '%';
+        document.getElementById('progress-text').textContent = 'Question ' + (currentIndex + 1) + ' of ' + totalQuestions;
+        document.getElementById('question-number-label').textContent = 'Question ' + (currentIndex + 1);
+
+        // Question text
+        document.getElementById('question-text').innerHTML = q.question_text;
+
+        // Question image
+        var imgEl = document.getElementById('question-image');
+        if (q.image_url) {
+            imgEl.src = q.image_url;
+            imgEl.style.display = 'block';
+            if (q.image_url.indexOf('ruler') !== -1) {
+                imgEl.classList.add('question-image-ruler');
+            } else {
+                imgEl.classList.remove('question-image-ruler');
+            }
+        } else {
+            imgEl.style.display = 'none';
+        }
+
+        // Clear result area
+        document.getElementById('result-area').innerHTML = '';
+
+        // Render answer options
+        var optionsHtml = '';
+        if (q.question_type === 'short_answer') {
+            optionsHtml = '<div class="text-answer">' +
+                '<input type="text" id="text-answer-input" placeholder="Enter your answer..." ' +
+                'style="width: 100%; padding: 12px; font-size: 16px; border: 2px solid #dee2e6; border-radius: 6px; margin-top: 10px;">' +
+                '</div>';
+        } else {
+            for (var i = 0; i < q.answers.length; i++) {
+                var a = q.answers[i];
+                optionsHtml += '<label class="answer-option" data-answer-id="' + a.id + '">' +
+                    '<input type="radio" name="answer_choice" value="' + a.id + '"> ' +
+                    escapeHtml(a.answer_text) +
+                    '</label>';
+            }
+        }
+        document.getElementById('answer-options').innerHTML = optionsHtml;
+
+        // Render action button
+        document.getElementById('action-buttons').innerHTML =
+            '<button class="btn btn-check" id="btn-check-answer">Check Answer</button>';
+
+        // Bind events
+        document.getElementById('btn-check-answer').addEventListener('click', checkAnswer);
+
+        // Bind radio selection highlighting
+        var labels = document.querySelectorAll('#answer-options .answer-option');
+        labels.forEach(function(label) {
+            label.addEventListener('click', function() {
+                labels.forEach(function(l) { l.style.borderColor = '#dee2e6'; l.style.background = '#f8f9fa'; });
+                this.style.borderColor = '#007bff';
+                this.style.background = '#e9ecef';
+                var radio = this.querySelector('input[type="radio"]');
+                if (radio) radio.checked = true;
+            });
+        });
+    }
+
+    function checkAnswer() {
+        var q = allQuestions[currentIndex];
+        var answerId = null;
+        var textAnswer = null;
+
+        if (q.question_type === 'short_answer') {
+            var inputEl = document.getElementById('text-answer-input');
+            textAnswer = inputEl ? inputEl.value.trim() : '';
+            if (!textAnswer) { alert('Please enter your answer.'); return; }
+        } else {
+            var selected = document.querySelector('input[name="answer_choice"]:checked');
+            if (!selected) { alert('Please select an answer.'); return; }
+            answerId = parseInt(selected.value);
+        }
+
+        // Disable the check button to prevent double-clicks
+        var checkBtn = document.getElementById('btn-check-answer');
+        if (checkBtn) { checkBtn.disabled = true; checkBtn.textContent = 'Checking...'; }
+
+        // Build payload
+        var payload = {
+            question_id: q.id,
+            attempt_id: attemptId
+        };
+        if (answerId) {
+            payload.answer_id = answerId;
+        } else if (textAnswer) {
+            payload.text_answer = textAnswer;
+        }
+
+        // Submit answer to server and use the response for correctness
+        fetch(submitUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify(payload)
+        })
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+            if (!data.success) {
+                alert('Error saving answer: ' + (data.error || 'Unknown error'));
+                if (checkBtn) { checkBtn.disabled = false; checkBtn.textContent = 'Check Answer'; }
+                return;
+            }
+
+            checked = true;
+            selectedAnswerId = answerId;
+            selectedIsCorrect = data.is_correct;
+
+            // Show result message
+            var resultHtml = '';
+            if (data.is_correct) {
+                resultHtml = '<div class="result-message correct-answer">✓ Correct! Well done!</div>';
+            } else {
+                var correctText = data.correct_answer_text || '';
+                resultHtml = '<div class="result-message wrong-answer">✗ Incorrect. The correct answer is: ' + escapeHtml(correctText) + '</div>';
+            }
+            if (data.explanation) {
+                resultHtml += '<div class="explanation"><strong>Explanation:</strong> ' + escapeHtml(data.explanation) + '</div>';
+            }
+            document.getElementById('result-area').innerHTML = resultHtml;
+
+            // Highlight answers based on server response
+            var labels = document.querySelectorAll('#answer-options .answer-option');
+            var correctAnswerIdFromServer = data.correct_answer_id;
+            labels.forEach(function(label) {
+                var aId = parseInt(label.getAttribute('data-answer-id'));
+                var radio = label.querySelector('input[type="radio"]');
+
+                label.classList.add('disabled');
+                if (radio) radio.disabled = true;
+
+                if (answerId === aId) {
+                    label.classList.add(data.is_correct ? 'correct' : 'incorrect');
+                } else if (!data.is_correct && correctAnswerIdFromServer && aId === correctAnswerIdFromServer) {
+                    label.classList.add('correct');
+                }
+            });
+
+            // Disable text input if short answer
+            var textInput = document.getElementById('text-answer-input');
+            if (textInput) textInput.disabled = true;
+
+            // Show next/finish button
+            var isLast = (currentIndex === totalQuestions - 1);
+            document.getElementById('action-buttons').innerHTML =
+                '<button class="btn btn-next" id="btn-next-question">' +
+                (isLast ? 'Finish' : 'Next Question') + '</button>';
+            document.getElementById('btn-next-question').addEventListener('click', nextQuestion);
+        })
+        .catch(function(err) {
+            console.error('Failed to save answer:', err);
+            alert('Network error. Please try again.');
+            if (checkBtn) { checkBtn.disabled = false; checkBtn.textContent = 'Check Answer'; }
+        });
+    }
+
+    function nextQuestion() {
+        if (currentIndex < totalQuestions - 1) {
+            currentIndex++;
+            renderQuestion();
+            // Scroll to top of question
+            document.getElementById('question-box').scrollIntoView({ behavior: 'smooth' });
+        } else {
+            // Quiz complete - navigate to completion URL
+            stopTimer();
+            window.location.href = completionUrl;
+        }
+    }
+
+    // Text-to-speech function
+    window.speakText = function() {
+        var questionText = document.getElementById('question-text').innerText;
+        if ('speechSynthesis' in window) {
+            var utterance = new SpeechSynthesisUtterance(questionText);
+            speechSynthesis.speak(utterance);
+        }
+    };
+
+    // Initial render
+    renderQuestion();
+})();
+</script>
+
+    {% else %}
+    {# Fallback: old server-side rendering for edge cases #}
+    <h1>{{ level }}</h1>
+    
+    <!-- Progress Bar -->
+    <div class="progress-bar">
+        <div class="progress-fill" data-width="{{ question_number }}" data-total="{{ total_questions }}">
+        </div>
+    </div>
+    <p style="text-align: center; color: #666;">Question {{ question_number }} of {{ total_questions }}</p>
+    <p style="text-align: center; color: #333; font-weight: bold;">⏱️ Time: <span id="live-timer" data-start-time="{{ elapsed_seconds|default:0 }}">0s</span></p>
+    
+    <!-- Question Box -->
+    <div class="question-box">
+        <div class="question-header">
+            <div class="question-number">Question {{ question_number }}</div>
+            <button class="speaker-btn" onclick="speakText()" title="Read Question">🔊</button>
+        </div>
+        
+        {% if current_question.image %}
+            <img src="{{ current_question.image.url }}" alt="Question diagram" class="question-image{% if 'ruler' in current_question.image.name %} question-image-ruler{% endif %}">
+        {% endif %}
+        
+        <div class="question-text" id="question-text">{{ current_question.question_text|safe }}</div>
+        
+        {% if checked %}
+            <!-- Show result -->
+            <div class="result-message {% if selected_answer.is_correct %}correct-answer{% else %}wrong-answer{% endif %}">
+                {% if selected_answer.is_correct %}
+                    ✓ Correct! Well done!
+                {% else %}
+                    ✗ Incorrect. The correct answer is: 
+                    {% for answer in current_question.answers.all %}
+                        {% if answer.is_correct %}{{ answer.answer_text }}{% endif %}
+                    {% endfor %}
+                {% endif %}
+            </div>
+            
+            {% if current_question.explanation %}
+                <div class="explanation">
+                    <strong>Explanation:</strong> {{ current_question.explanation }}
+                </div>
+            {% endif %}
+        {% endif %}
+        
+        <!-- Answer Form -->
+        {% if not checked %}
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="check_answer">
+                <input type="hidden" name="q" value="{{ question_number }}">
+                <input type="hidden" name="question_id" value="{{ current_question.id }}">
+                
+                <div class="answer-options">
+                    {% if shuffled_answers %}
+                        {% for answer in shuffled_answers %}
+                            <label class="answer-option">
+                                <input type="radio" name="answer_id" value="{{ answer.id }}" required>
+                                {{ answer.answer_text }}
+                            </label>
+                        {% endfor %}
+                    {% else %}
+                        {% for answer in current_question.answers.all %}
+                            <label class="answer-option">
+                                <input type="radio" name="answer_id" value="{{ answer.id }}" required>
+                                {{ answer.answer_text }}
+                            </label>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+                
+                <div class="action-buttons">
+                    <button type="submit" class="btn btn-check">Check Answer</button>
+                </div>
+            </form>
+        {% else %}
+            <!-- Show checked answers -->
+            <div class="answer-options">
+                {% if shuffled_answers %}
+                    {% for answer in shuffled_answers %}
+                        <label class="answer-option {% if answer == selected_answer %}{% if answer.is_correct %}correct{% else %}incorrect{% endif %}{% elif answer.is_correct and not selected_answer.is_correct %}correct{% endif %}">
+                            <input type="radio" {% if answer == selected_answer %}checked{% endif %} disabled>
+                            {{ answer.answer_text }}
+                        </label>
+                    {% endfor %}
+                {% else %}
+                    {% for answer in current_question.answers.all %}
+                        <label class="answer-option {% if answer == selected_answer %}{% if answer.is_correct %}correct{% else %}incorrect{% endif %}{% elif answer.is_correct and not selected_answer.is_correct %}correct{% endif %}">
+                            <input type="radio" {% if answer == selected_answer %}checked{% endif %} disabled>
+                            {{ answer.answer_text }}
+                        </label>
+                    {% endfor %}
+                {% endif %}
+            </div>
+            
+            <div class="action-buttons">
+                <form method="post" style="display: inline;" id="question-form">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="next_question">
+                    <button type="submit" class="btn btn-next" id="finish-button" onclick="stopTimerImmediately()">
+                        {% if is_last_question %}Finish{% else %}Next Question{% endif %}
+                    </button>
+                </form>
+            </div>
+        {% endif %}
+    </div>
+
+<script>
+    // Apply progress bar width
+    document.addEventListener('DOMContentLoaded', function() {
+        var fill = document.querySelector('.progress-fill');
+        if (fill && fill.getAttribute('data-width')) {
+            var width = fill.getAttribute('data-width');
+            var total = fill.getAttribute('data-total');
+            var percentage = (width / total) * 100;
+            fill.style.width = percentage + '%';
+        }
+    });
+    
+    // Live timer
+    (function() {
+        var timerEl = document.getElementById('live-timer');
+        if (!timerEl) return;
+        var elapsed = parseInt(timerEl.getAttribute('data-start-time')) || 0;
+        var timerInterval = null;
+        var timerStopped = false;
+        
+        function render() {
+            if (timerEl && !timerStopped) {
+                timerEl.textContent = elapsed + 's';
+            }
+        }
+        
+        function startTimer() {
+            if (timerStopped) return;
+            render();
+            timerInterval = setInterval(function() {
+                if (timerStopped) {
+                    clearInterval(timerInterval);
+                    timerInterval = null;
+                    return;
+                }
+                elapsed += 1;
+                render();
+            }, 1000);
+        }
+        
+        function stopTimer() {
+            timerStopped = true;
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+        }
+        
+        // Make stopTimer available globally
+        window.stopTimerImmediately = stopTimer;
+        
+        // Start timer
+        startTimer();
+        
+        // Stop timer when form is submitted (finish button clicked)
+        var forms = document.querySelectorAll('form');
+        forms.forEach(function(form) {
+            form.addEventListener('submit', function() {
+                stopTimer();
+            });
+        });
+        
+        // Also stop timer when page is about to unload
+        window.addEventListener('beforeunload', function() {
+            stopTimer();
+        });
+    })();
+    
+    // Text-to-speech function
+    function speakText() {
+        var questionText = document.getElementById('question-text').innerText;
+        if ('speechSynthesis' in window) {
+            var utterance = new SpeechSynthesisUtterance(questionText);
+            speechSynthesis.speak(utterance);
+        }
+    }
+</script>
+    {% endif %}
+</div>
+{% endblock %}

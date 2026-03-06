@@ -1,0 +1,128 @@
+{% extends "maths/base.html" %}
+{% block content %}
+<h1>📚 Mathematics Topics</h1>
+
+<div class="topics-container">
+    {% for topic in topics %}
+        <div class="topic-card">
+            <h2>{{ topic.name }}</h2>
+            <div class="levels-grid">
+                {% for level in topic.levels.all %}
+                    <div class="level-card">
+                        <a href="{% url 'maths:level_detail' level.level_number %}">
+                            <h3>Year {{ level.level_number }}</h3>
+                            <p>{{ level.title }}</p>
+                        </a>
+                    </div>
+                {% empty %}
+                    <p class="no-levels">No levels available for this topic.</p>
+                {% endfor %}
+            </div>
+        </div>
+    {% empty %}
+        <div class="no-topics">
+            <h2>No topics available</h2>
+            <p>Topics will be added soon!</p>
+        </div>
+    {% endfor %}
+</div>
+
+<div class="back-link">
+    <a href="{% url 'maths:dashboard' %}" class="btn btn-primary">Back to Dashboard</a>
+</div>
+
+<style>
+    .topics-container {
+        max-width: 1000px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+    
+    .topic-card {
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        padding: 20px;
+        margin: 20px 0;
+    }
+    
+    .topic-card h2 {
+        color: #495057;
+        margin-top: 0;
+        border-bottom: 2px solid #007bff;
+        padding-bottom: 10px;
+    }
+    
+    .levels-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-top: 20px;
+    }
+    
+    .level-card {
+        background: white;
+        border: 1px solid #e9ecef;
+        border-radius: 6px;
+        padding: 15px;
+        text-align: center;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    
+    .level-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    
+    .level-card a {
+        text-decoration: none;
+        color: #333;
+        display: block;
+    }
+    
+    .level-card h3 {
+        color: #007bff;
+        margin: 0 0 10px 0;
+        font-size: 18px;
+    }
+    
+    .level-card p {
+        margin: 0;
+        color: #666;
+        font-size: 14px;
+    }
+    
+    .no-levels {
+        grid-column: 1 / -1;
+        text-align: center;
+        color: #6c757d;
+        font-style: italic;
+        padding: 20px;
+    }
+    
+    .no-topics {
+        text-align: center;
+        padding: 40px;
+        color: #6c757d;
+    }
+    
+    .btn {
+        display: inline-block;
+        padding: 10px 20px;
+        background: #007bff;
+        color: white;
+        text-decoration: none;
+        border-radius: 4px;
+        margin: 20px 0;
+    }
+    
+    .btn:hover {
+        background: #0056b3;
+    }
+    
+    .back-link {
+        text-align: center;
+        margin-top: 30px;
+    }
+</style>
+{% endblock %}

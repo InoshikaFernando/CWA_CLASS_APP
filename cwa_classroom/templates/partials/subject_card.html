@@ -41,15 +41,28 @@ Context: `subject` - a SubjectApp instance
     <p class="text-gray-500 text-sm mb-6 flex-1">{{ subject.description }}</p>
 
     <!-- CTA Button -->
-    <a href="{{ subject.external_url }}"
-       class="inline-flex items-center justify-center gap-2 bg-primary text-white hover:bg-primary-dark rounded-xl px-5 py-3 font-semibold transition text-sm"
-       style="background-color: {{ subject.color }}">
-      Go to {{ subject.name }} (separate sign-in)
-      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-      </svg>
-    </a>
-    <p class="text-xs text-gray-400 mt-2 text-center">You may need to sign in again on {{ subject.name }}.</p>
+    {% if subject.external_url|slice:":1" == "/" %}
+      {# Internal route — same login session #}
+      <a href="{{ subject.external_url }}"
+         class="inline-flex items-center justify-center gap-2 bg-primary text-white hover:bg-primary-dark rounded-xl px-5 py-3 font-semibold transition text-sm"
+         style="background-color: {{ subject.color }}">
+        Go to {{ subject.name }}
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+        </svg>
+      </a>
+    {% else %}
+      {# External site — separate sign-in required #}
+      <a href="{{ subject.external_url }}"
+         class="inline-flex items-center justify-center gap-2 bg-primary text-white hover:bg-primary-dark rounded-xl px-5 py-3 font-semibold transition text-sm"
+         style="background-color: {{ subject.color }}">
+        Go to {{ subject.name }}
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+        </svg>
+      </a>
+      <p class="text-xs text-gray-400 mt-2 text-center">You may need to sign in again on {{ subject.name }}.</p>
+    {% endif %}
   </div>
 
 {% elif subject.is_coming_soon %}

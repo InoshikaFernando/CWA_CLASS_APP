@@ -39,10 +39,17 @@ INSTALLED_APPS = [
     'quiz',
     'billing',
     'progress',
+
+    # Subject apps
+    'maths',
+    'coding',
+    'music',
+    'science',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'cwa_classroom.middleware.SubdomainURLRoutingMiddleware',  # subdomain → urlconf routing
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -91,7 +98,27 @@ DATABASES = {
             'charset': 'utf8mb4',
             'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
         },
-    }
+    },
+
+    # Legacy CWA_SCHOOL MySQL database — used only by the
+    # migrate_from_cwa_school management command.
+    # Set these env vars to enable: SRC_DB_NAME, SRC_DB_USER, SRC_DB_PASSWORD,
+    # SRC_DB_HOST, SRC_DB_PORT  (all default to the same values as 'default'
+    # but with database name 'cwa_school').
+    'cwa_school_legacy': {
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': os.environ.get('SRC_DB_NAME', 'cwa_school'),
+        'USER': os.environ.get('SRC_DB_USER', os.environ.get('DB_USER', 'root')),
+        'PASSWORD': os.environ.get('SRC_DB_PASSWORD', os.environ.get('DB_PASSWORD', '')),
+        'HOST': os.environ.get('SRC_DB_HOST', os.environ.get('DB_HOST', '127.0.0.1')),
+        'PORT': os.environ.get('SRC_DB_PORT', os.environ.get('DB_PORT', '3306')),
+        'OPTIONS': {
+            'charset': 'utf8mb4',
+        },
+        'TEST': {
+            'NAME': None,   # never create a test DB for the legacy source
+        },
+    },
 }
 
 

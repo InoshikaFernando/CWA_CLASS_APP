@@ -1,0 +1,141 @@
+{% extends "maths/base.html" %}
+{% block content %}
+<h1>📘 Year {{ level.level_number }} - {{ level.title }}</h1>
+
+{% if topics %}
+    <div class="topics-section">
+        <h2>Topics</h2>
+        <div class="topics-grid">
+            {% for topic in topics %}
+                <div class="topic-card">
+                    <a href="{% url 'maths:levels' topic.id %}">
+                        <h3>{{ topic.name }}</h3>
+                    </a>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+{% endif %}
+
+<div class="level-actions">
+    <h2>Actions</h2>
+    <div class="action-buttons">
+        <a href="{% url 'maths:take_quiz' level.level_number %}" class="btn btn-primary">
+            Take Quiz
+        </a>
+        <a href="{% url 'maths:level_questions' level.level_number %}" class="btn btn-secondary">
+            View Questions
+        </a>
+        {% if request.user.is_teacher %}
+            <a href="{% url 'maths:add_question' level.level_number %}" class="btn btn-success">
+                Add Question
+            </a>
+        {% endif %}
+    </div>
+</div>
+
+<style>
+    .topics-section {
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        padding: 20px;
+        margin: 20px 0;
+    }
+    
+    .topics-section h2 {
+        color: #495057;
+        margin-top: 0;
+        margin-bottom: 15px;
+    }
+    
+    .topics-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+    }
+    
+    .topic-card {
+        background: white;
+        border: 1px solid #e9ecef;
+        border-radius: 6px;
+        padding: 15px;
+        text-align: center;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    
+    .topic-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    
+    .topic-card a {
+        text-decoration: none;
+        color: #333;
+        display: block;
+    }
+    
+    .topic-card h3 {
+        margin: 0;
+        color: #007bff;
+        font-size: 16px;
+    }
+    
+    .level-actions {
+        margin-top: 30px;
+    }
+    
+    .level-actions h2 {
+        color: #495057;
+        margin-bottom: 15px;
+    }
+    
+    .action-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+    
+    .btn {
+        display: inline-block;
+        padding: 12px 24px;
+        text-decoration: none;
+        border-radius: 6px;
+        font-weight: bold;
+        transition: all 0.2s ease;
+    }
+    
+    .btn-primary {
+        background: #007bff;
+        color: white;
+    }
+    
+    .btn-primary:hover {
+        background: #0056b3;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,123,255,0.3);
+    }
+    
+    .btn-secondary {
+        background: #6c757d;
+        color: white;
+    }
+    
+    .btn-secondary:hover {
+        background: #5a6268;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(108,117,125,0.3);
+    }
+    
+    .btn-success {
+        background: #28a745;
+        color: white;
+    }
+    
+    .btn-success:hover {
+        background: #218838;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(40,167,69,0.3);
+    }
+</style>
+{% endblock %}
