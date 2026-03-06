@@ -3,10 +3,10 @@
 
 **Application Name:** Classroom  
 **Hosted at:** classroom.wizardslearninghub.co.nz  
-**Version:** 3.0 (Merged Master — Requirements + UI + Navigation)  
-**Technology Stack:** Django 4.2+, Python 3.10, MySQL 8.0, Pillow, django-storages, stripe, HTMX, Tailwind CSS  
-**Timezone:** Pacific/Auckland (New Zealand)  
-**Last Revised:** 2026-02-28  
+**Version:** 3.1 (Added Public Landing Page, Subject Hub & Branding)
+**Technology Stack:** Django 4.2+, Python 3.10, MySQL 8.0, Pillow, django-storages, stripe, HTMX, Tailwind CSS
+**Timezone:** Pacific/Auckland (New Zealand)
+**Last Revised:** 2026-03-06  
 
 ---
 
@@ -16,6 +16,7 @@
 2. [System Overview](#2-system-overview)
 3. [Design System](#3-design-system)
 4. [Layout & Navigation](#4-layout--navigation)
+   - 4.1 [Public Landing & Subject Hub](#41-public-landing--subject-hub)
 5. [User Roles & Authentication](#5-user-roles--authentication)
    - 5.1 [Registration & Auth — Requirements](#51-registration--auth--requirements)
    - 5.2 [Registration & Auth — UI](#52-registration--auth--ui)
@@ -86,6 +87,9 @@ This document is the **single source of truth** for the Classroom web applicatio
 - **`student` role:** Registered exclusively by teachers — no self-registration.
 - **`individual_student` role:** Self-registers, selects a subscription package, and chooses their own classes.
 - Subscription packages (1, 3, 5, or unlimited classes) with Stripe recurring billing, 14-day free trial (no card required), and 100% discount codes.
+- **Public landing page** with hero section, Contact Us form, and Join Class flow (no login required).
+- **Subject Hub** (`/hub/`) — authenticated home showing subject cards (Maths active, others coming soon).
+- **Branding logo** (`static/images/logo.png`) displayed in topbar, public nav, and auth pages.
 - Curriculum: Year (1–8) → Subject (Mathematics) → Topic.
 - Quiz modules: Basic Facts, Times Tables (runtime-generated), Topic Quiz, Mixed Quiz.
 - ~~Practice Mode~~ — **removed from scope.**
@@ -108,10 +112,16 @@ Classroom is a server-rendered Django web application organised into five Django
 | App | Responsibility |
 |-----|---------------|
 | `accounts` | Users, roles, registration, authentication |
-| `classroom` | Classes, levels, subjects, topics |
+| `classroom` | Classes, levels, subjects, topics, SubjectApp catalogue, ContactMessage |
 | `quiz` | Questions, answers, quiz engine, Basic Facts, Times Tables |
 | `billing` | Packages, subscriptions, Stripe, discount codes |
 | `progress` | Student answers, statistics, time tracking |
+
+**New models (v3.1):**
+- `SubjectApp` — catalogue of subject applications (name, slug, URL, icon, `is_active`). Seeded via `fixtures/initial_subjects.json`.
+- `ContactMessage` — stores contact form submissions (name, email, message, timestamp).
+
+**Context processors:** `classroom.context_processors.subject_apps` injects the `SubjectApp` queryset into every template for the subject hub nav.
 
 ### 2.1 High-Level Architecture
 
@@ -318,6 +328,46 @@ Fixed bottom · white · `border-t border-border` · `h-16` · 5 items max
 | UserIcon | Profile | `/profile/` |
 
 For Teacher / HoD / Accountant on mobile: Home · Role progress URL · ☰ More (slide-out drawer).
+
+---
+
+### 4.1 Public Landing & Subject Hub
+
+#### Public Landing Page (`/`)
+
+Served by `base_public.html` with `partials/public_nav.html` and `partials/public_footer.html`. No login required.
+
+| Section | Description |
+|---------|-------------|
+| Hero | Logo, tagline, **Sign In** and **Get Started** CTAs |
+| Features | Three-column grid highlighting platform benefits |
+| Subjects | Preview subject cards (Maths active, others coming soon) |
+| Contact | Inline contact form (saves to `ContactMessage`) |
+| Join Class | Form to enter class code; redirects to login if not authenticated |
+
+**Nav tabs:** Home · Contact Us · Join Class · **Sign In** button
+After login, a **Subjects** tab appears (links to `/hub/`).
+
+#### Subject Hub (`/hub/`)
+
+Authenticated users are redirected here from `/` (replaces the old role-based `/` redirect for student/teacher home). Displays subject cards sourced from the `SubjectApp` model.
+
+| Field | Description |
+|-------|-------------|
+| `name` | Display name (e.g. "Maths") |
+| `slug` | URL-safe identifier |
+| `url` | External or internal URL the card links to |
+| `icon` | SVG icon name or path |
+| `is_active` | `True` = clickable card; `False` = "Coming Soon" badge |
+
+**Seeded subjects (fixture):** Maths (active → `mathsroom.wizardslearninghub.co.nz`), Science, Coding, Music (all inactive).
+
+#### Branding
+
+The logo image (`static/images/logo.png`) is displayed in:
+- **Topbar** — `h-9` (36px), links to `/hub/`
+- **Public nav** — `h-9` (36px), links to `/hub/` (authenticated) or `/` (public)
+- **Auth pages** — `h-16` (64px), via `logo_url` context variable
 
 ---
 
@@ -1442,11 +1492,19 @@ DiscountCode   (standalone)
 | `/register/teacher-center/` | Public |
 | `/register/individual-student/` | Public |
 
+### Public
+
+| URL | Access |
+|-----|--------|
+| `/` | Public — landing page (hero, contact, join class) |
+| `/contact/` | Public — contact form |
+| `/join-class/` | Public — join class by code |
+
 ### Core / Shared
 
 | URL | Access |
 |-----|--------|
-| `/` | Authenticated (role-based redirect) |
+| `/hub/` | Authenticated — subject hub home |
 | `/profile/` | Authenticated |
 | `/select-classes/` | `individual_student` |
 | `/account/change-package/` | `individual_student` |
@@ -1531,16 +1589,30 @@ DiscountCode   (standalone)
 templates/
 │
 ├── base.html                        # Root: topbar + sidebar + content slot
+├── base_public.html                 # Public pages: public_nav + footer (no sidebar)
 ├── base_quiz.html                   # Full-screen quiz (sidebar hidden, timer shown)
 ├── base_quiz_select.html            # Quiz landing/selection pages
 ├── base_auth.html                   # Centred card (login / register)
+├── 404.html                         # Custom 404 error page
+├── 500.html                         # Custom 500 error page
+│
+├── public/
+│   ├── home.html                    # Public landing page (hero, features, CTA)
+│   ├── contact.html                 # Contact Us form
+│   └── join_class.html             # Join class by code
+│
+├── hub/
+│   └── home.html                    # Authenticated subject hub (subject cards)
 │
 ├── partials/
 │   ├── topbar.html
+│   ├── public_nav.html              # Navigation for public/unauthenticated pages
+│   ├── public_footer.html           # Footer for public pages
 │   ├── sidebar_student.html
 │   ├── sidebar_teacher.html
 │   ├── sidebar_hod.html
 │   ├── sidebar_accountant.html
+│   ├── subject_card.html            # Subject card partial for hub
 │   ├── bottom_nav.html
 │   ├── notifications_dropdown.html
 │   └── toast.html
