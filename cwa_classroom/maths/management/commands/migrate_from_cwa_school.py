@@ -1,33 +1,26 @@
 """
 migrate_from_cwa_school
 =======================
-Management command to import all maths data from the legacy CWA_SCHOOL MySQL
-database into the new unified CWA_CLASS_APP maths app.
+Management command to import all maths data from the legacy CWA_SCHOOL backup
+into the new unified CWA_CLASS_APP maths app.
 
-Source database: the 'cwa_school_legacy' connection defined in settings.py.
-By default it points to the 'cwa_school' MySQL database on the same host/user
-as the main 'default' database.  Override via environment variables:
-
-    SRC_DB_NAME      (default: cwa_school)
-    SRC_DB_USER      (default: same as DB_USER)
-    SRC_DB_PASSWORD  (default: same as DB_PASSWORD)
-    SRC_DB_HOST      (default: same as DB_HOST)
-    SRC_DB_PORT      (default: same as DB_PORT)
+Source: the src_maths_* staging tables already imported into the 'default'
+(cwa_classroom) database by running import_backup.py beforehand.
 
 Usage
 -----
-    # Preview — no writes
+    # Preview -- no writes
     python manage.py migrate_from_cwa_school --dry-run
 
     # Full migration
     python manage.py migrate_from_cwa_school
 
-    # Point at a different source DB name
-    SRC_DB_NAME=cwa_school_prod python manage.py migrate_from_cwa_school
+    # Skip user creation (if users already exist)
+    python manage.py migrate_from_cwa_school --skip-users
 
 What it migrates
 ----------------
-1.  Users  (maths_customuser → accounts.CustomUser + Role assignment)
+1.  Users  (maths_customuser -> accounts.CustomUser + Role assignment)
 2.  Topics
 3.  Levels  (+ Level-Topic M2M)
 4.  ClassRooms  (+ ClassRoom-Level M2M)
@@ -71,20 +64,12 @@ class Command(BaseCommand):
         dry_run    = options["dry_run"]
         skip_users = options["skip_users"]
 
-        # Verify we can connect to the legacy DB
-        try:
-            src = connections["cwa_school_legacy"]
-            src.ensure_connection()
-        except Exception as exc:
-            raise CommandError(
-                f"Cannot connect to 'cwa_school_legacy' database.\n"
-                f"Check SRC_DB_* env vars in your .env file.\nError: {exc}"
-            )
+        # Use the default DB -- src_maths_* staging tables live there
+        src = connections["default"]
 
         self.stdout.write(self.style.MIGRATE_HEADING(
-            f"\n{'[DRY RUN] ' if dry_run else ''}Migrating from: "
-            f"{src.settings_dict['HOST']}:{src.settings_dict['PORT']}/"
-            f"{src.settings_dict['NAME']}\n"
+            f"\n{'[DRY RUN] ' if dry_run else ''}Migrating from src_maths_* "
+            f"staging tables in: {src.settings_dict['NAME']}\n"
         ))
 
         try:
@@ -93,7 +78,7 @@ class Command(BaseCommand):
             else:
                 with transaction.atomic(using="default"):
                     self._run(src, dry_run=False, skip_users=skip_users)
-                self.stdout.write(self.style.SUCCESS("\n✓ Migration complete.\n"))
+                self.stdout.write(self.style.SUCCESS("\nOK Migration complete.\n"))
         except Exception as exc:
             raise CommandError(f"Migration failed and was rolled back.\nError: {exc}")
 
@@ -155,7 +140,7 @@ class Command(BaseCommand):
         from accounts.models import CustomUser
 
         self._section("Users (mapping existing)", 0)
-        rows = self._fetch_all(src, "SELECT id, username FROM maths_customuser")
+        rows = self._fetch_all(src, "SELECT id, username FROM src_maths_customuser")
         user_map = {}
         missing  = []
         for row in rows:
@@ -167,11 +152,11 @@ class Command(BaseCommand):
         if missing:
             self.stdout.write(
                 self.style.WARNING(
-                    f"  ⚠ {len(missing)} legacy users have no matching account "
+                    f"  [WARN] {len(missing)} legacy users have no matching account "
                     f"(their data will be skipped): {missing[:10]}"
                 )
             )
-        self.stdout.write(f"  → {len(user_map)} users mapped")
+        self.stdout.write(f"  -> {len(user_map)} users mapped")
         return user_map
 
     # ──────────────────────────────────────────────────────
@@ -186,7 +171,7 @@ class Command(BaseCommand):
             "SELECT id, username, email, password, first_name, last_name, "
             "is_staff, is_superuser, is_active, date_joined, last_login, "
             "is_teacher, date_of_birth, country, region "
-            "FROM maths_customuser"
+            "FROM src_maths_customuser"
         )
         self._section("Users", len(rows))
         user_map = {}
@@ -229,7 +214,7 @@ class Command(BaseCommand):
             user_map[row["id"]] = user
 
         if not dry_run:
-            self.stdout.write(f"  → {len(user_map)} users migrated")
+            self.stdout.write(f"  -> {len(user_map)} users migrated")
         return user_map
 
     # ──────────────────────────────────────────────────────
@@ -239,7 +224,7 @@ class Command(BaseCommand):
     def _migrate_topics(self, src, dry_run):
         from maths.models import Topic
 
-        rows = self._fetch_all(src, "SELECT id, name FROM maths_topic")
+        rows = self._fetch_all(src, "SELECT id, name FROM src_maths_topic")
         self._section("Topics", len(rows))
         topic_map = {}
 
@@ -251,7 +236,7 @@ class Command(BaseCommand):
             topic_map[row["id"]] = obj
 
         if not dry_run:
-            self.stdout.write(f"  → {len(topic_map)} topics migrated")
+            self.stdout.write(f"  -> {len(topic_map)} topics migrated")
         return topic_map
 
     # ──────────────────────────────────────────────────────
@@ -262,14 +247,14 @@ class Command(BaseCommand):
         from maths.models import Level
 
         rows = self._fetch_all(
-            src, "SELECT id, level_number, title FROM maths_level"
+            src, "SELECT id, level_number, title FROM src_maths_level"
         )
         self._section("Levels", len(rows))
         level_map = {}
 
         for row in rows:
             if dry_run:
-                self.stdout.write(f"  [dry] level {row['level_number']} — {row['title']}")
+                self.stdout.write(f"  [dry] level {row['level_number']} -- {row['title']}")
                 continue
             obj, _ = Level.objects.get_or_create(
                 level_number=row["level_number"],
@@ -278,14 +263,14 @@ class Command(BaseCommand):
             level_map[row["id"]] = obj
 
         # M2M: level ↔ topics
-        m2m = self._fetch_all(src, "SELECT level_id, topic_id FROM maths_level_topics")
+        m2m = self._fetch_all(src, "SELECT level_id, topic_id FROM src_maths_level_topics")
         if not dry_run:
             for r in m2m:
                 lvl = level_map.get(r["level_id"])
                 tpc = topic_map.get(r["topic_id"])
                 if lvl and tpc:
                     lvl.topics.add(tpc)
-            self.stdout.write(f"  → {len(level_map)} levels migrated")
+            self.stdout.write(f"  -> {len(level_map)} levels migrated")
 
         return level_map
 
@@ -297,7 +282,7 @@ class Command(BaseCommand):
         from maths.models import ClassRoom
 
         rows = self._fetch_all(
-            src, "SELECT id, name, teacher_id, code FROM maths_classroom"
+            src, "SELECT id, name, teacher_id, code FROM src_maths_classroom"
         )
         self._section("ClassRooms", len(rows))
         class_map = {}
@@ -307,7 +292,7 @@ class Command(BaseCommand):
             if not teacher and not dry_run:
                 self.stdout.write(
                     self.style.WARNING(
-                        f"  ⚠ Skipping classroom '{row['name']}' — teacher not found"
+                        f"  [WARN] Skipping classroom '{row['name']}' -- teacher not found"
                     )
                 )
                 continue
@@ -322,14 +307,14 @@ class Command(BaseCommand):
             )
             class_map[row["id"]] = obj
 
-        m2m = self._fetch_all(src, "SELECT classroom_id, level_id FROM maths_classroom_levels")
+        m2m = self._fetch_all(src, "SELECT classroom_id, level_id FROM src_maths_classroom_levels")
         if not dry_run:
             for r in m2m:
                 cls = class_map.get(r["classroom_id"])
                 lvl = level_map.get(r["level_id"])
                 if cls and lvl:
                     cls.levels.add(lvl)
-            self.stdout.write(f"  → {len(class_map)} classrooms migrated")
+            self.stdout.write(f"  -> {len(class_map)} classrooms migrated")
 
         return class_map
 
@@ -342,7 +327,7 @@ class Command(BaseCommand):
 
         rows = self._fetch_all(
             src,
-            "SELECT id, student_id, classroom_id FROM maths_enrollment"
+            "SELECT id, student_id, classroom_id FROM src_maths_enrollment"
         )
         self._section("Enrollments", len(rows))
         count = 0
@@ -354,14 +339,14 @@ class Command(BaseCommand):
                 continue
             if dry_run:
                 self.stdout.write(
-                    f"  [dry] enroll {student.username} → classroom {row['classroom_id']}"
+                    f"  [dry] enroll {student.username} -> classroom {row['classroom_id']}"
                 )
                 continue
             Enrollment.objects.get_or_create(student=student, classroom=classroom)
             count += 1
 
         if not dry_run:
-            self.stdout.write(f"  → {count} enrollments migrated")
+            self.stdout.write(f"  -> {count} enrollments migrated")
 
     # ──────────────────────────────────────────────────────
     # 6. Questions & Answers
@@ -374,7 +359,7 @@ class Command(BaseCommand):
             src,
             "SELECT id, level_id, topic_id, question_text, question_type, "
             "difficulty, points, explanation, image "
-            "FROM maths_question"
+            "FROM src_maths_question"
         )
         self._section("Questions", len(q_rows))
         q_map = {}
@@ -404,7 +389,7 @@ class Command(BaseCommand):
         a_rows = self._fetch_all(
             src,
             "SELECT id, question_id, answer_text, is_correct, `order` "
-            "FROM maths_answer"
+            "FROM src_maths_answer"
         )
         self._section("Answers", len(a_rows))
         a_map = {}
@@ -428,7 +413,7 @@ class Command(BaseCommand):
 
         if not dry_run:
             self.stdout.write(
-                f"  → {len(q_map)} questions, {len(a_map)} answers migrated"
+                f"  -> {len(q_map)} questions, {len(a_map)} answers migrated"
             )
 
         return q_map, a_map
@@ -444,7 +429,7 @@ class Command(BaseCommand):
             src,
             "SELECT id, student_id, question_id, selected_answer_id, text_answer, "
             "is_correct, points_earned, session_id, time_taken_seconds "
-            "FROM maths_studentanswer"
+            "FROM src_maths_studentanswer"
         )
         self._section("StudentAnswers", len(rows))
         count = 0
@@ -473,7 +458,7 @@ class Command(BaseCommand):
             count += 1
 
         if not dry_run:
-            self.stdout.write(f"  → {count} student answers migrated")
+            self.stdout.write(f"  -> {count} student answers migrated")
 
     # ──────────────────────────────────────────────────────
     # 8. BasicFactsResults
@@ -482,15 +467,15 @@ class Command(BaseCommand):
     def _migrate_basic_facts_results(self, src, dry_run, user_map, level_map):
         from maths.models import BasicFactsResult
 
-        if not self._table_exists(src, "maths_basicfactsresult"):
-            self.stdout.write("  ⚠ maths_basicfactsresult not found — skipping")
+        if not self._table_exists(src, "src_maths_basicfactsresult"):
+            self.stdout.write("  src_maths_basicfactsresult not found -- skipping")
             return
 
         rows = self._fetch_all(
             src,
             "SELECT id, student_id, level_id, session_id, score, total_points, "
             "time_taken_seconds, points "
-            "FROM maths_basicfactsresult"
+            "FROM src_maths_basicfactsresult"
         )
         self._section("BasicFactsResults", len(rows))
         count = 0
@@ -517,7 +502,7 @@ class Command(BaseCommand):
             count += 1
 
         if not dry_run:
-            self.stdout.write(f"  → {count} basic facts results migrated")
+            self.stdout.write(f"  -> {count} basic facts results migrated")
 
     # ──────────────────────────────────────────────────────
     # 9. TimeLogs
@@ -526,15 +511,15 @@ class Command(BaseCommand):
     def _migrate_time_logs(self, src, dry_run, user_map):
         from maths.models import TimeLog
 
-        if not self._table_exists(src, "maths_timelog"):
-            self.stdout.write("  ⚠ maths_timelog not found — skipping")
+        if not self._table_exists(src, "src_maths_timelog"):
+            self.stdout.write("  src_maths_timelog not found -- skipping")
             return
 
         rows = self._fetch_all(
             src,
             "SELECT id, student_id, daily_total_seconds, "
             "weekly_total_seconds, last_reset_week "
-            "FROM maths_timelog"
+            "FROM src_maths_timelog"
         )
         self._section("TimeLogs", len(rows))
         count = 0
@@ -557,7 +542,7 @@ class Command(BaseCommand):
             count += 1
 
         if not dry_run:
-            self.stdout.write(f"  → {count} time logs migrated")
+            self.stdout.write(f"  -> {count} time logs migrated")
 
     # ──────────────────────────────────────────────────────
     # 10. TopicLevelStatistics
@@ -566,24 +551,16 @@ class Command(BaseCommand):
     def _migrate_topic_level_statistics(self, src, dry_run, level_map, topic_map):
         from maths.models import TopicLevelStatistics
 
-        # Find the actual table name (case may vary across MySQL installs)
-        with src.cursor() as cur:
-            cur.execute(
-                "SELECT TABLE_NAME FROM information_schema.TABLES "
-                "WHERE TABLE_SCHEMA = %s AND TABLE_NAME LIKE %s",
-                [src.settings_dict["NAME"], "maths_topicLevel%"],
-            )
-            result = cur.fetchone()
-
-        if not result:
-            self.stdout.write("  ⚠ TopicLevelStatistics table not found — skipping")
+        # Table name is known (case-insensitive on MySQL)
+        tls_table = "src_maths_topiclevelstatistics"
+        if not self._table_exists(src, tls_table):
+            self.stdout.write("  src_maths_topiclevelstatistics not found -- skipping")
             return
 
-        table = result[0]
         rows = self._fetch_all(
             src,
             f"SELECT id, level_id, topic_id, average_points, sigma, student_count "
-            f"FROM `{table}`"
+            f"FROM `{tls_table}`"
         )
         self._section("TopicLevelStatistics", len(rows))
         count = 0
@@ -608,7 +585,7 @@ class Command(BaseCommand):
             count += 1
 
         if not dry_run:
-            self.stdout.write(f"  → {count} statistics migrated")
+            self.stdout.write(f"  -> {count} statistics migrated")
 
     # ──────────────────────────────────────────────────────
     # 11. StudentFinalAnswers
@@ -617,15 +594,15 @@ class Command(BaseCommand):
     def _migrate_student_final_answers(self, src, dry_run, user_map, topic_map, level_map):
         from maths.models import StudentFinalAnswer
 
-        if not self._table_exists(src, "maths_studentfinalanswer"):
-            self.stdout.write("  ⚠ maths_studentfinalanswer not found — skipping")
+        if not self._table_exists(src, "src_maths_studentfinalanswer"):
+            self.stdout.write("  src_maths_studentfinalanswer not found -- skipping")
             return
 
         rows = self._fetch_all(
             src,
             "SELECT id, student_id, session_id, topic_id, level_id, "
             "attempt_number, points_earned "
-            "FROM maths_studentfinalanswer"
+            "FROM src_maths_studentfinalanswer"
         )
         self._section("StudentFinalAnswers", len(rows))
         count = 0
@@ -652,4 +629,4 @@ class Command(BaseCommand):
             count += 1
 
         if not dry_run:
-            self.stdout.write(f"  → {count} final answers migrated")
+            self.stdout.write(f"  -> {count} final answers migrated")
