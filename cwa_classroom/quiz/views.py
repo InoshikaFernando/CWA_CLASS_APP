@@ -196,7 +196,7 @@ TIMES_TABLES_BY_YEAR = {
     1: [1],
     2: [1, 2, 10],
     3: [1, 2, 3, 4, 5, 10],
-    4: list(range(1, 11)),
+    4: list(range(1, 13)),
     5: list(range(1, 13)),
     6: list(range(1, 13)),
     7: list(range(1, 13)),
