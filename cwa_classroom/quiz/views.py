@@ -641,7 +641,7 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             is_correct = bool(answer and answer.is_correct)
             correct_ans = q.answers.filter(is_correct=True).first()
             if correct_ans:
-                correct_answer_text = correct_ans.text
+                correct_answer_text = correct_ans.answer_text
                 correct_answer_id = correct_ans.id
         elif q.question_type == 'drag_drop':
             ordered_ids = data.get('ordered_answer_ids', [])

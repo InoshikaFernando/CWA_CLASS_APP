@@ -1,32 +1,29 @@
 """
 Management command: python manage.py import_backup <path/to/backup.sql>
 
-Parses the old MySQL backup dump and migrates data into the current app's tables.
+Reads a mysqldump backup of CWA_CLASS_APP and imports data into the current
+database, mapping progress_* / quiz_* tables → maths_* models.
 
-Column order assumed from CREATE TABLE in the backup:
-  maths_customuser    : id, password, last_login, is_superuser, username, first_name,
-                        last_name, email, is_staff, is_active, date_joined,
-                        is_teacher, country, date_of_birth, region
-  maths_level         : id, level_number, title
-  maths_topic         : id, name
-  maths_level_topics  : id, level_id, topic_id
-  maths_classroom     : id, name, code, teacher_id
-  maths_classroom_lvl : id, classroom_id, level_id
-  maths_enrollment    : id, date_enrolled, classroom_id, student_id
-  maths_question      : id, question_text, question_type, difficulty, points,
-                        explanation, image, created_at, updated_at, level_id, topic_id
-  maths_answer        : id, answer_text, is_correct, order, question_id
-  maths_studentfinal  : id, session_id, attempt_number, points_earned,
-                        last_updated_time, level_id, student_id, topic_id
-  maths_basicfacts    : id, session_id, score, total_points, time_taken_seconds,
-                        points, completed_at, level_id, student_id
-  maths_timelog       : id, daily_total_seconds, weekly_total_seconds,
-                        last_reset_date, last_reset_week, last_activity, student_id
-  maths_toplevelstats : id, average_points, sigma, student_count,
-                        last_updated, level_id, topic_id
-  maths_studentanswer : id, text_answer, is_correct, points_earned, answered_at,
-                        question_id, selected_answer_id, student_id, session_id,
-                        time_taken_seconds
+Table → Model mapping:
+  accounts_customuser          → accounts.CustomUser
+  classroom_level              → classroom.Level  +  maths.Level
+  classroom_topic              → classroom.Topic  +  maths.Topic
+  classroom_topic_levels       → classroom.Topic.levels  +  maths.Level.topics
+  quiz_question                → maths.Question
+  quiz_answer                  → maths.Answer  (text→answer_text, display_order→order)
+  classroom_classroom          → classroom.ClassRoom
+  classroom_classteacher       → classroom.ClassTeacher
+  classroom_classstudent       → classroom.ClassStudent
+  classroom_classroom_levels   → ClassRoom.levels
+  progress_studentfinalanswer  → maths.StudentFinalAnswer
+  progress_basicfactsresult    → maths.BasicFactsResult
+  progress_timelog             → maths.TimeLog
+  progress_topiclevelstatistics→ maths.TopicLevelStatistics
+  progress_studentanswer       → maths.StudentAnswer
+
+Usage:
+  python manage.py import_backup ../backup.sql
+  python manage.py import_backup ../backup.sql --dry-run
 """
 
 import re
@@ -39,7 +36,7 @@ from django.utils.text import slugify
 
 
 class Command(BaseCommand):
-    help = 'Import data from a MySQL backup SQL file into the current app.'
+    help = 'Import data from a CWA_CLASS_APP MySQL backup into the current schema.'
 
     def add_arguments(self, parser):
         parser.add_argument('sql_file', type=str, help='Path to MySQL backup .sql file')
@@ -69,43 +66,59 @@ class Command(BaseCommand):
             return
 
         with transaction.atomic():
-            user_map = self._import_users(tables.get('maths_customuser', []))
-            level_map = self._build_level_map(tables.get('maths_level', []))
-            topic_map = self._import_topics(tables.get('maths_topic', []))
+            # 1. Users
+            user_map = self._import_users(tables.get('accounts_customuser', []))
+
+            # 2. Levels — builds self._maths_level_map {backup_level_id → maths.Level}
+            level_map = self._build_level_map(tables.get('classroom_level', []))
+
+            # 3. Topics — builds self._maths_topic_map {backup_topic_id → maths.Topic}
+            topic_map = self._import_topics(tables.get('classroom_topic', []))
+
+            # 4. Topic ↔ Level links
             self._import_level_topics(
-                tables.get('maths_level_topics', []), level_map, topic_map,
+                tables.get('classroom_topic_levels', []), level_map, topic_map,
             )
+
+            # 5. Questions + Answers (quiz_* → maths_*)
             q_map, a_map = self._import_questions_answers(
-                tables.get('maths_question', []),
-                tables.get('maths_answer', []),
+                tables.get('quiz_question', []),
+                tables.get('quiz_answer', []),
                 level_map, topic_map,
             )
+
+            # 6. Classrooms
             self._import_classrooms(
-                tables.get('maths_classroom', []),
-                tables.get('maths_classroom_levels', []),
-                tables.get('maths_enrollment', []),
+                tables.get('classroom_classroom', []),
+                tables.get('classroom_classroom_levels', []),
+                tables.get('classroom_classstudent', []),
+                tables.get('classroom_classteacher', []),
                 user_map, level_map,
             )
+
+            # 7. Progress data (progress_* → maths_*)
             self._import_final_answers(
-                tables.get('maths_studentfinalanswer', []),
+                tables.get('progress_studentfinalanswer', []),
                 user_map, level_map, topic_map,
             )
             self._import_basic_facts(
-                tables.get('maths_basicfactsresult', []),
-                user_map, level_map,
+                tables.get('progress_basicfactsresult', []),
+                user_map,
             )
-            self._import_timelogs(tables.get('maths_timelog', []), user_map)
+            self._import_timelogs(tables.get('progress_timelog', []), user_map)
             self._import_statistics(
-                tables.get('maths_topiclevelstatistics', []),
+                tables.get('progress_topiclevelstatistics', []),
                 level_map, topic_map,
             )
             self._import_student_answers(
-                tables.get('maths_studentanswer', []),
-                user_map, q_map, a_map,
+                tables.get('progress_studentanswer', []),
+                user_map, q_map, a_map, level_map, topic_map,
             )
+
+            # 8. Promo codes
             self._assign_unlimited_promo(user_map)
 
-        self.stdout.write(self.style.SUCCESS('\n✅  Import complete!'))
+        self.stdout.write(self.style.SUCCESS('\nImport complete!'))
 
     # ── SQL PARSER ────────────────────────────────────────────────────────────
 
@@ -123,7 +136,6 @@ class Command(BaseCommand):
         return tables
 
     def _extract_rows(self, values_str):
-        """Parse MySQL VALUES clause into a list of tuples."""
         rows = []
         i, n = 0, len(values_str)
         while i < n:
@@ -134,13 +146,12 @@ class Command(BaseCommand):
             if values_str[i] != '(':
                 i += 1
                 continue
-            i += 1  # skip opening '('
+            i += 1
             row, i = self._parse_row(values_str, i, n)
             rows.append(tuple(row))
         return rows
 
     def _parse_row(self, s, i, n):
-        """Parse comma-separated column values up to the closing ')'."""
         values = []
         while i < n:
             while i < n and s[i] == ' ':
@@ -169,7 +180,6 @@ class Command(BaseCommand):
         return values, i
 
     def _parse_string(self, s, i, n):
-        """Consume a MySQL-escaped string up to the closing quote."""
         chars = []
         ESC = {"'": "'", '"': '"', 'n': '\n', 'r': '\r',
                't': '\t', '\\': '\\', '0': '\x00'}
@@ -179,7 +189,7 @@ class Command(BaseCommand):
                 chars.append(ESC.get(s[i + 1], s[i + 1]))
                 i += 2
             elif c == "'":
-                if i + 1 < n and s[i + 1] == "'":   # '' → '
+                if i + 1 < n and s[i + 1] == "'":
                     chars.append("'")
                     i += 2
                 else:
@@ -205,10 +215,10 @@ class Command(BaseCommand):
 
     def _import_users(self, rows):
         """
-        maths_customuser cols:
+        accounts_customuser cols (AbstractUser + custom):
           id, password, last_login, is_superuser, username, first_name,
           last_name, email, is_staff, is_active, date_joined,
-          is_teacher, country, date_of_birth, region
+          country, date_of_birth, region  [+ any extra fields]
         """
         from accounts.models import CustomUser, Role, UserRole
 
@@ -216,7 +226,8 @@ class Command(BaseCommand):
             name=Role.TEACHER, defaults={'display_name': 'Teacher', 'is_active': True},
         )
         individual_student_role, _ = Role.objects.get_or_create(
-            name=Role.INDIVIDUAL_STUDENT, defaults={'display_name': 'Individual Student', 'is_active': True},
+            name=Role.INDIVIDUAL_STUDENT,
+            defaults={'display_name': 'Individual Student', 'is_active': True},
         )
         admin_role, _ = Role.objects.get_or_create(
             name=Role.ADMIN, defaults={'display_name': 'Admin', 'is_active': True},
@@ -225,9 +236,21 @@ class Command(BaseCommand):
         user_map = {}
         created = skipped = 0
         for row in rows:
-            (old_id, password, last_login, is_superuser, username,
-             first_name, last_name, email, is_staff, is_active,
-             date_joined, is_teacher_flag, country, dob, region) = row[:15]
+            # Positional: id(0) password(1) last_login(2) is_superuser(3) username(4)
+            #             first_name(5) last_name(6) email(7) is_staff(8) is_active(9)
+            #             date_joined(10) country(11) date_of_birth(12) region(13)
+            old_id      = row[0]
+            password    = row[1]
+            is_superuser = row[3]
+            username    = row[4]
+            first_name  = row[5] if len(row) > 5 else ''
+            last_name   = row[6] if len(row) > 6 else ''
+            email       = row[7] if len(row) > 7 else ''
+            is_staff    = row[8] if len(row) > 8 else False
+            is_active   = row[9] if len(row) > 9 else True
+            country     = row[11] if len(row) > 11 else ''
+            dob         = row[12] if len(row) > 12 else None
+            region      = row[13] if len(row) > 13 else ''
 
             user, new = CustomUser.objects.get_or_create(
                 username=username,
@@ -244,13 +267,10 @@ class Command(BaseCommand):
                 },
             )
             if new:
-                # Preserve the hashed password from the backup
                 user.password = password
                 user.save(update_fields=['password'])
                 if bool(is_superuser) or bool(is_staff):
                     UserRole.objects.get_or_create(user=user, role=admin_role)
-                if bool(is_teacher_flag):
-                    UserRole.objects.get_or_create(user=user, role=teacher_role)
                 else:
                     UserRole.objects.get_or_create(user=user, role=individual_student_role)
                 created += 1
@@ -263,178 +283,236 @@ class Command(BaseCommand):
 
     def _build_level_map(self, rows):
         """
-        maths_level cols: id, level_number, title
+        classroom_level cols: id, level_number, display_name
 
-        Maps old level IDs to Level objects matched by level_number.
-        Creates missing levels if they don't exist yet.
+        Returns {backup_level_id → classroom.Level}.
+        Also builds self._maths_level_map {backup_level_id → maths.Level}.
         """
-        from classroom.models import Level
+        from classroom.models import Level as ClassroomLevel
+        from maths.models import Level as MathsLevel
 
         level_map = {}
-        self._old_level_titles = {}   # old_id → title (used by basic facts import)
+        self._maths_level_map = {}
         created = matched = 0
         for row in rows:
-            old_id, level_number, title = row[0], row[1], row[2]
-            self._old_level_titles[old_id] = title or ''
-            level, new = Level.objects.get_or_create(
+            old_id, level_number, display_name = row[0], row[1], (row[2] if len(row) > 2 else '')
+
+            # classroom.Level
+            cl, new = ClassroomLevel.objects.get_or_create(
                 level_number=level_number,
-                defaults={'display_name': title or f'Level {level_number}'},
+                defaults={'display_name': display_name or f'Level {level_number}'},
             )
-            level_map[old_id] = level
+            level_map[old_id] = cl
             if new:
                 created += 1
             else:
                 matched += 1
+
+            # maths.Level (parallel — same level_number)
+            ml, _ = MathsLevel.objects.get_or_create(
+                level_number=level_number,
+                defaults={'title': display_name or f'Year {level_number}'},
+            )
+            self._maths_level_map[old_id] = ml
 
         self.stdout.write(f'  Levels: {matched} matched existing, {created} created new')
         return level_map
 
     def _import_topics(self, rows):
         """
-        maths_topic cols: id, name
-        """
-        from classroom.models import Subject, Topic
+        classroom_topic cols: id, name, slug, order, is_active, parent_id, subject_id
 
-        maths, _ = Subject.objects.get_or_create(
+        Returns {backup_topic_id → classroom.Topic}.
+        Also builds self._maths_topic_map {backup_topic_id → maths.Topic}.
+        """
+        from classroom.models import Subject, Topic as ClassroomTopic
+        from maths.models import Topic as MathsTopic
+
+        maths_subject, _ = Subject.objects.get_or_create(
             name='Mathematics',
             defaults={'slug': 'mathematics', 'is_active': True},
         )
+
         topic_map = {}
+        self._maths_topic_map = {}
         created = matched = 0
+
         for i, row in enumerate(rows):
-            old_id, name = row[0], row[1]
-            topic, new = Topic.objects.get_or_create(
-                subject=maths,
-                slug=slugify(name),
-                defaults={'name': name, 'order': i, 'is_active': True},
+            old_id      = row[0]
+            name        = row[1]
+            slug        = row[2] if len(row) > 2 else slugify(name)
+            order       = row[3] if len(row) > 3 else i
+            is_active   = row[4] if len(row) > 4 else True
+            parent_id   = row[5] if len(row) > 5 else None
+            subject_id  = row[6] if len(row) > 6 else None
+
+            ct, new = ClassroomTopic.objects.get_or_create(
+                subject=maths_subject,
+                slug=slug or slugify(name),
+                defaults={'name': name, 'order': order or i, 'is_active': bool(is_active)},
             )
-            topic_map[old_id] = topic
+            topic_map[old_id] = ct
             if new:
                 created += 1
             else:
                 matched += 1
+
+            # maths.Topic (flat — just name)
+            mt, _ = MathsTopic.objects.get_or_create(name=name)
+            self._maths_topic_map[old_id] = mt
 
         self.stdout.write(f'  Topics: {matched} matched existing, {created} created new')
         return topic_map
 
     def _import_level_topics(self, rows, level_map, topic_map):
         """
-        maths_level_topics cols: id, level_id, topic_id
-        Adds levels to each topic's M2M.
+        classroom_topic_levels cols: id, topic_id, level_id
+        Links topics to levels in both classroom and maths models.
         """
         added = skipped = 0
         for row in rows:
-            _, old_level_id, old_topic_id = row[0], row[1], row[2]
-            level = level_map.get(old_level_id)
-            topic = topic_map.get(old_topic_id)
-            if level and topic:
-                topic.levels.add(level)
+            _, old_topic_id, old_level_id = row[0], row[1], row[2]
+            cl_topic = topic_map.get(old_topic_id)
+            cl_level = level_map.get(old_level_id)
+            ml_topic = self._maths_topic_map.get(old_topic_id)
+            ml_level = self._maths_level_map.get(old_level_id)
+
+            if cl_topic and cl_level:
+                cl_topic.levels.add(cl_level)
+            if ml_topic and ml_level:
+                ml_level.topics.add(ml_topic)
                 added += 1
             else:
                 skipped += 1
+
         self.stdout.write(f'  Topic-Level links: {added} added, {skipped} skipped')
 
     def _import_questions_answers(self, q_rows, a_rows, level_map, topic_map):
         """
-        maths_question cols:
-          id, question_text, question_type, difficulty, points, explanation,
-          image, created_at, updated_at, level_id, topic_id
-        maths_answer cols:
-          id, answer_text, is_correct, order, question_id
-        """
-        from quiz.models import Question, Answer
+        quiz_question cols:
+          id(0), question_text(1), question_type(2), difficulty(3), points(4),
+          explanation(5), image(6), created_at(7), updated_at(8),
+          level_id(9), topic_id(10), created_by_id(11)
 
-        q_map = {}   # old_q_id → Question
-        a_map = {}   # old_a_id → Answer
+        quiz_answer cols:
+          id(0), text(1), is_correct(2), display_order(3), question_id(4)
+
+        Imports into maths.Question / maths.Answer using maths level/topic maps.
+        """
+        from maths.models import Question as MQ, Answer as MA
+
+        q_map = {}
+        a_map = {}
         q_created = q_skipped = 0
 
-        # Build answer lookup by question_id for bulk creation
         answers_by_q = {}
         for row in a_rows:
-            old_a_id, answer_text, is_correct, order, old_q_id = row[:5]
+            old_a_id, text, is_correct, display_order, old_q_id = (
+                row[0], row[1], row[2], row[3], row[4],
+            )
             answers_by_q.setdefault(old_q_id, []).append(row)
 
         for row in q_rows:
-            (old_q_id, question_text, question_type, difficulty, points,
-             explanation, image, created_at, updated_at, level_id, topic_id) = row[:11]
+            old_q_id      = row[0]
+            question_text = row[1]
+            question_type = row[2] if len(row) > 2 else 'multiple_choice'
+            difficulty    = row[3] if len(row) > 3 else 1
+            points        = row[4] if len(row) > 4 else 1
+            explanation   = row[5] if len(row) > 5 else ''
+            image         = row[6] if len(row) > 6 else ''
+            level_id      = row[9] if len(row) > 9 else None
+            topic_id      = row[10] if len(row) > 10 else None
 
-            level = level_map.get(level_id)
-            topic = topic_map.get(topic_id) if topic_id else None
-            if not level or not topic:
+            # Bridge: classroom.Level.id → maths.Level
+            ml = self._maths_level_map.get(level_id)
+            mt = self._maths_topic_map.get(topic_id) if topic_id else None
+            if not ml or not mt:
                 q_skipped += 1
                 continue
 
-            q, new = Question.objects.get_or_create(
-                topic=topic,
-                level=level,
+            q, new = MQ.objects.get_or_create(
+                topic=mt, level=ml,
                 question_text=self._sanitize(question_text),
                 defaults={
-                    'question_type': Question.MULTIPLE_CHOICE,
+                    'question_type': question_type or MQ.MULTIPLE_CHOICE,
                     'difficulty': int(difficulty) if difficulty else 1,
                     'points': int(points) if points else 1,
-                    'explanation': self._sanitize(explanation),
+                    'explanation': self._sanitize(explanation) or '',
                     'image': image or '',
                 },
             )
             q_map[old_q_id] = q
-
-            # Always ensure question_type is multiple_choice
-            if q.question_type != Question.MULTIPLE_CHOICE:
-                q.question_type = Question.MULTIPLE_CHOICE
-                q.save(update_fields=['question_type'])
-
             if new:
                 q_created += 1
+            else:
+                q_skipped += 1
 
-            # Import answers for this question (new or existing with no answers)
-            existing_texts = set(q.answers.values_list('text', flat=True))
+            # Answers
+            existing_texts = set(q.answers.values_list('answer_text', flat=True))
             for a_row in answers_by_q.get(old_q_id, []):
-                old_a_id, answer_text, is_correct, order, _ = a_row[:5]
-                text = self._sanitize(answer_text)
+                old_a_id, text, is_correct, display_order, _ = (
+                    a_row[0], a_row[1], a_row[2], a_row[3], a_row[4],
+                )
+                text = self._sanitize(text) or ''
                 if text not in existing_texts:
-                    answer = Answer.objects.create(
+                    answer = MA.objects.create(
                         question=q,
-                        text=text,
+                        answer_text=text,
                         is_correct=bool(is_correct),
-                        display_order=int(order) if order is not None else 0,
+                        order=int(display_order) if display_order is not None else 0,
                     )
                     a_map[old_a_id] = answer
                     existing_texts.add(text)
                 else:
-                    existing = q.answers.filter(text=text).first()
+                    existing = q.answers.filter(answer_text=text).first()
                     if existing:
                         a_map[old_a_id] = existing
 
-            if not new:
-                q_skipped += 1
-
         self.stdout.write(
-            f'  Questions: {q_created} created, {q_skipped} already existed (answers patched)'
+            f'  Questions: {q_created} created, {q_skipped} already existed/skipped'
         )
         self.stdout.write(f'  Answers: {len(a_map)} mapped')
         return q_map, a_map
 
-    def _import_classrooms(self, cr_rows, cl_rows, en_rows, user_map, level_map):
+    def _import_classrooms(self, cr_rows, cl_rows, en_rows, ct_rows, user_map, level_map):
         """
-        maths_classroom cols: id, name, code, teacher_id
-        maths_classroom_levels cols: id, classroom_id, level_id
-        maths_enrollment cols: id, date_enrolled, classroom_id, student_id
+        classroom_classroom cols: id, name, code, is_active, created_at, created_by_id
+        classroom_classteacher cols: id, classroom_id, teacher_id
+        classroom_classstudent cols: id, classroom_id, student_id, date_enrolled (approx)
+        classroom_classroom_levels cols: id, classroom_id, level_id
         """
         from classroom.models import ClassRoom, ClassTeacher, ClassStudent
 
         cr_map = {}
+
+        # Create classrooms
         for row in cr_rows:
-            old_id, name, code, teacher_id = row[0], row[1], row[2], row[3]
-            teacher = user_map.get(teacher_id)
-            if not teacher:
-                continue
+            old_id = row[0]
+            name   = row[1]
+            code   = row[2]
+            # is_active at row[3], created_at at row[4], created_by_id at row[5]
+            created_by_id = row[5] if len(row) > 5 else None
+            creator = user_map.get(created_by_id)
+
             cr, _ = ClassRoom.objects.get_or_create(
                 code=code,
-                defaults={'name': name, 'created_by': teacher, 'is_active': True},
+                defaults={
+                    'name': name,
+                    'is_active': bool(row[3]) if len(row) > 3 else True,
+                    'created_by': creator,
+                },
             )
             cr_map[old_id] = cr
-            ClassTeacher.objects.get_or_create(classroom=cr, teacher=teacher)
 
+        # Teacher assignments
+        for row in ct_rows:
+            _, old_cr_id, old_teacher_id = row[0], row[1], row[2]
+            cr = cr_map.get(old_cr_id)
+            teacher = user_map.get(old_teacher_id)
+            if cr and teacher:
+                ClassTeacher.objects.get_or_create(classroom=cr, teacher=teacher)
+
+        # Level links
         for row in cl_rows:
             _, old_cr_id, old_level_id = row[0], row[1], row[2]
             cr = cr_map.get(old_cr_id)
@@ -442,11 +520,14 @@ class Command(BaseCommand):
             if cr and level:
                 cr.levels.add(level)
 
+        # Student enrollments
         enrolled = 0
         for row in en_rows:
-            _, date_enrolled, old_cr_id, old_student_id = row[0], row[1], row[2], row[3]
+            old_id     = row[0]
+            old_cr_id  = row[1]
+            old_stu_id = row[2]
             cr = cr_map.get(old_cr_id)
-            student = user_map.get(old_student_id)
+            student = user_map.get(old_stu_id)
             if cr and student:
                 ClassStudent.objects.get_or_create(classroom=cr, student=student)
                 enrolled += 1
@@ -457,158 +538,162 @@ class Command(BaseCommand):
 
     def _import_final_answers(self, rows, user_map, level_map, topic_map):
         """
-        maths_studentfinalanswer cols:
-          id, session_id, attempt_number, points_earned, last_updated_time,
-          level_id, student_id, topic_id
+        progress_studentfinalanswer cols:
+          id(0), student_id(1), topic_id(2), level_id(3), quiz_type(4),
+          session_id(5), attempt_number(6), score(7), total_questions(8),
+          points(9), time_taken_seconds(10), completed_at(11)
+
+        topic_id/level_id are classroom IDs → bridge to maths via _maths_*_map.
         """
-        from progress.models import StudentFinalAnswer
+        from maths.models import StudentFinalAnswer as MSFA
 
         created = skipped = 0
         for row in rows:
-            (old_id, session_id, attempt_number, points_earned,
-             last_updated_time, level_id, student_id, topic_id) = row[:8]
+            old_id         = row[0]
+            student_id     = row[1]
+            topic_id       = row[2]
+            level_id       = row[3]
+            quiz_type      = row[4] if len(row) > 4 else 'topic'
+            session_id     = row[5] if len(row) > 5 else None
+            attempt_number = row[6] if len(row) > 6 else 1
+            score          = row[7] if len(row) > 7 else 0
+            total_q        = row[8] if len(row) > 8 else 0
+            points         = row[9] if len(row) > 9 else 0.0
+            time_taken     = row[10] if len(row) > 10 else 0
+            completed_at   = row[11] if len(row) > 11 else None
 
             student = user_map.get(student_id)
-            level = level_map.get(level_id)
-            topic = topic_map.get(topic_id) if topic_id else None
-            if not student or not level:
+            ml = self._maths_level_map.get(level_id)
+            mt = self._maths_topic_map.get(topic_id) if topic_id else None
+            if not student or not ml:
                 skipped += 1
                 continue
 
             try:
-                sid = uuid.UUID(str(session_id))
+                sid = str(uuid.UUID(str(session_id))) if session_id else str(uuid.uuid4())
             except (ValueError, AttributeError):
-                sid = uuid.uuid4()
+                sid = str(uuid.uuid4())
 
-            obj, new = StudentFinalAnswer.objects.get_or_create(
+            obj, new = MSFA.objects.get_or_create(
                 session_id=sid,
                 defaults={
                     'student': student,
-                    'topic': topic,
-                    'level': level,
-                    'quiz_type': StudentFinalAnswer.QUIZ_TYPE_TOPIC,
+                    'topic': mt,
+                    'level': ml,
+                    'quiz_type': quiz_type or 'topic',
                     'attempt_number': int(attempt_number) if attempt_number else 1,
-                    'points': float(points_earned) if points_earned is not None else 0.0,
-                    'score': 0,
-                    'total_questions': 0,
-                    'time_taken_seconds': 0,
+                    'score': int(score) if score is not None else 0,
+                    'total_questions': int(total_q) if total_q is not None else 0,
+                    'points': float(points) if points is not None else 0.0,
+                    'time_taken_seconds': int(time_taken) if time_taken is not None else 0,
                 },
             )
             if new:
-                ts = self._to_datetime(last_updated_time)
+                ts = self._to_datetime(completed_at)
                 if ts:
-                    StudentFinalAnswer.objects.filter(pk=obj.pk).update(completed_at=ts)
+                    MSFA.objects.filter(pk=obj.pk).update(completed_at=ts)
                 created += 1
             else:
                 skipped += 1
 
         self.stdout.write(f'  StudentFinalAnswer: {created} created, {skipped} skipped')
 
-    def _import_basic_facts(self, rows, user_map, level_map):
+    def _import_basic_facts(self, rows, user_map):
         """
-        maths_basicfactsresult cols:
-          id, session_id, score, total_points, time_taken_seconds,
-          points, completed_at, level_id, student_id
+        progress_basicfactsresult cols:
+          id(0), student_id(1), subtopic(2), level_number(3), session_id(4),
+          score(5), total_questions(6), points(7), time_taken_seconds(8),
+          questions_data(9), completed_at(10)
+
+        Maps directly to maths.BasicFactsResult (subtopic+level_number already correct).
+        Note: maths field is total_points, not total_questions.
         """
-        from progress.models import BasicFactsResult
+        from maths.models import BasicFactsResult as MBFR
 
         created = skipped = 0
         for row in rows:
-            (old_id, session_id, score, total_points, time_taken_seconds,
-             points, completed_at, level_id, student_id) = row[:9]
+            old_id       = row[0]
+            student_id   = row[1]
+            subtopic     = row[2]
+            level_number = row[3]
+            session_id   = row[4] if len(row) > 4 else None
+            score        = row[5] if len(row) > 5 else 0
+            total_q      = row[6] if len(row) > 6 else 10
+            points       = row[7] if len(row) > 7 else 0.0
+            time_taken   = row[8] if len(row) > 8 else 0
+            q_data       = row[9] if len(row) > 9 else None
+            completed_at = row[10] if len(row) > 10 else None
 
             student = user_map.get(student_id)
-            level = level_map.get(level_id)
-            if not student or not level:
-                skipped += 1
-                continue
-
-            subtopic = self._subtopic_from_level(level)
-            if not subtopic:
+            if not student or not subtopic or level_number is None:
                 skipped += 1
                 continue
 
             try:
-                sid = uuid.UUID(str(session_id))
+                sid = str(uuid.UUID(str(session_id))) if session_id else str(uuid.uuid4())
             except (ValueError, AttributeError):
-                sid = uuid.uuid4()
+                sid = str(uuid.uuid4())
 
-            obj, new = BasicFactsResult.objects.get_or_create(
+            import json as _json
+            if isinstance(q_data, str):
+                try:
+                    q_data = _json.loads(q_data)
+                except Exception:
+                    q_data = []
+            elif q_data is None:
+                q_data = []
+
+            obj, new = MBFR.objects.get_or_create(
                 session_id=sid,
                 defaults={
                     'student': student,
                     'subtopic': subtopic,
-                    'level_number': level.level_number,
+                    'level_number': int(level_number),
                     'score': int(score) if score is not None else 0,
-                    'total_questions': int(total_points) if total_points is not None else 10,
-                    'time_taken_seconds': int(time_taken_seconds) if time_taken_seconds is not None else 0,
+                    'total_points': int(total_q) if total_q is not None else 10,
                     'points': float(points) if points is not None else 0.0,
-                    'questions_data': [],
+                    'time_taken_seconds': int(time_taken) if time_taken is not None else 0,
+                    'questions_data': q_data,
                 },
             )
             if new:
                 ts = self._to_datetime(completed_at)
                 if ts:
-                    BasicFactsResult.objects.filter(pk=obj.pk).update(completed_at=ts)
+                    MBFR.objects.filter(pk=obj.pk).update(completed_at=ts)
                 created += 1
             else:
                 skipped += 1
 
         self.stdout.write(f'  BasicFactsResult: {created} created, {skipped} skipped')
 
-    def _subtopic_from_level(self, level):
-        """Determine BasicFacts subtopic from level_number or display_name."""
-        num = level.level_number
-        # Standard ranges in the new app
-        if 100 <= num <= 106:
-            return 'Addition'
-        if 107 <= num <= 113:
-            return 'Subtraction'
-        if 114 <= num <= 120:
-            return 'Multiplication'
-        if 121 <= num <= 127:
-            return 'Division'
-        if 128 <= num <= 132:
-            return 'PlaceValue'
-        # Fall back to title-based detection for old level numbers
-        title = level.display_name.lower()
-        if 'addition' in title:
-            return 'Addition'
-        if 'subtraction' in title:
-            return 'Subtraction'
-        if 'multiplication' in title:
-            return 'Multiplication'
-        if 'division' in title:
-            return 'Division'
-        if 'place value' in title or 'placevalue' in title:
-            return 'PlaceValue'
-        return None
-
     def _import_timelogs(self, rows, user_map):
         """
-        maths_timelog cols:
-          id, daily_total_seconds, weekly_total_seconds,
-          last_reset_date, last_reset_week, last_activity, student_id
+        progress_timelog cols:
+          id(0), student_id(1), daily_seconds(2), weekly_seconds(3),
+          last_daily_reset(4), last_weekly_reset(5), last_updated(6)
+
+        Maps to maths.TimeLog (daily_total_seconds, weekly_total_seconds).
+        last_reset_date / last_activity are auto_now — not set manually.
         """
-        from progress.models import TimeLog
+        from maths.models import TimeLog as MTL
 
         created = skipped = 0
         for row in rows:
-            (old_id, daily_secs, weekly_secs,
-             last_reset_date, last_reset_week, last_activity, student_id) = row[:7]
+            old_id      = row[0]
+            student_id  = row[1]
+            daily_secs  = row[2] if len(row) > 2 else 0
+            weekly_secs = row[3] if len(row) > 3 else 0
 
             student = user_map.get(student_id)
             if not student:
                 skipped += 1
                 continue
 
-            _, new = TimeLog.objects.get_or_create(
+            _, new = MTL.objects.get_or_create(
                 student=student,
                 defaults={
-                    'daily_seconds': int(daily_secs) if daily_secs is not None else 0,
-                    'weekly_seconds': int(weekly_secs) if weekly_secs is not None else 0,
-                    'last_daily_reset': self._to_date(last_reset_date),
-                    'last_weekly_reset': None,
+                    'daily_total_seconds': int(daily_secs) if daily_secs is not None else 0,
+                    'weekly_total_seconds': int(weekly_secs) if weekly_secs is not None else 0,
                 },
             )
             if new:
@@ -620,27 +705,35 @@ class Command(BaseCommand):
 
     def _import_statistics(self, rows, level_map, topic_map):
         """
-        maths_topiclevelstatistics cols:
-          id, average_points, sigma, student_count, last_updated, level_id, topic_id
+        progress_topiclevelstatistics cols:
+          id(0), topic_id(1), level_id(2), avg_points(3), sigma(4),
+          student_count(5), updated_at(6)
+
+        Maps to maths.TopicLevelStatistics (average_points field name).
+        topic_id/level_id are classroom IDs → bridge to maths via _maths_*_map.
         """
-        from progress.models import TopicLevelStatistics
+        from maths.models import TopicLevelStatistics as MTLS
 
         created = skipped = 0
         for row in rows:
-            (old_id, average_points, sigma, student_count,
-             last_updated, level_id, topic_id) = row[:7]
+            old_id        = row[0]
+            topic_id      = row[1]
+            level_id      = row[2]
+            avg_points    = row[3] if len(row) > 3 else 0.0
+            sigma         = row[4] if len(row) > 4 else 0.0
+            student_count = row[5] if len(row) > 5 else 0
 
-            level = level_map.get(level_id)
-            topic = topic_map.get(topic_id)
-            if not level or not topic:
+            ml = self._maths_level_map.get(level_id)
+            mt = self._maths_topic_map.get(topic_id)
+            if not ml or not mt:
                 skipped += 1
                 continue
 
-            _, new = TopicLevelStatistics.objects.get_or_create(
-                topic=topic,
-                level=level,
+            _, new = MTLS.objects.get_or_create(
+                topic=mt,
+                level=ml,
                 defaults={
-                    'avg_points': float(average_points) if average_points is not None else 0.0,
+                    'average_points': float(avg_points) if avg_points is not None else 0.0,
                     'sigma': float(sigma) if sigma is not None else 0.0,
                     'student_count': int(student_count) if student_count is not None else 0,
                 },
@@ -652,47 +745,72 @@ class Command(BaseCommand):
 
         self.stdout.write(f'  TopicLevelStatistics: {created} created, {skipped} skipped')
 
-    def _import_student_answers(self, rows, user_map, q_map, a_map):
+    def _import_student_answers(self, rows, user_map, q_map, a_map, level_map, topic_map):
         """
-        maths_studentanswer cols:
-          id, text_answer, is_correct, points_earned, answered_at,
-          question_id, selected_answer_id, student_id, session_id, time_taken_seconds
+        progress_studentanswer cols:
+          id(0), student_id(1), question_id(2), topic_id(3), level_id(4),
+          selected_answer_id(5), text_answer(6), ordered_answer_ids(7),
+          is_correct(8), attempt_id(9), answered_at(10)
+
+        question_id / selected_answer_id → q_map / a_map (quiz_* → maths_*)
+        topic_id / level_id → maths maps
         """
-        from progress.models import StudentAnswer
+        from maths.models import StudentAnswer as MSA
+        import json as _json
 
         created = skipped = 0
         for row in rows:
-            (old_id, text_answer, is_correct, points_earned, answered_at,
-             question_id, selected_answer_id, student_id, session_id,
-             time_taken_seconds) = row[:10]
+            old_id            = row[0]
+            student_id        = row[1]
+            question_id       = row[2]
+            topic_id          = row[3]
+            level_id          = row[4]
+            selected_ans_id   = row[5] if len(row) > 5 else None
+            text_answer       = row[6] if len(row) > 6 else ''
+            ordered_ans_ids   = row[7] if len(row) > 7 else None
+            is_correct        = row[8] if len(row) > 8 else False
+            attempt_id        = row[9] if len(row) > 9 else None
+            answered_at       = row[10] if len(row) > 10 else None
 
-            student = user_map.get(student_id)
+            student  = user_map.get(student_id)
             question = q_map.get(question_id)
             if not student or not question:
                 skipped += 1
                 continue
 
-            selected = a_map.get(selected_answer_id) if selected_answer_id else None
+            ml = self._maths_level_map.get(level_id)
+            mt = self._maths_topic_map.get(topic_id) if topic_id else None
+            selected = a_map.get(selected_ans_id) if selected_ans_id else None
+
             try:
-                attempt_uuid = uuid.UUID(str(session_id))
+                attempt_uuid = uuid.UUID(str(attempt_id)) if attempt_id else uuid.uuid4()
             except (ValueError, AttributeError):
                 attempt_uuid = uuid.uuid4()
 
-            obj = StudentAnswer(
-                student=student,
-                question=question,
-                topic=question.topic,
-                level=question.level,
-                selected_answer=selected,
-                text_answer=text_answer or '',
-                is_correct=bool(is_correct),
-                attempt_id=attempt_uuid,
-            )
-            obj.save()
-            ts = self._to_datetime(answered_at)
-            if ts:
-                StudentAnswer.objects.filter(pk=obj.pk).update(answered_at=ts)
-            created += 1
+            if isinstance(ordered_ans_ids, str):
+                try:
+                    ordered_ans_ids = _json.loads(ordered_ans_ids)
+                except Exception:
+                    ordered_ans_ids = None
+
+            try:
+                obj = MSA.objects.create(
+                    student=student,
+                    question=question,
+                    topic=mt,
+                    level=ml,
+                    selected_answer=selected,
+                    text_answer=text_answer or '',
+                    ordered_answer_ids=ordered_ans_ids,
+                    is_correct=bool(is_correct),
+                    attempt_id=attempt_uuid,
+                )
+                ts = self._to_datetime(answered_at)
+                if ts:
+                    MSA.objects.filter(pk=obj.pk).update(answered_at=ts)
+                created += 1
+            except Exception:
+                skipped += 1
 
         self.stdout.write(f'  StudentAnswer: {created} created, {skipped} skipped')
 
@@ -705,7 +823,7 @@ class Command(BaseCommand):
             promo = PromoCode.objects.get(code='UNLIMITED2026')
         except PromoCode.DoesNotExist:
             self.stdout.write(self.style.WARNING(
-                '  Promo UNLIMITED2026 not found — skipping promo assignment. Run migrate first.'
+                '  Promo UNLIMITED2026 not found — skipping.'
             ))
             return
 
@@ -724,11 +842,8 @@ class Command(BaseCommand):
     # ── HELPERS ───────────────────────────────────────────────────────────────
 
     def _sanitize(self, text):
-        """Strip 4-byte Unicode characters (e.g. math symbols) that MySQL utf8
-        charset cannot store. Use utf8mb4 on the DB to preserve them instead."""
         if not text:
             return text or ''
-        # Characters above U+FFFF require 4 bytes in UTF-8 and break MySQL utf8
         return ''.join(c for c in text if ord(c) <= 0xFFFF)
 
     def _to_datetime(self, val):
