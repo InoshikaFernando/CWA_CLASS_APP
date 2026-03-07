@@ -17,26 +17,20 @@
   </div>
 
   <!-- ── Quick Stats ───────────────────────────────────── -->
-  {% with tl=time_log %}
   <div class="grid grid-cols-3 gap-3">
     <div class="bg-white rounded-2xl border border-border shadow-sm p-4 text-center">
       <p class="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1">Today</p>
-      <p class="font-display text-2xl text-primary">
-        {% if tl %}{% widthratio tl.daily_seconds 60 1 %}m{% else %}0m{% endif %}
-      </p>
+      <p class="font-display text-2xl text-primary">{{ time_daily|default:"0m" }}</p>
     </div>
     <div class="bg-white rounded-2xl border border-border shadow-sm p-4 text-center">
       <p class="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1">This Week</p>
-      <p class="font-display text-2xl text-primary">
-        {% if tl %}{% widthratio tl.weekly_seconds 3600 1 %}h{% else %}0h{% endif %}
-      </p>
+      <p class="font-display text-2xl text-primary">{{ time_weekly|default:"0m" }}</p>
     </div>
     <div class="bg-white rounded-2xl border border-border shadow-sm p-4 text-center">
       <p class="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1">Best Score</p>
       <p class="font-display text-2xl text-accent">{{ best_score|default:"—" }}</p>
     </div>
   </div>
-  {% endwith %}
 
   <!-- ── Year Levels Accordion ─────────────────────────── -->
   <div>

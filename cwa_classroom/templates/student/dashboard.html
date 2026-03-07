@@ -9,18 +9,16 @@
   </div>
 
   <!-- Time stats -->
-  {% if time_log %}
   <div class="grid grid-cols-2 gap-4">
     <div class="bg-white rounded-2xl border border-border shadow-sm p-5 text-center">
-      <p class="font-display text-3xl text-primary">{{ time_log.daily_seconds|floatformat:0 }}s</p>
+      <p class="font-display text-3xl text-primary">{{ time_daily }}</p>
       <p class="text-xs text-gray-400 font-semibold uppercase tracking-wide mt-1">Today</p>
     </div>
     <div class="bg-white rounded-2xl border border-border shadow-sm p-5 text-center">
-      <p class="font-display text-3xl text-primary">{% widthratio time_log.weekly_seconds 60 1 %}m</p>
+      <p class="font-display text-3xl text-primary">{{ time_weekly }}</p>
       <p class="text-xs text-gray-400 font-semibold uppercase tracking-wide mt-1">This Week</p>
     </div>
   </div>
-  {% endif %}
 
   <!-- ── Year Level Progress (accordion) ─────────────────────────────────── -->
   {% if progress_grid %}

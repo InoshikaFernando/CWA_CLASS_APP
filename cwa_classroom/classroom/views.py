@@ -282,7 +282,22 @@ class StudentDashboardView(LoginRequiredMixin, View):
             'recent_bf': recent_bf,
             'recent_tt': recent_tt,
             'time_log': time_log,
+            'time_daily': _format_seconds(time_log.daily_total_seconds if time_log else 0),
+            'time_weekly': _format_seconds(time_log.weekly_total_seconds if time_log else 0),
         })
+
+
+def _format_seconds(seconds):
+    """Format a seconds count as a human-readable time string.
+    < 3600s → 'Xm'   e.g. '27m'
+    ≥ 3600s → 'Xh Ym' e.g. '1h 5m'
+    """
+    seconds = int(seconds or 0)
+    if seconds < 3600:
+        return f"{seconds // 60}m"
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    return f"{h}h {m}m"
 
 
 def _pct_colour(pct):

@@ -584,11 +584,14 @@ def dashboard(request):
             'strand_data': [{'strand': None, 'subtopics': topics}],
         })
 
+    from classroom.views import _format_seconds
     return render(request, 'student/home.html', {
         'year_data': year_data,
         'time_log': time_log,
         'best_score': best_score,
         'is_individual_student': is_individual_student,
+        'time_daily': _format_seconds(time_log.daily_total_seconds if time_log else 0),
+        'time_weekly': _format_seconds(time_log.weekly_total_seconds if time_log else 0),
     })
 
 @login_required
