@@ -389,12 +389,12 @@ class Command(BaseCommand):
 
     def _import_questions_answers(self, q_rows, a_rows, level_map, topic_map):
         """
-        quiz_question cols:
+        quiz_question actual backup column order (FK created_by_id / level / topic at end):
           id(0), question_text(1), question_type(2), difficulty(3), points(4),
           explanation(5), image(6), created_at(7), updated_at(8),
-          level_id(9), topic_id(10), created_by_id(11)
+          created_by_id(9), level_id(10), topic_id(11)
 
-        quiz_answer cols:
+        quiz_answer cols (question_id FK at end):
           id(0), text(1), is_correct(2), display_order(3), question_id(4)
 
         Imports into maths.Question / maths.Answer using maths level/topic maps.
@@ -420,8 +420,11 @@ class Command(BaseCommand):
             points        = row[4] if len(row) > 4 else 1
             explanation   = row[5] if len(row) > 5 else ''
             image         = row[6] if len(row) > 6 else ''
-            level_id      = row[9] if len(row) > 9 else None
-            topic_id      = row[10] if len(row) > 10 else None
+            # Actual backup column order (FKs added at end via migrations):
+            # id, question_text, question_type, difficulty, points, explanation,
+            # image, created_at, updated_at, created_by_id, level_id, topic_id
+            level_id      = row[10] if len(row) > 10 else None
+            topic_id      = row[11] if len(row) > 11 else None
 
             # Bridge: classroom.Level.id → maths.Level
             ml = self._maths_level_map.get(level_id)
@@ -521,11 +524,12 @@ class Command(BaseCommand):
                 cr.levels.add(level)
 
         # Student enrollments
+        # Actual backup column order: id, joined_at, classroom_id, student_id
         enrolled = 0
         for row in en_rows:
             old_id     = row[0]
-            old_cr_id  = row[1]
-            old_stu_id = row[2]
+            old_cr_id  = row[2]
+            old_stu_id = row[3]
             cr = cr_map.get(old_cr_id)
             student = user_map.get(old_stu_id)
             if cr and student:
@@ -538,10 +542,10 @@ class Command(BaseCommand):
 
     def _import_final_answers(self, rows, user_map, level_map, topic_map):
         """
-        progress_studentfinalanswer cols:
-          id(0), student_id(1), topic_id(2), level_id(3), quiz_type(4),
-          session_id(5), attempt_number(6), score(7), total_questions(8),
-          points(9), time_taken_seconds(10), completed_at(11)
+        progress_studentfinalanswer actual backup column order (FKs at end):
+          id(0), quiz_type(1), session_id(2), attempt_number(3), score(4),
+          total_questions(5), points(6), time_taken_seconds(7), completed_at(8),
+          level_id(9), student_id(10), topic_id(11), operation(12)
 
         topic_id/level_id are classroom IDs → bridge to maths via _maths_*_map.
         """
@@ -550,17 +554,18 @@ class Command(BaseCommand):
         created = skipped = 0
         for row in rows:
             old_id         = row[0]
-            student_id     = row[1]
-            topic_id       = row[2]
-            level_id       = row[3]
-            quiz_type      = row[4] if len(row) > 4 else 'topic'
-            session_id     = row[5] if len(row) > 5 else None
-            attempt_number = row[6] if len(row) > 6 else 1
-            score          = row[7] if len(row) > 7 else 0
-            total_q        = row[8] if len(row) > 8 else 0
-            points         = row[9] if len(row) > 9 else 0.0
-            time_taken     = row[10] if len(row) > 10 else 0
-            completed_at   = row[11] if len(row) > 11 else None
+            quiz_type      = row[1] if len(row) > 1 else 'topic'
+            session_id     = row[2] if len(row) > 2 else None
+            attempt_number = row[3] if len(row) > 3 else 1
+            score          = row[4] if len(row) > 4 else 0
+            total_q        = row[5] if len(row) > 5 else 0
+            points         = row[6] if len(row) > 6 else 0.0
+            time_taken     = row[7] if len(row) > 7 else 0
+            completed_at   = row[8] if len(row) > 8 else None
+            level_id       = row[9] if len(row) > 9 else None
+            student_id     = row[10] if len(row) > 10 else None
+            topic_id       = row[11] if len(row) > 11 else None
+            operation      = row[12] if len(row) > 12 else ''
 
             student = user_map.get(student_id)
             ml = self._maths_level_map.get(level_id)
@@ -586,6 +591,7 @@ class Command(BaseCommand):
                     'total_questions': int(total_q) if total_q is not None else 0,
                     'points': float(points) if points is not None else 0.0,
                     'time_taken_seconds': int(time_taken) if time_taken is not None else 0,
+                    'operation': operation or '',
                 },
             )
             if new:
@@ -600,10 +606,10 @@ class Command(BaseCommand):
 
     def _import_basic_facts(self, rows, user_map):
         """
-        progress_basicfactsresult cols:
-          id(0), student_id(1), subtopic(2), level_number(3), session_id(4),
-          score(5), total_questions(6), points(7), time_taken_seconds(8),
-          questions_data(9), completed_at(10)
+        progress_basicfactsresult actual backup column order (student_id FK at end):
+          id(0), subtopic(1), level_number(2), session_id(3), score(4),
+          total_questions(5), points(6), time_taken_seconds(7),
+          questions_data(8), completed_at(9), student_id(10)
 
         Maps directly to maths.BasicFactsResult (subtopic+level_number already correct).
         Note: maths field is total_points, not total_questions.
@@ -613,16 +619,16 @@ class Command(BaseCommand):
         created = skipped = 0
         for row in rows:
             old_id       = row[0]
-            student_id   = row[1]
-            subtopic     = row[2]
-            level_number = row[3]
-            session_id   = row[4] if len(row) > 4 else None
-            score        = row[5] if len(row) > 5 else 0
-            total_q      = row[6] if len(row) > 6 else 10
-            points       = row[7] if len(row) > 7 else 0.0
-            time_taken   = row[8] if len(row) > 8 else 0
-            q_data       = row[9] if len(row) > 9 else None
-            completed_at = row[10] if len(row) > 10 else None
+            subtopic     = row[1]
+            level_number = row[2]
+            session_id   = row[3] if len(row) > 3 else None
+            score        = row[4] if len(row) > 4 else 0
+            total_q      = row[5] if len(row) > 5 else 10
+            points       = row[6] if len(row) > 6 else 0.0
+            time_taken   = row[7] if len(row) > 7 else 0
+            q_data       = row[8] if len(row) > 8 else None
+            completed_at = row[9] if len(row) > 9 else None
+            student_id   = row[10] if len(row) > 10 else None
 
             student = user_map.get(student_id)
             if not student or not subtopic or level_number is None:
@@ -668,9 +674,9 @@ class Command(BaseCommand):
 
     def _import_timelogs(self, rows, user_map):
         """
-        progress_timelog cols:
-          id(0), student_id(1), daily_seconds(2), weekly_seconds(3),
-          last_daily_reset(4), last_weekly_reset(5), last_updated(6)
+        progress_timelog actual backup column order (student_id FK at end):
+          id(0), daily_seconds(1), weekly_seconds(2), last_daily_reset(3),
+          last_weekly_reset(4), last_updated(5), student_id(6)
 
         Maps to maths.TimeLog (daily_total_seconds, weekly_total_seconds).
         last_reset_date / last_activity are auto_now — not set manually.
@@ -680,9 +686,9 @@ class Command(BaseCommand):
         created = skipped = 0
         for row in rows:
             old_id      = row[0]
-            student_id  = row[1]
-            daily_secs  = row[2] if len(row) > 2 else 0
-            weekly_secs = row[3] if len(row) > 3 else 0
+            daily_secs  = row[1] if len(row) > 1 else 0
+            weekly_secs = row[2] if len(row) > 2 else 0
+            student_id  = row[6] if len(row) > 6 else None
 
             student = user_map.get(student_id)
             if not student:
@@ -705,9 +711,9 @@ class Command(BaseCommand):
 
     def _import_statistics(self, rows, level_map, topic_map):
         """
-        progress_topiclevelstatistics cols:
-          id(0), topic_id(1), level_id(2), avg_points(3), sigma(4),
-          student_count(5), updated_at(6)
+        progress_topiclevelstatistics actual backup column order (FKs at end):
+          id(0), avg_points(1), sigma(2), student_count(3), updated_at(4),
+          level_id(5), topic_id(6)
 
         Maps to maths.TopicLevelStatistics (average_points field name).
         topic_id/level_id are classroom IDs → bridge to maths via _maths_*_map.
@@ -717,11 +723,12 @@ class Command(BaseCommand):
         created = skipped = 0
         for row in rows:
             old_id        = row[0]
-            topic_id      = row[1]
-            level_id      = row[2]
-            avg_points    = row[3] if len(row) > 3 else 0.0
-            sigma         = row[4] if len(row) > 4 else 0.0
-            student_count = row[5] if len(row) > 5 else 0
+            avg_points    = row[1] if len(row) > 1 else 0.0
+            sigma         = row[2] if len(row) > 2 else 0.0
+            student_count = row[3] if len(row) > 3 else 0
+            # row[4] = updated_at (skip)
+            level_id      = row[5] if len(row) > 5 else None
+            topic_id      = row[6] if len(row) > 6 else None
 
             ml = self._maths_level_map.get(level_id)
             mt = self._maths_topic_map.get(topic_id)
@@ -747,10 +754,10 @@ class Command(BaseCommand):
 
     def _import_student_answers(self, rows, user_map, q_map, a_map, level_map, topic_map):
         """
-        progress_studentanswer cols:
-          id(0), student_id(1), question_id(2), topic_id(3), level_id(4),
-          selected_answer_id(5), text_answer(6), ordered_answer_ids(7),
-          is_correct(8), attempt_id(9), answered_at(10)
+        progress_studentanswer actual backup column order (FKs at end):
+          id(0), text_answer(1), ordered_answer_ids(2), is_correct(3),
+          attempt_id(4), answered_at(5), level_id(6), question_id(7),
+          selected_answer_id(8), student_id(9), topic_id(10)
 
         question_id / selected_answer_id → q_map / a_map (quiz_* → maths_*)
         topic_id / level_id → maths maps
@@ -761,16 +768,16 @@ class Command(BaseCommand):
         created = skipped = 0
         for row in rows:
             old_id            = row[0]
-            student_id        = row[1]
-            question_id       = row[2]
-            topic_id          = row[3]
-            level_id          = row[4]
-            selected_ans_id   = row[5] if len(row) > 5 else None
-            text_answer       = row[6] if len(row) > 6 else ''
-            ordered_ans_ids   = row[7] if len(row) > 7 else None
-            is_correct        = row[8] if len(row) > 8 else False
-            attempt_id        = row[9] if len(row) > 9 else None
-            answered_at       = row[10] if len(row) > 10 else None
+            text_answer       = row[1] if len(row) > 1 else ''
+            ordered_ans_ids   = row[2] if len(row) > 2 else None
+            is_correct        = row[3] if len(row) > 3 else False
+            attempt_id        = row[4] if len(row) > 4 else None
+            answered_at       = row[5] if len(row) > 5 else None
+            level_id          = row[6] if len(row) > 6 else None
+            question_id       = row[7] if len(row) > 7 else None
+            selected_ans_id   = row[8] if len(row) > 8 else None
+            student_id        = row[9] if len(row) > 9 else None
+            topic_id          = row[10] if len(row) > 10 else None
 
             student  = user_map.get(student_id)
             question = q_map.get(question_id)
