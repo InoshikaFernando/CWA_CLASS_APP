@@ -272,7 +272,8 @@ class StudentDashboardView(LoginRequiredMixin, View):
             quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
         ).select_related('level').order_by('-completed_at')[:5]
 
-        time_log = TimeLog.objects.filter(student=request.user).first()
+        from maths.views import update_time_log_from_activities
+        time_log = update_time_log_from_activities(request.user)
 
         return render(request, 'student/dashboard.html', {
             'progress_grid': progress_grid,

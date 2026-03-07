@@ -543,14 +543,11 @@ def dashboard(request):
         classes = request.user.classes.all()
         return render(request, "maths/teacher_dashboard.html", {"classes": classes})
 
-    # ── Time log ──────────────────────────────────────────────────────────
-    time_log = None
+    # ── Time log (fresh working time from quiz completions) ───────────────
     try:
-        time_log = request.user.maths_time_log
-        time_log.reset_daily_if_needed()
-        time_log.reset_weekly_if_needed()
+        time_log = update_time_log_from_activities(request.user)
     except Exception:
-        pass
+        time_log = None
 
     # ── Accessibility ─────────────────────────────────────────────────────
     enrolled_level_ids = set(
@@ -1313,86 +1310,45 @@ def get_or_create_time_log(user):
     return time_log
 
 def update_time_log_from_activities(user):
-    """Update TimeLog by summing time from all completed activities (using local time)"""
+    """Update TimeLog by summing time_taken_seconds from completed quiz sessions.
+
+    Uses StudentFinalAnswer (topic/times-table/mixed quizzes) and
+    BasicFactsResult as the source of truth — these record actual time
+    the student spent working on quizzes, not browsing time.
+    """
     from django.utils import timezone
     from django.utils.timezone import localtime
-    from django.db.models import Sum
     from datetime import timedelta
-    
+
     time_log = get_or_create_time_log(user)
-    
-    # Get today's date for filtering (local time)
+
     now_local = localtime(timezone.now())
     today = now_local.date()
-    
-    # Get current week (ISO week number) in local time
-    current_week = now_local.isocalendar()[1]
-    
-    # Sum time from StudentAnswer records (regular quizzes and measurements)
-    # Only count completed sessions (where time_taken_seconds > 0)
-    # Note: answered_at is stored in UTC, so we need to filter by local date
-    daily_student_answers = StudentAnswer.objects.filter(
-        student=user,
-        time_taken_seconds__gt=0
-    )
-    
-    # For daily: sum unique session times (each session represents one activity)
-    # Filter by local date by converting UTC to local time
-    daily_time_from_student_answers = 0
-    seen_sessions = set()
-    for answer in daily_student_answers.order_by('session_id', 'answered_at'):
-        # Convert UTC to local time for date comparison
-        answer_local = localtime(answer.answered_at)
-        if answer_local.date() == today:
-            if answer.session_id and answer.session_id not in seen_sessions:
-                seen_sessions.add(answer.session_id)
-                daily_time_from_student_answers += answer.time_taken_seconds
-    
-    # For weekly: same logic but for current week (local time)
-    weekly_time_from_student_answers = 0
-    seen_weekly_sessions = set()
-    # Get start of week (Monday) in local time
     days_since_monday = now_local.weekday()
-    week_start = now_local.date() - timedelta(days=days_since_monday)
-    
-    for answer in daily_student_answers.order_by('session_id', 'answered_at'):
-        # Convert UTC to local time for date comparison
-        answer_local = localtime(answer.answered_at)
-        if answer_local.date() >= week_start:
-            if answer.session_id and answer.session_id not in seen_weekly_sessions:
-                seen_weekly_sessions.add(answer.session_id)
-                weekly_time_from_student_answers += answer.time_taken_seconds
-    
-    # Sum time from BasicFactsResult records (also stored in UTC)
-    all_basic_facts = BasicFactsResult.objects.filter(student=user)
-    
-    daily_basic_facts = 0
-    seen_daily_sessions = set()
-    weekly_basic_facts = 0
-    seen_weekly_bf_sessions = set()
-    
-    for result in all_basic_facts:
-        # Convert UTC to local time for date comparison
-        result_local = localtime(result.completed_at)
-        result_date = result_local.date()
-        
-        # Daily check
-        if result_date == today:
-            if result.session_id and result.session_id not in seen_daily_sessions:
-                seen_daily_sessions.add(result.session_id)
-                daily_basic_facts += result.time_taken_seconds
-        
-        # Weekly check
-        if result_date >= week_start:
-            if result.session_id and result.session_id not in seen_weekly_bf_sessions:
-                seen_weekly_bf_sessions.add(result.session_id)
-                weekly_basic_facts += result.time_taken_seconds
-    
-    # Update TimeLog with total time from activities
-    time_log.daily_total_seconds = daily_time_from_student_answers + daily_basic_facts
-    time_log.weekly_total_seconds = weekly_time_from_student_answers + weekly_basic_facts
+    week_start = today - timedelta(days=days_since_monday)
+
+    # Sum time from StudentFinalAnswer (topic, times-table, mixed quizzes)
+    daily_sfa = weekly_sfa = 0
+    for r in StudentFinalAnswer.objects.filter(student=user, time_taken_seconds__gt=0):
+        r_date = localtime(r.completed_at).date()
+        if r_date == today:
+            daily_sfa += r.time_taken_seconds
+        if r_date >= week_start:
+            weekly_sfa += r.time_taken_seconds
+
+    # Sum time from BasicFactsResult
+    daily_bf = weekly_bf = 0
+    for r in BasicFactsResult.objects.filter(student=user, time_taken_seconds__gt=0):
+        r_date = localtime(r.completed_at).date()
+        if r_date == today:
+            daily_bf += r.time_taken_seconds
+        if r_date >= week_start:
+            weekly_bf += r.time_taken_seconds
+
+    time_log.daily_total_seconds = daily_sfa + daily_bf
+    time_log.weekly_total_seconds = weekly_sfa + weekly_bf
     time_log.save(update_fields=['daily_total_seconds', 'weekly_total_seconds', 'last_activity'])
-    
+
     return time_log
 
 @login_required
