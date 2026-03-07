@@ -226,22 +226,38 @@ class StudentDashboardView(LoginRequiredMixin, View):
         # ── Times Tables results ──────────────────────────────────────────────
         tt_results = []
         for table in range(1, 13):
-            best = StudentFinalAnswer.objects.filter(
+            best_mul = StudentFinalAnswer.objects.filter(
                 student=request.user,
                 quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
+                operation='multiplication',
                 level__level_number=table,
             ).order_by('-points').first()
-            count = StudentFinalAnswer.objects.filter(
+            best_div = StudentFinalAnswer.objects.filter(
                 student=request.user,
                 quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
+                operation='division',
                 level__level_number=table,
-            ).count()
+            ).order_by('-points').first()
+            # Legacy: attempts without operation saved (old records)
+            if not best_mul and not best_div:
+                best_legacy = StudentFinalAnswer.objects.filter(
+                    student=request.user,
+                    quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
+                    operation='',
+                    level__level_number=table,
+                ).order_by('-points').first()
+            else:
+                best_legacy = None
             tt_results.append({
                 'table': table,
-                'best': best,
-                'pct': best.percentage if best else None,
-                'colour': _pct_colour(best.percentage if best else None),
-                'attempts': count,
+                'mul': best_mul,
+                'div': best_div,
+                'legacy': best_legacy,
+                'colour': _pct_colour(
+                    best_mul.percentage if best_mul else
+                    (best_div.percentage if best_div else
+                     (best_legacy.percentage if best_legacy else None))
+                ),
             })
 
         # ── Recent activity ───────────────────────────────────────────────────
