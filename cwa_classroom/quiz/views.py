@@ -7,7 +7,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.utils import timezone
 from django.conf import settings
 
-from classroom.models import Level, Topic
+from maths.models import Level, Topic
 from .basic_facts import (
     SUBTOPIC_CONFIG, SUBTOPIC_LABELS, get_display_level,
     generate_questions, check_answer
@@ -36,7 +36,7 @@ class BasicFactsSelectView(LoginRequiredMixin, View):
         label = SUBTOPIC_LABELS[subtopic]
         start, end = cfg['level_range']
 
-        from progress.models import BasicFactsResult
+        from maths.models import BasicFactsResult
         levels = []
         for i, num in enumerate(range(start, end + 1)):
             best = BasicFactsResult.get_best_result(request.user, subtopic, num)
@@ -109,7 +109,7 @@ class BasicFactsQuizView(LoginRequiredMixin, View):
         percentage = correct_count / total if total else 0
         points = ((percentage * 100 * 60) / time_taken) / 10
 
-        from progress.models import BasicFactsResult
+        from maths.models import BasicFactsResult
         # Dedup: check recent submission
         recent = BasicFactsResult.objects.filter(
             student=request.user, subtopic=subtopic, level_number=level_number
@@ -126,7 +126,7 @@ class BasicFactsQuizView(LoginRequiredMixin, View):
                     subtopic=subtopic,
                     level_number=level_number,
                     score=correct_count,
-                    total_questions=total,
+                    total_points=total,
                     points=round(points, 2),
                     time_taken_seconds=time_taken,
                     questions_data=results,
@@ -154,7 +154,7 @@ class BasicFactsQuizView(LoginRequiredMixin, View):
 
 class BasicFactsResultsView(LoginRequiredMixin, View):
     def get(self, request, subtopic, level_number):
-        from progress.models import BasicFactsResult
+        from maths.models import BasicFactsResult
 
         result_id = request.session.get(f'bf_result_{subtopic}_{level_number}')
         if result_id:
@@ -238,26 +238,16 @@ def _generate_times_tables_questions(table, operation, count=12):
 
 class TimesTablesHomeView(LoginRequiredMixin, View):
     def get(self, request):
-        # Determine student's year level from their classes
+        # Determine student's year level from their hub classrooms
         year = 4  # default
         if request.user.is_student or request.user.is_individual_student:
-            from classroom.models import ClassRoom
+            from classroom.models import ClassRoom, Level as ClassroomLevel
             classrooms = ClassRoom.objects.filter(students=request.user, is_active=True)
-            levels = Level.objects.filter(classrooms__in=classrooms, level_number__lte=8)
-            if levels.exists():
-                year = levels.order_by('-level_number').first().level_number
+            hub_levels = ClassroomLevel.objects.filter(classrooms__in=classrooms, level_number__lte=8)
+            if hub_levels.exists():
+                year = hub_levels.order_by('-level_number').first().level_number
 
         available_tables = TIMES_TABLES_BY_YEAR.get(year, list(range(1, 13)))
-
-        from progress.models import StudentFinalAnswer
-        table_progress = {}
-        for t in range(1, 13):
-            best = StudentFinalAnswer.objects.filter(
-                student=request.user,
-                topic__isnull=True,
-                level__level_number__in=[t],
-            ).order_by('-points').first()
-            table_progress[t] = best
 
         return render(request, 'quiz/times_tables_select.html', {
             'available_tables': available_tables,
@@ -381,7 +371,7 @@ class TimesTablesSubmitView(LoginRequiredMixin, View):
         points = round((percentage * 100 * 60) / time_taken, 2)
 
         # Save to DB using table number as level_number
-        from progress.models import StudentFinalAnswer
+        from maths.models import StudentFinalAnswer
         level_obj = Level.objects.filter(level_number=table).first()
         if level_obj:
             StudentFinalAnswer.objects.create(
@@ -421,7 +411,7 @@ class TopicQuizView(LoginRequiredMixin, View):
         level = get_object_or_404(Level, level_number=level_number)
         topic = get_object_or_404(Topic, id=topic_id)
 
-        from quiz.models import Question
+        from maths.models import Question
         questions_qs = list(Question.objects.filter(
             topic=topic, level=level
         ).prefetch_related('answers'))
@@ -475,7 +465,7 @@ class TopicResultsView(LoginRequiredMixin, View):
         topic = get_object_or_404(Topic, id=topic_id)
 
         result_id = request.session.get(f'tq_result_{topic_id}_{level_number}')
-        from progress.models import StudentFinalAnswer
+        from maths.models import StudentFinalAnswer
         if result_id:
             result = StudentFinalAnswer.objects.filter(id=result_id, student=request.user).first()
         else:
@@ -495,10 +485,10 @@ class MixedQuizView(LoginRequiredMixin, View):
     def get(self, request, level_number):
         import random as rnd
         level = get_object_or_404(Level, level_number=level_number)
-        from quiz.models import Question
+        from maths.models import Question
 
-        # Stratified sample across all topics for this level
-        topics = Topic.objects.filter(levels=level, is_active=True)
+        # Stratified sample across all topics for this level (maths.Topic has no is_active)
+        topics = Topic.objects.filter(levels=level)
         all_questions = []
         for topic in topics:
             qs = list(Question.objects.filter(topic=topic, level=level).prefetch_related('answers'))
@@ -533,8 +523,8 @@ class MixedQuizView(LoginRequiredMixin, View):
         start_time = session_data.get('start_time', time.time())
         time_taken = max(1, int(time.time() - start_time))
 
-        from quiz.models import Question, Answer
-        from progress.models import StudentAnswer, StudentFinalAnswer
+        from maths.models import Question, Answer
+        from maths.models import StudentAnswer, StudentFinalAnswer
         question_ids = session_data.get('question_ids', [])
         questions = Question.objects.filter(id__in=question_ids).prefetch_related('answers', 'topic')
 
@@ -559,7 +549,7 @@ class MixedQuizView(LoginRequiredMixin, View):
                 raw = request.POST.get(f'text_{q.id}', '').strip()
                 correct_ans = q.answers.filter(is_correct=True).first()
                 if correct_ans:
-                    alts = [a.strip() for a in correct_ans.text.split(',')]
+                    alts = [a.strip() for a in correct_ans.answer_text.split(',')]
                     is_correct = raw.lower() in [a.lower() for a in alts]
 
             if is_correct:
@@ -580,7 +570,7 @@ class MixedQuizView(LoginRequiredMixin, View):
 
         from django.db import transaction
         with transaction.atomic():
-            StudentAnswer.objects.bulk_create(answer_records)
+            StudentAnswer.objects.bulk_create(answer_records, ignore_conflicts=True)
             attempt_num = StudentFinalAnswer.get_next_attempt_number(request.user, None, level)
             result = StudentFinalAnswer.objects.create(
                 student=request.user,
@@ -609,7 +599,7 @@ class MixedResultsView(LoginRequiredMixin, View):
     def get(self, request, level_number):
         level = get_object_or_404(Level, level_number=level_number)
         data = request.session.get(f'mq_result_{level_number}', {})
-        from progress.models import StudentFinalAnswer
+        from maths.models import StudentFinalAnswer
         result = None
         if data.get('result_id'):
             result = StudentFinalAnswer.objects.filter(id=data['result_id']).first()
@@ -634,7 +624,7 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
         if not session_data:
             return JsonResponse({'error': 'Session expired'}, status=400)
 
-        from quiz.models import Question, Answer
+        from maths.models import Question, Answer
         question_id = data.get('question_id')
         q = get_object_or_404(Question, id=question_id)
         current = session_data['current']
@@ -655,16 +645,16 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
                 correct_answer_id = correct_ans.id
         elif q.question_type == 'drag_drop':
             ordered_ids = data.get('ordered_answer_ids', [])
-            correct_order = list(q.answers.order_by('display_order').values_list('id', flat=True))
+            correct_order = list(q.answers.order_by('order').values_list('id', flat=True))
             is_correct = [int(x) for x in ordered_ids] == correct_order
-            correct_answer_text = ' → '.join(
-                q.answers.order_by('display_order').values_list('text', flat=True)
+            correct_answer_text = ' -> '.join(
+                q.answers.order_by('order').values_list('answer_text', flat=True)
             )
         else:
             raw = data.get('text_answer', '').strip()
             correct_ans = q.answers.filter(is_correct=True).first()
             if correct_ans:
-                alts = [a.strip().lower() for a in correct_ans.text.split(',')]
+                alts = [a.strip().lower() for a in correct_ans.answer_text.split(',')]
                 from django.conf import settings
                 tolerance = getattr(settings, 'ANSWER_NUMERIC_TOLERANCE', 0.05)
                 is_correct = raw.lower() in alts
@@ -673,7 +663,7 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
                         is_correct = abs(float(raw) - float(alts[0])) <= tolerance
                     except ValueError:
                         pass
-                correct_answer_text = correct_ans.text.split(',')[0]
+                correct_answer_text = correct_ans.answer_text.split(',')[0]
 
         # Update session
         if is_correct:
@@ -682,7 +672,7 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
         request.session[session_key] = session_data
 
         # Save individual answer
-        from progress.models import StudentAnswer
+        from maths.models import StudentAnswer
         import uuid as _uuid
         StudentAnswer.objects.create(
             student=request.user,
@@ -705,8 +695,8 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             percentage = correct / total if total else 0
             points = (percentage * 100 * 60) / time_taken
 
-            from progress.models import StudentFinalAnswer
-            from classroom.models import Level as _Level
+            from maths.models import StudentFinalAnswer
+            from maths.models import Level as _Level
             level = _Level.objects.filter(level_number=session_data['level_number']).first()
             attempt_num = StudentFinalAnswer.get_next_attempt_number(request.user, q.topic, level)
             result = StudentFinalAnswer.objects.create(
@@ -749,7 +739,7 @@ class TopicNextQuestionView(LoginRequiredMixin, View):
             return redirect(f'/level/{session_data["level_number"]}/topic/{session_data["topic_id"]}/results/')
 
         q_info = questions[current]
-        from quiz.models import Question
+        from maths.models import Question
         q = get_object_or_404(Question, id=q_info['id'])
         answers = list(q.answers.all())
         rnd.shuffle(answers)

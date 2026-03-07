@@ -1,5 +1,6 @@
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 import uuid
 
 
@@ -53,12 +54,25 @@ class Enrollment(models.Model):
 
 
 class Question(models.Model):
+    # question_type constants for use in views
+    MULTIPLE_CHOICE = 'multiple_choice'
+    TRUE_FALSE = 'true_false'
+    SHORT_ANSWER = 'short_answer'
+    FILL_BLANK = 'fill_blank'
+    CALCULATION = 'calculation'
+
     QUESTION_TYPES = [
         ('multiple_choice', 'Multiple Choice'),
         ('true_false', 'True/False'),
         ('short_answer', 'Short Answer'),
         ('fill_blank', 'Fill in the Blank'),
         ('calculation', 'Calculation'),
+    ]
+
+    DIFFICULTY_CHOICES = [
+        (1, 'Easy'),
+        (2, 'Medium'),
+        (3, 'Hard'),
     ]
 
     level = models.ForeignKey(Level, on_delete=models.CASCADE, related_name="questions")
@@ -97,10 +111,12 @@ class StudentAnswer(models.Model):
     question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name="student_answers")
     selected_answer = models.ForeignKey(Answer, on_delete=models.CASCADE, null=True, blank=True)
     text_answer = models.TextField(blank=True, help_text="For short answer questions")
+    ordered_answer_ids = models.JSONField(null=True, blank=True, help_text="For drag-drop questions")
     is_correct = models.BooleanField(default=False)
     points_earned = models.PositiveIntegerField(default=0)
     answered_at = models.DateTimeField(auto_now_add=True)
     session_id = models.CharField(max_length=100, blank=True, default="", help_text="Session identifier for tracking attempts")
+    attempt_id = models.UUIDField(default=uuid.uuid4, help_text="Groups all answers from one quiz session")
     time_taken_seconds = models.PositiveIntegerField(default=0, help_text="Time taken for this attempt in seconds")
 
     class Meta:
@@ -114,7 +130,10 @@ class StudentAnswer(models.Model):
 class BasicFactsResult(models.Model):
     """Store Basic Facts quiz attempts in database for persistent tracking"""
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="maths_basic_facts_results")
-    level = models.ForeignKey(Level, on_delete=models.CASCADE, related_name="basic_facts_results")
+    level = models.ForeignKey(Level, on_delete=models.CASCADE, related_name="basic_facts_results", null=True, blank=True)
+    # subtopic + level_number used by the quiz-engine rows (progress app style)
+    subtopic = models.CharField(max_length=20, blank=True, default="", help_text="e.g. Addition, Subtraction, Multiplication, Division, PlaceValue")
+    level_number = models.PositiveIntegerField(null=True, blank=True, help_text="Numeric level within the subtopic (1-10)")
     session_id = models.CharField(max_length=100, help_text="Session identifier for tracking attempts")
     score = models.PositiveIntegerField(help_text="Number of correct answers")
     total_points = models.PositiveIntegerField(help_text="Total possible points")
@@ -127,10 +146,36 @@ class BasicFactsResult(models.Model):
         indexes = [
             models.Index(fields=['student', 'level']),
             models.Index(fields=['student', 'level', 'session_id']),
+            models.Index(fields=['student', 'subtopic', 'level_number']),
         ]
 
+    # questions_data stores generated question details + student answers for results review
+    questions_data = models.JSONField(
+        default=list, blank=True,
+        help_text="Stores generated questions + student answers for review.",
+    )
+
     def __str__(self):
-        return f"{self.student} - Level {self.level.level_number} - {self.points} points ({self.completed_at})"
+        return f"{self.student} - {self.subtopic} L{self.level_number} - {self.points} points ({self.completed_at})"
+
+    @property
+    def percentage(self):
+        """Percentage score (0-100)."""
+        if not self.total_points:
+            return 0
+        return round((self.score / self.total_points) * 100)
+
+    @property
+    def total_questions(self):
+        """Alias for total_points (same value — each question = 1 point in Basic Facts)."""
+        return self.total_points
+
+    @classmethod
+    def get_best_result(cls, student, subtopic, level_number):
+        """Get the best (highest points) result for a student-subtopic-level combination."""
+        return cls.objects.filter(
+            student=student, subtopic=subtopic, level_number=level_number
+        ).order_by('-points').first()
 
 
 class TimeLog(models.Model):
@@ -147,6 +192,23 @@ class TimeLog(models.Model):
 
     def __str__(self):
         return f"{self.student.username} - Daily: {self.daily_total_seconds}s, Weekly: {self.weekly_total_seconds}s"
+
+    # ── Backward-compatible aliases (for progress app templates/views) ────────
+    @property
+    def daily_seconds(self):
+        return self.daily_total_seconds
+
+    @property
+    def weekly_seconds(self):
+        return self.weekly_total_seconds
+
+    @property
+    def last_updated(self):
+        return self.last_activity
+
+    @property
+    def last_daily_reset(self):
+        return self.last_reset_date
 
     def reset_daily_if_needed(self):
         """Reset daily time if it's past midnight (local time)"""
@@ -191,6 +253,28 @@ class TopicLevelStatistics(models.Model):
     def __str__(self):
         return f"{self.level} - {self.topic}: avg={self.average_points}, σ={self.sigma} (n={self.student_count})"
 
+    def get_colour_band(self, points):
+        """Return Tailwind CSS classes based on student points vs platform average.
+        Mirrors progress.TopicLevelStatistics.get_colour_band for template compatibility.
+        """
+        if self.student_count < 2:
+            return ''
+        avg = float(self.average_points)
+        s = float(self.sigma)
+        if s == 0:
+            return 'bg-green-200 text-green-900'
+        if points > avg + 2 * s:
+            return 'bg-green-800 text-white'
+        if points > avg + s:
+            return 'bg-green-500 text-white'
+        if points > avg - s:
+            return 'bg-green-200 text-green-900'
+        if points > avg - 2 * s:
+            return 'bg-yellow-200 text-yellow-900'
+        if points > avg - 3 * s:
+            return 'bg-orange-200 text-orange-900'
+        return 'bg-red-200 text-red-900'
+
     def get_color_class(self, student_points):
         """
         Determine color class based on student's points relative to average and sigma
@@ -224,24 +308,47 @@ class StudentFinalAnswer(models.Model):
     Store aggregated results for each quiz attempt.
     One record per attempt (session_id) with attempt_number that increments for each new attempt of the same topic-level.
     """
+    QUIZ_TYPE_TOPIC = 'topic'
+    QUIZ_TYPE_MIXED = 'mixed'
+    QUIZ_TYPE_TIMES_TABLE = 'times_table'
+    QUIZ_TYPE_CHOICES = [
+        ('topic', 'Topic Quiz'),
+        ('mixed', 'Mixed Quiz'),
+        ('times_table', 'Times Table'),
+    ]
+
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="maths_final_answers")
-    session_id = models.CharField(max_length=100, help_text="Session identifier for this attempt")
-    topic = models.ForeignKey(Topic, on_delete=models.CASCADE, related_name="final_answers")
-    level = models.ForeignKey(Level, on_delete=models.CASCADE, related_name="final_answers")
-    attempt_number = models.PositiveIntegerField(help_text="Attempt number for this student-topic-level combination (increments for each new attempt)")
-    points_earned = models.DecimalField(max_digits=10, decimal_places=2, help_text="Final points earned for this attempt")
+    # session_id defaults to a fresh UUID for each new attempt (quiz engine does not need to supply it)
+    session_id = models.CharField(max_length=100, default=uuid.uuid4, blank=True, help_text="Session identifier for this attempt")
+    topic = models.ForeignKey(Topic, on_delete=models.SET_NULL, null=True, blank=True, related_name="final_answers")
+    level = models.ForeignKey(Level, on_delete=models.SET_NULL, null=True, blank=True, related_name="final_answers")
+    quiz_type = models.CharField(max_length=20, choices=QUIZ_TYPE_CHOICES, default='topic', blank=True)
+    attempt_number = models.PositiveIntegerField(default=1, help_text="Attempt number for this student-topic-level combination")
+    score = models.PositiveSmallIntegerField(default=0, help_text="Number of correct answers")
+    total_questions = models.PositiveSmallIntegerField(default=0, help_text="Total questions in this attempt")
+    points = models.FloatField(default=0.0, help_text="Calculated points based on score and time")
+    time_taken_seconds = models.PositiveIntegerField(default=0, help_text="Time taken for this attempt in seconds")
+    completed_at = models.DateTimeField(default=timezone.now, help_text="When this result was completed")
+    # Legacy field retained from consolidation migration — new code uses 'points'
+    points_earned = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Legacy: points from consolidation migration")
     last_updated_time = models.DateTimeField(auto_now=True, help_text="Last time this record was updated")
 
     class Meta:
-        unique_together = ("student", "session_id")
-        ordering = ['-last_updated_time']
+        ordering = ['-completed_at']
         indexes = [
             models.Index(fields=['student', 'topic', 'level']),
             models.Index(fields=['student', 'topic', 'level', 'attempt_number']),
         ]
 
     def __str__(self):
-        return f"{self.student} - {self.level} {self.topic} - Attempt {self.attempt_number}: {self.points_earned} points"
+        return f"{self.student} - {self.level} {self.topic} - Attempt {self.attempt_number}: {self.points} points"
+
+    @property
+    def percentage(self):
+        """Percentage score (0-100) based on score/total_questions."""
+        if not self.total_questions:
+            return 0
+        return round((self.score / self.total_questions) * 100)
 
     @classmethod
     def get_next_attempt_number(cls, student, topic, level):
@@ -277,18 +384,18 @@ class StudentFinalAnswer(models.Model):
 
     @classmethod
     def get_best_result(cls, student, topic, level):
-        """Get the best (highest points) result for a student-topic-level combination"""
+        """Get the best (highest points) result for a student-topic-level combination."""
         return cls.objects.filter(
             student=student,
             topic=topic,
             level=level
-        ).order_by('-points_earned').first()
+        ).order_by('-points').first()
 
     @classmethod
     def get_latest_attempt(cls, student, topic, level):
-        """Get the latest (highest attempt_number) attempt for a student-topic-level combination"""
+        """Get the latest attempt for a student-topic-level combination."""
         return cls.objects.filter(
             student=student,
             topic=topic,
             level=level
-        ).order_by('-attempt_number').first()
+        ).order_by('-completed_at').first()

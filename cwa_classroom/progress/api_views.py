@@ -4,7 +4,7 @@ from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.utils import timezone
 from datetime import date, timedelta
-from .models import TimeLog
+from maths.models import TimeLog
 
 
 class UpdateTimeLogView(LoginRequiredMixin, View):
@@ -19,22 +19,16 @@ class UpdateTimeLogView(LoginRequiredMixin, View):
             return JsonResponse({'error': 'invalid'}, status=400)
 
         log, _ = TimeLog.objects.get_or_create(student=request.user)
-        today = timezone.localdate()
-        # Reset daily counter if new day
-        if log.last_daily_reset != today:
-            log.daily_seconds = 0
-            log.last_daily_reset = today
-        # Reset weekly counter if new week (Monday)
-        week_start = today - timedelta(days=today.weekday())
-        if log.last_weekly_reset != week_start:
-            log.weekly_seconds = 0
-            log.last_weekly_reset = week_start
 
-        log.daily_seconds += seconds
-        log.weekly_seconds += seconds
-        log.save()
+        # Use built-in reset helpers (they handle auto_now field quirks)
+        log.reset_daily_if_needed()
+        log.reset_weekly_if_needed()
+
+        log.daily_total_seconds += seconds
+        log.weekly_total_seconds += seconds
+        log.save(update_fields=['daily_total_seconds', 'weekly_total_seconds'])
 
         return JsonResponse({
-            'daily_seconds': log.daily_seconds,
-            'weekly_seconds': log.weekly_seconds,
+            'daily_seconds': log.daily_total_seconds,
+            'weekly_seconds': log.weekly_total_seconds,
         })

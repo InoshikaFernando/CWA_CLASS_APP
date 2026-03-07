@@ -5,12 +5,24 @@ from django.utils import timezone
 from datetime import date, timedelta
 
 from classroom.models import Topic, Level
-from .models import StudentFinalAnswer, BasicFactsResult, TopicLevelStatistics, TimeLog
+from maths.models import StudentFinalAnswer, BasicFactsResult, TopicLevelStatistics, TimeLog
 
 
 def _build_strand_data(student, level, include_attempts=False):
     """Build strand_data list for a level, grouping topics by parent strand.
-    Topics without a parent (flat/legacy) are grouped under strand=None."""
+    Topics without a parent (flat/legacy) are grouped under strand=None.
+
+    Uses classroom.Topic for the display hierarchy (parent/order/is_active),
+    but bridges to maths.Topic/Level by name for result lookups.
+    """
+    from maths.models import Topic as MathsTopic, Level as MathsLevel
+
+    # Resolve the maths-side Level from the classroom Level's level_number
+    maths_level = MathsLevel.objects.filter(level_number=level.level_number).first()
+
+    # Build a name → maths.Topic lookup to avoid per-topic DB hits
+    maths_topic_map = {t.name: t for t in MathsTopic.objects.all()}
+
     all_topics = (
         Topic.objects.filter(levels=level, is_active=True)
         .select_related('parent')
@@ -21,7 +33,14 @@ def _build_strand_data(student, level, include_attempts=False):
         key = topic.parent_id if topic.parent_id else '__flat__'
         if key not in strand_dict:
             strand_dict[key] = {'strand': topic.parent, 'subtopics': []}
-        best = StudentFinalAnswer.get_best_result(student, topic, level)
+
+        # Bridge classroom.Topic → maths.Topic by name
+        maths_topic = maths_topic_map.get(topic.name)
+
+        best = None
+        if maths_topic and maths_level:
+            best = StudentFinalAnswer.get_best_result(student, maths_topic, maths_level)
+
         pct = best.percentage if best else None
         entry = {
             'topic': topic,
@@ -30,9 +49,12 @@ def _build_strand_data(student, level, include_attempts=False):
             'pct': pct,
         }
         if include_attempts:
-            entry['attempts'] = StudentFinalAnswer.objects.filter(
-                student=student, topic=topic, level=level
-            ).count()
+            if maths_topic and maths_level:
+                entry['attempts'] = StudentFinalAnswer.objects.filter(
+                    student=student, topic=maths_topic, level=maths_level
+                ).count()
+            else:
+                entry['attempts'] = 0
         strand_dict[key]['subtopics'].append(entry)
     return list(strand_dict.values())
 

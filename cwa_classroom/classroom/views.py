@@ -124,27 +124,29 @@ class StudentDashboardView(LoginRequiredMixin, View):
     def get(self, request):
         if not (request.user.is_student or request.user.is_individual_student):
             return redirect('subjects_hub')
-        from progress.models import StudentFinalAnswer, BasicFactsResult, TimeLog
+        from maths.models import StudentFinalAnswer, BasicFactsResult, TimeLog
 
         # ── Topic quiz progress grid ──────────────────────────────────────────
-        from progress.models import TopicLevelStatistics
+        from maths.models import TopicLevelStatistics
         topic_results = StudentFinalAnswer.objects.filter(
             student=request.user,
             quiz_type__in=[StudentFinalAnswer.QUIZ_TYPE_TOPIC, StudentFinalAnswer.QUIZ_TYPE_MIXED],
         ).select_related('topic', 'level')
 
+        # Key by (level_number, topic_name) to bridge classroom ↔ maths models
         best_map = {}
         attempts_map = {}
         for r in topic_results:
-            key = (r.level_id, r.topic_id)
-            attempts_map[key] = attempts_map.get(key, 0) + 1
-            if key not in best_map or r.points > best_map[key].points:
-                best_map[key] = r
+            if r.level and r.topic:
+                key = (r.level.level_number, r.topic.name)
+                attempts_map[key] = attempts_map.get(key, 0) + 1
+                if key not in best_map or r.points > best_map[key].points:
+                    best_map[key] = r
 
-        # Pre-fetch platform statistics keyed by (level_id, topic_id)
+        # Pre-fetch platform statistics keyed by (level_number, topic_name)
         stats_map = {
-            (s.level_id, s.topic_id): s
-            for s in TopicLevelStatistics.objects.all()
+            (s.level.level_number, s.topic.name): s
+            for s in TopicLevelStatistics.objects.select_related('level', 'topic').all()
         }
 
         # Determine which year levels this student has access to via their classrooms
@@ -177,7 +179,7 @@ class StudentDashboardView(LoginRequiredMixin, View):
                 key = topic.parent_id if topic.parent_id else '__flat__'
                 if key not in strand_dict:
                     strand_dict[key] = {'strand': topic.parent, 'subtopics': []}
-                lv_key = (level.id, topic.id)
+                lv_key = (level.level_number, topic.name)
                 best = best_map.get(lv_key)
                 stat = stats_map.get(lv_key)
                 if best and stat:
@@ -193,7 +195,7 @@ class StudentDashboardView(LoginRequiredMixin, View):
                     'best': best,
                     'points': round(best.points, 1) if best else None,
                     'colour': colour,
-                    'attempts': attempts_map.get(lv_key, 0),
+                    'attempts': attempts_map.get((level.level_number, topic.name), 0),
                 })
             strand_data = list(strand_dict.values())
             if not strand_data:
@@ -460,7 +462,8 @@ class UploadQuestionsView(RoleRequiredMixin, View):
 
     def post(self, request):
         import json
-        from quiz.models import Question, Answer
+        from maths.models import (Question as MathsQuestion, Answer as MathsAnswer,
+                                  Topic as MathsTopic, Level as MathsLevel)
         json_file = request.FILES.get('json_file')
         if not json_file:
             messages.error(request, 'Please select a JSON file.')
@@ -473,9 +476,9 @@ class UploadQuestionsView(RoleRequiredMixin, View):
         topic_name = data.get('topic', '').strip()
         year_level = data.get('year_level')
         try:
-            topic = Topic.objects.get(name__iexact=topic_name)
-            level = Level.objects.get(level_number=year_level)
-        except (Topic.DoesNotExist, Level.DoesNotExist) as e:
+            maths_topic = MathsTopic.objects.get(name__iexact=topic_name)
+            maths_level = MathsLevel.objects.get(level_number=year_level)
+        except (MathsTopic.DoesNotExist, MathsLevel.DoesNotExist) as e:
             messages.error(request, str(e))
             return redirect('upload_questions')
         inserted = updated = failed = 0
@@ -485,23 +488,30 @@ class UploadQuestionsView(RoleRequiredMixin, View):
             question_type = q_data.get('question_type', '').strip()
             answers_data = q_data.get('answers', [])
             if not question_text: errors.append(f'Q{i}: missing question_text'); failed += 1; continue
-            if question_type not in dict(Question.QUESTION_TYPES): errors.append(f'Q{i}: bad type'); failed += 1; continue
+            if question_type not in dict(MathsQuestion.QUESTION_TYPES): errors.append(f'Q{i}: bad type'); failed += 1; continue
             if not answers_data: errors.append(f'Q{i}: no answers'); failed += 1; continue
             try:
                 with transaction.atomic():
-                    existing = Question.objects.filter(question_text=question_text, topic=topic, level=level).first()
+                    existing = MathsQuestion.objects.filter(
+                        question_text=question_text, topic=maths_topic, level=maths_level
+                    ).first()
                     fields = {'question_type': question_type, 'difficulty': q_data.get('difficulty', 1),
-                              'points': q_data.get('points', 1), 'explanation': q_data.get('explanation', ''),
-                              'created_by': request.user}
+                              'points': q_data.get('points', 1), 'explanation': q_data.get('explanation', '')}
                     if existing:
                         for k, v in fields.items(): setattr(existing, k, v)
                         existing.save(); existing.answers.all().delete(); question = existing; updated += 1
                     else:
-                        question = Question.objects.create(question_text=question_text, topic=topic, level=level, **fields)
+                        question = MathsQuestion.objects.create(
+                            question_text=question_text, topic=maths_topic, level=maths_level, **fields
+                        )
                         inserted += 1
                     for a in answers_data:
-                        Answer.objects.create(question=question, text=a.get('text', ''),
-                                              is_correct=a.get('is_correct', False), display_order=a.get('display_order', 1))
+                        MathsAnswer.objects.create(
+                            question=question,
+                            answer_text=a.get('answer_text') or a.get('text', ''),
+                            is_correct=a.get('is_correct', False),
+                            order=a.get('order') or a.get('display_order', 1),
+                        )
             except Exception as e:
                 errors.append(f'Q{i}: {e}'); failed += 1
         return render(request, 'teacher/upload_questions.html', {
@@ -513,9 +523,13 @@ class UploadQuestionsView(RoleRequiredMixin, View):
 
 class QuestionListView(LoginRequiredMixin, View):
     def get(self, request, level_number):
-        from quiz.models import Question
-        level = get_object_or_404(Level, level_number=level_number)
-        questions = Question.objects.filter(level=level).select_related('topic').prefetch_related('answers')
+        from maths.models import Question as MathsQuestion, Level as MathsLevel
+        level = get_object_or_404(Level, level_number=level_number)  # classroom.Level for display context
+        maths_level = MathsLevel.objects.filter(level_number=level_number).first()
+        questions = (
+            MathsQuestion.objects.filter(level=maths_level).select_related('topic').prefetch_related('answers')
+            if maths_level else MathsQuestion.objects.none()
+        )
         return render(request, 'teacher/question_list.html', {'level': level, 'questions': questions})
 
 
@@ -523,33 +537,39 @@ class AddQuestionView(RoleRequiredMixin, View):
     required_role = Role.TEACHER
 
     def get(self, request, level_number):
-        from quiz.models import Question
+        from maths.models import Question as MathsQuestion
         level = get_object_or_404(Level, level_number=level_number)
         return render(request, 'teacher/question_form.html', {
             'level': level, 'topics': Topic.objects.filter(levels=level, is_active=True),
-            'question_types': Question.QUESTION_TYPES, 'difficulty_choices': Question.DIFFICULTY_CHOICES,
+            'question_types': MathsQuestion.QUESTION_TYPES,
+            'difficulty_choices': MathsQuestion.DIFFICULTY_CHOICES,
         })
 
     def post(self, request, level_number):
-        from quiz.models import Question, Answer
-        level = get_object_or_404(Level, level_number=level_number)
-        topic = get_object_or_404(Topic, id=request.POST.get('topic'))
+        from maths.models import (Question as MathsQuestion, Answer as MathsAnswer,
+                                  Topic as MathsTopic, Level as MathsLevel)
+        level = get_object_or_404(Level, level_number=level_number)  # classroom.Level for display
+        classroom_topic = get_object_or_404(Topic, id=request.POST.get('topic'))
+        maths_level = get_object_or_404(MathsLevel, level_number=level_number)
+        maths_topic = MathsTopic.objects.filter(name=classroom_topic.name).first()
         with transaction.atomic():
-            question = Question.objects.create(
-                topic=topic, level=level,
+            question = MathsQuestion.objects.create(
+                topic=maths_topic, level=maths_level,
                 question_text=request.POST.get('question_text', '').strip(),
-                question_type=request.POST.get('question_type', Question.MULTIPLE_CHOICE),
+                question_type=request.POST.get('question_type', MathsQuestion.MULTIPLE_CHOICE),
                 difficulty=int(request.POST.get('difficulty', 1)),
                 points=int(request.POST.get('points', 1)),
                 explanation=request.POST.get('explanation', ''),
-                image=request.FILES.get('image'), created_by=request.user,
+                image=request.FILES.get('image'),
             )
             for i in range(1, 5):
                 text = request.POST.get(f'answer_text_{i}', '').strip()
                 if text:
-                    Answer.objects.create(question=question, text=text,
-                                          is_correct=request.POST.get(f'answer_correct_{i}') == 'true',
-                                          display_order=int(request.POST.get(f'answer_order_{i}', i)))
+                    MathsAnswer.objects.create(
+                        question=question, answer_text=text,
+                        is_correct=request.POST.get(f'answer_correct_{i}') == 'true',
+                        order=int(request.POST.get(f'answer_order_{i}', i)),
+                    )
         messages.success(request, 'Question added.')
         return redirect('question_list', level_number=level_number)
 
@@ -558,32 +578,40 @@ class EditQuestionView(RoleRequiredMixin, View):
     required_role = Role.TEACHER
 
     def get(self, request, question_id):
-        from quiz.models import Question
-        question = get_object_or_404(Question, id=question_id)
+        from maths.models import Question as MathsQuestion
+        question = get_object_or_404(MathsQuestion, id=question_id)
+        # Pass classroom.Topic objects for the dropdown; active topics for any level
         return render(request, 'teacher/question_form.html', {
             'question': question, 'level': question.level,
-            'topics': Topic.objects.filter(levels=question.level, is_active=True),
-            'question_types': Question.QUESTION_TYPES, 'difficulty_choices': Question.DIFFICULTY_CHOICES,
+            'topics': Topic.objects.filter(is_active=True).order_by('name'),
+            'question_types': MathsQuestion.QUESTION_TYPES,
+            'difficulty_choices': MathsQuestion.DIFFICULTY_CHOICES,
         })
 
     def post(self, request, question_id):
-        from quiz.models import Question, Answer
-        question = get_object_or_404(Question, id=question_id)
-        question.topic = get_object_or_404(Topic, id=request.POST.get('topic'))
+        from maths.models import (Question as MathsQuestion, Answer as MathsAnswer,
+                                  Topic as MathsTopic)
+        question = get_object_or_404(MathsQuestion, id=question_id)
+        # topic from POST is classroom.Topic.id — bridge to maths.Topic by name
+        classroom_topic = get_object_or_404(Topic, id=request.POST.get('topic'))
+        question.topic = MathsTopic.objects.filter(name=classroom_topic.name).first()
         question.question_text = request.POST.get('question_text', '').strip()
-        question.question_type = request.POST.get('question_type', Question.MULTIPLE_CHOICE)
+        question.question_type = request.POST.get('question_type', MathsQuestion.MULTIPLE_CHOICE)
         question.difficulty = int(request.POST.get('difficulty', 1))
         question.points = int(request.POST.get('points', 1))
         question.explanation = request.POST.get('explanation', '')
         if request.FILES.get('image'): question.image = request.FILES['image']
         with transaction.atomic():
-            question.save(); question.answers.all().delete()
+            question.save()
+            question.answers.all().delete()
             for i in range(1, 5):
                 text = request.POST.get(f'answer_text_{i}', '').strip()
                 if text:
-                    Answer.objects.create(question=question, text=text,
-                                          is_correct=request.POST.get(f'answer_correct_{i}') == 'true',
-                                          display_order=int(request.POST.get(f'answer_order_{i}', i)))
+                    MathsAnswer.objects.create(
+                        question=question, answer_text=text,
+                        is_correct=request.POST.get(f'answer_correct_{i}') == 'true',
+                        order=int(request.POST.get(f'answer_order_{i}', i)),
+                    )
         messages.success(request, 'Question updated.')
         return redirect('question_list', level_number=question.level.level_number)
 
@@ -592,8 +620,8 @@ class DeleteQuestionView(RoleRequiredMixin, View):
     required_role = Role.TEACHER
 
     def post(self, request, question_id):
-        from quiz.models import Question
-        question = get_object_or_404(Question, id=question_id)
+        from maths.models import Question as MathsQuestion
+        question = get_object_or_404(MathsQuestion, id=question_id)
         level_number = question.level.level_number
         question.delete()
         messages.success(request, 'Question deleted.')
