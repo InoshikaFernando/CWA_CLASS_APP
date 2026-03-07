@@ -140,38 +140,34 @@
     <div class="p-4">
       <div class="flex flex-wrap gap-3">
         {% for tt in tt_results %}
-        <div class="rounded-xl border border-transparent overflow-hidden min-w-[4.5rem] {{ tt.colour }}">
+        <div class="rounded-xl border border-gray-200 overflow-hidden min-w-[4.5rem] bg-white shadow-sm">
           <!-- Table header -->
-          <div class="text-center py-1.5 px-2 font-bold text-xs border-b border-black/10">
+          <div class="text-center py-1.5 px-2 font-bold text-xs border-b border-gray-200 bg-gray-50 text-gray-700">
             {{ tt.table }}×
           </div>
           <!-- Multiply row -->
-          <div class="flex items-center justify-between px-2 py-1.5 border-b border-black/10 bg-black/5">
-            <span class="text-xs opacity-70">×</span>
-            {% if tt.mul %}
+          <div class="flex items-center justify-between px-2 py-1.5 border-b border-black/10 {{ tt.mul_colour }}">
+            <span class="text-xs font-semibold opacity-80">×</span>
+            {% with r=tt.mul|default:tt.legacy %}
+            {% if r %}
             <div class="text-right">
-              <div class="text-xs font-bold">{{ tt.mul.percentage }}%</div>
-              <div class="text-xs opacity-60">{{ tt.mul.points|floatformat:0 }}pts</div>
-              <div class="text-xs opacity-50">⏱{{ tt.mul.time_taken_seconds }}s</div>
-            </div>
-            {% elif tt.legacy %}
-            <div class="text-right">
-              <div class="text-xs font-bold">{{ tt.legacy.percentage }}%</div>
-              <div class="text-xs opacity-60">{{ tt.legacy.points|floatformat:0 }}pts</div>
-              <div class="text-xs opacity-50">⏱{{ tt.legacy.time_taken_seconds }}s</div>
+              <div class="text-xs font-bold">{{ r.percentage }}%</div>
+              <div class="text-xs opacity-70">{{ r.points|floatformat:0 }}pts</div>
+              <div class="text-xs opacity-60">⏱{{ r.time_taken_seconds }}s</div>
             </div>
             {% else %}
             <span class="text-xs opacity-40">—</span>
             {% endif %}
+            {% endwith %}
           </div>
           <!-- Divide row -->
-          <div class="flex items-center justify-between px-2 py-1.5 bg-black/5">
-            <span class="text-xs opacity-70">÷</span>
+          <div class="flex items-center justify-between px-2 py-1.5 {{ tt.div_colour }}">
+            <span class="text-xs font-semibold opacity-80">÷</span>
             {% if tt.div %}
             <div class="text-right">
               <div class="text-xs font-bold">{{ tt.div.percentage }}%</div>
-              <div class="text-xs opacity-60">{{ tt.div.points|floatformat:0 }}pts</div>
-              <div class="text-xs opacity-50">⏱{{ tt.div.time_taken_seconds }}s</div>
+              <div class="text-xs opacity-70">{{ tt.div.points|floatformat:0 }}pts</div>
+              <div class="text-xs opacity-60">⏱{{ tt.div.time_taken_seconds }}s</div>
             </div>
             {% else %}
             <span class="text-xs opacity-40">—</span>

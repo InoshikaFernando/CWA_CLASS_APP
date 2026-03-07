@@ -253,11 +253,8 @@ class StudentDashboardView(LoginRequiredMixin, View):
                 'mul': best_mul,
                 'div': best_div,
                 'legacy': best_legacy,
-                'colour': _pct_colour(
-                    best_mul.percentage if best_mul else
-                    (best_div.percentage if best_div else
-                     (best_legacy.percentage if best_legacy else None))
-                ),
+                'mul_colour': _tt_colour(best_mul if best_mul else best_legacy),
+                'div_colour': _tt_colour(best_div),
             })
 
         # ── Recent activity ───────────────────────────────────────────────────
@@ -302,6 +299,34 @@ def _pct_colour(pct):
     if pct >= 30:
         return 'bg-orange-200 text-orange-900'
     return 'bg-red-200 text-red-900'
+
+
+def _tt_colour(result):
+    """
+    Colour for a single times-table row (× or ÷).
+    Must be 100% correct to get a colour other than red.
+      100% + time < 15s  → dark green
+      100% + time < 30s  → green
+      100% + time < 60s  → light green
+      100% + time < 90s  → yellow
+      100% + time >= 90s → orange
+      any wrong answer   → red
+      not attempted      → grey
+    """
+    if result is None:
+        return 'bg-gray-100 text-gray-400'
+    if result.percentage < 100:
+        return 'bg-red-200 text-red-900'
+    t = result.time_taken_seconds
+    if t < 15:
+        return 'bg-green-800 text-white'
+    if t < 30:
+        return 'bg-green-600 text-white'
+    if t < 60:
+        return 'bg-green-200 text-green-900'
+    if t < 90:
+        return 'bg-yellow-200 text-yellow-900'
+    return 'bg-orange-200 text-orange-900'
 
 
 class TopicsView(LoginRequiredMixin, View):
