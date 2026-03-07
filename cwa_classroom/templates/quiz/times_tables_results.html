@@ -13,7 +13,7 @@
     <a href="{% url 'times_tables_home' %}" class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-5 py-3 transition">
       Try Another Table
     </a>
-    <a href="/" class="bg-white border border-border text-gray-600 font-semibold rounded-xl px-5 py-3 transition">Home</a>
+    <a href="{% url 'maths:dashboard' %}" class="bg-white border border-border text-gray-600 font-semibold rounded-xl px-5 py-3 transition">Home</a>
   </div>
 </div>
 {% endblock %}
