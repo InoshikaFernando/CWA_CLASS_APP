@@ -542,51 +542,53 @@ def dashboard(request):
     if request.user.is_teacher:
         classes = request.user.classes.all()
         return render(request, "maths/teacher_dashboard.html", {"classes": classes})
-    allowed = student_allowed_levels(request.user)
-    levels = allowed if allowed is not None else Level.objects.all()
-    
-    # Separate Basic Facts levels (>= 100) from Year levels (< 100)
-    # Basic Facts are always accessible to all students
-    basic_facts_levels = Level.objects.filter(level_number__gte=100)
-    year_levels = levels.filter(level_number__lt=100)
-    
-    # Group year levels by year and topics
-    levels_by_year = {}
-    for level in year_levels:
-        year = level.level_number
-        if year not in levels_by_year:
-            levels_by_year[year] = []
-        levels_by_year[year].append(level)
-    
-    # Sort years
-    sorted_years = sorted(levels_by_year.keys())
-    
-    # Group Basic Facts levels by subtopic (Addition, Subtraction, etc.)
-    basic_facts_by_subtopic = {}
-    for level in basic_facts_levels:
-        # Get the subtopic (Addition, Subtraction, etc.)
-        subtopics = level.topics.filter(name__in=['Addition', 'Subtraction', 'Multiplication', 'Division', 'Place Value Facts'])
-        if subtopics.exists():
-            subtopic_name = subtopics.first().name
-            if subtopic_name not in basic_facts_by_subtopic:
-                basic_facts_by_subtopic[subtopic_name] = []
-            basic_facts_by_subtopic[subtopic_name].append(level)
-    
-    # Sort Basic Facts levels within each subtopic by level_number
-    for subtopic in basic_facts_by_subtopic:
-        basic_facts_by_subtopic[subtopic].sort(key=lambda x: x.level_number)
-    
-    # Note: Progress calculation removed from home page - only shown on /dashboard/ page
-    
-    return render(request, "maths/student_dashboard.html", {
-        "levels_by_year": levels_by_year,
-        "sorted_years": sorted_years,
-        "basic_facts_by_subtopic": basic_facts_by_subtopic,
-        "has_class": Enrollment.objects.filter(student=request.user).exists(),
-        "progress_by_level": [],
-        "show_progress_table": False,
-        "show_all_content": True,
-        "year_topics_map": YEAR_TOPICS_MAP
+
+    # ── Time log ──────────────────────────────────────────────────────────
+    time_log = None
+    try:
+        time_log = request.user.maths_time_log
+        time_log.reset_daily_if_needed()
+        time_log.reset_weekly_if_needed()
+    except Exception:
+        pass
+
+    # ── Accessibility ─────────────────────────────────────────────────────
+    enrolled_level_ids = set(
+        Level.objects.filter(
+            classrooms__enrollments__student=request.user
+        ).values_list('id', flat=True)
+    )
+    is_individual_student = not enrolled_level_ids
+
+    # ── Best score ────────────────────────────────────────────────────────
+    from django.db.models import Max
+    best_pts = StudentFinalAnswer.objects.filter(
+        student=request.user
+    ).aggregate(best=Max('points'))['best']
+    best_score = round(float(best_pts), 1) if best_pts else None
+
+    # ── Year data (all year levels 1–99, marked accessible/locked) ────────
+    all_year_levels = (
+        Level.objects.filter(level_number__lt=100)
+        .order_by('level_number')
+        .prefetch_related('topics')
+    )
+    year_data = []
+    for level in all_year_levels:
+        accessible = is_individual_student or level.id in enrolled_level_ids
+        topics = list(level.topics.order_by('name'))
+        year_data.append({
+            'level': level,
+            'accessible': accessible,
+            'subtopic_count': len(topics),
+            'strand_data': [{'strand': None, 'subtopics': topics}],
+        })
+
+    return render(request, 'student/home.html', {
+        'year_data': year_data,
+        'time_log': time_log,
+        'best_score': best_score,
+        'is_individual_student': is_individual_student,
     })
 
 @login_required

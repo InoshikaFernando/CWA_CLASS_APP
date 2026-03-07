@@ -27,6 +27,10 @@ class Level(models.Model):
         return f"Year {self.level_number}"
 
     @property
+    def display_name(self):
+        return self.title or f"Year {self.level_number}"
+
+    @property
     def topic_names(self):
         return ", ".join([topic.name for topic in self.topics.all()])
 

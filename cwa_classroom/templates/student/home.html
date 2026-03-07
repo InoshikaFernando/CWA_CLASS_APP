@@ -17,7 +17,7 @@
   </div>
 
   <!-- ── Quick Stats ───────────────────────────────────── -->
-  {% with tl=request.user.time_log %}
+  {% with tl=time_log %}
   <div class="grid grid-cols-3 gap-3">
     <div class="bg-white rounded-2xl border border-border shadow-sm p-4 text-center">
       <p class="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1">Today</p>
@@ -108,7 +108,7 @@
           {% else %}
           <p class="text-xs text-gray-400 mt-4">
             Enrol in a Year {{ item.level.level_number }} class to unlock these quizzes.
-            {% if is_individual_student %}<a href="{% url 'select_classes' %}" class="text-primary font-semibold hover:underline">Browse classes →</a>{% endif %}
+            {% if is_individual_student %}<a href="{% url 'maths:join_class' %}" class="text-primary font-semibold hover:underline">Browse classes →</a>{% endif %}
           </p>
           {% endif %}
         </div>
