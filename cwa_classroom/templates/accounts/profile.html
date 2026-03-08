@@ -10,7 +10,7 @@
   </div>
 
   <!-- Personal Info -->
-  <div class="bg-white rounded-2xl border border-border shadow-sm p-6">
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
     <h2 class="font-bold text-lg text-gray-800 mb-5">Personal Information</h2>
     <form method="post" class="space-y-4">
       {% csrf_token %}
@@ -62,7 +62,7 @@
   </div>
 
   <!-- Change Password -->
-  <div class="bg-white rounded-2xl border border-border shadow-sm p-6">
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
     <h2 class="font-bold text-lg text-gray-800 mb-5">Change Password</h2>
     <form method="post" class="space-y-4">
       {% csrf_token %}
@@ -90,7 +90,7 @@
 
   <!-- Subscription (IndividualStudent only) -->
   {% if is_individual_student %}
-  <div class="bg-white rounded-2xl border border-border shadow-sm p-6">
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
     <h2 class="font-bold text-lg text-gray-800 mb-5">Subscription</h2>
     {% with sub=request.user.subscription %}
     {% if sub %}

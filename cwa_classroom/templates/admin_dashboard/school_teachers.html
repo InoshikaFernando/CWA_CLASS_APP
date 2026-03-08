@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}Manage Teachers — {{ school.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <a href="{% url 'admin_school_detail' school.id %}" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back to {{ school.name }}</a>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Manage Teachers</h1>
+    <p class="text-gray-500 mt-1">{{ school.name }}</p>
+  </div>
+
+  <!-- Add teacher form -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-8">
+    <h2 class="text-lg font-semibold text-gray-900 mb-4">Add Teacher</h2>
+    {% if available_teachers %}
+      <form method="post" class="flex flex-col md:flex-row items-end gap-4">
+        {% csrf_token %}
+        <div class="flex-1">
+          <label for="teacher_id" class="block text-sm font-medium text-gray-700 mb-1.5">Select Teacher</label>
+          <select name="teacher_id" id="teacher_id"
+                  class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+            {% for teacher in available_teachers %}
+              <option value="{{ teacher.id }}">{{ teacher.get_full_name|default:teacher.username }} ({{ teacher.email }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="role" class="block text-sm font-medium text-gray-700 mb-1.5">Role</label>
+          <select name="role" id="role"
+                  class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+            {% for value, label in role_choices %}
+              <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button type="submit"
+                class="px-6 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm whitespace-nowrap">
+          Add Teacher
+        </button>
+      </form>
+    {% else %}
+      <p class="text-sm text-gray-400">All available teachers are already assigned to this school.</p>
+    {% endif %}
+  </div>
+
+  <!-- Current teachers -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+    <div class="p-6 border-b border-slate-100">
+      <h2 class="text-lg font-semibold text-gray-900">Current Teachers ({{ current_teachers|length }})</h2>
+    </div>
+    {% if current_teachers %}
+      <div class="divide-y divide-slate-50">
+        {% for st in current_teachers %}
+          <div class="flex items-center justify-between px-6 py-4">
+            <div class="flex items-center gap-3">
+              <span class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-accent text-white text-sm font-bold">
+                {{ st.teacher.username|slice:":2"|upper }}
+              </span>
+              <div>
+                <p class="font-medium text-gray-900">{{ st.teacher.get_full_name|default:st.teacher.username }}</p>
+                <p class="text-sm text-gray-500">{{ st.teacher.email }}</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="text-xs font-medium px-2.5 py-1 rounded-full
+                {% if st.role == 'senior_teacher' %}bg-indigo-100 text-indigo-700
+                {% elif st.role == 'teacher' %}bg-blue-100 text-blue-700
+                {% else %}bg-sky-100 text-sky-700{% endif %}">
+                {{ st.get_role_display }}
+              </span>
+              <form method="post" action="{% url 'admin_school_teacher_remove' school.id st.teacher.id %}" class="inline">
+                {% csrf_token %}
+                <button type="submit"
+                        class="text-red-500 hover:text-red-700 text-sm font-medium transition"
+                        onclick="return confirm('Remove this teacher from the school?')">
+                  Remove
+                </button>
+              </form>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="p-6">
+        <p class="text-sm text-gray-400 text-center">No teachers assigned to this school yet.</p>
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

@@ -4,7 +4,7 @@
 <div class="max-w-5xl mx-auto space-y-6">
   <h1 class="font-display text-3xl text-primary">Browse Topics</h1>
   {% for subject in subjects %}
-  <div class="bg-white rounded-2xl border border-border shadow-sm p-6">
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
     <h2 class="font-bold text-xl text-gray-800 mb-4">{{ subject.name }}</h2>
     <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
       {% for topic in subject.topics.all %}
@@ -23,7 +23,7 @@
     </div>
   </div>
   {% empty %}
-  <div class="bg-white rounded-2xl border border-border shadow-sm p-12 text-center">
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">
     <p class="text-gray-400">No subjects found. Run <code class="font-mono">python manage.py setup_dev</code> to load sample data.</p>
   </div>
   {% endfor %}

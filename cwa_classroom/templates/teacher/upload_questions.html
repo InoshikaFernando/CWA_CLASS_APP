@@ -8,7 +8,7 @@
   </div>
 
   {% if upload_results %}
-  <div class="bg-white rounded-2xl border border-border shadow-sm p-6">
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
     <h2 class="font-bold text-gray-800 mb-4">Upload Results</h2>
     <div class="flex gap-6 mb-4">
       <div class="text-center"><p class="font-display text-3xl text-primary">{{ upload_results.inserted }}</p><p class="text-xs text-gray-400 font-semibold">New</p></div>
@@ -27,7 +27,7 @@
   </div>
   {% endif %}
 
-  <div class="bg-white rounded-2xl border border-border shadow-sm p-6">
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
     <form method="post" enctype="multipart/form-data" class="space-y-5">
       {% csrf_token %}
       <div>
@@ -41,7 +41,7 @@
     </form>
   </div>
 
-  <div class="bg-gray-50 rounded-2xl border border-border p-5">
+  <div class="bg-gray-50 rounded-2xl border border-slate-200 p-5">
     <p class="text-sm font-bold text-gray-700 mb-3">📄 Expected JSON format</p>
     <pre class="font-mono text-xs bg-white rounded-xl p-4 border border-gray-200 overflow-x-auto text-gray-600">{
   "topic": "Fractions",

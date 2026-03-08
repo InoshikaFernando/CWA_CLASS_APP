@@ -12,7 +12,7 @@
   <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
     {% for level in levels %}
     <a href="{% url 'question_list' level_number=level.level_number %}"
-       class="bg-white rounded-2xl border border-border shadow-sm p-5 text-center hover:shadow-md hover:border-primary transition">
+       class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center hover:shadow-md hover:border-primary transition">
       <span class="font-display text-3xl text-primary block mb-1">{{ level.level_number }}</span>
       <span class="text-sm font-semibold text-gray-600">{{ level.display_name }}</span>
     </a>

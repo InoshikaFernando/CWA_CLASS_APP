@@ -1,7 +1,7 @@
 {% if error %}
   <div class="bg-red-50 rounded-2xl p-6 text-center text-red-600">{{ error }}</div>
 {% else %}
-<div class="bg-white rounded-2xl border border-border shadow-sm p-6" id="question-card">
+<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6" id="question-card">
 
   <!-- Question number badge -->
   <div class="flex items-center gap-2 mb-4">
@@ -38,7 +38,7 @@
     <p class="text-sm text-gray-500 mb-3">Drag the tiles into the correct order.</p>
     <ul id="sortable-list" class="space-y-2">
       {% for answer in answers %}
-      <li class="flex items-center gap-3 bg-gray-50 border border-border rounded-xl px-4 py-3 cursor-grab active:cursor-grabbing"
+      <li class="flex items-center gap-3 bg-gray-50 border border-slate-200 rounded-xl px-4 py-3 cursor-grab active:cursor-grabbing"
           data-id="{{ answer.id }}">
         <span class="text-gray-400">⠿</span>
         <span class="font-semibold text-gray-800">{{ answer.text }}</span>

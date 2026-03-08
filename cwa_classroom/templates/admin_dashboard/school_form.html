@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}{% if school %}Edit School{% else %}Create School{% endif %}{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <a href="{% url 'admin_dashboard' %}" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back to Dashboard</a>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">{% if school %}Edit School{% else %}Create New School{% endif %}</h1>
+  </div>
+
+  <!-- Form card -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8">
+    <form method="post">
+      {% csrf_token %}
+
+      <div class="space-y-6">
+        <!-- Name -->
+        <div>
+          <label for="name" class="block text-sm font-semibold text-gray-700 mb-1.5">School Name *</label>
+          <input type="text" name="name" id="name" required
+                 value="{{ form_data.name|default:'' }}"
+                 class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition"
+                 placeholder="e.g. Greenfield Primary School">
+        </div>
+
+        <!-- Address -->
+        <div>
+          <label for="address" class="block text-sm font-semibold text-gray-700 mb-1.5">Address</label>
+          <textarea name="address" id="address" rows="3"
+                    class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition"
+                    placeholder="Street address, city, country">{{ form_data.address|default:'' }}</textarea>
+        </div>
+
+        <!-- Phone & Email -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label for="phone" class="block text-sm font-semibold text-gray-700 mb-1.5">Phone</label>
+            <input type="tel" name="phone" id="phone"
+                   value="{{ form_data.phone|default:'' }}"
+                   class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition"
+                   placeholder="+64 21 123 4567">
+          </div>
+          <div>
+            <label for="email" class="block text-sm font-semibold text-gray-700 mb-1.5">Email</label>
+            <input type="email" name="email" id="email"
+                   value="{{ form_data.email|default:'' }}"
+                   class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition"
+                   placeholder="office@school.co.nz">
+          </div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="flex items-center justify-end gap-3 mt-8 pt-6 border-t border-slate-100">
+        <a href="{% url 'admin_dashboard' %}"
+           class="px-5 py-2.5 text-gray-600 font-semibold rounded-xl hover:bg-gray-100 transition">Cancel</a>
+        <button type="submit"
+                class="px-6 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm">
+          {% if school %}Save Changes{% else %}Create School{% endif %}
+        </button>
+      </div>
+    </form>
+  </div>
+
+</div>
+{% endblock %}

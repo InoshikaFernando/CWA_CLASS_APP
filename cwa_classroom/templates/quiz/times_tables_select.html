@@ -10,7 +10,7 @@
   <div class="grid grid-cols-3 sm:grid-cols-4 gap-3">
     {% for t in all_tables %}
     <div class="bg-white rounded-2xl border shadow-sm p-4 text-center
-                {% if t in available_tables %}border-border hover:shadow-md hover:border-primary{% else %}border-gray-100 opacity-40{% endif %}">
+                {% if t in available_tables %}border-slate-200 hover:shadow-md hover:border-primary{% else %}border-gray-100 opacity-40{% endif %}">
       <p class="font-display text-2xl text-primary mb-3">{{ t }}×</p>
       {% if t in available_tables %}
       <div class="flex flex-col gap-2">

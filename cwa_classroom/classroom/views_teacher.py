@@ -1,0 +1,382 @@
+from datetime import timedelta
+
+from django.shortcuts import render, redirect, get_object_or_404
+from django.views import View
+from django.contrib import messages
+from django.utils import timezone
+from django.db.models import Count, Q
+
+from accounts.models import Role
+from .views import RoleRequiredMixin
+from .models import (
+    School, SchoolTeacher, ClassRoom, ClassSession, ClassTeacher,
+    Enrollment, StudentAttendance, TeacherAttendance, Notification,
+    ClassStudent,
+)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _get_teacher_current_school(request):
+    """
+    Return the current School for the logged-in teacher.
+
+    1. Try the school_id stored in the session.
+    2. Fall back to the first school the teacher belongs to via SchoolTeacher.
+    3. Return None if the teacher has no school memberships.
+    """
+    school_id = request.session.get('current_school_id')
+    if school_id:
+        try:
+            membership = SchoolTeacher.objects.select_related('school').get(
+                school_id=school_id,
+                teacher=request.user,
+                is_active=True,
+            )
+            return membership.school
+        except SchoolTeacher.DoesNotExist:
+            # Stale session value -- clear it and fall through
+            request.session.pop('current_school_id', None)
+
+    # Fall back to the first active school membership
+    membership = (
+        SchoolTeacher.objects
+        .filter(teacher=request.user, is_active=True)
+        .select_related('school')
+        .first()
+    )
+    if membership:
+        request.session['current_school_id'] = membership.school_id
+        return membership.school
+
+    return None
+
+
+def _get_teacher_classes(teacher, school):
+    """Return ClassRooms in *school* where *teacher* is assigned."""
+    return ClassRoom.objects.filter(
+        school=school,
+        class_teachers__teacher=teacher,
+        is_active=True,
+    ).distinct()
+
+
+# ---------------------------------------------------------------------------
+# 1. TeacherDashboardView
+# ---------------------------------------------------------------------------
+
+class TeacherDashboardView(RoleRequiredMixin, View):
+    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
+
+    def get(self, request):
+        current_school = _get_teacher_current_school(request)
+
+        # All schools the teacher belongs to (for the school-switcher dropdown)
+        teacher_schools = School.objects.filter(
+            school_teachers__teacher=request.user,
+            school_teachers__is_active=True,
+        ).distinct()
+
+        if not current_school:
+            return render(request, 'teacher/dashboard.html', {
+                'teacher_schools': teacher_schools,
+                'current_school': None,
+                'my_classes': ClassRoom.objects.none(),
+                'pending_enrollment_count': 0,
+                'upcoming_sessions': ClassSession.objects.none(),
+            })
+
+        my_classes = _get_teacher_classes(request.user, current_school)
+
+        # Pending enrollment requests for the teacher's classes in this school
+        pending_enrollment_count = Enrollment.objects.filter(
+            classroom__in=my_classes,
+            status='pending',
+        ).count()
+
+        # Upcoming sessions in the next 7 days
+        today = timezone.localdate()
+        week_ahead = today + timedelta(days=7)
+        upcoming_sessions = ClassSession.objects.filter(
+            classroom__in=my_classes,
+            date__gte=today,
+            date__lte=week_ahead,
+            status='scheduled',
+        ).select_related('classroom').order_by('date', 'start_time')
+
+        return render(request, 'teacher/dashboard.html', {
+            'teacher_schools': teacher_schools,
+            'current_school': current_school,
+            'my_classes': my_classes,
+            'pending_enrollment_count': pending_enrollment_count,
+            'upcoming_sessions': upcoming_sessions,
+        })
+
+
+# ---------------------------------------------------------------------------
+# 2. SchoolSwitcherView
+# ---------------------------------------------------------------------------
+
+class SchoolSwitcherView(RoleRequiredMixin, View):
+    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
+
+    def post(self, request):
+        school_id = request.POST.get('school_id')
+        if school_id:
+            # Validate the teacher actually belongs to this school
+            exists = SchoolTeacher.objects.filter(
+                school_id=school_id,
+                teacher=request.user,
+                is_active=True,
+            ).exists()
+            if exists:
+                request.session['current_school_id'] = int(school_id)
+            else:
+                messages.error(request, 'You are not a member of that school.')
+        return redirect('teacher_dashboard')
+
+
+# ---------------------------------------------------------------------------
+# 3. EnrollmentRequestsView
+# ---------------------------------------------------------------------------
+
+class EnrollmentRequestsView(RoleRequiredMixin, View):
+    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER]
+
+    def get(self, request):
+        current_school = _get_teacher_current_school(request)
+        if not current_school:
+            messages.warning(request, 'Please select a school first.')
+            return redirect('teacher_dashboard')
+
+        my_classes = _get_teacher_classes(request.user, current_school)
+        pending_enrollments = (
+            Enrollment.objects
+            .filter(classroom__in=my_classes, status='pending')
+            .select_related('classroom', 'student')
+            .order_by('-requested_at')
+        )
+
+        return render(request, 'teacher/enrollment_requests.html', {
+            'current_school': current_school,
+            'pending_enrollments': pending_enrollments,
+        })
+
+
+# ---------------------------------------------------------------------------
+# 4. EnrollmentApproveView
+# ---------------------------------------------------------------------------
+
+class EnrollmentApproveView(RoleRequiredMixin, View):
+    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER]
+
+    def post(self, request, enrollment_id):
+        enrollment = get_object_or_404(Enrollment, id=enrollment_id, status='pending')
+
+        # Ensure the teacher owns a class this enrollment belongs to
+        is_teacher_of_class = ClassTeacher.objects.filter(
+            classroom=enrollment.classroom,
+            teacher=request.user,
+        ).exists()
+        if not is_teacher_of_class:
+            messages.error(request, 'You do not have permission to approve this enrollment.')
+            return redirect('enrollment_requests')
+
+        # Approve the enrollment
+        enrollment.status = 'approved'
+        enrollment.approved_at = timezone.now()
+        enrollment.approved_by = request.user
+        enrollment.save()
+
+        # Create ClassStudent entry so the student is actually in the class
+        ClassStudent.objects.get_or_create(
+            classroom=enrollment.classroom,
+            student=enrollment.student,
+        )
+
+        # Notify the student
+        Notification.objects.create(
+            user=enrollment.student,
+            message=f'Your enrollment in "{enrollment.classroom.name}" has been approved.',
+            notification_type='enrollment_approved',
+        )
+
+        messages.success(
+            request,
+            f'{enrollment.student.username} has been approved for {enrollment.classroom.name}.',
+        )
+        return redirect('enrollment_requests')
+
+
+# ---------------------------------------------------------------------------
+# 5. EnrollmentRejectView
+# ---------------------------------------------------------------------------
+
+class EnrollmentRejectView(RoleRequiredMixin, View):
+    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER]
+
+    def post(self, request, enrollment_id):
+        enrollment = get_object_or_404(Enrollment, id=enrollment_id, status='pending')
+
+        # Ensure the teacher owns a class this enrollment belongs to
+        is_teacher_of_class = ClassTeacher.objects.filter(
+            classroom=enrollment.classroom,
+            teacher=request.user,
+        ).exists()
+        if not is_teacher_of_class:
+            messages.error(request, 'You do not have permission to reject this enrollment.')
+            return redirect('enrollment_requests')
+
+        # Reject the enrollment
+        reason = request.POST.get('rejection_reason', '').strip()
+        enrollment.status = 'rejected'
+        enrollment.rejection_reason = reason
+        enrollment.save()
+
+        # Notify the student
+        notification_message = (
+            f'Your enrollment in "{enrollment.classroom.name}" has been declined.'
+        )
+        if reason:
+            notification_message += f' Reason: {reason}'
+
+        Notification.objects.create(
+            user=enrollment.student,
+            message=notification_message,
+            notification_type='enrollment_rejected',
+        )
+
+        messages.success(
+            request,
+            f'{enrollment.student.username} has been rejected from {enrollment.classroom.name}.',
+        )
+        return redirect('enrollment_requests')
+
+
+# ---------------------------------------------------------------------------
+# 6. SessionAttendanceView
+# ---------------------------------------------------------------------------
+
+class SessionAttendanceView(RoleRequiredMixin, View):
+    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
+
+    def get(self, request, session_id):
+        session = get_object_or_404(
+            ClassSession.objects.select_related('classroom'),
+            id=session_id,
+        )
+
+        # Verify the teacher is assigned to this class
+        is_teacher_of_class = ClassTeacher.objects.filter(
+            classroom=session.classroom,
+            teacher=request.user,
+        ).exists()
+        if not is_teacher_of_class:
+            messages.error(request, 'You are not assigned to this class.')
+            return redirect('teacher_dashboard')
+
+        # All enrolled students for this classroom
+        enrolled_students = session.classroom.students.all().order_by(
+            'last_name', 'first_name', 'username',
+        )
+
+        # Existing attendance records for this session (for pre-filling the form)
+        existing_records = {
+            sa.student_id: sa.status
+            for sa in StudentAttendance.objects.filter(session=session)
+        }
+
+        students_with_status = []
+        for student in enrolled_students:
+            students_with_status.append({
+                'student': student,
+                'current_status': existing_records.get(student.id, ''),
+            })
+
+        return render(request, 'teacher/session_attendance.html', {
+            'session': session,
+            'classroom': session.classroom,
+            'students_with_status': students_with_status,
+        })
+
+    def post(self, request, session_id):
+        session = get_object_or_404(
+            ClassSession.objects.select_related('classroom'),
+            id=session_id,
+        )
+
+        # Verify the teacher is assigned to this class
+        is_teacher_of_class = ClassTeacher.objects.filter(
+            classroom=session.classroom,
+            teacher=request.user,
+        ).exists()
+        if not is_teacher_of_class:
+            messages.error(request, 'You are not assigned to this class.')
+            return redirect('teacher_dashboard')
+
+        enrolled_students = session.classroom.students.all()
+        saved_count = 0
+
+        for student in enrolled_students:
+            status = request.POST.get(f'status_{student.id}', '').strip()
+            if status not in ('present', 'absent', 'late'):
+                continue
+
+            StudentAttendance.objects.update_or_create(
+                session=session,
+                student=student,
+                defaults={
+                    'status': status,
+                    'marked_by': request.user,
+                },
+            )
+            saved_count += 1
+
+        messages.success(request, f'Attendance saved for {saved_count} student(s).')
+        return redirect('session_attendance', session_id=session_id)
+
+
+# ---------------------------------------------------------------------------
+# 7. TeacherSelfAttendanceView
+# ---------------------------------------------------------------------------
+
+class TeacherSelfAttendanceView(RoleRequiredMixin, View):
+    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
+
+    def post(self, request, session_id):
+        session = get_object_or_404(
+            ClassSession.objects.select_related('classroom'),
+            id=session_id,
+        )
+
+        # Verify the teacher is assigned to this class
+        is_teacher_of_class = ClassTeacher.objects.filter(
+            classroom=session.classroom,
+            teacher=request.user,
+        ).exists()
+        if not is_teacher_of_class:
+            messages.error(request, 'You are not assigned to this class.')
+            return redirect('teacher_dashboard')
+
+        status = request.POST.get('status', 'present').strip()
+        if status not in ('present', 'absent'):
+            status = 'present'
+
+        TeacherAttendance.objects.update_or_create(
+            session=session,
+            teacher=request.user,
+            defaults={
+                'status': status,
+                'self_reported': True,
+            },
+        )
+
+        messages.success(request, f'Your attendance for {session} has been recorded.')
+
+        # Redirect back to the referring page, or fall back to the dashboard
+        next_url = request.POST.get('next') or request.META.get('HTTP_REFERER')
+        if next_url:
+            return redirect(next_url)
+        return redirect('teacher_dashboard')

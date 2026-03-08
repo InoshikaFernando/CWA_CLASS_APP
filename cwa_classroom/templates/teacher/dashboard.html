@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+
+{% block title %}Teacher Dashboard{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+
+  <!-- Header with school switcher -->
+  <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+    <div>
+      <h1 class="text-2xl font-display font-bold text-gray-900">Teacher Dashboard</h1>
+      {% if current_school %}
+        <p class="text-gray-500 mt-1">{{ current_school.name }}</p>
+      {% endif %}
+    </div>
+    <div class="flex items-center gap-3">
+      {% if schools|length > 1 %}
+        <form method="post" action="{% url 'school_switcher' %}" class="flex items-center gap-2">
+          {% csrf_token %}
+          <select name="school_id" onchange="this.form.submit()"
+                  class="px-3 py-2 border border-slate-300 rounded-xl text-sm text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent transition">
+            {% for s in schools %}
+              <option value="{{ s.school.id }}" {% if current_school and s.school.id == current_school.id %}selected{% endif %}>
+                {{ s.school.name }}
+              </option>
+            {% endfor %}
+          </select>
+        </form>
+      {% endif %}
+      <a href="{% url 'create_class' %}"
+         class="inline-flex items-center gap-2 px-4 py-2 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition text-sm shadow-sm">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+        </svg>
+        New Class
+      </a>
+    </div>
+  </div>
+
+  <!-- Stats row -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+    <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 bg-accent/10 rounded-lg flex items-center justify-center">
+          <svg class="w-5 h-5 text-accent" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-xl font-bold text-gray-900">{{ classes|length }}</p>
+          <p class="text-sm text-gray-500">My Classes</p>
+        </div>
+      </div>
+    </div>
+    <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 bg-amber-50 rounded-lg flex items-center justify-center">
+          <svg class="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-xl font-bold text-gray-900">{{ pending_count }}</p>
+          <p class="text-sm text-gray-500">Pending Enrollments</p>
+        </div>
+      </div>
+    </div>
+    <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
+          <svg class="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-xl font-bold text-gray-900">{{ upcoming_sessions|length }}</p>
+          <p class="text-sm text-gray-500">Upcoming Sessions</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+
+    <!-- My Classes -->
+    <div class="lg:col-span-2">
+      <h2 class="text-lg font-semibold text-gray-900 mb-4">My Classes</h2>
+      {% if classes %}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {% for cls in classes %}
+            <a href="{% url 'class_detail' cls.id %}"
+               class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm hover:shadow-md hover:border-accent/30 transition group">
+              <div class="flex items-start justify-between mb-3">
+                <h3 class="font-semibold text-gray-900 group-hover:text-accent transition">{{ cls.name }}</h3>
+                <span class="text-xs font-mono text-gray-400 bg-slate-100 px-2 py-0.5 rounded">{{ cls.code }}</span>
+              </div>
+              {% if cls.subject %}
+                <p class="text-sm text-gray-500 mb-3">{{ cls.subject.name }}</p>
+              {% endif %}
+              <div class="flex items-center gap-3 text-xs text-gray-500">
+                <span>{{ cls.students.count }} students</span>
+                <span>&middot;</span>
+                <span>{{ cls.teachers.count }} teachers</span>
+              </div>
+            </a>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="bg-white rounded-xl p-8 border border-slate-200 text-center">
+          <p class="text-gray-400 mb-4">No classes in this school yet.</p>
+          <a href="{% url 'create_class' %}" class="text-accent hover:text-accent-dark font-medium text-sm">Create your first class &rarr;</a>
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- Upcoming Sessions -->
+    <div>
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-gray-900">Upcoming Sessions</h2>
+      </div>
+      {% if upcoming_sessions %}
+        <div class="space-y-3">
+          {% for session in upcoming_sessions %}
+            <div class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
+              <p class="text-sm font-medium text-gray-900">{{ session.classroom.name }}</p>
+              <p class="text-xs text-gray-500 mt-1">{{ session.date|date:"D, d M" }} &middot; {{ session.start_time|time:"H:i" }} – {{ session.end_time|time:"H:i" }}</p>
+              <a href="{% url 'session_attendance' session.id %}"
+                 class="text-xs text-accent hover:text-accent-dark font-medium mt-2 inline-block">Mark Attendance &rarr;</a>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="bg-white rounded-xl p-6 border border-slate-200 text-center">
+          <p class="text-sm text-gray-400">No upcoming sessions.</p>
+        </div>
+      {% endif %}
+
+      {% if pending_count > 0 %}
+        <div class="mt-6">
+          <a href="{% url 'enrollment_requests' %}"
+             class="flex items-center justify-between bg-amber-50 rounded-xl p-4 border border-amber-200 hover:bg-amber-100 transition group">
+            <div>
+              <p class="text-sm font-semibold text-amber-800">Enrollment Requests</p>
+              <p class="text-xs text-amber-600">{{ pending_count }} pending</p>
+            </div>
+            <svg class="w-5 h-5 text-amber-600 group-hover:translate-x-1 transition" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
+            </svg>
+          </a>
+        </div>
+      {% endif %}
+    </div>
+
+  </div>
+</div>
+{% endblock %}

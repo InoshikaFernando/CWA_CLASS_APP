@@ -18,15 +18,15 @@
 
   <!-- ── Quick Stats ───────────────────────────────────── -->
   <div class="grid grid-cols-3 gap-3">
-    <div class="bg-white rounded-2xl border border-border shadow-sm p-4 text-center">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 text-center">
       <p class="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1">Today</p>
       <p class="font-display text-2xl text-primary">{{ time_daily|default:"0m" }}</p>
     </div>
-    <div class="bg-white rounded-2xl border border-border shadow-sm p-4 text-center">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 text-center">
       <p class="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1">This Week</p>
       <p class="font-display text-2xl text-primary">{{ time_weekly|default:"0m" }}</p>
     </div>
-    <div class="bg-white rounded-2xl border border-border shadow-sm p-4 text-center">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 text-center">
       <p class="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1">Best Score</p>
       <p class="font-display text-2xl text-accent">{{ best_score|default:"—" }}</p>
     </div>
@@ -38,7 +38,7 @@
 
     <div class="space-y-3" id="year-accordion">
       {% for item in year_data %}
-      <div class="bg-white rounded-2xl border border-border shadow-sm overflow-hidden">
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
 
         <!-- Accordion header -->
         <button type="button"
@@ -67,7 +67,7 @@
         </button>
 
         <!-- Accordion body -->
-        <div id="year-{{ item.level.level_number }}" class="{% if not item.accessible %}hidden {% endif %}border-t border-border px-6 py-5">
+        <div id="year-{{ item.level.level_number }}" class="{% if not item.accessible %}hidden {% endif %}border-t border-slate-200 px-6 py-5">
           <div class="space-y-5">
             {% for group in item.strand_data %}
             <div>
@@ -79,16 +79,16 @@
                 {% if item.accessible %}
                   {% if entry.has_questions and entry.maths_topic_id %}
                   <a href="{% url 'topic_quiz' level_number=item.level.level_number topic_id=entry.maths_topic_id %}"
-                     class="rounded-xl border border-border p-3 hover:border-primary hover:shadow-sm transition text-sm font-semibold text-gray-700 hover:text-primary">
+                     class="rounded-xl border border-slate-200 p-3 hover:border-primary hover:shadow-sm transition text-sm font-semibold text-gray-700 hover:text-primary">
                     {{ entry.topic.name }}
                   </a>
                   {% else %}
-                  <div class="rounded-xl border border-border p-3 text-sm font-semibold text-gray-400 bg-gray-50 cursor-default">
+                  <div class="rounded-xl border border-slate-200 p-3 text-sm font-semibold text-gray-400 bg-gray-50 cursor-default">
                     {{ entry.topic.name }}
                   </div>
                   {% endif %}
                 {% else %}
-                <div class="rounded-xl border border-border p-3 text-sm font-semibold text-gray-400 bg-gray-50 flex items-center gap-1.5">
+                <div class="rounded-xl border border-slate-200 p-3 text-sm font-semibold text-gray-400 bg-gray-50 flex items-center gap-1.5">
                   <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V7a4.5 4.5 0 00-9 0v3.5m-2 0h13a1 1 0 011 1V19a1 1 0 01-1 1h-13a1 1 0 01-1-1v-7.5a1 1 0 011-1z"/></svg>
                   {{ entry.topic.name }}
                 </div>

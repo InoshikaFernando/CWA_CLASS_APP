@@ -24,7 +24,7 @@
   <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
     {% for s in subtopics %}
     <a href="{% url 'basic_facts_select' subtopic=s.key %}"
-       class="bg-white rounded-2xl border border-border shadow-sm p-6 text-center hover:shadow-md hover:-translate-y-0.5 transition block">
+       class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 text-center hover:shadow-md hover:-translate-y-0.5 transition block">
       <div class="text-4xl mb-3">{{ s.icon }}</div>
       <p class="font-bold text-gray-800">{{ s.label }}</p>
       <p class="text-xs text-gray-400 mt-1">{{ s.levels }} levels</p>
@@ -42,7 +42,7 @@
   <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
     {% for level in levels %}
     <a href="{% url 'basic_facts_quiz' subtopic=subtopic level_number=level.level_number %}"
-       class="bg-white rounded-2xl border border-border shadow-sm p-5 text-center hover:shadow-md hover:-translate-y-0.5 hover:border-primary transition block group">
+       class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center hover:shadow-md hover:-translate-y-0.5 hover:border-primary transition block group">
       <div class="w-12 h-12 rounded-xl bg-primary-light text-primary font-display text-xl flex items-center justify-center mx-auto mb-3 group-hover:bg-primary group-hover:text-white transition">
         {{ level.display_level }}
       </div>

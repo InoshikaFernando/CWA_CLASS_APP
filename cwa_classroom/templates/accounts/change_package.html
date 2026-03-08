@@ -10,7 +10,7 @@
   <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
     {% for package in packages %}
     <div class="bg-white rounded-2xl border shadow-sm p-6 text-center
-                {% if current_package.id == package.id %}border-primary ring-2 ring-primary{% else %}border-border hover:shadow-md transition{% endif %}">
+                {% if current_package.id == package.id %}border-primary ring-2 ring-primary{% else %}border-slate-200 hover:shadow-md transition{% endif %}">
       {% if current_package.id == package.id %}
         <span class="inline-block mb-2 bg-primary-light text-primary text-xs font-bold rounded-full px-3 py-1">Current Plan</span>
       {% endif %}

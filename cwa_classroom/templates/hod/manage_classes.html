@@ -2,10 +2,10 @@
 {% block title %}Manage Class-Teacher Assignments{% endblock %}
 {% block content %}
 <div class="max-w-5xl mx-auto space-y-6">
-  <h1 class="font-display text-3xl text-primary">Class-Teacher Assignments</h1>
+  <h1 class="font-display text-2xl font-bold text-gray-900">Class-Teacher Assignments</h1>
   <div class="space-y-4">
   {% for classroom in classes %}
-    <div class="bg-white rounded-2xl border border-border shadow-sm p-6">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
       <div class="flex items-center justify-between mb-3">
         <h3 class="font-bold text-gray-800">{{ classroom.name }}</h3>
         <a href="{% url 'assign_teachers' class_id=classroom.id %}" class="text-sm bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-4 py-2 transition">+ Assign Teacher</a>
@@ -19,7 +19,7 @@
       </div>
     </div>
   {% empty %}
-    <div class="bg-white rounded-2xl border border-border shadow-sm p-12 text-center">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">
       <p class="text-gray-400">No classes found.</p>
     </div>
   {% endfor %}

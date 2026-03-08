@@ -26,7 +26,7 @@
 
   <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
     <!-- Students -->
-    <div class="bg-white rounded-2xl border border-border shadow-sm p-6">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
       <div class="flex items-center justify-between mb-4">
         <h2 class="font-bold text-gray-800">Students ({{ students.count }})</h2>
         <a href="{% url 'assign_students' class_id=classroom.id %}"
@@ -52,7 +52,7 @@
     </div>
 
     <!-- Teachers -->
-    <div class="bg-white rounded-2xl border border-border shadow-sm p-6">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
       <div class="flex items-center justify-between mb-4">
         <h2 class="font-bold text-gray-800">Teachers ({{ teachers.count }})</h2>
         <a href="{% url 'assign_teachers' class_id=classroom.id %}"
