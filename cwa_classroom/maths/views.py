@@ -604,17 +604,23 @@ def dashboard(request):
             )
             strand_dict = {}
             for ct in cl_topics:
-                key = ct.parent_id if ct.parent_id else '__flat__'
-                if key not in strand_dict:
-                    strand_dict[key] = {'strand': ct.parent, 'subtopics': []}
-                maths_topic_id = maths_topic_name_to_id.get(ct.name)
-                has_q = (maths_topic_id in topics_with_q) if maths_topic_id else False
-                strand_dict[key]['subtopics'].append({
-                    'topic': ct,
-                    'maths_topic_id': maths_topic_id,
-                    'has_questions': has_q,
-                })
-            strand_data = list(strand_dict.values())
+                if ct.parent_id is None:
+                    # Strand header — create the bucket but do NOT add as a subtopic card
+                    if ct.id not in strand_dict:
+                        strand_dict[ct.id] = {'strand': ct, 'subtopics': []}
+                else:
+                    key = ct.parent_id
+                    if key not in strand_dict:
+                        strand_dict[key] = {'strand': ct.parent, 'subtopics': []}
+                    maths_topic_id = maths_topic_name_to_id.get(ct.name)
+                    has_q = (maths_topic_id in topics_with_q) if maths_topic_id else False
+                    strand_dict[key]['subtopics'].append({
+                        'topic': ct,
+                        'maths_topic_id': maths_topic_id,
+                        'has_questions': has_q,
+                    })
+            # Drop strand headers that ended up with no sub-topics
+            strand_data = [g for g in strand_dict.values() if g['subtopics']]
 
         # Fallback: use maths.Level.topics directly (flat, no hierarchy)
         if not strand_data:
