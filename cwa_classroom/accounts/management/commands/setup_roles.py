@@ -16,7 +16,8 @@ ROLES = [
     (Role.STUDENT,             'Student',             'Enrolled via a school/teacher'),
     (Role.INDIVIDUAL_STUDENT,  'Individual Student',  'Self-enrolled with subscription'),
     (Role.ACCOUNTANT,          'Accountant',          'Billing and finance access'),
-    (Role.HEAD_OF_DEPARTMENT,  'Head of Department',  'Department-level reporting'),
+    (Role.HEAD_OF_INSTITUTE,   'Head of Institute',   'Institute-level reporting'),
+    (Role.INSTITUTE_OWNER,    'Institute Owner',     'Owns and manages schools, teachers, and HoIs'),
 ]
 
 

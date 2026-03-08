@@ -100,6 +100,7 @@ class School(models.Model):
 class SchoolTeacher(models.Model):
     """Through table: links a teacher to a school with a seniority role."""
     ROLE_CHOICES = [
+        ('head_of_institute', 'Head of Institute'),
         ('senior_teacher', 'Senior Teacher'),
         ('teacher', 'Teacher'),
         ('junior_teacher', 'Junior Teacher'),

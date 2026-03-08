@@ -53,14 +53,16 @@
       {% block sidebar %}
         {% if is_admin_user %}
           {% include "partials/sidebar_admin.html" %}
+        {% elif is_institute_owner %}
+          {% include "partials/sidebar_hod.html" %}
+        {% elif is_hoi %}
+          {% include "partials/sidebar_hod.html" %}
         {% elif is_senior_teacher %}
           {% include "partials/sidebar_senior_teacher.html" %}
         {% elif is_teacher or is_junior_teacher %}
           {% include "partials/sidebar_teacher.html" %}
         {% elif is_student or is_individual_student %}
           {% include "partials/sidebar_student.html" %}
-        {% elif is_hod %}
-          {% include "partials/sidebar_hod.html" %}
         {% elif is_accountant %}
           {% include "partials/sidebar_accountant.html" %}
         {% endif %}

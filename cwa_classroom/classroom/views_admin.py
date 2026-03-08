@@ -13,8 +13,8 @@ from .views import RoleRequiredMixin
 
 
 class AdminDashboardView(RoleRequiredMixin, View):
-    """Admin dashboard showing all schools belonging to the current admin."""
-    required_role = Role.ADMIN
+    """Admin dashboard showing all schools belonging to the current admin/HoD/Institute Owner."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request):
         schools = School.objects.filter(admin=request.user)
@@ -35,8 +35,8 @@ class AdminDashboardView(RoleRequiredMixin, View):
 
 
 class SchoolCreateView(RoleRequiredMixin, View):
-    """Create a new school owned by the current admin."""
-    required_role = Role.ADMIN
+    """Create a new school owned by the current admin/HoD."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request):
         return render(request, 'admin_dashboard/school_form.html')
@@ -79,8 +79,8 @@ class SchoolCreateView(RoleRequiredMixin, View):
 
 
 class SchoolDetailView(RoleRequiredMixin, View):
-    """Show detailed information about a school the admin owns."""
-    required_role = Role.ADMIN
+    """Show detailed information about a school the admin/HoD owns."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request, school_id):
         school = get_object_or_404(School, id=school_id, admin=request.user)
@@ -98,72 +98,154 @@ class SchoolDetailView(RoleRequiredMixin, View):
 
 
 class SchoolTeacherManageView(RoleRequiredMixin, View):
-    """Manage teachers assigned to a school: list, add, and update roles."""
-    required_role = Role.ADMIN
+    """Manage teachers assigned to a school: list and create new teachers."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def _get_role_choices(self, user):
+        """Institute Owner / Admin can assign HoI; HoI cannot."""
+        if user.is_institute_owner or user.is_admin_user:
+            return SchoolTeacher.ROLE_CHOICES
+        return [c for c in SchoolTeacher.ROLE_CHOICES if c[0] != 'head_of_institute']
 
     def get(self, request, school_id):
         school = get_object_or_404(School, id=school_id, admin=request.user)
         school_teachers = SchoolTeacher.objects.filter(school=school).select_related('teacher')
-        assigned_teacher_ids = school_teachers.values_list('teacher_id', flat=True)
-        available_teachers = CustomUser.objects.filter(
-            roles__name__in=[Role.TEACHER, Role.SENIOR_TEACHER, Role.JUNIOR_TEACHER],
-        ).exclude(id__in=assigned_teacher_ids).distinct()
         return render(request, 'admin_dashboard/school_teachers.html', {
             'school': school,
             'school_teachers': school_teachers,
-            'available_teachers': available_teachers,
-            'role_choices': SchoolTeacher.ROLE_CHOICES,
+            'role_choices': self._get_role_choices(request.user),
         })
 
     def post(self, request, school_id):
+        """Create a new teacher account and assign to this school."""
         school = get_object_or_404(School, id=school_id, admin=request.user)
-        teacher_id = request.POST.get('teacher_id')
+
+        first_name = request.POST.get('first_name', '').strip()
+        last_name = request.POST.get('last_name', '').strip()
+        email = request.POST.get('email', '').strip()
+        password = request.POST.get('password', '').strip()
         role = request.POST.get('role', 'teacher')
 
-        if not teacher_id:
-            messages.error(request, 'Please select a teacher.')
-            return redirect('admin_school_teachers', school_id=school.id)
+        # Validate
+        errors = []
+        if not first_name:
+            errors.append('First name is required.')
+        if not last_name:
+            errors.append('Last name is required.')
+        if not email or '@' not in email:
+            errors.append('A valid email address is required.')
+        elif CustomUser.objects.filter(email=email).exists():
+            errors.append('A user with this email already exists.')
+        if len(password) < 8:
+            errors.append('Password must be at least 8 characters.')
 
-        teacher = get_object_or_404(CustomUser, id=teacher_id)
-
-        # Validate role is a valid choice
-        valid_roles = [choice[0] for choice in SchoolTeacher.ROLE_CHOICES]
+        allowed_choices = self._get_role_choices(request.user)
+        valid_roles = [choice[0] for choice in allowed_choices]
         if role not in valid_roles:
             role = 'teacher'
 
-        school_teacher, created = SchoolTeacher.objects.get_or_create(
-            school=school,
-            teacher=teacher,
-            defaults={'role': role},
-        )
-        if created:
+        if errors:
+            for err in errors:
+                messages.error(request, err)
+            school_teachers = SchoolTeacher.objects.filter(school=school).select_related('teacher')
+            return render(request, 'admin_dashboard/school_teachers.html', {
+                'school': school,
+                'school_teachers': school_teachers,
+                'role_choices': allowed_choices,
+                'form_data': {
+                    'first_name': first_name,
+                    'last_name': last_name,
+                    'email': email,
+                    'role': role,
+                },
+            })
+
+        # Generate username from email (part before @), ensure unique
+        base_username = email.split('@')[0].lower().replace(' ', '.')
+        username = base_username
+        counter = 1
+        while CustomUser.objects.filter(username=username).exists():
+            username = f'{base_username}{counter}'
+            counter += 1
+
+        try:
+            with transaction.atomic():
+                # Create user account
+                user = CustomUser.objects.create_user(
+                    username=username,
+                    email=email,
+                    password=password,
+                    first_name=first_name,
+                    last_name=last_name,
+                )
+                # Assign system-wide role based on school role
+                if role == 'head_of_institute':
+                    system_role, _ = Role.objects.get_or_create(
+                        name=Role.HEAD_OF_INSTITUTE, defaults={'display_name': 'Head of Institute'}
+                    )
+                else:
+                    system_role, _ = Role.objects.get_or_create(
+                        name=Role.TEACHER, defaults={'display_name': 'Teacher'}
+                    )
+                UserRole.objects.create(user=user, role=system_role)
+                # Link to school with chosen seniority role
+                SchoolTeacher.objects.create(
+                    school=school, teacher=user, role=role,
+                )
+
             messages.success(
                 request,
-                f'{teacher.username} added to {school.name} as {school_teacher.get_role_display()}.'
+                f'{first_name} {last_name} added as {dict(SchoolTeacher.ROLE_CHOICES).get(role, role)}.'
             )
-        else:
-            # Teacher already exists at this school -- update their role
-            school_teacher.role = role
-            school_teacher.save()
-            messages.success(
-                request,
-                f'{teacher.username} role updated to {school_teacher.get_role_display()}.'
-            )
+        except Exception as e:
+            messages.error(request, f'Error creating teacher: {e}')
 
         return redirect('admin_school_teachers', school_id=school.id)
 
 
-class SchoolTeacherRemoveView(RoleRequiredMixin, View):
-    """Remove a teacher from a school."""
-    required_role = Role.ADMIN
+class SchoolTeacherEditView(RoleRequiredMixin, View):
+    """Change a teacher's role within a school."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def post(self, request, school_id, teacher_id):
         school = get_object_or_404(School, id=school_id, admin=request.user)
-        deleted_count, _ = SchoolTeacher.objects.filter(
+        school_teacher = get_object_or_404(
+            SchoolTeacher, school=school, teacher_id=teacher_id
+        )
+        new_role = request.POST.get('role', 'teacher')
+
+        valid_roles = [choice[0] for choice in SchoolTeacher.ROLE_CHOICES]
+        if new_role not in valid_roles:
+            messages.error(request, 'Invalid role selected.')
+            return redirect('admin_school_teachers', school_id=school.id)
+
+        school_teacher.role = new_role
+        school_teacher.save()
+        messages.success(
+            request,
+            f'{school_teacher.teacher.get_full_name()} role updated to {school_teacher.get_role_display()}.'
+        )
+        return redirect('admin_school_teachers', school_id=school.id)
+
+
+class SchoolTeacherRemoveView(RoleRequiredMixin, View):
+    """Remove a teacher from a school and delete their account."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def post(self, request, school_id, teacher_id):
+        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school_teacher = SchoolTeacher.objects.filter(
             school=school, teacher_id=teacher_id
-        ).delete()
-        if deleted_count:
-            messages.success(request, 'Teacher removed from school.')
+        ).select_related('teacher').first()
+
+        if school_teacher:
+            teacher_user = school_teacher.teacher
+            teacher_name = teacher_user.get_full_name() or teacher_user.username
+            # Delete the SchoolTeacher link
+            school_teacher.delete()
+            # Delete the user account entirely
+            teacher_user.delete()
+            messages.success(request, f'{teacher_name} has been removed and their account deleted.')
         else:
             messages.warning(request, 'Teacher was not found at this school.')
         return redirect('admin_school_teachers', school_id=school.id)
@@ -171,7 +253,7 @@ class SchoolTeacherRemoveView(RoleRequiredMixin, View):
 
 class AcademicYearCreateView(RoleRequiredMixin, View):
     """Create a new academic year for a school."""
-    required_role = Role.ADMIN
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request, school_id):
         school = get_object_or_404(School, id=school_id, admin=request.user)

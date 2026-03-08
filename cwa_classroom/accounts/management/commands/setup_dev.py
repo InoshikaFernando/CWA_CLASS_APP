@@ -92,7 +92,7 @@ class Command(BaseCommand):
             ('student', 'Student'),
             ('individual_student', 'Individual Student'),
             ('accountant', 'Accountant'),
-            ('head_of_department', 'Head of Department'),
+            ('head_of_institute', 'Head of Institute'),
         ]
         for name, display in roles:
             Role.objects.get_or_create(name=name, defaults={'display_name': display, 'is_active': True})

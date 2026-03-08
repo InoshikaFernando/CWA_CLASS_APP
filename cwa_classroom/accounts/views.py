@@ -33,10 +33,10 @@ class TeacherSignupView(View):
         try:
             with transaction.atomic():
                 user = CustomUser.objects.create_user(username=username, email=email, password=password)
-                role, _ = Role.objects.get_or_create(name=Role.TEACHER, defaults={'display_name': 'Teacher'})
+                role, _ = Role.objects.get_or_create(name=Role.INSTITUTE_OWNER, defaults={'display_name': 'Institute Owner'})
                 UserRole.objects.create(user=user, role=role)
             login(request, user)
-            messages.success(request, f'Welcome, {username}! Your teacher account is ready.')
+            messages.success(request, f'Welcome, {username}! Your account is ready.')
             return redirect('subjects_hub')
         except Exception as e:
             return render(request, 'accounts/register_teacher.html', {
@@ -69,10 +69,10 @@ class TeacherCenterRegisterView(View):
         try:
             with transaction.atomic():
                 user = CustomUser.objects.create_user(username=username, email=email, password=password)
-                role, _ = Role.objects.get_or_create(name=Role.TEACHER, defaults={'display_name': 'Teacher'})
+                role, _ = Role.objects.get_or_create(name=Role.INSTITUTE_OWNER, defaults={'display_name': 'Institute Owner'})
                 UserRole.objects.create(user=user, role=role)
             login(request, user)
-            messages.success(request, f'Welcome! Your teacher account for {center_name} is ready.')
+            messages.success(request, f'Welcome! Your account for {center_name} is ready.')
             return redirect('subjects_hub')
         except Exception as e:
             return render(request, 'accounts/register_teacher.html', {

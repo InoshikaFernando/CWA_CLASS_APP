@@ -23,7 +23,8 @@ class Role(models.Model):
     STUDENT = 'student'
     INDIVIDUAL_STUDENT = 'individual_student'
     ACCOUNTANT = 'accountant'
-    HEAD_OF_DEPARTMENT = 'head_of_department'
+    HEAD_OF_INSTITUTE = 'head_of_institute'
+    INSTITUTE_OWNER = 'institute_owner'
 
 
 class CustomUser(AbstractUser):
@@ -47,7 +48,8 @@ class CustomUser(AbstractUser):
     # Role priority order for dashboard redirect
     ROLE_PRIORITY = [
         Role.ADMIN,
-        Role.HEAD_OF_DEPARTMENT,
+        Role.INSTITUTE_OWNER,
+        Role.HEAD_OF_INSTITUTE,
         Role.ACCOUNTANT,
         Role.SENIOR_TEACHER,
         Role.TEACHER,
@@ -96,8 +98,8 @@ class CustomUser(AbstractUser):
         ).exists()
 
     @property
-    def is_head_of_department(self):
-        return self.has_role(Role.HEAD_OF_DEPARTMENT)
+    def is_head_of_institute(self):
+        return self.has_role(Role.HEAD_OF_INSTITUTE)
 
     @property
     def is_accountant(self):
@@ -106,6 +108,10 @@ class CustomUser(AbstractUser):
     @property
     def is_admin_user(self):
         return self.has_role(Role.ADMIN)
+
+    @property
+    def is_institute_owner(self):
+        return self.has_role(Role.INSTITUTE_OWNER)
 
     @property
     def age(self):
