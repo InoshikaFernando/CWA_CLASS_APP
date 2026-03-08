@@ -1,5 +1,16 @@
 """
 Django settings for cwa_classroom project.
+
+Single settings file for ALL environments (local dev, test, production).
+Environment-specific values are read from environment variables with sensible
+local-dev defaults.  On PythonAnywhere set them in the "Web" tab → "Environment
+variables" section; locally use a .env file (loaded by python-dotenv).
+
+Required env vars for production / test deploys:
+    SECRET_KEY, DEBUG=False, ALLOWED_HOSTS,
+    DB_NAME, DB_USER, DB_PASSWORD, DB_HOST,
+    EMAIL_HOST_USER, EMAIL_HOST_PASSWORD,
+    SITE_URL
 """
 
 import os
@@ -190,6 +201,8 @@ else:
 # Email
 # ---------------------------------------------------------------------------
 
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@wizardslearninghub.co.nz')
+
 if DEBUG:
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 else:
@@ -199,7 +212,6 @@ else:
     EMAIL_USE_TLS = True
     EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER')
     EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD')
-    DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@wizardslearninghub.co.nz')
 
 
 # ---------------------------------------------------------------------------
@@ -237,9 +249,9 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Public landing page / Subject hub
 # ---------------------------------------------------------------------------
 
-SITE_NAME = 'Classroom'
+SITE_NAME = os.environ.get('SITE_NAME', 'Classroom')
 SITE_DESCRIPTION = 'A comprehensive educational platform for students ages 6-12.'
-SITE_URL = 'https://classroom.wizardslearninghub.co.nz'
+SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000')
 
 # Contact form rate limiting (uses django cache)
 CONTACT_RATE_LIMIT_PER_HOUR = 5
@@ -247,3 +259,13 @@ CONTACT_RATE_LIMIT_PER_HOUR = 5
 # reCAPTCHA (production only -- leave blank for dev)
 RECAPTCHA_SITE_KEY = os.environ.get('RECAPTCHA_SITE_KEY', '')
 RECAPTCHA_SECRET_KEY = os.environ.get('RECAPTCHA_SECRET_KEY', '')
+
+
+# ---------------------------------------------------------------------------
+# Security — production only (when DEBUG is False)
+# ---------------------------------------------------------------------------
+
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True

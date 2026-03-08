@@ -10,6 +10,7 @@ from django.utils import timezone
 from accounts.models import CustomUser, Role, UserRole
 from .models import School, SchoolTeacher, AcademicYear, ClassRoom, ClassSession, Department
 from .views import RoleRequiredMixin
+from .email_utils import send_staff_welcome_email
 
 
 class AdminDashboardView(RoleRequiredMixin, View):
@@ -214,6 +215,13 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
             messages.success(
                 request,
                 f'{first_name} {last_name} added as {dict(SchoolTeacher.ROLE_CHOICES).get(role, role)}.'
+            )
+            # Send welcome email with login credentials
+            send_staff_welcome_email(
+                user=user,
+                plain_password=password,
+                role_display=dict(SchoolTeacher.ROLE_CHOICES).get(role, role),
+                school=school,
             )
         except Exception as e:
             messages.error(request, f'Error creating teacher: {e}')

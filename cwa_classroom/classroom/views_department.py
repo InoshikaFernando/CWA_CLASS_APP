@@ -7,6 +7,7 @@ from django.utils.text import slugify
 from accounts.models import CustomUser, Role, UserRole
 from .models import School, SchoolTeacher, Department, DepartmentTeacher, ClassRoom
 from .views import RoleRequiredMixin
+from .email_utils import send_staff_welcome_email
 
 
 class DepartmentListView(RoleRequiredMixin, View):
@@ -270,6 +271,14 @@ class DepartmentAssignHoDView(RoleRequiredMixin, View):
                 messages.success(
                     request,
                     f'{first_name} {last_name} created and assigned as Head of {department.name}.'
+                )
+                # Send welcome email with login credentials
+                send_staff_welcome_email(
+                    user=user,
+                    plain_password=password,
+                    role_display='Head of Department',
+                    school=school,
+                    department=department,
                 )
             except Exception as e:
                 messages.error(request, f'Error creating HoD: {e}')
