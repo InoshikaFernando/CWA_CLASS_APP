@@ -1,1 +1,65 @@
-{ 0.000000e+00xtends "base.html" 
+{% extends "base.html" %}
+{% block title %}Users Overview{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-6">
+  <div>
+    <h1 class="font-display text-2xl font-bold text-gray-900">Users Overview</h1>
+    <p class="text-sm text-gray-500 mt-1">Summary of user roles and activity across the platform.</p>
+  </div>
+
+  <!-- Stat Cards -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="bg-white rounded-xl p-4 border border-slate-200 text-center">
+      <p class="text-xl font-bold text-primary">{{ students }}</p>
+      <p class="text-xs text-gray-500">Students</p>
+    </div>
+    <div class="bg-white rounded-xl p-4 border border-slate-200 text-center">
+      <p class="text-xl font-bold text-accent">{{ individual_students }}</p>
+      <p class="text-xs text-gray-500">Individual Students</p>
+    </div>
+    <div class="bg-white rounded-xl p-4 border border-slate-200 text-center">
+      <p class="text-xl font-bold text-primary">{{ teachers }}</p>
+      <p class="text-xs text-gray-500">Teachers</p>
+    </div>
+    <div class="bg-white rounded-xl p-4 border border-slate-200 text-center">
+      <p class="text-xl font-bold text-success">{{ active_users }}</p>
+      <p class="text-xs text-gray-500">Active Users (30 days)</p>
+    </div>
+  </div>
+
+  <!-- Summary Card -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+    <div class="px-6 py-4 border-b border-slate-200">
+      <h2 class="font-display text-lg font-semibold text-gray-900">Breakdown</h2>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-xs text-gray-500 uppercase tracking-wider">
+            <th class="px-6 py-3">Role</th>
+            <th class="px-6 py-3">Count</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          <tr class="hover:bg-slate-50 transition">
+            <td class="px-6 py-3 font-medium text-gray-900">Students</td>
+            <td class="px-6 py-3 text-gray-700">{{ students }}</td>
+          </tr>
+          <tr class="hover:bg-slate-50 transition">
+            <td class="px-6 py-3 font-medium text-gray-900">Individual Students</td>
+            <td class="px-6 py-3 text-gray-700">{{ individual_students }}</td>
+          </tr>
+          <tr class="hover:bg-slate-50 transition">
+            <td class="px-6 py-3 font-medium text-gray-900">Teachers</td>
+            <td class="px-6 py-3 text-gray-700">{{ teachers }}</td>
+          </tr>
+          <tr class="hover:bg-slate-50 transition">
+            <td class="px-6 py-3 font-medium text-gray-900">Active Users (last 30 days)</td>
+            <td class="px-6 py-3 text-gray-700">{{ active_users }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -71,6 +71,7 @@ urlpatterns = [
     path('department/manage-classes/', views.HoDManageClassesView.as_view(), name='hod_manage_classes'),
     path('department/workload/', views.HoDWorkloadView.as_view(), name='hod_workload'),
     path('department/reports/', views.HoDReportsView.as_view(), name='hod_reports'),
+    path('department/attendance/', views.HoDAttendanceReportView.as_view(), name='hod_attendance_report'),
 
     # Accounting
     path('accounting/', views.AccountingDashboardView.as_view(), name='accounting_dashboard'),

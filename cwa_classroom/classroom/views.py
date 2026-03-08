@@ -14,6 +14,7 @@ from accounts.models import CustomUser, Role, UserRole
 from .models import (
     ClassRoom, Subject, Topic, Level, ClassTeacher, ClassStudent,
     StudentLevelEnrollment, SubjectApp, ContactMessage, CONTACT_SUBJECT_CHOICES,
+    School, SchoolTeacher, ClassSession, StudentAttendance, TeacherAttendance,
 )
 
 logger = logging.getLogger(__name__)
@@ -696,9 +697,38 @@ class HoDOverviewView(RoleRequiredMixin, View):
     required_role = Role.HEAD_OF_DEPARTMENT
 
     def get(self, request):
+        school_id = request.session.get('current_school_id')
+        school = None
+        if school_id:
+            school = School.objects.filter(id=school_id, is_active=True).first()
+
+        if school:
+            classes = ClassRoom.objects.filter(school=school, is_active=True).prefetch_related('teachers', 'students')
+            teachers = CustomUser.objects.filter(
+                school_memberships__school=school,
+                school_memberships__is_active=True,
+            )
+            teacher_attendance_qs = TeacherAttendance.objects.filter(
+                session__classroom__school=school,
+            )
+        else:
+            classes = ClassRoom.objects.filter(is_active=True).prefetch_related('teachers', 'students')
+            teachers = CustomUser.objects.filter(
+                roles__name__in=[Role.TEACHER, Role.SENIOR_TEACHER, Role.JUNIOR_TEACHER],
+            )
+            teacher_attendance_qs = TeacherAttendance.objects.all()
+
+        total_sessions = teacher_attendance_qs.count()
+        present_count = teacher_attendance_qs.filter(status='present').count()
+        total_students = sum(c.students.count() for c in classes)
+
         return render(request, 'hod/overview.html', {
-            'classes': ClassRoom.objects.filter(is_active=True).prefetch_related('teachers', 'students'),
-            'teachers': CustomUser.objects.filter(roles__name=Role.TEACHER),
+            'school': school,
+            'classes': classes,
+            'teachers': teachers,
+            'total_students': total_students,
+            'total_sessions': total_sessions,
+            'present_count': present_count,
         })
 
 
@@ -706,9 +736,27 @@ class HoDManageClassesView(RoleRequiredMixin, View):
     required_role = Role.HEAD_OF_DEPARTMENT
 
     def get(self, request):
+        school_id = request.session.get('current_school_id')
+        school = None
+        if school_id:
+            school = School.objects.filter(id=school_id, is_active=True).first()
+
+        if school:
+            classes = ClassRoom.objects.filter(school=school, is_active=True).prefetch_related('teachers')
+            teachers = CustomUser.objects.filter(
+                school_memberships__school=school,
+                school_memberships__is_active=True,
+            )
+        else:
+            classes = ClassRoom.objects.filter(is_active=True).prefetch_related('teachers')
+            teachers = CustomUser.objects.filter(
+                roles__name__in=[Role.TEACHER, Role.SENIOR_TEACHER, Role.JUNIOR_TEACHER],
+            )
+
         return render(request, 'hod/manage_classes.html', {
-            'classes': ClassRoom.objects.filter(is_active=True).prefetch_related('teachers'),
-            'teachers': CustomUser.objects.filter(roles__name=Role.TEACHER),
+            'school': school,
+            'classes': classes,
+            'teachers': teachers,
         })
 
 
@@ -716,8 +764,33 @@ class HoDWorkloadView(RoleRequiredMixin, View):
     required_role = Role.HEAD_OF_DEPARTMENT
 
     def get(self, request):
+        school_id = request.session.get('current_school_id')
+        school = None
+        if school_id:
+            school = School.objects.filter(id=school_id, is_active=True).first()
+
+        if school:
+            memberships = SchoolTeacher.objects.filter(
+                school=school, is_active=True,
+            ).select_related('teacher')
+            teachers = CustomUser.objects.filter(
+                school_memberships__school=school,
+                school_memberships__is_active=True,
+            )
+            senior_teachers = memberships.filter(role='senior_teacher')
+            junior_teachers = memberships.filter(role='junior_teacher')
+        else:
+            teachers = CustomUser.objects.filter(
+                roles__name__in=[Role.TEACHER, Role.SENIOR_TEACHER, Role.JUNIOR_TEACHER],
+            )
+            senior_teachers = SchoolTeacher.objects.filter(role='senior_teacher', is_active=True)
+            junior_teachers = SchoolTeacher.objects.filter(role='junior_teacher', is_active=True)
+
         return render(request, 'hod/workload.html', {
-            'teachers': CustomUser.objects.filter(roles__name=Role.TEACHER),
+            'school': school,
+            'teachers': teachers,
+            'senior_teachers': senior_teachers,
+            'junior_teachers': junior_teachers,
         })
 
 
@@ -725,9 +798,70 @@ class HoDReportsView(RoleRequiredMixin, View):
     required_role = Role.HEAD_OF_DEPARTMENT
 
     def get(self, request):
+        school_id = request.session.get('current_school_id')
+        school = None
+        if school_id:
+            school = School.objects.filter(id=school_id, is_active=True).first()
+
         return render(request, 'hod/reports.html', {
+            'school': school,
             'levels': Level.objects.filter(level_number__lte=8),
             'topics': Topic.objects.filter(is_active=True),
+            'attendance_report_url': 'hod_attendance_report',
+        })
+
+
+class HoDAttendanceReportView(RoleRequiredMixin, View):
+    required_role = Role.HEAD_OF_DEPARTMENT
+
+    def get(self, request):
+        from django.db.models import Count, Q
+
+        school_id = request.session.get('current_school_id')
+        school = None
+        if school_id:
+            school = School.objects.filter(id=school_id, is_active=True).first()
+
+        # --- Teacher attendance summary ---
+        if school:
+            teacher_att_qs = TeacherAttendance.objects.filter(
+                session__classroom__school=school,
+            )
+            student_att_qs = StudentAttendance.objects.filter(
+                session__classroom__school=school,
+            )
+        else:
+            teacher_att_qs = TeacherAttendance.objects.all()
+            student_att_qs = StudentAttendance.objects.all()
+
+        teacher_summary = (
+            teacher_att_qs
+            .values('teacher__id', 'teacher__username', 'teacher__first_name', 'teacher__last_name')
+            .annotate(
+                total_sessions=Count('id'),
+                present_count=Count('id', filter=Q(status='present')),
+                absent_count=Count('id', filter=Q(status='absent')),
+            )
+            .order_by('teacher__last_name', 'teacher__first_name')
+        )
+
+        # --- Student attendance summary ---
+        student_summary = (
+            student_att_qs
+            .values('student__id', 'student__username', 'student__first_name', 'student__last_name')
+            .annotate(
+                total_sessions=Count('id'),
+                present_count=Count('id', filter=Q(status='present')),
+                absent_count=Count('id', filter=Q(status='absent')),
+                late_count=Count('id', filter=Q(status='late')),
+            )
+            .order_by('student__last_name', 'student__first_name')
+        )
+
+        return render(request, 'hod/attendance_report.html', {
+            'school': school,
+            'teacher_summary': teacher_summary,
+            'student_summary': student_summary,
         })
 
 

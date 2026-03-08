@@ -2,9 +2,9 @@
 {% block title %}Departmental Reports{% endblock %}
 {% block content %}
 <div class="max-w-4xl mx-auto space-y-6">
-  <h1 class="font-display text-3xl text-primary">Departmental Reports</h1>
+  <h1 class="font-display text-2xl font-bold text-gray-900">Departmental Reports</h1>
   <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-    <div class="bg-white rounded-2xl border border-border shadow-sm p-6">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
       <h3 class="font-bold text-gray-800 mb-2">By Level</h3>
       <div class="space-y-2">
       {% for level in levels %}
@@ -12,7 +12,7 @@
       {% endfor %}
       </div>
     </div>
-    <div class="bg-white rounded-2xl border border-border shadow-sm p-6">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
       <h3 class="font-bold text-gray-800 mb-2">By Topic</h3>
       <div class="space-y-2 max-h-64 overflow-y-auto">
       {% for topic in topics %}
@@ -21,10 +21,15 @@
       </div>
     </div>
   </div>
-  <div class="bg-accent-light rounded-2xl p-6 text-yellow-800">
-    <p class="font-bold mb-1">📊 Advanced Reports</p>
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+    <h3 class="font-bold text-gray-800 mb-2">Attendance</h3>
+    <p class="text-sm text-gray-600 mb-3">View teacher attendance records across your department.</p>
+    <a href="{% url 'hod_attendance_report' %}" class="text-sm text-primary font-semibold hover:underline">View Attendance Report</a>
+  </div>
+  <div class="bg-blue-50 rounded-2xl p-6 text-blue-800">
+    <p class="font-bold mb-1">Advanced Reports</p>
     <p class="text-sm">Detailed cross-class analytics and exports are available in the Accounting section.</p>
-    <a href="{% url 'accounting_dashboard' %}" class="inline-block mt-3 text-sm bg-accent text-white font-semibold rounded-xl px-4 py-2 hover:bg-accent-dark transition">Go to Accounting →</a>
+    <a href="{% url 'accounting_dashboard' %}" class="inline-block mt-3 text-sm bg-accent text-white font-semibold rounded-xl px-4 py-2 hover:bg-accent-dark transition">Go to Accounting</a>
   </div>
 </div>
 {% endblock %}

@@ -2,22 +2,27 @@
 {% block title %}Teacher Workload{% endblock %}
 {% block content %}
 <div class="max-w-4xl mx-auto space-y-6">
-  <h1 class="font-display text-3xl text-primary">Teacher Workload</h1>
-  <div class="bg-white rounded-2xl border border-border shadow-sm divide-y divide-gray-50">
+  <h1 class="font-display text-2xl font-bold text-gray-900">Teacher Workload</h1>
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm divide-y divide-gray-50">
   {% for teacher in teachers %}
     <div class="flex items-center justify-between px-6 py-4">
       <div>
-        <p class="font-semibold text-gray-800">{{ teacher.get_full_name|default:teacher.username }}</p>
-        <p class="text-xs text-gray-400">{{ teacher.username }}</p>
+        <p class="font-semibold text-gray-800">
+          {{ teacher.get_full_name|default:teacher.username }}
+          {% if teacher.school_role %}
+            <span class="px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 ml-2">{{ teacher.school_role }}</span>
+          {% endif %}
+        </p>
+        <p class="text-xs text-gray-500">{{ teacher.username }}</p>
       </div>
       <div class="text-right">
-        <p class="font-bold text-primary text-lg">{{ teacher.teaching_classes.count }}</p>
-        <p class="text-xs text-gray-400">classes</p>
+        <p class="text-xl font-bold text-gray-900">{{ teacher.teaching_classes.count }}</p>
+        <p class="text-xs text-gray-500">classes</p>
       </div>
     </div>
   {% empty %}
     <div class="px-6 py-12 text-center">
-      <p class="text-gray-400">No teachers found.</p>
+      <p class="text-gray-500">No teachers found.</p>
     </div>
   {% endfor %}
   </div>
