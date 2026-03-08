@@ -944,19 +944,25 @@ class PublicHomeView(View):
 class SubjectsHubView(LoginRequiredMixin, View):
     """
     Authenticated home -- shows greeting + subject cards.
-    Redirects HoD and Accountant roles to their existing dashboards.
+    Redirects non-student roles to their role-specific dashboards.
+    Students and Individual Students stay on the subjects hub.
     """
 
     def get(self, request):
         user = request.user
+        role = user.primary_role
 
-        # Redirect HoD and Accountant to their existing dashboards
-        if user.roles.filter(name=Role.HEAD_OF_DEPARTMENT).exists():
-            return redirect(reverse('hod_overview'))
-        if user.roles.filter(name=Role.ACCOUNTANT).exists():
-            return redirect(reverse('accounting_dashboard'))
+        # Redirect non-student roles to their dashboards
+        if role == Role.ADMIN:
+            return redirect('admin_dashboard')
+        if role == Role.HEAD_OF_DEPARTMENT:
+            return redirect('hod_overview')
+        if role == Role.ACCOUNTANT:
+            return redirect('accounting_dashboard')
+        if role in (Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER):
+            return redirect('teacher_dashboard')
 
-        # Show all visible subjects (active or coming soon)
+        # Students and Individual Students stay on the subjects hub
         subjects = SubjectApp.objects.exclude(
             is_active=False, is_coming_soon=False
         ).order_by('order')
