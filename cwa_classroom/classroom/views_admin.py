@@ -8,7 +8,7 @@ from django.utils.text import slugify
 from django.utils import timezone
 
 from accounts.models import CustomUser, Role, UserRole
-from .models import School, SchoolTeacher, AcademicYear, ClassRoom, ClassSession
+from .models import School, SchoolTeacher, AcademicYear, ClassRoom, ClassSession, Department
 from .views import RoleRequiredMixin
 
 
@@ -89,11 +89,13 @@ class SchoolDetailView(RoleRequiredMixin, View):
             'teachers', 'students', 'levels'
         )
         academic_years = AcademicYear.objects.filter(school=school)
+        departments = Department.objects.filter(school=school).select_related('head')
         return render(request, 'admin_dashboard/school_detail.html', {
             'school': school,
             'teachers': teachers,
             'classes': classes,
             'academic_years': academic_years,
+            'departments': departments,
         })
 
 
@@ -194,6 +196,10 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
                 if role == 'head_of_institute':
                     system_role, _ = Role.objects.get_or_create(
                         name=Role.HEAD_OF_INSTITUTE, defaults={'display_name': 'Head of Institute'}
+                    )
+                elif role == 'head_of_department':
+                    system_role, _ = Role.objects.get_or_create(
+                        name=Role.HEAD_OF_DEPARTMENT, defaults={'display_name': 'Head of Department'}
                     )
                 else:
                     system_role, _ = Role.objects.get_or_create(

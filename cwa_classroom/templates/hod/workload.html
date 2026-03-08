@@ -2,7 +2,9 @@
 {% block title %}Teacher Workload{% endblock %}
 {% block content %}
 <div class="max-w-4xl mx-auto space-y-6">
-  <h1 class="font-display text-2xl font-bold text-gray-900">Teacher Workload</h1>
+  <h1 class="font-display text-2xl font-bold text-gray-900">
+    {% if is_hod_only %}Department {% endif %}Teacher Workload
+  </h1>
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm divide-y divide-gray-50">
   {% for teacher in teachers %}
     <div class="flex items-center justify-between px-6 py-4">

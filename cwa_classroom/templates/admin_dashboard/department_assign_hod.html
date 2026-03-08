@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}Assign HoD — {{ department.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <a href="{% url 'admin_department_detail' school.id department.id %}" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back to {{ department.name }}</a>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Assign Head of Department</h1>
+    <p class="text-gray-500 mt-1">{{ department.name }} — {{ school.name }}</p>
+  </div>
+
+  {% if department.head %}
+    <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4 mb-6">
+      <p class="text-sm font-medium text-emerald-800">
+        Current HoD: <strong>{{ department.head.get_full_name|default:department.head.username }}</strong>
+        ({{ department.head.email }})
+      </p>
+    </div>
+  {% endif %}
+
+  <!-- Option 1: Assign existing teacher -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm mb-6">
+    <div class="p-6 border-b border-slate-100">
+      <h2 class="text-lg font-semibold text-gray-900">Assign Existing Teacher</h2>
+      <p class="text-sm text-gray-500 mt-1">Select a teacher already registered at this school.</p>
+    </div>
+    <div class="p-6">
+      {% if school_teachers %}
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="assign_existing">
+          <div class="space-y-2 mb-4 max-h-64 overflow-y-auto">
+            {% for st in school_teachers %}
+              <label class="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-accent/30 hover:bg-accent/5 cursor-pointer transition">
+                <input type="radio" name="teacher_id" value="{{ st.teacher.id }}"
+                       class="text-accent focus:ring-accent"
+                       {% if department.head_id == st.teacher.id %}checked{% endif %}>
+                <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-accent text-white text-xs font-bold">
+                  {{ st.teacher.username|slice:":2"|upper }}
+                </span>
+                <div class="flex-1">
+                  <p class="text-sm font-medium text-gray-900">{{ st.teacher.get_full_name|default:st.teacher.username }}</p>
+                  <p class="text-xs text-gray-500">{{ st.teacher.email }} &middot; {{ st.get_role_display }}</p>
+                </div>
+              </label>
+            {% endfor %}
+          </div>
+          <button type="submit"
+                  class="w-full px-4 py-2.5 bg-accent hover:bg-accent-dark text-white text-sm font-semibold rounded-xl transition">
+            Assign as HoD
+          </button>
+        </form>
+      {% else %}
+        <p class="text-sm text-gray-400 text-center py-4">No teachers at this school yet. Create one below.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Option 2: Create new HoD -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+    <div class="p-6 border-b border-slate-100">
+      <h2 class="text-lg font-semibold text-gray-900">Create New HoD</h2>
+      <p class="text-sm text-gray-500 mt-1">Create a new user account and assign them as Head of Department.</p>
+    </div>
+    <div class="p-6">
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="create_new">
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div>
+            <label for="first_name" class="block text-sm font-semibold text-gray-700 mb-1.5">First Name <span class="text-red-500">*</span></label>
+            <input type="text" name="first_name" id="first_name"
+                   value="{{ form_data.first_name|default:'' }}"
+                   class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition"
+                   required>
+          </div>
+          <div>
+            <label for="last_name" class="block text-sm font-semibold text-gray-700 mb-1.5">Last Name <span class="text-red-500">*</span></label>
+            <input type="text" name="last_name" id="last_name"
+                   value="{{ form_data.last_name|default:'' }}"
+                   class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition"
+                   required>
+          </div>
+        </div>
+
+        <div class="mb-4">
+          <label for="email" class="block text-sm font-semibold text-gray-700 mb-1.5">Email <span class="text-red-500">*</span></label>
+          <input type="email" name="email" id="email"
+                 value="{{ form_data.email|default:'' }}"
+                 class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition"
+                 required>
+        </div>
+
+        <div class="mb-6">
+          <label for="password" class="block text-sm font-semibold text-gray-700 mb-1.5">Password <span class="text-red-500">*</span></label>
+          <input type="password" name="password" id="password"
+                 class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition"
+                 minlength="8" required>
+          <p class="text-xs text-gray-400 mt-1">Minimum 8 characters</p>
+        </div>
+
+        <button type="submit"
+                class="w-full px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl transition">
+          Create &amp; Assign as HoD
+        </button>
+      </form>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

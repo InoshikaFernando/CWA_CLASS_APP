@@ -15,6 +15,7 @@ from .models import (
     ClassRoom, Subject, Topic, Level, ClassTeacher, ClassStudent,
     StudentLevelEnrollment, SubjectApp, ContactMessage, CONTACT_SUBJECT_CHOICES,
     School, SchoolTeacher, ClassSession, StudentAttendance, TeacherAttendance,
+    Department,
 )
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,8 @@ class HomeView(LoginRequiredMixin, View):
         if role == Role.INSTITUTE_OWNER:
             return redirect('hod_overview')
         if role == Role.HEAD_OF_INSTITUTE:
+            return redirect('hod_overview')
+        if role == Role.HEAD_OF_DEPARTMENT:
             return redirect('hod_overview')
         if role == Role.ACCOUNTANT:
             return redirect('accounting_dashboard')
@@ -693,35 +696,69 @@ class DeleteQuestionView(RoleRequiredMixin, View):
 
 
 class HoDOverviewView(RoleRequiredMixin, View):
-    required_roles = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+    required_roles = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT]
+
+    def _is_hod_only(self, user):
+        """Check if user is HoD but not HoI/Owner (department-scoped access)."""
+        return (
+            user.has_role(Role.HEAD_OF_DEPARTMENT)
+            and not user.has_role(Role.HEAD_OF_INSTITUTE)
+            and not user.has_role(Role.INSTITUTE_OWNER)
+        )
 
     def get(self, request):
-        # Schools owned by this HoD
-        my_schools = School.objects.filter(admin=request.user)
-        my_school_ids = list(my_schools.values_list('id', flat=True))
-        school_data = []
-        for s in my_schools:
-            teacher_count = SchoolTeacher.objects.filter(school=s, is_active=True).count()
-            student_count = ClassRoom.objects.filter(
-                school=s, is_active=True
-            ).values_list('students', flat=True).distinct().count()
-            school_data.append({
-                'school': s,
-                'teacher_count': teacher_count,
-                'student_count': student_count,
-            })
+        is_hod_only = self._is_hod_only(request.user)
 
-        # Only show classes/teachers/attendance from this HoD's schools
-        classes = ClassRoom.objects.filter(
-            school_id__in=my_school_ids, is_active=True
-        ).prefetch_related('teachers', 'students')
-        teachers = CustomUser.objects.filter(
-            school_memberships__school_id__in=my_school_ids,
-            school_memberships__is_active=True,
-        ).distinct()
-        teacher_attendance_qs = TeacherAttendance.objects.filter(
-            session__classroom__school_id__in=my_school_ids,
-        )
+        if is_hod_only:
+            # HoD: scope to their departments
+            departments = Department.objects.filter(head=request.user, is_active=True)
+            dept_ids = list(departments.values_list('id', flat=True))
+            classes = ClassRoom.objects.filter(
+                department_id__in=dept_ids, is_active=True
+            ).prefetch_related('teachers', 'students')
+            my_school_ids = list(departments.values_list('school_id', flat=True).distinct())
+            teachers = CustomUser.objects.filter(
+                department_memberships__department_id__in=dept_ids,
+            ).distinct()
+            teacher_attendance_qs = TeacherAttendance.objects.filter(
+                session__classroom__department_id__in=dept_ids,
+            )
+            school_data = []
+            for dept in departments:
+                dept_classes = [c for c in classes if c.department_id == dept.id]
+                school_data.append({
+                    'department': dept,
+                    'school': dept.school,
+                    'teacher_count': dept.department_teachers.count(),
+                    'student_count': sum(c.students.count() for c in dept_classes),
+                    'class_count': len(dept_classes),
+                })
+        else:
+            # HoI/Owner: scope to their schools (existing logic)
+            departments = None
+            my_schools = School.objects.filter(admin=request.user)
+            my_school_ids = list(my_schools.values_list('id', flat=True))
+            school_data = []
+            for s in my_schools:
+                teacher_count = SchoolTeacher.objects.filter(school=s, is_active=True).count()
+                student_count = ClassRoom.objects.filter(
+                    school=s, is_active=True
+                ).values_list('students', flat=True).distinct().count()
+                school_data.append({
+                    'school': s,
+                    'teacher_count': teacher_count,
+                    'student_count': student_count,
+                })
+            classes = ClassRoom.objects.filter(
+                school_id__in=my_school_ids, is_active=True
+            ).prefetch_related('teachers', 'students')
+            teachers = CustomUser.objects.filter(
+                school_memberships__school_id__in=my_school_ids,
+                school_memberships__is_active=True,
+            ).distinct()
+            teacher_attendance_qs = TeacherAttendance.objects.filter(
+                session__classroom__school_id__in=my_school_ids,
+            )
 
         total_sessions = teacher_attendance_qs.count()
         present_count = teacher_attendance_qs.filter(status='present').count()
@@ -734,42 +771,81 @@ class HoDOverviewView(RoleRequiredMixin, View):
             'total_students': total_students,
             'total_sessions': total_sessions,
             'present_count': present_count,
+            'is_hod_only': is_hod_only,
+            'departments': departments,
         })
 
 
 class HoDManageClassesView(RoleRequiredMixin, View):
-    required_roles = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+    required_roles = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT]
 
     def get(self, request):
-        my_school_ids = list(School.objects.filter(admin=request.user).values_list('id', flat=True))
+        is_hod_only = (
+            request.user.has_role(Role.HEAD_OF_DEPARTMENT)
+            and not request.user.has_role(Role.HEAD_OF_INSTITUTE)
+            and not request.user.has_role(Role.INSTITUTE_OWNER)
+        )
 
-        classes = ClassRoom.objects.filter(
-            school_id__in=my_school_ids, is_active=True
-        ).prefetch_related('teachers')
-        teachers = CustomUser.objects.filter(
-            school_memberships__school_id__in=my_school_ids,
-            school_memberships__is_active=True,
-        ).distinct()
+        if is_hod_only:
+            dept_ids = list(
+                Department.objects.filter(head=request.user, is_active=True).values_list('id', flat=True)
+            )
+            classes = ClassRoom.objects.filter(
+                department_id__in=dept_ids, is_active=True
+            ).prefetch_related('teachers')
+            teachers = CustomUser.objects.filter(
+                department_memberships__department_id__in=dept_ids,
+            ).distinct()
+        else:
+            my_school_ids = list(School.objects.filter(admin=request.user).values_list('id', flat=True))
+            classes = ClassRoom.objects.filter(
+                school_id__in=my_school_ids, is_active=True
+            ).prefetch_related('teachers')
+            teachers = CustomUser.objects.filter(
+                school_memberships__school_id__in=my_school_ids,
+                school_memberships__is_active=True,
+            ).distinct()
 
         return render(request, 'hod/manage_classes.html', {
             'classes': classes,
             'teachers': teachers,
+            'is_hod_only': is_hod_only,
         })
 
 
 class HoDWorkloadView(RoleRequiredMixin, View):
-    required_roles = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+    required_roles = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT]
 
     def get(self, request):
-        my_school_ids = list(School.objects.filter(admin=request.user).values_list('id', flat=True))
+        is_hod_only = (
+            request.user.has_role(Role.HEAD_OF_DEPARTMENT)
+            and not request.user.has_role(Role.HEAD_OF_INSTITUTE)
+            and not request.user.has_role(Role.INSTITUTE_OWNER)
+        )
 
-        memberships = SchoolTeacher.objects.filter(
-            school_id__in=my_school_ids, is_active=True,
-        ).select_related('teacher')
-        teachers = CustomUser.objects.filter(
-            school_memberships__school_id__in=my_school_ids,
-            school_memberships__is_active=True,
-        ).distinct()
+        if is_hod_only:
+            dept_ids = list(
+                Department.objects.filter(head=request.user, is_active=True).values_list('id', flat=True)
+            )
+            teacher_ids = list(
+                CustomUser.objects.filter(
+                    department_memberships__department_id__in=dept_ids,
+                ).values_list('id', flat=True).distinct()
+            )
+            memberships = SchoolTeacher.objects.filter(
+                teacher_id__in=teacher_ids, is_active=True,
+            ).select_related('teacher')
+            teachers = CustomUser.objects.filter(id__in=teacher_ids)
+        else:
+            my_school_ids = list(School.objects.filter(admin=request.user).values_list('id', flat=True))
+            memberships = SchoolTeacher.objects.filter(
+                school_id__in=my_school_ids, is_active=True,
+            ).select_related('teacher')
+            teachers = CustomUser.objects.filter(
+                school_memberships__school_id__in=my_school_ids,
+                school_memberships__is_active=True,
+            ).distinct()
+
         senior_teachers = memberships.filter(role='senior_teacher')
         junior_teachers = memberships.filter(role='junior_teacher')
 
@@ -777,35 +853,62 @@ class HoDWorkloadView(RoleRequiredMixin, View):
             'teachers': teachers,
             'senior_teachers': senior_teachers,
             'junior_teachers': junior_teachers,
+            'is_hod_only': is_hod_only,
         })
 
 
 class HoDReportsView(RoleRequiredMixin, View):
-    required_roles = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+    required_roles = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT]
 
     def get(self, request):
+        is_hod_only = (
+            request.user.has_role(Role.HEAD_OF_DEPARTMENT)
+            and not request.user.has_role(Role.HEAD_OF_INSTITUTE)
+            and not request.user.has_role(Role.INSTITUTE_OWNER)
+        )
+        departments = None
+        if is_hod_only:
+            departments = Department.objects.filter(head=request.user, is_active=True)
+
         return render(request, 'hod/reports.html', {
             'levels': Level.objects.filter(level_number__lte=8),
             'topics': Topic.objects.filter(is_active=True),
             'attendance_report_url': 'hod_attendance_report',
+            'is_hod_only': is_hod_only,
+            'departments': departments,
         })
 
 
 class HoDAttendanceReportView(RoleRequiredMixin, View):
-    required_roles = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+    required_roles = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT]
 
     def get(self, request):
         from django.db.models import Count, Q
 
-        my_school_ids = list(School.objects.filter(admin=request.user).values_list('id', flat=True))
+        is_hod_only = (
+            request.user.has_role(Role.HEAD_OF_DEPARTMENT)
+            and not request.user.has_role(Role.HEAD_OF_INSTITUTE)
+            and not request.user.has_role(Role.INSTITUTE_OWNER)
+        )
 
-        # --- Only attendance from this HoD's schools ---
-        teacher_att_qs = TeacherAttendance.objects.filter(
-            session__classroom__school_id__in=my_school_ids,
-        )
-        student_att_qs = StudentAttendance.objects.filter(
-            session__classroom__school_id__in=my_school_ids,
-        )
+        if is_hod_only:
+            dept_ids = list(
+                Department.objects.filter(head=request.user, is_active=True).values_list('id', flat=True)
+            )
+            teacher_att_qs = TeacherAttendance.objects.filter(
+                session__classroom__department_id__in=dept_ids,
+            )
+            student_att_qs = StudentAttendance.objects.filter(
+                session__classroom__department_id__in=dept_ids,
+            )
+        else:
+            my_school_ids = list(School.objects.filter(admin=request.user).values_list('id', flat=True))
+            teacher_att_qs = TeacherAttendance.objects.filter(
+                session__classroom__school_id__in=my_school_ids,
+            )
+            student_att_qs = StudentAttendance.objects.filter(
+                session__classroom__school_id__in=my_school_ids,
+            )
 
         teacher_summary = (
             teacher_att_qs
@@ -933,6 +1036,8 @@ class SubjectsHubView(LoginRequiredMixin, View):
         if role == Role.INSTITUTE_OWNER:
             return redirect('hod_overview')
         if role == Role.HEAD_OF_INSTITUTE:
+            return redirect('hod_overview')
+        if role == Role.HEAD_OF_DEPARTMENT:
             return redirect('hod_overview')
         if role == Role.ACCOUNTANT:
             return redirect('accounting_dashboard')

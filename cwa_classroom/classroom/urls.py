@@ -1,6 +1,7 @@
 from django.urls import path
 from . import views
 from . import views_admin
+from . import views_department
 from . import views_teacher
 from . import views_student
 from . import views_progress
@@ -42,6 +43,15 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/teachers/<int:teacher_id>/edit/', views_admin.SchoolTeacherEditView.as_view(), name='admin_school_teacher_edit'),
     path('admin-dashboard/schools/<int:school_id>/teachers/<int:teacher_id>/remove/', views_admin.SchoolTeacherRemoveView.as_view(), name='admin_school_teacher_remove'),
     path('admin-dashboard/schools/<int:school_id>/academic-year/create/', views_admin.AcademicYearCreateView.as_view(), name='admin_academic_year_create'),
+
+    # Department management (within a school)
+    path('admin-dashboard/schools/<int:school_id>/departments/', views_department.DepartmentListView.as_view(), name='admin_school_departments'),
+    path('admin-dashboard/schools/<int:school_id>/departments/create/', views_department.DepartmentCreateView.as_view(), name='admin_department_create'),
+    path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/', views_department.DepartmentDetailView.as_view(), name='admin_department_detail'),
+    path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/edit/', views_department.DepartmentEditView.as_view(), name='admin_department_edit'),
+    path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/assign-hod/', views_department.DepartmentAssignHoDView.as_view(), name='admin_department_assign_hod'),
+    path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/teachers/', views_department.DepartmentManageTeachersView.as_view(), name='admin_department_teachers'),
+    path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/assign-classes/', views_department.DepartmentAssignClassesView.as_view(), name='admin_department_assign_classes'),
 
     # Teacher dashboard & management
     path('teacher/', views_teacher.TeacherDashboardView.as_view(), name='teacher_dashboard'),

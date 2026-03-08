@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}{% if editing %}Edit{% else %}Create{% endif %} Department — {{ school.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <a href="{% url 'admin_school_departments' school.id %}" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back to Departments</a>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">
+      {% if editing %}Edit Department{% else %}Create Department{% endif %}
+    </h1>
+    <p class="text-gray-500 mt-1">{{ school.name }}</p>
+  </div>
+
+  <!-- Form -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+    <form method="post">
+      {% csrf_token %}
+
+      <div class="space-y-5">
+        <!-- Name -->
+        <div>
+          <label for="name" class="block text-sm font-semibold text-gray-700 mb-1.5">Department Name <span class="text-red-500">*</span></label>
+          <input type="text" name="name" id="name"
+                 value="{{ form_data.name|default:'' }}"
+                 placeholder="e.g. Mathematics, Science, English"
+                 class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition"
+                 required>
+        </div>
+
+        <!-- Description -->
+        <div>
+          <label for="description" class="block text-sm font-semibold text-gray-700 mb-1.5">Description</label>
+          <textarea name="description" id="description" rows="3"
+                    placeholder="Brief description of the department (optional)"
+                    class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition resize-none">{{ form_data.description|default:'' }}</textarea>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-3 mt-6 pt-6 border-t border-slate-100">
+        <a href="{% url 'admin_school_departments' school.id %}"
+           class="px-4 py-2.5 text-sm font-semibold text-gray-600 hover:text-gray-800 transition">Cancel</a>
+        <button type="submit"
+                class="px-6 py-2.5 bg-accent hover:bg-accent-dark text-white text-sm font-semibold rounded-xl transition shadow-sm">
+          {% if editing %}Save Changes{% else %}Create Department{% endif %}
+        </button>
+      </div>
+    </form>
+  </div>
+
+</div>
+{% endblock %}

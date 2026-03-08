@@ -24,6 +24,7 @@ class Role(models.Model):
     INDIVIDUAL_STUDENT = 'individual_student'
     ACCOUNTANT = 'accountant'
     HEAD_OF_INSTITUTE = 'head_of_institute'
+    HEAD_OF_DEPARTMENT = 'head_of_department'
     INSTITUTE_OWNER = 'institute_owner'
 
 
@@ -50,6 +51,7 @@ class CustomUser(AbstractUser):
         Role.ADMIN,
         Role.INSTITUTE_OWNER,
         Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT,
         Role.ACCOUNTANT,
         Role.SENIOR_TEACHER,
         Role.TEACHER,
@@ -100,6 +102,10 @@ class CustomUser(AbstractUser):
     @property
     def is_head_of_institute(self):
         return self.has_role(Role.HEAD_OF_INSTITUTE)
+
+    @property
+    def is_head_of_department(self):
+        return self.has_role(Role.HEAD_OF_DEPARTMENT)
 
     @property
     def is_accountant(self):

@@ -2,7 +2,9 @@
 {% block title %}Manage Class-Teacher Assignments{% endblock %}
 {% block content %}
 <div class="max-w-5xl mx-auto space-y-6">
-  <h1 class="font-display text-2xl font-bold text-gray-900">Class-Teacher Assignments</h1>
+  <h1 class="font-display text-2xl font-bold text-gray-900">
+    {% if is_hod_only %}Department {% endif %}Class-Teacher Assignments
+  </h1>
   <div class="space-y-4">
   {% for classroom in classes %}
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">

@@ -4,10 +4,50 @@
 <div class="max-w-6xl mx-auto space-y-8">
   <div>
     <h1 class="font-display text-2xl font-bold text-gray-900">Dashboard</h1>
-    <p class="text-gray-500 text-sm mt-1">Manage your schools, teachers, and classes.</p>
+    {% if is_hod_only %}
+      <p class="text-gray-500 text-sm mt-1">Manage your department classes and teachers.</p>
+    {% else %}
+      <p class="text-gray-500 text-sm mt-1">Manage your schools, teachers, and classes.</p>
+    {% endif %}
   </div>
 
-  <!-- My Schools -->
+  {% if is_hod_only %}
+  <!-- My Departments (HoD view) -->
+  <div>
+    <h2 class="font-semibold text-lg text-gray-900 mb-4">My Departments</h2>
+    {% if school_data %}
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      {% for item in school_data %}
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center">
+            <svg class="w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/>
+            </svg>
+          </div>
+          <div>
+            <p class="font-bold text-gray-900">{{ item.department.name }}</p>
+            <p class="text-xs text-gray-500">{{ item.school.name }}</p>
+          </div>
+        </div>
+        <div class="flex gap-4 text-sm text-gray-500">
+          <span><strong class="text-gray-900">{{ item.teacher_count }}</strong> teachers</span>
+          <span><strong class="text-gray-900">{{ item.class_count }}</strong> classes</span>
+          <span><strong class="text-gray-900">{{ item.student_count }}</strong> students</span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center">
+      <p class="text-gray-500 font-medium">No departments assigned to you yet.</p>
+      <p class="text-sm text-gray-400 mt-1">Contact your Head of Institute to be assigned to a department.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  {% else %}
+  <!-- My Schools (HoI/Owner view) -->
   <div>
     <div class="flex items-center justify-between mb-4">
       <h2 class="font-semibold text-lg text-gray-900">My Schools</h2>
@@ -58,13 +98,21 @@
     </div>
     {% endif %}
   </div>
+  {% endif %}
 
   <!-- Stats -->
   <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+    {% if is_hod_only %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+      <p class="text-2xl font-bold text-gray-900">{{ school_data|length }}</p>
+      <p class="text-xs text-gray-500 font-semibold uppercase tracking-wide mt-1">Departments</p>
+    </div>
+    {% else %}
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
       <p class="text-2xl font-bold text-gray-900">{{ school_data|length }}</p>
       <p class="text-xs text-gray-500 font-semibold uppercase tracking-wide mt-1">Schools</p>
     </div>
+    {% endif %}
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
       <p class="text-2xl font-bold text-gray-900">{{ classes|length }}</p>
       <p class="text-xs text-gray-500 font-semibold uppercase tracking-wide mt-1">Classes</p>
@@ -80,16 +128,10 @@
   </div>
 
   <!-- All Classes -->
-  {% if school %}
   <div>
     <h2 class="font-semibold text-lg text-gray-900 mb-3">
-      Classes
-      <span class="text-sm text-accent font-medium ml-2">{{ school.name }}</span>
+      {% if is_hod_only %}Department Classes{% else %}All Classes{% endif %}
     </h2>
-  {% else %}
-  <div>
-    <h2 class="font-semibold text-lg text-gray-900 mb-3">All Classes</h2>
-  {% endif %}
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
       <div class="divide-y divide-slate-100">
       {% for classroom in classes %}
