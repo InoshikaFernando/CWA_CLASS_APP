@@ -800,21 +800,30 @@ class Command(BaseCommand):
                 except Exception:
                     ordered_ans_ids = None
 
+            from django.db import transaction as _tx
+            sp = _tx.savepoint()
             try:
-                obj = MSA.objects.create(
+                obj, new = MSA.objects.get_or_create(
                     student=student,
                     question=question,
-                    selected_answer=selected,
-                    text_answer=text_answer or '',
-                    ordered_answer_ids=ordered_ans_ids,
-                    is_correct=bool(is_correct),
-                    attempt_id=attempt_uuid,
+                    defaults={
+                        'selected_answer': selected,
+                        'text_answer': text_answer or '',
+                        'ordered_answer_ids': ordered_ans_ids,
+                        'is_correct': bool(is_correct),
+                        'attempt_id': attempt_uuid,
+                    },
                 )
-                ts = self._to_datetime(answered_at)
-                if ts:
-                    MSA.objects.filter(pk=obj.pk).update(answered_at=ts)
-                created += 1
+                _tx.savepoint_commit(sp)
+                if new:
+                    ts = self._to_datetime(answered_at)
+                    if ts:
+                        MSA.objects.filter(pk=obj.pk).update(answered_at=ts)
+                    created += 1
+                else:
+                    skipped += 1
             except Exception:
+                _tx.savepoint_rollback(sp)
                 skipped += 1
 
         self.stdout.write(f'  StudentAnswer: {created} created, {skipped} skipped')
