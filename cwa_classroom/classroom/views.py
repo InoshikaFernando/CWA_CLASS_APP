@@ -71,10 +71,7 @@ class HomeView(LoginRequiredMixin, View):
             return redirect('accounting_dashboard')
 
         if role in (Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER):
-            classes = ClassRoom.objects.filter(
-                teachers=request.user, is_active=True
-            ).prefetch_related('students', 'teachers', 'levels')
-            return render(request, 'teacher/home.html', {'classes': classes})
+            return redirect('teacher_dashboard')
 
         if role in (Role.STUDENT, Role.INDIVIDUAL_STUDENT):
             is_individual = role == Role.INDIVIDUAL_STUDENT

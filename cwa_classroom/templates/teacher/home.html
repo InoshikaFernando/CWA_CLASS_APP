@@ -18,11 +18,11 @@
 
   <!-- Stats bar -->
   <div class="grid grid-cols-3 gap-4">
-    <div class="bg-white rounded-2xl border border-border shadow-sm p-5 text-center">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
       <p class="font-display text-3xl text-primary">{{ classes|length }}</p>
       <p class="text-xs text-gray-400 font-semibold uppercase tracking-wide mt-1">Classes</p>
     </div>
-    <div class="bg-white rounded-2xl border border-border shadow-sm p-5 text-center">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
       <p class="font-display text-3xl text-primary">
         {% with total=0 %}
           {% for c in classes %}{% with total=total|add:c.students.count %}{% endwith %}{% endfor %}
@@ -31,7 +31,7 @@
       </p>
       <p class="text-xs text-gray-400 font-semibold uppercase tracking-wide mt-1">Students</p>
     </div>
-    <div class="bg-white rounded-2xl border border-border shadow-sm p-5 text-center">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
       <a href="{% url 'upload_questions' %}" class="block">
         <p class="font-display text-3xl text-accent">+</p>
         <p class="text-xs text-gray-400 font-semibold uppercase tracking-wide mt-1">Upload Questions</p>
@@ -42,15 +42,15 @@
   <!-- Quick actions -->
   <div class="flex flex-wrap gap-3">
     <a href="{% url 'bulk_student_registration' %}"
-       class="bg-white border border-border hover:border-primary text-gray-700 hover:text-primary font-semibold rounded-xl px-4 py-2.5 transition text-sm">
+       class="bg-white border border-slate-200 hover:border-primary text-gray-700 hover:text-primary font-semibold rounded-xl px-4 py-2.5 transition text-sm">
       👥 Bulk Register Students
     </a>
     <a href="{% url 'upload_questions' %}"
-       class="bg-white border border-border hover:border-primary text-gray-700 hover:text-primary font-semibold rounded-xl px-4 py-2.5 transition text-sm">
+       class="bg-white border border-slate-200 hover:border-primary text-gray-700 hover:text-primary font-semibold rounded-xl px-4 py-2.5 transition text-sm">
       📤 Upload Questions
     </a>
     <a href="{% url 'topics' %}"
-       class="bg-white border border-border hover:border-primary text-gray-700 hover:text-primary font-semibold rounded-xl px-4 py-2.5 transition text-sm">
+       class="bg-white border border-slate-200 hover:border-primary text-gray-700 hover:text-primary font-semibold rounded-xl px-4 py-2.5 transition text-sm">
       📚 Browse Topics
     </a>
   </div>
@@ -59,7 +59,7 @@
   {% if classes %}
   <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
     {% for classroom in classes %}
-    <div class="bg-white rounded-2xl border border-border shadow-sm p-6 hover:shadow-md transition">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 hover:shadow-md transition">
       <div class="flex items-start justify-between mb-3">
         <h3 class="font-bold text-gray-800 text-lg">{{ classroom.name }}</h3>
         <span class="font-mono text-xs bg-gray-100 text-gray-500 rounded-lg px-2 py-1 cursor-pointer"
@@ -92,11 +92,11 @@
           📈 Progress
         </a>
         <a href="{% url 'assign_students' class_id=classroom.id %}"
-           class="flex-1 text-center bg-white border border-border hover:border-primary text-gray-600 hover:text-primary text-sm font-semibold rounded-xl py-2 transition">
+           class="flex-1 text-center bg-white border border-slate-200 hover:border-primary text-gray-600 hover:text-primary text-sm font-semibold rounded-xl py-2 transition">
           👥 Students
         </a>
         <a href="{% url 'assign_teachers' class_id=classroom.id %}"
-           class="flex-1 text-center bg-white border border-border hover:border-primary text-gray-600 hover:text-primary text-sm font-semibold rounded-xl py-2 transition">
+           class="flex-1 text-center bg-white border border-slate-200 hover:border-primary text-gray-600 hover:text-primary text-sm font-semibold rounded-xl py-2 transition">
           👩‍🏫 Teachers
         </a>
       </div>
@@ -104,7 +104,7 @@
     {% endfor %}
   </div>
   {% else %}
-  <div class="bg-white rounded-2xl border border-border shadow-sm p-12 text-center">
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">
     <div class="text-5xl mb-4">🏫</div>
     <h3 class="font-bold text-gray-700 text-lg mb-2">No classes yet</h3>
     <p class="text-gray-400 text-sm mb-6">Create your first class to get started.</p>

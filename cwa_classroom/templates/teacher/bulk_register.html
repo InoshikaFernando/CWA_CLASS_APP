@@ -8,7 +8,7 @@
   </div>
 
   {% if results %}
-  <div class="bg-white rounded-2xl border border-border shadow-sm p-6">
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
     <div class="flex gap-6 mb-4">
       {% if results.created %}
       <div class="text-center">
@@ -33,7 +33,7 @@
   </div>
   {% endif %}
 
-  <div class="bg-white rounded-2xl border border-border shadow-sm p-6">
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
     <form method="post" class="space-y-5">
       {% csrf_token %}
       <div>

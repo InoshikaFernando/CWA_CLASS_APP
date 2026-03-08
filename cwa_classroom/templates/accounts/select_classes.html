@@ -27,7 +27,7 @@
   {% endif %}
 
   <!-- Promo code -->
-  <div class="bg-white rounded-2xl border border-border shadow-sm p-6">
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
     <h2 class="font-bold text-lg text-gray-800 mb-1">Have a Promo Code?</h2>
     <p class="text-sm text-gray-400 mb-4">A promo code can unlock additional or unlimited class access.</p>
     {% if redeemed_promos %}
@@ -58,7 +58,7 @@
 
   {% if has_unlimited %}
   <!-- Available classrooms (unlimited users) -->
-  <div class="bg-white rounded-2xl border border-border shadow-sm p-6">
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
     <h2 class="font-bold text-lg text-gray-800 mb-1">Available Classes</h2>
     <p class="text-sm text-gray-400 mb-4">Your promo gives you unlimited access. Click Join to enroll.</p>
 
@@ -108,7 +108,7 @@
   {% endif %}
 
   <!-- Join form -->
-  <div class="bg-white rounded-2xl border border-border shadow-sm p-6">
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
     <h2 class="font-bold text-lg text-gray-800 mb-4">Enter Class Code</h2>
     <form method="post" class="flex gap-3">
       {% csrf_token %}
@@ -147,7 +147,7 @@
     {% if enrolled_classrooms %}
     <div class="space-y-3">
       {% for classroom in enrolled_classrooms %}
-      <div class="bg-white rounded-2xl border border-border shadow-sm px-5 py-4 flex items-center justify-between gap-4">
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm px-5 py-4 flex items-center justify-between gap-4">
         <div>
           <p class="font-bold text-gray-800">{{ classroom.name }}</p>
           <p class="text-xs text-gray-400 mt-0.5">
@@ -175,7 +175,7 @@
       {% endfor %}
     </div>
     {% else %}
-    <div class="bg-white rounded-2xl border border-border shadow-sm p-10 text-center">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-10 text-center">
       <p class="text-gray-400 text-sm">You haven't joined any classes yet.</p>
       <p class="text-gray-400 text-xs mt-1">Ask your teacher for the class code.</p>
     </div>

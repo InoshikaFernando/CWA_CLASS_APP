@@ -13,7 +13,7 @@
         + Add Question
       </a>
       <a href="{% url 'upload_questions' %}"
-         class="bg-white border border-border text-gray-600 hover:border-primary hover:text-primary text-sm font-semibold rounded-xl px-4 py-2.5 transition">
+         class="bg-white border border-slate-200 text-gray-600 hover:border-primary hover:text-primary text-sm font-semibold rounded-xl px-4 py-2.5 transition">
         Upload JSON
       </a>
     </div>
@@ -22,7 +22,7 @@
   {% if questions %}
   <div class="space-y-3">
     {% for q in questions %}
-    <div class="bg-white rounded-2xl border border-border shadow-sm p-5">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
       <div class="flex items-start justify-between gap-4">
         <div class="flex-1">
           <div class="flex items-center gap-2 mb-2">
@@ -57,7 +57,7 @@
     {% endfor %}
   </div>
   {% else %}
-  <div class="bg-white rounded-2xl border border-border shadow-sm p-12 text-center">
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">
     <p class="text-gray-400 mb-4">No questions yet for {{ level.display_name }}.</p>
     <a href="{% url 'add_question' level_number=level.level_number %}"
        class="inline-block bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition">
