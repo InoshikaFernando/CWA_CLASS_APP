@@ -444,10 +444,10 @@ class Command(BaseCommand):
 
     def _import_student_answers(self, rows, user_map):
         """
-        maths_studentanswer (10 cols):
-          id(0), text_answer(1), ordered_answer_ids(2), is_correct(3),
-          answered_at(4), level_id(5), question_id(6), selected_answer_id(7),
-          attempt_id(8), student_id(9)
+        maths_studentanswer (10 cols) — actual backup column order:
+          id(0), text_answer(1), is_correct(2), points_earned(3),
+          answered_at(4), question_id(5), selected_answer_id(6),
+          student_id(7), attempt_id(8), level_or_topic_id(9)
         question_id/selected_answer_id already reference production IDs.
         """
         from maths.models import StudentAnswer as MSA, Question, Answer
@@ -455,13 +455,13 @@ class Command(BaseCommand):
         created = skipped = 0
         for row in rows:
             text_answer      = row[1] if len(row) > 1 else ''
-            ordered_ans_ids  = row[2] if len(row) > 2 else None
-            is_correct       = row[3] if len(row) > 3 else False
+            is_correct       = row[2] if len(row) > 2 else False
             answered_at      = row[4] if len(row) > 4 else None
-            question_id      = row[6] if len(row) > 6 else None
-            selected_ans_id  = row[7] if len(row) > 7 else None
+            question_id      = row[5] if len(row) > 5 else None
+            selected_ans_id  = row[6] if len(row) > 6 else None
+            student_id       = row[7] if len(row) > 7 else None
             attempt_id_raw   = row[8] if len(row) > 8 else None
-            student_id       = row[9] if len(row) > 9 else None
+            ordered_ans_ids  = None  # not present in this backup version
 
             student  = user_map.get(student_id)
             question = Question.objects.filter(pk=question_id).first() if question_id else None
