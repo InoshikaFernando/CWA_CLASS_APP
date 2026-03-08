@@ -804,8 +804,6 @@ class Command(BaseCommand):
                 obj = MSA.objects.create(
                     student=student,
                     question=question,
-                    topic=mt,
-                    level=ml,
                     selected_answer=selected,
                     text_answer=text_answer or '',
                     ordered_answer_ids=ordered_ans_ids,
