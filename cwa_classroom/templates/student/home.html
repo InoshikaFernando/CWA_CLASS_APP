@@ -71,18 +71,26 @@
           <div class="space-y-5">
             {% for group in item.strand_data %}
             <div>
-              {% if group.strand %}<p class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{{ group.strand.name }}</p>{% endif %}
+              {% if group.strand %}
+              <p class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">{{ group.strand.name }}</p>
+              {% endif %}
               <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {% for subtopic in group.subtopics %}
+                {% for entry in group.subtopics %}
                 {% if item.accessible %}
-                <a href="{% url 'topic_quiz' level_number=item.level.level_number topic_id=subtopic.id %}"
-                   class="rounded-xl border border-border p-3 hover:border-primary hover:shadow-sm transition text-sm font-semibold text-gray-700 hover:text-primary">
-                  {{ subtopic.name }}
-                </a>
+                  {% if entry.has_questions and entry.maths_topic_id %}
+                  <a href="{% url 'topic_quiz' level_number=item.level.level_number topic_id=entry.maths_topic_id %}"
+                     class="rounded-xl border border-border p-3 hover:border-primary hover:shadow-sm transition text-sm font-semibold text-gray-700 hover:text-primary">
+                    {{ entry.topic.name }}
+                  </a>
+                  {% else %}
+                  <div class="rounded-xl border border-border p-3 text-sm font-semibold text-gray-400 bg-gray-50 cursor-default">
+                    {{ entry.topic.name }}
+                  </div>
+                  {% endif %}
                 {% else %}
                 <div class="rounded-xl border border-border p-3 text-sm font-semibold text-gray-400 bg-gray-50 flex items-center gap-1.5">
                   <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V7a4.5 4.5 0 00-9 0v3.5m-2 0h13a1 1 0 011 1V19a1 1 0 01-1 1h-13a1 1 0 01-1-1v-7.5a1 1 0 011-1z"/></svg>
-                  {{ subtopic.name }}
+                  {{ entry.topic.name }}
                 </div>
                 {% endif %}
                 {% endfor %}

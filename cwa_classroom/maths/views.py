@@ -565,20 +565,75 @@ def dashboard(request):
     best_score = round(float(best_pts), 1) if best_pts else None
 
     # ── Year data (all year levels 1–99, marked accessible/locked) ────────
+    from classroom.models import Topic as ClassroomTopic, Level as ClassroomLevel
+    from collections import defaultdict
+
     all_year_levels = (
         Level.objects.filter(level_number__lt=100)
         .order_by('level_number')
-        .prefetch_related('topics')
     )
+
+    # One query: maths topic name → id map (for URL generation)
+    maths_topic_name_to_id = {t.name: t.id for t in Topic.objects.all()}
+
+    # One query: maths level_id → set of topic_ids that have questions
+    topics_with_q_by_level = defaultdict(set)
+    for row in Question.objects.values('level_id', 'topic_id').distinct():
+        topics_with_q_by_level[row['level_id']].add(row['topic_id'])
+
+    # One query: classroom level_number → ClassroomLevel object
+    classroom_level_map = {
+        cl.level_number: cl for cl in ClassroomLevel.objects.all()
+    }
+
     year_data = []
     for level in all_year_levels:
         accessible = is_individual_student or level.id in enrolled_level_ids
-        topics = list(level.topics.order_by('name'))
+        topics_with_q = topics_with_q_by_level[level.id]
+
+        # Try to build hierarchical strand_data via classroom.Topic
+        classroom_level = classroom_level_map.get(level.level_number)
+        strand_data = []
+
+        if classroom_level:
+            cl_topics = (
+                ClassroomTopic.objects
+                .filter(levels=classroom_level, is_active=True)
+                .select_related('parent')
+                .order_by('parent__order', 'parent__name', 'order', 'name')
+            )
+            strand_dict = {}
+            for ct in cl_topics:
+                key = ct.parent_id if ct.parent_id else '__flat__'
+                if key not in strand_dict:
+                    strand_dict[key] = {'strand': ct.parent, 'subtopics': []}
+                maths_topic_id = maths_topic_name_to_id.get(ct.name)
+                has_q = (maths_topic_id in topics_with_q) if maths_topic_id else False
+                strand_dict[key]['subtopics'].append({
+                    'topic': ct,
+                    'maths_topic_id': maths_topic_id,
+                    'has_questions': has_q,
+                })
+            strand_data = list(strand_dict.values())
+
+        # Fallback: use maths.Level.topics directly (flat, no hierarchy)
+        if not strand_data:
+            flat_subtopics = []
+            for mt in level.topics.order_by('name'):
+                flat_subtopics.append({
+                    'topic': mt,
+                    'maths_topic_id': mt.id,
+                    'has_questions': mt.id in topics_with_q,
+                })
+            if flat_subtopics:
+                strand_data = [{'strand': None, 'subtopics': flat_subtopics}]
+
+        subtopic_count = sum(len(g['subtopics']) for g in strand_data)
         year_data.append({
             'level': level,
             'accessible': accessible,
-            'subtopic_count': len(topics),
-            'strand_data': [{'strand': None, 'subtopics': topics}],
+            'subtopic_count': subtopic_count,
+            'strand_data': strand_data,
         })
 
     from classroom.views import _format_seconds
