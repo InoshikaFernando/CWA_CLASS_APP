@@ -334,6 +334,10 @@ class Command(BaseCommand):
 
             student = user_map.get(student_id)
             if not student:
+                # BasicFactsResult references accounts_customuser IDs directly
+                from accounts.models import CustomUser
+                student = CustomUser.objects.filter(pk=student_id).first()
+            if not student:
                 skipped += 1
                 continue
 
