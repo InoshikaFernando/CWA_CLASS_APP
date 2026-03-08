@@ -16,6 +16,7 @@ In production, add ALLOWED_HOSTS entries and set BASE_DOMAIN in the environment.
 """
 
 from django.conf import settings
+from django.shortcuts import redirect
 
 # Map subdomain slug → URL conf module path.
 # Add entries here as new subject apps are created.
@@ -77,3 +78,24 @@ class SubdomainURLRoutingMiddleware:
             return parts[0]
 
         return None
+
+
+class MathsRoomRedirectMiddleware:
+    """
+    Permanently redirect mathsroom.wizardslearninghub.co.nz → /maths/
+
+    Must be registered BEFORE SubdomainURLRoutingMiddleware in MIDDLEWARE so
+    the redirect fires before any urlconf switching happens.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        host = request.get_host().lower().split(':')[0]
+        if host == 'mathsroom.wizardslearninghub.co.nz':
+            return redirect(
+                'https://www.wizardslearninghub.co.nz/maths/',
+                permanent=True,  # 301 — browsers and search engines cache this
+            )
+        return self.get_response(request)
