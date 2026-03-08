@@ -36,6 +36,7 @@ urlpatterns = [
     # Admin dashboard & school management
     path('admin-dashboard/', views_admin.AdminDashboardView.as_view(), name='admin_dashboard'),
     path('admin-dashboard/schools/create/', views_admin.SchoolCreateView.as_view(), name='admin_school_create'),
+    path('admin-dashboard/manage-teachers/', views_admin.ManageTeachersRedirectView.as_view(), name='admin_manage_teachers'),
     path('admin-dashboard/schools/<int:school_id>/', views_admin.SchoolDetailView.as_view(), name='admin_school_detail'),
     path('admin-dashboard/schools/<int:school_id>/teachers/', views_admin.SchoolTeacherManageView.as_view(), name='admin_school_teachers'),
     path('admin-dashboard/schools/<int:school_id>/teachers/<int:teacher_id>/edit/', views_admin.SchoolTeacherEditView.as_view(), name='admin_school_teacher_edit'),
