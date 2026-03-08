@@ -573,8 +573,24 @@ def dashboard(request):
         .order_by('level_number')
     )
 
-    # One query: maths topic name → id map (for URL generation)
-    maths_topic_name_to_id = {t.name: t.id for t in Topic.objects.all()}
+    # One query: maths topic name → id map (for URL generation).
+    # Builds multiple lookup keys per topic to bridge name mismatches between
+    # maths.Topic (e.g. "BODMAS/PEMDAS", "Measurement") and classroom.Topic
+    # sub-topic names (e.g. "BODMAS", "Measurements").
+    maths_topic_name_to_id = {}
+    for _t in Topic.objects.all():
+        _lower = _t.name.lower()
+        # Exact and lowercase
+        maths_topic_name_to_id[_t.name] = _t.id
+        maths_topic_name_to_id[_lower] = _t.id
+        # Slash-variant: "BODMAS/PEMDAS" → also register "BODMAS" and "bodmas"
+        if '/' in _t.name:
+            _pre = _t.name.split('/')[0].strip()
+            maths_topic_name_to_id[_pre] = _t.id
+            maths_topic_name_to_id[_pre.lower()] = _t.id
+        # Plural variant: "Measurement" → also register "measurements"
+        if not _lower.endswith('s'):
+            maths_topic_name_to_id[_lower + 's'] = _t.id
 
     # One query: maths level_id → set of topic_ids that have questions
     topics_with_q_by_level = defaultdict(set)
@@ -612,7 +628,8 @@ def dashboard(request):
                     key = ct.parent_id
                     if key not in strand_dict:
                         strand_dict[key] = {'strand': ct.parent, 'subtopics': []}
-                    maths_topic_id = maths_topic_name_to_id.get(ct.name)
+                    maths_topic_id = (maths_topic_name_to_id.get(ct.name)
+                                      or maths_topic_name_to_id.get(ct.name.lower()))
                     has_q = (maths_topic_id in topics_with_q) if maths_topic_id else False
                     strand_dict[key]['subtopics'].append({
                         'topic': ct,
