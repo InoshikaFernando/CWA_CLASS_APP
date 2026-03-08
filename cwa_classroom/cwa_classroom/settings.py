@@ -14,7 +14,7 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,test-cwa-class-avinesh.pythonanywhere.com').split(',')
 
 
 # ---------------------------------------------------------------------------
@@ -90,11 +90,11 @@ WSGI_APPLICATION = 'cwa_classroom.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': os.environ.get('DB_NAME', 'cwa_classroom'),
-        'USER': os.environ.get('DB_USER', 'root'),
-        'PASSWORD': os.environ.get('DB_PASSWORD', ''),
-        'HOST': os.environ.get('DB_HOST', '127.0.0.1'),
-        'PORT': os.environ.get('DB_PORT', '3306'),
+        'NAME': 'avinesh$cwa_classroom_test',
+        'USER': 'avinesh',
+        'PASSWORD': 'wenuskala!1',
+        'HOST': 'avinesh.mysql.pythonanywhere-services.com',
+        'PORT': os.getenv('MYSQL_PORT', '3306'),
         'OPTIONS': {
             'charset': 'utf8mb4',
             'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
