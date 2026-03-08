@@ -9,20 +9,22 @@
   <link rel="apple-touch-icon" href="{% static 'images/logo.png' %}" />
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
       theme: {
         extend: {
           fontFamily: {
-            display: ['Fredoka One', 'cursive'],
+            display: ['Inter', 'sans-serif'],
             body:    ['Nunito', 'sans-serif'],
           },
           colors: {
-            primary: { DEFAULT: '#059669', dark: '#047857', light: '#d1fae5' },
-            accent:  { DEFAULT: '#ef4444', dark: '#dc2626', light: '#fee2e2' },
-            border:  '#a7f3d0',
+            primary: { DEFAULT: '#1e293b', dark: '#0f172a', light: '#f1f5f9' },
+            accent:  { DEFAULT: '#3b82f6', dark: '#2563eb', light: '#dbeafe' },
+            success: { DEFAULT: '#059669', dark: '#047857', light: '#d1fae5' },
+            danger:  { DEFAULT: '#ef4444', dark: '#dc2626', light: '#fee2e2' },
+            border:  '#e2e8f0',
           },
         },
       },
@@ -31,7 +33,7 @@
   {% block extra_head %}{% endblock %}
 </head>
 
-<body class="min-h-screen bg-gradient-to-br from-emerald-50 to-red-50
+<body class="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50
              font-body flex items-center justify-center px-4 py-12">
 
   <div class="w-full max-w-md">

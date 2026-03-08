@@ -1,5 +1,5 @@
 {% load static %}
-<header class="fixed top-0 inset-x-0 h-16 bg-white border-b border-border z-40
+<header class="fixed top-0 inset-x-0 h-16 bg-white border-b border-slate-200 z-40
                flex items-center justify-between px-4 md:px-6 shadow-sm">
 
   <!-- Left: hamburger (mobile) + logo -->
@@ -33,17 +33,21 @@
     {% if request.user.is_authenticated %}
       {% with role=primary_role %}
         {% if role == 'admin' %}
-          <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-red-100 text-red-700">Admin</span>
+          <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-slate-800 text-white">Admin</span>
+        {% elif role == 'senior_teacher' %}
+          <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-indigo-600 text-white">Senior Teacher</span>
         {% elif role == 'teacher' %}
-          <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-blue-100 text-blue-700">Teacher</span>
+          <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-blue-600 text-white">Teacher</span>
+        {% elif role == 'junior_teacher' %}
+          <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-sky-500 text-white">Junior Teacher</span>
         {% elif role == 'student' %}
-          <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-green-100 text-green-700">Student</span>
+          <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-emerald-600 text-white">Student</span>
         {% elif role == 'individual_student' %}
-          <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-purple-100 text-purple-700">Individual Student</span>
+          <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-violet-600 text-white">Individual Student</span>
         {% elif role == 'head_of_department' %}
-          <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-orange-100 text-orange-700">Head of Department</span>
+          <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-amber-600 text-white">Head of Department</span>
         {% elif role == 'accountant' %}
-          <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-yellow-100 text-yellow-700">Accountant</span>
+          <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-teal-600 text-white">Accountant</span>
         {% endif %}
       {% endwith %}
 
@@ -56,10 +60,10 @@
                   d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/>
           </svg>
           <!-- Unread dot (show if there are notifications) -->
-          <span class="absolute top-0 right-0 block h-2 w-2 rounded-full bg-accent ring-2 ring-white"></span>
+          <span class="absolute top-0 right-0 block h-2 w-2 rounded-full bg-blue-500 ring-2 ring-white"></span>
         </button>
         <!-- Notifications dropdown -->
-        <div class="hidden absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-xl border border-border z-50 p-4">
+        <div class="hidden absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-xl border border-slate-200 z-50 p-4">
           <p class="text-sm font-semibold text-gray-700 mb-2">Notifications</p>
           <p class="text-sm text-gray-400">No new notifications.</p>
         </div>
@@ -70,7 +74,7 @@
         <button class="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-primary transition"
                 onclick="this.nextElementSibling.classList.toggle('hidden')">
           <!-- Avatar initials -->
-          <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-primary text-white text-xs font-bold">
+          <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-accent text-white text-xs font-bold">
             {{ request.user.username|slice:":2"|upper }}
           </span>
           <!-- Chevron (desktop) -->
@@ -80,7 +84,7 @@
         </button>
 
         <!-- Dropdown -->
-        <div class="hidden absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-border z-50 py-2">
+        <div class="hidden absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-slate-200 z-50 py-2">
           <div class="px-4 py-2 border-b border-gray-100">
             <p class="text-sm font-semibold text-gray-800">{{ request.user.get_full_name|default:request.user.username }}</p>
             <p class="text-xs text-gray-400">{{ request.user.email }}</p>
@@ -124,10 +128,14 @@
     </button>
   </div>
   <nav class="p-4">
-    {% if is_student or is_individual_student %}
-      {% include "partials/sidebar_student.html" %}
-    {% elif is_teacher %}
+    {% if is_admin_user %}
+      {% include "partials/sidebar_admin.html" %}
+    {% elif is_senior_teacher %}
+      {% include "partials/sidebar_senior_teacher.html" %}
+    {% elif is_teacher or is_junior_teacher %}
       {% include "partials/sidebar_teacher.html" %}
+    {% elif is_student or is_individual_student %}
+      {% include "partials/sidebar_student.html" %}
     {% elif is_hod %}
       {% include "partials/sidebar_hod.html" %}
     {% elif is_accountant %}

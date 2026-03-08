@@ -9,8 +9,10 @@ from accounts.models import Role, CustomUser, UserRole
 
 
 ROLES = [
-    (Role.ADMIN,               'Admin',               'Full system access'),
+    (Role.ADMIN,               'Admin',               'Full system access — manages schools and approvals'),
+    (Role.SENIOR_TEACHER,      'Senior Teacher',      'Experienced teacher — approves progress criteria'),
     (Role.TEACHER,             'Teacher',             'Manages classes and students'),
+    (Role.JUNIOR_TEACHER,      'Junior Teacher',      'Assistant teacher — limited permissions'),
     (Role.STUDENT,             'Student',             'Enrolled via a school/teacher'),
     (Role.INDIVIDUAL_STUDENT,  'Individual Student',  'Self-enrolled with subscription'),
     (Role.ACCOUNTANT,          'Accountant',          'Billing and finance access'),

@@ -17,7 +17,9 @@ class Role(models.Model):
 
     # Convenience constants
     ADMIN = 'admin'
+    SENIOR_TEACHER = 'senior_teacher'
     TEACHER = 'teacher'
+    JUNIOR_TEACHER = 'junior_teacher'
     STUDENT = 'student'
     INDIVIDUAL_STUDENT = 'individual_student'
     ACCOUNTANT = 'accountant'
@@ -47,7 +49,9 @@ class CustomUser(AbstractUser):
         Role.ADMIN,
         Role.HEAD_OF_DEPARTMENT,
         Role.ACCOUNTANT,
+        Role.SENIOR_TEACHER,
         Role.TEACHER,
+        Role.JUNIOR_TEACHER,
         Role.INDIVIDUAL_STUDENT,
         Role.STUDENT,
     ]
@@ -72,8 +76,24 @@ class CustomUser(AbstractUser):
         return self.has_role(Role.INDIVIDUAL_STUDENT)
 
     @property
+    def is_senior_teacher(self):
+        return self.has_role(Role.SENIOR_TEACHER)
+
+    @property
     def is_teacher(self):
         return self.has_role(Role.TEACHER)
+
+    @property
+    def is_junior_teacher(self):
+        return self.has_role(Role.JUNIOR_TEACHER)
+
+    @property
+    def is_any_teacher(self):
+        """Returns True if user has any teacher-level role."""
+        return self.roles.filter(
+            name__in=[Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER],
+            is_active=True,
+        ).exists()
 
     @property
     def is_head_of_department(self):

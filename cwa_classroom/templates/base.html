@@ -11,7 +11,7 @@
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Nunito:wght@400;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet" />
 
   <!-- Tailwind CSS CDN (replace with compiled build in production) -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -20,14 +20,16 @@
       theme: {
         extend: {
           fontFamily: {
-            display: ['Fredoka One', 'cursive'],
+            display: ['Inter', 'sans-serif'],
             body: ['Nunito', 'sans-serif'],
             mono: ['JetBrains Mono', 'monospace'],
           },
           colors: {
-            primary: { DEFAULT: '#059669', dark: '#047857', light: '#d1fae5' },
-            accent:  { DEFAULT: '#ef4444', dark: '#dc2626', light: '#fee2e2' },
-            border:  '#a7f3d0',
+            primary: { DEFAULT: '#1e293b', dark: '#0f172a', light: '#f1f5f9' },
+            accent:  { DEFAULT: '#3b82f6', dark: '#2563eb', light: '#dbeafe' },
+            success: { DEFAULT: '#059669', dark: '#047857', light: '#d1fae5' },
+            danger:  { DEFAULT: '#ef4444', dark: '#dc2626', light: '#fee2e2' },
+            border:  '#e2e8f0',
           },
         },
       },
@@ -38,7 +40,7 @@
   {% block extra_head %}{% endblock %}
 </head>
 
-<body class="bg-[#ecfdf5] font-body text-gray-700 antialiased">
+<body class="bg-slate-50 font-body text-gray-700 antialiased">
 
   <!-- ── Topbar ─────────────────────────────────────────────── -->
   {% include "partials/topbar.html" %}
@@ -49,10 +51,14 @@
     <aside id="sidebar"
            class="hidden md:flex flex-col w-64 bg-primary fixed top-16 bottom-0 left-0 z-30 overflow-y-auto">
       {% block sidebar %}
-        {% if is_student or is_individual_student %}
-          {% include "partials/sidebar_student.html" %}
-        {% elif is_teacher %}
+        {% if is_admin_user %}
+          {% include "partials/sidebar_admin.html" %}
+        {% elif is_senior_teacher %}
+          {% include "partials/sidebar_senior_teacher.html" %}
+        {% elif is_teacher or is_junior_teacher %}
           {% include "partials/sidebar_teacher.html" %}
+        {% elif is_student or is_individual_student %}
+          {% include "partials/sidebar_student.html" %}
         {% elif is_hod %}
           {% include "partials/sidebar_hod.html" %}
         {% elif is_accountant %}
