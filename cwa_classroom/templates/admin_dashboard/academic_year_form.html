@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}Create Academic Year — {{ school.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <a href="{% url 'admin_school_detail' school.id %}" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back to {{ school.name }}</a>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Create Academic Year</h1>
+    <p class="text-gray-500 mt-1">{{ school.name }}</p>
+  </div>
+
+  <!-- Form card -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8">
+    <form method="post">
+      {% csrf_token %}
+
+      <div class="space-y-6">
+        <!-- Year -->
+        <div>
+          <label for="year" class="block text-sm font-semibold text-gray-700 mb-1.5">Year *</label>
+          <input type="number" name="year" id="year" required min="2020" max="2099"
+                 value="{{ form_data.year|default:'' }}"
+                 class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition"
+                 placeholder="e.g. 2026">
+        </div>
+
+        <!-- Dates -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label for="start_date" class="block text-sm font-semibold text-gray-700 mb-1.5">Start Date *</label>
+            <input type="date" name="start_date" id="start_date" required
+                   value="{{ form_data.start_date|default:'' }}"
+                   class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+          </div>
+          <div>
+            <label for="end_date" class="block text-sm font-semibold text-gray-700 mb-1.5">End Date *</label>
+            <input type="date" name="end_date" id="end_date" required
+                   value="{{ form_data.end_date|default:'' }}"
+                   class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+          </div>
+        </div>
+
+        <!-- Is Current -->
+        <div class="flex items-center gap-3">
+          <input type="checkbox" name="is_current" id="is_current" value="1"
+                 class="w-4 h-4 text-accent focus:ring-accent border-slate-300 rounded">
+          <label for="is_current" class="text-sm font-medium text-gray-700">Set as current academic year</label>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="flex items-center justify-end gap-3 mt-8 pt-6 border-t border-slate-100">
+        <a href="{% url 'admin_school_detail' school.id %}"
+           class="px-5 py-2.5 text-gray-600 font-semibold rounded-xl hover:bg-gray-100 transition">Cancel</a>
+        <button type="submit"
+                class="px-6 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm">
+          Create Academic Year
+        </button>
+      </div>
+    </form>
+  </div>
+
+</div>
+{% endblock %}

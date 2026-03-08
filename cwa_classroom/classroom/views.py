@@ -20,14 +20,21 @@ logger = logging.getLogger(__name__)
 
 
 class RoleRequiredMixin(LoginRequiredMixin):
-    required_role = None
+    required_role = None      # Single role string (backward compat)
+    required_roles = None     # List of role strings (any match grants access)
 
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_authenticated:
             return self.handle_no_permission()
-        if self.required_role and not request.user.has_role(self.required_role):
-            messages.error(request, "You don't have permission to access that page.")
-            return redirect('subjects_hub')
+
+        # Check required_roles list first, then fall back to singular required_role
+        roles_to_check = self.required_roles or ([self.required_role] if self.required_role else [])
+        if roles_to_check:
+            has_any = any(request.user.has_role(r) for r in roles_to_check)
+            if not has_any:
+                messages.error(request, "You don't have permission to access that page.")
+                return redirect('subjects_hub')
+
         return super().dispatch(request, *args, **kwargs)
 
 
@@ -56,13 +63,13 @@ class HomeView(LoginRequiredMixin, View):
         role = request.user.primary_role
 
         if role == Role.ADMIN or role is None and request.user.is_superuser:
-            return redirect('/admin/')
+            return redirect('admin_dashboard')
         if role == Role.HEAD_OF_DEPARTMENT:
             return redirect('hod_overview')
         if role == Role.ACCOUNTANT:
             return redirect('accounting_dashboard')
 
-        if role == Role.TEACHER:
+        if role in (Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER):
             classes = ClassRoom.objects.filter(
                 teachers=request.user, is_active=True
             ).prefetch_related('students', 'teachers', 'levels')

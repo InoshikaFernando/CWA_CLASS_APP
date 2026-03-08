@@ -1,5 +1,6 @@
 from django.urls import path
 from . import views
+from . import views_admin
 
 urlpatterns = [
     # NOTE: The old HomeView at '/' has been replaced by PublicHomeView + SubjectsHubView
@@ -28,6 +29,14 @@ urlpatterns = [
     path('level/<int:level_number>/add-question/', views.AddQuestionView.as_view(), name='add_question'),
     path('question/<int:question_id>/edit/', views.EditQuestionView.as_view(), name='edit_question'),
     path('question/<int:question_id>/delete/', views.DeleteQuestionView.as_view(), name='delete_question'),
+
+    # Admin dashboard & school management
+    path('admin-dashboard/', views_admin.AdminDashboardView.as_view(), name='admin_dashboard'),
+    path('admin-dashboard/schools/create/', views_admin.SchoolCreateView.as_view(), name='admin_school_create'),
+    path('admin-dashboard/schools/<int:school_id>/', views_admin.SchoolDetailView.as_view(), name='admin_school_detail'),
+    path('admin-dashboard/schools/<int:school_id>/teachers/', views_admin.SchoolTeacherManageView.as_view(), name='admin_school_teachers'),
+    path('admin-dashboard/schools/<int:school_id>/teachers/<int:teacher_id>/remove/', views_admin.SchoolTeacherRemoveView.as_view(), name='admin_school_teacher_remove'),
+    path('admin-dashboard/schools/<int:school_id>/academic-year/create/', views_admin.AcademicYearCreateView.as_view(), name='admin_academic_year_create'),
 
     # HoD
     path('department/', views.HoDOverviewView.as_view(), name='hod_overview'),
