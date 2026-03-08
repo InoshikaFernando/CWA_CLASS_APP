@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block title %}Progress Criteria{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto">
+
+  <div class="flex items-center justify-between mb-8">
+    <div>
+      <h1 class="text-2xl font-display font-bold text-gray-900">Progress Criteria</h1>
+      {% if school %}<p class="text-gray-500 mt-1">{{ school.name }}</p>{% endif %}
+    </div>
+    <a href="{% url 'progress_criteria_create' %}"
+       class="inline-flex items-center gap-2 px-4 py-2 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition text-sm shadow-sm">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+      </svg>
+      New Criteria
+    </a>
+  </div>
+
+  <!-- Filters -->
+  <div class="bg-white rounded-xl p-4 border border-slate-200 mb-6 flex flex-wrap items-center gap-4">
+    <form method="get" class="flex flex-wrap items-center gap-4 w-full">
+      <div>
+        <select name="subject_id" class="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent transition">
+          <option value="">All Subjects</option>
+          {% for s in subjects %}
+            <option value="{{ s.id }}" {% if request.GET.subject_id == s.id|stringformat:"d" %}selected{% endif %}>{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <select name="level_id" class="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent transition">
+          <option value="">All Levels</option>
+          {% for l in levels %}
+            <option value="{{ l.id }}" {% if request.GET.level_id == l.id|stringformat:"d" %}selected{% endif %}>{{ l.display_name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit" class="px-4 py-2 bg-slate-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-slate-200 transition">Filter</button>
+    </form>
+  </div>
+
+  <!-- Criteria table -->
+  {% if criteria %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left text-gray-500 bg-slate-50">
+              <th class="px-6 py-3 font-medium">Name</th>
+              <th class="px-6 py-3 font-medium">Subject</th>
+              <th class="px-6 py-3 font-medium">Level</th>
+              <th class="px-6 py-3 font-medium">Status</th>
+              <th class="px-6 py-3 font-medium">Created By</th>
+              <th class="px-6 py-3 font-medium">Actions</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-50">
+            {% for item in criteria %}
+              <tr>
+                <td class="px-6 py-3 font-medium text-gray-900">{{ item.name }}</td>
+                <td class="px-6 py-3 text-gray-600">{{ item.subject.name }}</td>
+                <td class="px-6 py-3 text-gray-600">{{ item.level.display_name }}</td>
+                <td class="px-6 py-3">
+                  <span class="text-xs font-medium px-2 py-1 rounded-full
+                    {% if item.status == 'approved' %}bg-emerald-100 text-emerald-700
+                    {% elif item.status == 'pending_approval' %}bg-amber-100 text-amber-700
+                    {% elif item.status == 'rejected' %}bg-red-100 text-red-700
+                    {% else %}bg-slate-100 text-slate-600{% endif %}">
+                    {{ item.get_status_display }}
+                  </span>
+                </td>
+                <td class="px-6 py-3 text-gray-500">{{ item.created_by.username|default:"—" }}</td>
+                <td class="px-6 py-3">
+                  {% if item.status == 'draft' %}
+                    <form method="post" action="{% url 'progress_criteria_submit' item.id %}" class="inline">
+                      {% csrf_token %}
+                      <button type="submit" class="text-accent hover:text-accent-dark text-sm font-medium">Submit for Approval</button>
+                    </form>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% else %}
+    <div class="bg-white rounded-xl p-12 border border-slate-200 text-center">
+      <p class="text-gray-400 mb-4">No progress criteria found.</p>
+      <a href="{% url 'progress_criteria_create' %}" class="text-accent hover:text-accent-dark font-medium text-sm">Create your first criteria &rarr;</a>
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}

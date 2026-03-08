@@ -1,6 +1,9 @@
 from django.urls import path
 from . import views
 from . import views_admin
+from . import views_teacher
+from . import views_student
+from . import views_progress
 
 urlpatterns = [
     # NOTE: The old HomeView at '/' has been replaced by PublicHomeView + SubjectsHubView
@@ -37,6 +40,31 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/teachers/', views_admin.SchoolTeacherManageView.as_view(), name='admin_school_teachers'),
     path('admin-dashboard/schools/<int:school_id>/teachers/<int:teacher_id>/remove/', views_admin.SchoolTeacherRemoveView.as_view(), name='admin_school_teacher_remove'),
     path('admin-dashboard/schools/<int:school_id>/academic-year/create/', views_admin.AcademicYearCreateView.as_view(), name='admin_academic_year_create'),
+
+    # Teacher dashboard & management
+    path('teacher/', views_teacher.TeacherDashboardView.as_view(), name='teacher_dashboard'),
+    path('teacher/switch-school/', views_teacher.SchoolSwitcherView.as_view(), name='school_switcher'),
+    path('teacher/enrollment-requests/', views_teacher.EnrollmentRequestsView.as_view(), name='enrollment_requests'),
+    path('teacher/enrollment/<int:enrollment_id>/approve/', views_teacher.EnrollmentApproveView.as_view(), name='enrollment_approve'),
+    path('teacher/enrollment/<int:enrollment_id>/reject/', views_teacher.EnrollmentRejectView.as_view(), name='enrollment_reject'),
+    path('teacher/session/<int:session_id>/attendance/', views_teacher.SessionAttendanceView.as_view(), name='session_attendance'),
+    path('teacher/session/<int:session_id>/self-attendance/', views_teacher.TeacherSelfAttendanceView.as_view(), name='teacher_self_attendance'),
+
+    # Student enrollment & classes
+    path('student/join/', views_student.JoinClassByCodeView.as_view(), name='student_join_class'),
+    path('student/my-classes/', views_student.MyClassesView.as_view(), name='student_my_classes'),
+    path('student/class/<int:class_id>/', views_student.StudentClassDetailView.as_view(), name='student_class_detail'),
+    path('student/attendance/', views_student.StudentAttendanceHistoryView.as_view(), name='student_attendance_history'),
+
+    # Progress criteria & tracking
+    path('progress/criteria/', views_progress.ProgressCriteriaListView.as_view(), name='progress_criteria_list'),
+    path('progress/criteria/create/', views_progress.ProgressCriteriaCreateView.as_view(), name='progress_criteria_create'),
+    path('progress/criteria/<int:criteria_id>/submit/', views_progress.ProgressCriteriaSubmitView.as_view(), name='progress_criteria_submit'),
+    path('progress/criteria/approvals/', views_progress.ProgressCriteriaApprovalListView.as_view(), name='progress_criteria_approvals'),
+    path('progress/criteria/<int:criteria_id>/approve/', views_progress.ProgressCriteriaApproveView.as_view(), name='progress_criteria_approve'),
+    path('progress/criteria/<int:criteria_id>/reject/', views_progress.ProgressCriteriaRejectView.as_view(), name='progress_criteria_reject'),
+    path('progress/class/<int:class_id>/record/', views_progress.RecordProgressView.as_view(), name='record_progress'),
+    path('progress/student/<int:student_id>/', views_progress.StudentProgressView.as_view(), name='student_progress'),
 
     # HoD
     path('department/', views.HoDOverviewView.as_view(), name='hod_overview'),

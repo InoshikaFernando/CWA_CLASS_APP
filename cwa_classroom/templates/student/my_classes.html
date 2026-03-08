@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}My Classes{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+
+  <div class="flex items-center justify-between mb-8">
+    <div>
+      <h1 class="text-2xl font-display font-bold text-gray-900">My Classes</h1>
+      <p class="text-gray-500 mt-1">Classes you are enrolled in</p>
+    </div>
+    <a href="{% url 'student_join_class' %}"
+       class="inline-flex items-center gap-2 px-4 py-2 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition text-sm shadow-sm">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+      </svg>
+      Join Class
+    </a>
+  </div>
+
+  <!-- Pending requests -->
+  {% if pending_enrollments %}
+    <div class="mb-6">
+      <h2 class="text-sm font-semibold text-amber-700 mb-3">Pending Requests</h2>
+      <div class="space-y-2">
+        {% for enrollment in pending_enrollments %}
+          <div class="bg-amber-50 rounded-xl p-4 border border-amber-200 flex items-center justify-between">
+            <div>
+              <p class="font-medium text-amber-900">{{ enrollment.classroom.name }}</p>
+              <p class="text-xs text-amber-600">Requested {{ enrollment.requested_at|timesince }} ago</p>
+            </div>
+            <span class="text-xs font-medium px-2.5 py-1 rounded-full bg-amber-100 text-amber-700">Pending</span>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
+  <!-- Enrolled classes -->
+  {% if enrolled_entries %}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {% for entry in enrolled_entries %}
+        <a href="{% url 'student_class_detail' entry.classroom.id %}"
+           class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm hover:shadow-md hover:border-accent/30 transition group">
+          <h3 class="font-semibold text-gray-900 group-hover:text-accent transition">{{ entry.classroom.name }}</h3>
+          {% if entry.classroom.subject %}
+            <p class="text-sm text-gray-500 mt-1">{{ entry.classroom.subject.name }}</p>
+          {% endif %}
+          <div class="flex items-center gap-3 mt-3 text-xs text-gray-400">
+            <span>Code: {{ entry.classroom.code }}</span>
+            <span>&middot;</span>
+            <span>Joined {{ entry.joined_at|timesince }} ago</span>
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    {% if not pending_enrollments %}
+      <div class="bg-white rounded-xl p-12 border border-slate-200 text-center">
+        <svg class="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z"/>
+        </svg>
+        <h3 class="text-lg font-semibold text-gray-700 mb-2">No classes yet</h3>
+        <p class="text-gray-500 mb-4">Ask your teacher for a class code to join.</p>
+        <a href="{% url 'student_join_class' %}" class="text-accent hover:text-accent-dark font-medium text-sm">Join a class &rarr;</a>
+      </div>
+    {% endif %}
+  {% endif %}
+
+</div>
+{% endblock %}

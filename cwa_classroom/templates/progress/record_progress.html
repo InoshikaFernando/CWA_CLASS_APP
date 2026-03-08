@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}Record Progress — {{ classroom.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto">
+
+  <div class="mb-8">
+    <a href="{% url 'teacher_dashboard' %}" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back to Dashboard</a>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Record Progress</h1>
+    <p class="text-gray-500 mt-1">{{ classroom.name }}</p>
+  </div>
+
+  {% if criteria and students %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <form method="post">
+        {% csrf_token %}
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="bg-slate-50 text-left text-gray-500">
+                <th class="px-4 py-3 font-medium sticky left-0 bg-slate-50 z-10">Student</th>
+                {% for c in criteria %}
+                  <th class="px-4 py-3 font-medium text-center min-w-[140px]">
+                    <span class="text-xs">{{ c.name|truncatechars:25 }}</span>
+                  </th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-50">
+              {% for student in students %}
+                <tr>
+                  <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-white z-10 whitespace-nowrap">
+                    {{ student.get_full_name|default:student.username }}
+                  </td>
+                  {% for c in criteria %}
+                    <td class="px-4 py-3 text-center">
+                      <select name="status_{{ student.id }}_{{ c.id }}"
+                              class="text-xs px-2 py-1 border border-slate-200 rounded-lg focus:ring-2 focus:ring-accent">
+                        <option value="not_started" {% if existing_records|default:None %}{% endif %}>Not Started</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="achieved">Achieved</option>
+                      </select>
+                    </td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="px-6 py-4 bg-slate-50 flex justify-end">
+          <button type="submit"
+                  class="px-6 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm">
+            Save Progress
+          </button>
+        </div>
+      </form>
+    </div>
+  {% else %}
+    <div class="bg-white rounded-xl p-12 border border-slate-200 text-center">
+      {% if not criteria %}
+        <p class="text-gray-400 mb-2">No approved criteria for this class's subject and levels.</p>
+        <a href="{% url 'progress_criteria_create' %}" class="text-accent text-sm font-medium">Create criteria &rarr;</a>
+      {% elif not students %}
+        <p class="text-gray-400">No students enrolled in this class.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}
