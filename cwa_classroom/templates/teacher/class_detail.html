@@ -14,7 +14,16 @@
         {% for level in classroom.levels.all %}
           <span class="bg-accent-light text-yellow-800 rounded-full px-2.5 py-0.5 text-xs font-semibold">{{ level.display_name }}</span>
         {% endfor %}
+        {% if classroom.day %}
+          <span class="bg-blue-50 text-blue-700 rounded-full px-2.5 py-0.5 text-xs font-semibold">{{ classroom.get_day_display }}</span>
+        {% endif %}
+        {% if classroom.start_time %}
+          <span class="bg-gray-100 text-gray-600 rounded-full px-2.5 py-0.5 text-xs font-semibold">{{ classroom.start_time|time:"g:ia" }}{% if classroom.end_time %} – {{ classroom.end_time|time:"g:ia" }}{% endif %}</span>
+        {% endif %}
       </div>
+      {% if classroom.description %}
+      <p class="text-sm text-gray-500 mt-2">{{ classroom.description }}</p>
+      {% endif %}
     </div>
     <div class="flex gap-2">
       <a href="{% url 'class_progress' class_id=classroom.id %}"

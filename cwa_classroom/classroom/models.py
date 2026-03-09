@@ -238,8 +238,22 @@ class SubTopic(models.Model):
 # ---------------------------------------------------------------------------
 
 class ClassRoom(models.Model):
+    DAY_CHOICES = [
+        ('monday', 'Monday'),
+        ('tuesday', 'Tuesday'),
+        ('wednesday', 'Wednesday'),
+        ('thursday', 'Thursday'),
+        ('friday', 'Friday'),
+        ('saturday', 'Saturday'),
+        ('sunday', 'Sunday'),
+    ]
+
     name = models.CharField(max_length=200)
     code = models.CharField(max_length=8, unique=True, editable=False)
+    day = models.CharField(max_length=10, choices=DAY_CHOICES, blank=True)
+    start_time = models.TimeField(null=True, blank=True)
+    end_time = models.TimeField(null=True, blank=True)
+    description = models.TextField(blank=True)
     school = models.ForeignKey(
         School,
         on_delete=models.CASCADE,

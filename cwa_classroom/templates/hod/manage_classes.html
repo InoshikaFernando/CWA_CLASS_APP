@@ -27,6 +27,12 @@
             {% if classroom.department %}
               <p class="text-xs text-gray-400">{{ classroom.department.name }}</p>
             {% endif %}
+            {% if classroom.day or classroom.start_time %}
+            <p class="text-xs text-gray-500 mt-0.5">
+              {% if classroom.day %}{{ classroom.get_day_display }}{% endif %}
+              {% if classroom.start_time %} {{ classroom.start_time|time:"g:ia" }}{% if classroom.end_time %} – {{ classroom.end_time|time:"g:ia" }}{% endif %}{% endif %}
+            </p>
+            {% endif %}
           </div>
           <div class="flex items-center gap-2">
             <span class="text-xs font-mono text-gray-400 bg-slate-100 px-2 py-0.5 rounded">{{ classroom.code }}</span>

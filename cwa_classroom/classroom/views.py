@@ -385,11 +385,22 @@ class CreateClassView(RoleRequiredMixin, View):
     def post(self, request):
         name = request.POST.get('name', '').strip()
         level_ids = request.POST.getlist('levels')
+        day = request.POST.get('day', '').strip()
+        start_time = request.POST.get('start_time', '').strip() or None
+        end_time = request.POST.get('end_time', '').strip() or None
+        description = request.POST.get('description', '').strip()
         if not name:
             messages.error(request, 'Class name is required.')
             return redirect('create_class')
         with transaction.atomic():
-            classroom = ClassRoom.objects.create(name=name, created_by=request.user)
+            classroom = ClassRoom.objects.create(
+                name=name,
+                day=day,
+                start_time=start_time,
+                end_time=end_time,
+                description=description,
+                created_by=request.user,
+            )
             if level_ids:
                 classroom.levels.set(Level.objects.filter(id__in=level_ids))
             ClassTeacher.objects.create(classroom=classroom, teacher=request.user)
@@ -1070,6 +1081,10 @@ class HoDCreateClassView(RoleRequiredMixin, View):
         name = request.POST.get('name', '').strip()
         dept_id = request.POST.get('department', '').strip()
         level_ids = request.POST.getlist('levels')
+        day = request.POST.get('day', '').strip()
+        start_time = request.POST.get('start_time', '').strip() or None
+        end_time = request.POST.get('end_time', '').strip() or None
+        description = request.POST.get('description', '').strip()
 
         if not name:
             messages.error(request, 'Class name is required.')
@@ -1087,6 +1102,10 @@ class HoDCreateClassView(RoleRequiredMixin, View):
                 name=name,
                 school=department.school,
                 department=department,
+                day=day,
+                start_time=start_time,
+                end_time=end_time,
+                description=description,
                 created_by=request.user,
             )
             if level_ids:
