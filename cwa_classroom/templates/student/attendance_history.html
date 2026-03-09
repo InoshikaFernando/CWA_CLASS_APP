@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Attendance{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-8">
+
+  <div>
+    <h1 class="font-display text-3xl text-gray-800">✅ Attendance</h1>
+    <p class="text-emerald-500 text-sm mt-1 font-semibold">Your attendance across all classes.</p>
+  </div>
+
+  <!-- ── Overall Stats ────────────────────────────────── -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+    <div class="bg-gradient-to-br from-emerald-500 to-green-600 rounded-2xl p-4 text-center shadow-md shadow-emerald-200">
+      <p class="text-xl font-bold text-white">{{ overall_completed|default:"0" }}</p>
+      <p class="text-xs text-white/80 font-semibold">Total Sessions</p>
+    </div>
+    <div class="bg-gradient-to-br from-green-400 to-emerald-500 rounded-2xl p-4 text-center shadow-md shadow-green-200">
+      <p class="text-xl font-bold text-white">{{ total_present|default:"0" }}</p>
+      <p class="text-xs text-white/80 font-semibold">Present</p>
+    </div>
+    <div class="bg-gradient-to-br from-amber-400 to-orange-500 rounded-2xl p-4 text-center shadow-md shadow-amber-200">
+      <p class="text-xl font-bold text-white">{{ total_late|default:"0" }}</p>
+      <p class="text-xs text-white/80 font-semibold">Late</p>
+    </div>
+    <div class="bg-gradient-to-br from-rose-400 to-red-500 rounded-2xl p-4 text-center shadow-md shadow-rose-200">
+      <p class="text-xl font-bold text-white">{{ total_absent|default:"0" }}</p>
+      <p class="text-xs text-white/80 font-semibold">Absent</p>
+    </div>
+  </div>
+
+  {% if overall_pct is not None %}
+  <div class="bg-white rounded-2xl border border-emerald-100 shadow-sm p-5 flex items-center gap-4">
+    <div class="flex-shrink-0 w-14 h-14 rounded-full flex items-center justify-center
+                {% if overall_pct >= 90 %}bg-emerald-100 text-emerald-700
+                {% elif overall_pct >= 75 %}bg-green-100 text-green-700
+                {% elif overall_pct >= 50 %}bg-amber-100 text-amber-700
+                {% else %}bg-red-100 text-red-700{% endif %}
+                font-display text-lg font-bold">
+      {{ overall_pct }}%
+    </div>
+    <div>
+      <p class="font-bold text-gray-800">Overall Attendance Rate</p>
+      <p class="text-xs text-gray-400">Based on {{ overall_completed }} completed session{{ overall_completed|pluralize }}</p>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ── Per-Class Summary ────────────────────────────── -->
+  {% if class_summaries %}
+  <div>
+    <h2 class="font-bold text-xl text-gray-800 mb-4">🏫 By Class</h2>
+    <div class="space-y-3">
+      {% for s in class_summaries %}
+      <div class="bg-white rounded-2xl border border-emerald-100 shadow-sm p-5">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <h3 class="font-bold text-gray-800">{{ s.classroom.name }}</h3>
+            <p class="text-xs text-gray-400">{{ s.completed_sessions }} session{{ s.completed_sessions|pluralize }} completed</p>
+          </div>
+          {% if s.attendance_pct is not None %}
+          <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-bold
+            {% if s.attendance_pct >= 90 %}bg-emerald-100 text-emerald-700
+            {% elif s.attendance_pct >= 75 %}bg-green-100 text-green-700
+            {% elif s.attendance_pct >= 50 %}bg-amber-100 text-amber-700
+            {% else %}bg-red-100 text-red-700{% endif %}">
+            {{ s.attendance_pct }}%
+          </span>
+          {% endif %}
+        </div>
+        <div class="flex gap-4 text-xs font-semibold">
+          <span class="text-emerald-600">{{ s.present }} present</span>
+          <span class="text-amber-600">{{ s.late }} late</span>
+          <span class="text-red-500">{{ s.absent }} absent</span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ── Recent Records ───────────────────────────────── -->
+  {% if attendance_records %}
+  <div>
+    <h2 class="font-bold text-xl text-gray-800 mb-4">📅 Recent Records</h2>
+    <div class="bg-white rounded-2xl border border-emerald-100 shadow-sm overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left text-emerald-600 bg-emerald-50">
+              <th class="px-5 py-3 font-semibold">Date</th>
+              <th class="px-5 py-3 font-semibold">Class</th>
+              <th class="px-5 py-3 font-semibold">Time</th>
+              <th class="px-5 py-3 font-semibold">Status</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-emerald-50">
+            {% for record in attendance_records %}
+            <tr class="hover:bg-emerald-50/30 transition">
+              <td class="px-5 py-3 font-medium text-gray-900">{{ record.session.date|date:"D, d M Y" }}</td>
+              <td class="px-5 py-3 text-gray-600">{{ record.session.classroom.name }}</td>
+              <td class="px-5 py-3 text-gray-600">{{ record.session.start_time|time:"H:i" }}–{{ record.session.end_time|time:"H:i" }}</td>
+              <td class="px-5 py-3">
+                <span class="text-xs font-medium px-2 py-1 rounded-full
+                  {% if record.status == 'present' %}bg-emerald-100 text-emerald-700
+                  {% elif record.status == 'late' %}bg-amber-100 text-amber-700
+                  {% elif record.status == 'absent' %}bg-red-100 text-red-700
+                  {% else %}bg-gray-100 text-gray-600{% endif %}">
+                  {{ record.get_status_display }}
+                </span>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if not class_summaries and not attendance_records %}
+  <div class="bg-white rounded-2xl p-12 border border-emerald-100 text-center">
+    <p class="text-5xl mb-4">✅</p>
+    <h3 class="text-lg font-semibold text-gray-700 mb-2">No attendance records yet</h3>
+    <p class="text-gray-500">Attendance will appear here once your teacher marks sessions.</p>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
