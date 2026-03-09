@@ -787,29 +787,37 @@ class HoDManageClassesView(RoleRequiredMixin, View):
         )
 
         if is_hod_only:
-            dept_ids = list(
-                Department.objects.filter(head=request.user, is_active=True).values_list('id', flat=True)
-            )
+            departments = Department.objects.filter(head=request.user, is_active=True)
+            dept_ids = list(departments.values_list('id', flat=True))
+            school_ids = list(departments.values_list('school_id', flat=True).distinct())
             classes = ClassRoom.objects.filter(
                 department_id__in=dept_ids, is_active=True
-            ).prefetch_related('teachers')
+            ).select_related('department').prefetch_related('teachers')
             teachers = CustomUser.objects.filter(
                 department_memberships__department_id__in=dept_ids,
             ).distinct()
         else:
-            my_school_ids = list(School.objects.filter(admin=request.user).values_list('id', flat=True))
+            school_ids = list(School.objects.filter(admin=request.user).values_list('id', flat=True))
+            departments = Department.objects.filter(school_id__in=school_ids, is_active=True)
             classes = ClassRoom.objects.filter(
-                school_id__in=my_school_ids, is_active=True
-            ).prefetch_related('teachers')
+                school_id__in=school_ids, is_active=True
+            ).select_related('department').prefetch_related('teachers')
             teachers = CustomUser.objects.filter(
-                school_memberships__school_id__in=my_school_ids,
+                school_memberships__school_id__in=school_ids,
                 school_memberships__is_active=True,
             ).distinct()
+
+        # Unassigned classes in the same school(s)
+        unassigned_classes = ClassRoom.objects.filter(
+            school_id__in=school_ids, is_active=True, department__isnull=True,
+        ).prefetch_related('teachers')
 
         return render(request, 'hod/manage_classes.html', {
             'classes': classes,
             'teachers': teachers,
             'is_hod_only': is_hod_only,
+            'departments': departments,
+            'unassigned_classes': unassigned_classes,
         })
 
 
@@ -938,6 +946,106 @@ class HoDAttendanceReportView(RoleRequiredMixin, View):
             'teacher_summary': teacher_summary,
             'student_summary': student_summary,
         })
+
+
+class HoDCreateClassView(RoleRequiredMixin, View):
+    """Allow HoI/HoD to create a class under a department."""
+    required_roles = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT]
+
+    def _get_departments(self, user):
+        is_hod_only = (
+            user.has_role(Role.HEAD_OF_DEPARTMENT)
+            and not user.has_role(Role.HEAD_OF_INSTITUTE)
+            and not user.has_role(Role.INSTITUTE_OWNER)
+        )
+        if is_hod_only:
+            return Department.objects.filter(head=user, is_active=True).select_related('school')
+        else:
+            school_ids = School.objects.filter(admin=user).values_list('id', flat=True)
+            return Department.objects.filter(school_id__in=school_ids, is_active=True).select_related('school')
+
+    def get(self, request):
+        departments = self._get_departments(request.user)
+        levels = Level.objects.filter(level_number__lte=8).order_by('level_number')
+        return render(request, 'hod/create_class.html', {
+            'departments': departments,
+            'levels': levels,
+        })
+
+    def post(self, request):
+        name = request.POST.get('name', '').strip()
+        dept_id = request.POST.get('department', '').strip()
+        level_ids = request.POST.getlist('levels')
+
+        if not name:
+            messages.error(request, 'Class name is required.')
+            return redirect('hod_create_class')
+
+        departments = self._get_departments(request.user)
+        department = departments.filter(id=dept_id).first() if dept_id else None
+
+        if not department:
+            messages.error(request, 'Please select a valid department.')
+            return redirect('hod_create_class')
+
+        with transaction.atomic():
+            classroom = ClassRoom.objects.create(
+                name=name,
+                school=department.school,
+                department=department,
+                created_by=request.user,
+            )
+            if level_ids:
+                classroom.levels.set(Level.objects.filter(id__in=level_ids))
+
+        messages.success(
+            request,
+            f'Class "{name}" created in {department.name}. Code: {classroom.code}'
+        )
+        return redirect('hod_manage_classes')
+
+
+class HoDAssignClassView(RoleRequiredMixin, View):
+    """Assign an unassigned class to a department."""
+    required_roles = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT]
+
+    def post(self, request):
+        class_id = request.POST.get('class_id')
+        dept_id = request.POST.get('department_id')
+
+        if not class_id or not dept_id:
+            messages.error(request, 'Class and department are required.')
+            return redirect('hod_manage_classes')
+
+        is_hod_only = (
+            request.user.has_role(Role.HEAD_OF_DEPARTMENT)
+            and not request.user.has_role(Role.HEAD_OF_INSTITUTE)
+            and not request.user.has_role(Role.INSTITUTE_OWNER)
+        )
+
+        if is_hod_only:
+            department = get_object_or_404(
+                Department, id=dept_id, head=request.user, is_active=True
+            )
+        else:
+            school_ids = School.objects.filter(admin=request.user).values_list('id', flat=True)
+            department = get_object_or_404(
+                Department, id=dept_id, school_id__in=school_ids, is_active=True
+            )
+
+        classroom = get_object_or_404(
+            ClassRoom, id=class_id, school=department.school,
+            department__isnull=True, is_active=True,
+        )
+
+        classroom.department = department
+        classroom.save(update_fields=['department'])
+
+        messages.success(
+            request,
+            f'"{classroom.name}" assigned to {department.name}.'
+        )
+        return redirect('hod_manage_classes')
 
 
 class AccountingDashboardView(RoleRequiredMixin, View):

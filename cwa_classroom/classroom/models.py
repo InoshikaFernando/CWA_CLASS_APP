@@ -430,6 +430,14 @@ class StudentAttendance(models.Model):
         related_name='attendance_marks_given',
     )
     marked_at = models.DateTimeField(auto_now_add=True)
+    self_reported = models.BooleanField(default=False)
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='student_attendance_approvals',
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         unique_together = ('session', 'student')

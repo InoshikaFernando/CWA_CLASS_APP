@@ -36,7 +36,7 @@
 
   <!-- Sessions list -->
   <h2 class="text-lg font-semibold text-gray-900 mb-4">📅 Sessions</h2>
-  {% if sessions %}
+  {% if sessions_with_attendance %}
     <div class="bg-white rounded-2xl border border-emerald-100 shadow-sm overflow-hidden">
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
@@ -49,31 +49,52 @@
             </tr>
           </thead>
           <tbody class="divide-y divide-emerald-50">
-            {% for session in sessions %}
+            {% for item in sessions_with_attendance %}
               <tr class="hover:bg-emerald-50/30 transition">
-                <td class="px-6 py-3 font-medium text-gray-900">{{ session.date|date:"D, d M Y" }}</td>
-                <td class="px-6 py-3 text-gray-600">{{ session.start_time|time:"H:i" }}–{{ session.end_time|time:"H:i" }}</td>
+                <td class="px-6 py-3 font-medium text-gray-900">{{ item.session.date|date:"D, d M Y" }}</td>
+                <td class="px-6 py-3 text-gray-600">{{ item.session.start_time|time:"H:i" }}–{{ item.session.end_time|time:"H:i" }}</td>
                 <td class="px-6 py-3">
                   <span class="text-xs font-medium px-2 py-1 rounded-full
-                    {% if session.status == 'completed' %}bg-emerald-100 text-emerald-700
-                    {% elif session.status == 'cancelled' %}bg-red-100 text-red-700
+                    {% if item.session.status == 'completed' %}bg-emerald-100 text-emerald-700
+                    {% elif item.session.status == 'cancelled' %}bg-red-100 text-red-700
                     {% else %}bg-slate-100 text-slate-600{% endif %}">
-                    {{ session.get_status_display }}
+                    {{ item.session.get_status_display }}
                   </span>
                 </td>
                 <td class="px-6 py-3">
-                  {% with att=attendance_by_session %}
-                    {% if session.id in att %}
-                      {% with record=att|dictsort:"id" %}
-                        <span class="text-xs font-medium px-2 py-1 rounded-full
-                          {% if att.items|length > 0 %}bg-emerald-100 text-emerald-700{% endif %}">
-                          Marked
-                        </span>
-                      {% endwith %}
-                    {% else %}
-                      <span class="text-xs text-gray-400">—</span>
+                  {% if item.attendance %}
+                    {# Show attendance status badge #}
+                    <span class="text-xs font-medium px-2 py-1 rounded-full
+                      {% if item.attendance.status == 'present' %}bg-emerald-100 text-emerald-700
+                      {% elif item.attendance.status == 'late' %}bg-amber-100 text-amber-700
+                      {% elif item.attendance.status == 'absent' %}bg-red-100 text-red-700
+                      {% else %}bg-gray-100 text-gray-600{% endif %}">
+                      {{ item.attendance.get_status_display }}
+                    </span>
+                    {# Show approval status for self-reported records #}
+                    {% if item.attendance.self_reported %}
+                      {% if item.attendance.approved_at %}
+                        <span class="text-xs font-medium px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 ml-1">Approved</span>
+                      {% else %}
+                        <span class="text-xs font-medium px-2 py-1 rounded-full bg-amber-100 text-amber-700 ml-1">Pending Approval</span>
+                      {% endif %}
                     {% endif %}
-                  {% endwith %}
+                  {% elif item.session.status == 'completed' %}
+                    {# No attendance record yet — allow self-marking #}
+                    <form method="post" action="{% url 'student_mark_attendance' session_id=item.session.id %}" class="inline-flex gap-1">
+                      {% csrf_token %}
+                      <button type="submit" name="status" value="present"
+                              class="text-xs font-medium px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition">
+                        Present
+                      </button>
+                      <button type="submit" name="status" value="late"
+                              class="text-xs font-medium px-2 py-1 rounded-full bg-amber-100 text-amber-700 hover:bg-amber-200 transition">
+                        Late
+                      </button>
+                    </form>
+                  {% else %}
+                    <span class="text-xs text-gray-400">&mdash;</span>
+                  {% endif %}
                 </td>
               </tr>
             {% endfor %}

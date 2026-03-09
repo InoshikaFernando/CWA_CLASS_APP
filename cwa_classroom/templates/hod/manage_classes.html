@@ -1,30 +1,94 @@
 {% extends "base.html" %}
-{% block title %}Manage Class-Teacher Assignments{% endblock %}
+{% block title %}Manage Classes{% endblock %}
 {% block content %}
 <div class="max-w-5xl mx-auto space-y-6">
-  <h1 class="font-display text-2xl font-bold text-gray-900">
-    {% if is_hod_only %}Department {% endif %}Class-Teacher Assignments
-  </h1>
-  <div class="space-y-4">
-  {% for classroom in classes %}
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-      <div class="flex items-center justify-between mb-3">
-        <h3 class="font-bold text-gray-800">{{ classroom.name }}</h3>
-        <a href="{% url 'assign_teachers' class_id=classroom.id %}" class="text-sm bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-4 py-2 transition">+ Assign Teacher</a>
-      </div>
-      <div class="flex flex-wrap gap-2">
-      {% for t in classroom.teachers.all %}
-        <span class="bg-blue-50 text-blue-700 rounded-full px-3 py-1 text-sm font-semibold">{{ t.get_full_name|default:t.username }}</span>
-      {% empty %}
-        <span class="text-sm text-gray-400">No teachers assigned.</span>
-      {% endfor %}
-      </div>
-    </div>
-  {% empty %}
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">
-      <p class="text-gray-400">No classes found.</p>
-    </div>
-  {% endfor %}
+
+  <div class="flex items-center justify-between">
+    <h1 class="font-display text-2xl font-bold text-gray-900">
+      {% if is_hod_only %}Department {% endif %}Classes
+    </h1>
+    <a href="{% url 'hod_create_class' %}"
+       class="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white font-semibold rounded-xl hover:bg-primary-dark transition text-sm shadow-sm">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+      </svg>
+      Create Class
+    </a>
   </div>
+
+  <!-- Department Classes -->
+  <div class="space-y-4">
+    {% for classroom in classes %}
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <h3 class="font-bold text-gray-800">{{ classroom.name }}</h3>
+            {% if classroom.department %}
+              <p class="text-xs text-gray-400">{{ classroom.department.name }}</p>
+            {% endif %}
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-mono text-gray-400 bg-slate-100 px-2 py-0.5 rounded">{{ classroom.code }}</span>
+            <a href="{% url 'assign_teachers' class_id=classroom.id %}" class="text-sm bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-4 py-2 transition">+ Assign Teacher</a>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          {% for t in classroom.teachers.all %}
+            <span class="bg-blue-50 text-blue-700 rounded-full px-3 py-1 text-sm font-semibold">{{ t.get_full_name|default:t.username }}</span>
+          {% empty %}
+            <span class="text-sm text-gray-400">No teachers assigned.</span>
+          {% endfor %}
+        </div>
+      </div>
+    {% empty %}
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">
+        <p class="text-gray-400 mb-4">No classes in your department yet.</p>
+        <a href="{% url 'hod_create_class' %}" class="text-accent hover:text-accent-dark font-medium text-sm">Create your first class &rarr;</a>
+      </div>
+    {% endfor %}
+  </div>
+
+  <!-- Unassigned Classes -->
+  {% if unassigned_classes %}
+  <div>
+    <h2 class="font-bold text-xl text-gray-800 mb-4">Unassigned Classes</h2>
+    <p class="text-sm text-gray-500 mb-4">These classes are in your school but not assigned to any department.</p>
+    <div class="space-y-3">
+      {% for classroom in unassigned_classes %}
+        <div class="bg-white rounded-2xl border border-amber-200 shadow-sm p-5">
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="font-bold text-gray-800">{{ classroom.name }}</h3>
+              <span class="text-xs font-mono text-gray-400 bg-slate-100 px-2 py-0.5 rounded">{{ classroom.code }}</span>
+              <div class="flex flex-wrap gap-2 mt-2">
+                {% for t in classroom.teachers.all %}
+                  <span class="bg-blue-50 text-blue-700 rounded-full px-2 py-0.5 text-xs font-semibold">{{ t.get_full_name|default:t.username }}</span>
+                {% empty %}
+                  <span class="text-xs text-gray-400">No teachers</span>
+                {% endfor %}
+              </div>
+            </div>
+            <form method="post" action="{% url 'hod_assign_class' %}" class="flex items-center gap-2">
+              {% csrf_token %}
+              <input type="hidden" name="class_id" value="{{ classroom.id }}">
+              <select name="department_id" required
+                      class="text-sm rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-primary focus:border-transparent transition">
+                <option value="">Department...</option>
+                {% for dept in departments %}
+                  <option value="{{ dept.id }}">{{ dept.name }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit"
+                      class="px-4 py-2 bg-primary text-white text-sm font-semibold rounded-lg hover:bg-primary-dark transition">
+                Assign
+              </button>
+            </form>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
 </div>
 {% endblock %}

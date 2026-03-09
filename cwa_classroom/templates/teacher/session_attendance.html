@@ -15,15 +15,20 @@
     <form method="post">
       {% csrf_token %}
 
-      {% if students %}
+      {% if students_with_status %}
         <div class="divide-y divide-slate-50">
-          {% for item in students %}
+          {% for item in students_with_status %}
             <div class="flex items-center justify-between px-6 py-4">
               <div class="flex items-center gap-3">
                 <span class="inline-flex items-center justify-center w-9 h-9 rounded-full bg-accent text-white text-xs font-bold">
                   {{ item.student.username|slice:":2"|upper }}
                 </span>
-                <p class="font-medium text-gray-900">{{ item.student.get_full_name|default:item.student.username }}</p>
+                <div>
+                  <p class="font-medium text-gray-900">{{ item.student.get_full_name|default:item.student.username }}</p>
+                  {% if item.self_reported %}
+                    <span class="text-xs font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Self-reported</span>
+                  {% endif %}
+                </div>
               </div>
               <div class="flex items-center gap-4">
                 <label class="flex items-center gap-1.5 cursor-pointer">

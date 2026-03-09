@@ -185,11 +185,18 @@ class StudentClassDetailView(LoginRequiredMixin, View):
             status='absent', session__status='completed'
         ).count()
 
+        # Combine sessions with their attendance records for template access
+        sessions_with_attendance = []
+        for session in sessions:
+            att = attendance_by_session.get(session.id)
+            sessions_with_attendance.append({
+                'session': session,
+                'attendance': att,
+            })
+
         return render(request, 'student/class_detail.html', {
             'classroom': classroom,
-            'sessions': sessions,
-            'attendance_records': attendance_records,
-            'attendance_by_session': attendance_by_session,
+            'sessions_with_attendance': sessions_with_attendance,
             'total_sessions': total_sessions,
             'present_count': present_count,
             'late_count': late_count,
@@ -277,3 +284,56 @@ class StudentAttendanceHistoryView(LoginRequiredMixin, View):
             'overall_completed': overall_completed,
             'overall_pct': overall_pct,
         })
+
+
+class StudentSelfMarkAttendanceView(LoginRequiredMixin, View):
+    """Allow a student to self-report attendance for a session (requires teacher approval)."""
+
+    def post(self, request, session_id):
+        session = get_object_or_404(
+            ClassSession.objects.select_related('classroom'),
+            id=session_id,
+        )
+
+        # Verify the student is enrolled in this class
+        if not ClassStudent.objects.filter(
+            classroom=session.classroom, student=request.user
+        ).exists():
+            messages.error(request, 'You are not enrolled in this class.')
+            return redirect('student_my_classes')
+
+        # Only allow marking for completed sessions
+        if session.status != 'completed':
+            messages.error(request, 'Attendance can only be marked for completed sessions.')
+            return redirect('student_class_detail', class_id=session.classroom_id)
+
+        # Check if teacher already marked attendance for this student
+        existing = StudentAttendance.objects.filter(
+            session=session, student=request.user
+        ).first()
+        if existing and not existing.self_reported:
+            messages.info(request, 'Your attendance has already been marked by the teacher.')
+            return redirect('student_class_detail', class_id=session.classroom_id)
+
+        status = request.POST.get('status', '').strip()
+        if status not in ('present', 'late'):
+            messages.error(request, 'Please select a valid attendance status.')
+            return redirect('student_class_detail', class_id=session.classroom_id)
+
+        StudentAttendance.objects.update_or_create(
+            session=session,
+            student=request.user,
+            defaults={
+                'status': status,
+                'marked_by': request.user,
+                'self_reported': True,
+                'approved_by': None,
+                'approved_at': None,
+            },
+        )
+
+        messages.success(
+            request,
+            'Your attendance has been submitted and is pending teacher approval.'
+        )
+        return redirect('student_class_detail', class_id=session.classroom_id)

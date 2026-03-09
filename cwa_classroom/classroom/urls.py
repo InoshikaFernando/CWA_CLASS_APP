@@ -61,12 +61,17 @@ urlpatterns = [
     path('teacher/enrollment/<int:enrollment_id>/reject/', views_teacher.EnrollmentRejectView.as_view(), name='enrollment_reject'),
     path('teacher/session/<int:session_id>/attendance/', views_teacher.SessionAttendanceView.as_view(), name='session_attendance'),
     path('teacher/session/<int:session_id>/self-attendance/', views_teacher.TeacherSelfAttendanceView.as_view(), name='teacher_self_attendance'),
+    path('teacher/attendance-approvals/', views_teacher.StudentAttendanceApprovalListView.as_view(), name='attendance_approvals'),
+    path('teacher/attendance/<int:attendance_id>/approve/', views_teacher.StudentAttendanceApproveView.as_view(), name='attendance_approve'),
+    path('teacher/attendance/<int:attendance_id>/reject/', views_teacher.StudentAttendanceRejectView.as_view(), name='attendance_reject'),
+    path('teacher/attendance/bulk-approve/', views_teacher.StudentAttendanceBulkApproveView.as_view(), name='attendance_bulk_approve'),
 
     # Student enrollment & classes
     path('student/join/', views_student.JoinClassByCodeView.as_view(), name='student_join_class'),
     path('student/my-classes/', views_student.MyClassesView.as_view(), name='student_my_classes'),
     path('student/class/<int:class_id>/', views_student.StudentClassDetailView.as_view(), name='student_class_detail'),
     path('student/attendance/', views_student.StudentAttendanceHistoryView.as_view(), name='student_attendance_history'),
+    path('student/session/<int:session_id>/mark-attendance/', views_student.StudentSelfMarkAttendanceView.as_view(), name='student_mark_attendance'),
 
     # Progress criteria & tracking
     path('progress/criteria/', views_progress.ProgressCriteriaListView.as_view(), name='progress_criteria_list'),
@@ -81,6 +86,8 @@ urlpatterns = [
     # HoD
     path('department/', views.HoDOverviewView.as_view(), name='hod_overview'),
     path('department/manage-classes/', views.HoDManageClassesView.as_view(), name='hod_manage_classes'),
+    path('department/create-class/', views.HoDCreateClassView.as_view(), name='hod_create_class'),
+    path('department/assign-class/', views.HoDAssignClassView.as_view(), name='hod_assign_class'),
     path('department/workload/', views.HoDWorkloadView.as_view(), name='hod_workload'),
     path('department/reports/', views.HoDReportsView.as_view(), name='hod_reports'),
     path('department/attendance/', views.HoDAttendanceReportView.as_view(), name='hod_attendance_report'),

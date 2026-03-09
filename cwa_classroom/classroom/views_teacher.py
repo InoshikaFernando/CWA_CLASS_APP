@@ -96,6 +96,13 @@ class TeacherDashboardView(RoleRequiredMixin, View):
             status='pending',
         ).count()
 
+        # Pending attendance approvals
+        pending_attendance_count = StudentAttendance.objects.filter(
+            self_reported=True,
+            approved_by__isnull=True,
+            session__classroom__in=my_classes,
+        ).count()
+
         # Upcoming sessions in the next 7 days
         today = timezone.localdate()
         week_ahead = today + timedelta(days=7)
@@ -111,6 +118,7 @@ class TeacherDashboardView(RoleRequiredMixin, View):
             'current_school': current_school,
             'my_classes': my_classes,
             'pending_enrollment_count': pending_enrollment_count,
+            'pending_attendance_count': pending_attendance_count,
             'upcoming_sessions': upcoming_sessions,
         })
 
@@ -283,16 +291,22 @@ class SessionAttendanceView(RoleRequiredMixin, View):
         )
 
         # Existing attendance records for this session (for pre-filling the form)
-        existing_records = {
-            sa.student_id: sa.status
-            for sa in StudentAttendance.objects.filter(session=session)
-        }
+        existing_records = {}
+        for sa in StudentAttendance.objects.filter(session=session):
+            existing_records[sa.student_id] = {
+                'status': sa.status,
+                'self_reported': sa.self_reported,
+                'approved_by': sa.approved_by,
+            }
 
         students_with_status = []
         for student in enrolled_students:
+            record = existing_records.get(student.id, {})
             students_with_status.append({
                 'student': student,
-                'current_status': existing_records.get(student.id, ''),
+                'current_status': record.get('status', ''),
+                'self_reported': record.get('self_reported', False),
+                'approved': record.get('approved_by') is not None,
             })
 
         return render(request, 'teacher/session_attendance.html', {
@@ -330,6 +344,9 @@ class SessionAttendanceView(RoleRequiredMixin, View):
                 defaults={
                     'status': status,
                     'marked_by': request.user,
+                    'self_reported': False,
+                    'approved_by': None,
+                    'approved_at': None,
                 },
             )
             saved_count += 1
@@ -380,3 +397,140 @@ class TeacherSelfAttendanceView(RoleRequiredMixin, View):
         if next_url:
             return redirect(next_url)
         return redirect('teacher_dashboard')
+
+
+# ---------------------------------------------------------------------------
+# 8. Student Attendance Approval Views
+# ---------------------------------------------------------------------------
+
+class StudentAttendanceApprovalListView(RoleRequiredMixin, View):
+    """List self-reported student attendance records pending teacher approval."""
+    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
+
+    def get(self, request):
+        current_school = _get_teacher_current_school(request)
+        if not current_school:
+            messages.warning(request, 'Please select a school first.')
+            return redirect('teacher_dashboard')
+
+        my_classes = _get_teacher_classes(request.user, current_school)
+
+        pending_records = (
+            StudentAttendance.objects.filter(
+                self_reported=True,
+                approved_by__isnull=True,
+                session__classroom__in=my_classes,
+            )
+            .select_related('session', 'session__classroom', 'student')
+            .order_by('-session__date', '-session__start_time', 'student__last_name')
+        )
+
+        # Group by session for the template
+        sessions_dict = {}
+        for record in pending_records:
+            sid = record.session_id
+            if sid not in sessions_dict:
+                sessions_dict[sid] = {
+                    'session': record.session,
+                    'records': [],
+                }
+            sessions_dict[sid]['records'].append(record)
+
+        grouped_sessions = list(sessions_dict.values())
+
+        return render(request, 'teacher/attendance_approvals.html', {
+            'current_school': current_school,
+            'grouped_sessions': grouped_sessions,
+            'total_pending': pending_records.count(),
+        })
+
+
+class StudentAttendanceApproveView(RoleRequiredMixin, View):
+    """Approve a single self-reported student attendance record."""
+    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
+
+    def post(self, request, attendance_id):
+        record = get_object_or_404(
+            StudentAttendance.objects.select_related('session__classroom'),
+            id=attendance_id,
+            self_reported=True,
+            approved_by__isnull=True,
+        )
+
+        # Verify teacher is assigned to this class
+        if not ClassTeacher.objects.filter(
+            classroom=record.session.classroom, teacher=request.user
+        ).exists():
+            messages.error(request, 'You are not assigned to this class.')
+            return redirect('attendance_approvals')
+
+        record.approved_by = request.user
+        record.approved_at = timezone.now()
+        record.save(update_fields=['approved_by', 'approved_at'])
+
+        messages.success(
+            request,
+            f'Approved attendance for {record.student.get_full_name() or record.student.username}.'
+        )
+        return redirect('attendance_approvals')
+
+
+class StudentAttendanceRejectView(RoleRequiredMixin, View):
+    """Reject (delete) a self-reported student attendance record so they can re-mark."""
+    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
+
+    def post(self, request, attendance_id):
+        record = get_object_or_404(
+            StudentAttendance.objects.select_related('session__classroom'),
+            id=attendance_id,
+            self_reported=True,
+            approved_by__isnull=True,
+        )
+
+        # Verify teacher is assigned to this class
+        if not ClassTeacher.objects.filter(
+            classroom=record.session.classroom, teacher=request.user
+        ).exists():
+            messages.error(request, 'You are not assigned to this class.')
+            return redirect('attendance_approvals')
+
+        student_name = record.student.get_full_name() or record.student.username
+        record.delete()
+
+        messages.success(request, f'Rejected attendance for {student_name}.')
+        return redirect('attendance_approvals')
+
+
+class StudentAttendanceBulkApproveView(RoleRequiredMixin, View):
+    """Bulk approve all pending self-reported records for a session."""
+    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
+
+    def post(self, request):
+        session_id = request.POST.get('session_id')
+        if not session_id:
+            messages.error(request, 'No session specified.')
+            return redirect('attendance_approvals')
+
+        session = get_object_or_404(
+            ClassSession.objects.select_related('classroom'),
+            id=session_id,
+        )
+
+        # Verify teacher is assigned to this class
+        if not ClassTeacher.objects.filter(
+            classroom=session.classroom, teacher=request.user
+        ).exists():
+            messages.error(request, 'You are not assigned to this class.')
+            return redirect('attendance_approvals')
+
+        count = StudentAttendance.objects.filter(
+            session=session,
+            self_reported=True,
+            approved_by__isnull=True,
+        ).update(
+            approved_by=request.user,
+            approved_at=timezone.now(),
+        )
+
+        messages.success(request, f'Approved {count} attendance record(s) for {session}.')
+        return redirect('attendance_approvals')
