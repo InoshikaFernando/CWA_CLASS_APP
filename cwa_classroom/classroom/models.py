@@ -131,6 +131,12 @@ class Department(models.Model):
     name = models.CharField(max_length=200)
     slug = models.SlugField(max_length=200)
     description = models.TextField(blank=True)
+    subject = models.ForeignKey(
+        'Subject', on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='departments',
+        help_text='Link to an existing subject module for pre-built questions. Null = custom subject.',
+    )
     head = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

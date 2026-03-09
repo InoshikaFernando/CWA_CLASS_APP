@@ -5,7 +5,7 @@ from django.db import transaction
 from django.utils.text import slugify
 
 from accounts.models import CustomUser, Role, UserRole
-from .models import School, SchoolTeacher, Department, DepartmentTeacher, ClassRoom
+from .models import School, SchoolTeacher, Department, DepartmentTeacher, ClassRoom, Subject
 from .views import RoleRequiredMixin
 
 
@@ -37,21 +37,31 @@ class DepartmentCreateView(RoleRequiredMixin, View):
 
     def get(self, request, school_id):
         school = get_object_or_404(School, id=school_id, admin=request.user)
+        subjects = Subject.objects.filter(is_active=True).order_by('order', 'name')
         return render(request, 'admin_dashboard/department_form.html', {
             'school': school,
+            'subjects': subjects,
         })
 
     def post(self, request, school_id):
         school = get_object_or_404(School, id=school_id, admin=request.user)
         name = request.POST.get('name', '').strip()
         description = request.POST.get('description', '').strip()
+        subject_id = request.POST.get('subject', '').strip()
+        subjects = Subject.objects.filter(is_active=True).order_by('order', 'name')
 
         if not name:
             messages.error(request, 'Department name is required.')
             return render(request, 'admin_dashboard/department_form.html', {
                 'school': school,
-                'form_data': {'name': name, 'description': description},
+                'subjects': subjects,
+                'form_data': {'name': name, 'description': description, 'subject': subject_id},
             })
+
+        # Resolve subject
+        subject = None
+        if subject_id and subject_id != 'other':
+            subject = Subject.objects.filter(id=subject_id, is_active=True).first()
 
         slug = slugify(name)
         base_slug = slug
@@ -65,8 +75,12 @@ class DepartmentCreateView(RoleRequiredMixin, View):
             name=name,
             slug=slug,
             description=description,
+            subject=subject,
         )
-        messages.success(request, f'Department "{name}" created successfully.')
+        if subject:
+            messages.success(request, f'Department "{name}" created with {subject.name} question bank.')
+        else:
+            messages.success(request, f'Department "{name}" created as a custom subject.')
         return redirect('admin_school_departments', school_id=school.id)
 
 

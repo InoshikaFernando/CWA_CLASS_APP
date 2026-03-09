@@ -610,6 +610,10 @@ class UploadQuestionsView(RoleRequiredMixin, View):
         except (MathsTopic.DoesNotExist, MathsLevel.DoesNotExist) as e:
             messages.error(request, str(e))
             return redirect('upload_questions')
+        # Tag uploaded questions with teacher's school
+        user_school_id = SchoolTeacher.objects.filter(
+            teacher=request.user, is_active=True
+        ).values_list('school_id', flat=True).first()
         inserted = updated = failed = 0
         errors = []
         for i, q_data in enumerate(data.get('questions', []), 1):
@@ -622,7 +626,8 @@ class UploadQuestionsView(RoleRequiredMixin, View):
             try:
                 with transaction.atomic():
                     existing = MathsQuestion.objects.filter(
-                        question_text=question_text, topic=maths_topic, level=maths_level
+                        question_text=question_text, topic=maths_topic, level=maths_level,
+                        school_id=user_school_id,
                     ).first()
                     fields = {'question_type': question_type, 'difficulty': q_data.get('difficulty', 1),
                               'points': q_data.get('points', 1), 'explanation': q_data.get('explanation', '')}
@@ -631,7 +636,8 @@ class UploadQuestionsView(RoleRequiredMixin, View):
                         existing.save(); existing.answers.all().delete(); question = existing; updated += 1
                     else:
                         question = MathsQuestion.objects.create(
-                            question_text=question_text, topic=maths_topic, level=maths_level, **fields
+                            question_text=question_text, topic=maths_topic, level=maths_level,
+                            school_id=user_school_id, **fields
                         )
                         inserted += 1
                     for a in answers_data:
@@ -652,13 +658,19 @@ class UploadQuestionsView(RoleRequiredMixin, View):
 
 class QuestionListView(LoginRequiredMixin, View):
     def get(self, request, level_number):
+        from django.db.models import Q
         from maths.models import Question as MathsQuestion, Level as MathsLevel
-        level = get_object_or_404(Level, level_number=level_number)  # classroom.Level for display context
+        level = get_object_or_404(Level, level_number=level_number)
         maths_level = MathsLevel.objects.filter(level_number=level_number).first()
-        questions = (
-            MathsQuestion.objects.filter(level=maths_level).select_related('topic').prefetch_related('answers')
-            if maths_level else MathsQuestion.objects.none()
-        )
+        if maths_level:
+            # Show global questions + current school's private questions
+            user_school = SchoolTeacher.objects.filter(
+                teacher=request.user, is_active=True
+            ).values_list('school', flat=True).first()
+            q_filter = Q(level=maths_level) & (Q(school__isnull=True) | Q(school_id=user_school))
+            questions = MathsQuestion.objects.filter(q_filter).select_related('topic', 'school').prefetch_related('answers')
+        else:
+            questions = MathsQuestion.objects.none()
         return render(request, 'teacher/question_list.html', {'level': level, 'questions': questions})
 
 
@@ -677,13 +689,18 @@ class AddQuestionView(RoleRequiredMixin, View):
     def post(self, request, level_number):
         from maths.models import (Question as MathsQuestion, Answer as MathsAnswer,
                                   Topic as MathsTopic, Level as MathsLevel)
-        level = get_object_or_404(Level, level_number=level_number)  # classroom.Level for display
+        level = get_object_or_404(Level, level_number=level_number)
         classroom_topic = get_object_or_404(Topic, id=request.POST.get('topic'))
         maths_level = get_object_or_404(MathsLevel, level_number=level_number)
         maths_topic = MathsTopic.objects.filter(name=classroom_topic.name).first()
+        # Tag question with teacher's school
+        user_school_id = SchoolTeacher.objects.filter(
+            teacher=request.user, is_active=True
+        ).values_list('school_id', flat=True).first()
         with transaction.atomic():
             question = MathsQuestion.objects.create(
                 topic=maths_topic, level=maths_level,
+                school_id=user_school_id,
                 question_text=request.POST.get('question_text', '').strip(),
                 question_type=request.POST.get('question_type', MathsQuestion.MULTIPLE_CHOICE),
                 difficulty=int(request.POST.get('difficulty', 1)),
@@ -709,19 +726,22 @@ class EditQuestionView(RoleRequiredMixin, View):
     def get(self, request, question_id):
         from maths.models import Question as MathsQuestion
         question = get_object_or_404(MathsQuestion, id=question_id)
-        # Pass classroom.Topic objects for the dropdown; active topics for any level
         return render(request, 'teacher/question_form.html', {
             'question': question, 'level': question.level,
             'topics': Topic.objects.filter(is_active=True).order_by('name'),
             'question_types': MathsQuestion.QUESTION_TYPES,
             'difficulty_choices': MathsQuestion.DIFFICULTY_CHOICES,
+            'is_global': question.school is None,
         })
 
     def post(self, request, question_id):
         from maths.models import (Question as MathsQuestion, Answer as MathsAnswer,
                                   Topic as MathsTopic)
         question = get_object_or_404(MathsQuestion, id=question_id)
-        # topic from POST is classroom.Topic.id — bridge to maths.Topic by name
+        # Only allow editing school-owned questions, not global ones
+        if question.school is None:
+            messages.error(request, 'Global questions cannot be edited.')
+            return redirect('question_list', level_number=question.level.level_number)
         classroom_topic = get_object_or_404(Topic, id=request.POST.get('topic'))
         question.topic = MathsTopic.objects.filter(name=classroom_topic.name).first()
         question.question_text = request.POST.get('question_text', '').strip()
@@ -751,6 +771,10 @@ class DeleteQuestionView(RoleRequiredMixin, View):
     def post(self, request, question_id):
         from maths.models import Question as MathsQuestion
         question = get_object_or_404(MathsQuestion, id=question_id)
+        # Only allow deleting school-owned questions, not global ones
+        if question.school is None:
+            messages.error(request, 'Global questions cannot be deleted.')
+            return redirect('question_list', level_number=question.level.level_number)
         level_number = question.level.level_number
         question.delete()
         messages.success(request, 'Question deleted.')
