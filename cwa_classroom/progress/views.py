@@ -14,6 +14,7 @@ def _build_strand_data(student, level, include_attempts=False):
 
     Uses classroom.Topic for the display hierarchy (parent/order/is_active),
     but bridges to maths.Topic/Level by name for result lookups.
+    Colour is based on mean/std-dev from TopicLevelStatistics.
     """
     from maths.models import Topic as MathsTopic, Level as MathsLevel
 
@@ -22,6 +23,12 @@ def _build_strand_data(student, level, include_attempts=False):
 
     # Build a name → maths.Topic lookup to avoid per-topic DB hits
     maths_topic_map = {t.name: t for t in MathsTopic.objects.all()}
+
+    # Pre-fetch statistics for this level keyed by maths topic id
+    stats_map = {}
+    if maths_level:
+        for s in TopicLevelStatistics.objects.filter(level=maths_level).select_related('topic'):
+            stats_map[s.topic_id] = s
 
     all_topics = (
         Topic.objects.filter(levels=level, is_active=True)
@@ -41,12 +48,23 @@ def _build_strand_data(student, level, include_attempts=False):
         if maths_topic and maths_level:
             best = StudentFinalAnswer.get_best_result(student, maths_topic, maths_level)
 
-        pct = best.percentage if best else None
+        # Colour based on stats (mean/sigma) if available, else fallback
+        if best and maths_topic:
+            stats = stats_map.get(maths_topic.id)
+            if stats:
+                colour = stats.get_colour_band(best.points)
+            else:
+                # No stats yet — treat as average
+                colour = 'bg-green-200 text-green-900'
+        elif best:
+            colour = 'bg-green-200 text-green-900'
+        else:
+            colour = 'bg-gray-100 text-gray-400'
+
         entry = {
             'topic': topic,
             'best': best,
-            'colour': _get_colour(pct),
-            'pct': pct,
+            'colour': colour,
         }
         if include_attempts:
             if maths_topic and maths_level:

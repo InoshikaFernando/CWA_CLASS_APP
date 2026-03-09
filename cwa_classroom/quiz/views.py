@@ -711,6 +711,10 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             del request.session[session_key]
             next_url = f'/level/{session_data["level_number"]}/topic/{q.topic.id}/results/'
 
+            # Update topic-level statistics (mean/sigma)
+            from maths.models import TopicLevelStatistics
+            TopicLevelStatistics.recalculate(q.topic, level)
+
         return JsonResponse({
             'is_correct': is_correct,
             'correct_answer_id': correct_answer_id,

@@ -279,12 +279,38 @@ class TopicLevelStatistics(models.Model):
     def __str__(self):
         return f"{self.level} - {self.topic}: avg={self.average_points}, σ={self.sigma} (n={self.student_count})"
 
+    @classmethod
+    def recalculate(cls, topic, level):
+        """Recompute mean/sigma from best StudentFinalAnswer per student."""
+        from django.db.models import Max
+        best_per_student = (
+            StudentFinalAnswer.objects.filter(topic=topic, level=level)
+            .values('student')
+            .annotate(best_points=Max('points'))
+        )
+        points_list = [row['best_points'] for row in best_per_student if row['best_points'] is not None]
+        n = len(points_list)
+        if n == 0:
+            cls.objects.filter(topic=topic, level=level).delete()
+            return
+        mean = sum(points_list) / n
+        variance = sum((p - mean) ** 2 for p in points_list) / n if n > 1 else 0
+        sigma = variance ** 0.5
+        cls.objects.update_or_create(
+            topic=topic, level=level,
+            defaults={
+                'average_points': round(mean, 2),
+                'sigma': round(sigma, 2),
+                'student_count': n,
+            },
+        )
+
     def get_colour_band(self, points):
         """Return Tailwind CSS classes based on student points vs platform average.
-        Mirrors progress.TopicLevelStatistics.get_colour_band for template compatibility.
+        If fewer than 2 students, treat as Average.
         """
         if self.student_count < 2:
-            return ''
+            return 'bg-green-200 text-green-900'
         avg = float(self.average_points)
         s = float(self.sigma)
         if s == 0:
