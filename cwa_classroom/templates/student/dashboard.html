@@ -66,10 +66,10 @@
                  class="rounded-xl border border-transparent p-3 hover:shadow-md transition block {{ item.colour }}">
                 <p class="text-xs font-semibold mb-1">{{ item.topic.name }}</p>
                 {% if item.best %}
-                <p class="text-sm font-bold">{{ item.best.percentage }}%</p>
+                <p class="text-sm font-bold">{{ item.best.points|floatformat:1 }} pts</p>
                 <p class="text-xs opacity-70 mt-0.5">{{ item.attempts }} attempt{{ item.attempts|pluralize }}</p>
                 {% else %}
-                <p class="text-sm font-bold opacity-50">—</p>
+                <p class="text-sm font-bold opacity-50">0 pts</p>
                 {% endif %}
               </a>
               {% endfor %}
