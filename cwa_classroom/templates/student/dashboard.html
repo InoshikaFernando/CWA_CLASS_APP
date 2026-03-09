@@ -5,16 +5,16 @@
 
   <div>
     <h1 class="font-display text-3xl text-gray-800">📊 My Progress</h1>
-    <p class="text-purple-400 text-sm mt-1 font-semibold">Your performance across all topics and levels.</p>
+    <p class="text-emerald-500 text-sm mt-1 font-semibold">Your performance across all topics and levels.</p>
   </div>
 
   <!-- Time stats -->
   <div class="grid grid-cols-2 gap-4">
-    <div class="bg-gradient-to-br from-violet-500 to-purple-600 rounded-2xl shadow-lg shadow-violet-200 p-5 text-center">
+    <div class="bg-gradient-to-br from-emerald-500 to-green-600 rounded-2xl shadow-lg shadow-emerald-200 p-5 text-center">
       <p class="font-display text-3xl text-white">{{ time_daily }}</p>
       <p class="text-xs text-white/80 font-bold uppercase tracking-wide mt-1">Today</p>
     </div>
-    <div class="bg-gradient-to-br from-pink-500 to-rose-500 rounded-2xl shadow-lg shadow-pink-200 p-5 text-center">
+    <div class="bg-gradient-to-br from-teal-500 to-cyan-500 rounded-2xl shadow-lg shadow-teal-200 p-5 text-center">
       <p class="font-display text-3xl text-white">{{ time_weekly }}</p>
       <p class="text-xs text-white/80 font-bold uppercase tracking-wide mt-1">This Week</p>
     </div>
@@ -22,10 +22,10 @@
 
   <!-- ── Year Level Progress (accordion) ─────────────────────────────────── -->
   {% if progress_grid %}
-  <details class="group bg-white rounded-2xl border border-violet-100 shadow-sm overflow-hidden" open>
-    <summary class="flex items-center justify-between px-5 py-4 cursor-pointer select-none bg-violet-50 hover:bg-violet-100/50 transition">
-      <h2 class="font-bold text-lg text-violet-700">📚 Year Level Progress</h2>
-      <svg class="w-5 h-5 text-violet-500 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+  <details class="group bg-white rounded-2xl border border-emerald-100 shadow-sm overflow-hidden" open>
+    <summary class="flex items-center justify-between px-5 py-4 cursor-pointer select-none bg-emerald-50 hover:bg-emerald-100/50 transition">
+      <h2 class="font-bold text-lg text-emerald-700">📚 Year Level Progress</h2>
+      <svg class="w-5 h-5 text-emerald-500 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
       </svg>
     </summary>
@@ -43,10 +43,10 @@
       </div>
 
       {% for row in progress_grid %}
-      <details class="group/row border border-violet-100 rounded-xl overflow-hidden">
-        <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none bg-violet-50/50 hover:bg-violet-50 transition">
+      <details class="group/row border border-emerald-100 rounded-xl overflow-hidden">
+        <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none bg-emerald-50/50 hover:bg-emerald-50 transition">
           <h3 class="font-bold text-gray-800">{{ row.level.display_name }}</h3>
-          <svg class="w-4 h-4 text-violet-400 transition-transform group-open/row:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg class="w-4 h-4 text-emerald-400 transition-transform group-open/row:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
           </svg>
         </summary>
@@ -55,7 +55,7 @@
           <div>
             <!-- Strand label (hidden for flat/legacy topics) -->
             {% if strand_item.strand %}
-            <p class="text-xs font-bold text-purple-400 uppercase tracking-wider mb-2 px-1">
+            <p class="text-xs font-bold text-green-500 uppercase tracking-wider mb-2 px-1">
               {{ strand_item.strand.name }}
             </p>
             {% endif %}
@@ -87,20 +87,20 @@
 
   <!-- ── Basic Facts Progress (accordion) ────────────────────────────────── -->
   {% if bf_grid %}
-  <details class="group bg-white rounded-2xl border border-pink-100 shadow-sm overflow-hidden" open>
-    <summary class="flex items-center justify-between px-5 py-4 cursor-pointer select-none bg-pink-50 hover:bg-pink-100/50 transition">
-      <h2 class="font-bold text-lg text-pink-600">⚡ Basic Facts Progress</h2>
-      <svg class="w-5 h-5 text-pink-500 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+  <details class="group bg-white rounded-2xl border border-teal-100 shadow-sm overflow-hidden" open>
+    <summary class="flex items-center justify-between px-5 py-4 cursor-pointer select-none bg-teal-50 hover:bg-teal-100/50 transition">
+      <h2 class="font-bold text-lg text-teal-600">⚡ Basic Facts Progress</h2>
+      <svg class="w-5 h-5 text-teal-500 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
       </svg>
     </summary>
 
     <div class="p-4 space-y-3">
       {% for subtopic_data in bf_grid %}
-      <details class="group/bf border border-pink-100 rounded-xl overflow-hidden">
-        <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none bg-pink-50/50 hover:bg-pink-50 transition">
+      <details class="group/bf border border-teal-100 rounded-xl overflow-hidden">
+        <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none bg-teal-50/50 hover:bg-teal-50 transition">
           <h3 class="font-bold text-gray-800">{{ subtopic_data.label }}</h3>
-          <svg class="w-4 h-4 text-pink-400 transition-transform group-open/bf:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg class="w-4 h-4 text-teal-400 transition-transform group-open/bf:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
           </svg>
         </summary>
@@ -182,7 +182,7 @@
   {% if recent_topic or recent_bf or recent_tt %}
   <div>
     <h2 class="font-bold text-xl text-gray-800 mb-4">🕐 Recent Activity</h2>
-    <div class="bg-white rounded-2xl border border-violet-100 shadow-sm divide-y divide-violet-50">
+    <div class="bg-white rounded-2xl border border-emerald-100 shadow-sm divide-y divide-emerald-50">
       {% for r in recent_topic %}
       <div class="flex items-center justify-between px-5 py-3">
         <div>

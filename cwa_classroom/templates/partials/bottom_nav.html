@@ -1,38 +1,38 @@
 {% if is_student or is_individual_student %}
-<nav class="fixed bottom-0 inset-x-0 h-16 bg-white/95 backdrop-blur-lg border-t-2 border-violet-300 z-40
-            flex items-center justify-around px-2 shadow-[0_-2px_10px_rgba(124,58,237,0.1)]">
+<nav class="fixed bottom-0 inset-x-0 h-16 bg-white/95 backdrop-blur-lg border-t-2 border-emerald-300 z-40
+            flex items-center justify-around px-2 shadow-[0_-2px_10px_rgba(5,150,105,0.1)]">
 
   <!-- Home -->
   <a href="/hub/" class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl
-                     {% if request.path == '/hub/' %}text-violet-600{% else %}text-gray-400 hover:text-violet-500{% endif %} transition">
+                     {% if request.path == '/hub/' %}text-emerald-600{% else %}text-gray-400 hover:text-emerald-500{% endif %} transition">
     <span class="text-lg leading-none">🏠</span>
     <span class="text-xs font-bold">Home</span>
   </a>
 
   <!-- Basic Facts -->
   <a href="{% url 'basic_facts_home' %}" class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl
-                     {% if 'basic-facts' in request.path %}text-violet-600{% else %}text-gray-400 hover:text-violet-500{% endif %} transition">
+                     {% if 'basic-facts' in request.path %}text-emerald-600{% else %}text-gray-400 hover:text-emerald-500{% endif %} transition">
     <span class="text-lg leading-none">⚡</span>
     <span class="text-xs font-bold">Facts</span>
   </a>
 
   <!-- Times Tables -->
   <a href="{% url 'times_tables_home' %}" class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl
-                     {% if 'times-tables' in request.path %}text-violet-600{% else %}text-gray-400 hover:text-violet-500{% endif %} transition">
+                     {% if 'times-tables' in request.path %}text-emerald-600{% else %}text-gray-400 hover:text-emerald-500{% endif %} transition">
     <span class="text-lg leading-none">✖️</span>
     <span class="text-xs font-bold">Tables</span>
   </a>
 
   <!-- My Progress -->
   <a href="{% url 'student_dashboard' %}" class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl
-                     {% if 'dashboard' in request.path %}text-violet-600{% else %}text-gray-400 hover:text-violet-500{% endif %} transition">
+                     {% if 'dashboard' in request.path %}text-emerald-600{% else %}text-gray-400 hover:text-emerald-500{% endif %} transition">
     <span class="text-lg leading-none">📊</span>
     <span class="text-xs font-bold">Progress</span>
   </a>
 
   <!-- Profile -->
   <a href="{% url 'profile' %}" class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl
-                     {% if 'profile' in request.path %}text-violet-600{% else %}text-gray-400 hover:text-violet-500{% endif %} transition">
+                     {% if 'profile' in request.path %}text-emerald-600{% else %}text-gray-400 hover:text-emerald-500{% endif %} transition">
     <span class="text-lg leading-none">👤</span>
     <span class="text-xs font-bold">Profile</span>
   </a>
