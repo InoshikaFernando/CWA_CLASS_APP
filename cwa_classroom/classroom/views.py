@@ -459,10 +459,23 @@ class AssignTeachersView(LoginRequiredMixin, View):
 
 
 class ClassProgressView(RoleRequiredMixin, View):
-    required_role = Role.TEACHER
+    required_roles = [
+        Role.TEACHER, Role.HEAD_OF_DEPARTMENT,
+        Role.HEAD_OF_INSTITUTE, Role.INSTITUTE_OWNER,
+    ]
 
     def get(self, request, class_id):
-        classroom = get_object_or_404(ClassRoom, id=class_id, teachers=request.user)
+        user = request.user
+        # Teachers must be assigned to the class
+        if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
+            classroom = get_object_or_404(ClassRoom, id=class_id, school__admin=user)
+        elif user.has_role(Role.HEAD_OF_DEPARTMENT):
+            classroom = get_object_or_404(
+                ClassRoom, id=class_id,
+                department__head=user,
+            )
+        else:
+            classroom = get_object_or_404(ClassRoom, id=class_id, teachers=user)
         students = classroom.students.all()
         levels = classroom.levels.all()
         return render(request, 'teacher/class_progress.html', {
