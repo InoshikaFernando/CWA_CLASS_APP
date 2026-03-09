@@ -10,7 +10,9 @@ def user_role(request):
         'is_teacher': request.user.is_teacher,
         'is_junior_teacher': request.user.is_junior_teacher,
         'is_any_teacher': request.user.is_any_teacher,
+        'is_hoi': request.user.is_head_of_institute,
         'is_hod': request.user.is_head_of_department,
+        'is_institute_owner': request.user.is_institute_owner,
         'is_accountant': request.user.is_accountant,
         'is_admin_user': request.user.is_admin_user,
     }

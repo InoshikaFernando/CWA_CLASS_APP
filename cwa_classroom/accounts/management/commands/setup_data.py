@@ -50,7 +50,7 @@ class Command(BaseCommand):
             (Role.STUDENT,            'Student',            'Enrolled via a school/teacher'),
             (Role.INDIVIDUAL_STUDENT, 'Individual Student', 'Self-enrolled with subscription'),
             (Role.ACCOUNTANT,         'Accountant',         'Billing and finance access'),
-            (Role.HEAD_OF_DEPARTMENT, 'Head of Department', 'Department-level reporting'),
+            (Role.HEAD_OF_INSTITUTE, 'Head of Institute', 'Institute-level reporting'),
         ]
         for name, display_name, description in roles:
             _, created = Role.objects.get_or_create(

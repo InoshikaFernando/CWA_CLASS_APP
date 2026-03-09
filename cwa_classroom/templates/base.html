@@ -30,6 +30,11 @@
             success: { DEFAULT: '#059669', dark: '#047857', light: '#d1fae5' },
             danger:  { DEFAULT: '#ef4444', dark: '#dc2626', light: '#fee2e2' },
             border:  '#e2e8f0',
+            /* Student theme colours */
+            fun:     { DEFAULT: '#7c3aed', dark: '#6d28d9', light: '#ede9fe' },
+            candy:   { DEFAULT: '#ec4899', dark: '#db2777', light: '#fce7f3' },
+            sunny:   { DEFAULT: '#f59e0b', dark: '#d97706', light: '#fef3c7' },
+            ocean:   { DEFAULT: '#06b6d4', dark: '#0891b2', light: '#cffafe' },
           },
         },
       },
@@ -40,7 +45,7 @@
   {% block extra_head %}{% endblock %}
 </head>
 
-<body class="bg-slate-50 font-body text-gray-700 antialiased">
+<body class="{% if is_student or is_individual_student %}bg-gradient-to-br from-violet-50 via-white to-sky-50{% else %}bg-slate-50{% endif %} font-body text-gray-700 antialiased">
 
   <!-- ── Topbar ─────────────────────────────────────────────── -->
   {% include "partials/topbar.html" %}
@@ -49,18 +54,22 @@
 
     <!-- ── Sidebar (desktop) ──────────────────────────────────── -->
     <aside id="sidebar"
-           class="hidden md:flex flex-col w-64 bg-primary fixed top-16 bottom-0 left-0 z-30 overflow-y-auto">
+           class="hidden md:flex flex-col w-64 {% if is_student or is_individual_student %}bg-gradient-to-b from-violet-600 via-purple-600 to-indigo-700{% else %}bg-primary{% endif %} fixed top-16 bottom-0 left-0 z-30 overflow-y-auto">
       {% block sidebar %}
         {% if is_admin_user %}
           {% include "partials/sidebar_admin.html" %}
+        {% elif is_institute_owner %}
+          {% include "partials/sidebar_hod.html" %}
+        {% elif is_hoi %}
+          {% include "partials/sidebar_hod.html" %}
+        {% elif is_hod %}
+          {% include "partials/sidebar_hod_department.html" %}
         {% elif is_senior_teacher %}
           {% include "partials/sidebar_senior_teacher.html" %}
         {% elif is_teacher or is_junior_teacher %}
           {% include "partials/sidebar_teacher.html" %}
         {% elif is_student or is_individual_student %}
           {% include "partials/sidebar_student.html" %}
-        {% elif is_hod %}
-          {% include "partials/sidebar_hod.html" %}
         {% elif is_accountant %}
           {% include "partials/sidebar_accountant.html" %}
         {% endif %}

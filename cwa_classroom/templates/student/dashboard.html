@@ -4,28 +4,28 @@
 <div class="max-w-5xl mx-auto space-y-8">
 
   <div>
-    <h1 class="font-display text-3xl text-primary">My Progress</h1>
-    <p class="text-gray-400 text-sm mt-1">Your performance across all topics and levels.</p>
+    <h1 class="font-display text-3xl text-gray-800">📊 My Progress</h1>
+    <p class="text-purple-400 text-sm mt-1 font-semibold">Your performance across all topics and levels.</p>
   </div>
 
   <!-- Time stats -->
   <div class="grid grid-cols-2 gap-4">
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
-      <p class="font-display text-3xl text-primary">{{ time_daily }}</p>
-      <p class="text-xs text-gray-400 font-semibold uppercase tracking-wide mt-1">Today</p>
+    <div class="bg-gradient-to-br from-violet-500 to-purple-600 rounded-2xl shadow-lg shadow-violet-200 p-5 text-center">
+      <p class="font-display text-3xl text-white">{{ time_daily }}</p>
+      <p class="text-xs text-white/80 font-bold uppercase tracking-wide mt-1">Today</p>
     </div>
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
-      <p class="font-display text-3xl text-primary">{{ time_weekly }}</p>
-      <p class="text-xs text-gray-400 font-semibold uppercase tracking-wide mt-1">This Week</p>
+    <div class="bg-gradient-to-br from-pink-500 to-rose-500 rounded-2xl shadow-lg shadow-pink-200 p-5 text-center">
+      <p class="font-display text-3xl text-white">{{ time_weekly }}</p>
+      <p class="text-xs text-white/80 font-bold uppercase tracking-wide mt-1">This Week</p>
     </div>
   </div>
 
   <!-- ── Year Level Progress (accordion) ─────────────────────────────────── -->
   {% if progress_grid %}
-  <details class="group bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden" open>
-    <summary class="flex items-center justify-between px-5 py-4 cursor-pointer select-none bg-primary-light hover:bg-primary/10 transition">
-      <h2 class="font-bold text-lg text-primary">📚 Year Level Progress</h2>
-      <svg class="w-5 h-5 text-primary transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+  <details class="group bg-white rounded-2xl border border-violet-100 shadow-sm overflow-hidden" open>
+    <summary class="flex items-center justify-between px-5 py-4 cursor-pointer select-none bg-violet-50 hover:bg-violet-100/50 transition">
+      <h2 class="font-bold text-lg text-violet-700">📚 Year Level Progress</h2>
+      <svg class="w-5 h-5 text-violet-500 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
       </svg>
     </summary>
@@ -43,10 +43,10 @@
       </div>
 
       {% for row in progress_grid %}
-      <details class="group/row border border-gray-200 rounded-xl overflow-hidden">
-        <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none bg-gray-50 hover:bg-gray-100 transition">
+      <details class="group/row border border-violet-100 rounded-xl overflow-hidden">
+        <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none bg-violet-50/50 hover:bg-violet-50 transition">
           <h3 class="font-bold text-gray-800">{{ row.level.display_name }}</h3>
-          <svg class="w-4 h-4 text-gray-400 transition-transform group-open/row:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg class="w-4 h-4 text-violet-400 transition-transform group-open/row:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
           </svg>
         </summary>
@@ -55,7 +55,7 @@
           <div>
             <!-- Strand label (hidden for flat/legacy topics) -->
             {% if strand_item.strand %}
-            <p class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-1">
+            <p class="text-xs font-bold text-purple-400 uppercase tracking-wider mb-2 px-1">
               {{ strand_item.strand.name }}
             </p>
             {% endif %}
@@ -87,20 +87,20 @@
 
   <!-- ── Basic Facts Progress (accordion) ────────────────────────────────── -->
   {% if bf_grid %}
-  <details class="group bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden" open>
-    <summary class="flex items-center justify-between px-5 py-4 cursor-pointer select-none bg-accent-light hover:bg-accent/10 transition">
-      <h2 class="font-bold text-lg text-accent-dark">⚡ Basic Facts Progress</h2>
-      <svg class="w-5 h-5 text-accent-dark transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+  <details class="group bg-white rounded-2xl border border-pink-100 shadow-sm overflow-hidden" open>
+    <summary class="flex items-center justify-between px-5 py-4 cursor-pointer select-none bg-pink-50 hover:bg-pink-100/50 transition">
+      <h2 class="font-bold text-lg text-pink-600">⚡ Basic Facts Progress</h2>
+      <svg class="w-5 h-5 text-pink-500 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
       </svg>
     </summary>
 
     <div class="p-4 space-y-3">
       {% for subtopic_data in bf_grid %}
-      <details class="group/bf border border-gray-200 rounded-xl overflow-hidden">
-        <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none bg-gray-50 hover:bg-gray-100 transition">
+      <details class="group/bf border border-pink-100 rounded-xl overflow-hidden">
+        <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none bg-pink-50/50 hover:bg-pink-50 transition">
           <h3 class="font-bold text-gray-800">{{ subtopic_data.label }}</h3>
-          <svg class="w-4 h-4 text-gray-400 transition-transform group-open/bf:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg class="w-4 h-4 text-pink-400 transition-transform group-open/bf:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
           </svg>
         </summary>
@@ -127,10 +127,10 @@
 
   <!-- ── Times Tables Progress (accordion) ───────────────────────────────── -->
   {% if tt_results %}
-  <details class="group bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden" open>
-    <summary class="flex items-center justify-between px-5 py-4 cursor-pointer select-none bg-primary-light hover:bg-primary/10 transition">
-      <h2 class="font-bold text-lg text-primary">✕ Times Tables Progress</h2>
-      <svg class="w-5 h-5 text-primary transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+  <details class="group bg-white rounded-2xl border border-cyan-100 shadow-sm overflow-hidden" open>
+    <summary class="flex items-center justify-between px-5 py-4 cursor-pointer select-none bg-cyan-50 hover:bg-cyan-100/50 transition">
+      <h2 class="font-bold text-lg text-cyan-700">✕ Times Tables Progress</h2>
+      <svg class="w-5 h-5 text-cyan-500 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
       </svg>
     </summary>
@@ -138,9 +138,9 @@
     <div class="p-4">
       <div class="flex flex-wrap gap-3">
         {% for tt in tt_results %}
-        <div class="rounded-xl border border-gray-200 overflow-hidden min-w-[4.5rem] bg-white shadow-sm">
+        <div class="rounded-xl border border-cyan-200 overflow-hidden min-w-[4.5rem] bg-white shadow-sm">
           <!-- Table header -->
-          <div class="text-center py-1.5 px-2 font-bold text-xs border-b border-gray-200 bg-gray-50 text-gray-700">
+          <div class="text-center py-1.5 px-2 font-bold text-xs border-b border-cyan-200 bg-cyan-50 text-cyan-700">
             {{ tt.table }}×
           </div>
           <!-- Multiply row -->
@@ -182,7 +182,7 @@
   {% if recent_topic or recent_bf or recent_tt %}
   <div>
     <h2 class="font-bold text-xl text-gray-800 mb-4">🕐 Recent Activity</h2>
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm divide-y divide-gray-50">
+    <div class="bg-white rounded-2xl border border-violet-100 shadow-sm divide-y divide-violet-50">
       {% for r in recent_topic %}
       <div class="flex items-center justify-between px-5 py-3">
         <div>
@@ -190,7 +190,7 @@
           <p class="text-xs text-gray-400">{{ r.completed_at|date:"j M Y, g:ia" }}</p>
         </div>
         <span class="inline-block px-3 py-1 rounded-full text-xs font-bold
-          {% if r.percentage >= 80 %}bg-primary-light text-primary
+          {% if r.percentage >= 80 %}bg-green-100 text-green-700
           {% elif r.percentage >= 60 %}bg-yellow-100 text-yellow-800
           {% else %}bg-red-100 text-red-600{% endif %}">
           {{ r.score }}/{{ r.total_questions }} — {{ r.points|floatformat:1 }}pts
@@ -204,7 +204,7 @@
           <p class="text-xs text-gray-400">{{ r.completed_at|date:"j M Y, g:ia" }}</p>
         </div>
         <span class="inline-block px-3 py-1 rounded-full text-xs font-bold
-          {% if r.percentage >= 80 %}bg-primary-light text-primary
+          {% if r.percentage >= 80 %}bg-green-100 text-green-700
           {% elif r.percentage >= 60 %}bg-yellow-100 text-yellow-800
           {% else %}bg-red-100 text-red-600{% endif %}">
           {{ r.score }}/{{ r.total_questions }} — {{ r.points|floatformat:1 }}pts
@@ -218,7 +218,7 @@
           <p class="text-xs text-gray-400">{{ r.completed_at|date:"j M Y, g:ia" }}</p>
         </div>
         <span class="inline-block px-3 py-1 rounded-full text-xs font-bold
-          {% if r.percentage >= 80 %}bg-primary-light text-primary
+          {% if r.percentage >= 80 %}bg-green-100 text-green-700
           {% elif r.percentage >= 60 %}bg-yellow-100 text-yellow-800
           {% else %}bg-red-100 text-red-600{% endif %}">
           {{ r.score }}/{{ r.total_questions }} — {{ r.points|floatformat:1 }}pts

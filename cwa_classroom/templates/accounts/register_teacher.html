@@ -1,12 +1,12 @@
 {% extends "base_auth.html" %}
-{% block title %}{% if center_mode %}Register as Teacher Center{% else %}Register as Teacher{% endif %}{% endblock %}
+{% block title %}Register as Head of Institute{% endblock %}
 
 {% block card_content %}
   <h1 class="font-display text-3xl text-primary text-center mb-2">
-    {% if center_mode %}Register Your Center{% else %}Create Teacher Account{% endif %}
+    Register as Head of Institute
   </h1>
   <p class="text-center text-gray-400 text-sm mb-8">
-    {% if center_mode %}Set up a Classroom account for your school or centre.{% else %}Start managing your classes today.{% endif %}
+    Set up a Classroom account for your school or centre.
   </p>
 
   {% if errors %}

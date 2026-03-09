@@ -100,6 +100,8 @@ class School(models.Model):
 class SchoolTeacher(models.Model):
     """Through table: links a teacher to a school with a seniority role."""
     ROLE_CHOICES = [
+        ('head_of_institute', 'Head of Institute'),
+        ('head_of_department', 'Head of Department'),
         ('senior_teacher', 'Senior Teacher'),
         ('teacher', 'Teacher'),
         ('junior_teacher', 'Junior Teacher'),
@@ -120,6 +122,49 @@ class SchoolTeacher(models.Model):
 
     def __str__(self):
         return f'{self.teacher.username} @ {self.school.name} ({self.get_role_display()})'
+
+
+class Department(models.Model):
+    """A department within a school (e.g. Mathematics, English, Science)."""
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='departments')
+    name = models.CharField(max_length=200)
+    slug = models.SlugField(max_length=200)
+    description = models.TextField(blank=True)
+    head = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='headed_departments',
+        help_text='The HoD (Head of Department) user assigned to this department.',
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('school', 'slug')
+        ordering = ['school', 'name']
+
+    def __str__(self):
+        return f'{self.name} — {self.school.name}'
+
+
+class DepartmentTeacher(models.Model):
+    """Links a teacher to a department. Teachers can belong to multiple departments."""
+    department = models.ForeignKey(Department, on_delete=models.CASCADE, related_name='department_teachers')
+    teacher = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='department_memberships',
+    )
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('department', 'teacher')
+        ordering = ['department', 'teacher']
+
+    def __str__(self):
+        return f'{self.teacher.username} @ {self.department.name}'
 
 
 class AcademicYear(models.Model):
@@ -194,6 +239,13 @@ class ClassRoom(models.Model):
         null=True, blank=True,
         related_name='classrooms',
         help_text='The school this class belongs to.',
+    )
+    department = models.ForeignKey(
+        'Department',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='classrooms',
+        help_text='The department this class belongs to.',
     )
     subject = models.ForeignKey(
         'Subject',

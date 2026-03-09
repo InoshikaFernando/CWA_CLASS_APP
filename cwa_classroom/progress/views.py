@@ -143,14 +143,14 @@ class StudentDashboardView(LoginRequiredMixin, View):
 class StudentDetailProgressView(LoginRequiredMixin, View):
     """Teacher view: single student's full progress."""
     def get(self, request, student_id):
-        if not (request.user.is_teacher or request.user.is_head_of_department):
+        if not (request.user.is_teacher or request.user.is_head_of_institute or request.user.is_institute_owner):
             return redirect('home')
         from accounts.models import CustomUser
         student = get_object_or_404(CustomUser, id=student_id)
 
         from classroom.models import ClassRoom
         classrooms = ClassRoom.objects.filter(students=student, teachers=request.user, is_active=True)
-        if not classrooms.exists() and not request.user.is_head_of_department:
+        if not classrooms.exists() and not (request.user.is_head_of_institute or request.user.is_institute_owner):
             return redirect('home')
 
         levels = Level.objects.filter(classrooms__in=classrooms, level_number__lte=8).distinct().order_by('level_number')

@@ -5,46 +5,27 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
 from django.db import transaction
 
+from django.utils.text import slugify
+
 from .models import CustomUser, Role, UserRole
 
 
 # ---------------------------------------------------------------------------
-# Teacher Registration
+# Head of Institute Registration
 # ---------------------------------------------------------------------------
 
 class TeacherSignupView(View):
+    """Legacy URL — redirects to the center registration flow."""
     def get(self, request):
-        if request.user.is_authenticated:
-            return redirect('subjects_hub')
-        return render(request, 'accounts/register_teacher.html')
+        return redirect('register_teacher_center')
 
     def post(self, request):
-        username = request.POST.get('username', '').strip()
-        email = request.POST.get('email', '').strip()
-        password = request.POST.get('password', '')
-        confirm = request.POST.get('confirm_password', '')
-
-        errors = _validate_registration(username, email, password, confirm)
-        if errors:
-            return render(request, 'accounts/register_teacher.html', {
-                'errors': errors, 'username': username, 'email': email,
-            })
-
-        try:
-            with transaction.atomic():
-                user = CustomUser.objects.create_user(username=username, email=email, password=password)
-                role, _ = Role.objects.get_or_create(name=Role.TEACHER, defaults={'display_name': 'Teacher'})
-                UserRole.objects.create(user=user, role=role)
-            login(request, user)
-            messages.success(request, f'Welcome, {username}! Your teacher account is ready.')
-            return redirect('subjects_hub')
-        except Exception as e:
-            return render(request, 'accounts/register_teacher.html', {
-                'errors': [str(e)], 'username': username, 'email': email,
-            })
+        return redirect('register_teacher_center')
 
 
 class TeacherCenterRegisterView(View):
+    """Register as Head of Institute — creates a user, school, and assigns HoI role."""
+
     def get(self, request):
         if request.user.is_authenticated:
             return redirect('subjects_hub')
@@ -59,7 +40,7 @@ class TeacherCenterRegisterView(View):
 
         errors = _validate_registration(username, email, password, confirm)
         if not center_name:
-            errors.append('Center/school name is required.')
+            errors.append('School / centre name is required.')
         if errors:
             return render(request, 'accounts/register_teacher.html', {
                 'errors': errors, 'username': username, 'email': email,
@@ -67,12 +48,36 @@ class TeacherCenterRegisterView(View):
             })
 
         try:
+            from classroom.models import School
+
             with transaction.atomic():
-                user = CustomUser.objects.create_user(username=username, email=email, password=password)
-                role, _ = Role.objects.get_or_create(name=Role.TEACHER, defaults={'display_name': 'Teacher'})
+                # 1. Create user
+                user = CustomUser.objects.create_user(
+                    username=username, email=email, password=password,
+                )
+
+                # 2. Assign Head of Institute role
+                role, _ = Role.objects.get_or_create(
+                    name=Role.HEAD_OF_INSTITUTE,
+                    defaults={'display_name': 'Head of Institute'},
+                )
                 UserRole.objects.create(user=user, role=role)
+
+                # 3. Create school with this user as admin
+                slug = slugify(center_name)
+                base_slug = slug or 'school'
+                counter = 1
+                while School.objects.filter(slug=slug).exists():
+                    slug = f'{base_slug}-{counter}'
+                    counter += 1
+                School.objects.create(
+                    name=center_name,
+                    slug=slug,
+                    admin=user,
+                )
+
             login(request, user)
-            messages.success(request, f'Welcome! Your teacher account for {center_name} is ready.')
+            messages.success(request, f'Welcome! Your school "{center_name}" is ready.')
             return redirect('subjects_hub')
         except Exception as e:
             return render(request, 'accounts/register_teacher.html', {

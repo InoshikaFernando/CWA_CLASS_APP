@@ -103,6 +103,48 @@
       </div>
     </div>
 
+    <!-- Departments section -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm lg:col-span-2">
+      <div class="flex items-center justify-between p-6 border-b border-slate-100">
+        <h2 class="text-lg font-semibold text-gray-900">Departments</h2>
+        <a href="{% url 'admin_school_departments' school.id %}"
+           class="inline-flex items-center gap-1.5 text-sm text-accent hover:text-accent-dark font-medium transition">
+          Manage &rarr;
+        </a>
+      </div>
+      <div class="p-6">
+        {% if departments %}
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {% for dept in departments %}
+              <a href="{% url 'admin_department_detail' school.id dept.id %}"
+                 class="flex items-center justify-between p-3 bg-slate-50 rounded-xl hover:bg-slate-100 transition">
+                <div>
+                  <p class="text-sm font-medium text-gray-900">{{ dept.name }}</p>
+                  <p class="text-xs text-gray-500">
+                    {% if dept.head %}HoD: {{ dept.head.get_full_name|default:dept.head.username }}{% else %}No HoD{% endif %}
+                  </p>
+                </div>
+                <span class="text-xs font-medium px-2 py-1 rounded-full {% if dept.is_active %}bg-emerald-100 text-emerald-700{% else %}bg-gray-100 text-gray-500{% endif %}">
+                  {% if dept.is_active %}Active{% else %}Inactive{% endif %}
+                </span>
+              </a>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="text-center py-4">
+            <p class="text-sm text-gray-400 mb-3">No departments created yet.</p>
+            <a href="{% url 'admin_department_create' school.id %}"
+               class="inline-flex items-center gap-1.5 text-sm text-accent hover:text-accent-dark font-medium transition">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+              </svg>
+              Create Department
+            </a>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
     <!-- Academic Years section -->
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm lg:col-span-2">
       <div class="flex items-center justify-between p-6 border-b border-slate-100">

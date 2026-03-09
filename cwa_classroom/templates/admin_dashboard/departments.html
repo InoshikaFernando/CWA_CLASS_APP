@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}Departments — {{ school.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <a href="{% url 'admin_school_detail' school.id %}" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back to {{ school.name }}</a>
+    <div class="flex items-center justify-between mt-2">
+      <div>
+        <h1 class="text-2xl font-display font-bold text-gray-900">Departments</h1>
+        <p class="text-gray-500 mt-1">{{ school.name }}</p>
+      </div>
+      <a href="{% url 'admin_department_create' school.id %}"
+         class="inline-flex items-center gap-2 px-4 py-2.5 bg-accent hover:bg-accent-dark text-white text-sm font-semibold rounded-xl transition shadow-sm">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+        </svg>
+        Create Department
+      </a>
+    </div>
+  </div>
+
+  {% if dept_data %}
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {% for item in dept_data %}
+        <a href="{% url 'admin_department_detail' school.id item.department.id %}"
+           class="bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-accent/30 transition p-6 group">
+          <div class="flex items-start justify-between mb-4">
+            <div>
+              <h3 class="text-lg font-semibold text-gray-900 group-hover:text-accent transition">{{ item.department.name }}</h3>
+              {% if item.department.description %}
+                <p class="text-sm text-gray-500 mt-1 line-clamp-2">{{ item.department.description }}</p>
+              {% endif %}
+            </div>
+            <span class="text-xs font-medium px-2 py-1 rounded-full {% if item.department.is_active %}bg-emerald-100 text-emerald-700{% else %}bg-gray-100 text-gray-500{% endif %}">
+              {% if item.department.is_active %}Active{% else %}Inactive{% endif %}
+            </span>
+          </div>
+
+          <!-- HoD -->
+          <div class="flex items-center gap-2 mb-3">
+            {% if item.department.head %}
+              <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-500 text-white text-xs font-bold">
+                {{ item.department.head.username|slice:":1"|upper }}
+              </span>
+              <span class="text-sm text-gray-600">{{ item.department.head.get_full_name|default:item.department.head.username }}</span>
+            {% else %}
+              <span class="text-sm text-gray-400 italic">No HoD assigned</span>
+            {% endif %}
+          </div>
+
+          <!-- Stats -->
+          <div class="flex items-center gap-4 text-sm text-gray-500">
+            <span class="flex items-center gap-1">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/>
+              </svg>
+              {{ item.teacher_count }} teacher{{ item.teacher_count|pluralize }}
+            </span>
+            <span class="flex items-center gap-1">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.438 60.438 0 00-.491 6.347A48.62 48.62 0 0112 20.904a48.62 48.62 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.636 50.636 0 00-2.658-.813A59.906 59.906 0 0112 3.493a59.903 59.903 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0112 13.489a50.702 50.702 0 017.74-3.342"/>
+              </svg>
+              {{ item.class_count }} class{{ item.class_count|pluralize:"es" }}
+            </span>
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">
+      <svg class="w-12 h-12 text-gray-300 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/>
+      </svg>
+      <p class="text-gray-500 font-medium mb-2">No departments yet</p>
+      <p class="text-sm text-gray-400 mb-6">Create your first department to organise classes and teachers.</p>
+      <a href="{% url 'admin_department_create' school.id %}"
+         class="inline-flex items-center gap-2 px-4 py-2.5 bg-accent hover:bg-accent-dark text-white text-sm font-semibold rounded-xl transition">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+        </svg>
+        Create Department
+      </a>
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}

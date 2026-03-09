@@ -1,7 +1,7 @@
 {% extends "base_public.html" %}
 
 {% block title %}Join Classroom{% endblock %}
-{% block meta_description %}Register as a teacher or student to start learning.{% endblock %}
+{% block meta_description %}Register as Head of Institute or student to start learning.{% endblock %}
 {% block og_title %}Join Classroom{% endblock %}
 
 {% block content %}
@@ -26,9 +26,9 @@
           </svg>
         </div>
 
-        <h2 class="text-xl font-bold text-gray-800 mb-2">Register as Center / Teacher</h2>
+        <h2 class="text-xl font-bold text-gray-800 mb-2">Register as Head of Institute</h2>
         <p class="text-gray-500 text-sm mb-6">
-          Create a center or school account to manage multiple classes and students.
+          Create a school account to manage classes, teachers, and students.
         </p>
 
         <ul class="space-y-2 mb-8 flex-1">
@@ -60,7 +60,7 @@
 
         <a href="{% url 'register_teacher_center' %}"
            class="block text-center bg-primary text-white hover:bg-primary-dark rounded-xl px-5 py-3 font-semibold transition">
-          Register as Teacher
+          Register as Head of Institute
         </a>
       </div>
 
