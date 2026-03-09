@@ -62,7 +62,7 @@
             <!-- Subtopics grid -->
             <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
               {% for item in strand_item.subtopics %}
-              <a href="{% url 'topic_quiz' level_number=row.level.level_number topic_id=item.topic.id %}"
+              <a href="{% if item.maths_topic %}{% url 'topic_quiz' level_number=row.level.level_number topic_id=item.maths_topic.id %}{% else %}#{% endif %}"
                  class="rounded-xl border border-transparent p-3 hover:shadow-md transition block {{ item.colour }}">
                 <p class="text-xs font-semibold mb-1">{{ item.topic.name }}</p>
                 {% if item.best %}

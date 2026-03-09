@@ -135,9 +135,11 @@ class StudentDashboardView(LoginRequiredMixin, View):
         if not (request.user.is_student or request.user.is_individual_student):
             return redirect('subjects_hub')
         from maths.models import StudentFinalAnswer, BasicFactsResult, TimeLog
+        from maths.models import Topic as MathsTopic
 
         # ── Topic quiz progress grid ──────────────────────────────────────────
         from maths.models import TopicLevelStatistics
+        maths_topic_map = {t.name: t for t in MathsTopic.objects.all()}
         topic_results = StudentFinalAnswer.objects.filter(
             student=request.user,
             quiz_type__in=[StudentFinalAnswer.QUIZ_TYPE_TOPIC, StudentFinalAnswer.QUIZ_TYPE_MIXED],
@@ -202,6 +204,7 @@ class StudentDashboardView(LoginRequiredMixin, View):
                     colour = 'bg-gray-100 text-gray-400'
                 strand_dict[key]['subtopics'].append({
                     'topic': topic,
+                    'maths_topic': maths_topic_map.get(topic.name),
                     'best': best,
                     'points': round(best.points, 1) if best else None,
                     'colour': colour,

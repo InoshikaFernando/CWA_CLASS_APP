@@ -63,6 +63,7 @@ def _build_strand_data(student, level, include_attempts=False):
 
         entry = {
             'topic': topic,
+            'maths_topic': maths_topic,
             'best': best,
             'colour': colour,
         }
