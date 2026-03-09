@@ -7,7 +7,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.utils import timezone
 from django.conf import settings
 
-from maths.models import Level, Topic
+from maths.models import Level, Topic, calculate_points
 from .basic_facts import (
     SUBTOPIC_CONFIG, SUBTOPIC_LABELS, get_display_level,
     generate_questions, check_answer
@@ -106,8 +106,7 @@ class BasicFactsQuizView(LoginRequiredMixin, View):
             })
 
         total = len(questions)
-        percentage = correct_count / total if total else 0
-        points = ((percentage * 100 * 60) / time_taken) / 10
+        points = calculate_points(correct_count, total, time_taken)
 
         from maths.models import BasicFactsResult
         # Dedup: check recent submission
@@ -127,7 +126,7 @@ class BasicFactsQuizView(LoginRequiredMixin, View):
                     level_number=level_number,
                     score=correct_count,
                     total_points=total,
-                    points=round(points, 2),
+                    points=points,
                     time_taken_seconds=time_taken,
                     questions_data=results,
                 )
@@ -138,7 +137,7 @@ class BasicFactsQuizView(LoginRequiredMixin, View):
                 level_number=level_number,
                 score=correct_count,
                 total_questions=total,
-                points=round(points, 2),
+                points=points,
                 time_taken_seconds=time_taken,
                 questions_data=results,
             )
@@ -367,8 +366,7 @@ class TimesTablesSubmitView(LoginRequiredMixin, View):
         score = sum(1 for q in questions if q.get('is_correct', False))
         total = len(questions) or 1
         time_taken = max(1, int(_time.time() - start_time))
-        percentage = score / total
-        points = round((percentage * 100 * 60) / time_taken, 2)
+        points = calculate_points(score, total, time_taken)
 
         # Save to DB using table number as level_number
         from maths.models import StudentFinalAnswer
@@ -566,8 +564,7 @@ class MixedQuizView(LoginRequiredMixin, View):
             ))
 
         total = len(question_ids) or 1
-        percentage = correct_count / total
-        points = (percentage * 100 * 60) / time_taken
+        points = calculate_points(correct_count, total, time_taken)
 
         from django.db import transaction
         with transaction.atomic():
@@ -580,7 +577,7 @@ class MixedQuizView(LoginRequiredMixin, View):
                 quiz_type=StudentFinalAnswer.QUIZ_TYPE_MIXED,
                 score=correct_count,
                 total_questions=total,
-                points=round(points, 2),
+                points=points,
                 time_taken_seconds=time_taken,
                 attempt_number=attempt_num,
             )
@@ -693,8 +690,7 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             time_taken = max(1, int(time.time() - start_time))
             total = len(questions)
             correct = session_data['correct']
-            percentage = correct / total if total else 0
-            points = (percentage * 100 * 60) / time_taken
+            points = calculate_points(correct, total, time_taken)
 
             from maths.models import StudentFinalAnswer
             from maths.models import Level as _Level
@@ -707,7 +703,7 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
                 quiz_type=StudentFinalAnswer.QUIZ_TYPE_TOPIC,
                 score=correct,
                 total_questions=total,
-                points=round(points, 2),
+                points=points,
                 time_taken_seconds=time_taken,
                 attempt_number=attempt_num,
             )

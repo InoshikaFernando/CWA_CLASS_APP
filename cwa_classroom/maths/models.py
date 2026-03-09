@@ -8,6 +8,23 @@ def generate_class_code():
     return uuid.uuid4().hex[:8]
 
 
+def calculate_points(score, total_questions, time_taken_seconds, k=30):
+    """Calculate quiz points balancing accuracy and speed.
+
+    Formula: percentage * 100 * (K / (K + time_per_question))
+
+    - Accuracy is the primary driver
+    - Speed gives a bonus with diminishing returns
+    - Normalised per question so quiz length doesn't matter
+    - K controls speed weight (lower = speed matters more)
+    """
+    if not total_questions:
+        return 0.0
+    percentage = score / total_questions
+    time_per_q = time_taken_seconds / total_questions
+    return round(percentage * 100 * (k / (k + time_per_q)), 2)
+
+
 class Topic(models.Model):
     name = models.CharField(max_length=120)
 
