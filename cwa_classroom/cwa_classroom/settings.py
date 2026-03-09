@@ -87,40 +87,50 @@ WSGI_APPLICATION = 'cwa_classroom.wsgi.application'
 # Database
 # ---------------------------------------------------------------------------
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'avinesh$cwa_classroom_test',
-        'USER': 'avinesh',
-        'PASSWORD': 'wenuskala!1',
-        'HOST': 'avinesh.mysql.pythonanywhere-services.com',
-        'PORT': os.getenv('MYSQL_PORT', '3306'),
-        'OPTIONS': {
-            'charset': 'utf8mb4',
-            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
-        },
-    },
+# DB_ENGINE env var controls the database backend.
+#   - "mysql" (default) → MySQL via env vars DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT
+#   - "sqlite"          → local SQLite file (no MySQL needed)
+_DB_ENGINE = os.environ.get('DB_ENGINE', 'mysql')
 
-    # Legacy CWA_SCHOOL MySQL database — used only by the
-    # migrate_from_cwa_school management command.
-    # Set these env vars to enable: SRC_DB_NAME, SRC_DB_USER, SRC_DB_PASSWORD,
-    # SRC_DB_HOST, SRC_DB_PORT  (all default to the same values as 'default'
-    # but with database name 'cwa_school').
-    'cwa_school_legacy': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': os.environ.get('SRC_DB_NAME', 'cwa_school'),
-        'USER': os.environ.get('SRC_DB_USER', os.environ.get('DB_USER', 'root')),
-        'PASSWORD': os.environ.get('SRC_DB_PASSWORD', os.environ.get('DB_PASSWORD', '')),
-        'HOST': os.environ.get('SRC_DB_HOST', os.environ.get('DB_HOST', '127.0.0.1')),
-        'PORT': os.environ.get('SRC_DB_PORT', os.environ.get('DB_PORT', '3306')),
-        'OPTIONS': {
-            'charset': 'utf8mb4',
+if _DB_ENGINE == 'sqlite':
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
         },
-        'TEST': {
-            'NAME': None,   # never create a test DB for the legacy source
+    }
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.mysql',
+            'NAME': os.environ.get('DB_NAME', 'cwa_classroom'),
+            'USER': os.environ.get('DB_USER', 'root'),
+            'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+            'HOST': os.environ.get('DB_HOST', '127.0.0.1'),
+            'PORT': os.environ.get('DB_PORT', '3306'),
+            'OPTIONS': {
+                'charset': 'utf8mb4',
+                'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+            },
         },
-    },
-}
+
+        # Legacy CWA_SCHOOL MySQL database — used only by the
+        # migrate_from_cwa_school management command.
+        'cwa_school_legacy': {
+            'ENGINE': 'django.db.backends.mysql',
+            'NAME': os.environ.get('SRC_DB_NAME', 'cwa_school'),
+            'USER': os.environ.get('SRC_DB_USER', os.environ.get('DB_USER', 'root')),
+            'PASSWORD': os.environ.get('SRC_DB_PASSWORD', os.environ.get('DB_PASSWORD', '')),
+            'HOST': os.environ.get('SRC_DB_HOST', os.environ.get('DB_HOST', '127.0.0.1')),
+            'PORT': os.environ.get('SRC_DB_PORT', os.environ.get('DB_PORT', '3306')),
+            'OPTIONS': {
+                'charset': 'utf8mb4',
+            },
+            'TEST': {
+                'NAME': None,
+            },
+        },
+    }
 
 
 # ---------------------------------------------------------------------------

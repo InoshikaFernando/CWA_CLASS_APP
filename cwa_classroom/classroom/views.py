@@ -967,9 +967,11 @@ class HoDCreateClassView(RoleRequiredMixin, View):
     def get(self, request):
         departments = self._get_departments(request.user)
         levels = Level.objects.filter(level_number__lte=8).order_by('level_number')
+        selected_dept = request.GET.get('department', '')
         return render(request, 'hod/create_class.html', {
             'departments': departments,
             'levels': levels,
+            'selected_dept': selected_dept,
         })
 
     def post(self, request):

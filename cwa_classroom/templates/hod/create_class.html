@@ -32,7 +32,7 @@
                   class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition">
             <option value="">Select a department</option>
             {% for dept in departments %}
-              <option value="{{ dept.id }}">{{ dept.name }} ({{ dept.school.name }})</option>
+              <option value="{{ dept.id }}" {% if selected_dept == dept.id|stringformat:"d" %}selected{% endif %}>{{ dept.name }} ({{ dept.school.name }})</option>
             {% endfor %}
           </select>
         {% endif %}
