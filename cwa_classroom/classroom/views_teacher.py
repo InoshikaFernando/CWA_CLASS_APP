@@ -11,7 +11,7 @@ from .views import RoleRequiredMixin
 from .models import (
     School, SchoolTeacher, ClassRoom, ClassSession, ClassTeacher,
     Enrollment, StudentAttendance, TeacherAttendance, Notification,
-    ClassStudent,
+    ClassStudent, Department, SchoolStudent,
 )
 
 
@@ -61,6 +61,46 @@ def _get_teacher_classes(teacher, school):
         class_teachers__teacher=teacher,
         is_active=True,
     ).distinct()
+
+
+def _can_manage_enrollment(user, classroom):
+    """Check if user can approve/reject enrollments for this classroom."""
+    # Teacher of the class
+    if ClassTeacher.objects.filter(classroom=classroom, teacher=user).exists():
+        return True
+    # HoD of the class's department
+    if classroom.department_id:
+        if Department.objects.filter(id=classroom.department_id, head=user, is_active=True).exists():
+            return True
+    # HoI / school admin
+    if classroom.school_id and classroom.school.admin == user:
+        return True
+    return False
+
+
+def _get_managed_classes(user, school):
+    """Return classrooms the user can manage enrollments for, based on role.
+    - HoI/Owner: all classes in their school
+    - HoD: classes in their departments + classes they teach
+    - Teacher: classes they teach
+    """
+    if school.admin == user:
+        return ClassRoom.objects.filter(school=school, is_active=True)
+
+    # HoD — classes in departments they head + classes they teach
+    dept_ids = Department.objects.filter(
+        school=school, head=user, is_active=True
+    ).values_list('id', flat=True)
+
+    if dept_ids:
+        return ClassRoom.objects.filter(
+            Q(department_id__in=dept_ids) | Q(class_teachers__teacher=user),
+            school=school,
+            is_active=True,
+        ).distinct()
+
+    # Regular teacher
+    return _get_teacher_classes(user, school)
 
 
 # ---------------------------------------------------------------------------
@@ -151,18 +191,24 @@ class SchoolSwitcherView(RoleRequiredMixin, View):
 # ---------------------------------------------------------------------------
 
 class EnrollmentRequestsView(RoleRequiredMixin, View):
-    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER]
+    required_roles = [
+        Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER, Role.TEACHER,
+    ]
 
     def get(self, request):
+        # HoI may not be in SchoolTeacher — fall back to School.admin
         current_school = _get_teacher_current_school(request)
+        if not current_school:
+            current_school = School.objects.filter(admin=request.user).first()
         if not current_school:
             messages.warning(request, 'Please select a school first.')
             return redirect('teacher_dashboard')
 
-        my_classes = _get_teacher_classes(request.user, current_school)
+        managed_classes = _get_managed_classes(request.user, current_school)
         pending_enrollments = (
             Enrollment.objects
-            .filter(classroom__in=my_classes, status='pending')
+            .filter(classroom__in=managed_classes, status='pending')
             .select_related('classroom', 'student')
             .order_by('-requested_at')
         )
@@ -178,17 +224,15 @@ class EnrollmentRequestsView(RoleRequiredMixin, View):
 # ---------------------------------------------------------------------------
 
 class EnrollmentApproveView(RoleRequiredMixin, View):
-    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER]
+    required_roles = [
+        Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER, Role.TEACHER,
+    ]
 
     def post(self, request, enrollment_id):
         enrollment = get_object_or_404(Enrollment, id=enrollment_id, status='pending')
 
-        # Ensure the teacher owns a class this enrollment belongs to
-        is_teacher_of_class = ClassTeacher.objects.filter(
-            classroom=enrollment.classroom,
-            teacher=request.user,
-        ).exists()
-        if not is_teacher_of_class:
+        if not _can_manage_enrollment(request.user, enrollment.classroom):
             messages.error(request, 'You do not have permission to approve this enrollment.')
             return redirect('enrollment_requests')
 
@@ -203,6 +247,13 @@ class EnrollmentApproveView(RoleRequiredMixin, View):
             classroom=enrollment.classroom,
             student=enrollment.student,
         )
+
+        # Auto-create SchoolStudent link when class belongs to a school
+        if enrollment.classroom.school_id:
+            SchoolStudent.objects.get_or_create(
+                school=enrollment.classroom.school,
+                student=enrollment.student,
+            )
 
         # Notify the student
         Notification.objects.create(
@@ -223,17 +274,15 @@ class EnrollmentApproveView(RoleRequiredMixin, View):
 # ---------------------------------------------------------------------------
 
 class EnrollmentRejectView(RoleRequiredMixin, View):
-    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER]
+    required_roles = [
+        Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER, Role.TEACHER,
+    ]
 
     def post(self, request, enrollment_id):
         enrollment = get_object_or_404(Enrollment, id=enrollment_id, status='pending')
 
-        # Ensure the teacher owns a class this enrollment belongs to
-        is_teacher_of_class = ClassTeacher.objects.filter(
-            classroom=enrollment.classroom,
-            teacher=request.user,
-        ).exists()
-        if not is_teacher_of_class:
+        if not _can_manage_enrollment(request.user, enrollment.classroom):
             messages.error(request, 'You do not have permission to reject this enrollment.')
             return redirect('enrollment_requests')
 

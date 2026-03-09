@@ -41,7 +41,7 @@ class RoleRequiredMixin(LoginRequiredMixin):
 
 
 def _get_individual_student_levels(user):
-    basic_facts_levels = Level.objects.filter(level_number__gte=100)
+    basic_facts_levels = Level.objects.filter(level_number__gte=100, school__isnull=True)
     try:
         sub = user.subscription
         if sub.is_active_or_trialing:
@@ -87,7 +87,7 @@ class HomeView(LoginRequiredMixin, View):
             )
             # Always include basic facts levels
             basic_ids = set(
-                Level.objects.filter(level_number__gte=100).values_list('id', flat=True)
+                Level.objects.filter(level_number__gte=100, school__isnull=True).values_list('id', flat=True)
             )
             accessible_level_ids |= basic_ids
             # Individual students with no classroom: fall back to all year levels
@@ -379,8 +379,16 @@ class CreateClassView(RoleRequiredMixin, View):
     required_role = Role.TEACHER
 
     def get(self, request):
-        levels = Level.objects.filter(level_number__lte=8).order_by('level_number')
-        return render(request, 'teacher/create_class.html', {'levels': levels})
+        levels = Level.objects.filter(level_number__lte=8, school__isnull=True).order_by('level_number')
+        # Get custom levels from teacher's school
+        custom_levels = Level.objects.none()
+        school_membership = SchoolTeacher.objects.filter(teacher=request.user).select_related('school').first()
+        if school_membership:
+            custom_levels = Level.objects.filter(school=school_membership.school).order_by('level_number')
+        return render(request, 'teacher/create_class.html', {
+            'levels': levels,
+            'custom_levels': custom_levels,
+        })
 
     def post(self, request):
         name = request.POST.get('name', '').strip()
@@ -432,12 +440,85 @@ class ClassDetailView(RoleRequiredMixin, View):
         })
 
 
-class AssignStudentsView(RoleRequiredMixin, View):
-    required_role = Role.TEACHER
+class EditClassView(RoleRequiredMixin, View):
+    required_roles = [
+        Role.TEACHER, Role.HEAD_OF_DEPARTMENT,
+        Role.HEAD_OF_INSTITUTE, Role.INSTITUTE_OWNER,
+    ]
+
+    def _get_classroom(self, request, class_id):
+        user = request.user
+        if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
+            return get_object_or_404(ClassRoom, id=class_id, school__admin=user)
+        elif user.has_role(Role.HEAD_OF_DEPARTMENT):
+            return get_object_or_404(ClassRoom, id=class_id, department__head=user)
+        else:
+            return get_object_or_404(ClassRoom, id=class_id, teachers=request.user)
 
     def get(self, request, class_id):
-        classroom = get_object_or_404(ClassRoom, id=class_id, teachers=request.user)
-        all_students = CustomUser.objects.filter(roles__name=Role.STUDENT)
+        classroom = self._get_classroom(request, class_id)
+        levels = Level.objects.filter(level_number__lte=8, school__isnull=True).order_by('level_number')
+        custom_levels = Level.objects.none()
+        if classroom.school:
+            custom_levels = Level.objects.filter(school=classroom.school).order_by('level_number')
+        return render(request, 'teacher/edit_class.html', {
+            'classroom': classroom,
+            'levels': levels,
+            'custom_levels': custom_levels,
+            'selected_levels': list(classroom.levels.values_list('id', flat=True)),
+        })
+
+    def post(self, request, class_id):
+        classroom = self._get_classroom(request, class_id)
+        name = request.POST.get('name', '').strip()
+        level_ids = request.POST.getlist('levels')
+        day = request.POST.get('day', '').strip()
+        start_time = request.POST.get('start_time', '').strip() or None
+        end_time = request.POST.get('end_time', '').strip() or None
+        description = request.POST.get('description', '').strip()
+
+        if not name:
+            messages.error(request, 'Class name is required.')
+            return redirect('edit_class', class_id=class_id)
+
+        classroom.name = name
+        classroom.day = day
+        classroom.start_time = start_time
+        classroom.end_time = end_time
+        classroom.description = description
+        classroom.save()
+        classroom.levels.set(Level.objects.filter(id__in=level_ids))
+
+        messages.success(request, f'Class "{name}" updated.')
+        return redirect('class_detail', class_id=class_id)
+
+
+class AssignStudentsView(RoleRequiredMixin, View):
+    required_roles = [
+        Role.TEACHER, Role.HEAD_OF_DEPARTMENT,
+        Role.HEAD_OF_INSTITUTE, Role.INSTITUTE_OWNER,
+    ]
+
+    def _get_classroom(self, request, class_id):
+        user = request.user
+        if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
+            return get_object_or_404(ClassRoom, id=class_id, school__admin=user)
+        elif user.has_role(Role.HEAD_OF_DEPARTMENT):
+            return get_object_or_404(ClassRoom, id=class_id, department__head=user)
+        else:
+            return get_object_or_404(ClassRoom, id=class_id, teachers=request.user)
+
+    def get(self, request, class_id):
+        classroom = self._get_classroom(request, class_id)
+        # Show school-scoped students if classroom belongs to a school
+        if classroom.school:
+            from .models import SchoolStudent
+            school_student_ids = SchoolStudent.objects.filter(
+                school=classroom.school
+            ).values_list('student_id', flat=True)
+            all_students = CustomUser.objects.filter(id__in=school_student_ids)
+        else:
+            all_students = CustomUser.objects.filter(roles__name=Role.STUDENT)
         return render(request, 'teacher/assign_students.html', {
             'classroom': classroom,
             'all_students': all_students,
@@ -445,7 +526,7 @@ class AssignStudentsView(RoleRequiredMixin, View):
         })
 
     def post(self, request, class_id):
-        classroom = get_object_or_404(ClassRoom, id=class_id, teachers=request.user)
+        classroom = self._get_classroom(request, class_id)
         student_ids = request.POST.getlist('students')
         added = 0
         for sid in student_ids:
@@ -1069,11 +1150,15 @@ class HoDCreateClassView(RoleRequiredMixin, View):
 
     def get(self, request):
         departments = self._get_departments(request.user)
-        levels = Level.objects.filter(level_number__lte=8).order_by('level_number')
+        levels = Level.objects.filter(level_number__lte=8, school__isnull=True).order_by('level_number')
         selected_dept = request.GET.get('department', '')
+        # Custom levels from user's schools
+        school_ids = departments.values_list('school_id', flat=True).distinct()
+        custom_levels = Level.objects.filter(school_id__in=school_ids).order_by('level_number')
         return render(request, 'hod/create_class.html', {
             'departments': departments,
             'levels': levels,
+            'custom_levels': custom_levels,
             'selected_dept': selected_dept,
         })
 

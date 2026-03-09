@@ -18,6 +18,7 @@ urlpatterns = [
     # Class management
     path('create-class/', views.CreateClassView.as_view(), name='create_class'),
     path('class/<int:class_id>/', views.ClassDetailView.as_view(), name='class_detail'),
+    path('class/<int:class_id>/edit/', views.EditClassView.as_view(), name='edit_class'),
     path('class/<int:class_id>/assign-students/', views.AssignStudentsView.as_view(), name='assign_students'),
     path('class/<int:class_id>/assign-teachers/', views.AssignTeachersView.as_view(), name='assign_teachers'),
     path('class/<int:class_id>/progress/', views.ClassProgressView.as_view(), name='class_progress'),
@@ -43,6 +44,16 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/teachers/<int:teacher_id>/edit/', views_admin.SchoolTeacherEditView.as_view(), name='admin_school_teacher_edit'),
     path('admin-dashboard/schools/<int:school_id>/teachers/<int:teacher_id>/remove/', views_admin.SchoolTeacherRemoveView.as_view(), name='admin_school_teacher_remove'),
     path('admin-dashboard/schools/<int:school_id>/academic-year/create/', views_admin.AcademicYearCreateView.as_view(), name='admin_academic_year_create'),
+
+    # Student management (school-level)
+    path('admin-dashboard/schools/<int:school_id>/students/', views_admin.SchoolStudentManageView.as_view(), name='admin_school_students'),
+    path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/edit/', views_admin.SchoolStudentEditView.as_view(), name='admin_school_student_edit'),
+    path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/remove/', views_admin.SchoolStudentRemoveView.as_view(), name='admin_school_student_remove'),
+
+    # Custom level management (school-level)
+    path('admin-dashboard/schools/<int:school_id>/levels/', views_admin.SchoolLevelManageView.as_view(), name='admin_school_levels'),
+    path('admin-dashboard/schools/<int:school_id>/levels/<int:level_id>/edit/', views_admin.SchoolLevelEditView.as_view(), name='admin_school_level_edit'),
+    path('admin-dashboard/schools/<int:school_id>/levels/<int:level_id>/remove/', views_admin.SchoolLevelRemoveView.as_view(), name='admin_school_level_remove'),
 
     # Department management (within a school)
     path('admin-dashboard/schools/<int:school_id>/departments/', views_department.DepartmentListView.as_view(), name='admin_school_departments'),

@@ -8,12 +8,13 @@ from accounts.models import Role
 from .views import RoleRequiredMixin
 from .models import (
     ClassRoom, ClassStudent, Enrollment, ClassSession,
-    StudentAttendance, Notification,
+    StudentAttendance, Notification, Department,
 )
 
 
-class JoinClassByCodeView(LoginRequiredMixin, View):
+class JoinClassByCodeView(RoleRequiredMixin, View):
     """Allow a student to request enrollment in a class by entering its code."""
+    required_roles = [Role.STUDENT, Role.INDIVIDUAL_STUDENT]
 
     def get(self, request):
         return render(request, 'student/join_class.html')
@@ -95,18 +96,50 @@ class JoinClassByCodeView(LoginRequiredMixin, View):
 
 
 def _notify_class_teachers(classroom, student, is_re_request=False):
-    """Create a Notification for every teacher assigned to the classroom."""
-    teachers = classroom.teachers.all()
+    """Create a Notification for teachers, HoD, and HoI of the classroom."""
     action = 're-requested' if is_re_request else 'requested'
-    for teacher in teachers:
+    notified_ids = set()
+
+    # Notify class teachers
+    for teacher in classroom.teachers.all():
         Notification.objects.create(
             user=teacher,
             message=(
-                f'{student.username} has {action} to join your class '
+                f'{student.username} has {action} to join '
                 f'"{classroom.name}" ({classroom.code}).'
             ),
             notification_type='enrollment_request',
-            link=f'/class/{classroom.id}/',
+            link='/teacher/enrollment-requests/',
+        )
+        notified_ids.add(teacher.id)
+
+    # Notify HoD of the class's department
+    if classroom.department_id:
+        dept = Department.objects.select_related('head').filter(
+            id=classroom.department_id, head__isnull=False, is_active=True
+        ).first()
+        if dept and dept.head_id not in notified_ids:
+            Notification.objects.create(
+                user=dept.head,
+                message=(
+                    f'{student.username} has {action} to join '
+                    f'"{classroom.name}" ({classroom.code}).'
+                ),
+                notification_type='enrollment_request',
+                link='/teacher/enrollment-requests/',
+            )
+            notified_ids.add(dept.head_id)
+
+    # Notify HoI (school admin)
+    if classroom.school_id and classroom.school.admin_id not in notified_ids:
+        Notification.objects.create(
+            user=classroom.school.admin,
+            message=(
+                f'{student.username} has {action} to join '
+                f'"{classroom.name}" ({classroom.code}).'
+            ),
+            notification_type='enrollment_request',
+            link='/teacher/enrollment-requests/',
         )
 
 

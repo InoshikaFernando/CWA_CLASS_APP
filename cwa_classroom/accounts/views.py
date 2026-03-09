@@ -87,6 +87,83 @@ class TeacherCenterRegisterView(View):
 
 
 # ---------------------------------------------------------------------------
+# School Student Registration (simple — no package)
+# ---------------------------------------------------------------------------
+
+class SchoolStudentRegisterView(View):
+    """Register as a school student — no package or subscription needed."""
+
+    def get(self, request):
+        if request.user.is_authenticated:
+            return redirect('subjects_hub')
+        return render(request, 'accounts/register_school_student.html')
+
+    def post(self, request):
+        first_name = request.POST.get('first_name', '').strip()
+        last_name = request.POST.get('last_name', '').strip()
+        email = request.POST.get('email', '').strip()
+        password = request.POST.get('password', '')
+        confirm = request.POST.get('confirm_password', '')
+
+        errors = []
+        if not first_name:
+            errors.append('First name is required.')
+        if not last_name:
+            errors.append('Last name is required.')
+        if not email or '@' not in email:
+            errors.append('A valid email address is required.')
+        elif CustomUser.objects.filter(email=email).exists():
+            errors.append('An account with this email already exists.')
+        if len(password) < 8:
+            errors.append('Password must be at least 8 characters.')
+        if password != confirm:
+            errors.append('Passwords do not match.')
+
+        if errors:
+            return render(request, 'accounts/register_school_student.html', {
+                'errors': errors,
+                'first_name': first_name,
+                'last_name': last_name,
+                'email': email,
+            })
+
+        # Auto-generate username from email prefix
+        base_username = email.split('@')[0].lower().replace(' ', '.')
+        username = base_username
+        counter = 1
+        while CustomUser.objects.filter(username=username).exists():
+            username = f'{base_username}{counter}'
+            counter += 1
+
+        try:
+            with transaction.atomic():
+                user = CustomUser.objects.create_user(
+                    username=username,
+                    email=email,
+                    password=password,
+                    first_name=first_name,
+                    last_name=last_name,
+                )
+                student_role, _ = Role.objects.get_or_create(
+                    name=Role.STUDENT,
+                    defaults={'display_name': 'Student'},
+                )
+                UserRole.objects.create(user=user, role=student_role)
+
+            login(request, user)
+            messages.success(request, f'Welcome, {first_name}! You can now join a class using a class code.')
+            return redirect('student_join_class')
+
+        except Exception as e:
+            return render(request, 'accounts/register_school_student.html', {
+                'errors': [str(e)],
+                'first_name': first_name,
+                'last_name': last_name,
+                'email': email,
+            })
+
+
+# ---------------------------------------------------------------------------
 # Individual Student Registration (3-step)
 # ---------------------------------------------------------------------------
 

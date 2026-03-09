@@ -80,19 +80,21 @@ def atomic_with_retry(max_retries=5, delay=0.01, backoff=2):
 
 
 @retry_on_db_lock(max_retries=5)
-def save_student_final_answer(student, session_id, topic, level, points_earned):
+def save_student_final_answer(student, session_id, topic, level, points_earned,
+                              *, score=0, total_questions=0, points=0.0,
+                              time_taken_seconds=0, quiz_type='topic'):
     """
     Helper function to save StudentFinalAnswer with retry logic.
     This wraps the common pattern of getting attempt number and saving.
     """
     from maths.models import StudentFinalAnswer
-    
+
     attempt_number = StudentFinalAnswer.get_next_attempt_number(
         student=student,
         topic=topic,
         level=level
     )
-    
+
     StudentFinalAnswer.objects.update_or_create(
         student=student,
         session_id=session_id,
@@ -101,6 +103,11 @@ def save_student_final_answer(student, session_id, topic, level, points_earned):
             'level': level,
             'attempt_number': attempt_number,
             'points_earned': points_earned,
+            'score': score,
+            'total_questions': total_questions,
+            'points': points or points_earned,
+            'time_taken_seconds': time_taken_seconds,
+            'quiz_type': quiz_type,
         }
     )
 

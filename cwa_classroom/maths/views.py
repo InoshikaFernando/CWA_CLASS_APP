@@ -2043,13 +2043,14 @@ def take_quiz(request, level_number):
         
         score = 0
         total_points = 0
+        correct_count = 0
         # Create a session id for this quiz attempt to track best records
         import uuid
         session_id = str(uuid.uuid4())
-        
+
         # Store question/answer review data for Basic Facts popup
         question_review_data = [] if is_basic_facts else None
-        
+
         for question in questions:
             total_points += question.points
             
@@ -2063,7 +2064,8 @@ def take_quiz(request, level_number):
                 is_correct = (student_answer_normalized == correct_answer_normalized)
                 if is_correct:
                     score += question.points
-                
+                    correct_count += 1
+
                 # Store question/answer data for review popup
                 question_review_data.append({
                     'question_text': question.question_text,
@@ -2082,7 +2084,8 @@ def take_quiz(request, level_number):
                         is_correct = selected_answer.is_correct
                         if is_correct:
                             score += question.points
-                        
+                            correct_count += 1
+
                         # Save student answer
                         StudentAnswer.objects.update_or_create(
                             student=request.user,
@@ -2187,7 +2190,12 @@ def take_quiz(request, level_number):
                     session_id=session_id,
                     topic=quiz_topic,
                     level=level,
-                    points_earned=final_points
+                    points_earned=final_points,
+                    score=correct_count,
+                    total_questions=len(questions),
+                    points=final_points,
+                    time_taken_seconds=time_taken_seconds,
+                    quiz_type='mixed',
                 )
                 
                 # Update topic statistics asynchronously
@@ -2516,13 +2524,21 @@ def topic_questions(request, level_number, topic_name):
         final_points = (percentage * 100 * 60) / total_time_seconds if total_time_seconds else 0
         final_points = round(final_points, 2)
 
+        correct_count = sum(1 for a in student_answers if a.is_correct)
+        question_count = len(all_questions) or student_answers.count()
+
         from maths.utils import save_student_final_answer
         save_student_final_answer(
             student=request.user,
             session_id=attempt_id,
             topic=topic_obj,
             level=level,
-            points_earned=final_points
+            points_earned=final_points,
+            score=correct_count,
+            total_questions=question_count,
+            points=final_points,
+            time_taken_seconds=total_time_seconds,
+            quiz_type='topic',
         )
 
         current_attempt_id = attempt_id

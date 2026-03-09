@@ -22,10 +22,16 @@ class Level(models.Model):
     """
     level_number 1-8  → Year 1-8 curriculum levels
     level_number >= 100 → Basic Facts levels (always accessible)
+    level_number >= 200 → School-specific custom levels
     """
     level_number = models.PositiveIntegerField(unique=True)
     display_name = models.CharField(max_length=50)
     description = models.TextField(blank=True)
+    school = models.ForeignKey(
+        'School', on_delete=models.CASCADE,
+        null=True, blank=True,
+        related_name='custom_levels',
+    )
 
     class Meta:
         ordering = ['level_number']
@@ -345,6 +351,25 @@ class ClassStudent(models.Model):
 
     def __str__(self):
         return f'{self.student.username} → {self.classroom.name}'
+
+
+class SchoolStudent(models.Model):
+    """Through table: links a student to a school."""
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='school_students')
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='school_student_entries',
+    )
+    is_active = models.BooleanField(default=True)
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('school', 'student')
+        ordering = ['student__first_name', 'student__last_name']
+
+    def __str__(self):
+        return f'{self.student.username} @ {self.school.name}'
 
 
 class StudentLevelEnrollment(models.Model):

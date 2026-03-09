@@ -119,6 +119,38 @@
       </div>
     </div>
 
+    <!-- Students section -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+      <div class="flex items-center justify-between p-6 border-b border-slate-100">
+        <h2 class="text-lg font-semibold text-gray-900">Students</h2>
+        <a href="{% url 'admin_school_students' school.id %}"
+           class="text-sm text-accent hover:text-accent-dark font-medium transition">Manage &rarr;</a>
+      </div>
+      <div class="p-6">
+        <p class="text-sm text-gray-500">{{ student_count }} student{{ student_count|pluralize }} enrolled</p>
+      </div>
+    </div>
+
+    <!-- Custom Levels section -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+      <div class="flex items-center justify-between p-6 border-b border-slate-100">
+        <h2 class="text-lg font-semibold text-gray-900">Custom Levels</h2>
+        <a href="{% url 'admin_school_levels' school.id %}"
+           class="text-sm text-accent hover:text-accent-dark font-medium transition">Manage &rarr;</a>
+      </div>
+      <div class="p-6">
+        {% if custom_levels %}
+          <div class="flex flex-wrap gap-2">
+            {% for level in custom_levels %}
+              <span class="text-xs font-medium px-2.5 py-1 rounded-full bg-purple-100 text-purple-700">{{ level.display_name }}</span>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="text-sm text-gray-400">No custom levels. <a href="{% url 'admin_school_levels' school.id %}" class="text-accent hover:underline">Create levels &rarr;</a></p>
+        {% endif %}
+      </div>
+    </div>
+
     <!-- Classes section -->
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
       <div class="flex items-center justify-between p-6 border-b border-slate-100">
