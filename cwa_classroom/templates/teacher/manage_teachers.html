@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load classroom_extras %}
 {% block title %}Manage Teachers{% endblock %}
 {% block content %}
 <div class="max-w-4xl mx-auto space-y-6">
@@ -18,6 +19,11 @@
         {% for t in classroom.teachers.all %}
         <span class="inline-flex items-center gap-2 bg-blue-50 text-blue-700 rounded-full px-3 py-1 text-sm font-semibold">
           {{ t.get_full_name|default:t.username }}
+          {% with specialty=specialty_map|get_item:t.id %}
+            {% if specialty %}
+              <span class="text-xs text-blue-500 font-normal">· {{ specialty }}</span>
+            {% endif %}
+          {% endwith %}
         </span>
         {% empty %}
           <span class="text-sm text-gray-400">No teachers assigned.</span>

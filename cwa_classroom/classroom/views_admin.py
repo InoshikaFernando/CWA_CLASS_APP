@@ -139,6 +139,7 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
         email = request.POST.get('email', '').strip()
         password = request.POST.get('password', '').strip()
         role = request.POST.get('role', 'teacher')
+        specialty = request.POST.get('specialty', '').strip()
 
         # Validate
         errors = []
@@ -171,6 +172,7 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
                     'last_name': last_name,
                     'email': email,
                     'role': role,
+                    'specialty': specialty,
                 },
             })
 
@@ -209,6 +211,7 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
                 # Link to school with chosen seniority role
                 SchoolTeacher.objects.create(
                     school=school, teacher=user, role=role,
+                    specialty=specialty,
                 )
 
             messages.success(
@@ -231,6 +234,7 @@ class SchoolTeacherEditView(RoleRequiredMixin, View):
             SchoolTeacher, school=school, teacher_id=teacher_id
         )
         new_role = request.POST.get('role', 'teacher')
+        specialty = request.POST.get('specialty', '').strip()
 
         valid_roles = [choice[0] for choice in SchoolTeacher.ROLE_CHOICES]
         if new_role not in valid_roles:
@@ -238,10 +242,11 @@ class SchoolTeacherEditView(RoleRequiredMixin, View):
             return redirect('admin_school_teachers', school_id=school.id)
 
         school_teacher.role = new_role
+        school_teacher.specialty = specialty
         school_teacher.save()
         messages.success(
             request,
-            f'{school_teacher.teacher.get_full_name()} role updated to {school_teacher.get_role_display()}.'
+            f'{school_teacher.teacher.get_full_name()} updated.'
         )
         return redirect('admin_school_teachers', school_id=school.id)
 

@@ -398,10 +398,22 @@ class CreateClassView(RoleRequiredMixin, View):
 
 
 class ClassDetailView(RoleRequiredMixin, View):
-    required_role = Role.TEACHER
+    required_roles = [
+        Role.TEACHER, Role.HEAD_OF_DEPARTMENT,
+        Role.HEAD_OF_INSTITUTE, Role.INSTITUTE_OWNER,
+    ]
 
     def get(self, request, class_id):
-        classroom = get_object_or_404(ClassRoom, id=class_id, teachers=request.user)
+        user = request.user
+        if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
+            classroom = get_object_or_404(ClassRoom, id=class_id, school__admin=user)
+        elif user.has_role(Role.HEAD_OF_DEPARTMENT):
+            classroom = get_object_or_404(
+                ClassRoom, id=class_id,
+                department__head=user,
+            )
+        else:
+            classroom = get_object_or_404(ClassRoom, id=class_id, teachers=request.user)
         return render(request, 'teacher/class_detail.html', {
             'classroom': classroom,
             'students': classroom.students.all(),
@@ -439,22 +451,46 @@ class AssignTeachersView(LoginRequiredMixin, View):
         if not (request.user.is_teacher or request.user.is_head_of_institute or request.user.is_institute_owner):
             return redirect('subjects_hub')
         classroom = get_object_or_404(ClassRoom, id=class_id)
+        # Scope to teachers in the same school
+        if classroom.school:
+            school_teachers = SchoolTeacher.objects.filter(
+                school=classroom.school, is_active=True
+            ).select_related('teacher')
+            all_teachers = []
+            for st in school_teachers:
+                st.teacher.specialty = st.specialty
+                all_teachers.append(st.teacher)
+        else:
+            all_teachers = list(CustomUser.objects.filter(roles__name=Role.TEACHER))
+        assigned_ids = set(classroom.teachers.values_list('id', flat=True))
         return render(request, 'teacher/assign_teachers.html', {
             'classroom': classroom,
-            'all_teachers': CustomUser.objects.filter(roles__name=Role.TEACHER),
+            'all_teachers': all_teachers,
+            'assigned_ids': assigned_ids,
         })
 
     def post(self, request, class_id):
         if not (request.user.is_teacher or request.user.is_head_of_institute or request.user.is_institute_owner):
             return redirect('subjects_hub')
         classroom = get_object_or_404(ClassRoom, id=class_id)
+        selected_ids = set(request.POST.getlist('teachers'))
+        # Add newly selected teachers
         added = 0
-        for tid in request.POST.getlist('teachers'):
+        for tid in selected_ids:
             teacher = get_object_or_404(CustomUser, id=tid)
             _, created = ClassTeacher.objects.get_or_create(classroom=classroom, teacher=teacher)
             if created:
                 added += 1
-        messages.success(request, f'{added} teacher(s) assigned.')
+        # Remove unchecked teachers
+        removed = ClassTeacher.objects.filter(
+            classroom=classroom
+        ).exclude(teacher_id__in=selected_ids).delete()[0]
+        classroom.teachers.set(
+            CustomUser.objects.filter(
+                id__in=ClassTeacher.objects.filter(classroom=classroom).values_list('teacher_id', flat=True)
+            )
+        )
+        messages.success(request, f'{added} teacher(s) added, {removed} removed.')
         return redirect('class_detail', class_id=class_id)
 
 
@@ -495,8 +531,21 @@ class ManageTeachersView(RoleRequiredMixin, View):
     required_role = Role.TEACHER
 
     def get(self, request):
-        classes = ClassRoom.objects.filter(teachers=request.user, is_active=True)
-        return render(request, 'teacher/manage_teachers.html', {'classes': classes})
+        classes = ClassRoom.objects.filter(
+            teachers=request.user, is_active=True
+        ).prefetch_related('teachers')
+        # Build specialty map from SchoolTeacher for all teachers across classes
+        teacher_ids = set()
+        for c in classes:
+            teacher_ids.update(c.teachers.values_list('id', flat=True))
+        specialty_map = {}
+        if teacher_ids:
+            for st in SchoolTeacher.objects.filter(teacher_id__in=teacher_ids):
+                specialty_map[st.teacher_id] = st.specialty
+        return render(request, 'teacher/manage_teachers.html', {
+            'classes': classes,
+            'specialty_map': specialty_map,
+        })
 
 
 class BulkStudentRegistrationView(RoleRequiredMixin, View):
@@ -825,12 +874,18 @@ class HoDManageClassesView(RoleRequiredMixin, View):
             school_id__in=school_ids, is_active=True, department__isnull=True,
         ).prefetch_related('teachers')
 
+        # Build specialty map for all teachers across these schools
+        specialty_map = {}
+        for st in SchoolTeacher.objects.filter(school_id__in=school_ids):
+            specialty_map[st.teacher_id] = st.specialty
+
         return render(request, 'hod/manage_classes.html', {
             'classes': classes,
             'teachers': teachers,
             'is_hod_only': is_hod_only,
             'departments': departments,
             'unassigned_classes': unassigned_classes,
+            'specialty_map': specialty_map,
         })
 
 
