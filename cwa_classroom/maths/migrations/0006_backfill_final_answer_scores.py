@@ -26,7 +26,8 @@ def backfill_scores(apps, schema_editor):
         fa.score = correct
         fa.total_questions = total
         # Recompute points: (percentage * 100 * 60) / time
-        time_taken = fa.time_taken_seconds or 1
+        # Use 60s default for legacy records with no timing data
+        time_taken = fa.time_taken_seconds or 60
         percentage = correct / total if total else 0
         fa.points = round((percentage * 100 * 60) / time_taken, 2)
         fa.save(update_fields=['score', 'total_questions', 'points'])
