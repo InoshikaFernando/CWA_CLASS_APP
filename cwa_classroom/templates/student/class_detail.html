@@ -6,21 +6,21 @@
 <div class="max-w-4xl mx-auto">
 
   <div class="mb-8">
-    <a href="{% url 'student_my_classes' %}" class="text-violet-600 hover:text-violet-700 text-sm font-semibold transition">&larr; Back to My Classes</a>
+    <a href="{% url 'student_my_classes' %}" class="text-emerald-600 hover:text-emerald-700 text-sm font-semibold transition">&larr; Back to My Classes</a>
     <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">{{ classroom.name }}</h1>
     <div class="flex items-center gap-4 mt-1">
-      {% if classroom.subject %}<span class="text-sm text-purple-400 font-semibold">{{ classroom.subject.name }}</span>{% endif %}
-      <span class="text-xs font-mono text-violet-600 bg-violet-100 px-2 py-0.5 rounded-full font-semibold">{{ classroom.code }}</span>
+      {% if classroom.subject %}<span class="text-sm text-emerald-500 font-semibold">{{ classroom.subject.name }}</span>{% endif %}
+      <span class="text-xs font-mono text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full font-semibold">{{ classroom.code }}</span>
     </div>
   </div>
 
   <!-- Attendance summary -->
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-    <div class="bg-gradient-to-br from-violet-500 to-purple-600 rounded-2xl p-4 text-center shadow-md shadow-violet-200">
+    <div class="bg-gradient-to-br from-emerald-500 to-green-600 rounded-2xl p-4 text-center shadow-md shadow-emerald-200">
       <p class="text-xl font-bold text-white">{{ total_sessions }}</p>
       <p class="text-xs text-white/80 font-semibold">Total Sessions</p>
     </div>
-    <div class="bg-gradient-to-br from-emerald-400 to-green-500 rounded-2xl p-4 text-center shadow-md shadow-green-200">
+    <div class="bg-gradient-to-br from-green-400 to-emerald-500 rounded-2xl p-4 text-center shadow-md shadow-green-200">
       <p class="text-xl font-bold text-white">{{ present_count }}</p>
       <p class="text-xs text-white/80 font-semibold">Present</p>
     </div>
@@ -37,20 +37,20 @@
   <!-- Sessions list -->
   <h2 class="text-lg font-semibold text-gray-900 mb-4">📅 Sessions</h2>
   {% if sessions %}
-    <div class="bg-white rounded-2xl border border-violet-100 shadow-sm overflow-hidden">
+    <div class="bg-white rounded-2xl border border-emerald-100 shadow-sm overflow-hidden">
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
-            <tr class="text-left text-purple-500 bg-violet-50">
+            <tr class="text-left text-emerald-600 bg-emerald-50">
               <th class="px-6 py-3 font-semibold">Date</th>
               <th class="px-6 py-3 font-semibold">Time</th>
               <th class="px-6 py-3 font-semibold">Status</th>
               <th class="px-6 py-3 font-semibold">Attendance</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-violet-50">
+          <tbody class="divide-y divide-emerald-50">
             {% for session in sessions %}
-              <tr class="hover:bg-violet-50/30 transition">
+              <tr class="hover:bg-emerald-50/30 transition">
                 <td class="px-6 py-3 font-medium text-gray-900">{{ session.date|date:"D, d M Y" }}</td>
                 <td class="px-6 py-3 text-gray-600">{{ session.start_time|time:"H:i" }}–{{ session.end_time|time:"H:i" }}</td>
                 <td class="px-6 py-3">
@@ -82,7 +82,7 @@
       </div>
     </div>
   {% else %}
-    <div class="bg-white rounded-2xl p-8 border border-violet-100 text-center">
+    <div class="bg-white rounded-2xl p-8 border border-emerald-100 text-center">
       <p class="text-gray-400">No sessions scheduled yet.</p>
     </div>
   {% endif %}
