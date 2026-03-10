@@ -5,7 +5,7 @@
   <div class="flex items-start justify-between">
     <div>
       <h1 class="font-display text-3xl text-primary">{{ classroom.name }}</h1>
-      <div class="flex items-center gap-3 mt-2">
+      <div class="flex items-center gap-3 mt-2 flex-wrap">
         <span class="font-mono text-sm bg-gray-100 text-gray-600 rounded-lg px-3 py-1 cursor-pointer"
               onclick="navigator.clipboard.writeText('{{ classroom.code }}'); this.textContent='Copied!';"
               title="Click to copy class code">
@@ -37,6 +37,46 @@
     </div>
   </div>
 
+  <!-- Today's Session Bar -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+    <div class="flex items-center justify-between">
+      <div>
+        <h2 class="font-bold text-gray-800">Today's Session</h2>
+        <p class="text-sm text-gray-500 mt-0.5">
+          {% if classroom.day %}{{ classroom.get_day_display }}{% endif %}
+          {% if classroom.start_time %} &middot; {{ classroom.start_time|time:"g:ia" }}{% if classroom.end_time %} – {{ classroom.end_time|time:"g:ia" }}{% endif %}{% endif %}
+        </p>
+      </div>
+      {% if can_start_session %}
+        <form method="post" action="{% url 'start_session' class_id=classroom.id %}">
+          {% csrf_token %}
+          <button type="submit"
+                  class="inline-flex items-center gap-2 bg-accent hover:bg-accent-dark text-white text-sm font-semibold rounded-xl px-6 py-2.5 transition shadow-sm">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z"/>
+            </svg>
+            Start Session
+          </button>
+        </form>
+      {% elif todays_session %}
+        <div class="flex items-center gap-3">
+          <span class="text-xs font-semibold px-2.5 py-1 rounded-full
+            {% if todays_session.status == 'completed' %}bg-emerald-100 text-emerald-700
+            {% elif todays_session.status == 'cancelled' %}bg-red-100 text-red-700
+            {% else %}bg-blue-100 text-blue-700{% endif %}">
+            {{ todays_session.get_status_display }}
+          </span>
+          {% if todays_session.status == 'scheduled' %}
+            <a href="{% url 'session_attendance' todays_session.id %}"
+               class="bg-accent hover:bg-accent-dark text-white text-sm font-semibold rounded-xl px-4 py-2.5 transition">
+              Mark Attendance
+            </a>
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
   <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
     <!-- Students -->
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
@@ -60,7 +100,7 @@
         {% endfor %}
       </ul>
       {% else %}
-        <p class="text-sm text-gray-400">No students yet. <a href="{% url 'assign_students' class_id=classroom.id %}" class="text-primary font-semibold hover:underline">Add students →</a></p>
+        <p class="text-sm text-gray-400">No students yet. <a href="{% url 'assign_students' class_id=classroom.id %}" class="text-primary font-semibold hover:underline">Add students &rarr;</a></p>
       {% endif %}
     </div>
 
@@ -86,6 +126,75 @@
         <p class="text-sm text-gray-400">No other teachers.</p>
       {% endif %}
     </div>
+  </div>
+
+  <!-- Sessions Table -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+    <div class="flex items-center justify-between p-6 pb-4">
+      <h2 class="font-bold text-gray-800">Sessions</h2>
+      <a href="{% url 'create_session' class_id=classroom.id %}"
+         class="text-xs text-primary font-semibold hover:text-primary-dark transition">+ Create Session</a>
+    </div>
+    {% if sessions %}
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-gray-500 bg-slate-50 border-t border-slate-100">
+            <th class="px-6 py-3 font-semibold">Date</th>
+            <th class="px-6 py-3 font-semibold">Time</th>
+            <th class="px-6 py-3 font-semibold">Status</th>
+            <th class="px-6 py-3 font-semibold text-center">Attendance</th>
+            <th class="px-6 py-3 font-semibold text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-50">
+          {% for session in sessions %}
+          <tr class="hover:bg-slate-50/50 transition">
+            <td class="px-6 py-3 font-medium text-gray-900">{{ session.date|date:"D, d M" }}</td>
+            <td class="px-6 py-3 text-gray-600">{{ session.start_time|time:"H:i" }} – {{ session.end_time|time:"H:i" }}</td>
+            <td class="px-6 py-3">
+              <span class="text-xs font-semibold px-2 py-1 rounded-full
+                {% if session.status == 'completed' %}bg-emerald-100 text-emerald-700
+                {% elif session.status == 'cancelled' %}bg-red-100 text-red-700
+                {% else %}bg-blue-100 text-blue-700{% endif %}">
+                {{ session.get_status_display }}
+              </span>
+            </td>
+            <td class="px-6 py-3 text-center text-xs text-gray-600">
+              {% if session.present_count or session.late_count or session.absent_count %}
+                <span class="text-emerald-600">{{ session.present_count }}P</span>
+                <span class="text-amber-600 ml-1">{{ session.late_count }}L</span>
+                <span class="text-red-600 ml-1">{{ session.absent_count }}A</span>
+              {% else %}
+                <span class="text-gray-400">--</span>
+              {% endif %}
+            </td>
+            <td class="px-6 py-3 text-right">
+              {% if session.status == 'scheduled' %}
+                <div class="flex items-center justify-end gap-2">
+                  <a href="{% url 'session_attendance' session.id %}"
+                     class="text-xs text-accent font-semibold hover:underline">Attendance</a>
+                  <form method="post" action="{% url 'complete_session' session_id=session.id %}" class="inline">
+                    {% csrf_token %}
+                    <button type="submit" class="text-xs text-emerald-600 font-semibold hover:underline">Complete</button>
+                  </form>
+                  <form method="post" action="{% url 'cancel_session' session_id=session.id %}" class="inline">
+                    {% csrf_token %}
+                    <button type="submit" class="text-xs text-red-500 font-semibold hover:underline">Cancel</button>
+                  </form>
+                </div>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="p-6 pt-2 text-center">
+      <p class="text-sm text-gray-400">No sessions yet. Start a session or create one manually.</p>
+    </div>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

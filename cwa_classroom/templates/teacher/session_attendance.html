@@ -6,9 +6,12 @@
 <div class="max-w-3xl mx-auto">
 
   <div class="mb-8">
-    <a href="{% url 'teacher_dashboard' %}" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back to Dashboard</a>
+    <a href="{% url 'class_detail' class_id=session.classroom.id %}" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back to {{ session.classroom.name }}</a>
     <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Mark Attendance</h1>
     <p class="text-gray-500 mt-1">{{ session.classroom.name }} &middot; {{ session.date|date:"D, d M Y" }} &middot; {{ session.start_time|time:"H:i" }}–{{ session.end_time|time:"H:i" }}</p>
+    {% if session.status == 'completed' %}
+      <span class="inline-block mt-2 text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700">Session Completed</span>
+    {% endif %}
   </div>
 
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
@@ -53,18 +56,47 @@
             </div>
           {% endfor %}
         </div>
-
-        <div class="px-6 py-4 bg-slate-50 rounded-b-2xl flex justify-end">
-          <button type="submit"
-                  class="px-6 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm">
-            Save Attendance
-          </button>
-        </div>
       {% else %}
         <div class="p-8 text-center">
           <p class="text-gray-400">No students enrolled in this class.</p>
         </div>
       {% endif %}
+
+      <!-- Teacher Attendance -->
+      <div class="px-6 py-4 bg-blue-50 border-t border-blue-100">
+        <h3 class="font-semibold text-gray-800 mb-3">Your Attendance</h3>
+        <div class="flex items-center gap-4">
+          <label class="flex items-center gap-1.5 cursor-pointer">
+            <input type="radio" name="teacher_status" value="present"
+                   {% if teacher_attendance.status == 'present' or not teacher_attendance %}checked{% endif %}
+                   class="text-emerald-600 focus:ring-emerald-500">
+            <span class="text-sm text-gray-700">Present</span>
+          </label>
+          <label class="flex items-center gap-1.5 cursor-pointer">
+            <input type="radio" name="teacher_status" value="absent"
+                   {% if teacher_attendance.status == 'absent' %}checked{% endif %}
+                   class="text-red-500 focus:ring-red-400">
+            <span class="text-sm text-gray-700">Absent</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Complete Session + Save -->
+      <div class="px-6 py-4 bg-slate-50 rounded-b-2xl">
+        {% if session.status == 'scheduled' %}
+        <label class="flex items-center gap-2 cursor-pointer mb-4">
+          <input type="checkbox" name="complete_session"
+                 class="rounded text-accent focus:ring-accent">
+          <span class="text-sm text-gray-700">Mark session as completed after saving</span>
+        </label>
+        {% endif %}
+        <div class="flex justify-end">
+          <button type="submit"
+                  class="px-6 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm">
+            Save Attendance
+          </button>
+        </div>
+      </div>
     </form>
   </div>
 

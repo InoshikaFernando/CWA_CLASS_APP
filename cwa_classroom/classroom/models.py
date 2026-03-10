@@ -406,6 +406,12 @@ class ClassSession(models.Model):
     end_time = models.TimeField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='scheduled')
     cancellation_reason = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='created_sessions',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

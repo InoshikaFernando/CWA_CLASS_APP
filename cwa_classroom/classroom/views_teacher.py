@@ -358,10 +358,16 @@ class SessionAttendanceView(RoleRequiredMixin, View):
                 'approved': record.get('approved_by') is not None,
             })
 
+        # Teacher's own attendance for this session
+        teacher_attendance = TeacherAttendance.objects.filter(
+            session=session, teacher=request.user,
+        ).first()
+
         return render(request, 'teacher/session_attendance.html', {
             'session': session,
             'classroom': session.classroom,
             'students_with_status': students_with_status,
+            'teacher_attendance': teacher_attendance,
         })
 
     def post(self, request, session_id):
@@ -399,6 +405,26 @@ class SessionAttendanceView(RoleRequiredMixin, View):
                 },
             )
             saved_count += 1
+
+        # Save teacher's own attendance
+        teacher_status = request.POST.get('teacher_status', '').strip()
+        if teacher_status in ('present', 'absent'):
+            TeacherAttendance.objects.update_or_create(
+                session=session,
+                teacher=request.user,
+                defaults={
+                    'status': teacher_status,
+                    'self_reported': False,
+                },
+            )
+
+        # Optionally complete the session
+        complete_session = request.POST.get('complete_session') == 'on'
+        if complete_session and session.status == 'scheduled':
+            session.status = 'completed'
+            session.save(update_fields=['status'])
+            messages.success(request, f'Attendance saved for {saved_count} student(s). Session marked as completed.')
+            return redirect('class_detail', class_id=session.classroom_id)
 
         messages.success(request, f'Attendance saved for {saved_count} student(s).')
         return redirect('session_attendance', session_id=session_id)
@@ -583,3 +609,189 @@ class StudentAttendanceBulkApproveView(RoleRequiredMixin, View):
 
         messages.success(request, f'Approved {count} attendance record(s) for {session}.')
         return redirect('attendance_approvals')
+
+
+# ---------------------------------------------------------------------------
+# 11. StartSessionView
+# ---------------------------------------------------------------------------
+
+class StartSessionView(RoleRequiredMixin, View):
+    """One-click: create today's session and go to attendance marking."""
+    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
+
+    def post(self, request, class_id):
+        classroom = get_object_or_404(ClassRoom, id=class_id, is_active=True)
+
+        if not ClassTeacher.objects.filter(classroom=classroom, teacher=request.user).exists():
+            messages.error(request, 'You are not assigned to this class.')
+            return redirect('teacher_dashboard')
+
+        today = timezone.localdate()
+
+        # Check for existing session today
+        existing = ClassSession.objects.filter(classroom=classroom, date=today).first()
+        if existing:
+            if existing.status == 'scheduled':
+                return redirect('session_attendance', session_id=existing.id)
+            elif existing.status == 'completed':
+                messages.info(request, 'A session for today has already been completed.')
+                return redirect('class_detail', class_id=class_id)
+            # If cancelled, allow creating a new one (fall through)
+
+        now = timezone.localtime().time()
+        session = ClassSession.objects.create(
+            classroom=classroom,
+            date=today,
+            start_time=classroom.start_time or now,
+            end_time=classroom.end_time or (timezone.localtime() + timedelta(hours=1)).time(),
+            status='scheduled',
+            created_by=request.user,
+        )
+
+        # Auto-mark the starting teacher as present
+        TeacherAttendance.objects.get_or_create(
+            session=session,
+            teacher=request.user,
+            defaults={'status': 'present', 'self_reported': False},
+        )
+
+        messages.success(request, f'Session started for {classroom.name}.')
+        return redirect('session_attendance', session_id=session.id)
+
+
+# ---------------------------------------------------------------------------
+# 12. CreateSessionView
+# ---------------------------------------------------------------------------
+
+class CreateSessionView(RoleRequiredMixin, View):
+    """Manual session creation form for specific dates/times."""
+    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
+
+    def _get_classroom(self, request, class_id):
+        classroom = get_object_or_404(ClassRoom, id=class_id, is_active=True)
+        if not ClassTeacher.objects.filter(classroom=classroom, teacher=request.user).exists():
+            return None
+        return classroom
+
+    def get(self, request, class_id):
+        classroom = self._get_classroom(request, class_id)
+        if not classroom:
+            messages.error(request, 'You are not assigned to this class.')
+            return redirect('teacher_dashboard')
+
+        return render(request, 'teacher/create_session.html', {
+            'classroom': classroom,
+            'default_date': timezone.localdate().isoformat(),
+            'default_start': classroom.start_time.strftime('%H:%M') if classroom.start_time else '',
+            'default_end': classroom.end_time.strftime('%H:%M') if classroom.end_time else '',
+        })
+
+    def post(self, request, class_id):
+        classroom = self._get_classroom(request, class_id)
+        if not classroom:
+            messages.error(request, 'You are not assigned to this class.')
+            return redirect('teacher_dashboard')
+
+        from datetime import date as date_cls, time as time_cls
+        import datetime
+
+        date_str = request.POST.get('date', '').strip()
+        start_str = request.POST.get('start_time', '').strip()
+        end_str = request.POST.get('end_time', '').strip()
+        go_to_attendance = request.POST.get('go_to_attendance') == 'on'
+
+        # Validate date
+        try:
+            session_date = datetime.date.fromisoformat(date_str)
+        except (ValueError, TypeError):
+            messages.error(request, 'Please enter a valid date.')
+            return redirect('create_session', class_id=class_id)
+
+        # Validate times
+        try:
+            start_time = datetime.time.fromisoformat(start_str) if start_str else (classroom.start_time or datetime.time(9, 0))
+            end_time = datetime.time.fromisoformat(end_str) if end_str else (classroom.end_time or datetime.time(10, 0))
+        except (ValueError, TypeError):
+            messages.error(request, 'Please enter valid times.')
+            return redirect('create_session', class_id=class_id)
+
+        # Check for duplicate
+        if ClassSession.objects.filter(classroom=classroom, date=session_date).exclude(status='cancelled').exists():
+            messages.error(request, f'A session already exists for {session_date.strftime("%d %b %Y")}.')
+            return redirect('create_session', class_id=class_id)
+
+        session = ClassSession.objects.create(
+            classroom=classroom,
+            date=session_date,
+            start_time=start_time,
+            end_time=end_time,
+            status='scheduled',
+            created_by=request.user,
+        )
+
+        messages.success(request, f'Session created for {session_date.strftime("%d %b %Y")}.')
+
+        if go_to_attendance:
+            return redirect('session_attendance', session_id=session.id)
+        return redirect('class_detail', class_id=class_id)
+
+
+# ---------------------------------------------------------------------------
+# 13. CompleteSessionView
+# ---------------------------------------------------------------------------
+
+class CompleteSessionView(RoleRequiredMixin, View):
+    """Mark a session as completed."""
+    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
+
+    def post(self, request, session_id):
+        session = get_object_or_404(
+            ClassSession.objects.select_related('classroom'),
+            id=session_id,
+        )
+
+        if not ClassTeacher.objects.filter(
+            classroom=session.classroom, teacher=request.user,
+        ).exists():
+            messages.error(request, 'You are not assigned to this class.')
+            return redirect('teacher_dashboard')
+
+        if session.status != 'scheduled':
+            messages.warning(request, f'Session is already {session.get_status_display().lower()}.')
+        else:
+            session.status = 'completed'
+            session.save(update_fields=['status'])
+            messages.success(request, 'Session marked as completed.')
+
+        return redirect('class_detail', class_id=session.classroom_id)
+
+
+# ---------------------------------------------------------------------------
+# 14. CancelSessionView
+# ---------------------------------------------------------------------------
+
+class CancelSessionView(RoleRequiredMixin, View):
+    """Cancel a scheduled session."""
+    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
+
+    def post(self, request, session_id):
+        session = get_object_or_404(
+            ClassSession.objects.select_related('classroom'),
+            id=session_id,
+        )
+
+        if not ClassTeacher.objects.filter(
+            classroom=session.classroom, teacher=request.user,
+        ).exists():
+            messages.error(request, 'You are not assigned to this class.')
+            return redirect('teacher_dashboard')
+
+        if session.status != 'scheduled':
+            messages.warning(request, f'Session is already {session.get_status_display().lower()}.')
+        else:
+            session.status = 'cancelled'
+            session.cancellation_reason = request.POST.get('reason', '').strip()
+            session.save(update_fields=['status', 'cancellation_reason'])
+            messages.success(request, 'Session cancelled.')
+
+        return redirect('class_detail', class_id=session.classroom_id)

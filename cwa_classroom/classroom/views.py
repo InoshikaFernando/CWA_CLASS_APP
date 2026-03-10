@@ -426,6 +426,9 @@ class ClassDetailView(RoleRequiredMixin, View):
     ]
 
     def get(self, request, class_id):
+        from django.utils import timezone
+        from django.db.models import Count, Q
+
         user = request.user
         if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
             classroom = get_object_or_404(ClassRoom, id=class_id, school__admin=user)
@@ -436,10 +439,28 @@ class ClassDetailView(RoleRequiredMixin, View):
             )
         else:
             classroom = get_object_or_404(ClassRoom, id=class_id, teachers=request.user)
+
+        # Sessions for this class (last 10, with attendance counts)
+        sessions = (
+            ClassSession.objects.filter(classroom=classroom)
+            .annotate(
+                present_count=Count('student_attendance', filter=Q(student_attendance__status='present')),
+                late_count=Count('student_attendance', filter=Q(student_attendance__status='late')),
+                absent_count=Count('student_attendance', filter=Q(student_attendance__status='absent')),
+            )
+            .order_by('-date', '-start_time')[:10]
+        )
+
+        today = timezone.localdate()
+        todays_session = ClassSession.objects.filter(classroom=classroom, date=today).first()
+
         return render(request, 'teacher/class_detail.html', {
             'classroom': classroom,
             'students': classroom.students.all(),
             'teachers': classroom.teachers.all(),
+            'sessions': sessions,
+            'todays_session': todays_session,
+            'can_start_session': todays_session is None,
         })
 
 
