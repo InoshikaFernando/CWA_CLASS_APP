@@ -1,3 +1,6 @@
+import re
+
+from django.http import JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
 from django.contrib.auth import login, update_session_auth_hash
@@ -104,6 +107,7 @@ class SchoolStudentRegisterView(View):
         email = request.POST.get('email', '').strip()
         password = request.POST.get('password', '')
         confirm = request.POST.get('confirm_password', '')
+        username = request.POST.get('username', '').strip()
 
         errors = []
         if not first_name:
@@ -119,21 +123,20 @@ class SchoolStudentRegisterView(View):
         if password != confirm:
             errors.append('Passwords do not match.')
 
+        # Username: use provided or auto-generate from email
+        if username:
+            errors.extend(_validate_username(username))
+        elif email and '@' in email:
+            username = _generate_username_suggestion(email)
+
         if errors:
             return render(request, 'accounts/register_school_student.html', {
                 'errors': errors,
                 'first_name': first_name,
                 'last_name': last_name,
                 'email': email,
+                'username': username,
             })
-
-        # Auto-generate username from email prefix
-        base_username = email.split('@')[0].lower().replace(' ', '.')
-        username = base_username
-        counter = 1
-        while CustomUser.objects.filter(username=username).exists():
-            username = f'{base_username}{counter}'
-            counter += 1
 
         try:
             with transaction.atomic():
@@ -275,6 +278,16 @@ class ProfileView(LoginRequiredMixin, View):
         action = request.POST.get('action')
 
         if action == 'update_profile':
+            # Update username if changed
+            new_username = request.POST.get('username', '').strip()
+            if new_username and new_username != request.user.username:
+                errors = _validate_username(new_username, exclude_user_id=request.user.id)
+                if errors:
+                    for err in errors:
+                        messages.error(request, err)
+                    return redirect('profile')
+                request.user.username = new_username
+
             request.user.first_name = request.POST.get('first_name', '').strip()
             request.user.last_name = request.POST.get('last_name', '').strip()
             request.user.email = request.POST.get('email', '').strip()
@@ -468,12 +481,42 @@ class ChangePackageView(LoginRequiredMixin, View):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _validate_registration(username, email, password, confirm):
+def _validate_username(username, exclude_user_id=None):
+    """Validate username format and uniqueness. Returns list of error strings."""
     errors = []
     if not username:
         errors.append('Username is required.')
-    elif CustomUser.objects.filter(username=username).exists():
+        return errors
+    if len(username) < 3:
+        errors.append('Username must be at least 3 characters.')
+    if len(username) > 150:
+        errors.append('Username must be 150 characters or fewer.')
+    if not re.match(r'^[\w.]+$', username):
+        errors.append('Username can only contain letters, numbers, underscores, and dots.')
+    qs = CustomUser.objects.filter(username=username)
+    if exclude_user_id:
+        qs = qs.exclude(id=exclude_user_id)
+    if qs.exists():
         errors.append(f'Username "{username}" is already taken.')
+    return errors
+
+
+def _generate_username_suggestion(email):
+    """Generate a unique username from an email address."""
+    base_username = email.split('@')[0].lower().replace(' ', '.')
+    base_username = re.sub(r'[^\w.]', '', base_username)
+    if len(base_username) < 3:
+        base_username = base_username + 'user'
+    username = base_username
+    counter = 1
+    while CustomUser.objects.filter(username=username).exists():
+        username = f'{base_username}{counter}'
+        counter += 1
+    return username
+
+
+def _validate_registration(username, email, password, confirm):
+    errors = _validate_username(username)
     if not email or '@' not in email:
         errors.append('A valid email address is required.')
     elif CustomUser.objects.filter(email=email).exists():
@@ -483,3 +526,16 @@ def _validate_registration(username, email, password, confirm):
     if password != confirm:
         errors.append('Passwords do not match.')
     return errors
+
+
+class CheckUsernameView(View):
+    """AJAX endpoint: check if a username is available."""
+    def get(self, request):
+        username = request.GET.get('username', '').strip()
+        exclude_id = request.GET.get('exclude_id')
+        try:
+            exclude_id = int(exclude_id) if exclude_id else None
+        except (ValueError, TypeError):
+            exclude_id = None
+        errors = _validate_username(username, exclude_user_id=exclude_id)
+        return JsonResponse({'available': len(errors) == 0, 'errors': errors})

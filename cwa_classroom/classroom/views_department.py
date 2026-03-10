@@ -5,6 +5,7 @@ from django.db import transaction
 from django.utils.text import slugify
 
 from accounts.models import CustomUser, Role, UserRole
+from accounts.views import _validate_username, _generate_username_suggestion
 from .models import School, SchoolTeacher, Department, DepartmentTeacher, ClassRoom, Subject
 from .views import RoleRequiredMixin
 
@@ -217,6 +218,7 @@ class DepartmentAssignHoDView(RoleRequiredMixin, View):
             last_name = request.POST.get('last_name', '').strip()
             email = request.POST.get('email', '').strip()
             password = request.POST.get('password', '').strip()
+            username = request.POST.get('username', '').strip()
 
             errors = []
             if not first_name:
@@ -229,6 +231,12 @@ class DepartmentAssignHoDView(RoleRequiredMixin, View):
                 errors.append('A user with this email already exists.')
             if len(password) < 8:
                 errors.append('Password must be at least 8 characters.')
+
+            # Username: use provided or auto-generate from email
+            if username:
+                errors.extend(_validate_username(username))
+            elif email and '@' in email:
+                username = _generate_username_suggestion(email)
 
             if errors:
                 for err in errors:
@@ -244,15 +252,9 @@ class DepartmentAssignHoDView(RoleRequiredMixin, View):
                         'first_name': first_name,
                         'last_name': last_name,
                         'email': email,
+                        'username': username,
                     },
                 })
-
-            base_username = email.split('@')[0].lower().replace(' ', '.')
-            username = base_username
-            counter = 1
-            while CustomUser.objects.filter(username=username).exists():
-                username = f'{base_username}{counter}'
-                counter += 1
 
             try:
                 with transaction.atomic():
@@ -283,7 +285,7 @@ class DepartmentAssignHoDView(RoleRequiredMixin, View):
 
                 messages.success(
                     request,
-                    f'{first_name} {last_name} created and assigned as Head of {department.name}.'
+                    f'{first_name} {last_name} created and assigned as Head of {department.name}. Login username: {username}'
                 )
             except Exception as e:
                 messages.error(request, f'Error creating HoD: {e}')

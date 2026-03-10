@@ -8,6 +8,7 @@ from django.utils.text import slugify
 from django.utils import timezone
 
 from accounts.models import CustomUser, Role, UserRole
+from accounts.views import _validate_username, _generate_username_suggestion
 from .models import (
     School, SchoolTeacher, AcademicYear, ClassRoom, ClassSession, Department,
     SchoolStudent, Level,
@@ -158,6 +159,7 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
         last_name = request.POST.get('last_name', '').strip()
         email = request.POST.get('email', '').strip()
         password = request.POST.get('password', '').strip()
+        username = request.POST.get('username', '').strip()
         role = request.POST.get('role', 'teacher')
         specialty = request.POST.get('specialty', '').strip()
 
@@ -173,6 +175,12 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
             errors.append('A user with this email already exists.')
         if len(password) < 8:
             errors.append('Password must be at least 8 characters.')
+
+        # Username: use provided or auto-generate from email
+        if username:
+            errors.extend(_validate_username(username))
+        elif email and '@' in email:
+            username = _generate_username_suggestion(email)
 
         allowed_choices = self._get_role_choices(request.user)
         valid_roles = [choice[0] for choice in allowed_choices]
@@ -191,18 +199,11 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
                     'first_name': first_name,
                     'last_name': last_name,
                     'email': email,
+                    'username': username,
                     'role': role,
                     'specialty': specialty,
                 },
             })
-
-        # Generate username from email (part before @), ensure unique
-        base_username = email.split('@')[0].lower().replace(' ', '.')
-        username = base_username
-        counter = 1
-        while CustomUser.objects.filter(username=username).exists():
-            username = f'{base_username}{counter}'
-            counter += 1
 
         try:
             with transaction.atomic():
@@ -236,7 +237,7 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
 
             messages.success(
                 request,
-                f'{first_name} {last_name} added as {dict(SchoolTeacher.ROLE_CHOICES).get(role, role)}.'
+                f'{first_name} {last_name} added as {dict(SchoolTeacher.ROLE_CHOICES).get(role, role)}. Login username: {username}'
             )
         except Exception as e:
             messages.error(request, f'Error creating teacher: {e}')
@@ -245,7 +246,7 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
 
 
 class SchoolTeacherEditView(RoleRequiredMixin, View):
-    """Change a teacher's role within a school."""
+    """Edit a teacher's details and role within a school."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def post(self, request, school_id, teacher_id):
@@ -253,20 +254,43 @@ class SchoolTeacherEditView(RoleRequiredMixin, View):
         school_teacher = get_object_or_404(
             SchoolTeacher, school=school, teacher_id=teacher_id
         )
+        teacher = school_teacher.teacher
         new_role = request.POST.get('role', 'teacher')
         specialty = request.POST.get('specialty', '').strip()
+        username = request.POST.get('username', '').strip()
+        first_name = request.POST.get('first_name', '').strip()
+        last_name = request.POST.get('last_name', '').strip()
+        email = request.POST.get('email', '').strip()
 
         valid_roles = [choice[0] for choice in SchoolTeacher.ROLE_CHOICES]
         if new_role not in valid_roles:
             messages.error(request, 'Invalid role selected.')
             return redirect('admin_school_teachers', school_id=school.id)
 
+        # Update username if changed
+        if username and username != teacher.username:
+            errors = _validate_username(username, exclude_user_id=teacher.id)
+            if errors:
+                for err in errors:
+                    messages.error(request, err)
+                return redirect('admin_school_teachers', school_id=school.id)
+            teacher.username = username
+
+        if first_name:
+            teacher.first_name = first_name
+        if last_name:
+            teacher.last_name = last_name
+        if email and '@' in email:
+            if not CustomUser.objects.filter(email=email).exclude(id=teacher.id).exists():
+                teacher.email = email
+        teacher.save()
+
         school_teacher.role = new_role
         school_teacher.specialty = specialty
         school_teacher.save()
         messages.success(
             request,
-            f'{school_teacher.teacher.get_full_name()} updated.'
+            f'{teacher.get_full_name()} updated.'
         )
         return redirect('admin_school_teachers', school_id=school.id)
 
@@ -404,6 +428,7 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
         last_name = request.POST.get('last_name', '').strip()
         email = request.POST.get('email', '').strip()
         password = request.POST.get('password', '').strip()
+        username = request.POST.get('username', '').strip()
 
         errors = []
         if not first_name:
@@ -417,6 +442,12 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
         if len(password) < 8:
             errors.append('Password must be at least 8 characters.')
 
+        # Username: use provided or auto-generate from email
+        if username:
+            errors.extend(_validate_username(username))
+        elif email and '@' in email:
+            username = _generate_username_suggestion(email)
+
         if errors:
             for err in errors:
                 messages.error(request, err)
@@ -429,15 +460,9 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
                     'first_name': first_name,
                     'last_name': last_name,
                     'email': email,
+                    'username': username,
                 },
             })
-
-        base_username = email.split('@')[0].lower().replace(' ', '.')
-        username = base_username
-        counter = 1
-        while CustomUser.objects.filter(username=username).exists():
-            username = f'{base_username}{counter}'
-            counter += 1
 
         try:
             with transaction.atomic():
@@ -450,7 +475,7 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
                 )
                 UserRole.objects.create(user=user, role=student_role, assigned_by=request.user)
                 SchoolStudent.objects.create(school=school, student=user)
-            messages.success(request, f'{first_name} {last_name} added as student.')
+            messages.success(request, f'{first_name} {last_name} added as student. Login username: {username}')
         except Exception as e:
             messages.error(request, f'Error creating student: {e}')
 
@@ -473,6 +498,16 @@ class SchoolStudentEditView(RoleRequiredMixin, View):
         first_name = request.POST.get('first_name', '').strip()
         last_name = request.POST.get('last_name', '').strip()
         email = request.POST.get('email', '').strip()
+        username = request.POST.get('username', '').strip()
+
+        # Update username if changed
+        if username and username != student.username:
+            errors = _validate_username(username, exclude_user_id=student.id)
+            if errors:
+                for err in errors:
+                    messages.error(request, err)
+                return redirect('admin_school_students', school_id=school.id)
+            student.username = username
 
         if first_name:
             student.first_name = first_name
