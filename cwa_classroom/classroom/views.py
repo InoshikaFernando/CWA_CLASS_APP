@@ -464,11 +464,13 @@ class EditClassView(RoleRequiredMixin, View):
         custom_levels = Level.objects.none()
         if classroom.school:
             custom_levels = Level.objects.filter(school=classroom.school).order_by('level_number')
+        back_url = request.GET.get('next', '')
         return render(request, 'teacher/edit_class.html', {
             'classroom': classroom,
             'levels': levels,
             'custom_levels': custom_levels,
             'selected_levels': list(classroom.levels.values_list('id', flat=True)),
+            'back_url': back_url,
         })
 
     def post(self, request, class_id):
@@ -479,6 +481,7 @@ class EditClassView(RoleRequiredMixin, View):
         start_time = request.POST.get('start_time', '').strip() or None
         end_time = request.POST.get('end_time', '').strip() or None
         description = request.POST.get('description', '').strip()
+        next_url = request.POST.get('next', '').strip()
 
         if not name:
             messages.error(request, 'Class name is required.')
@@ -493,6 +496,8 @@ class EditClassView(RoleRequiredMixin, View):
         classroom.levels.set(Level.objects.filter(id__in=level_ids))
 
         messages.success(request, f'Class "{name}" updated.')
+        if next_url:
+            return redirect(next_url)
         return redirect('class_detail', class_id=class_id)
 
 
