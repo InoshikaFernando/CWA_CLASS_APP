@@ -98,6 +98,33 @@ python manage.py consolidate_to_maths --skip-progress
 
 ---
 
+## Maintenance
+
+### `backfill_final_answer_scores`
+Backfill `score` and `total_questions` on existing `StudentFinalAnswer` records that have `score=0` despite having quiz data. Matches by student + topic + level.
+
+```bash
+python manage.py backfill_final_answer_scores
+```
+
+### `reset_users_for_dev`
+Reset all user passwords and emails for local/test environments. Run this after restoring a production or test database backup.
+
+```bash
+python manage.py reset_users_for_dev
+python manage.py reset_users_for_dev --password MyPass123
+python manage.py reset_users_for_dev --email test@example.com
+python manage.py reset_users_for_dev --skip-email
+```
+
+| Option         | Description                                              |
+|----------------|----------------------------------------------------------|
+| `--password`   | Password to set for all users (default: `Password1!`)    |
+| `--email`      | Email to set for all users (default: `inoshi.fernando@gmail.com`) |
+| `--skip-email` | Only reset passwords, leave emails unchanged             |
+
+---
+
 ## Cleanup
 
 ### `clear_staff`
