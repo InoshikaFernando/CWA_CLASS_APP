@@ -454,13 +454,16 @@ class ClassDetailView(RoleRequiredMixin, View):
         today = timezone.localdate()
         todays_session = ClassSession.objects.filter(classroom=classroom, date=today).first()
 
+        # Show "Start Session" when no session exists today, or if today's was cancelled
+        can_start = todays_session is None or todays_session.status == 'cancelled'
+
         return render(request, 'teacher/class_detail.html', {
             'classroom': classroom,
             'students': classroom.students.all(),
             'teachers': classroom.teachers.all(),
             'sessions': sessions,
             'todays_session': todays_session,
-            'can_start_session': todays_session is None,
+            'can_start_session': can_start,
         })
 
 

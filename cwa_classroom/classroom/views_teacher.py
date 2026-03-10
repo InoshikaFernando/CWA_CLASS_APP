@@ -63,6 +63,24 @@ def _get_teacher_classes(teacher, school):
     ).distinct()
 
 
+def _user_can_access_classroom(user, classroom):
+    """
+    Check whether *user* may manage sessions / attendance for *classroom*.
+
+    Access is granted when the user is:
+      • a ClassTeacher of the classroom, OR
+      • the head of the department the classroom belongs to, OR
+      • the school admin (HoI / Institute Owner).
+    """
+    if ClassTeacher.objects.filter(classroom=classroom, teacher=user).exists():
+        return True
+    if classroom.department_id and classroom.department.head_id == user.id:
+        return True
+    if classroom.school_id and classroom.school.admin_id == user.id:
+        return True
+    return False
+
+
 def _can_manage_enrollment(user, classroom):
     """Check if user can approve/reject enrollments for this classroom."""
     # Teacher of the class
@@ -317,21 +335,19 @@ class EnrollmentRejectView(RoleRequiredMixin, View):
 # ---------------------------------------------------------------------------
 
 class SessionAttendanceView(RoleRequiredMixin, View):
-    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+        Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+    ]
 
     def get(self, request, session_id):
         session = get_object_or_404(
-            ClassSession.objects.select_related('classroom'),
+            ClassSession.objects.select_related('classroom', 'classroom__department', 'classroom__school'),
             id=session_id,
         )
 
-        # Verify the teacher is assigned to this class
-        is_teacher_of_class = ClassTeacher.objects.filter(
-            classroom=session.classroom,
-            teacher=request.user,
-        ).exists()
-        if not is_teacher_of_class:
-            messages.error(request, 'You are not assigned to this class.')
+        if not _user_can_access_classroom(request.user, session.classroom):
+            messages.error(request, 'You do not have access to this class.')
             return redirect('teacher_dashboard')
 
         # All enrolled students for this classroom
@@ -372,17 +388,12 @@ class SessionAttendanceView(RoleRequiredMixin, View):
 
     def post(self, request, session_id):
         session = get_object_or_404(
-            ClassSession.objects.select_related('classroom'),
+            ClassSession.objects.select_related('classroom', 'classroom__department', 'classroom__school'),
             id=session_id,
         )
 
-        # Verify the teacher is assigned to this class
-        is_teacher_of_class = ClassTeacher.objects.filter(
-            classroom=session.classroom,
-            teacher=request.user,
-        ).exists()
-        if not is_teacher_of_class:
-            messages.error(request, 'You are not assigned to this class.')
+        if not _user_can_access_classroom(request.user, session.classroom):
+            messages.error(request, 'You do not have access to this class.')
             return redirect('teacher_dashboard')
 
         enrolled_students = session.classroom.students.all()
@@ -480,7 +491,10 @@ class TeacherSelfAttendanceView(RoleRequiredMixin, View):
 
 class StudentAttendanceApprovalListView(RoleRequiredMixin, View):
     """List self-reported student attendance records pending teacher approval."""
-    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+        Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+    ]
 
     def get(self, request):
         current_school = _get_teacher_current_school(request)
@@ -522,21 +536,21 @@ class StudentAttendanceApprovalListView(RoleRequiredMixin, View):
 
 class StudentAttendanceApproveView(RoleRequiredMixin, View):
     """Approve a single self-reported student attendance record."""
-    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+        Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+    ]
 
     def post(self, request, attendance_id):
         record = get_object_or_404(
-            StudentAttendance.objects.select_related('session__classroom'),
+            StudentAttendance.objects.select_related('session__classroom', 'session__classroom__department', 'session__classroom__school'),
             id=attendance_id,
             self_reported=True,
             approved_by__isnull=True,
         )
 
-        # Verify teacher is assigned to this class
-        if not ClassTeacher.objects.filter(
-            classroom=record.session.classroom, teacher=request.user
-        ).exists():
-            messages.error(request, 'You are not assigned to this class.')
+        if not _user_can_access_classroom(request.user, record.session.classroom):
+            messages.error(request, 'You do not have access to this class.')
             return redirect('attendance_approvals')
 
         record.approved_by = request.user
@@ -552,21 +566,21 @@ class StudentAttendanceApproveView(RoleRequiredMixin, View):
 
 class StudentAttendanceRejectView(RoleRequiredMixin, View):
     """Reject (delete) a self-reported student attendance record so they can re-mark."""
-    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+        Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+    ]
 
     def post(self, request, attendance_id):
         record = get_object_or_404(
-            StudentAttendance.objects.select_related('session__classroom'),
+            StudentAttendance.objects.select_related('session__classroom', 'session__classroom__department', 'session__classroom__school'),
             id=attendance_id,
             self_reported=True,
             approved_by__isnull=True,
         )
 
-        # Verify teacher is assigned to this class
-        if not ClassTeacher.objects.filter(
-            classroom=record.session.classroom, teacher=request.user
-        ).exists():
-            messages.error(request, 'You are not assigned to this class.')
+        if not _user_can_access_classroom(request.user, record.session.classroom):
+            messages.error(request, 'You do not have access to this class.')
             return redirect('attendance_approvals')
 
         student_name = record.student.get_full_name() or record.student.username
@@ -578,7 +592,10 @@ class StudentAttendanceRejectView(RoleRequiredMixin, View):
 
 class StudentAttendanceBulkApproveView(RoleRequiredMixin, View):
     """Bulk approve all pending self-reported records for a session."""
-    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+        Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+    ]
 
     def post(self, request):
         session_id = request.POST.get('session_id')
@@ -587,15 +604,12 @@ class StudentAttendanceBulkApproveView(RoleRequiredMixin, View):
             return redirect('attendance_approvals')
 
         session = get_object_or_404(
-            ClassSession.objects.select_related('classroom'),
+            ClassSession.objects.select_related('classroom', 'classroom__department', 'classroom__school'),
             id=session_id,
         )
 
-        # Verify teacher is assigned to this class
-        if not ClassTeacher.objects.filter(
-            classroom=session.classroom, teacher=request.user
-        ).exists():
-            messages.error(request, 'You are not assigned to this class.')
+        if not _user_can_access_classroom(request.user, session.classroom):
+            messages.error(request, 'You do not have access to this class.')
             return redirect('attendance_approvals')
 
         count = StudentAttendance.objects.filter(
@@ -617,13 +631,16 @@ class StudentAttendanceBulkApproveView(RoleRequiredMixin, View):
 
 class StartSessionView(RoleRequiredMixin, View):
     """One-click: create today's session and go to attendance marking."""
-    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+        Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+    ]
 
     def post(self, request, class_id):
         classroom = get_object_or_404(ClassRoom, id=class_id, is_active=True)
 
-        if not ClassTeacher.objects.filter(classroom=classroom, teacher=request.user).exists():
-            messages.error(request, 'You are not assigned to this class.')
+        if not _user_can_access_classroom(request.user, classroom):
+            messages.error(request, 'You do not have access to this class.')
             return redirect('teacher_dashboard')
 
         today = timezone.localdate()
@@ -665,11 +682,14 @@ class StartSessionView(RoleRequiredMixin, View):
 
 class CreateSessionView(RoleRequiredMixin, View):
     """Manual session creation form for specific dates/times."""
-    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+        Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+    ]
 
     def _get_classroom(self, request, class_id):
         classroom = get_object_or_404(ClassRoom, id=class_id, is_active=True)
-        if not ClassTeacher.objects.filter(classroom=classroom, teacher=request.user).exists():
+        if not _user_can_access_classroom(request.user, classroom):
             return None
         return classroom
 
@@ -742,18 +762,19 @@ class CreateSessionView(RoleRequiredMixin, View):
 
 class CompleteSessionView(RoleRequiredMixin, View):
     """Mark a session as completed."""
-    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+        Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+    ]
 
     def post(self, request, session_id):
         session = get_object_or_404(
-            ClassSession.objects.select_related('classroom'),
+            ClassSession.objects.select_related('classroom', 'classroom__department', 'classroom__school'),
             id=session_id,
         )
 
-        if not ClassTeacher.objects.filter(
-            classroom=session.classroom, teacher=request.user,
-        ).exists():
-            messages.error(request, 'You are not assigned to this class.')
+        if not _user_can_access_classroom(request.user, session.classroom):
+            messages.error(request, 'You do not have access to this class.')
             return redirect('teacher_dashboard')
 
         if session.status != 'scheduled':
@@ -772,18 +793,19 @@ class CompleteSessionView(RoleRequiredMixin, View):
 
 class CancelSessionView(RoleRequiredMixin, View):
     """Cancel a scheduled session."""
-    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+        Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+    ]
 
     def post(self, request, session_id):
         session = get_object_or_404(
-            ClassSession.objects.select_related('classroom'),
+            ClassSession.objects.select_related('classroom', 'classroom__department', 'classroom__school'),
             id=session_id,
         )
 
-        if not ClassTeacher.objects.filter(
-            classroom=session.classroom, teacher=request.user,
-        ).exists():
-            messages.error(request, 'You are not assigned to this class.')
+        if not _user_can_access_classroom(request.user, session.classroom):
+            messages.error(request, 'You do not have access to this class.')
             return redirect('teacher_dashboard')
 
         if session.status != 'scheduled':
