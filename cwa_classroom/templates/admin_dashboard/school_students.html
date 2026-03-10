@@ -68,9 +68,7 @@
               <div class="min-w-0">
                 <p class="font-medium text-gray-900">{{ ss.student.get_full_name|default:ss.student.username }}</p>
                 <p class="text-sm text-gray-500">{{ ss.student.email }}</p>
-                {% with count=class_counts|default_if_none:0 %}
-                <p class="text-xs text-gray-400 mt-0.5">{{ ss.student.username }} · {{ class_counts|default_if_none:0 }} class{{ class_counts|pluralize:"es" }}</p>
-                {% endwith %}
+                <p class="text-xs text-gray-400 mt-0.5">{{ ss.student.username }} · {{ ss.class_count }} class{{ ss.class_count|pluralize:"es" }}</p>
               </div>
             </div>
             <div class="flex items-center gap-2 flex-shrink-0">

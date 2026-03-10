@@ -93,7 +93,7 @@ class SchoolDetailView(RoleRequiredMixin, View):
         )
         academic_years = AcademicYear.objects.filter(school=school)
         departments = Department.objects.filter(school=school).select_related('head')
-        student_count = SchoolStudent.objects.filter(school=school).count()
+        school_students = SchoolStudent.objects.filter(school=school).select_related('student')
         custom_levels = Level.objects.filter(school=school).order_by('level_number')
         return render(request, 'admin_dashboard/school_detail.html', {
             'school': school,
@@ -101,7 +101,8 @@ class SchoolDetailView(RoleRequiredMixin, View):
             'classes': classes,
             'academic_years': academic_years,
             'departments': departments,
-            'student_count': student_count,
+            'school_students': school_students,
+            'student_count': school_students.count(),
             'custom_levels': custom_levels,
         })
 
@@ -368,19 +369,20 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
 
     def get(self, request, school_id):
         school = self._get_school(request, school_id)
-        school_students = SchoolStudent.objects.filter(school=school).select_related('student')
-        # Count classes per student
-        from django.db.models import Count
-        class_counts = {}
-        from .models import ClassStudent
-        for ss in school_students:
-            class_counts[ss.student_id] = ClassStudent.objects.filter(
-                student=ss.student, classroom__school=school
-            ).count()
+        from django.db.models import Count, Q
+        school_students = (
+            SchoolStudent.objects.filter(school=school)
+            .select_related('student')
+            .annotate(
+                class_count=Count(
+                    'student__class_student_entries',
+                    filter=Q(student__class_student_entries__classroom__school=school),
+                )
+            )
+        )
         return render(request, 'admin_dashboard/school_students.html', {
             'school': school,
             'school_students': school_students,
-            'class_counts': class_counts,
         })
 
     def post(self, request, school_id):

@@ -127,7 +127,23 @@
            class="text-sm text-accent hover:text-accent-dark font-medium transition">Manage &rarr;</a>
       </div>
       <div class="p-6">
-        <p class="text-sm text-gray-500">{{ student_count }} student{{ student_count|pluralize }} enrolled</p>
+        {% if school_students %}
+          <div class="space-y-3">
+            {% for ss in school_students %}
+              <div class="flex items-center gap-3">
+                <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-emerald-500 text-white text-xs font-bold">
+                  {{ ss.student.first_name|slice:":1"|upper }}{{ ss.student.last_name|slice:":1"|upper }}
+                </span>
+                <div>
+                  <p class="text-sm font-medium text-gray-900">{{ ss.student.get_full_name|default:ss.student.username }}</p>
+                  <p class="text-xs text-gray-500">{{ ss.student.email }}</p>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="text-sm text-gray-400 text-center py-4">No students enrolled yet.</p>
+        {% endif %}
       </div>
     </div>
 

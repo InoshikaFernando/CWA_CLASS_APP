@@ -943,7 +943,7 @@ class HoDOverviewView(RoleRequiredMixin, View):
 
         total_sessions = teacher_attendance_qs.count()
         present_count = teacher_attendance_qs.filter(status='present').count()
-        total_students = sum(c.students.count() for c in classes)
+        total_students = classes.values_list('students', flat=True).distinct().count()
 
         return render(request, 'hod/overview.html', {
             'school_data': school_data,
