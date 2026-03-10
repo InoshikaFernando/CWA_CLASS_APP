@@ -40,7 +40,7 @@ class Command(BaseCommand):
         self._setup_levels()
         self._setup_subjects()
         self._setup_packages()
-        self.stdout.write(self.style.SUCCESS('\nSetup complete! Run the server and log in.'))
+        self.stdout.write(self.style.SUCCESS('\nSetup complete!'))
 
     def _setup_roles(self):
         self.stdout.write('\n--- Roles ---')
@@ -50,21 +50,23 @@ class Command(BaseCommand):
             (Role.STUDENT,            'Student',            'Enrolled via a school/teacher'),
             (Role.INDIVIDUAL_STUDENT, 'Individual Student', 'Self-enrolled with subscription'),
             (Role.ACCOUNTANT,         'Accountant',         'Billing and finance access'),
-            (Role.HEAD_OF_INSTITUTE, 'Head of Institute', 'Institute-level reporting'),
+            (Role.HEAD_OF_INSTITUTE,  'Head of Institute',  'Institute-level reporting'),
+            (Role.HEAD_OF_DEPARTMENT, 'Head of Department', 'Department-level management'),
+            (Role.INSTITUTE_OWNER,    'Institute Owner',    'Full institute ownership'),
         ]
         for name, display_name, description in roles:
             _, created = Role.objects.get_or_create(
                 name=name,
                 defaults={'display_name': display_name, 'description': description},
             )
-            self.stdout.write(f'  {"✓ Created" if created else "· Exists "} Role: {name}')
+            self.stdout.write(f'  {"+ Created" if created else "- Exists "} Role: {name}')
 
         # Give admin role to all superusers
         admin_role = Role.objects.get(name=Role.ADMIN)
         for user in CustomUser.objects.filter(is_superuser=True):
             _, created = UserRole.objects.get_or_create(user=user, role=admin_role)
             if created:
-                self.stdout.write(f'  ✓ Assigned admin role to superuser: {user.username}')
+                self.stdout.write(f'  + Assigned admin role to superuser: {user.username}')
 
     def _setup_levels(self):
         from classroom.models import Level
@@ -77,7 +79,7 @@ class Command(BaseCommand):
                 defaults={'display_name': f'Year {year}'},
             )
             if created:
-                self.stdout.write(f'  ✓ Year {year}')
+                self.stdout.write(f'  + Year {year}')
 
         # Basic Facts levels 100–132
         subtopics = [
@@ -95,7 +97,7 @@ class Command(BaseCommand):
                     defaults={'display_name': display},
                 )
                 if created:
-                    self.stdout.write(f'  ✓ BF Level {num}: {display}')
+                    self.stdout.write(f'  + BF Level {num}: {display}')
 
         self.stdout.write(f'  Levels ready: {Level.objects.count()} total')
 
@@ -109,7 +111,7 @@ class Command(BaseCommand):
         active_subject_names = [name for name, _ in SUBJECTS]
         deactivated = Subject.objects.exclude(name__in=active_subject_names).update(is_active=False)
         if deactivated:
-            self.stdout.write(f'  · Deactivated {deactivated} old subject(s)')
+            self.stdout.write(f'  - Deactivated {deactivated} old subject(s)')
 
         for subject_name, topic_names in SUBJECTS:
             subject, _ = Subject.objects.get_or_create(
@@ -124,7 +126,7 @@ class Command(BaseCommand):
                 subject=subject, parent__isnull=True,
             ).exclude(name__in=topic_names).update(is_active=False)
             if deactivated_topics:
-                self.stdout.write(f'  · Deactivated {deactivated_topics} old topic(s) under {subject_name}')
+                self.stdout.write(f'  - Deactivated {deactivated_topics} old topic(s) under {subject_name}')
 
             for topic_name in topic_names:
                 slug = slugify(topic_name)
@@ -138,7 +140,7 @@ class Command(BaseCommand):
                     topic.save()
                 # Always ensure all year levels are linked
                 topic.levels.set(all_levels)
-                self.stdout.write(f'  {"✓ Created" if created else "· Updated"} {subject_name} → {topic_name}')
+                self.stdout.write(f'  {"+ Created" if created else "- Updated"} {subject_name} → {topic_name}')
 
         total_topics = sum(len(t) for _, t in SUBJECTS)
         self.stdout.write(f'  Topics ready: {total_topics}')
@@ -153,4 +155,4 @@ class Command(BaseCommand):
                 name=name,
                 defaults=defaults,
             )
-            self.stdout.write(f'  {"✓ Created" if created else "· Exists "} Package: {name} (${p["price"]}/mo)')
+            self.stdout.write(f'  {"+ Created" if created else "- Exists "} Package: {name} (${p["price"]}/mo)')

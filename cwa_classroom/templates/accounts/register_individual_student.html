@@ -102,7 +102,7 @@
                 class="flex-1 bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl px-5 py-3 hover:bg-gray-50 transition">
           ← Back
         </button>
-        <button type="button" onclick="goStep(3)"
+        <button type="button" onclick="validateStep2()"
                 class="flex-1 bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-5 py-3 transition">
           Next: Discount →
         </button>
@@ -192,6 +192,15 @@
   function selectPackage(radio) {
     document.querySelectorAll('.package-card').forEach(card => card.classList.remove('selected', 'border-primary'));
     radio.closest('.package-card').classList.add('selected', 'border-primary');
+  }
+
+  function validateStep2() {
+    const selected = document.querySelector('input[name="package_id"]:checked');
+    if (!selected) {
+      alert('Please select a package before continuing.');
+      return;
+    }
+    goStep(3);
   }
 
   // Step 1 validation before advancing
