@@ -6,7 +6,7 @@
   {% if classes %}
   <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
     {% for classroom in classes %}
-    <a href="{% url 'class_progress' class_id=classroom.id %}"
+    <a href="{% url 'class_attendance' class_id=classroom.id %}"
        class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 hover:shadow-md hover:border-primary transition block">
       <h3 class="font-bold text-gray-800 text-lg mb-2">{{ classroom.name }}</h3>
       <div class="flex gap-3 text-sm text-gray-500">

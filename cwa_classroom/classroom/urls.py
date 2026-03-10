@@ -21,7 +21,7 @@ urlpatterns = [
     path('class/<int:class_id>/edit/', views.EditClassView.as_view(), name='edit_class'),
     path('class/<int:class_id>/assign-students/', views.AssignStudentsView.as_view(), name='assign_students'),
     path('class/<int:class_id>/assign-teachers/', views.AssignTeachersView.as_view(), name='assign_teachers'),
-    path('class/<int:class_id>/progress/', views.ClassProgressView.as_view(), name='class_progress'),
+    path('class/<int:class_id>/attendance/', views.ClassAttendanceView.as_view(), name='class_attendance'),
     path('class/progress/', views.ClassProgressListView.as_view(), name='class_progress_list'),
     path('class/manage-teachers/', views.ManageTeachersView.as_view(), name='manage_teachers'),
 

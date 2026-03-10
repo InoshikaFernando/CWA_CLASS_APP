@@ -87,9 +87,9 @@
 
       <!-- Actions -->
       <div class="flex gap-2">
-        <a href="{% url 'class_progress' class_id=classroom.id %}"
+        <a href="{% url 'class_attendance' class_id=classroom.id %}"
            class="flex-1 text-center bg-primary hover:bg-primary-dark text-white text-sm font-semibold rounded-xl py-2 transition">
-          📈 Progress
+          Attendance
         </a>
         <a href="{% url 'assign_students' class_id=classroom.id %}"
            class="flex-1 text-center bg-white border border-slate-200 hover:border-primary text-gray-600 hover:text-primary text-sm font-semibold rounded-xl py-2 transition">

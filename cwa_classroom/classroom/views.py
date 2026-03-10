@@ -618,7 +618,7 @@ class AssignTeachersView(LoginRequiredMixin, View):
         return redirect('class_detail', class_id=class_id)
 
 
-class ClassProgressView(RoleRequiredMixin, View):
+class ClassAttendanceView(RoleRequiredMixin, View):
     required_roles = [
         Role.TEACHER, Role.HEAD_OF_DEPARTMENT,
         Role.HEAD_OF_INSTITUTE, Role.INSTITUTE_OWNER,
@@ -626,7 +626,6 @@ class ClassProgressView(RoleRequiredMixin, View):
 
     def get(self, request, class_id):
         user = request.user
-        # Teachers must be assigned to the class
         if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
             classroom = get_object_or_404(ClassRoom, id=class_id, school__admin=user)
         elif user.has_role(Role.HEAD_OF_DEPARTMENT):
@@ -636,10 +635,53 @@ class ClassProgressView(RoleRequiredMixin, View):
             )
         else:
             classroom = get_object_or_404(ClassRoom, id=class_id, teachers=user)
-        students = classroom.students.all()
-        levels = classroom.levels.all()
-        return render(request, 'teacher/class_progress.html', {
-            'classroom': classroom, 'students': students, 'levels': levels,
+
+        # Last 20 non-cancelled sessions, most recent first
+        sessions = list(
+            ClassSession.objects.filter(
+                classroom=classroom,
+                status__in=['scheduled', 'completed'],
+            ).order_by('-date', '-start_time')[:20]
+        )
+
+        students = classroom.students.all().order_by('last_name', 'first_name', 'username')
+
+        # Batch-fetch all attendance records for these sessions
+        att_map = {}
+        if sessions:
+            for rec in StudentAttendance.objects.filter(session__in=sessions):
+                att_map[(rec.session_id, rec.student_id)] = rec.status
+
+        # Build per-student rows
+        student_data = []
+        for student in students:
+            present = late = absent = 0
+            row_sessions = []
+            for session in sessions:
+                status = att_map.get((session.id, student.id))
+                row_sessions.append(status)
+                if status == 'present':
+                    present += 1
+                elif status == 'late':
+                    late += 1
+                elif status == 'absent':
+                    absent += 1
+            total = present + late + absent
+            rate = round((present + late) / total * 100) if total else None
+            student_data.append({
+                'student': student,
+                'cells': row_sessions,
+                'present': present,
+                'late': late,
+                'absent': absent,
+                'total': total,
+                'rate': rate,
+            })
+
+        return render(request, 'teacher/class_attendance.html', {
+            'classroom': classroom,
+            'sessions': sessions,
+            'student_data': student_data,
         })
 
 

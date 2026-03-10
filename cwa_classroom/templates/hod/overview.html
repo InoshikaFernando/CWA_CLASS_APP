@@ -136,11 +136,11 @@
       <div class="divide-y divide-slate-100">
       {% for classroom in classes %}
         <div class="flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition">
-          <div>
-            <p class="font-semibold text-gray-800">{{ classroom.name }}</p>
+          <a href="{% url 'class_detail' class_id=classroom.id %}" class="min-w-0 flex-1 mr-4">
+            <p class="font-semibold text-gray-800 hover:text-primary transition">{{ classroom.name }}</p>
             <p class="text-xs text-gray-500">{{ classroom.students.count }} students · {% for t in classroom.teachers.all %}{{ t.get_full_name|default:t.username }}{% if not forloop.last %}, {% endif %}{% endfor %}</p>
-          </div>
-          <a href="{% url 'class_progress' class_id=classroom.id %}" class="text-sm text-accent font-semibold hover:underline">View Progress</a>
+          </a>
+          <a href="{% url 'class_attendance' class_id=classroom.id %}" class="text-sm text-accent font-semibold hover:underline flex-shrink-0">Attendance</a>
         </div>
       {% empty %}
         <div class="px-6 py-12 text-center text-gray-500">No classes yet.</div>
