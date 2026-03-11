@@ -63,23 +63,64 @@
       {% endif %}
 
       <!-- Teacher Attendance -->
-      <div class="px-6 py-4 bg-blue-50 border-t border-blue-100">
-        <h3 class="font-semibold text-gray-800 mb-3">Your Attendance</h3>
-        <div class="flex items-center gap-4">
-          <label class="flex items-center gap-1.5 cursor-pointer">
-            <input type="radio" name="teacher_status" value="present"
-                   {% if teacher_attendance.status == 'present' or not teacher_attendance %}checked{% endif %}
-                   class="text-emerald-600 focus:ring-emerald-500">
-            <span class="text-sm text-gray-700">Present</span>
-          </label>
-          <label class="flex items-center gap-1.5 cursor-pointer">
-            <input type="radio" name="teacher_status" value="absent"
-                   {% if teacher_attendance.status == 'absent' %}checked{% endif %}
-                   class="text-red-500 focus:ring-red-400">
-            <span class="text-sm text-gray-700">Absent</span>
-          </label>
+      {% if is_admin_viewer and teacher_attendance_rows %}
+        {# HoD / HoI mode: show all class teachers with individual attendance controls #}
+        <div class="px-6 py-4 bg-blue-50 border-t border-blue-100">
+          <h3 class="font-semibold text-gray-800 mb-3">Teacher Attendance</h3>
+          <div class="divide-y divide-blue-100">
+            {% for row in teacher_attendance_rows %}
+              <div class="flex items-center justify-between py-3 {% if row.is_current_user %}bg-blue-100/50 -mx-2 px-2 rounded-lg{% endif %}">
+                <div class="flex items-center gap-3">
+                  <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-200 text-blue-800 text-xs font-bold">
+                    {{ row.teacher.username|slice:":2"|upper }}
+                  </span>
+                  <div>
+                    <p class="font-medium text-gray-900 text-sm">
+                      {{ row.teacher.get_full_name|default:row.teacher.username }}
+                    </p>
+                    {% if row.is_current_user %}
+                      <span class="text-xs text-blue-600 font-medium">(You)</span>
+                    {% endif %}
+                  </div>
+                </div>
+                <div class="flex items-center gap-4">
+                  <label class="flex items-center gap-1.5 cursor-pointer">
+                    <input type="radio" name="teacher_att_{{ row.teacher.id }}" value="present"
+                           {% if row.current_status == 'present' or not row.current_status %}checked{% endif %}
+                           class="text-emerald-600 focus:ring-emerald-500">
+                    <span class="text-sm text-gray-700">Present</span>
+                  </label>
+                  <label class="flex items-center gap-1.5 cursor-pointer">
+                    <input type="radio" name="teacher_att_{{ row.teacher.id }}" value="absent"
+                           {% if row.current_status == 'absent' %}checked{% endif %}
+                           class="text-red-500 focus:ring-red-400">
+                    <span class="text-sm text-gray-700">Absent</span>
+                  </label>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
         </div>
-      </div>
+      {% else %}
+        {# Regular teacher mode: show own attendance only #}
+        <div class="px-6 py-4 bg-blue-50 border-t border-blue-100">
+          <h3 class="font-semibold text-gray-800 mb-3">Your Attendance</h3>
+          <div class="flex items-center gap-4">
+            <label class="flex items-center gap-1.5 cursor-pointer">
+              <input type="radio" name="teacher_status" value="present"
+                     {% if teacher_attendance.status == 'present' or not teacher_attendance %}checked{% endif %}
+                     class="text-emerald-600 focus:ring-emerald-500">
+              <span class="text-sm text-gray-700">Present</span>
+            </label>
+            <label class="flex items-center gap-1.5 cursor-pointer">
+              <input type="radio" name="teacher_status" value="absent"
+                     {% if teacher_attendance.status == 'absent' %}checked{% endif %}
+                     class="text-red-500 focus:ring-red-400">
+              <span class="text-sm text-gray-700">Absent</span>
+            </label>
+          </div>
+        </div>
+      {% endif %}
 
       <!-- Progress Tracking Section -->
       {% if hierarchical_criteria %}

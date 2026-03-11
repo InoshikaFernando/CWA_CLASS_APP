@@ -83,6 +83,25 @@ def _user_can_access_classroom(user, classroom):
     return False
 
 
+def _is_admin_viewer(user, classroom):
+    """
+    True when *user* is accessing *classroom* in a supervisory capacity
+    (HoD of the classroom's department or school admin / HoI), even if
+    they are also a direct class teacher.
+    """
+    is_class_teacher = ClassTeacher.objects.filter(
+        classroom=classroom, teacher=user,
+    ).exists()
+    if not is_class_teacher:
+        return True  # only reached this point via HoD/HoI access
+    # User IS a class teacher but might also be HoD or HoI
+    if classroom.department_id and classroom.department.head_id == user.id:
+        return True
+    if classroom.school_id and classroom.school.admin_id == user.id:
+        return True
+    return False
+
+
 def _can_manage_enrollment(user, classroom):
     """Check if user can approve/reject enrollments for this classroom."""
     # Teacher of the class
@@ -462,6 +481,27 @@ class SessionAttendanceView(RoleRequiredMixin, View):
             session=session, teacher=request.user,
         ).first()
 
+        # --- Admin viewer (HoD / HoI): load all class teachers ---
+        admin_viewer = _is_admin_viewer(request.user, session.classroom)
+        teacher_attendance_rows = []
+        if admin_viewer:
+            class_teachers = list(
+                ClassTeacher.objects.filter(classroom=session.classroom)
+                .select_related('teacher')
+                .order_by('teacher__last_name', 'teacher__first_name')
+            )
+            existing_teacher_att = {
+                ta.teacher_id: ta
+                for ta in TeacherAttendance.objects.filter(session=session)
+            }
+            for ct in class_teachers:
+                ta = existing_teacher_att.get(ct.teacher_id)
+                teacher_attendance_rows.append({
+                    'teacher': ct.teacher,
+                    'current_status': ta.status if ta else '',
+                    'is_current_user': ct.teacher_id == request.user.id,
+                })
+
         # Progress tracking context
         progress_ctx = self._get_progress_context(session, enrolled_students)
 
@@ -470,6 +510,8 @@ class SessionAttendanceView(RoleRequiredMixin, View):
             'classroom': session.classroom,
             'students_with_status': students_with_status,
             'teacher_attendance': teacher_attendance,
+            'is_admin_viewer': admin_viewer,
+            'teacher_attendance_rows': teacher_attendance_rows,
         }
         ctx.update(progress_ctx)
         return render(request, 'teacher/session_attendance.html', ctx)
@@ -538,17 +580,39 @@ class SessionAttendanceView(RoleRequiredMixin, View):
                 )
                 progress_saved += 1
 
-        # Save teacher's own attendance
-        teacher_status = request.POST.get('teacher_status', '').strip()
-        if teacher_status in ('present', 'absent'):
-            TeacherAttendance.objects.update_or_create(
-                session=session,
-                teacher=request.user,
-                defaults={
-                    'status': teacher_status,
-                    'self_reported': False,
-                },
+        # --- Save teacher attendance ---
+        admin_viewer = _is_admin_viewer(request.user, session.classroom)
+        if admin_viewer:
+            # HoD / HoI mode: save attendance for each class teacher
+            class_teacher_ids = list(
+                ClassTeacher.objects.filter(classroom=session.classroom)
+                .values_list('teacher_id', flat=True)
             )
+            for teacher_id in class_teacher_ids:
+                status = request.POST.get(f'teacher_att_{teacher_id}', '').strip()
+                if status in ('present', 'absent'):
+                    TeacherAttendance.objects.update_or_create(
+                        session=session,
+                        teacher_id=teacher_id,
+                        defaults={
+                            'status': status,
+                            'self_reported': False,
+                            'approved_by': request.user,
+                            'approved_at': timezone.now(),
+                        },
+                    )
+        else:
+            # Regular teacher mode: save own attendance only
+            teacher_status = request.POST.get('teacher_status', '').strip()
+            if teacher_status in ('present', 'absent'):
+                TeacherAttendance.objects.update_or_create(
+                    session=session,
+                    teacher=request.user,
+                    defaults={
+                        'status': teacher_status,
+                        'self_reported': False,
+                    },
+                )
 
         # Optionally complete the session
         complete_session = request.POST.get('complete_session') == 'on'
