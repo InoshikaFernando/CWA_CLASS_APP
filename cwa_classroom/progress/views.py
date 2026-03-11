@@ -148,7 +148,12 @@ class StudentDashboardView(LoginRequiredMixin, View):
         ).order_by('-completed_at')[:5]
 
         # ── Time log ─────────────────────────────────────────────────
-        time_log = TimeLog.objects.filter(student=user).first()
+        from maths.views import update_time_log_from_activities
+        from classroom.views import _format_seconds
+
+        time_log = update_time_log_from_activities(user)
+        time_daily = _format_seconds(time_log.daily_total_seconds)
+        time_weekly = _format_seconds(time_log.weekly_total_seconds)
 
         return render(request, 'student/dashboard.html', {
             'progress_grid': progress_grid,
@@ -156,6 +161,8 @@ class StudentDashboardView(LoginRequiredMixin, View):
             'recent_topic': recent_topic,
             'recent_bf': recent_bf,
             'time_log': time_log,
+            'time_daily': time_daily,
+            'time_weekly': time_weekly,
         })
 
 

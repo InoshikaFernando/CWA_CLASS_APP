@@ -175,6 +175,10 @@ class BasicFactsQuizView(LoginRequiredMixin, View):
         # Clean session
         request.session.pop(session_key, None)
 
+        # Update time log
+        from maths.views import update_time_log_from_activities
+        update_time_log_from_activities(request.user)
+
         # Store result id for results page
         request.session[f'bf_result_{subtopic}_{level_number}'] = result.id
 
@@ -426,6 +430,11 @@ class TimesTablesSubmitView(LoginRequiredMixin, View):
 
         request.session[f'tt_done_{session_id}'] = session_data
         request.session.pop(session_key, None)
+
+        # Update time log
+        from maths.views import update_time_log_from_activities
+        update_time_log_from_activities(request.user)
+
         return redirect('times_tables_results_view', session_id=session_id)
 
 
@@ -633,6 +642,10 @@ class MixedQuizView(LoginRequiredMixin, View):
         if f'mq_{session_id}' in request.session:
             del request.session[f'mq_{session_id}']
 
+        # Update time log
+        from maths.views import update_time_log_from_activities
+        update_time_log_from_activities(request.user)
+
         request.session[f'mq_result_{level_number}'] = {
             'result_id': result.id,
             'topic_results': topic_results,
@@ -762,6 +775,10 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             # Update topic-level statistics (mean/sigma)
             from maths.models import TopicLevelStatistics
             TopicLevelStatistics.recalculate(q.topic, level)
+
+            # Update time log
+            from maths.views import update_time_log_from_activities
+            update_time_log_from_activities(request.user)
 
         return JsonResponse({
             'is_correct': is_correct,
