@@ -14,6 +14,33 @@ from .basic_facts import (
 )
 
 
+def _cleanup_stale_quiz_keys(session, prefix):
+    """
+    Remove orphaned quiz session keys matching *prefix* (e.g. ``tt_``,
+    ``bf_``, ``tq_``, ``mq_``).  Only keys whose suffix is a valid UUID
+    are removed — this preserves result keys like ``tt_done_*``,
+    ``bf_result_*``, ``tq_result_*``, and ``mq_result_*``.
+
+    Called every time a new quiz starts so that abandoned attempts
+    from previous days don't accumulate in the session store.
+    """
+    stale = []
+    plen = len(prefix)
+    for k in session.keys():
+        if not k.startswith(prefix):
+            continue
+        suffix = k[plen:]
+        # Active quiz keys look like  tt_<uuid>,  bf_<uuid>, …
+        # Result / done keys have extra words: tt_done_<uuid>, bf_result_…
+        try:
+            uuid.UUID(suffix)
+            stale.append(k)
+        except ValueError:
+            pass
+    for k in stale:
+        del session[k]
+
+
 # ── Basic Facts ─────────────────────────────────────────────────────────────
 
 class BasicFactsHomeView(LoginRequiredMixin, View):
@@ -61,6 +88,9 @@ class BasicFactsQuizView(LoginRequiredMixin, View):
 
         questions = generate_questions(subtopic, level_number, count=10)
         session_id = str(uuid.uuid4())
+
+        # Remove any abandoned basic-facts sessions before creating a new one
+        _cleanup_stale_quiz_keys(request.session, 'bf_')
 
         # Store in session
         request.session[f'bf_{session_id}'] = {
@@ -271,6 +301,10 @@ class TimesTablesQuizView(LoginRequiredMixin, View):
     def get(self, request, level_number, table, operation):
         questions = _generate_times_tables_questions(table, operation)
         session_id = str(uuid.uuid4())
+
+        # Remove any abandoned times-tables sessions
+        _cleanup_stale_quiz_keys(request.session, 'tt_')
+
         request.session[f'tt_{session_id}'] = {
             'table': table, 'operation': operation,
             'level_number': level_number,
@@ -434,6 +468,10 @@ class TopicQuizView(LoginRequiredMixin, View):
 
         # Serialise questions for session (just ids + shuffled answer ids)
         session_id = str(uuid.uuid4())
+
+        # Remove any abandoned topic-quiz sessions
+        _cleanup_stale_quiz_keys(request.session, 'tq_')
+
         q_data = []
         for q in questions:
             answers = list(q.answers.all())
@@ -510,6 +548,10 @@ class MixedQuizView(LoginRequiredMixin, View):
             return redirect('home')
 
         session_id = str(uuid.uuid4())
+
+        # Remove any abandoned mixed-quiz sessions
+        _cleanup_stale_quiz_keys(request.session, 'mq_')
+
         request.session[f'mq_{session_id}'] = {
             'level_number': level_number,
             'question_ids': [q.id for q in all_questions],
