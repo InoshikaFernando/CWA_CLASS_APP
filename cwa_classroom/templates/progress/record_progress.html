@@ -11,7 +11,7 @@
     <p class="text-gray-500 mt-1">{{ classroom.name }}</p>
   </div>
 
-  {% if criteria and students %}
+  {% if hierarchical_criteria and student_rows %}
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
       <form method="post">
         {% csrf_token %}
@@ -20,26 +20,33 @@
             <thead>
               <tr class="bg-slate-50 text-left text-gray-500">
                 <th class="px-4 py-3 font-medium sticky left-0 bg-slate-50 z-10">Student</th>
-                {% for c in criteria %}
+                {% for h_item in hierarchical_criteria %}
                   <th class="px-4 py-3 font-medium text-center min-w-[140px]">
-                    <span class="text-xs">{{ c.name|truncatechars:25 }}</span>
+                    {% if h_item.is_child %}
+                      <span class="text-xs text-gray-400">&#8627; {{ h_item.criteria.name|truncatechars:25 }}</span>
+                    {% else %}
+                      <span class="text-xs font-bold">{{ h_item.criteria.name|truncatechars:25 }}</span>
+                    {% endif %}
                   </th>
                 {% endfor %}
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-50">
-              {% for student in students %}
+              {% for row in student_rows %}
                 <tr>
                   <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-white z-10 whitespace-nowrap">
-                    {{ student.get_full_name|default:student.username }}
+                    {{ row.student.get_full_name|default:row.student.username }}
                   </td>
-                  {% for c in criteria %}
+                  {% for cs in row.criteria_statuses %}
                     <td class="px-4 py-3 text-center">
-                      <select name="status_{{ student.id }}_{{ c.id }}"
-                              class="text-xs px-2 py-1 border border-slate-200 rounded-lg focus:ring-2 focus:ring-accent">
-                        <option value="not_started" {% if existing_records|default:None %}{% endif %}>Not Started</option>
-                        <option value="in_progress">In Progress</option>
-                        <option value="achieved">Achieved</option>
+                      <select name="status_{{ row.student.id }}_{{ cs.criteria.id }}"
+                              class="text-xs px-2 py-1 border border-slate-200 rounded-lg focus:ring-2 focus:ring-accent
+                                {% if cs.current_status == 'achieved' %}bg-emerald-50 text-emerald-700
+                                {% elif cs.current_status == 'in_progress' %}bg-amber-50 text-amber-700
+                                {% else %}bg-white{% endif %}">
+                        {% for value, label in status_choices %}
+                          <option value="{{ value }}" {% if cs.current_status == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
                       </select>
                     </td>
                   {% endfor %}
@@ -58,10 +65,10 @@
     </div>
   {% else %}
     <div class="bg-white rounded-xl p-12 border border-slate-200 text-center">
-      {% if not criteria %}
+      {% if not hierarchical_criteria %}
         <p class="text-gray-400 mb-2">No approved criteria for this class's subject and levels.</p>
         <a href="{% url 'progress_criteria_create' %}" class="text-accent text-sm font-medium">Create criteria &rarr;</a>
-      {% elif not students %}
+      {% elif not student_rows %}
         <p class="text-gray-400">No students enrolled in this class.</p>
       {% endif %}
     </div>

@@ -2,7 +2,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
 from django.contrib import messages
 from django.utils import timezone
-from django.db.models import Count
+from django.db.models import Count, Max
 
 from accounts.models import Role
 from .views import RoleRequiredMixin
@@ -13,18 +13,62 @@ from .models import (
 
 
 # ---------------------------------------------------------------------------
-# Helper
+# Helpers
 # ---------------------------------------------------------------------------
 
 def _get_school_or_redirect(request):
-    """Return the School for the current session, or None if missing."""
+    """
+    Return the School for the current session, or None if missing.
+
+    Falls back to the first active school the user belongs to via
+    SchoolTeacher, mirroring the teacher-dashboard helper.
+    """
     school_id = request.session.get('current_school_id')
-    if not school_id:
-        return None
-    try:
-        return School.objects.get(pk=school_id)
-    except School.DoesNotExist:
-        return None
+    if school_id:
+        try:
+            return School.objects.get(pk=school_id)
+        except School.DoesNotExist:
+            request.session.pop('current_school_id', None)
+
+    # Fallback 1: pick the first school the user is a member of
+    membership = (
+        SchoolTeacher.objects
+        .filter(teacher=request.user, is_active=True)
+        .select_related('school')
+        .first()
+    )
+    if membership:
+        request.session['current_school_id'] = membership.school_id
+        return membership.school
+
+    # Fallback 2: pick the first school the user is admin of
+    admin_school = School.objects.filter(admin=request.user, is_active=True).first()
+    if admin_school:
+        request.session['current_school_id'] = admin_school.id
+        return admin_school
+
+    return None
+
+
+def _build_hierarchical_criteria(criteria_qs):
+    """
+    Given a queryset / list of ProgressCriteria, return a flat list of dicts
+    ``[{'criteria': <obj>, 'is_child': bool}, ...]`` where parents appear
+    first and their children follow immediately after, indented.
+    """
+    all_criteria = list(criteria_qs)
+    top_level = [c for c in all_criteria if c.parent_id is None]
+    children_map = {}
+    for c in all_criteria:
+        if c.parent_id is not None:
+            children_map.setdefault(c.parent_id, []).append(c)
+
+    result = []
+    for c in top_level:
+        result.append({'criteria': c, 'is_child': False})
+        for child in children_map.get(c.id, []):
+            result.append({'criteria': child, 'is_child': True})
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -33,7 +77,10 @@ def _get_school_or_redirect(request):
 
 class ProgressCriteriaListView(RoleRequiredMixin, View):
     """List progress criteria for the current school, with optional filters."""
-    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER]
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.TEACHER,
+        Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+    ]
 
     def get(self, request):
         school = _get_school_or_redirect(request)
@@ -51,14 +98,18 @@ class ProgressCriteriaListView(RoleRequiredMixin, View):
         if level_id:
             criteria = criteria.filter(level_id=level_id)
 
-        criteria = criteria.select_related('subject', 'level', 'created_by', 'approved_by')
+        criteria = criteria.select_related(
+            'subject', 'level', 'created_by', 'approved_by', 'parent',
+        ).order_by('subject__name', 'level__level_number', 'order', 'name')
+
+        hierarchical_criteria = _build_hierarchical_criteria(criteria)
 
         subjects = Subject.objects.filter(is_active=True)
         levels = Level.objects.all()
 
         return render(request, 'progress/criteria_list.html', {
             'school': school,
-            'criteria': criteria,
+            'hierarchical_criteria': hierarchical_criteria,
             'subjects': subjects,
             'levels': levels,
             'selected_subject_id': int(subject_id) if subject_id else None,
@@ -68,13 +119,24 @@ class ProgressCriteriaListView(RoleRequiredMixin, View):
 
 class ProgressCriteriaCreateView(RoleRequiredMixin, View):
     """Create a new ProgressCriteria in draft status."""
-    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER]
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.TEACHER,
+        Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+    ]
 
     def get(self, request):
         school = _get_school_or_redirect(request)
         if school is None:
             messages.error(request, 'No school selected. Please select a school first.')
             return redirect('subjects_hub')
+
+        # Support creating sub-criteria via ?parent=<id>
+        parent_id = request.GET.get('parent')
+        parent_criteria = None
+        if parent_id:
+            parent_criteria = ProgressCriteria.objects.filter(
+                pk=parent_id, school=school,
+            ).select_related('subject', 'level').first()
 
         subjects = Subject.objects.filter(is_active=True)
         levels = Level.objects.all()
@@ -83,6 +145,7 @@ class ProgressCriteriaCreateView(RoleRequiredMixin, View):
             'school': school,
             'subjects': subjects,
             'levels': levels,
+            'parent_criteria': parent_criteria,
         })
 
     def post(self, request):
@@ -91,29 +154,56 @@ class ProgressCriteriaCreateView(RoleRequiredMixin, View):
             messages.error(request, 'No school selected. Please select a school first.')
             return redirect('subjects_hub')
 
-        subject_id = request.POST.get('subject')
-        level_id = request.POST.get('level')
+        # Check for parent criteria
+        parent_id = request.POST.get('parent')
+        parent_criteria = None
+        if parent_id:
+            parent_criteria = ProgressCriteria.objects.filter(
+                pk=parent_id, school=school,
+            ).select_related('subject', 'level').first()
+
         name = request.POST.get('name', '').strip()
         description = request.POST.get('description', '').strip()
         order = request.POST.get('order', '0').strip()
 
-        if not name or not subject_id or not level_id:
-            messages.error(request, 'Subject, level, and name are required.')
+        # Inherit subject/level from parent if set, otherwise read from form
+        if parent_criteria:
+            subject = parent_criteria.subject
+            level = parent_criteria.level
+        else:
+            subject_id = request.POST.get('subject')
+            level_id = request.POST.get('level')
+            if not name or not subject_id or not level_id:
+                messages.error(request, 'Subject, level, and name are required.')
+                return render(request, 'progress/criteria_form.html', {
+                    'school': school,
+                    'subjects': Subject.objects.filter(is_active=True),
+                    'levels': Level.objects.all(),
+                    'parent_criteria': parent_criteria,
+                    'form_data': {
+                        'subject': subject_id,
+                        'level': level_id,
+                        'name': name,
+                        'description': description,
+                        'order': order,
+                    },
+                })
+            subject = get_object_or_404(Subject, pk=subject_id)
+            level = get_object_or_404(Level, pk=level_id)
+
+        if not name:
+            messages.error(request, 'Name is required.')
             return render(request, 'progress/criteria_form.html', {
                 'school': school,
                 'subjects': Subject.objects.filter(is_active=True),
                 'levels': Level.objects.all(),
+                'parent_criteria': parent_criteria,
                 'form_data': {
-                    'subject': subject_id,
-                    'level': level_id,
                     'name': name,
                     'description': description,
                     'order': order,
                 },
             })
-
-        subject = get_object_or_404(Subject, pk=subject_id)
-        level = get_object_or_404(Level, pk=level_id)
 
         try:
             order_val = int(order)
@@ -124,6 +214,7 @@ class ProgressCriteriaCreateView(RoleRequiredMixin, View):
             school=school,
             subject=subject,
             level=level,
+            parent=parent_criteria,
             name=name,
             description=description,
             order=order_val,
@@ -141,7 +232,10 @@ class ProgressCriteriaCreateView(RoleRequiredMixin, View):
 
 class ProgressCriteriaSubmitView(RoleRequiredMixin, View):
     """Submit a draft criteria for senior-teacher approval."""
-    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER]
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.TEACHER,
+        Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+    ]
 
     def post(self, request, criteria_id):
         criteria = get_object_or_404(ProgressCriteria, pk=criteria_id)
@@ -190,7 +284,7 @@ class ProgressCriteriaApprovalListView(RoleRequiredMixin, View):
         criteria = (
             ProgressCriteria.objects
             .filter(school=school, status='pending_approval')
-            .select_related('subject', 'level', 'created_by')
+            .select_related('subject', 'level', 'created_by', 'parent')
         )
 
         return render(request, 'progress/criteria_approval.html', {
@@ -265,18 +359,20 @@ class ProgressCriteriaRejectView(RoleRequiredMixin, View):
 
 
 # ---------------------------------------------------------------------------
-# Record progress
+# Record progress (standalone page)
 # ---------------------------------------------------------------------------
 
 class RecordProgressView(RoleRequiredMixin, View):
     """Record (create/update) progress for students in a specific class."""
-    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+        Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+    ]
 
     def get(self, request, class_id):
         classroom = get_object_or_404(ClassRoom, pk=class_id)
 
         # Determine approved criteria available for this class
-        # Criteria must match the classroom's school, subject, and levels
         criteria_qs = ProgressCriteria.objects.filter(
             school=classroom.school,
             status='approved',
@@ -286,17 +382,25 @@ class RecordProgressView(RoleRequiredMixin, View):
         if classroom.levels.exists():
             criteria_qs = criteria_qs.filter(level__in=classroom.levels.all())
 
-        criteria_qs = criteria_qs.select_related('subject', 'level').order_by(
-            'subject__name', 'level__level_number', 'order'
+        criteria_qs = criteria_qs.select_related('subject', 'level', 'parent').order_by(
+            'subject__name', 'level__level_number', 'order', 'name',
         )
+
+        hierarchical_criteria = _build_hierarchical_criteria(criteria_qs)
 
         students = classroom.students.all().order_by('last_name', 'first_name', 'username')
 
-        # Build a lookup of existing records:  {(student_id, criteria_id): record}
-        existing_records = ProgressRecord.objects.filter(
-            student__in=students,
-            criteria__in=criteria_qs,
-        ).select_related('criteria', 'student')
+        # Build a lookup of *latest* records: {(student_id, criteria_id): status}
+        # Since there can be multiple records per (student, criteria) across sessions,
+        # pick the one with the highest id (most recent).
+        latest_ids_qs = (
+            ProgressRecord.objects
+            .filter(student__in=students, criteria__in=criteria_qs)
+            .values('student_id', 'criteria_id')
+            .annotate(latest_id=Max('id'))
+        )
+        latest_ids = [r['latest_id'] for r in latest_ids_qs]
+        existing_records = ProgressRecord.objects.filter(id__in=latest_ids)
 
         record_map = {}
         for rec in existing_records:
@@ -306,10 +410,12 @@ class RecordProgressView(RoleRequiredMixin, View):
         student_rows = []
         for student in students:
             row_criteria = []
-            for crit in criteria_qs:
+            for h_item in hierarchical_criteria:
+                crit = h_item['criteria']
                 existing = record_map.get((student.id, crit.id))
                 row_criteria.append({
                     'criteria': crit,
+                    'is_child': h_item['is_child'],
                     'current_status': existing.status if existing else 'not_started',
                 })
             student_rows.append({
@@ -319,7 +425,7 @@ class RecordProgressView(RoleRequiredMixin, View):
 
         return render(request, 'progress/record_progress.html', {
             'classroom': classroom,
-            'criteria': criteria_qs,
+            'hierarchical_criteria': hierarchical_criteria,
             'student_rows': student_rows,
             'status_choices': ProgressRecord.STATUS_CHOICES,
         })
@@ -351,6 +457,7 @@ class RecordProgressView(RoleRequiredMixin, View):
                 record, created = ProgressRecord.objects.get_or_create(
                     student=student,
                     criteria=crit,
+                    session=None,
                     defaults={
                         'status': new_status,
                         'recorded_by': request.user,
@@ -380,15 +487,26 @@ class StudentProgressView(RoleRequiredMixin, View):
         Role.SENIOR_TEACHER,
         Role.TEACHER,
         Role.JUNIOR_TEACHER,
+        Role.HEAD_OF_DEPARTMENT,
+        Role.HEAD_OF_INSTITUTE,
     ]
 
     def get(self, request, student_id):
         from accounts.models import CustomUser
         student = get_object_or_404(CustomUser, pk=student_id)
 
-        records = (
+        # Get latest record per (student, criteria) using Max(id)
+        latest_ids_qs = (
             ProgressRecord.objects
             .filter(student=student)
+            .values('criteria_id')
+            .annotate(latest_id=Max('id'))
+        )
+        latest_ids = [r['latest_id'] for r in latest_ids_qs]
+
+        records = (
+            ProgressRecord.objects
+            .filter(id__in=latest_ids)
             .select_related('criteria__subject', 'criteria__level', 'recorded_by')
             .order_by(
                 'criteria__subject__name',
@@ -416,16 +534,16 @@ class StudentProgressView(RoleRequiredMixin, View):
         )
 
         # Summary counts
-        total = records.count()
-        achieved = records.filter(status='achieved').count()
-        in_progress = records.filter(status='in_progress').count()
-        not_started = records.filter(status='not_started').count()
+        total = len(latest_ids)
+        achieved = sum(1 for r in records if r.status == 'achieved')
+        in_progress_count = sum(1 for r in records if r.status == 'in_progress')
+        not_started = sum(1 for r in records if r.status == 'not_started')
 
         return render(request, 'progress/student_progress.html', {
             'student': student,
             'progress_groups': progress_groups,
             'total': total,
             'achieved': achieved,
-            'in_progress': in_progress,
+            'in_progress': in_progress_count,
             'not_started': not_started,
         })

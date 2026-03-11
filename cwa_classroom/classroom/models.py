@@ -545,6 +545,13 @@ class ProgressCriteria(models.Model):
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='progress_criteria')
     subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name='progress_criteria')
     level = models.ForeignKey(Level, on_delete=models.CASCADE, related_name='progress_criteria')
+    parent = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='children',
+        help_text='Leave blank for top-level criteria; set for sub-criteria.',
+    )
     name = models.CharField(max_length=300)
     description = models.TextField(blank=True)
     order = models.PositiveIntegerField(default=0)
@@ -607,6 +614,7 @@ class ProgressRecord(models.Model):
 
     class Meta:
         ordering = ['-recorded_at']
+        unique_together = ('student', 'criteria', 'session')
 
     def __str__(self):
         return f'{self.student.username} — {self.criteria.name} ({self.status})'

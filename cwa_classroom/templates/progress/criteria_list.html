@@ -26,7 +26,7 @@
         <select name="subject_id" class="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent transition">
           <option value="">All Subjects</option>
           {% for s in subjects %}
-            <option value="{{ s.id }}" {% if request.GET.subject_id == s.id|stringformat:"d" %}selected{% endif %}>{{ s.name }}</option>
+            <option value="{{ s.id }}" {% if selected_subject_id == s.id %}selected{% endif %}>{{ s.name }}</option>
           {% endfor %}
         </select>
       </div>
@@ -34,7 +34,7 @@
         <select name="level_id" class="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent transition">
           <option value="">All Levels</option>
           {% for l in levels %}
-            <option value="{{ l.id }}" {% if request.GET.level_id == l.id|stringformat:"d" %}selected{% endif %}>{{ l.display_name }}</option>
+            <option value="{{ l.id }}" {% if selected_level_id == l.id %}selected{% endif %}>{{ l.display_name }}</option>
           {% endfor %}
         </select>
       </div>
@@ -43,7 +43,7 @@
   </div>
 
   <!-- Criteria table -->
-  {% if criteria %}
+  {% if hierarchical_criteria %}
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
@@ -58,28 +58,41 @@
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-50">
-            {% for item in criteria %}
-              <tr>
-                <td class="px-6 py-3 font-medium text-gray-900">{{ item.name }}</td>
-                <td class="px-6 py-3 text-gray-600">{{ item.subject.name }}</td>
-                <td class="px-6 py-3 text-gray-600">{{ item.level.display_name }}</td>
+            {% for item in hierarchical_criteria %}
+              <tr class="{% if item.is_child %}bg-slate-50/50{% endif %} hover:bg-slate-50 transition">
+                <td class="px-6 py-3 font-medium text-gray-900">
+                  {% if item.is_child %}
+                    <span class="inline-block ml-6 text-gray-400">&#8627;</span>
+                    <span class="text-gray-700">{{ item.criteria.name }}</span>
+                  {% else %}
+                    <span class="font-bold">{{ item.criteria.name }}</span>
+                  {% endif %}
+                </td>
+                <td class="px-6 py-3 text-gray-600">{{ item.criteria.subject.name }}</td>
+                <td class="px-6 py-3 text-gray-600">{{ item.criteria.level.display_name }}</td>
                 <td class="px-6 py-3">
                   <span class="text-xs font-medium px-2 py-1 rounded-full
-                    {% if item.status == 'approved' %}bg-emerald-100 text-emerald-700
-                    {% elif item.status == 'pending_approval' %}bg-amber-100 text-amber-700
-                    {% elif item.status == 'rejected' %}bg-red-100 text-red-700
+                    {% if item.criteria.status == 'approved' %}bg-emerald-100 text-emerald-700
+                    {% elif item.criteria.status == 'pending_approval' %}bg-amber-100 text-amber-700
+                    {% elif item.criteria.status == 'rejected' %}bg-red-100 text-red-700
                     {% else %}bg-slate-100 text-slate-600{% endif %}">
-                    {{ item.get_status_display }}
+                    {{ item.criteria.get_status_display }}
                   </span>
                 </td>
-                <td class="px-6 py-3 text-gray-500">{{ item.created_by.username|default:"—" }}</td>
+                <td class="px-6 py-3 text-gray-500">{{ item.criteria.created_by.username|default:"--" }}</td>
                 <td class="px-6 py-3">
-                  {% if item.status == 'draft' %}
-                    <form method="post" action="{% url 'progress_criteria_submit' item.id %}" class="inline">
-                      {% csrf_token %}
-                      <button type="submit" class="text-accent hover:text-accent-dark text-sm font-medium">Submit for Approval</button>
-                    </form>
-                  {% endif %}
+                  <div class="flex items-center gap-2">
+                    {% if item.criteria.status == 'draft' %}
+                      <form method="post" action="{% url 'progress_criteria_submit' item.criteria.id %}" class="inline">
+                        {% csrf_token %}
+                        <button type="submit" class="text-accent hover:text-accent-dark text-xs font-semibold">Submit</button>
+                      </form>
+                    {% endif %}
+                    {% if not item.is_child and item.criteria.status == 'approved' %}
+                      <a href="{% url 'progress_criteria_create' %}?parent={{ item.criteria.id }}"
+                         class="text-blue-600 hover:text-blue-800 text-xs font-semibold">+ Sub-criteria</a>
+                    {% endif %}
+                  </div>
                 </td>
               </tr>
             {% endfor %}

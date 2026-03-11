@@ -12,7 +12,9 @@ from .models import (
     School, SchoolTeacher, ClassRoom, ClassSession, ClassTeacher,
     Enrollment, StudentAttendance, TeacherAttendance, Notification,
     ClassStudent, Department, SchoolStudent,
+    ProgressCriteria, ProgressRecord,
 )
+from .views_progress import _build_hierarchical_criteria
 
 
 # ---------------------------------------------------------------------------
@@ -340,6 +342,87 @@ class SessionAttendanceView(RoleRequiredMixin, View):
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
     ]
 
+    def _get_progress_context(self, session, enrolled_students):
+        """Build progress criteria + rows for the session attendance template."""
+        classroom = session.classroom
+
+        # Get approved criteria matching this classroom's school + subject + levels
+        criteria_qs = ProgressCriteria.objects.filter(
+            school=classroom.school,
+            status='approved',
+        )
+        if classroom.subject:
+            criteria_qs = criteria_qs.filter(subject=classroom.subject)
+        if classroom.levels.exists():
+            criteria_qs = criteria_qs.filter(level__in=classroom.levels.all())
+
+        criteria_qs = criteria_qs.select_related('subject', 'level', 'parent').order_by(
+            'subject__name', 'level__level_number', 'order', 'name',
+        )
+        criteria_list = list(criteria_qs)
+        if not criteria_list:
+            return {}
+
+        hierarchical_criteria = _build_hierarchical_criteria(criteria_list)
+
+        # Check for existing progress records for THIS session
+        existing_progress = {}
+        for pr in ProgressRecord.objects.filter(session=session, student__in=enrolled_students):
+            existing_progress[(pr.student_id, pr.criteria_id)] = pr.status
+
+        # If no progress records exist for this session, auto-load from
+        # the most recent PREVIOUS completed session of the same classroom
+        auto_loaded = False
+        if not existing_progress:
+            previous_session = (
+                ClassSession.objects
+                .filter(classroom=classroom, status='completed', date__lt=session.date)
+                .order_by('-date', '-start_time')
+                .first()
+            )
+            if not previous_session:
+                # Also try sessions on the same date but earlier
+                previous_session = (
+                    ClassSession.objects
+                    .filter(classroom=classroom, status='completed')
+                    .exclude(pk=session.pk)
+                    .order_by('-date', '-start_time')
+                    .first()
+                )
+            if previous_session:
+                prev_records = ProgressRecord.objects.filter(
+                    session=previous_session,
+                    student__in=enrolled_students,
+                    criteria__in=criteria_qs,
+                )
+                for pr in prev_records:
+                    existing_progress[(pr.student_id, pr.criteria_id)] = pr.status
+                auto_loaded = bool(prev_records.exists() if hasattr(prev_records, 'exists') else prev_records)
+
+        # Build progress rows for the template
+        progress_rows = []
+        for student in enrolled_students:
+            criteria_statuses = []
+            for h_item in hierarchical_criteria:
+                crit = h_item['criteria']
+                current_status = existing_progress.get((student.id, crit.id), 'not_started')
+                criteria_statuses.append({
+                    'criteria': crit,
+                    'is_child': h_item['is_child'],
+                    'current_status': current_status,
+                })
+            progress_rows.append({
+                'student': student,
+                'criteria_statuses': criteria_statuses,
+            })
+
+        return {
+            'hierarchical_criteria': hierarchical_criteria,
+            'progress_rows': progress_rows,
+            'progress_status_choices': ProgressRecord.STATUS_CHOICES,
+            'auto_loaded': auto_loaded,
+        }
+
     def get(self, request, session_id):
         session = get_object_or_404(
             ClassSession.objects.select_related('classroom', 'classroom__department', 'classroom__school'),
@@ -351,9 +434,9 @@ class SessionAttendanceView(RoleRequiredMixin, View):
             return redirect('teacher_dashboard')
 
         # All enrolled students for this classroom
-        enrolled_students = session.classroom.students.all().order_by(
+        enrolled_students = list(session.classroom.students.all().order_by(
             'last_name', 'first_name', 'username',
-        )
+        ))
 
         # Existing attendance records for this session (for pre-filling the form)
         existing_records = {}
@@ -379,12 +462,17 @@ class SessionAttendanceView(RoleRequiredMixin, View):
             session=session, teacher=request.user,
         ).first()
 
-        return render(request, 'teacher/session_attendance.html', {
+        # Progress tracking context
+        progress_ctx = self._get_progress_context(session, enrolled_students)
+
+        ctx = {
             'session': session,
             'classroom': session.classroom,
             'students_with_status': students_with_status,
             'teacher_attendance': teacher_attendance,
-        })
+        }
+        ctx.update(progress_ctx)
+        return render(request, 'teacher/session_attendance.html', ctx)
 
     def post(self, request, session_id):
         session = get_object_or_404(
@@ -396,7 +484,7 @@ class SessionAttendanceView(RoleRequiredMixin, View):
             messages.error(request, 'You do not have access to this class.')
             return redirect('teacher_dashboard')
 
-        enrolled_students = session.classroom.students.all()
+        enrolled_students = list(session.classroom.students.all())
         saved_count = 0
 
         for student in enrolled_students:
@@ -417,6 +505,39 @@ class SessionAttendanceView(RoleRequiredMixin, View):
             )
             saved_count += 1
 
+        # ----- Save Progress Records -----
+        classroom = session.classroom
+        criteria_qs = ProgressCriteria.objects.filter(
+            school=classroom.school,
+            status='approved',
+        )
+        if classroom.subject:
+            criteria_qs = criteria_qs.filter(subject=classroom.subject)
+        if classroom.levels.exists():
+            criteria_qs = criteria_qs.filter(level__in=classroom.levels.all())
+
+        valid_progress_statuses = {s[0] for s in ProgressRecord.STATUS_CHOICES}
+        progress_saved = 0
+
+        for student in enrolled_students:
+            for crit in criteria_qs:
+                field_name = f'progress_{student.id}_{crit.id}'
+                new_status = request.POST.get(field_name, '').strip()
+
+                if new_status not in valid_progress_statuses:
+                    continue
+
+                ProgressRecord.objects.update_or_create(
+                    student=student,
+                    criteria=crit,
+                    session=session,
+                    defaults={
+                        'status': new_status,
+                        'recorded_by': request.user,
+                    },
+                )
+                progress_saved += 1
+
         # Save teacher's own attendance
         teacher_status = request.POST.get('teacher_status', '').strip()
         if teacher_status in ('present', 'absent'):
@@ -434,10 +555,17 @@ class SessionAttendanceView(RoleRequiredMixin, View):
         if complete_session and session.status == 'scheduled':
             session.status = 'completed'
             session.save(update_fields=['status'])
-            messages.success(request, f'Attendance saved for {saved_count} student(s). Session marked as completed.')
+            msg = f'Attendance saved for {saved_count} student(s).'
+            if progress_saved:
+                msg += f' Progress saved for {progress_saved} record(s).'
+            msg += ' Session marked as completed.'
+            messages.success(request, msg)
             return redirect('class_detail', class_id=session.classroom_id)
 
-        messages.success(request, f'Attendance saved for {saved_count} student(s).')
+        msg = f'Attendance saved for {saved_count} student(s).'
+        if progress_saved:
+            msg += f' Progress saved for {progress_saved} record(s).'
+        messages.success(request, msg)
         return redirect('session_attendance', session_id=session_id)
 
 
