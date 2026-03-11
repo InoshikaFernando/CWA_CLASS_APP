@@ -138,14 +138,55 @@ class StudentDashboardView(LoginRequiredMixin, View):
                 'levels': levels_data,
             })
 
+        # ── Times Tables results ─────────────────────────────────────
+        from classroom.views import _tt_colour
+        tt_results = []
+        for table in range(1, 13):
+            best_mul = StudentFinalAnswer.objects.filter(
+                student=user,
+                quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
+                operation='multiplication',
+                level__level_number=table,
+            ).order_by('-points').first()
+            best_div = StudentFinalAnswer.objects.filter(
+                student=user,
+                quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
+                operation='division',
+                level__level_number=table,
+            ).order_by('-points').first()
+            # Legacy: attempts without operation saved (old records)
+            if not best_mul and not best_div:
+                best_legacy = StudentFinalAnswer.objects.filter(
+                    student=user,
+                    quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
+                    operation='',
+                    level__level_number=table,
+                ).order_by('-points').first()
+            else:
+                best_legacy = None
+            tt_results.append({
+                'table': table,
+                'mul': best_mul,
+                'div': best_div,
+                'legacy': best_legacy,
+                'mul_colour': _tt_colour(best_mul if best_mul else best_legacy),
+                'div_colour': _tt_colour(best_div),
+            })
+
         # ── Recent activity ───────────────────────────────────────────
         recent_topic = StudentFinalAnswer.objects.filter(
-            student=user
+            student=user,
+            quiz_type__in=[StudentFinalAnswer.QUIZ_TYPE_TOPIC, StudentFinalAnswer.QUIZ_TYPE_MIXED],
         ).select_related('topic', 'level').order_by('-completed_at')[:5]
 
         recent_bf = BasicFactsResult.objects.filter(
             student=user
         ).order_by('-completed_at')[:5]
+
+        recent_tt = StudentFinalAnswer.objects.filter(
+            student=user,
+            quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
+        ).select_related('level').order_by('-completed_at')[:5]
 
         # ── Time log ─────────────────────────────────────────────────
         from maths.views import update_time_log_from_activities
@@ -158,8 +199,10 @@ class StudentDashboardView(LoginRequiredMixin, View):
         return render(request, 'student/dashboard.html', {
             'progress_grid': progress_grid,
             'bf_grid': bf_grid,
+            'tt_results': tt_results,
             'recent_topic': recent_topic,
             'recent_bf': recent_bf,
+            'recent_tt': recent_tt,
             'time_log': time_log,
             'time_daily': time_daily,
             'time_weekly': time_weekly,
