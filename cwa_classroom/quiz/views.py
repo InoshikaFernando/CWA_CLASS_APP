@@ -144,7 +144,7 @@ class BasicFactsQuizView(LoginRequiredMixin, View):
             )
 
         # Clean session
-        del request.session[session_key]
+        request.session.pop(session_key, None)
 
         # Store result id for results page
         request.session[f'bf_result_{subtopic}_{level_number}'] = result.id
@@ -358,6 +358,12 @@ class TimesTablesSubmitView(LoginRequiredMixin, View):
         import time as _time
         session_key = f'tt_{session_id}'
         session_data = request.session.get(session_key, {})
+
+        # Guard: if session data is missing (e.g. page refresh after submit),
+        # redirect to results page instead of processing with empty data.
+        if not session_data:
+            return redirect('times_tables_results_view', session_id=session_id)
+
         table = session_data.get('table', 0)
         operation = session_data.get('operation', 'multiplication')
         level_number = session_data.get('level_number', 1)
@@ -387,7 +393,7 @@ class TimesTablesSubmitView(LoginRequiredMixin, View):
             )
 
         request.session[f'tt_done_{session_id}'] = session_data
-        del request.session[session_key]
+        request.session.pop(session_key, None)
         return redirect('times_tables_results_view', session_id=session_id)
 
 
@@ -712,7 +718,7 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
                 attempt_number=attempt_num,
             )
             request.session[f'tq_result_{q.topic.id}_{session_data["level_number"]}'] = result.id
-            del request.session[session_key]
+            request.session.pop(session_key, None)
             next_url = f'/level/{session_data["level_number"]}/topic/{q.topic.id}/results/'
 
         return JsonResponse({
