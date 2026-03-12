@@ -34,7 +34,7 @@
           <div class="flex flex-wrap gap-2 mt-2">
             {% for answer in q.answers.all %}
             <span class="text-xs px-2 py-0.5 rounded-full {% if answer.is_correct %}bg-green-100 text-green-700 font-bold{% else %}bg-gray-100 text-gray-500{% endif %}">
-              {% if answer.is_correct %}✓ {% endif %}{{ answer.text }}
+              {% if answer.is_correct %}✓ {% endif %}{{ answer.answer_text }}
             </span>
             {% endfor %}
           </div>

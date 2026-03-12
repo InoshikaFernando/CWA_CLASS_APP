@@ -96,12 +96,28 @@ class HomeView(LoginRequiredMixin, View):
                     Level.objects.filter(level_number__lte=9).values_list('id', flat=True)
                 )
 
+            # Bridge classroom.Topic → maths.Topic by name for quiz links
+            from maths.models import Topic as MathsTopic, Level as MathsLevel, Question
+            maths_topic_map = {t.name: t for t in MathsTopic.objects.all()}
+
+            # Pre-fetch which maths topics have questions, keyed by (maths_topic_id, maths_level_id)
+            from django.db.models import Count
+            questions_exist = set()
+            for row in (Question.objects
+                        .values('topic_id', 'level_id')
+                        .annotate(cnt=Count('id'))
+                        .filter(cnt__gt=0)):
+                questions_exist.add((row['topic_id'], row['level_id']))
+
             year_data = []
             for year in range(1, 10):
                 try:
                     level = Level.objects.get(level_number=year)
                 except Level.DoesNotExist:
                     continue
+                # Resolve maths-side level for question lookup
+                maths_level = MathsLevel.objects.filter(level_number=year).first()
+
                 subtopics = (
                     Topic.objects
                     .filter(levels=level, is_active=True, parent__isnull=False)
@@ -113,7 +129,18 @@ class HomeView(LoginRequiredMixin, View):
                     sid = subtopic.parent_id
                     if sid not in strand_dict:
                         strand_dict[sid] = {'strand': subtopic.parent, 'subtopics': []}
-                    strand_dict[sid]['subtopics'].append(subtopic)
+                    # Bridge to maths Topic
+                    mt = maths_topic_map.get(subtopic.name)
+                    has_questions = (
+                        mt is not None
+                        and maths_level is not None
+                        and (mt.id, maths_level.id) in questions_exist
+                    )
+                    strand_dict[sid]['subtopics'].append({
+                        'topic': subtopic,
+                        'maths_topic_id': mt.id if mt else None,
+                        'has_questions': has_questions,
+                    })
                 year_data.append({
                     'level': level,
                     'strand_data': list(strand_dict.values()),

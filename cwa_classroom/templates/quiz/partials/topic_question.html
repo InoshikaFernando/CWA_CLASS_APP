@@ -29,7 +29,7 @@
                      hover:border-primary hover:bg-primary-light font-semibold text-gray-700
                      transition focus:outline-none"
               onclick="submitMCAnswer('{{ session_id }}', {{ question.id }}, {{ answer.id }})">
-        {{ answer.text }}
+        {{ answer.answer_text }}
       </button>
       {% endfor %}
     </div>
@@ -41,7 +41,7 @@
       <li class="flex items-center gap-3 bg-gray-50 border border-slate-200 rounded-xl px-4 py-3 cursor-grab active:cursor-grabbing"
           data-id="{{ answer.id }}">
         <span class="text-gray-400">⠿</span>
-        <span class="font-semibold text-gray-800">{{ answer.text }}</span>
+        <span class="font-semibold text-gray-800">{{ answer.answer_text }}</span>
       </li>
       {% endfor %}
     </ul>

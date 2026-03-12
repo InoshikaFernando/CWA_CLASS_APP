@@ -166,7 +166,7 @@ class BasicFactsQuizView(LoginRequiredMixin, View):
                 subtopic=subtopic,
                 level_number=level_number,
                 score=correct_count,
-                total_questions=total,
+                total_points=total,
                 points=points,
                 time_taken_seconds=time_taken,
                 questions_data=results,
@@ -736,8 +736,6 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
         StudentAnswer.objects.create(
             student=request.user,
             question=q,
-            topic=q.topic,
-            level=q.level,
             is_correct=is_correct,
             attempt_id=_uuid.UUID(session_id) if len(session_id) == 36 else _uuid.uuid4(),
         )

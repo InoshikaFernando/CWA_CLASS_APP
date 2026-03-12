@@ -43,7 +43,7 @@
           {% for answer in q.answers.all %}
           <label class="flex items-center gap-2 p-3 rounded-xl border border-gray-200 hover:border-primary hover:bg-primary-light cursor-pointer transition has-[:checked]:border-primary has-[:checked]:bg-primary-light">
             <input type="radio" name="answer_{{ q.id }}" value="{{ answer.id }}" class="text-primary" />
-            <span class="text-sm font-semibold text-gray-700">{{ answer.text }}</span>
+            <span class="text-sm font-semibold text-gray-700">{{ answer.answer_text }}</span>
           </label>
           {% endfor %}
         </div>
