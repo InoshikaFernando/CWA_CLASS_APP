@@ -414,19 +414,21 @@ class TimesTablesSubmitView(LoginRequiredMixin, View):
 
         # Save to DB using table number as level_number
         from maths.models import StudentFinalAnswer
-        level_obj = Level.objects.filter(level_number=table).first()
-        if level_obj:
-            StudentFinalAnswer.objects.create(
-                student=request.user,
-                topic=None,
-                level=level_obj,
-                quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
-                operation=operation,
-                score=score,
-                total_questions=total,
-                points=points,
-                time_taken_seconds=time_taken,
-            )
+        level_obj, _ = Level.objects.get_or_create(
+            level_number=table,
+            defaults={'display_name': f'Table {table}'},
+        )
+        StudentFinalAnswer.objects.create(
+            student=request.user,
+            topic=None,
+            level=level_obj,
+            quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
+            operation=operation,
+            score=score,
+            total_questions=total,
+            points=points,
+            time_taken_seconds=time_taken,
+        )
 
         request.session[f'tt_done_{session_id}'] = session_data
         request.session.pop(session_key, None)
