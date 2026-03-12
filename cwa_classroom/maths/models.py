@@ -376,6 +376,7 @@ class StudentFinalAnswer(models.Model):
     level = models.ForeignKey(Level, on_delete=models.SET_NULL, null=True, blank=True, related_name="final_answers")
     quiz_type = models.CharField(max_length=20, choices=QUIZ_TYPE_CHOICES, default='topic', blank=True)
     operation = models.CharField(max_length=20, default='', blank=True, help_text="Operation for times-table quizzes: 'multiplication' or 'division'")
+    table_number = models.PositiveSmallIntegerField(null=True, blank=True, help_text="Times-table number (1-12). Only set for quiz_type='times_table'.")
     attempt_number = models.PositiveIntegerField(default=1, help_text="Attempt number for this student-topic-level combination")
     score = models.PositiveSmallIntegerField(default=0, help_text="Number of correct answers")
     total_questions = models.PositiveSmallIntegerField(default=0, help_text="Total questions in this attempt")

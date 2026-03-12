@@ -412,16 +412,14 @@ class TimesTablesSubmitView(LoginRequiredMixin, View):
         time_taken = max(1, int(_time.time() - start_time))
         points = calculate_points(score, total, time_taken)
 
-        # Save to DB using table number as level_number
+        # Save to DB
         from maths.models import StudentFinalAnswer
-        level_obj, _ = Level.objects.get_or_create(
-            level_number=table,
-            defaults={'display_name': f'Table {table}'},
-        )
+        level_obj = Level.objects.filter(level_number=table).first()
         StudentFinalAnswer.objects.create(
             student=request.user,
             topic=None,
-            level=level_obj,
+            level=level_obj,          # Year 1-9 or None for tables 10-12
+            table_number=table,       # always set for times tables
             quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
             operation=operation,
             score=score,

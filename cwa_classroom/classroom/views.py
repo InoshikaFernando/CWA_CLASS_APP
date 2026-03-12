@@ -243,13 +243,13 @@ class StudentDashboardView(LoginRequiredMixin, View):
                 student=request.user,
                 quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
                 operation='multiplication',
-                level__level_number=table,
+                table_number=table,
             ).order_by('-points').first()
             best_div = StudentFinalAnswer.objects.filter(
                 student=request.user,
                 quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
                 operation='division',
-                level__level_number=table,
+                table_number=table,
             ).order_by('-points').first()
             # Legacy: attempts without operation saved (old records)
             if not best_mul and not best_div:
@@ -257,7 +257,7 @@ class StudentDashboardView(LoginRequiredMixin, View):
                     student=request.user,
                     quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
                     operation='',
-                    level__level_number=table,
+                    table_number=table,
                 ).order_by('-points').first()
             else:
                 best_legacy = None
