@@ -101,6 +101,9 @@ urlpatterns = [
     path('progress/class/<int:class_id>/record/', views_progress.RecordProgressView.as_view(), name='record_progress'),
     path('progress/student/<int:student_id>/', views_progress.StudentProgressView.as_view(), name='student_progress'),
 
+    # API
+    path('api/department/<int:dept_id>/levels/', views.DepartmentLevelsAPIView.as_view(), name='api_department_levels'),
+
     # HoD
     path('department/', views.HoDOverviewView.as_view(), name='hod_overview'),
     path('department/manage-classes/', views.HoDManageClassesView.as_view(), name='hod_manage_classes'),

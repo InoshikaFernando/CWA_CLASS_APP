@@ -4,7 +4,7 @@
 <div class="max-w-2xl mx-auto space-y-6">
   <div>
     <h1 class="font-display text-3xl text-primary">Create a New Class</h1>
-    <p class="text-gray-400 text-sm mt-1">Set a name, pick year levels, and share the code with students.</p>
+    <p class="text-gray-400 text-sm mt-1">Set a name, pick a department, select levels, and share the code with students.</p>
   </div>
 
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
@@ -14,6 +14,30 @@
         <label class="block text-sm font-semibold text-gray-700 mb-1.5">Class Name</label>
         <input type="text" name="name" required autofocus placeholder="e.g. Room 12 — Year 4"
                class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+      </div>
+
+      <!-- Department -->
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1.5">Department</label>
+        {% if departments|length == 0 %}
+          <p class="text-sm text-gray-400 bg-gray-50 rounded-lg p-3">No departments available. Ask your school administrator to create one.</p>
+        {% elif departments|length == 1 %}
+          {% for dept in departments %}
+            <input type="hidden" name="department" value="{{ dept.id }}">
+            <p class="text-gray-700 px-4 py-2.5 bg-slate-50 rounded-lg border border-gray-200">
+              {{ dept.name }} <span class="text-xs text-gray-400">({{ dept.school.name }})</span>
+            </p>
+          {% endfor %}
+        {% else %}
+          <select name="department" id="department-select" required
+                  onchange="loadDepartmentLevels(this.value)"
+                  class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition">
+            <option value="">Select a department</option>
+            {% for dept in departments %}
+              <option value="{{ dept.id }}">{{ dept.name }} ({{ dept.school.name }})</option>
+            {% endfor %}
+          </select>
+        {% endif %}
       </div>
 
       <!-- Day & Time -->
@@ -50,41 +74,12 @@
                   class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition resize-none"></textarea>
       </div>
 
-      <div>
-        <label class="block text-sm font-semibold text-gray-700 mb-2">Year Levels</label>
-        <p class="text-xs text-gray-400 mb-3">Students will have access to topics from the selected levels.</p>
-        <div class="grid grid-cols-4 gap-3">
-          {% for level in levels %}
-          <label class="flex flex-col items-center justify-center gap-1 p-3 rounded-xl border-2 border-gray-200
-                         hover:border-primary cursor-pointer transition has-[:checked]:border-primary has-[:checked]:bg-primary-light">
-            <input type="checkbox" name="levels" value="{{ level.id }}" class="sr-only" />
-            <span class="font-display text-xl text-primary">{{ level.level_number }}</span>
-            <span class="text-xs text-gray-500">{{ level.display_name }}</span>
-          </label>
-          {% endfor %}
-        </div>
-      </div>
-
-      {% if custom_levels %}
-      <div>
-        <label class="block text-sm font-semibold text-gray-700 mb-2">Custom Levels</label>
-        <p class="text-xs text-gray-400 mb-3">School-specific levels for non-maths classes.</p>
-        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {% for level in custom_levels %}
-          <label class="flex flex-col items-center justify-center gap-1 p-3 rounded-xl border-2 border-gray-200
-                         hover:border-accent cursor-pointer transition has-[:checked]:border-accent has-[:checked]:bg-accent-light">
-            <input type="checkbox" name="levels" value="{{ level.id }}" class="sr-only" />
-            <span class="text-sm font-semibold text-accent">{{ level.display_name }}</span>
-            {% if level.description %}<span class="text-xs text-gray-400">{{ level.description }}</span>{% endif %}
-          </label>
-          {% endfor %}
-        </div>
-      </div>
-      {% endif %}
+      <!-- Dynamic Level Selector -->
+      {% include "partials/level_selector.html" %}
 
       <div class="flex gap-3 pt-2">
         <button type="submit" class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition">
-          Create Class →
+          Create Class &rarr;
         </button>
         <a href="/" class="bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold rounded-xl px-6 py-3 transition">
           Cancel
@@ -93,4 +88,14 @@
     </form>
   </div>
 </div>
+
+{% if departments|length == 1 %}
+<script>
+  // Auto-load levels for the single department
+  document.addEventListener('DOMContentLoaded', function() {
+    const deptInput = document.querySelector('input[name="department"]');
+    if (deptInput) loadDepartmentLevels(deptInput.value);
+  });
+</script>
+{% endif %}
 {% endblock %}

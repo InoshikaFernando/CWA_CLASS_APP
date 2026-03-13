@@ -32,6 +32,12 @@ class Level(models.Model):
         null=True, blank=True,
         related_name='custom_levels',
     )
+    department = models.ForeignKey(
+        'Department', on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='levels',
+        help_text='Department this level belongs to. Year levels are auto-assigned when a department is created with a subject module.',
+    )
 
     class Meta:
         ordering = ['level_number']

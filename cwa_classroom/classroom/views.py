@@ -408,41 +408,63 @@ class LevelDetailView(LoginRequiredMixin, View):
 class CreateClassView(RoleRequiredMixin, View):
     required_role = Role.TEACHER
 
-    def get(self, request):
-        levels = Level.objects.filter(level_number__lte=8, school__isnull=True).order_by('level_number')
-        # Get custom levels from teacher's school
-        custom_levels = Level.objects.none()
-        school_membership = SchoolTeacher.objects.filter(teacher=request.user).select_related('school').first()
+    def _get_departments(self, user):
+        """Departments available to this teacher via their school."""
+        from .models import DepartmentTeacher
+        # Departments where teacher is assigned
+        dept_ids = DepartmentTeacher.objects.filter(teacher=user).values_list('department_id', flat=True)
+        depts = Department.objects.filter(id__in=dept_ids, is_active=True).select_related('school')
+        if depts.exists():
+            return depts
+        # Fallback: all departments in teacher's school
+        school_membership = SchoolTeacher.objects.filter(teacher=user).select_related('school').first()
         if school_membership:
-            custom_levels = Level.objects.filter(school=school_membership.school).order_by('level_number')
+            return Department.objects.filter(school=school_membership.school, is_active=True).select_related('school')
+        return Department.objects.none()
+
+    def get(self, request):
+        departments = self._get_departments(request.user)
         return render(request, 'teacher/create_class.html', {
-            'levels': levels,
-            'custom_levels': custom_levels,
+            'departments': departments,
         })
 
     def post(self, request):
         name = request.POST.get('name', '').strip()
+        dept_id = request.POST.get('department', '').strip()
         level_ids = request.POST.getlist('levels')
         day = request.POST.get('day', '').strip()
         start_time = request.POST.get('start_time', '').strip() or None
         end_time = request.POST.get('end_time', '').strip() or None
         description = request.POST.get('description', '').strip()
+
         if not name:
             messages.error(request, 'Class name is required.')
             return redirect('create_class')
+
+        departments = self._get_departments(request.user)
+        department = departments.filter(id=dept_id).first() if dept_id else None
+        if not department:
+            messages.error(request, 'Please select a department.')
+            return redirect('create_class')
+
+        # Validate levels belong to the selected department
+        valid_levels = Level.objects.filter(id__in=level_ids, department=department)
+
         with transaction.atomic():
             classroom = ClassRoom.objects.create(
                 name=name,
+                school=department.school,
+                department=department,
                 day=day,
                 start_time=start_time,
                 end_time=end_time,
                 description=description,
                 created_by=request.user,
             )
-            if level_ids:
-                classroom.levels.set(Level.objects.filter(id__in=level_ids))
+            if valid_levels.exists():
+                classroom.levels.set(valid_levels)
             ClassTeacher.objects.create(classroom=classroom, teacher=request.user)
-        messages.success(request, f'Class "{name}" created. Code: {classroom.code}')
+        messages.success(request, f'Class "{name}" created in {department.name}. Code: {classroom.code}')
         return redirect('subjects_hub')
 
 
@@ -1251,15 +1273,9 @@ class HoDCreateClassView(RoleRequiredMixin, View):
 
     def get(self, request):
         departments = self._get_departments(request.user)
-        levels = Level.objects.filter(level_number__lte=8, school__isnull=True).order_by('level_number')
         selected_dept = request.GET.get('department', '')
-        # Custom levels from user's schools
-        school_ids = departments.values_list('school_id', flat=True).distinct()
-        custom_levels = Level.objects.filter(school_id__in=school_ids).order_by('level_number')
         return render(request, 'hod/create_class.html', {
             'departments': departments,
-            'levels': levels,
-            'custom_levels': custom_levels,
             'selected_dept': selected_dept,
         })
 
@@ -1295,7 +1311,8 @@ class HoDCreateClassView(RoleRequiredMixin, View):
                 created_by=request.user,
             )
             if level_ids:
-                classroom.levels.set(Level.objects.filter(id__in=level_ids))
+                valid_levels = Level.objects.filter(id__in=level_ids, department=department)
+                classroom.levels.set(valid_levels)
 
         messages.success(
             request,
@@ -1577,3 +1594,43 @@ def _get_client_ip(request):
     if x_forwarded_for:
         return x_forwarded_for.split(',')[0].strip()
     return request.META.get('REMOTE_ADDR', '127.0.0.1')
+
+
+# ── API: Department Levels ────────────────────────────────────────────────────
+
+class DepartmentLevelsAPIView(LoginRequiredMixin, View):
+    """Return levels belonging to a department as JSON."""
+
+    def get(self, request, dept_id):
+        from django.http import JsonResponse
+        from .models import DepartmentTeacher
+
+        dept = Department.objects.filter(id=dept_id).first()
+        if not dept:
+            return JsonResponse({'error': 'Department not found'}, status=404)
+
+        # Exclude Basic Facts levels (100-199) — those are module features, not class levels
+        from django.db.models import Q
+        all_levels = Level.objects.filter(
+            department=dept,
+        ).exclude(
+            level_number__gte=100, level_number__lt=200,
+        ).order_by('level_number')
+        year_levels = []
+        custom_levels = []
+        for lv in all_levels:
+            entry = {
+                'id': lv.id,
+                'level_number': lv.level_number,
+                'display_name': lv.display_name,
+                'description': lv.description,
+            }
+            if lv.level_number <= 9:
+                year_levels.append(entry)
+            else:
+                custom_levels.append(entry)
+
+        return JsonResponse({
+            'levels': year_levels,
+            'custom_levels': custom_levels,
+        })

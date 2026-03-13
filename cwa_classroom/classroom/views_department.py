@@ -6,7 +6,7 @@ from django.utils.text import slugify
 
 from accounts.models import CustomUser, Role, UserRole
 from accounts.views import _validate_username, _generate_username_suggestion
-from .models import School, SchoolTeacher, Department, DepartmentTeacher, ClassRoom, Subject
+from .models import School, SchoolTeacher, Department, DepartmentTeacher, ClassRoom, Subject, Level
 from .views import RoleRequiredMixin
 
 
@@ -71,13 +71,18 @@ class DepartmentCreateView(RoleRequiredMixin, View):
             slug = f'{base_slug}-{counter}'
             counter += 1
 
-        Department.objects.create(
+        dept = Department.objects.create(
             school=school,
             name=name,
             slug=slug,
             description=description,
             subject=subject,
         )
+        # Auto-assign year levels based on subject module
+        if subject and subject.slug == 'mathematics':
+            Level.objects.filter(
+                level_number__lte=9, school__isnull=True, department__isnull=True,
+            ).update(department=dept)
         if subject:
             messages.success(request, f'Department "{name}" created with {subject.name} question bank.')
         else:
