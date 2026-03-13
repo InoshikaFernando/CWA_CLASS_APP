@@ -146,7 +146,7 @@ class StudentAnswer(models.Model):
     time_taken_seconds = models.PositiveIntegerField(default=0, help_text="Time taken for this attempt in seconds")
 
     class Meta:
-        unique_together = ("student", "question")
+        unique_together = ("student", "question", "attempt_id")
         ordering = ['-answered_at']
 
     def __str__(self):
