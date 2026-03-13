@@ -14,8 +14,8 @@ from accounts.models import CustomUser, Role, UserRole
 from .models import (
     ClassRoom, Subject, Topic, Level, ClassTeacher, ClassStudent,
     StudentLevelEnrollment, SubjectApp, ContactMessage, CONTACT_SUBJECT_CHOICES,
-    School, SchoolTeacher, ClassSession, StudentAttendance, TeacherAttendance,
-    Department,
+    School, SchoolTeacher, SchoolStudent, ClassSession, StudentAttendance,
+    TeacherAttendance, Department, Enrollment,
 )
 
 logger = logging.getLogger(__name__)
@@ -188,13 +188,48 @@ class StudentDashboardView(LoginRequiredMixin, View):
             for s in TopicLevelStatistics.objects.select_related('level', 'topic').all()
         }
 
-        # Determine which year levels this student has access to via their classrooms
-        classrooms = ClassRoom.objects.filter(students=request.user, is_active=True)
-        enrolled_level_ids = set(
-            Level.objects.filter(classrooms__in=classrooms, level_number__lte=8).values_list('id', flat=True)
+        # ── Filter controls ──────────────────────────────────────────────────
+        filter_subject_id = request.GET.get('subject_id')
+        filter_class_id = request.GET.get('class_id')
+
+        enrolled_classes = (
+            ClassRoom.objects.filter(students=request.user, is_active=True)
+            .select_related('subject')
+            .order_by('subject__name', 'name')
         )
+        enrolled_subjects = (
+            Subject.objects.filter(
+                classrooms__students=request.user, classrooms__is_active=True,
+            ).distinct().order_by('name')
+        )
+
+        # Determine which year levels to show based on active filter
+        if filter_class_id:
+            try:
+                active_class = enrolled_classes.get(id=filter_class_id)
+                enrolled_level_ids = set(
+                    active_class.levels.filter(level_number__lte=8).values_list('id', flat=True)
+                )
+            except ClassRoom.DoesNotExist:
+                enrolled_level_ids = set()
+        elif filter_subject_id:
+            enrolled_level_ids = set(
+                Level.objects.filter(
+                    classrooms__students=request.user,
+                    classrooms__subject_id=filter_subject_id,
+                    classrooms__is_active=True,
+                    level_number__lte=8,
+                ).values_list('id', flat=True)
+            )
+        else:
+            enrolled_level_ids = set(
+                Level.objects.filter(
+                    classrooms__in=enrolled_classes, level_number__lte=8,
+                ).values_list('id', flat=True)
+            )
+
         # Fall back to all Year 1-8 levels if not in any classroom yet
-        if not enrolled_level_ids:
+        if not enrolled_level_ids and not filter_class_id and not filter_subject_id:
             enrolled_level_ids = set(
                 Level.objects.filter(level_number__lte=8).values_list('id', flat=True)
             )
@@ -325,6 +360,11 @@ class StudentDashboardView(LoginRequiredMixin, View):
             'time_log': time_log,
             'time_daily': _format_seconds(time_log.daily_total_seconds if time_log else 0),
             'time_weekly': _format_seconds(time_log.weekly_total_seconds if time_log else 0),
+            # Filter controls
+            'enrolled_classes': enrolled_classes,
+            'enrolled_subjects': enrolled_subjects,
+            'filter_subject_id': int(filter_subject_id) if filter_subject_id else None,
+            'filter_class_id': int(filter_class_id) if filter_class_id else None,
         })
 
 
@@ -1448,7 +1488,8 @@ class SubjectsHubView(LoginRequiredMixin, View):
     """
     Authenticated home -- shows greeting + subject cards.
     Redirects non-student roles to their role-specific dashboards.
-    Students and Individual Students stay on the subjects hub.
+    Students and Individual Students stay on the subjects hub with
+    optional school/open-practice toggle.
     """
 
     def get(self, request):
@@ -1469,13 +1510,61 @@ class SubjectsHubView(LoginRequiredMixin, View):
         if role in (Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER):
             return redirect('teacher_dashboard')
 
-        # Students and Individual Students stay on the subjects hub
+        # ----- Student / Individual Student -----
+
+        # SubjectApp cards (always shown)
         subjects = SubjectApp.objects.exclude(
-            is_active=False, is_coming_soon=False
+            is_active=False, is_coming_soon=False,
         ).order_by('order')
+
+        # Determine if user is a school student
+        is_school_student = user.has_role(Role.STUDENT)
+        schools = []
+        if is_school_student:
+            schools = list(
+                School.objects.filter(
+                    school_students__student=user,
+                    school_students__is_active=True,
+                    is_active=True,
+                ).distinct()
+            )
+
+        # Source toggle: "school" or "open"
+        active_source = request.GET.get(
+            'source', 'school' if schools else 'open',
+        )
+        active_school = schools[0] if (active_source == 'school' and schools) else None
+
+        # Global classes (for "Open Practice" mode or individual students)
+        global_classes = []
+        if active_source == 'open' or not schools:
+            global_classes = list(
+                ClassRoom.objects.filter(
+                    school__isnull=True, is_active=True,
+                ).select_related('subject').order_by('subject__name', 'name')
+            )
+
+        # Enrollment status sets for the class cards
+        enrolled_class_ids = set(
+            ClassStudent.objects.filter(
+                student=user,
+            ).values_list('classroom_id', flat=True)
+        )
+        pending_class_ids = set(
+            Enrollment.objects.filter(
+                student=user, status='pending',
+            ).values_list('classroom_id', flat=True)
+        )
 
         return render(request, 'hub/home.html', {
             'subjects': subjects,
+            'schools': schools,
+            'is_school_student': is_school_student,
+            'active_source': active_source,
+            'active_school': active_school,
+            'global_classes': global_classes,
+            'enrolled_class_ids': enrolled_class_ids,
+            'pending_class_ids': pending_class_ids,
         })
 
 

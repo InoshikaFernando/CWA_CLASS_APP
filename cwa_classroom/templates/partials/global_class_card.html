@@ -1,0 +1,52 @@
+{% comment %}
+Global class card partial — renders a browsable class for enrollment.
+Context: `classroom` (ClassRoom instance), `enrolled_class_ids` (set), `pending_class_ids` (set)
+{% endcomment %}
+
+<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 flex flex-col">
+  <div class="flex items-start justify-between mb-2">
+    <h3 class="text-lg font-bold text-gray-800">{{ classroom.name }}</h3>
+    {% if classroom.subject %}
+      <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 whitespace-nowrap">
+        {{ classroom.subject.name }}
+      </span>
+    {% endif %}
+  </div>
+
+  {% if classroom.description %}
+    <p class="text-gray-500 text-sm mb-4 flex-1">{{ classroom.description|truncatewords:20 }}</p>
+  {% else %}
+    <div class="flex-1"></div>
+  {% endif %}
+
+  <div class="text-xs text-gray-400 mb-4">
+    {{ classroom.students.count }} student{{ classroom.students.count|pluralize }}
+  </div>
+
+  {% if classroom.id in enrolled_class_ids %}
+    <span class="inline-flex items-center justify-center gap-1.5 w-full px-4 py-2.5 bg-emerald-50 text-emerald-600 font-semibold rounded-xl text-sm border border-emerald-200">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      Enrolled
+    </span>
+  {% elif classroom.id in pending_class_ids %}
+    <span class="inline-flex items-center justify-center gap-1.5 w-full px-4 py-2.5 bg-amber-50 text-amber-600 font-semibold rounded-xl text-sm border border-amber-200">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      Pending
+    </span>
+  {% else %}
+    <form method="post" action="{% url 'student_enroll_global_class' classroom.id %}">
+      {% csrf_token %}
+      <button type="submit"
+              class="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold rounded-xl text-sm hover:from-blue-600 hover:to-blue-700 transition shadow-sm">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+        </svg>
+        Enroll
+      </button>
+    </form>
+  {% endif %}
+</div>

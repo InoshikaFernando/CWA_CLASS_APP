@@ -370,3 +370,29 @@ class StudentSelfMarkAttendanceView(LoginRequiredMixin, View):
             'Your attendance has been submitted and is pending teacher approval.'
         )
         return redirect('student_class_detail', class_id=session.classroom_id)
+
+
+# ---------------------------------------------------------------------------
+# 6. EnrollGlobalClassView
+# ---------------------------------------------------------------------------
+
+class EnrollGlobalClassView(RoleRequiredMixin, View):
+    """Auto-enroll a student in a global (school=None) class."""
+    required_roles = [Role.STUDENT, Role.INDIVIDUAL_STUDENT]
+
+    def post(self, request, class_id):
+        classroom = get_object_or_404(
+            ClassRoom, id=class_id, school__isnull=True, is_active=True,
+        )
+
+        # Already enrolled?
+        if ClassStudent.objects.filter(
+            classroom=classroom, student=request.user,
+        ).exists():
+            messages.info(request, f'You are already enrolled in "{classroom.name}".')
+            return redirect('subjects_hub')
+
+        # Auto-enroll (no approval needed for global classes)
+        ClassStudent.objects.create(classroom=classroom, student=request.user)
+        messages.success(request, f'You have been enrolled in "{classroom.name}".')
+        return redirect('subjects_hub')

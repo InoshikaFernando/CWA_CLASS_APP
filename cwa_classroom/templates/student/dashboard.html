@@ -8,6 +8,36 @@
     <p class="text-emerald-500 text-sm mt-1 font-semibold">Your performance across all topics and levels.</p>
   </div>
 
+  <!-- Filter controls -->
+  {% if enrolled_subjects|length > 0 or enrolled_classes|length > 1 %}
+  <div class="flex flex-wrap items-center gap-2">
+    <a href="{% url 'student_dashboard' %}"
+       class="px-4 py-2 rounded-xl text-sm font-semibold transition
+              {% if not filter_class_id and not filter_subject_id %}bg-emerald-500 text-white shadow-sm{% else %}bg-white border border-slate-200 text-gray-600 hover:bg-gray-50{% endif %}">
+      All
+    </a>
+    {% for subject in enrolled_subjects %}
+      <a href="{% url 'student_dashboard' %}?subject_id={{ subject.id }}"
+         class="px-4 py-2 rounded-xl text-sm font-semibold transition
+                {% if filter_subject_id == subject.id %}bg-emerald-500 text-white shadow-sm{% else %}bg-white border border-slate-200 text-gray-600 hover:bg-gray-50{% endif %}">
+        {{ subject.name }}
+      </a>
+    {% endfor %}
+    {% if enrolled_classes|length > 1 %}
+      <select onchange="if(this.value) window.location.href=this.value; else window.location.href='{% url 'student_dashboard' %}';"
+              class="px-4 py-2 rounded-xl text-sm font-semibold border border-slate-200 bg-white text-gray-600 focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 transition">
+        <option value="">Filter by class...</option>
+        {% for cls in enrolled_classes %}
+          <option value="{% url 'student_dashboard' %}?class_id={{ cls.id }}"
+                  {% if filter_class_id == cls.id %}selected{% endif %}>
+            {{ cls.name }}
+          </option>
+        {% endfor %}
+      </select>
+    {% endif %}
+  </div>
+  {% endif %}
+
   <!-- Time stats -->
   <div class="grid grid-cols-2 gap-4">
     <div class="bg-gradient-to-br from-emerald-500 to-green-600 rounded-2xl shadow-lg shadow-emerald-200 p-5 text-center">
