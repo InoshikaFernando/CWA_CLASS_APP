@@ -733,11 +733,12 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
         # Save individual answer
         from maths.models import StudentAnswer
         import uuid as _uuid
-        StudentAnswer.objects.create(
+        attempt = _uuid.UUID(session_id) if len(session_id) == 36 else _uuid.uuid4()
+        StudentAnswer.objects.update_or_create(
             student=request.user,
             question=q,
-            is_correct=is_correct,
-            attempt_id=_uuid.UUID(session_id) if len(session_id) == 36 else _uuid.uuid4(),
+            attempt_id=attempt,
+            defaults={'is_correct': is_correct},
         )
 
         is_last = session_data['current'] >= len(questions)
