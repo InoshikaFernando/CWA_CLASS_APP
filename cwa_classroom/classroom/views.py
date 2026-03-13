@@ -406,7 +406,7 @@ class LevelDetailView(LoginRequiredMixin, View):
 
 
 class CreateClassView(RoleRequiredMixin, View):
-    required_role = Role.TEACHER
+    required_roles = [Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE, Role.INSTITUTE_OWNER]
 
     def _get_departments(self, user):
         """Departments available to this teacher via their school."""

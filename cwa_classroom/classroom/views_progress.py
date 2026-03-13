@@ -210,7 +210,15 @@ class ProgressCriteriaCreateView(RoleRequiredMixin, View):
         except (ValueError, TypeError):
             order_val = 0
 
-        ProgressCriteria.objects.create(
+        # Senior Teachers, HoD, and HoI get auto-approved criteria
+        auto_approve = (
+            request.user.has_role(Role.SENIOR_TEACHER)
+            or request.user.has_role(Role.HEAD_OF_DEPARTMENT)
+            or request.user.has_role(Role.HEAD_OF_INSTITUTE)
+            or request.user.has_role(Role.INSTITUTE_OWNER)
+        )
+
+        criteria = ProgressCriteria.objects.create(
             school=school,
             subject=subject,
             level=level,
@@ -218,11 +226,15 @@ class ProgressCriteriaCreateView(RoleRequiredMixin, View):
             name=name,
             description=description,
             order=order_val,
-            status='draft',
+            status='approved' if auto_approve else 'draft',
             created_by=request.user,
+            approved_by=request.user if auto_approve else None,
         )
 
-        messages.success(request, f'Criteria "{name}" created as draft.')
+        if auto_approve:
+            messages.success(request, f'Criteria "{name}" created and approved.')
+        else:
+            messages.success(request, f'Criteria "{name}" created as draft.')
         return redirect('progress_criteria_list')
 
 
