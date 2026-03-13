@@ -470,8 +470,9 @@ class CreateClassView(RoleRequiredMixin, View):
 
 class ClassDetailView(RoleRequiredMixin, View):
     required_roles = [
-        Role.TEACHER, Role.HEAD_OF_DEPARTMENT,
-        Role.HEAD_OF_INSTITUTE, Role.INSTITUTE_OWNER,
+        Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT,
+        Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
     ]
 
     def get(self, request, class_id):
@@ -479,7 +480,7 @@ class ClassDetailView(RoleRequiredMixin, View):
         from django.db.models import Count, Q
 
         user = request.user
-        if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
+        if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
             classroom = get_object_or_404(ClassRoom, id=class_id, school__admin=user)
         elif user.has_role(Role.HEAD_OF_DEPARTMENT):
             classroom = get_object_or_404(
