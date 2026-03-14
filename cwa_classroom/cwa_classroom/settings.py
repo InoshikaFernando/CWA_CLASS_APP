@@ -16,6 +16,10 @@ DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,test-cwa-class-avinesh.pythonanywhere.com').split(',')
 
+CSRF_TRUSTED_ORIGINS = [
+    f'https://{host}' for host in ALLOWED_HOSTS if host not in ('localhost', '127.0.0.1')
+] + ['http://localhost', 'http://127.0.0.1']
+
 
 # ---------------------------------------------------------------------------
 # Applications
