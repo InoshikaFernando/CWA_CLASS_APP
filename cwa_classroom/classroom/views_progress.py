@@ -80,6 +80,7 @@ class ProgressCriteriaListView(RoleRequiredMixin, View):
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+        Role.INSTITUTE_OWNER,
     ]
 
     def get(self, request):
@@ -122,6 +123,7 @@ class ProgressCriteriaCreateView(RoleRequiredMixin, View):
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+        Role.INSTITUTE_OWNER,
     ]
 
     def get(self, request):
@@ -247,6 +249,7 @@ class ProgressCriteriaSubmitView(RoleRequiredMixin, View):
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+        Role.INSTITUTE_OWNER,
     ]
 
     def post(self, request, criteria_id):
@@ -285,7 +288,10 @@ class ProgressCriteriaSubmitView(RoleRequiredMixin, View):
 
 class ProgressCriteriaApprovalListView(RoleRequiredMixin, View):
     """List criteria pending approval for the current school."""
-    required_roles = [Role.SENIOR_TEACHER]
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.HEAD_OF_DEPARTMENT,
+        Role.HEAD_OF_INSTITUTE, Role.INSTITUTE_OWNER,
+    ]
 
     def get(self, request):
         school = _get_school_or_redirect(request)
@@ -307,7 +313,10 @@ class ProgressCriteriaApprovalListView(RoleRequiredMixin, View):
 
 class ProgressCriteriaApproveView(RoleRequiredMixin, View):
     """Approve a pending criteria."""
-    required_roles = [Role.SENIOR_TEACHER]
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.HEAD_OF_DEPARTMENT,
+        Role.HEAD_OF_INSTITUTE, Role.INSTITUTE_OWNER,
+    ]
 
     def post(self, request, criteria_id):
         criteria = get_object_or_404(ProgressCriteria, pk=criteria_id)
@@ -340,7 +349,10 @@ class ProgressCriteriaApproveView(RoleRequiredMixin, View):
 
 class ProgressCriteriaRejectView(RoleRequiredMixin, View):
     """Reject a pending criteria."""
-    required_roles = [Role.SENIOR_TEACHER]
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.HEAD_OF_DEPARTMENT,
+        Role.HEAD_OF_INSTITUTE, Role.INSTITUTE_OWNER,
+    ]
 
     def post(self, request, criteria_id):
         criteria = get_object_or_404(ProgressCriteria, pk=criteria_id)
@@ -379,6 +391,7 @@ class RecordProgressView(RoleRequiredMixin, View):
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+        Role.INSTITUTE_OWNER,
     ]
 
     def get(self, request, class_id):
