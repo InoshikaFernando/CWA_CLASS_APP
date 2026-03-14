@@ -72,13 +72,27 @@ def _user_can_access_classroom(user, classroom):
     Access is granted when the user is:
       • a ClassTeacher of the classroom, OR
       • the head of the department the classroom belongs to, OR
-      • the school admin (HoI / Institute Owner).
+      • an HoD of any department in the classroom's school, OR
+      • the school admin (HoI / Institute Owner), OR
+      • has HoI / Institute Owner role and belongs to the school.
     """
     if ClassTeacher.objects.filter(classroom=classroom, teacher=user).exists():
         return True
     if classroom.department_id and classroom.department.head_id == user.id:
         return True
+    # HoD of any department in the same school
+    if classroom.school_id and Department.objects.filter(
+        school=classroom.school, head=user,
+    ).exists():
+        return True
     if classroom.school_id and classroom.school.admin_id == user.id:
+        return True
+    # HoI / Institute Owner who belongs to the school
+    if classroom.school_id and (
+        user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER)
+    ) and SchoolTeacher.objects.filter(
+        school=classroom.school, teacher=user, is_active=True,
+    ).exists():
         return True
     return False
 
