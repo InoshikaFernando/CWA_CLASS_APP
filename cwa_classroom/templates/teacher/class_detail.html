@@ -30,6 +30,10 @@
          class="bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-semibold rounded-xl px-4 py-2.5 transition">
         Edit
       </a>
+      <a href="{% url 'record_progress' class_id=classroom.id %}"
+         class="bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold rounded-xl px-4 py-2.5 transition">
+        Record Progress
+      </a>
       <a href="{% url 'class_attendance' class_id=classroom.id %}"
          class="bg-primary hover:bg-primary-dark text-white text-sm font-semibold rounded-xl px-4 py-2.5 transition">
         Attendance
@@ -95,7 +99,7 @@
             </span>
             <span class="text-sm font-semibold text-gray-700">{{ s.get_full_name|default:s.username }}</span>
           </div>
-          <a href="{% url 'student_detail_progress' student_id=s.id %}" class="text-xs text-primary hover:underline">Progress</a>
+          <a href="{% url 'student_progress' student_id=s.id %}" class="text-xs text-primary hover:underline">Progress</a>
         </li>
         {% endfor %}
       </ul>

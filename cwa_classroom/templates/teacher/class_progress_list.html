@@ -6,19 +6,22 @@
   {% if classes %}
   <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
     {% for classroom in classes %}
-    <a href="{% url 'class_attendance' class_id=classroom.id %}"
+    <a href="{% url 'record_progress' class_id=classroom.id %}"
        class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 hover:shadow-md hover:border-primary transition block">
-      <h3 class="font-bold text-gray-800 text-lg mb-2">{{ classroom.name }}</h3>
+      <h3 class="font-bold text-gray-800 text-lg mb-1">{{ classroom.name }}</h3>
+      {% if classroom.subject %}
+        <p class="text-sm text-emerald-600 font-semibold mb-2">{{ classroom.subject.name }}</p>
+      {% endif %}
       <div class="flex gap-3 text-sm text-gray-500">
-        <span>👨‍🎓 {{ classroom.students.count }} students</span>
-        <span>📚 {{ classroom.levels.count }} levels</span>
+        <span>{{ classroom.students.count }} student{{ classroom.students.count|pluralize }}</span>
+        <span>{{ classroom.levels.count }} level{{ classroom.levels.count|pluralize }}</span>
       </div>
     </a>
     {% endfor %}
   </div>
   {% else %}
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">
-    <p class="text-gray-400">No classes yet. <a href="{% url 'create_class' %}" class="text-primary font-semibold">Create one →</a></p>
+    <p class="text-gray-400">No classes assigned to you yet.</p>
   </div>
   {% endif %}
 </div>

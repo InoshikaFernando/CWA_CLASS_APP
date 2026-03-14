@@ -776,10 +776,19 @@ class ClassAttendanceView(RoleRequiredMixin, View):
 
 
 class ClassProgressListView(RoleRequiredMixin, View):
-    required_role = Role.TEACHER
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+        Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+        Role.INSTITUTE_OWNER,
+    ]
 
     def get(self, request):
-        classes = ClassRoom.objects.filter(teachers=request.user, is_active=True)
+        from .views_teacher import _get_teacher_current_school, _get_teacher_classes
+        current_school = _get_teacher_current_school(request)
+        if current_school:
+            classes = _get_teacher_classes(request.user, current_school)
+        else:
+            classes = ClassRoom.objects.filter(teachers=request.user, is_active=True)
         return render(request, 'teacher/class_progress_list.html', {'classes': classes})
 
 
