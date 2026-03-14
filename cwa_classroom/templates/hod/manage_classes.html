@@ -8,13 +8,19 @@
     <h1 class="font-display text-2xl font-bold text-gray-900">
       {% if is_hod_only %}Department {% endif %}Classes
     </h1>
-    <a href="{% url 'hod_create_class' %}"
-       class="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white font-semibold rounded-xl hover:bg-primary-dark transition text-sm shadow-sm">
-      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-      </svg>
-      Create Class
-    </a>
+    <div class="flex items-center gap-2">
+      <a href="{% url 'progress_criteria_list' %}"
+         class="inline-flex items-center gap-1.5 px-4 py-2 bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl hover:bg-gray-50 transition text-sm">
+        Progress Criteria
+      </a>
+      <a href="{% url 'hod_create_class' %}"
+         class="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white font-semibold rounded-xl hover:bg-primary-dark transition text-sm shadow-sm">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+        </svg>
+        Create Class
+      </a>
+    </div>
   </div>
 
   <!-- Department Classes -->
