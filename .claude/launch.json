@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "CWA Class App",
+      "runtimeExecutable": "C:/Source/CWA_CLASS_APP/cwa_classroom/venv/Scripts/python.exe",
+      "runtimeArgs": ["C:/Source/CWA_CLASS_APP/cwa_classroom/manage.py", "runserver", "8000"],
+      "port": 8000
+    }
+  ]
+}
