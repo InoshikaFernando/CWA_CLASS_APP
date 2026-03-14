@@ -241,6 +241,18 @@ QUIZ_RECENT_RESULT_WINDOW_SECONDS = 30
 
 
 # ---------------------------------------------------------------------------
+# Sessions — harden cookie & limit session size
+# ---------------------------------------------------------------------------
+
+SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+SESSION_COOKIE_AGE = 60 * 60 * 24 * 7          # 1 week (default is 2 weeks)
+SESSION_SAVE_EVERY_REQUEST = True               # refresh expiry on every request
+SESSION_COOKIE_HTTPONLY = True                   # JS cannot read session cookie
+SESSION_COOKIE_SAMESITE = 'Lax'                 # mitigate CSRF via cross-site requests
+SESSION_COOKIE_SECURE = not DEBUG               # HTTPS-only in production
+
+
+# ---------------------------------------------------------------------------
 # Default primary key
 # ---------------------------------------------------------------------------
 
