@@ -118,7 +118,13 @@ python manage.py generate_puzzles --all --dry-run
 | `--clear`   | Delete existing unreferenced puzzles before generating                      |
 | `--dry-run` | Show expected counts without writing to the database                        |
 
-> **Note:** Requires `NumberPuzzleLevel` fixtures to be loaded first (`python manage.py loaddata puzzle_levels`). Levels 5–6 may produce fewer puzzles due to stricter mathematical constraints.
+> **Note:** Requires `NumberPuzzleLevel` fixtures to be loaded first. Levels 5–6 may produce fewer puzzles due to stricter mathematical constraints.
+
+**First-time setup:**
+```bash
+python manage.py loaddata puzzle_levels
+python manage.py generate_puzzles --all --count 500
+```
 
 ---
 
