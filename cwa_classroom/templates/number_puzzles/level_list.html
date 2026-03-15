@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Number Puzzles{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-6">
+
+  <!-- Breadcrumb -->
+  <nav class="text-sm text-gray-400 flex items-center gap-2">
+    <a href="/" class="hover:text-primary transition">Home</a>
+    <span>›</span>
+    <a href="{% url 'basic_facts_home' %}" class="hover:text-primary transition">Basic Facts</a>
+    <span>›</span>
+    <span class="text-gray-700 font-semibold">Number Puzzles</span>
+  </nav>
+
+  <div>
+    <h1 class="font-display text-3xl text-primary">Number Puzzles</h1>
+    <p class="text-gray-400 text-sm mt-1">Figure out the missing pieces in maths expressions!</p>
+  </div>
+
+  <!-- Level grid -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+    {% for item in levels %}
+    {% if item.is_unlocked %}
+    <a href="{% url 'number_puzzles_play' slug=item.level.slug %}"
+       class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 hover:shadow-md hover:-translate-y-0.5 hover:border-primary transition block group">
+    {% else %}
+    <div class="bg-gray-50 rounded-2xl border border-slate-200 shadow-sm p-5 opacity-60 cursor-not-allowed">
+    {% endif %}
+
+      <!-- Level badge -->
+      <div class="flex items-center gap-3 mb-3">
+        <div class="w-12 h-12 rounded-xl {% if item.is_unlocked %}bg-primary-light text-primary group-hover:bg-primary group-hover:text-white{% else %}bg-gray-200 text-gray-400{% endif %} font-display text-xl flex items-center justify-center transition">
+          {% if item.is_unlocked %}{{ item.level.number }}{% else %}🔒{% endif %}
+        </div>
+        <div>
+          <p class="font-bold text-gray-800 text-sm">{{ item.level.name }}</p>
+          <p class="text-xs text-gray-400">Level {{ item.level.number }}</p>
+        </div>
+      </div>
+
+      <!-- Description -->
+      <p class="text-xs text-gray-500 mb-3">{{ item.level.description }}</p>
+
+      {% if item.is_unlocked %}
+        {% if item.total_sessions > 0 %}
+        <!-- Progress stats -->
+        <div class="flex items-center justify-between text-xs">
+          <div class="flex items-center gap-1">
+            {% for i in "123" %}
+              {% if forloop.counter <= item.stars %}
+                <span class="text-yellow-400">&#9733;</span>
+              {% else %}
+                <span class="text-gray-300">&#9733;</span>
+              {% endif %}
+            {% endfor %}
+          </div>
+          <span class="font-semibold text-primary">Best: {{ item.best_score }}/10</span>
+        </div>
+        <p class="text-xs text-gray-400 mt-1">{{ item.accuracy }}% accuracy &middot; {{ item.total_sessions }} session{{ item.total_sessions|pluralize }}</p>
+        {% else %}
+        <p class="text-xs text-gray-400 italic">Not attempted yet</p>
+        {% endif %}
+      {% else %}
+        <p class="text-xs text-gray-400">Complete the previous level to unlock</p>
+      {% endif %}
+
+    {% if item.is_unlocked %}
+    </a>
+    {% else %}
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+
+</div>
+{% endblock %}

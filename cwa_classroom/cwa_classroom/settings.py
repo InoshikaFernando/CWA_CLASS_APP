@@ -49,6 +49,9 @@ INSTALLED_APPS = [
     'coding',
     'music',
     'science',
+
+    # Activity apps
+    'number_puzzles',
 ]
 
 MIDDLEWARE = [

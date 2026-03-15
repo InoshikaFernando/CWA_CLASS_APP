@@ -49,6 +49,7 @@ urlpatterns = [
     # --- Core apps ---
     path('', include('classroom.urls')),
     path('', include('quiz.urls')),
+    path('', include('number_puzzles.urls')),
     path('', include('progress.urls')),
 
     # --- Billing ---
