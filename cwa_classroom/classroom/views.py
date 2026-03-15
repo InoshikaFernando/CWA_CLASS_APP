@@ -1569,6 +1569,24 @@ class SubjectsHubView(LoginRequiredMixin, View):
                 ).select_related('subject').order_by('subject__name', 'name')
             )
 
+        # School departments with classes (for school mode)
+        department_classes = []
+        if active_school:
+            departments = Department.objects.filter(
+                school=active_school, is_active=True,
+            ).order_by('name')
+            for dept in departments:
+                classes = list(
+                    ClassRoom.objects.filter(
+                        department=dept, is_active=True,
+                    ).select_related('subject').order_by('name')
+                )
+                if classes:
+                    department_classes.append({
+                        'department': dept,
+                        'classes': classes,
+                    })
+
         # Enrollment status sets for the class cards
         enrolled_class_ids = set(
             ClassStudent.objects.filter(
@@ -1588,6 +1606,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
             'active_source': active_source,
             'active_school': active_school,
             'global_classes': global_classes,
+            'department_classes': department_classes,
             'enrolled_class_ids': enrolled_class_ids,
             'pending_class_ids': pending_class_ids,
         })
