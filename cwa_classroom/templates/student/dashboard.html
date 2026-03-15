@@ -151,6 +151,38 @@
         </div>
       </details>
       {% endfor %}
+
+      <!-- Number Puzzles inside Basic Facts -->
+      {% if np_grid %}
+      <details class="group/np border border-teal-100 rounded-xl overflow-hidden">
+        <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none bg-teal-50/50 hover:bg-teal-50 transition">
+          <h3 class="font-bold text-gray-800">Number Puzzles</h3>
+          <svg class="w-4 h-4 text-teal-400 transition-transform group-open/np:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+          </svg>
+        </summary>
+        <div class="p-3">
+          <div class="flex flex-wrap gap-3">
+            {% for item in np_grid %}
+            {% url 'number_puzzles_play' slug=item.level.slug as play_url %}
+            <a href="{% if item.is_unlocked and play_url %}{{ play_url }}{% else %}#{% endif %}"
+               class="flex flex-col items-center gap-1 p-3 rounded-xl border border-transparent hover:shadow-md transition min-w-16 {{ item.colour }} {% if not item.is_unlocked %}opacity-50 cursor-not-allowed{% endif %}">
+              <span class="text-xs font-semibold">L{{ item.level.number }}</span>
+              {% if item.total_sessions > 0 %}
+              <span class="text-sm font-bold">{{ item.best_score }}/10</span>
+              <span class="text-xs opacity-70">{% if item.stars >= 3 %}⭐⭐⭐{% elif item.stars >= 2 %}⭐⭐{% elif item.stars >= 1 %}⭐{% endif %}</span>
+              {% elif not item.is_unlocked %}
+              <span class="text-sm">🔒</span>
+              {% else %}
+              <span class="text-sm font-bold opacity-40">—</span>
+              {% endif %}
+            </a>
+            {% endfor %}
+          </div>
+        </div>
+      </details>
+      {% endif %}
+
     </div>
   </details>
   {% endif %}
@@ -209,7 +241,7 @@
   {% endif %}
 
   <!-- ── Recent Activity ─────────────────────────────────────────────────── -->
-  {% if recent_topic or recent_bf or recent_tt %}
+  {% if recent_topic or recent_bf or recent_tt or recent_np %}
   <div>
     <h2 class="font-bold text-xl text-gray-800 mb-4">🕐 Recent Activity</h2>
     <div class="bg-white rounded-2xl border border-emerald-100 shadow-sm divide-y divide-emerald-50">
@@ -252,6 +284,20 @@
           {% elif r.percentage >= 60 %}bg-yellow-100 text-yellow-800
           {% else %}bg-red-100 text-red-600{% endif %}">
           {{ r.score }}/{{ r.total_questions }} — {{ r.points|floatformat:1 }}pts
+        </span>
+      </div>
+      {% endfor %}
+      {% for r in recent_np %}
+      <div class="flex items-center justify-between px-5 py-3">
+        <div>
+          <p class="font-semibold text-gray-800 text-sm">🧩 Number Puzzles — {{ r.level.name }}</p>
+          <p class="text-xs text-gray-400">{{ r.completed_at|date:"j M Y, g:ia" }}</p>
+        </div>
+        <span class="inline-block px-3 py-1 rounded-full text-xs font-bold
+          {% if r.score >= 8 %}bg-green-100 text-green-700
+          {% elif r.score >= 6 %}bg-yellow-100 text-yellow-800
+          {% else %}bg-red-100 text-red-600{% endif %}">
+          {{ r.score }}/{{ r.total_questions }}
         </span>
       </div>
       {% endfor %}
