@@ -780,3 +780,90 @@ class ContactMessage(models.Model):
 
     def __str__(self):
         return f'{self.name} — {self.get_subject_display()} ({self.created_at:%Y-%m-%d})'
+
+
+# ---------------------------------------------------------------------------
+# Email Service
+# ---------------------------------------------------------------------------
+
+class EmailCampaign(models.Model):
+    """Tracks bulk/marketing email sends by admin."""
+    STATUS_CHOICES = [
+        ('draft', 'Draft'),
+        ('sending', 'Sending'),
+        ('sent', 'Sent'),
+        ('failed', 'Failed'),
+    ]
+    name = models.CharField(max_length=200)
+    subject = models.CharField(max_length=300)
+    html_body = models.TextField()
+    school = models.ForeignKey(
+        'School', on_delete=models.CASCADE, related_name='email_campaigns',
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+    recipient_filter = models.JSONField(
+        default=dict, blank=True,
+        help_text='{"roles": [...], "class_ids": [...], "individual_ids": [...]}',
+    )
+    total_recipients = models.PositiveIntegerField(default=0)
+    sent_count = models.PositiveIntegerField(default=0)
+    failed_count = models.PositiveIntegerField(default=0)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True,
+        related_name='created_campaigns',
+    )
+    sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.name} ({self.status})'
+
+
+class EmailLog(models.Model):
+    """Tracks every individual email sent through the system."""
+    STATUS_CHOICES = [
+        ('sent', 'Sent'),
+        ('failed', 'Failed'),
+    ]
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='email_logs',
+    )
+    recipient_email = models.EmailField()
+    subject = models.CharField(max_length=300)
+    notification_type = models.CharField(max_length=30, blank=True)
+    campaign = models.ForeignKey(
+        EmailCampaign, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='logs',
+    )
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='sent')
+    error_message = models.TextField(blank=True)
+    sent_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-sent_at']
+
+    def __str__(self):
+        return f'{self.recipient_email} — {self.subject} ({self.status})'
+
+
+class EmailPreference(models.Model):
+    """Per-user email opt-in/opt-out preferences."""
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='email_preference',
+    )
+    receive_transactional = models.BooleanField(
+        default=True, help_text='Enrollment, progress, attendance notifications.',
+    )
+    receive_campaigns = models.BooleanField(
+        default=True, help_text='Newsletters and announcements.',
+    )
+    unsubscribe_token = models.UUIDField(default=uuid.uuid4, unique=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'{self.user.username} email prefs'

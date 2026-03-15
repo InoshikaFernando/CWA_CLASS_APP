@@ -5,6 +5,7 @@ from .models import (
     School, SchoolTeacher, AcademicYear, TopicLevel, SubTopic,
     ClassSession, Enrollment, StudentAttendance, TeacherAttendance,
     ProgressCriteria, ProgressRecord, Notification, DepartmentLevel,
+    EmailCampaign, EmailLog, EmailPreference,
 )
 
 
@@ -220,3 +221,29 @@ class ContactMessageAdmin(admin.ModelAdmin):
     search_fields = ('name', 'email', 'message')
     readonly_fields = ('name', 'email', 'subject', 'message', 'ip_address', 'created_at')
     date_hierarchy = 'created_at'
+
+
+# ---------------------------------------------------------------------------
+# Email Service
+# ---------------------------------------------------------------------------
+
+@admin.register(EmailCampaign)
+class EmailCampaignAdmin(admin.ModelAdmin):
+    list_display = ('name', 'school', 'status', 'total_recipients', 'sent_count', 'sent_at')
+    list_filter = ('status', 'school')
+    readonly_fields = ('sent_count', 'failed_count', 'total_recipients')
+
+
+@admin.register(EmailLog)
+class EmailLogAdmin(admin.ModelAdmin):
+    list_display = ('recipient_email', 'subject', 'status', 'notification_type', 'sent_at')
+    list_filter = ('status', 'notification_type')
+    search_fields = ('recipient_email', 'subject')
+    date_hierarchy = 'sent_at'
+
+
+@admin.register(EmailPreference)
+class EmailPreferenceAdmin(admin.ModelAdmin):
+    list_display = ('user', 'receive_transactional', 'receive_campaigns', 'updated_at')
+    list_filter = ('receive_transactional', 'receive_campaigns')
+    search_fields = ('user__username', 'user__email')
