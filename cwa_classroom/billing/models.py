@@ -1,3 +1,5 @@
+import math
+
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
@@ -191,4 +193,7 @@ class Subscription(models.Model):
         if self.status != self.STATUS_TRIALING or not self.trial_end:
             return 0
         delta = self.trial_end - timezone.now()
-        return max(0, delta.days)
+        total_seconds = delta.total_seconds()
+        if total_seconds <= 0:
+            return 0
+        return math.ceil(total_seconds / 86400)
