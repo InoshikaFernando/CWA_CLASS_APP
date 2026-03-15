@@ -78,10 +78,7 @@ class Command(BaseCommand):
             self._create_subjects_and_topics()
             self._create_users()
         self.stdout.write(self.style.SUCCESS('\n✅  Dev setup complete! Login at /accounts/login/'))
-        self.stdout.write('  admin / admin123')
-        self.stdout.write('  teacher1 / teacher123')
-        self.stdout.write('  student1 / student123')
-        self.stdout.write('  indstudent1 / student123\n')
+        self.stdout.write('  admin / admin123\n')
 
     # ------------------------------------------------------------------
     def _create_roles(self):
@@ -225,56 +222,15 @@ class Command(BaseCommand):
 
     def _create_users(self):
         from accounts.models import CustomUser, Role, UserRole
-        from billing.models import Package, Subscription
-        from classroom.models import ClassRoom, ClassTeacher, ClassStudent, Level
-        from django.utils import timezone
-        from datetime import timedelta
 
-        def make_user(username, password, role_name, **kwargs):
-            user, created = CustomUser.objects.get_or_create(
-                username=username, defaults={'email': f'{username}@dev.local', **kwargs}
-            )
-            if created:
-                user.set_password(password)
-                user.save()
-            role = Role.objects.get(name=role_name)
-            UserRole.objects.get_or_create(user=user, role=role)
-            return user, created
-
-        # Admin
-        admin, _ = make_user('admin', 'admin123', 'admin', is_staff=True, is_superuser=True)
-
-        # Teacher
-        teacher, _ = make_user('teacher1', 'teacher123', 'teacher')
-
-        # Student
-        student, _ = make_user('student1', 'student123', 'student')
-
-        # Individual Student
-        package = Package.objects.filter(name='3 Classes').first()
-        ind_student, created = make_user('indstudent1', 'student123', 'individual_student', package=package)
-        if created and package:
-            Subscription.objects.get_or_create(
-                user=ind_student,
-                defaults={
-                    'package': package,
-                    'status': 'trialing',
-                    'trial_end': timezone.now() + timedelta(days=14),
-                }
-            )
-
-        # Create a demo class with teacher + student
-        year3 = Level.objects.filter(level_number=3).first()
-        year4 = Level.objects.filter(level_number=4).first()
-        classroom, _ = ClassRoom.objects.get_or_create(
-            name='Demo Class 3/4',
-            defaults={'created_by': teacher}
+        admin, created = CustomUser.objects.get_or_create(
+            username='admin',
+            defaults={'email': 'admin@dev.local', 'is_staff': True, 'is_superuser': True}
         )
-        if year3: classroom.levels.add(year3)
-        if year4: classroom.levels.add(year4)
-        ClassTeacher.objects.get_or_create(classroom=classroom, teacher=teacher)
-        ClassStudent.objects.get_or_create(classroom=classroom, student=student)
-        ClassStudent.objects.get_or_create(classroom=classroom, student=ind_student)
+        if created:
+            admin.set_password('admin123')
+            admin.save()
+        role = Role.objects.get(name='admin')
+        UserRole.objects.get_or_create(user=admin, role=role)
 
-        self.stdout.write('  Users: admin, teacher1, student1, indstudent1 created/verified')
-        self.stdout.write(f'  Demo class: "{classroom.name}" ({classroom.code})')
+        self.stdout.write('  Users: admin created/verified')
