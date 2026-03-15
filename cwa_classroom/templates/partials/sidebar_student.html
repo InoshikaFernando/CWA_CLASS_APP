@@ -28,12 +28,15 @@
   </a>
 
   <!-- Number Puzzles -->
-  <a href="{% url 'number_puzzles_home' %}"
+  {% url 'number_puzzles_home' as np_url %}
+  {% if np_url %}
+  <a href="{{ np_url }}"
      class="flex items-center gap-3 px-4 py-3 rounded-2xl text-white font-bold transition
             {% if 'number-puzzles' in request.path %}bg-white/25 shadow-lg shadow-white/10 scale-[1.02]{% else %}hover:bg-white/15 hover:scale-[1.01]{% endif %}">
     <span class="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-white/20 text-lg">&#129513;</span>
     <span>Number Puzzles</span>
   </a>
+  {% endif %}
 
   <!-- My Classes -->
   <a href="{% url 'student_my_classes' %}"

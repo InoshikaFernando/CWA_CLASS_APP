@@ -32,12 +32,15 @@
     {% endfor %}
 
     <!-- Number Puzzles card -->
-    <a href="{% url 'number_puzzles_home' %}"
+    {% url 'number_puzzles_home' as np_url %}
+    {% if np_url %}
+    <a href="{{ np_url }}"
        class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 text-center hover:shadow-md hover:-translate-y-0.5 transition block">
       <div class="text-4xl mb-3">&#129513;</div>
       <p class="font-bold text-gray-800">Number Puzzles</p>
       <p class="text-xs text-gray-400 mt-1">6 levels</p>
     </a>
+    {% endif %}
   </div>
 
   {% else %}
