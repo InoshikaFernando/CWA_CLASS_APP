@@ -85,6 +85,16 @@
           Cancel
         </a>
       </div>
+
+      <div class="border-t border-gray-100 pt-4 mt-2">
+        <p class="text-xs text-gray-400 mb-2">Manage what criteria students are assessed on:</p>
+        <div class="flex gap-3">
+          <a href="{% url 'progress_criteria_list' %}"
+             class="text-sm text-primary font-semibold hover:text-primary-dark transition">View Progress Criteria</a>
+          <a href="{% url 'progress_criteria_create' %}"
+             class="text-sm text-accent font-semibold hover:text-accent-dark transition">+ Create Criteria</a>
+        </div>
+      </div>
     </form>
   </div>
 </div>

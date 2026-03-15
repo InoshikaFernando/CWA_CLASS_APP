@@ -2,7 +2,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
 from django.contrib import messages
 from django.utils import timezone
-from django.db.models import Count, Max
+from django.db.models import Count, Max, Q
 
 from accounts.models import Role
 from .views import RoleRequiredMixin
@@ -80,6 +80,7 @@ class ProgressCriteriaListView(RoleRequiredMixin, View):
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+        Role.INSTITUTE_OWNER,
     ]
 
     def get(self, request):
@@ -104,8 +105,11 @@ class ProgressCriteriaListView(RoleRequiredMixin, View):
 
         hierarchical_criteria = _build_hierarchical_criteria(criteria)
 
-        subjects = Subject.objects.filter(is_active=True)
-        levels = Level.objects.all()
+        # Show all active subjects and school-relevant levels for filters
+        subjects = Subject.objects.filter(is_active=True).order_by('order', 'name')
+        levels = Level.objects.filter(
+            Q(school__isnull=True) | Q(school=school)
+        ).order_by('level_number')
 
         return render(request, 'progress/criteria_list.html', {
             'school': school,
@@ -122,6 +126,7 @@ class ProgressCriteriaCreateView(RoleRequiredMixin, View):
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+        Role.INSTITUTE_OWNER,
     ]
 
     def get(self, request):
@@ -138,8 +143,10 @@ class ProgressCriteriaCreateView(RoleRequiredMixin, View):
                 pk=parent_id, school=school,
             ).select_related('subject', 'level').first()
 
-        subjects = Subject.objects.filter(is_active=True)
-        levels = Level.objects.all()
+        subjects = Subject.objects.filter(is_active=True).order_by('order', 'name')
+        levels = Level.objects.filter(
+            Q(school__isnull=True) | Q(school=school)
+        ).order_by('level_number')
 
         return render(request, 'progress/criteria_form.html', {
             'school': school,
@@ -177,8 +184,10 @@ class ProgressCriteriaCreateView(RoleRequiredMixin, View):
                 messages.error(request, 'Subject, level, and name are required.')
                 return render(request, 'progress/criteria_form.html', {
                     'school': school,
-                    'subjects': Subject.objects.filter(is_active=True),
-                    'levels': Level.objects.all(),
+                    'subjects': Subject.objects.filter(is_active=True).order_by('order', 'name'),
+                    'levels': Level.objects.filter(
+                        Q(school__isnull=True) | Q(school=school)
+                    ).order_by('level_number'),
                     'parent_criteria': parent_criteria,
                     'form_data': {
                         'subject': subject_id,
@@ -195,8 +204,12 @@ class ProgressCriteriaCreateView(RoleRequiredMixin, View):
             messages.error(request, 'Name is required.')
             return render(request, 'progress/criteria_form.html', {
                 'school': school,
-                'subjects': Subject.objects.filter(is_active=True),
-                'levels': Level.objects.all(),
+                'subjects': Subject.objects.filter(
+                    classrooms__school=school, classrooms__is_active=True,
+                ).distinct().order_by('order', 'name'),
+                'levels': Level.objects.filter(
+                    classrooms__school=school, classrooms__is_active=True,
+                ).distinct().order_by('level_number'),
                 'parent_criteria': parent_criteria,
                 'form_data': {
                     'name': name,
@@ -210,7 +223,15 @@ class ProgressCriteriaCreateView(RoleRequiredMixin, View):
         except (ValueError, TypeError):
             order_val = 0
 
-        ProgressCriteria.objects.create(
+        # Senior Teachers, HoD, and HoI get auto-approved criteria
+        auto_approve = (
+            request.user.has_role(Role.SENIOR_TEACHER)
+            or request.user.has_role(Role.HEAD_OF_DEPARTMENT)
+            or request.user.has_role(Role.HEAD_OF_INSTITUTE)
+            or request.user.has_role(Role.INSTITUTE_OWNER)
+        )
+
+        criteria = ProgressCriteria.objects.create(
             school=school,
             subject=subject,
             level=level,
@@ -218,11 +239,15 @@ class ProgressCriteriaCreateView(RoleRequiredMixin, View):
             name=name,
             description=description,
             order=order_val,
-            status='draft',
+            status='approved' if auto_approve else 'draft',
             created_by=request.user,
+            approved_by=request.user if auto_approve else None,
         )
 
-        messages.success(request, f'Criteria "{name}" created as draft.')
+        if auto_approve:
+            messages.success(request, f'Criteria "{name}" created and approved.')
+        else:
+            messages.success(request, f'Criteria "{name}" created as draft.')
         return redirect('progress_criteria_list')
 
 
@@ -235,6 +260,7 @@ class ProgressCriteriaSubmitView(RoleRequiredMixin, View):
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+        Role.INSTITUTE_OWNER,
     ]
 
     def post(self, request, criteria_id):
@@ -273,7 +299,10 @@ class ProgressCriteriaSubmitView(RoleRequiredMixin, View):
 
 class ProgressCriteriaApprovalListView(RoleRequiredMixin, View):
     """List criteria pending approval for the current school."""
-    required_roles = [Role.SENIOR_TEACHER]
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.HEAD_OF_DEPARTMENT,
+        Role.HEAD_OF_INSTITUTE, Role.INSTITUTE_OWNER,
+    ]
 
     def get(self, request):
         school = _get_school_or_redirect(request)
@@ -295,7 +324,10 @@ class ProgressCriteriaApprovalListView(RoleRequiredMixin, View):
 
 class ProgressCriteriaApproveView(RoleRequiredMixin, View):
     """Approve a pending criteria."""
-    required_roles = [Role.SENIOR_TEACHER]
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.HEAD_OF_DEPARTMENT,
+        Role.HEAD_OF_INSTITUTE, Role.INSTITUTE_OWNER,
+    ]
 
     def post(self, request, criteria_id):
         criteria = get_object_or_404(ProgressCriteria, pk=criteria_id)
@@ -328,7 +360,10 @@ class ProgressCriteriaApproveView(RoleRequiredMixin, View):
 
 class ProgressCriteriaRejectView(RoleRequiredMixin, View):
     """Reject a pending criteria."""
-    required_roles = [Role.SENIOR_TEACHER]
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.HEAD_OF_DEPARTMENT,
+        Role.HEAD_OF_INSTITUTE, Role.INSTITUTE_OWNER,
+    ]
 
     def post(self, request, criteria_id):
         criteria = get_object_or_404(ProgressCriteria, pk=criteria_id)
@@ -367,6 +402,7 @@ class RecordProgressView(RoleRequiredMixin, View):
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+        Role.INSTITUTE_OWNER,
     ]
 
     def get(self, request, class_id):

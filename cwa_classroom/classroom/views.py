@@ -14,8 +14,8 @@ from accounts.models import CustomUser, Role, UserRole
 from .models import (
     ClassRoom, Subject, Topic, Level, ClassTeacher, ClassStudent,
     StudentLevelEnrollment, SubjectApp, ContactMessage, CONTACT_SUBJECT_CHOICES,
-    School, SchoolTeacher, ClassSession, StudentAttendance, TeacherAttendance,
-    Department,
+    School, SchoolTeacher, SchoolStudent, ClassSession, StudentAttendance,
+    TeacherAttendance, Department, Enrollment,
 )
 
 logger = logging.getLogger(__name__)
@@ -188,13 +188,48 @@ class StudentDashboardView(LoginRequiredMixin, View):
             for s in TopicLevelStatistics.objects.select_related('level', 'topic').all()
         }
 
-        # Determine which year levels this student has access to via their classrooms
-        classrooms = ClassRoom.objects.filter(students=request.user, is_active=True)
-        enrolled_level_ids = set(
-            Level.objects.filter(classrooms__in=classrooms, level_number__lte=8).values_list('id', flat=True)
+        # ── Filter controls ──────────────────────────────────────────────────
+        filter_subject_id = request.GET.get('subject_id')
+        filter_class_id = request.GET.get('class_id')
+
+        enrolled_classes = (
+            ClassRoom.objects.filter(students=request.user, is_active=True)
+            .select_related('subject')
+            .order_by('subject__name', 'name')
         )
+        enrolled_subjects = (
+            Subject.objects.filter(
+                classrooms__students=request.user, classrooms__is_active=True,
+            ).distinct().order_by('name')
+        )
+
+        # Determine which year levels to show based on active filter
+        if filter_class_id:
+            try:
+                active_class = enrolled_classes.get(id=filter_class_id)
+                enrolled_level_ids = set(
+                    active_class.levels.filter(level_number__lte=8).values_list('id', flat=True)
+                )
+            except ClassRoom.DoesNotExist:
+                enrolled_level_ids = set()
+        elif filter_subject_id:
+            enrolled_level_ids = set(
+                Level.objects.filter(
+                    classrooms__students=request.user,
+                    classrooms__subject_id=filter_subject_id,
+                    classrooms__is_active=True,
+                    level_number__lte=8,
+                ).values_list('id', flat=True)
+            )
+        else:
+            enrolled_level_ids = set(
+                Level.objects.filter(
+                    classrooms__in=enrolled_classes, level_number__lte=8,
+                ).values_list('id', flat=True)
+            )
+
         # Fall back to all Year 1-8 levels if not in any classroom yet
-        if not enrolled_level_ids:
+        if not enrolled_level_ids and not filter_class_id and not filter_subject_id:
             enrolled_level_ids = set(
                 Level.objects.filter(level_number__lte=8).values_list('id', flat=True)
             )
@@ -325,6 +360,11 @@ class StudentDashboardView(LoginRequiredMixin, View):
             'time_log': time_log,
             'time_daily': _format_seconds(time_log.daily_total_seconds if time_log else 0),
             'time_weekly': _format_seconds(time_log.weekly_total_seconds if time_log else 0),
+            # Filter controls
+            'enrolled_classes': enrolled_classes,
+            'enrolled_subjects': enrolled_subjects,
+            'filter_subject_id': int(filter_subject_id) if filter_subject_id else None,
+            'filter_class_id': int(filter_class_id) if filter_class_id else None,
         })
 
 
@@ -406,7 +446,7 @@ class LevelDetailView(LoginRequiredMixin, View):
 
 
 class CreateClassView(RoleRequiredMixin, View):
-    required_role = Role.TEACHER
+    required_roles = [Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE, Role.INSTITUTE_OWNER]
 
     def _get_departments(self, user):
         """Departments available to this teacher via their school."""
@@ -447,14 +487,21 @@ class CreateClassView(RoleRequiredMixin, View):
             messages.error(request, 'Please select a department.')
             return redirect('create_class')
 
-        # Validate levels belong to the selected department
-        valid_levels = Level.objects.filter(id__in=level_ids, department=department)
+        # Validate levels are mapped to the selected department via DepartmentLevel
+        from .models import DepartmentLevel
+        mapped_level_ids = set(
+            DepartmentLevel.objects.filter(
+                department=department, level_id__in=level_ids,
+            ).values_list('level_id', flat=True)
+        )
+        valid_levels = Level.objects.filter(id__in=mapped_level_ids)
 
         with transaction.atomic():
             classroom = ClassRoom.objects.create(
                 name=name,
                 school=department.school,
                 department=department,
+                subject=department.subject,
                 day=day,
                 start_time=start_time,
                 end_time=end_time,
@@ -470,8 +517,9 @@ class CreateClassView(RoleRequiredMixin, View):
 
 class ClassDetailView(RoleRequiredMixin, View):
     required_roles = [
-        Role.TEACHER, Role.HEAD_OF_DEPARTMENT,
-        Role.HEAD_OF_INSTITUTE, Role.INSTITUTE_OWNER,
+        Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT,
+        Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
     ]
 
     def get(self, request, class_id):
@@ -479,7 +527,7 @@ class ClassDetailView(RoleRequiredMixin, View):
         from django.db.models import Count, Q
 
         user = request.user
-        if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
+        if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
             classroom = get_object_or_404(ClassRoom, id=class_id, school__admin=user)
         elif user.has_role(Role.HEAD_OF_DEPARTMENT):
             classroom = get_object_or_404(
@@ -735,10 +783,19 @@ class ClassAttendanceView(RoleRequiredMixin, View):
 
 
 class ClassProgressListView(RoleRequiredMixin, View):
-    required_role = Role.TEACHER
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+        Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+        Role.INSTITUTE_OWNER,
+    ]
 
     def get(self, request):
-        classes = ClassRoom.objects.filter(teachers=request.user, is_active=True)
+        from .views_teacher import _get_teacher_current_school, _get_teacher_classes
+        current_school = _get_teacher_current_school(request)
+        if current_school:
+            classes = _get_teacher_classes(request.user, current_school)
+        else:
+            classes = ClassRoom.objects.filter(teachers=request.user, is_active=True)
         return render(request, 'teacher/class_progress_list.html', {'classes': classes})
 
 
@@ -1299,19 +1356,28 @@ class HoDCreateClassView(RoleRequiredMixin, View):
             messages.error(request, 'Please select a valid department.')
             return redirect('hod_create_class')
 
+        # Validate levels are mapped to the department via DepartmentLevel
+        from .models import DepartmentLevel
+        mapped_level_ids = set(
+            DepartmentLevel.objects.filter(
+                department=department, level_id__in=level_ids,
+            ).values_list('level_id', flat=True)
+        ) if level_ids else set()
+        valid_levels = Level.objects.filter(id__in=mapped_level_ids)
+
         with transaction.atomic():
             classroom = ClassRoom.objects.create(
                 name=name,
                 school=department.school,
                 department=department,
+                subject=department.subject,
                 day=day,
                 start_time=start_time,
                 end_time=end_time,
                 description=description,
                 created_by=request.user,
             )
-            if level_ids:
-                valid_levels = Level.objects.filter(id__in=level_ids, department=department)
+            if valid_levels.exists():
                 classroom.levels.set(valid_levels)
 
         messages.success(
@@ -1447,7 +1513,8 @@ class SubjectsHubView(LoginRequiredMixin, View):
     """
     Authenticated home -- shows greeting + subject cards.
     Redirects non-student roles to their role-specific dashboards.
-    Students and Individual Students stay on the subjects hub.
+    Students and Individual Students stay on the subjects hub with
+    optional school/open-practice toggle.
     """
 
     def get(self, request):
@@ -1468,13 +1535,61 @@ class SubjectsHubView(LoginRequiredMixin, View):
         if role in (Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER):
             return redirect('teacher_dashboard')
 
-        # Students and Individual Students stay on the subjects hub
+        # ----- Student / Individual Student -----
+
+        # SubjectApp cards (always shown)
         subjects = SubjectApp.objects.exclude(
-            is_active=False, is_coming_soon=False
+            is_active=False, is_coming_soon=False,
         ).order_by('order')
+
+        # Determine if user is a school student
+        is_school_student = user.has_role(Role.STUDENT)
+        schools = []
+        if is_school_student:
+            schools = list(
+                School.objects.filter(
+                    school_students__student=user,
+                    school_students__is_active=True,
+                    is_active=True,
+                ).distinct()
+            )
+
+        # Source toggle: "school" or "open"
+        active_source = request.GET.get(
+            'source', 'school' if schools else 'open',
+        )
+        active_school = schools[0] if (active_source == 'school' and schools) else None
+
+        # Global classes (for "Open Practice" mode or individual students)
+        global_classes = []
+        if active_source == 'open' or not schools:
+            global_classes = list(
+                ClassRoom.objects.filter(
+                    school__isnull=True, is_active=True,
+                ).select_related('subject').order_by('subject__name', 'name')
+            )
+
+        # Enrollment status sets for the class cards
+        enrolled_class_ids = set(
+            ClassStudent.objects.filter(
+                student=user,
+            ).values_list('classroom_id', flat=True)
+        )
+        pending_class_ids = set(
+            Enrollment.objects.filter(
+                student=user, status='pending',
+            ).values_list('classroom_id', flat=True)
+        )
 
         return render(request, 'hub/home.html', {
             'subjects': subjects,
+            'schools': schools,
+            'is_school_student': is_school_student,
+            'active_source': active_source,
+            'active_school': active_school,
+            'global_classes': global_classes,
+            'enrolled_class_ids': enrolled_class_ids,
+            'pending_class_ids': pending_class_ids,
         })
 
 
@@ -1599,33 +1714,33 @@ def _get_client_ip(request):
 # ── API: Department Levels ────────────────────────────────────────────────────
 
 class DepartmentLevelsAPIView(LoginRequiredMixin, View):
-    """Return levels belonging to a department as JSON."""
+    """Return levels mapped to a department via DepartmentLevel M2M."""
 
     def get(self, request, dept_id):
         from django.http import JsonResponse
-        from .models import DepartmentTeacher
+        from .models import DepartmentLevel
 
-        dept = Department.objects.filter(id=dept_id).first()
+        dept = Department.objects.select_related('subject').filter(id=dept_id).first()
         if not dept:
             return JsonResponse({'error': 'Department not found'}, status=404)
 
-        # Exclude Basic Facts levels (100-199) — those are module features, not class levels
-        from django.db.models import Q
-        all_levels = Level.objects.filter(
-            department=dept,
-        ).exclude(
-            level_number__gte=100, level_number__lt=200,
-        ).order_by('level_number')
+        # Query the M2M through table, excluding Basic Facts (100-199)
+        dept_levels = (
+            DepartmentLevel.objects.filter(department=dept)
+            .select_related('level')
+            .exclude(level__level_number__gte=100, level__level_number__lt=200)
+            .order_by('order', 'level__level_number')
+        )
         year_levels = []
         custom_levels = []
-        for lv in all_levels:
+        for dl in dept_levels:
             entry = {
-                'id': lv.id,
-                'level_number': lv.level_number,
-                'display_name': lv.display_name,
-                'description': lv.description,
+                'id': dl.level.id,
+                'level_number': dl.level.level_number,
+                'display_name': dl.effective_display_name,
+                'description': dl.level.description,
             }
-            if lv.level_number <= 9:
+            if dl.level.level_number <= 9:
                 year_levels.append(entry)
             else:
                 custom_levels.append(entry)
@@ -1633,4 +1748,8 @@ class DepartmentLevelsAPIView(LoginRequiredMixin, View):
         return JsonResponse({
             'levels': year_levels,
             'custom_levels': custom_levels,
+            'subject': {
+                'id': dept.subject.id,
+                'name': dept.subject.name,
+            } if dept.subject else None,
         })

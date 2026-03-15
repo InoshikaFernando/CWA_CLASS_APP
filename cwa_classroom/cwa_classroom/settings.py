@@ -16,6 +16,10 @@ DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,test-cwa-class-avinesh.pythonanywhere.com').split(',')
 
+CSRF_TRUSTED_ORIGINS = [
+    f'https://{host}' for host in ALLOWED_HOSTS if host not in ('localhost', '127.0.0.1')
+] + ['http://localhost', 'http://127.0.0.1']
+
 
 # ---------------------------------------------------------------------------
 # Applications
@@ -234,6 +238,18 @@ QUIZ_DEDUP_WINDOW_SECONDS = 5
 
 # Recent result display window (seconds) — show results again if refreshed within this window
 QUIZ_RECENT_RESULT_WINDOW_SECONDS = 30
+
+
+# ---------------------------------------------------------------------------
+# Sessions — harden cookie & limit session size
+# ---------------------------------------------------------------------------
+
+SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+SESSION_COOKIE_AGE = 60 * 60 * 24 * 7          # 1 week (default is 2 weeks)
+SESSION_SAVE_EVERY_REQUEST = True               # refresh expiry on every request
+SESSION_COOKIE_HTTPONLY = True                   # JS cannot read session cookie
+SESSION_COOKIE_SAMESITE = 'Lax'                 # mitigate CSRF via cross-site requests
+SESSION_COOKIE_SECURE = not DEBUG               # HTTPS-only in production
 
 
 # ---------------------------------------------------------------------------

@@ -21,22 +21,29 @@
 
   <!-- Quick stats -->
   <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-    <div class="bg-white rounded-xl p-4 border border-slate-200">
+    <a href="{% url 'admin_school_teachers' school.id %}" class="bg-white rounded-xl p-4 border border-slate-200 hover:border-accent hover:shadow-sm transition">
       <p class="text-sm text-gray-500">Teachers</p>
       <p class="text-xl font-bold text-gray-900">{{ teachers|length }}</p>
-    </div>
-    <div class="bg-white rounded-xl p-4 border border-slate-200">
+    </a>
+    <a href="{% url 'admin_school_departments' school.id %}" class="bg-white rounded-xl p-4 border border-slate-200 hover:border-accent hover:shadow-sm transition">
       <p class="text-sm text-gray-500">Classes</p>
       <p class="text-xl font-bold text-gray-900">{{ classes|length }}</p>
-    </div>
-    <div class="bg-white rounded-xl p-4 border border-slate-200">
+    </a>
+    <a href="{% url 'admin_academic_year_create' school.id %}" class="bg-white rounded-xl p-4 border border-slate-200 hover:border-accent hover:shadow-sm transition">
       <p class="text-sm text-gray-500">Academic Years</p>
       <p class="text-xl font-bold text-gray-900">{{ academic_years|length }}</p>
-    </div>
+    </a>
+    {% if school.email %}
+    <a href="mailto:{{ school.email }}" class="bg-white rounded-xl p-4 border border-slate-200 hover:border-accent hover:shadow-sm transition">
+      <p class="text-sm text-gray-500">Contact</p>
+      <p class="text-sm font-medium text-gray-700">{{ school.email }}</p>
+    </a>
+    {% else %}
     <div class="bg-white rounded-xl p-4 border border-slate-200">
       <p class="text-sm text-gray-500">Contact</p>
-      <p class="text-sm font-medium text-gray-700">{{ school.email|default:"—" }}</p>
+      <p class="text-sm font-medium text-gray-700">—</p>
     </div>
+    {% endif %}
   </div>
 
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -94,7 +101,8 @@
         {% if teachers %}
           <div class="space-y-3">
             {% for st in teachers %}
-              <div class="flex items-center justify-between">
+              <a href="{% url 'admin_school_teacher_edit' school.id st.teacher.id %}"
+                 class="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 transition">
                 <div class="flex items-center gap-3">
                   <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-accent text-white text-xs font-bold">
                     {{ st.teacher.username|slice:":2"|upper }}
@@ -110,7 +118,7 @@
                   {% else %}bg-sky-100 text-sky-700{% endif %}">
                   {{ st.get_role_display }}
                 </span>
-              </div>
+              </a>
             {% endfor %}
           </div>
         {% else %}
@@ -130,7 +138,8 @@
         {% if school_students %}
           <div class="space-y-3">
             {% for ss in school_students %}
-              <div class="flex items-center gap-3">
+              <a href="{% url 'admin_school_student_edit' school.id ss.student.id %}"
+                 class="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 transition">
                 <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-emerald-500 text-white text-xs font-bold">
                   {{ ss.student.first_name|slice:":1"|upper }}{{ ss.student.last_name|slice:":1"|upper }}
                 </span>
@@ -138,7 +147,7 @@
                   <p class="text-sm font-medium text-gray-900">{{ ss.student.get_full_name|default:ss.student.username }}</p>
                   <p class="text-xs text-gray-500">{{ ss.student.email }}</p>
                 </div>
-              </div>
+              </a>
             {% endfor %}
           </div>
         {% else %}
@@ -176,7 +185,8 @@
         {% if classes %}
           <div class="space-y-3">
             {% for cls in classes %}
-              <div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+              <a href="{% url 'class_detail' cls.id %}"
+                 class="flex items-center justify-between p-3 bg-slate-50 rounded-xl hover:bg-slate-100 transition">
                 <div>
                   <p class="text-sm font-medium text-gray-900">{{ cls.name }}</p>
                   <p class="text-xs text-gray-500">Code: {{ cls.code }} &middot; {{ cls.students.count }} students</p>
@@ -184,7 +194,7 @@
                 {% if cls.subject %}
                   <span class="text-xs font-medium px-2 py-1 rounded-full bg-slate-200 text-slate-700">{{ cls.subject.name }}</span>
                 {% endif %}
-              </div>
+              </a>
             {% endfor %}
           </div>
         {% else %}

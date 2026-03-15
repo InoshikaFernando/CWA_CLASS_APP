@@ -72,13 +72,27 @@ def _user_can_access_classroom(user, classroom):
     Access is granted when the user is:
       • a ClassTeacher of the classroom, OR
       • the head of the department the classroom belongs to, OR
-      • the school admin (HoI / Institute Owner).
+      • an HoD of any department in the classroom's school, OR
+      • the school admin (HoI / Institute Owner), OR
+      • has HoI / Institute Owner role and belongs to the school.
     """
     if ClassTeacher.objects.filter(classroom=classroom, teacher=user).exists():
         return True
     if classroom.department_id and classroom.department.head_id == user.id:
         return True
+    # HoD of any department in the same school
+    if classroom.school_id and Department.objects.filter(
+        school=classroom.school, head=user,
+    ).exists():
+        return True
     if classroom.school_id and classroom.school.admin_id == user.id:
+        return True
+    # HoI / Institute Owner who belongs to the school
+    if classroom.school_id and (
+        user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER)
+    ) and SchoolTeacher.objects.filter(
+        school=classroom.school, teacher=user, is_active=True,
+    ).exists():
         return True
     return False
 
@@ -167,11 +181,11 @@ class TeacherDashboardView(RoleRequiredMixin, View):
                 'upcoming_sessions': ClassSession.objects.none(),
             })
 
-        my_classes = _get_teacher_classes(request.user, current_school)
+        classes = _get_teacher_classes(request.user, current_school)
 
         # Pending enrollment requests for the teacher's classes in this school
-        pending_enrollment_count = Enrollment.objects.filter(
-            classroom__in=my_classes,
+        pending_count = Enrollment.objects.filter(
+            classroom__in=classes,
             status='pending',
         ).count()
 
@@ -179,26 +193,61 @@ class TeacherDashboardView(RoleRequiredMixin, View):
         pending_attendance_count = StudentAttendance.objects.filter(
             self_reported=True,
             approved_by__isnull=True,
-            session__classroom__in=my_classes,
+            session__classroom__in=classes,
         ).count()
 
         # Upcoming sessions in the next 7 days
         today = timezone.localdate()
         week_ahead = today + timedelta(days=7)
         upcoming_sessions = ClassSession.objects.filter(
-            classroom__in=my_classes,
+            classroom__in=classes,
             date__gte=today,
             date__lte=week_ahead,
             status='scheduled',
         ).select_related('classroom').order_by('date', 'start_time')
 
+        # Today's sessions per class (for Start Session feature)
+        todays_sessions = {}
+        for session in ClassSession.objects.filter(
+            classroom__in=classes, date=today
+        ).select_related('classroom'):
+            todays_sessions[session.classroom_id] = session
+
+        # Build session status for each class
+        class_session_info = []
+        for cls in classes:
+            session = todays_sessions.get(cls.id)
+            if session and session.status == 'scheduled':
+                # Active session — show "Continue" link
+                class_session_info.append({
+                    'classroom': cls,
+                    'session': session,
+                    'status': 'active',
+                })
+            elif session and session.status == 'completed':
+                class_session_info.append({
+                    'classroom': cls,
+                    'session': session,
+                    'status': 'completed',
+                })
+            else:
+                # No session today or cancelled — can start
+                class_session_info.append({
+                    'classroom': cls,
+                    'session': None,
+                    'status': 'can_start',
+                })
+
         return render(request, 'teacher/dashboard.html', {
-            'teacher_schools': teacher_schools,
+            'schools': SchoolTeacher.objects.filter(
+                teacher=request.user, is_active=True
+            ).select_related('school'),
             'current_school': current_school,
-            'my_classes': my_classes,
-            'pending_enrollment_count': pending_enrollment_count,
+            'classes': classes,
+            'pending_count': pending_count,
             'pending_attendance_count': pending_attendance_count,
             'upcoming_sessions': upcoming_sessions,
+            'class_session_info': class_session_info,
         })
 
 
@@ -233,6 +282,7 @@ class EnrollmentRequestsView(RoleRequiredMixin, View):
     required_roles = [
         Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
         Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER, Role.TEACHER,
+        Role.JUNIOR_TEACHER,
     ]
 
     def get(self, request):
@@ -266,6 +316,7 @@ class EnrollmentApproveView(RoleRequiredMixin, View):
     required_roles = [
         Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
         Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER, Role.TEACHER,
+        Role.JUNIOR_TEACHER,
     ]
 
     def post(self, request, enrollment_id):
@@ -316,6 +367,7 @@ class EnrollmentRejectView(RoleRequiredMixin, View):
     required_roles = [
         Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
         Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER, Role.TEACHER,
+        Role.JUNIOR_TEACHER,
     ]
 
     def post(self, request, enrollment_id):

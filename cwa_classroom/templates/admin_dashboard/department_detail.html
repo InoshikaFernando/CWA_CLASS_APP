@@ -107,6 +107,28 @@
       </div>
     </div>
 
+    <!-- Levels section -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm lg:col-span-2">
+      <div class="flex items-center justify-between p-6 border-b border-slate-100">
+        <h2 class="text-lg font-semibold text-gray-900">Curriculum Levels</h2>
+        <a href="{% url 'admin_department_levels' school.id department.id %}"
+           class="text-sm text-accent hover:text-accent-dark font-medium transition">Manage Levels &rarr;</a>
+      </div>
+      <div class="p-6">
+        {% if mapped_levels %}
+          <div class="flex flex-wrap gap-2">
+            {% for dl in mapped_levels %}
+              <span class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-100 text-slate-700">
+                {{ dl.effective_display_name }}
+              </span>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="text-sm text-gray-400 text-center py-4">No levels mapped. <a href="{% url 'admin_department_levels' school.id department.id %}" class="text-accent hover:text-accent-dark font-medium">Map levels &rarr;</a></p>
+        {% endif %}
+      </div>
+    </div>
+
     <!-- Classes section -->
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm lg:col-span-2">
       <div class="flex items-center justify-between p-6 border-b border-slate-100">

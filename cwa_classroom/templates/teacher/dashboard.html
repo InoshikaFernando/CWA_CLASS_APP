@@ -27,15 +27,61 @@
           </select>
         </form>
       {% endif %}
-      <a href="{% url 'create_class' %}"
-         class="inline-flex items-center gap-2 px-4 py-2 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition text-sm shadow-sm">
-        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-        </svg>
-        New Class
-      </a>
     </div>
   </div>
+
+  <!-- Today's Sessions — Start / Continue -->
+  {% if class_session_info %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-8">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-10 h-10 bg-emerald-50 rounded-lg flex items-center justify-center">
+          <svg class="w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z"/>
+          </svg>
+        </div>
+        <h2 class="text-lg font-semibold text-gray-900">Today's Sessions</h2>
+      </div>
+      <div class="space-y-3">
+        {% for info in class_session_info %}
+          <div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+            <div>
+              <p class="text-sm font-medium text-gray-900">{{ info.classroom.name }}</p>
+              {% if info.classroom.start_time %}
+                <p class="text-xs text-gray-500">{{ info.classroom.start_time|time:"H:i" }} – {{ info.classroom.end_time|time:"H:i" }}</p>
+              {% endif %}
+            </div>
+            {% if info.status == 'active' %}
+              <a href="{% url 'session_attendance' info.session.id %}"
+                 class="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
+                </svg>
+                Continue Session
+              </a>
+            {% elif info.status == 'completed' %}
+              <span class="inline-flex items-center gap-1.5 px-4 py-2 bg-gray-100 text-gray-500 text-sm font-medium rounded-lg">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                Completed
+              </span>
+            {% else %}
+              <form method="post" action="{% url 'start_session' info.classroom.id %}">
+                {% csrf_token %}
+                <button type="submit"
+                        class="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition">
+                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z"/>
+                  </svg>
+                  Start Session
+                </button>
+              </form>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
 
   <!-- Stats row -->
   <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
@@ -107,8 +153,7 @@
         </div>
       {% else %}
         <div class="bg-white rounded-xl p-8 border border-slate-200 text-center">
-          <p class="text-gray-400 mb-4">No classes in this school yet.</p>
-          <a href="{% url 'create_class' %}" class="text-accent hover:text-accent-dark font-medium text-sm">Create your first class &rarr;</a>
+          <p class="text-gray-400">No classes assigned to you in this school yet.</p>
         </div>
       {% endif %}
     </div>

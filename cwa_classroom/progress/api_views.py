@@ -2,11 +2,14 @@ import json
 from django.http import JsonResponse
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 from datetime import date, timedelta
 from maths.models import TimeLog
 
 
+@method_decorator(csrf_exempt, name='dispatch')
 class UpdateTimeLogView(LoginRequiredMixin, View):
     def post(self, request):
         try:

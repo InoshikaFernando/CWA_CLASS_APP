@@ -27,16 +27,23 @@ class Level(models.Model):
     level_number = models.PositiveIntegerField(unique=True)
     display_name = models.CharField(max_length=50)
     description = models.TextField(blank=True)
+    subject = models.ForeignKey(
+        'Subject', on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='levels',
+        help_text='Which subject this level belongs to. Used to filter levels when mapping to departments.',
+    )
     school = models.ForeignKey(
         'School', on_delete=models.CASCADE,
         null=True, blank=True,
         related_name='custom_levels',
     )
+    # DEPRECATED: replaced by DepartmentLevel M2M through table. Will be removed after data migration.
     department = models.ForeignKey(
         'Department', on_delete=models.SET_NULL,
         null=True, blank=True,
         related_name='levels',
-        help_text='Department this level belongs to. Year levels are auto-assigned when a department is created with a subject module.',
+        help_text='DEPRECATED — use DepartmentLevel instead.',
     )
 
     class Meta:
@@ -149,6 +156,10 @@ class Department(models.Model):
         related_name='departments',
         help_text='Link to an existing subject module for pre-built questions. Null = custom subject.',
     )
+    mapped_levels = models.ManyToManyField(
+        'Level', through='DepartmentLevel',
+        related_name='mapped_departments', blank=True,
+    )
     head = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -184,6 +195,37 @@ class DepartmentTeacher(models.Model):
 
     def __str__(self):
         return f'{self.teacher.username} @ {self.department.name}'
+
+
+class DepartmentLevel(models.Model):
+    """
+    Maps a Level to a Department (M2M through table).
+    Allows multiple departments to share the same global Year levels,
+    and supports local display-name overrides (e.g. "Year 1 (AU)").
+    """
+    department = models.ForeignKey(
+        Department, on_delete=models.CASCADE, related_name='department_levels',
+    )
+    level = models.ForeignKey(
+        Level, on_delete=models.CASCADE, related_name='department_levels',
+    )
+    local_display_name = models.CharField(
+        max_length=100, blank=True,
+        help_text='Optional override, e.g. "Year 1 (AU)" to relabel a level for this department.',
+    )
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        unique_together = ('department', 'level')
+        ordering = ['order', 'level__level_number']
+
+    def __str__(self):
+        name = self.local_display_name or self.level.display_name
+        return f'{self.department.name} — {name}'
+
+    @property
+    def effective_display_name(self):
+        return self.local_display_name or self.level.display_name
 
 
 class AcademicYear(models.Model):

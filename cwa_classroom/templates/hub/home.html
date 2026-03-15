@@ -15,6 +15,38 @@
       <p class="text-gray-500">Explore your subjects below.</p>
     </div>
 
+    <!-- Source Toggle (school students only) -->
+    {% if is_school_student and schools %}
+      <div class="mb-8">
+        <div class="inline-flex rounded-xl bg-white border border-slate-200 shadow-sm p-1">
+          {% for school in schools %}
+            <a href="?source=school"
+               class="px-5 py-2 rounded-lg text-sm font-semibold transition
+                      {% if active_source == 'school' %}bg-emerald-500 text-white shadow{% else %}text-gray-600 hover:bg-gray-100{% endif %}">
+              {{ school.name }}
+            </a>
+          {% endfor %}
+          <a href="?source=open"
+             class="px-5 py-2 rounded-lg text-sm font-semibold transition
+                    {% if active_source == 'open' %}bg-blue-500 text-white shadow{% else %}text-gray-600 hover:bg-gray-100{% endif %}">
+            Open Practice
+          </a>
+        </div>
+      </div>
+    {% endif %}
+
+    <!-- Global Classes (Open Practice mode or individual students) -->
+    {% if global_classes %}
+      <div class="mb-10">
+        <h2 class="text-xl font-bold text-gray-800 mb-6">Available Classes</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {% for classroom in global_classes %}
+            {% include "partials/global_class_card.html" with classroom=classroom enrolled_class_ids=enrolled_class_ids pending_class_ids=pending_class_ids %}
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
     <!-- Subject Cards -->
     <div class="mb-4">
       <h2 class="text-xl font-bold text-gray-800 mb-6">Your Subjects</h2>

@@ -5,6 +5,7 @@ from . import views_department
 from . import views_teacher
 from . import views_student
 from . import views_progress
+from . import views_hierarchy
 
 urlpatterns = [
     # NOTE: The old HomeView at '/' has been replaced by PublicHomeView + SubjectsHubView
@@ -64,6 +65,7 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/assign-hod/', views_department.DepartmentAssignHoDView.as_view(), name='admin_department_assign_hod'),
     path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/teachers/', views_department.DepartmentManageTeachersView.as_view(), name='admin_department_teachers'),
     path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/assign-classes/', views_department.DepartmentAssignClassesView.as_view(), name='admin_department_assign_classes'),
+    path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/levels/', views_department.DepartmentManageLevelsView.as_view(), name='admin_department_levels'),
 
     # Teacher dashboard & management
     path('teacher/', views_teacher.TeacherDashboardView.as_view(), name='teacher_dashboard'),
@@ -90,6 +92,7 @@ urlpatterns = [
     path('student/class/<int:class_id>/', views_student.StudentClassDetailView.as_view(), name='student_class_detail'),
     path('student/attendance/', views_student.StudentAttendanceHistoryView.as_view(), name='student_attendance_history'),
     path('student/session/<int:session_id>/mark-attendance/', views_student.StudentSelfMarkAttendanceView.as_view(), name='student_mark_attendance'),
+    path('student/enroll-global/<int:class_id>/', views_student.EnrollGlobalClassView.as_view(), name='student_enroll_global_class'),
 
     # Progress criteria & tracking
     path('progress/criteria/', views_progress.ProgressCriteriaListView.as_view(), name='progress_criteria_list'),
@@ -103,6 +106,10 @@ urlpatterns = [
 
     # API
     path('api/department/<int:dept_id>/levels/', views.DepartmentLevelsAPIView.as_view(), name='api_department_levels'),
+
+    # School hierarchy
+    path('school-hierarchy/', views_hierarchy.SchoolHierarchyView.as_view(), name='school_hierarchy_auto'),
+    path('school-hierarchy/<int:school_id>/', views_hierarchy.SchoolHierarchyView.as_view(), name='school_hierarchy'),
 
     # HoD
     path('department/', views.HoDOverviewView.as_view(), name='hod_overview'),
