@@ -2,7 +2,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
 from django.contrib import messages
 from django.utils import timezone
-from django.db.models import Count, Max
+from django.db.models import Count, Max, Q
 
 from accounts.models import Role
 from .views import RoleRequiredMixin
@@ -105,8 +105,11 @@ class ProgressCriteriaListView(RoleRequiredMixin, View):
 
         hierarchical_criteria = _build_hierarchical_criteria(criteria)
 
-        subjects = Subject.objects.filter(is_active=True)
-        levels = Level.objects.all()
+        # Show all active subjects and school-relevant levels for filters
+        subjects = Subject.objects.filter(is_active=True).order_by('order', 'name')
+        levels = Level.objects.filter(
+            Q(school__isnull=True) | Q(school=school)
+        ).order_by('level_number')
 
         return render(request, 'progress/criteria_list.html', {
             'school': school,
@@ -140,8 +143,10 @@ class ProgressCriteriaCreateView(RoleRequiredMixin, View):
                 pk=parent_id, school=school,
             ).select_related('subject', 'level').first()
 
-        subjects = Subject.objects.filter(is_active=True)
-        levels = Level.objects.all()
+        subjects = Subject.objects.filter(is_active=True).order_by('order', 'name')
+        levels = Level.objects.filter(
+            Q(school__isnull=True) | Q(school=school)
+        ).order_by('level_number')
 
         return render(request, 'progress/criteria_form.html', {
             'school': school,
@@ -179,8 +184,10 @@ class ProgressCriteriaCreateView(RoleRequiredMixin, View):
                 messages.error(request, 'Subject, level, and name are required.')
                 return render(request, 'progress/criteria_form.html', {
                     'school': school,
-                    'subjects': Subject.objects.filter(is_active=True),
-                    'levels': Level.objects.all(),
+                    'subjects': Subject.objects.filter(is_active=True).order_by('order', 'name'),
+                    'levels': Level.objects.filter(
+                        Q(school__isnull=True) | Q(school=school)
+                    ).order_by('level_number'),
                     'parent_criteria': parent_criteria,
                     'form_data': {
                         'subject': subject_id,
@@ -197,8 +204,12 @@ class ProgressCriteriaCreateView(RoleRequiredMixin, View):
             messages.error(request, 'Name is required.')
             return render(request, 'progress/criteria_form.html', {
                 'school': school,
-                'subjects': Subject.objects.filter(is_active=True),
-                'levels': Level.objects.all(),
+                'subjects': Subject.objects.filter(
+                    classrooms__school=school, classrooms__is_active=True,
+                ).distinct().order_by('order', 'name'),
+                'levels': Level.objects.filter(
+                    classrooms__school=school, classrooms__is_active=True,
+                ).distinct().order_by('level_number'),
                 'parent_criteria': parent_criteria,
                 'form_data': {
                     'name': name,

@@ -487,14 +487,21 @@ class CreateClassView(RoleRequiredMixin, View):
             messages.error(request, 'Please select a department.')
             return redirect('create_class')
 
-        # Validate levels belong to the selected department
-        valid_levels = Level.objects.filter(id__in=level_ids, department=department)
+        # Validate levels are mapped to the selected department via DepartmentLevel
+        from .models import DepartmentLevel
+        mapped_level_ids = set(
+            DepartmentLevel.objects.filter(
+                department=department, level_id__in=level_ids,
+            ).values_list('level_id', flat=True)
+        )
+        valid_levels = Level.objects.filter(id__in=mapped_level_ids)
 
         with transaction.atomic():
             classroom = ClassRoom.objects.create(
                 name=name,
                 school=department.school,
                 department=department,
+                subject=department.subject,
                 day=day,
                 start_time=start_time,
                 end_time=end_time,
@@ -1349,19 +1356,28 @@ class HoDCreateClassView(RoleRequiredMixin, View):
             messages.error(request, 'Please select a valid department.')
             return redirect('hod_create_class')
 
+        # Validate levels are mapped to the department via DepartmentLevel
+        from .models import DepartmentLevel
+        mapped_level_ids = set(
+            DepartmentLevel.objects.filter(
+                department=department, level_id__in=level_ids,
+            ).values_list('level_id', flat=True)
+        ) if level_ids else set()
+        valid_levels = Level.objects.filter(id__in=mapped_level_ids)
+
         with transaction.atomic():
             classroom = ClassRoom.objects.create(
                 name=name,
                 school=department.school,
                 department=department,
+                subject=department.subject,
                 day=day,
                 start_time=start_time,
                 end_time=end_time,
                 description=description,
                 created_by=request.user,
             )
-            if level_ids:
-                valid_levels = Level.objects.filter(id__in=level_ids, department=department)
+            if valid_levels.exists():
                 classroom.levels.set(valid_levels)
 
         messages.success(
@@ -1698,33 +1714,33 @@ def _get_client_ip(request):
 # ── API: Department Levels ────────────────────────────────────────────────────
 
 class DepartmentLevelsAPIView(LoginRequiredMixin, View):
-    """Return levels belonging to a department as JSON."""
+    """Return levels mapped to a department via DepartmentLevel M2M."""
 
     def get(self, request, dept_id):
         from django.http import JsonResponse
-        from .models import DepartmentTeacher
+        from .models import DepartmentLevel
 
-        dept = Department.objects.filter(id=dept_id).first()
+        dept = Department.objects.select_related('subject').filter(id=dept_id).first()
         if not dept:
             return JsonResponse({'error': 'Department not found'}, status=404)
 
-        # Exclude Basic Facts levels (100-199) — those are module features, not class levels
-        from django.db.models import Q
-        all_levels = Level.objects.filter(
-            department=dept,
-        ).exclude(
-            level_number__gte=100, level_number__lt=200,
-        ).order_by('level_number')
+        # Query the M2M through table, excluding Basic Facts (100-199)
+        dept_levels = (
+            DepartmentLevel.objects.filter(department=dept)
+            .select_related('level')
+            .exclude(level__level_number__gte=100, level__level_number__lt=200)
+            .order_by('order', 'level__level_number')
+        )
         year_levels = []
         custom_levels = []
-        for lv in all_levels:
+        for dl in dept_levels:
             entry = {
-                'id': lv.id,
-                'level_number': lv.level_number,
-                'display_name': lv.display_name,
-                'description': lv.description,
+                'id': dl.level.id,
+                'level_number': dl.level.level_number,
+                'display_name': dl.effective_display_name,
+                'description': dl.level.description,
             }
-            if lv.level_number <= 9:
+            if dl.level.level_number <= 9:
                 year_levels.append(entry)
             else:
                 custom_levels.append(entry)
@@ -1732,4 +1748,8 @@ class DepartmentLevelsAPIView(LoginRequiredMixin, View):
         return JsonResponse({
             'levels': year_levels,
             'custom_levels': custom_levels,
+            'subject': {
+                'id': dept.subject.id,
+                'name': dept.subject.name,
+            } if dept.subject else None,
         })

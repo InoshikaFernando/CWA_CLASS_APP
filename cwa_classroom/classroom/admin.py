@@ -4,7 +4,7 @@ from .models import (
     StudentLevelEnrollment, SubjectApp, ContactMessage,
     School, SchoolTeacher, AcademicYear, TopicLevel, SubTopic,
     ClassSession, Enrollment, StudentAttendance, TeacherAttendance,
-    ProgressCriteria, ProgressRecord, Notification,
+    ProgressCriteria, ProgressRecord, Notification, DepartmentLevel,
 )
 
 
@@ -84,6 +84,13 @@ class SubjectAdmin(admin.ModelAdmin):
 class LevelAdmin(admin.ModelAdmin):
     list_display = ('level_number', 'display_name')
     ordering = ('level_number',)
+
+
+@admin.register(DepartmentLevel)
+class DepartmentLevelAdmin(admin.ModelAdmin):
+    list_display = ('department', 'level', 'local_display_name', 'order')
+    list_filter = ('department',)
+    ordering = ('department', 'order', 'level__level_number')
 
 
 @admin.register(Topic)
