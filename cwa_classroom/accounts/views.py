@@ -234,13 +234,20 @@ class IndividualStudentRegisterView(View):
                 UserRole.objects.create(user=user, role=role)
 
                 # Create subscription record
-                trial_end = timezone.now() + timedelta(days=package.trial_days)
-                Subscription.objects.create(
-                    user=user,
-                    package=package,
-                    status=Subscription.STATUS_TRIALING,
-                    trial_end=trial_end,
-                )
+                if package.is_free:
+                    Subscription.objects.create(
+                        user=user,
+                        package=package,
+                        status=Subscription.STATUS_ACTIVE,
+                    )
+                else:
+                    trial_end = timezone.now() + timedelta(days=package.trial_days)
+                    Subscription.objects.create(
+                        user=user,
+                        package=package,
+                        status=Subscription.STATUS_TRIALING,
+                        trial_end=trial_end,
+                    )
 
                 # Handle discount code
                 if discount and discount.is_fully_free:
@@ -264,6 +271,13 @@ class IndividualStudentRegisterView(View):
                 'errors': [str(e)], 'username': username, 'email': email,
                 'packages': packages, 'selected_package_id': package_id,
             })
+
+
+class TrialExpiredView(View):
+    def get(self, request):
+        from billing.models import Package
+        packages = Package.objects.filter(is_active=True, price__gt=0).order_by('price')
+        return render(request, 'accounts/trial_expired.html', {'packages': packages})
 
 
 # ---------------------------------------------------------------------------
