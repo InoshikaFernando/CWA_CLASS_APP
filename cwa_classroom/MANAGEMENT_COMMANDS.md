@@ -98,6 +98,30 @@ python manage.py consolidate_to_maths --skip-progress
 
 ---
 
+## Number Puzzles
+
+### `generate_puzzles`
+Pre-generate number puzzles and store them in the database. Puzzles are used by the Number Puzzles activity within Basic Facts.
+
+```bash
+python manage.py generate_puzzles --level 1 --count 500
+python manage.py generate_puzzles --all --count 500
+python manage.py generate_puzzles --all --count 500 --clear
+python manage.py generate_puzzles --all --dry-run
+```
+
+| Option      | Description                                                                 |
+|-------------|-----------------------------------------------------------------------------|
+| `--level`   | Level number (1–6) to generate puzzles for                                  |
+| `--all`     | Generate puzzles for all 6 levels                                           |
+| `--count`   | Target number of puzzles per level (default: 500)                           |
+| `--clear`   | Delete existing unreferenced puzzles before generating                      |
+| `--dry-run` | Show expected counts without writing to the database                        |
+
+> **Note:** Requires `NumberPuzzleLevel` fixtures to be loaded first (`python manage.py loaddata puzzle_levels`). Levels 5–6 may produce fewer puzzles due to stricter mathematical constraints.
+
+---
+
 ## Maintenance
 
 ### `backfill_final_answer_scores`
