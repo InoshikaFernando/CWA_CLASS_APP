@@ -616,10 +616,37 @@ class EditClassView(RoleRequiredMixin, View):
 
     def get(self, request, class_id):
         classroom = self._get_classroom(request, class_id)
-        levels = Level.objects.filter(level_number__lte=8, school__isnull=True).order_by('level_number')
+
+        # Filter levels by department's DepartmentLevel M2M (same as create flow)
+        levels = Level.objects.none()
         custom_levels = Level.objects.none()
-        if classroom.school:
-            custom_levels = Level.objects.filter(school=classroom.school).order_by('level_number')
+        if classroom.department:
+            from .models import DepartmentLevel
+            dept_levels = (
+                DepartmentLevel.objects.filter(department=classroom.department)
+                .select_related('level')
+                .exclude(level__level_number__gte=100, level__level_number__lt=200)
+                .order_by('order', 'level__level_number')
+            )
+            year_ids = []
+            custom_ids = []
+            for dl in dept_levels:
+                if dl.level.level_number <= 9:
+                    year_ids.append(dl.level_id)
+                else:
+                    custom_ids.append(dl.level_id)
+            levels = Level.objects.filter(id__in=year_ids).order_by('level_number')
+            custom_levels = Level.objects.filter(id__in=custom_ids).order_by('level_number')
+        elif classroom.subject:
+            # Fallback: filter by subject directly
+            levels = Level.objects.filter(
+                subject=classroom.subject, school__isnull=True, level_number__lte=9,
+            ).exclude(
+                level_number__gte=100, level_number__lt=200,
+            ).order_by('level_number')
+            if classroom.school:
+                custom_levels = Level.objects.filter(school=classroom.school).order_by('level_number')
+
         back_url = request.GET.get('next', '')
         return render(request, 'teacher/edit_class.html', {
             'classroom': classroom,
