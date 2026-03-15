@@ -1,0 +1,128 @@
+[
+  {
+    "model": "number_puzzles.numberpuzzlelevel",
+    "pk": 1,
+    "fields": {
+      "number": 1,
+      "name": "Beginner",
+      "slug": "beginner",
+      "description": "Find the missing operator between two single-digit numbers using + and -.",
+      "operators_allowed": "+,-",
+      "min_operand": 1,
+      "max_operand": 9,
+      "num_operands": 2,
+      "brackets_shown": false,
+      "brackets_required": false,
+      "nested_brackets": false,
+      "puzzles_per_set": 10,
+      "unlock_threshold": 8,
+      "max_result": 18,
+      "order": 1
+    }
+  },
+  {
+    "model": "number_puzzles.numberpuzzlelevel",
+    "pk": 2,
+    "fields": {
+      "number": 2,
+      "name": "Explorer",
+      "slug": "explorer",
+      "description": "Find the missing operator with bigger numbers and all four operations.",
+      "operators_allowed": "+,-,*,/",
+      "min_operand": 1,
+      "max_operand": 99,
+      "num_operands": 2,
+      "brackets_shown": false,
+      "brackets_required": false,
+      "nested_brackets": false,
+      "puzzles_per_set": 10,
+      "unlock_threshold": 8,
+      "max_result": 500,
+      "order": 2
+    }
+  },
+  {
+    "model": "number_puzzles.numberpuzzlelevel",
+    "pk": 3,
+    "fields": {
+      "number": 3,
+      "name": "Adventurer",
+      "slug": "adventurer",
+      "description": "Find two missing operators with three numbers. Standard operator precedence applies.",
+      "operators_allowed": "+,-,*,/",
+      "min_operand": 1,
+      "max_operand": 20,
+      "num_operands": 3,
+      "brackets_shown": false,
+      "brackets_required": false,
+      "nested_brackets": false,
+      "puzzles_per_set": 10,
+      "unlock_threshold": 8,
+      "max_result": 100,
+      "order": 3
+    }
+  },
+  {
+    "model": "number_puzzles.numberpuzzlelevel",
+    "pk": 4,
+    "fields": {
+      "number": 4,
+      "name": "Challenger",
+      "slug": "challenger",
+      "description": "Brackets are shown — figure out which operators go in each position.",
+      "operators_allowed": "+,-,*,/",
+      "min_operand": 1,
+      "max_operand": 20,
+      "num_operands": 3,
+      "brackets_shown": true,
+      "brackets_required": false,
+      "nested_brackets": false,
+      "puzzles_per_set": 10,
+      "unlock_threshold": 8,
+      "max_result": 200,
+      "order": 4
+    }
+  },
+  {
+    "model": "number_puzzles.numberpuzzlelevel",
+    "pk": 5,
+    "fields": {
+      "number": 5,
+      "name": "Expert",
+      "slug": "expert",
+      "description": "Place brackets AND choose operators to reach the target with three numbers.",
+      "operators_allowed": "+,-,*,/",
+      "min_operand": 1,
+      "max_operand": 15,
+      "num_operands": 3,
+      "brackets_shown": false,
+      "brackets_required": true,
+      "nested_brackets": false,
+      "puzzles_per_set": 10,
+      "unlock_threshold": 8,
+      "max_result": 200,
+      "order": 5
+    }
+  },
+  {
+    "model": "number_puzzles.numberpuzzlelevel",
+    "pk": 6,
+    "fields": {
+      "number": 6,
+      "name": "Master",
+      "slug": "master",
+      "description": "Nested brackets and operators with four numbers — the ultimate challenge!",
+      "operators_allowed": "+,-,*,/",
+      "min_operand": 1,
+      "max_operand": 15,
+      "num_operands": 4,
+      "brackets_shown": false,
+      "brackets_required": true,
+      "nested_brackets": true,
+      "puzzles_per_set": 10,
+      "unlock_threshold": 8,
+      "max_result": 300,
+      "order": 6
+    }
+  }
+]

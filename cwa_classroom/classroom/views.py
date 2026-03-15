@@ -298,6 +298,31 @@ class StudentDashboardView(LoginRequiredMixin, View):
                 })
             bf_grid.append({'subtopic': subtopic, 'label': label, 'levels': levels_data})
 
+        # ── Number Puzzles progress ──────────────────────────────────────────
+        np_grid = []
+        try:
+            from number_puzzles.models import NumberPuzzleLevel, StudentPuzzleProgress
+            np_levels = NumberPuzzleLevel.objects.all()
+            np_progress_map = {
+                p.level_id: p
+                for p in StudentPuzzleProgress.objects.filter(student=request.user)
+            }
+            for level in np_levels:
+                prog = np_progress_map.get(level.id)
+                pct = prog.accuracy if prog and prog.total_puzzles_attempted > 0 else None
+                np_grid.append({
+                    'level': level,
+                    'progress': prog,
+                    'is_unlocked': prog.is_unlocked if prog else False,
+                    'best_score': prog.best_score if prog else 0,
+                    'stars': prog.stars if prog else 0,
+                    'total_sessions': prog.total_sessions if prog else 0,
+                    'accuracy': pct,
+                    'colour': _pct_colour(pct),
+                })
+        except (ImportError, Exception):
+            np_grid = []
+
         # ── Times Tables results ──────────────────────────────────────────────
         tt_results = []
         for table in range(1, 13):
@@ -347,16 +372,26 @@ class StudentDashboardView(LoginRequiredMixin, View):
             quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
         ).select_related('level').order_by('-completed_at')[:5]
 
+        try:
+            from number_puzzles.models import PuzzleSession
+            recent_np = PuzzleSession.objects.filter(
+                student=request.user, status='completed',
+            ).select_related('level').order_by('-completed_at')[:5]
+        except (ImportError, Exception):
+            recent_np = []
+
         from maths.views import update_time_log_from_activities
         time_log = update_time_log_from_activities(request.user)
 
         return render(request, 'student/dashboard.html', {
             'progress_grid': progress_grid,
             'bf_grid': bf_grid,
+            'np_grid': np_grid,
             'tt_results': tt_results,
             'recent_topic': recent_topic,
             'recent_bf': recent_bf,
             'recent_tt': recent_tt,
+            'recent_np': recent_np,
             'time_log': time_log,
             'time_daily': _format_seconds(time_log.daily_total_seconds if time_log else 0),
             'time_weekly': _format_seconds(time_log.weekly_total_seconds if time_log else 0),
@@ -1569,6 +1604,24 @@ class SubjectsHubView(LoginRequiredMixin, View):
                 ).select_related('subject').order_by('subject__name', 'name')
             )
 
+        # School departments with classes (for school mode)
+        department_classes = []
+        if active_school:
+            departments = Department.objects.filter(
+                school=active_school, is_active=True,
+            ).order_by('name')
+            for dept in departments:
+                classes = list(
+                    ClassRoom.objects.filter(
+                        department=dept, is_active=True,
+                    ).select_related('subject').order_by('name')
+                )
+                if classes:
+                    department_classes.append({
+                        'department': dept,
+                        'classes': classes,
+                    })
+
         # Enrollment status sets for the class cards
         enrolled_class_ids = set(
             ClassStudent.objects.filter(
@@ -1588,6 +1641,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
             'active_source': active_source,
             'active_school': active_school,
             'global_classes': global_classes,
+            'department_classes': department_classes,
             'enrolled_class_ids': enrolled_class_ids,
             'pending_class_ids': pending_class_ids,
         })
