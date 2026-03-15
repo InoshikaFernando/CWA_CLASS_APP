@@ -351,7 +351,16 @@
       "Bash(./venv/Scripts/python.exe manage.py makemigrations classroom --empty --name backfill_level_subjects)",
       "Bash(./venv/Scripts/python.exe manage.py test classroom.tests.test_models -v2)",
       "Bash(./venv/Scripts/python.exe manage.py test classroom.tests.test_department_levels_api -v2)",
-      "Bash(./venv/Scripts/python.exe manage.py test classroom.tests.test_department_manage_levels -v2)"
+      "Bash(./venv/Scripts/python.exe manage.py test classroom.tests.test_department_manage_levels -v2)",
+      "Bash(./venv/Scripts/python.exe manage.py test classroom.tests.test_class_creation -v2)",
+      "Bash(./venv/Scripts/python.exe manage.py test classroom.tests.test_class_creation.AdminClassCreationTest.test_class_uses_department_level_mappings -v2)",
+      "Bash(./venv/Scripts/python.exe manage.py test classroom.tests.test_class_creation.AdminClassCreationTest.test_class_inherits_subject_from_department -v2)",
+      "Bash(./venv/Scripts/python.exe manage.py test classroom.tests -v2)",
+      "Bash(./venv/Scripts/python.exe manage.py test classroom.tests.test_backfill_command -v2)",
+      "Bash(./venv/Scripts/python.exe manage.py backfill_department_levels --dry-run)",
+      "Bash(./venv/Scripts/python.exe manage.py backfill_department_levels)",
+      "Bash(python manage.py test classroom.tests.test_school_hierarchy -v2)",
+      "Bash(where gh)"
     ]
   }
 }
