@@ -28,6 +28,7 @@ class SchoolHierarchyView(RoleRequiredMixin, View):
     required_roles = [
         Role.ADMIN, Role.INSTITUTE_OWNER,
         Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT,
+        Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
     ]
 
     def get(self, request, school_id=None):
