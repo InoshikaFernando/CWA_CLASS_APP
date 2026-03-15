@@ -261,15 +261,72 @@ Puzzles are **pre-generated** by a management command and stored in the database
 5. Store one canonical solution
 ```
 
-### 5.3 Management Command
+### 5.3 Management Command: `generate_puzzles`
+
+**Location:** `number_puzzles/management/commands/generate_puzzles.py`
+
+**Usage:**
 
 ```
 python manage.py generate_puzzles --level 1 --count 500
 python manage.py generate_puzzles --level 2 --count 500
 python manage.py generate_puzzles --all --count 500
+python manage.py generate_puzzles --all --count 500 --clear
 ```
 
-Default: 500 puzzles per level. Levels 5–6 may have fewer valid puzzles due to stricter constraints.
+**Arguments:**
+
+| Argument | Type | Required | Default | Description |
+|----------|------|----------|---------|-------------|
+| `--level` | int | No* | — | Level number (1–6) to generate puzzles for |
+| `--all` | flag | No* | — | Generate puzzles for all 6 levels |
+| `--count` | int | No | 500 | Target number of puzzles to generate per level |
+| `--clear` | flag | No | — | Delete existing puzzles for the target level(s) before generating. Only deletes puzzles not referenced by any `PuzzleAttempt` |
+| `--dry-run` | flag | No | — | Show how many puzzles would be generated without writing to the database |
+| `--verbosity` | int | No | 1 | 0 = silent, 1 = summary, 2 = per-puzzle output |
+
+\* One of `--level` or `--all` is required.
+
+**Behaviour:**
+
+1. Validates that `NumberPuzzleLevel` fixtures are loaded (exits with error if not)
+2. For each target level:
+   a. Counts existing puzzles in the database for that level
+   b. If existing count >= `--count` and `--clear` is not set, skips with a message
+   c. If `--clear` is set, deletes puzzles not referenced by any `PuzzleAttempt` or `SessionPuzzle`
+   d. Generates puzzles using the level-specific algorithm (see §5.2)
+   e. Validates each puzzle against level constraints before saving
+   f. Skips duplicates (matching `level` + `operands_hash` + `target`)
+   g. Uses `bulk_create` with `ignore_conflicts=True` for performance
+3. Prints summary: puzzles generated, duplicates skipped, total now in DB per level
+
+**Output example (verbosity=1):**
+
+```
+Level 1 (Beginner): 500 generated, 12 duplicates skipped, 500 total in DB
+Level 2 (Explorer): 500 generated, 8 duplicates skipped, 500 total in DB
+Level 3 (Adventurer): 500 generated, 23 duplicates skipped, 500 total in DB
+Level 4 (Challenger): 500 generated, 31 duplicates skipped, 500 total in DB
+Level 5 (Expert): 347 generated, 0 duplicates skipped, 347 total in DB
+Level 6 (Master): 198 generated, 0 duplicates skipped, 198 total in DB
+Done. Total puzzles in database: 2845
+```
+
+**Error handling:**
+
+| Scenario | Behaviour |
+|----------|-----------|
+| `NumberPuzzleLevel` fixtures not loaded | Exit with error: "No puzzle levels found. Run: python manage.py loaddata puzzle_levels" |
+| Invalid `--level` value (not 1–6) | Exit with error: "Invalid level: {n}. Must be 1–6" |
+| Neither `--level` nor `--all` provided | Exit with error showing usage |
+| Generation cannot reach `--count` (levels 5–6) | Warn and stop: "Level {n}: only {x} valid puzzles possible, generated {x}" |
+| Database error during bulk_create | Roll back, print error, continue to next level |
+
+**Notes:**
+
+- Levels 5–6 have stricter mathematical constraints (brackets must be necessary, nested brackets must be required), so the pool may be smaller than `--count`. The command exhaustively enumerates valid combinations and stops when all possibilities are explored.
+- The command is idempotent — running it again with the same arguments will skip already-existing puzzles.
+- Recommended to run once during initial deployment and periodically if the pool needs topping up.
 
 ### 5.4 Puzzle Uniqueness
 
@@ -1079,6 +1136,21 @@ All templates extend `base.html` (the existing authenticated app layout with sid
 | AC-56 | Generated Level 4 puzzle — brackets must matter | Expression evaluated with brackets differs from expression without brackets |
 | AC-57 | Generated Level 5 puzzle — brackets necessary | No flat (un-bracketed) expression with same operators produces the target |
 | AC-58 | Puzzle variety: student plays 3 sessions at Level 1 | Majority of puzzles differ across sessions (avoids recently seen) |
+
+### 13.9 Management Command (`generate_puzzles`)
+
+| # | Criteria | Expected Result |
+|---|---------|----------------|
+| AC-59 | Run `generate_puzzles --level 1 --count 500` | 500 valid Level 1 puzzles created in DB; summary printed |
+| AC-60 | Run `generate_puzzles --all --count 500` | Puzzles generated for all 6 levels; per-level summary printed |
+| AC-61 | Run command twice with same arguments (idempotency) | Second run skips existing puzzles; no duplicates created; DB count unchanged |
+| AC-62 | Run `generate_puzzles` without `--level` or `--all` | Command exits with usage error |
+| AC-63 | Run `generate_puzzles --level 7` | Command exits with error: "Invalid level: 7. Must be 1–6" |
+| AC-64 | Run command when `NumberPuzzleLevel` fixtures not loaded | Command exits with error prompting to load fixtures first |
+| AC-65 | Run `generate_puzzles --level 5 --count 1000` (exceeds possible) | Command generates all valid puzzles, warns that only N were possible, exits cleanly |
+| AC-66 | Run `generate_puzzles --level 1 --count 50 --clear` | Existing unreferenced Level 1 puzzles deleted; 50 new puzzles generated |
+| AC-67 | Run `--clear` when puzzles are referenced by `PuzzleAttempt` | Referenced puzzles preserved; only unreferenced puzzles deleted |
+| AC-68 | Run `generate_puzzles --all --dry-run` | No DB writes; prints expected generation counts per level |
 
 ---
 
