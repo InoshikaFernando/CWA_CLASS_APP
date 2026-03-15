@@ -48,8 +48,8 @@ urlpatterns = [
 
     # --- Core apps ---
     path('', include('classroom.urls')),
+    path('', include('number_puzzles.urls')),  # before quiz — quiz has catch-all basic-facts/<str>/
     path('', include('quiz.urls')),
-    path('', include('number_puzzles.urls')),
     path('', include('progress.urls')),
 
     # --- Billing ---
