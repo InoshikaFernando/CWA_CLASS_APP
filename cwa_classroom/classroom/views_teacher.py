@@ -8,6 +8,7 @@ from django.db.models import Count, Q
 
 from accounts.models import Role
 from .views import RoleRequiredMixin
+from .notifications import create_notification
 from .models import (
     School, SchoolTeacher, ClassRoom, ClassSession, ClassTeacher,
     Enrollment, StudentAttendance, TeacherAttendance, Notification,
@@ -346,7 +347,7 @@ class EnrollmentApproveView(RoleRequiredMixin, View):
             )
 
         # Notify the student
-        Notification.objects.create(
+        create_notification(
             user=enrollment.student,
             message=f'Your enrollment in "{enrollment.classroom.name}" has been approved.',
             notification_type='enrollment_approved',
@@ -390,7 +391,7 @@ class EnrollmentRejectView(RoleRequiredMixin, View):
         if reason:
             notification_message += f' Reason: {reason}'
 
-        Notification.objects.create(
+        create_notification(
             user=enrollment.student,
             message=notification_message,
             notification_type='enrollment_rejected',

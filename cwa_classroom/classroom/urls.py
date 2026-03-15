@@ -2,6 +2,7 @@ from django.urls import path
 from . import views
 from . import views_admin
 from . import views_department
+from . import views_email
 from . import views_teacher
 from . import views_student
 from . import views_progress
@@ -66,6 +67,12 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/teachers/', views_department.DepartmentManageTeachersView.as_view(), name='admin_department_teachers'),
     path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/assign-classes/', views_department.DepartmentAssignClassesView.as_view(), name='admin_department_assign_classes'),
     path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/levels/', views_department.DepartmentManageLevelsView.as_view(), name='admin_department_levels'),
+
+    # Email management (admin)
+    path('admin-dashboard/email/', views_email.EmailDashboardView.as_view(), name='email_dashboard'),
+    path('admin-dashboard/email/compose/', views_email.EmailComposeView.as_view(), name='email_compose'),
+    path('admin-dashboard/email/campaigns/', views_email.EmailCampaignListView.as_view(), name='email_campaign_list'),
+    path('admin-dashboard/email/campaigns/<int:campaign_id>/', views_email.EmailCampaignDetailView.as_view(), name='email_campaign_detail'),
 
     # Teacher dashboard & management
     path('teacher/', views_teacher.TeacherDashboardView.as_view(), name='teacher_dashboard'),

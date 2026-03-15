@@ -6,6 +6,7 @@ from django.db.models import Count, Max, Q
 
 from accounts.models import Role
 from .views import RoleRequiredMixin
+from .notifications import create_notification
 from .models import (
     School, SchoolTeacher, Subject, Level, ClassRoom,
     ProgressCriteria, ProgressRecord, Notification,
@@ -281,7 +282,7 @@ class ProgressCriteriaSubmitView(RoleRequiredMixin, View):
         ).select_related('teacher')
 
         for membership in senior_memberships:
-            Notification.objects.create(
+            create_notification(
                 user=membership.teacher,
                 message=(
                     f'{request.user.get_full_name() or request.user.username} '
@@ -342,7 +343,7 @@ class ProgressCriteriaApproveView(RoleRequiredMixin, View):
 
         # Notify the creator
         if criteria.created_by:
-            Notification.objects.create(
+            create_notification(
                 user=criteria.created_by,
                 message=(
                     f'Your criteria "{criteria.name}" '
@@ -377,7 +378,7 @@ class ProgressCriteriaRejectView(RoleRequiredMixin, View):
 
         # Notify the creator
         if criteria.created_by:
-            Notification.objects.create(
+            create_notification(
                 user=criteria.created_by,
                 message=(
                     f'Your criteria "{criteria.name}" '

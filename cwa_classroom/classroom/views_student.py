@@ -6,6 +6,7 @@ from django.utils import timezone
 
 from accounts.models import Role
 from .views import RoleRequiredMixin
+from .notifications import create_notification
 from .models import (
     ClassRoom, ClassStudent, Enrollment, ClassSession,
     StudentAttendance, Notification, Department,
@@ -102,7 +103,7 @@ def _notify_class_teachers(classroom, student, is_re_request=False):
 
     # Notify class teachers
     for teacher in classroom.teachers.all():
-        Notification.objects.create(
+        create_notification(
             user=teacher,
             message=(
                 f'{student.username} has {action} to join '
@@ -119,7 +120,7 @@ def _notify_class_teachers(classroom, student, is_re_request=False):
             id=classroom.department_id, head__isnull=False, is_active=True
         ).first()
         if dept and dept.head_id not in notified_ids:
-            Notification.objects.create(
+            create_notification(
                 user=dept.head,
                 message=(
                     f'{student.username} has {action} to join '
@@ -132,7 +133,7 @@ def _notify_class_teachers(classroom, student, is_re_request=False):
 
     # Notify HoI (school admin)
     if classroom.school_id and classroom.school.admin_id not in notified_ids:
-        Notification.objects.create(
+        create_notification(
             user=classroom.school.admin,
             message=(
                 f'{student.username} has {action} to join '

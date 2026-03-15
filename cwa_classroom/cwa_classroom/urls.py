@@ -16,6 +16,7 @@ from classroom.views import (
     ContactView,
     JoinClassView,
 )
+from classroom.views_email import UnsubscribeView
 
 
 def robots_txt(request):
@@ -38,6 +39,9 @@ urlpatterns = [
     path('subjects/', SubjectsListView.as_view(), name='subjects_list'),
     path('contact/', ContactView.as_view(), name='contact'),
     path('join/', JoinClassView.as_view(), name='join_class'),
+
+    # --- Email unsubscribe (public, no login required) ---
+    path('email/unsubscribe/<uuid:token>/', UnsubscribeView.as_view(), name='email_unsubscribe'),
 
     # --- Admin ---
     path('admin/', admin.site.urls),

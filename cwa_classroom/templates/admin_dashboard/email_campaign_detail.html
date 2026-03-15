@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title %}Campaign: {{ campaign.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+
+  <!-- Header -->
+  <div class="flex items-center gap-4 mb-8">
+    <a href="{% url 'email_campaign_list' %}" class="text-gray-400 hover:text-gray-600 transition">
+      <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/>
+      </svg>
+    </a>
+    <div>
+      <h1 class="text-2xl font-display font-bold text-gray-900">{{ campaign.name }}</h1>
+      <p class="text-gray-500 mt-1">{{ campaign.subject }}</p>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+    <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm text-center">
+      <p class="text-2xl font-bold text-gray-900">{{ campaign.total_recipients }}</p>
+      <p class="text-sm text-gray-500">Total Recipients</p>
+    </div>
+    <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm text-center">
+      <p class="text-2xl font-bold text-emerald-600">{{ campaign.sent_count }}</p>
+      <p class="text-sm text-gray-500">Sent</p>
+    </div>
+    <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm text-center">
+      <p class="text-2xl font-bold text-red-600">{{ campaign.failed_count }}</p>
+      <p class="text-sm text-gray-500">Failed</p>
+    </div>
+    <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm text-center">
+      <span class="text-xs font-medium px-2.5 py-1 rounded-full
+        {% if campaign.status == 'sent' %}bg-emerald-100 text-emerald-700
+        {% elif campaign.status == 'sending' %}bg-yellow-100 text-yellow-700
+        {% elif campaign.status == 'failed' %}bg-red-100 text-red-700
+        {% else %}bg-gray-100 text-gray-600{% endif %}">
+        {{ campaign.get_status_display }}
+      </span>
+      <p class="text-sm text-gray-500 mt-2">
+        {% if campaign.sent_at %}{{ campaign.sent_at|date:"M d, Y H:i" }}{% else %}Not sent yet{% endif %}
+      </p>
+    </div>
+  </div>
+
+  <!-- Delivery logs -->
+  <h2 class="text-lg font-semibold text-gray-900 mb-4">Delivery Log</h2>
+
+  {% if logs %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    <table class="w-full">
+      <thead>
+        <tr class="border-b border-slate-100">
+          <th class="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Recipient</th>
+          <th class="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Email</th>
+          <th class="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Status</th>
+          <th class="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Time</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for log in logs %}
+        <tr class="hover:bg-slate-50 transition">
+          <td class="px-6 py-3 text-sm text-gray-900">
+            {% if log.recipient %}{{ log.recipient.get_full_name|default:log.recipient.username }}{% else %}—{% endif %}
+          </td>
+          <td class="px-6 py-3 text-sm text-gray-600">{{ log.recipient_email }}</td>
+          <td class="px-6 py-3">
+            <span class="text-xs font-medium px-2 py-0.5 rounded-full
+              {% if log.status == 'sent' %}bg-emerald-100 text-emerald-700{% else %}bg-red-100 text-red-700{% endif %}">
+              {{ log.get_status_display }}
+            </span>
+          </td>
+          <td class="px-6 py-3 text-sm text-gray-500">{{ log.sent_at|date:"M d, H:i" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="bg-white rounded-2xl p-8 border border-slate-200 text-center">
+    <p class="text-gray-500">No delivery logs available.</p>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
