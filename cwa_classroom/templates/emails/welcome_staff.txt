@@ -1,0 +1,20 @@
+Hi {{ full_name }},
+
+Welcome to {{ school.name }}! Your staff account has been created.
+
+Your Details
+------------
+Role: {{ role_display }}
+School: {{ school.name }}{% if department %}
+Department: {{ department.name }}{% endif %}
+
+Login Credentials
+-----------------
+Email: {{ email }}
+Password: {{ password }}
+
+Log in here: {{ login_url }}
+
+For security, we recommend changing your password after your first login.
+
+— The {{ site_name }} Team

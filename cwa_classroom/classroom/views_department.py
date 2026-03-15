@@ -8,6 +8,7 @@ from accounts.models import CustomUser, Role, UserRole
 from accounts.views import _validate_username, _generate_username_suggestion
 from .models import School, SchoolTeacher, Department, DepartmentTeacher, DepartmentLevel, ClassRoom, Subject, Level
 from .views import RoleRequiredMixin
+from .email_utils import send_staff_welcome_email
 
 
 class DepartmentListView(RoleRequiredMixin, View):
@@ -304,6 +305,14 @@ class DepartmentAssignHoDView(RoleRequiredMixin, View):
                 messages.success(
                     request,
                     f'{first_name} {last_name} created and assigned as Head of {department.name}. Login username: {username}'
+                )
+                # Send welcome email with login credentials
+                send_staff_welcome_email(
+                    user=user,
+                    plain_password=password,
+                    role_display='Head of Department',
+                    school=school,
+                    department=department,
                 )
             except Exception as e:
                 messages.error(request, f'Error creating HoD: {e}')
