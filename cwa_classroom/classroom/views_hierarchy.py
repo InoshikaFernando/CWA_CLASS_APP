@@ -1,3 +1,4 @@
+from django.db.models import Count
 from django.shortcuts import render, get_object_or_404, redirect
 from django.views import View
 from django.contrib import messages
@@ -83,6 +84,30 @@ class SchoolHierarchyView(RoleRequiredMixin, View):
         for idx, cid in enumerate(sorted(shared_class_ids)):
             shared_class_colors[cid] = SHARED_CLASS_COLORS[idx % len(SHARED_CLASS_COLORS)]
 
+        # ── Determine which classes this user can access ──────────
+        user = request.user
+        if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
+            # Admin / HoI / Owner can view all classes in their school
+            accessible_class_ids = set(
+                ClassRoom.objects.filter(
+                    school=school, is_active=True,
+                ).values_list('id', flat=True)
+            )
+        elif user.has_role(Role.HEAD_OF_DEPARTMENT):
+            # HoD can view classes in departments they head
+            accessible_class_ids = set(
+                ClassRoom.objects.filter(
+                    department__head=user, is_active=True,
+                ).values_list('id', flat=True)
+            )
+        else:
+            # Teachers can only view classes they are assigned to
+            accessible_class_ids = set(
+                ClassRoom.objects.filter(
+                    class_teachers__teacher=user, is_active=True,
+                ).values_list('id', flat=True)
+            )
+
         # ── Build per-department hierarchy ───────────────────────
         dept_hierarchy = []
         for dept in departments:
@@ -119,6 +144,8 @@ class SchoolHierarchyView(RoleRequiredMixin, View):
                     school=school,
                     class_teachers__teacher=teacher,
                     is_active=True,
+                ).annotate(
+                    student_count=Count('class_students'),
                 ).distinct()
 
                 classes_data = []
@@ -128,6 +155,8 @@ class SchoolHierarchyView(RoleRequiredMixin, View):
                         'classroom': cls,
                         'is_shared': cls.id in shared_class_ids,
                         'color': color,
+                        'student_count': cls.student_count,
+                        'can_view': cls.id in accessible_class_ids,
                     })
 
                 teachers_data.append({
