@@ -1,0 +1,38 @@
+{% extends "base_auth.html" %}
+
+{% block title %}Trial Expired{% endblock %}
+
+{% block card_content %}
+  <div class="text-center mb-6">
+    <span class="text-5xl">&#9203;</span>
+  </div>
+
+  <h1 class="font-display text-2xl text-primary text-center mb-2">Your trial has ended</h1>
+  <p class="text-center text-gray-500 text-sm mb-6">
+    Subscribe to a plan to continue using Classroom.
+  </p>
+
+  {% if packages %}
+  <div class="space-y-3 mb-6">
+    {% for pkg in packages %}
+      <a href="{% url 'billing_checkout' package_id=pkg.id %}"
+         class="block w-full border border-gray-200 rounded-xl px-4 py-3 hover:border-primary
+                hover:bg-blue-50/50 transition text-left">
+        <div class="flex items-center justify-between">
+          <div>
+            <span class="font-bold text-gray-800">{{ pkg.name }}</span>
+            <span class="text-xs text-gray-400 ml-1">
+              {% if pkg.is_unlimited %}Unlimited classes{% else %}{{ pkg.class_limit }} class{{ pkg.class_limit|pluralize:"es" }}{% endif %}
+            </span>
+          </div>
+          <span class="font-bold text-primary">${{ pkg.price }}/mo</span>
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+{% endblock %}
+
+{% block footer_links %}
+  <a href="{% url 'logout' %}" class="hover:text-primary transition">Back to Login</a>
+{% endblock %}

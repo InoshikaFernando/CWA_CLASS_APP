@@ -76,6 +76,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'django_htmx.middleware.HtmxMiddleware',
+    'cwa_classroom.middleware.TrialExpiryMiddleware',
 ]
 
 ROOT_URLCONF = 'cwa_classroom.urls'

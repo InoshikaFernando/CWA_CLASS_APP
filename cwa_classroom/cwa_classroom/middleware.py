@@ -16,7 +16,9 @@ In production, add ALLOWED_HOSTS entries and set BASE_DOMAIN in the environment.
 """
 
 from django.conf import settings
+from django.contrib.auth import logout
 from django.shortcuts import redirect
+from django.utils import timezone
 
 # Map subdomain slug → URL conf module path.
 # Add entries here as new subject apps are created.
@@ -99,3 +101,55 @@ class MathsRoomRedirectMiddleware:
                 permanent=True,  # 301 — browsers and search engines cache this
             )
         return self.get_response(request)
+
+
+class TrialExpiryMiddleware:
+    """
+    For individual students with an expired trial:
+    - Auto-expire the subscription status in the database
+    - Redirect all requests to the trial-expired page (keeps user logged in
+      so they can access billing/checkout to pay)
+    - Once payment is received and subscription status becomes 'active',
+      the user gets full access again
+    """
+
+    ALLOWED_PATHS = (
+        '/accounts/trial-expired/',
+        '/accounts/logout/',
+        '/billing/',
+        '/stripe/',
+        '/admin/',
+    )
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if request.user.is_authenticated and request.user.is_individual_student:
+            try:
+                sub = request.user.subscription
+            except Exception:
+                sub = None
+
+            if sub and self._is_trial_expired(sub):
+                if sub.status != sub.STATUS_EXPIRED:
+                    sub.status = sub.STATUS_EXPIRED
+                    sub.save(update_fields=['status'])
+
+                if not self._is_allowed_path(request.path):
+                    return redirect('trial_expired')
+
+        return self.get_response(request)
+
+    @staticmethod
+    def _is_trial_expired(sub):
+        if sub.status == sub.STATUS_ACTIVE:
+            return False
+        if sub.status == sub.STATUS_EXPIRED:
+            return True
+        if sub.status == sub.STATUS_TRIALING and sub.trial_end:
+            return timezone.now() > sub.trial_end
+        return False
+
+    def _is_allowed_path(self, path):
+        return any(path.startswith(p) for p in self.ALLOWED_PATHS)

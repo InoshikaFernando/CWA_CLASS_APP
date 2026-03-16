@@ -12,4 +12,5 @@ urlpatterns = [
     path('select-classes/', views.SelectClassesView.as_view(), name='select_classes'),
     path('account/change-package/', views.ChangePackageView.as_view(), name='change_package'),
     path('api/check-username/', views.CheckUsernameView.as_view(), name='check_username'),
+    path('trial-expired/', views.TrialExpiredView.as_view(), name='trial_expired'),
 ]
