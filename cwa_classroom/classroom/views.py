@@ -1595,14 +1595,24 @@ class SubjectsHubView(LoginRequiredMixin, View):
         )
         active_school = schools[0] if (active_source == 'school' and schools) else None
 
-        # Global classes (for "Open Practice" mode or individual students)
-        global_classes = []
+        # Global classes grouped by subject (for "Open Practice" or individual students)
+        subject_classes = []
         if active_source == 'open' or not schools:
-            global_classes = list(
-                ClassRoom.objects.filter(
-                    school__isnull=True, is_active=True,
-                ).select_related('subject').order_by('subject__name', 'name')
-            )
+            subjects_with_classes = Subject.objects.filter(
+                classrooms__school__isnull=True,
+                classrooms__is_active=True,
+            ).distinct().order_by('order', 'name')
+            for subj in subjects_with_classes:
+                classes = list(
+                    ClassRoom.objects.filter(
+                        subject=subj, school__isnull=True, is_active=True,
+                    ).select_related('subject').order_by('name')
+                )
+                if classes:
+                    subject_classes.append({
+                        'subject': subj,
+                        'classes': classes,
+                    })
 
         # School departments with classes (for school mode)
         department_classes = []
@@ -1640,7 +1650,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
             'is_school_student': is_school_student,
             'active_source': active_source,
             'active_school': active_school,
-            'global_classes': global_classes,
+            'subject_classes': subject_classes,
             'department_classes': department_classes,
             'enrolled_class_ids': enrolled_class_ids,
             'pending_class_ids': pending_class_ids,
