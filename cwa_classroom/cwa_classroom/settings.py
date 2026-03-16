@@ -219,13 +219,18 @@ else:
 # Email
 # ---------------------------------------------------------------------------
 
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.gmail.com'
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER')
-EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD')
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@wizardslearninghub.co.nz')
+
+if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+    EMAIL_HOST = 'smtp.gmail.com'
+    EMAIL_PORT = 587
+    EMAIL_USE_TLS = True
+else:
+    # No SMTP credentials configured — log emails to console
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +282,17 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 SITE_NAME = os.environ.get('SITE_NAME', 'Classroom')
 SITE_DESCRIPTION = 'A comprehensive educational platform for students ages 6-12.'
-SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000')
+# Auto-derive from ALLOWED_HOSTS when SITE_URL env var is not set:
+#   local  → http://localhost:8000
+#   test   → https://test-cwa-class-avinesh.pythonanywhere.com
+#   prod   → https://<prod-domain>
+def _default_site_url():
+    for host in ALLOWED_HOSTS:
+        if host not in ('localhost', '127.0.0.1', '*'):
+            return f'https://{host}'
+    return 'http://localhost:8000'
+
+SITE_URL = os.environ.get('SITE_URL', _default_site_url())
 
 # Contact form rate limiting (uses django cache)
 CONTACT_RATE_LIMIT_PER_HOUR = 5
