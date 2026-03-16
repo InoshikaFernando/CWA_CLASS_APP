@@ -15,7 +15,7 @@ from .models import (
     ClassRoom, Subject, Topic, Level, ClassTeacher, ClassStudent,
     StudentLevelEnrollment, SubjectApp, ContactMessage, CONTACT_SUBJECT_CHOICES,
     School, SchoolTeacher, SchoolStudent, ClassSession, StudentAttendance,
-    TeacherAttendance, Department, Enrollment,
+    TeacherAttendance, Department, DepartmentLevel, DepartmentSubject, Enrollment,
 )
 
 logger = logging.getLogger(__name__)
@@ -531,12 +531,16 @@ class CreateClassView(RoleRequiredMixin, View):
         )
         valid_levels = Level.objects.filter(id__in=mapped_level_ids)
 
+        # Derive subject from the first selected level
+        first_level = valid_levels.select_related('subject').first()
+        subject = first_level.subject if first_level else department.primary_subject
+
         with transaction.atomic():
             classroom = ClassRoom.objects.create(
                 name=name,
                 school=department.school,
                 department=department,
-                subject=department.subject,
+                subject=subject,
                 day=day,
                 start_time=start_time,
                 end_time=end_time,
@@ -617,42 +621,66 @@ class EditClassView(RoleRequiredMixin, View):
     def get(self, request, class_id):
         classroom = self._get_classroom(request, class_id)
 
-        # Filter levels by department's DepartmentLevel M2M (same as create flow)
-        levels = Level.objects.none()
-        custom_levels = Level.objects.none()
+        # Build levels grouped by subject for multi-subject departments
+        subject_groups = []
         if classroom.department:
-            from .models import DepartmentLevel
+            dept_subjects = DepartmentSubject.objects.filter(
+                department=classroom.department,
+            ).select_related('subject').order_by('order', 'subject__name')
+
             dept_levels = (
                 DepartmentLevel.objects.filter(department=classroom.department)
-                .select_related('level')
+                .select_related('level', 'level__subject')
                 .exclude(level__level_number__gte=100, level__level_number__lt=200)
                 .order_by('order', 'level__level_number')
             )
-            year_ids = []
-            custom_ids = []
-            for dl in dept_levels:
-                if dl.level.level_number <= 9:
-                    year_ids.append(dl.level_id)
-                else:
-                    custom_ids.append(dl.level_id)
-            levels = Level.objects.filter(id__in=year_ids).order_by('level_number')
-            custom_levels = Level.objects.filter(id__in=custom_ids).order_by('level_number')
+
+            for ds in dept_subjects:
+                year_levels = []
+                custom_levels = []
+                for dl in dept_levels:
+                    if dl.level.subject_id == ds.subject_id:
+                        if dl.level.level_number <= 9:
+                            year_levels.append(dl.level)
+                        else:
+                            custom_levels.append(dl.level)
+                subject_groups.append({
+                    'subject': ds.subject,
+                    'year_levels': year_levels,
+                    'custom_levels': custom_levels,
+                })
         elif classroom.subject:
-            # Fallback: filter by subject directly
-            levels = Level.objects.filter(
+            # Fallback: single subject
+            year_levels = list(Level.objects.filter(
                 subject=classroom.subject, school__isnull=True, level_number__lte=9,
             ).exclude(
                 level_number__gte=100, level_number__lt=200,
-            ).order_by('level_number')
-            if classroom.school:
-                custom_levels = Level.objects.filter(school=classroom.school).order_by('level_number')
+            ).order_by('level_number'))
+            custom_levels = list(Level.objects.filter(
+                school=classroom.school,
+            ).order_by('level_number')) if classroom.school else []
+            subject_groups.append({
+                'subject': classroom.subject,
+                'year_levels': year_levels,
+                'custom_levels': custom_levels,
+            })
+
+        # Determine current subject: from classroom.subject or from existing levels
+        current_subject_id = classroom.subject_id
+        if not current_subject_id:
+            first_level = classroom.levels.select_related('subject').first()
+            if first_level and first_level.subject_id:
+                current_subject_id = first_level.subject_id
+        # If still None and only one subject, auto-select it
+        if not current_subject_id and len(subject_groups) == 1:
+            current_subject_id = subject_groups[0]['subject'].id
 
         back_url = request.GET.get('next', '')
         return render(request, 'teacher/edit_class.html', {
             'classroom': classroom,
-            'levels': levels,
-            'custom_levels': custom_levels,
+            'subject_groups': subject_groups,
             'selected_levels': list(classroom.levels.values_list('id', flat=True)),
+            'current_subject_id': current_subject_id,
             'back_url': back_url,
         })
 
@@ -675,8 +703,15 @@ class EditClassView(RoleRequiredMixin, View):
         classroom.start_time = start_time
         classroom.end_time = end_time
         classroom.description = description
+
+        # Derive subject from selected levels
+        selected_levels = Level.objects.filter(id__in=level_ids)
+        first_level = selected_levels.first()
+        if first_level and first_level.subject:
+            classroom.subject = first_level.subject
+
         classroom.save()
-        classroom.levels.set(Level.objects.filter(id__in=level_ids))
+        classroom.levels.set(selected_levels)
 
         messages.success(request, f'Class "{name}" updated.')
         if next_url:
@@ -1374,6 +1409,227 @@ class HoDAttendanceReportView(RoleRequiredMixin, View):
         })
 
 
+class HoDSubjectLevelsView(RoleRequiredMixin, View):
+    """Allow HoD/HoI to manage subject levels for their department."""
+    required_roles = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT]
+
+    def _get_department(self, user):
+        is_hod_only = (
+            user.has_role(Role.HEAD_OF_DEPARTMENT)
+            and not user.has_role(Role.HEAD_OF_INSTITUTE)
+            and not user.has_role(Role.INSTITUTE_OWNER)
+        )
+        if is_hod_only:
+            return Department.objects.filter(head=user, is_active=True).first()
+        else:
+            school_ids = School.objects.filter(admin=user).values_list('id', flat=True)
+            return Department.objects.filter(school_id__in=school_ids, is_active=True).first()
+
+    def _next_level_number(self):
+        from django.db.models import Max
+        max_num = Level.objects.aggregate(m=Max('level_number'))['m'] or 0
+        return max(max_num + 1, 300)
+
+    def _get_available_subjects(self, department):
+        """Return subjects available to add (global + school-created, not already assigned)."""
+        from django.db.models import Q
+        assigned_ids = set(
+            DepartmentSubject.objects.filter(department=department)
+            .values_list('subject_id', flat=True)
+        )
+        return Subject.objects.filter(
+            Q(school__isnull=True) | Q(school=department.school),
+            is_active=True,
+        ).exclude(id__in=assigned_ids).order_by('order', 'name')
+
+    def get(self, request):
+        department = self._get_department(request.user)
+        if not department:
+            messages.error(request, 'No department found.')
+            return redirect('hod_overview')
+
+        dept_subjects = DepartmentSubject.objects.filter(
+            department=department,
+        ).select_related('subject').order_by('order', 'subject__name')
+
+        dept_levels = (
+            DepartmentLevel.objects.filter(department=department)
+            .select_related('level', 'level__subject')
+            .exclude(level__level_number__gte=100, level__level_number__lt=200)
+            .order_by('order', 'level__level_number')
+        )
+
+        # Group levels by subject
+        subject_groups = []
+        for ds in dept_subjects:
+            levels_for_subject = []
+            for dl in dept_levels:
+                if dl.level.subject_id == ds.subject_id:
+                    class_count = ClassRoom.objects.filter(
+                        department=department, levels=dl.level, is_active=True,
+                    ).count()
+                    levels_for_subject.append({
+                        'dept_level': dl, 'level': dl.level, 'class_count': class_count,
+                    })
+            subject_groups.append({
+                'subject': ds.subject,
+                'levels': levels_for_subject,
+            })
+
+        available_subjects = self._get_available_subjects(department)
+
+        return render(request, 'hod/subject_levels.html', {
+            'department': department,
+            'dept_subjects': dept_subjects,
+            'subject_groups': subject_groups,
+            'available_subjects': available_subjects,
+        })
+
+    def post(self, request):
+        department = self._get_department(request.user)
+        if not department:
+            messages.error(request, 'No department found.')
+            return redirect('hod_overview')
+
+        action = request.POST.get('action', 'add_level')
+
+        # ---- Add Subject action ----
+        if action == 'add_subject':
+            add_subject_id = request.POST.get('add_subject_id', '').strip()
+            new_subject_name = request.POST.get('new_subject_name', '').strip()
+
+            if add_subject_id:
+                subj = Subject.objects.filter(id=add_subject_id, is_active=True).first()
+                if subj:
+                    ds, created = DepartmentSubject.objects.get_or_create(
+                        department=department, subject=subj,
+                        defaults={'order': DepartmentSubject.objects.filter(department=department).count()},
+                    )
+                    if created:
+                        # Auto-map global levels
+                        subj_levels = Level.objects.filter(
+                            subject=subj, school__isnull=True,
+                        ).exclude(level_number__gte=100, level_number__lt=200)
+                        for lv in subj_levels:
+                            DepartmentLevel.objects.get_or_create(
+                                department=department, level=lv,
+                                defaults={'order': lv.level_number},
+                            )
+                        messages.success(request, f'Subject "{subj.name}" added to {department.name}.')
+                    else:
+                        messages.info(request, f'Subject "{subj.name}" is already assigned.')
+            elif new_subject_name:
+                from django.utils.text import slugify as _slugify
+                subj_slug = _slugify(new_subject_name)
+                base_slug = subj_slug
+                counter = 1
+                while Subject.objects.filter(school=department.school, slug=subj_slug).exists():
+                    subj_slug = f'{base_slug}-{counter}'
+                    counter += 1
+                subj = Subject.objects.create(
+                    name=new_subject_name, slug=subj_slug, school=department.school, is_active=True,
+                )
+                DepartmentSubject.objects.create(
+                    department=department, subject=subj,
+                    order=DepartmentSubject.objects.filter(department=department).count(),
+                )
+                messages.success(request, f'Subject "{new_subject_name}" created and added.')
+            else:
+                messages.error(request, 'Select a subject or enter a new subject name.')
+
+            return redirect('hod_subject_levels')
+
+        # ---- Edit Level action ----
+        if action == 'edit_level':
+            level_id = request.POST.get('level_id', '').strip()
+            display_name = request.POST.get('display_name', '').strip()
+            description = request.POST.get('description', '').strip()
+            if level_id and display_name:
+                level = Level.objects.filter(id=level_id).first()
+                if level and DepartmentLevel.objects.filter(department=department, level=level).exists():
+                    level.display_name = display_name
+                    level.description = description
+                    level.save()
+                    messages.success(request, f'Level "{display_name}" updated.')
+                else:
+                    messages.error(request, 'Level not found in this department.')
+            else:
+                messages.error(request, 'Level name is required.')
+            return redirect('hod_subject_levels')
+
+        # ---- Add Level action (default) ----
+        level_name = request.POST.get('level_name', '').strip()
+        level_description = request.POST.get('level_description', '').strip()
+        subject_id = request.POST.get('subject_id', '').strip()
+
+        if not level_name:
+            messages.error(request, 'Level name is required.')
+            return redirect('hod_subject_levels')
+
+        # Resolve subject
+        subject = None
+        if subject_id:
+            subject = Subject.objects.filter(id=subject_id, is_active=True).first()
+
+        if not subject:
+            dept_subjects = DepartmentSubject.objects.filter(department=department).select_related('subject')
+            if dept_subjects.exists():
+                subject = dept_subjects.first().subject
+            else:
+                # Auto-create subject from department name
+                from django.utils.text import slugify as _slugify
+                subj_slug = _slugify(department.name)
+                base_slug = subj_slug
+                counter = 1
+                while Subject.objects.filter(school=department.school, slug=subj_slug).exists():
+                    subj_slug = f'{base_slug}-{counter}'
+                    counter += 1
+                subject = Subject.objects.create(
+                    name=department.name, slug=subj_slug, school=department.school, is_active=True,
+                )
+                DepartmentSubject.objects.create(
+                    department=department, subject=subject, order=0,
+                )
+
+        level_number = self._next_level_number()
+        with transaction.atomic():
+            level = Level.objects.create(
+                level_number=level_number,
+                display_name=level_name,
+                description=level_description,
+                subject=subject,
+            )
+            DepartmentLevel.objects.get_or_create(
+                department=department, level=level,
+                defaults={'order': level_number},
+            )
+
+        messages.success(request, f'Level "{level_name}" created under {subject.name}.')
+        return redirect('hod_subject_levels')
+
+
+class HoDSubjectLevelRemoveView(RoleRequiredMixin, View):
+    """Allow HoD to remove a level mapping."""
+    required_roles = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT]
+
+    def post(self, request, level_id):
+        is_hod_only = (
+            request.user.has_role(Role.HEAD_OF_DEPARTMENT)
+            and not request.user.has_role(Role.HEAD_OF_INSTITUTE)
+            and not request.user.has_role(Role.INSTITUTE_OWNER)
+        )
+        if is_hod_only:
+            department = Department.objects.filter(head=request.user, is_active=True).first()
+        else:
+            school_ids = School.objects.filter(admin=request.user).values_list('id', flat=True)
+            department = Department.objects.filter(school_id__in=school_ids, is_active=True).first()
+
+        if department:
+            DepartmentLevel.objects.filter(department=department, level_id=level_id).delete()
+            messages.success(request, 'Level removed from department.')
+        return redirect('hod_subject_levels')
+
+
 class HoDCreateClassView(RoleRequiredMixin, View):
     """Allow HoI/HoD to create a class under a department."""
     required_roles = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT]
@@ -1427,12 +1683,16 @@ class HoDCreateClassView(RoleRequiredMixin, View):
         ) if level_ids else set()
         valid_levels = Level.objects.filter(id__in=mapped_level_ids)
 
+        # Derive subject from selected levels
+        first_level = valid_levels.select_related('subject').first()
+        subject = first_level.subject if first_level else department.primary_subject
+
         with transaction.atomic():
             classroom = ClassRoom.objects.create(
                 name=name,
                 school=department.school,
                 department=department,
-                subject=department.subject,
+                subject=subject,
                 day=day,
                 start_time=start_time,
                 end_time=end_time,
@@ -1805,42 +2065,61 @@ def _get_client_ip(request):
 # ── API: Department Levels ────────────────────────────────────────────────────
 
 class DepartmentLevelsAPIView(LoginRequiredMixin, View):
-    """Return levels mapped to a department via DepartmentLevel M2M."""
+    """Return levels mapped to a department, grouped by subject."""
 
     def get(self, request, dept_id):
         from django.http import JsonResponse
-        from .models import DepartmentLevel
+        from .models import DepartmentLevel, DepartmentSubject
 
-        dept = Department.objects.select_related('subject').filter(id=dept_id).first()
+        dept = Department.objects.filter(id=dept_id).first()
         if not dept:
             return JsonResponse({'error': 'Department not found'}, status=404)
 
-        # Query the M2M through table, excluding Basic Facts (100-199)
+        dept_subjects = (
+            DepartmentSubject.objects.filter(department=dept)
+            .select_related('subject')
+            .order_by('order', 'subject__name')
+        )
         dept_levels = (
             DepartmentLevel.objects.filter(department=dept)
-            .select_related('level')
+            .select_related('level', 'level__subject')
             .exclude(level__level_number__gte=100, level__level_number__lt=200)
             .order_by('order', 'level__level_number')
         )
-        year_levels = []
-        custom_levels = []
-        for dl in dept_levels:
-            entry = {
-                'id': dl.level.id,
-                'level_number': dl.level.level_number,
-                'display_name': dl.effective_display_name,
-                'description': dl.level.description,
-            }
-            if dl.level.level_number <= 9:
-                year_levels.append(entry)
-            else:
-                custom_levels.append(entry)
+
+        subjects_data = []
+        for ds in dept_subjects:
+            year_levels = []
+            custom_levels = []
+            for dl in dept_levels:
+                if dl.level.subject_id == ds.subject_id:
+                    entry = {
+                        'id': dl.level.id,
+                        'level_number': dl.level.level_number,
+                        'display_name': dl.effective_display_name,
+                        'description': dl.level.description,
+                    }
+                    if dl.level.level_number <= 9:
+                        year_levels.append(entry)
+                    else:
+                        custom_levels.append(entry)
+            subjects_data.append({
+                'id': ds.subject.id,
+                'name': ds.subject.name,
+                'levels': year_levels,
+                'custom_levels': custom_levels,
+            })
+
+        # Backwards compatible: also include flat lists for legacy consumers
+        all_year = []
+        all_custom = []
+        for sd in subjects_data:
+            all_year.extend(sd['levels'])
+            all_custom.extend(sd['custom_levels'])
 
         return JsonResponse({
-            'levels': year_levels,
-            'custom_levels': custom_levels,
-            'subject': {
-                'id': dept.subject.id,
-                'name': dept.subject.name,
-            } if dept.subject else None,
+            'subjects': subjects_data,
+            # Legacy flat lists (backwards compatible)
+            'levels': all_year,
+            'custom_levels': all_custom,
         })

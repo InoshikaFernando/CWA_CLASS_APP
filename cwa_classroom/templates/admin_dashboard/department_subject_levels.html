@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+
+{% block title %}Subject Levels — {{ department.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <a href="{% url 'admin_department_detail' school.id department.id %}" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back to {{ department.name }}</a>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Subject Levels</h1>
+    <p class="text-gray-500 mt-1">{{ department.name }} — {{ school.name }}</p>
+    {% if dept_subjects %}
+      <div class="flex flex-wrap gap-1.5 mt-2">
+        {% for ds in dept_subjects %}
+          <span class="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-700">{{ ds.subject.name }}</span>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-sm text-amber-600 mt-2">No subjects assigned yet. Creating a level will auto-create one, or <a href="{% url 'admin_department_edit' school.id department.id %}" class="text-accent hover:text-accent-dark font-medium">add subjects</a>.</p>
+    {% endif %}
+  </div>
+
+  <!-- Existing Levels grouped by subject -->
+  {% for group in subject_groups %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm mb-6">
+    <div class="p-6 border-b border-slate-100">
+      <h2 class="text-lg font-semibold text-gray-900">{{ group.subject.name }}</h2>
+      <p class="text-sm text-gray-500 mt-1">Levels that classes can be created under.</p>
+    </div>
+    <div class="p-6">
+      {% if group.levels %}
+        <div class="space-y-2">
+          {% for item in group.levels %}
+            <div class="p-3 rounded-xl border border-slate-200 hover:border-slate-300 transition"
+                 x-data="{ editing: false }">
+              <!-- Display mode -->
+              <div x-show="!editing" class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                  <span class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-accent/10 text-accent text-xs font-bold">
+                    {{ item.level.display_name|slice:":2"|upper }}
+                  </span>
+                  <div>
+                    <p class="text-sm font-medium text-gray-900">{{ item.level.display_name }}</p>
+                    {% if item.level.description %}
+                      <p class="text-xs text-gray-500">{{ item.level.description }}</p>
+                    {% endif %}
+                  </div>
+                </div>
+                <div class="flex items-center gap-3">
+                  <span class="text-xs text-gray-400">{{ item.class_count }} class{{ item.class_count|pluralize:"es" }}</span>
+                  <button @click="editing = true" type="button"
+                          class="text-xs text-accent hover:text-accent-dark font-medium transition">Edit</button>
+                  {% if item.class_count == 0 %}
+                    <form method="post" action="{% url 'admin_department_subject_level_remove' school.id department.id item.level.id %}"
+                          onsubmit="return confirm('Remove this level from the department?')">
+                      {% csrf_token %}
+                      <button type="submit" class="text-xs text-red-500 hover:text-red-700 font-medium transition">Remove</button>
+                    </form>
+                  {% endif %}
+                </div>
+              </div>
+              <!-- Edit mode -->
+              <div x-show="editing" x-cloak>
+                <form method="post" class="space-y-3">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="edit_level">
+                  <input type="hidden" name="level_id" value="{{ item.level.id }}">
+                  <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Level Name</label>
+                    <input type="text" name="display_name" value="{{ item.level.display_name }}" required
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
+                  </div>
+                  <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Description</label>
+                    <input type="text" name="description" value="{{ item.level.description|default:'' }}"
+                           placeholder="Optional description"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <button type="submit"
+                            class="px-3 py-1.5 bg-accent hover:bg-accent-dark text-white text-xs font-semibold rounded-lg transition">Save</button>
+                    <button @click="editing = false" type="button"
+                            class="px-3 py-1.5 text-xs font-semibold text-gray-600 hover:text-gray-800 transition">Cancel</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="text-sm text-gray-400 text-center py-4">No levels yet for this subject.</p>
+      {% endif %}
+    </div>
+  </div>
+  {% empty %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm mb-6">
+    <div class="p-6">
+      <p class="text-sm text-gray-400 text-center py-6">No subjects or levels yet. Add your first level below.</p>
+    </div>
+  </div>
+  {% endfor %}
+
+  <!-- Add Subject -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm mb-6">
+    <div class="p-6 border-b border-slate-100">
+      <h2 class="text-lg font-semibold text-gray-900">Add Subject</h2>
+      <p class="text-sm text-gray-500 mt-1">Add an existing global or school subject, or create a new one for this department.</p>
+    </div>
+    <div class="p-6">
+      <form method="post" class="space-y-4">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="add_subject">
+        {% if available_subjects %}
+        <div>
+          <label for="add_subject_id" class="block text-sm font-semibold text-gray-700 mb-1.5">Existing Subject</label>
+          <select name="add_subject_id" id="add_subject_id"
+                  class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
+            <option value="">— Select a subject —</option>
+            {% for subj in available_subjects %}
+              <option value="{{ subj.id }}">{{ subj.name }}{% if not subj.school %} (Global){% endif %}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="relative">
+          <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-slate-200"></div></div>
+          <div class="relative flex justify-center text-xs"><span class="bg-white px-2 text-gray-400">OR</span></div>
+        </div>
+        {% endif %}
+        <div>
+          <label for="new_subject_name" class="block text-sm font-semibold text-gray-700 mb-1.5">Create New Subject</label>
+          <input type="text" name="new_subject_name" id="new_subject_name"
+                 placeholder="e.g. Python, Scratch, Guitar"
+                 class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
+          <p class="text-xs text-gray-400 mt-1">Leave blank if selecting an existing subject above.</p>
+        </div>
+        <button type="submit"
+                class="w-full px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl transition">
+          Add Subject
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Add New Level -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+    <div class="p-6 border-b border-slate-100">
+      <h2 class="text-lg font-semibold text-gray-900">Add New Level</h2>
+      <p class="text-sm text-gray-500 mt-1">Create a new level under a subject (e.g. Beginner, Intermediate, Year 1).</p>
+    </div>
+    <div class="p-6">
+      <form method="post" class="space-y-4">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="add_level">
+        {% if dept_subjects|length > 1 %}
+        <div>
+          <label for="subject_id" class="block text-sm font-semibold text-gray-700 mb-1.5">Subject <span class="text-red-500">*</span></label>
+          <select name="subject_id" id="subject_id"
+                  class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
+            {% for ds in dept_subjects %}
+              <option value="{{ ds.subject.id }}">{{ ds.subject.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% elif dept_subjects %}
+          <input type="hidden" name="subject_id" value="{{ dept_subjects.0.subject.id }}">
+        {% endif %}
+        <div>
+          <label for="level_name" class="block text-sm font-semibold text-gray-700 mb-1.5">Level Name <span class="text-red-500">*</span></label>
+          <input type="text" name="level_name" id="level_name" required
+                 placeholder="e.g. Beginner, Intermediate, Advanced"
+                 class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
+        </div>
+        <div>
+          <label for="level_description" class="block text-sm font-semibold text-gray-700 mb-1.5">Description</label>
+          <textarea name="level_description" id="level_description" rows="2"
+                    placeholder="Optional description of this level"
+                    class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition resize-none"></textarea>
+        </div>
+        <button type="submit"
+                class="w-full px-4 py-2.5 bg-accent hover:bg-accent-dark text-white text-sm font-semibold rounded-xl transition">
+          Add Level
+        </button>
+      </form>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

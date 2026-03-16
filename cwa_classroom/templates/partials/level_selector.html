@@ -1,23 +1,12 @@
 <!-- Dynamic Level Selector — loaded via JS after department selection -->
 <div id="level-section" class="hidden space-y-5">
-  <!-- Subject info badge -->
+  <!-- Subject badges -->
   <div id="subject-info" class="hidden">
-    <span id="subject-badge" class="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-700"></span>
+    <div id="subject-badges" class="flex flex-wrap gap-1.5"></div>
   </div>
 
-  <!-- Year Levels -->
-  <div id="year-levels-container" class="hidden">
-    <label class="block text-sm font-semibold text-gray-700 mb-2">Year Levels</label>
-    <p class="text-xs text-gray-400 mb-3">Students will have access to topics from the selected levels.</p>
-    <div id="year-levels-grid" class="grid grid-cols-4 gap-3"></div>
-  </div>
-
-  <!-- Custom Levels -->
-  <div id="custom-levels-container" class="hidden">
-    <label class="block text-sm font-semibold text-gray-700 mb-2">Custom Levels</label>
-    <p class="text-xs text-gray-400 mb-3">School-specific levels for this department.</p>
-    <div id="custom-levels-grid" class="grid grid-cols-2 sm:grid-cols-3 gap-3"></div>
-  </div>
+  <!-- Levels grouped by subject -->
+  <div id="levels-by-subject"></div>
 
   <!-- No levels message -->
   <div id="no-levels-msg" class="hidden">
@@ -31,18 +20,13 @@
 function loadDepartmentLevels(deptId) {
   const section = document.getElementById('level-section');
   const subjectInfo = document.getElementById('subject-info');
-  const subjectBadge = document.getElementById('subject-badge');
-  const yearContainer = document.getElementById('year-levels-container');
-  const customContainer = document.getElementById('custom-levels-container');
-  const yearGrid = document.getElementById('year-levels-grid');
-  const customGrid = document.getElementById('custom-levels-grid');
+  const subjectBadges = document.getElementById('subject-badges');
+  const levelsContainer = document.getElementById('levels-by-subject');
   const noMsg = document.getElementById('no-levels-msg');
 
   // Reset
-  yearGrid.innerHTML = '';
-  customGrid.innerHTML = '';
-  yearContainer.classList.add('hidden');
-  customContainer.classList.add('hidden');
+  subjectBadges.innerHTML = '';
+  levelsContainer.innerHTML = '';
   subjectInfo.classList.add('hidden');
   noMsg.classList.add('hidden');
 
@@ -56,39 +40,104 @@ function loadDepartmentLevels(deptId) {
   fetch('/api/department/' + deptId + '/levels/')
     .then(r => r.json())
     .then(data => {
-      // Show subject badge if the department has a subject
-      if (data.subject) {
-        subjectBadge.textContent = 'Subject: ' + data.subject.name;
+      const subjects = data.subjects || [];
+      let totalLevels = 0;
+
+      // Show subject badges
+      if (subjects.length > 0) {
+        subjects.forEach(subj => {
+          subjectBadges.innerHTML += `<span class="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-700">${subj.name}</span>`;
+        });
         subjectInfo.classList.remove('hidden');
       }
 
-      if (data.levels && data.levels.length > 0) {
-        yearContainer.classList.remove('hidden');
-        data.levels.forEach(lv => {
-          yearGrid.innerHTML += `
-            <label class="flex flex-col items-center justify-center gap-1 p-3 rounded-xl border-2 border-gray-200
-                           hover:border-primary cursor-pointer transition has-[:checked]:border-primary has-[:checked]:bg-primary-light">
-              <input type="checkbox" name="levels" value="${lv.id}" class="sr-only" />
-              <span class="font-display text-xl text-primary">${lv.level_number}</span>
-              <span class="text-xs text-gray-500">${lv.display_name}</span>
-            </label>`;
-        });
+      // Render levels grouped by subject
+      subjects.forEach(subj => {
+        const hasYear = subj.levels && subj.levels.length > 0;
+        const hasCustom = subj.custom_levels && subj.custom_levels.length > 0;
+        if (!hasYear && !hasCustom) return;
+
+        totalLevels += (subj.levels ? subj.levels.length : 0) + (subj.custom_levels ? subj.custom_levels.length : 0);
+
+        let html = '';
+        if (subjects.length > 1) {
+          html += `<p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 mt-4">${subj.name}</p>`;
+        }
+
+        if (hasYear) {
+          html += `<label class="block text-sm font-semibold text-gray-700 mb-2">Year Levels</label>`;
+          html += `<p class="text-xs text-gray-400 mb-3">Students will have access to topics from the selected levels.</p>`;
+          html += `<div class="grid grid-cols-4 gap-3 mb-4">`;
+          subj.levels.forEach(lv => {
+            html += `
+              <label class="flex flex-col items-center justify-center gap-1 p-3 rounded-xl border-2 border-gray-200
+                             hover:border-primary cursor-pointer transition has-[:checked]:border-primary has-[:checked]:bg-primary-light"
+                     data-subject-id="${subj.id}">
+                <input type="checkbox" name="levels" value="${lv.id}" class="sr-only level-checkbox" data-subject-id="${subj.id}" />
+                <span class="font-display text-xl text-primary">${lv.level_number}</span>
+                <span class="text-xs text-gray-500">${lv.display_name}</span>
+              </label>`;
+          });
+          html += `</div>`;
+        }
+
+        if (hasCustom) {
+          html += `<label class="block text-sm font-semibold text-gray-700 mb-2">Custom Levels</label>`;
+          html += `<p class="text-xs text-gray-400 mb-3">School-specific levels for this subject.</p>`;
+          html += `<div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">`;
+          subj.custom_levels.forEach(lv => {
+            html += `
+              <label class="flex flex-col items-center justify-center gap-1 p-3 rounded-xl border-2 border-gray-200
+                             hover:border-accent cursor-pointer transition has-[:checked]:border-accent has-[:checked]:bg-accent-light"
+                     data-subject-id="${subj.id}">
+                <input type="checkbox" name="levels" value="${lv.id}" class="sr-only level-checkbox" data-subject-id="${subj.id}" />
+                <span class="text-sm font-semibold text-accent">${lv.display_name}</span>
+                ${lv.description ? `<span class="text-xs text-gray-400">${lv.description}</span>` : ''}
+              </label>`;
+          });
+          html += `</div>`;
+        }
+
+        levelsContainer.innerHTML += html;
+      });
+
+      if (totalLevels === 0) {
+        // Fallback: use legacy flat lists if subjects array is empty
+        if (data.levels && data.levels.length > 0) {
+          let html = `<label class="block text-sm font-semibold text-gray-700 mb-2">Year Levels</label>`;
+          html += `<div class="grid grid-cols-4 gap-3 mb-4">`;
+          data.levels.forEach(lv => {
+            html += `
+              <label class="flex flex-col items-center justify-center gap-1 p-3 rounded-xl border-2 border-gray-200
+                             hover:border-primary cursor-pointer transition has-[:checked]:border-primary has-[:checked]:bg-primary-light">
+                <input type="checkbox" name="levels" value="${lv.id}" class="sr-only level-checkbox" />
+                <span class="font-display text-xl text-primary">${lv.level_number}</span>
+                <span class="text-xs text-gray-500">${lv.display_name}</span>
+              </label>`;
+          });
+          html += `</div>`;
+          levelsContainer.innerHTML += html;
+          totalLevels += data.levels.length;
+        }
+        if (data.custom_levels && data.custom_levels.length > 0) {
+          let html = `<label class="block text-sm font-semibold text-gray-700 mb-2">Custom Levels</label>`;
+          html += `<div class="grid grid-cols-2 sm:grid-cols-3 gap-3">`;
+          data.custom_levels.forEach(lv => {
+            html += `
+              <label class="flex flex-col items-center justify-center gap-1 p-3 rounded-xl border-2 border-gray-200
+                             hover:border-accent cursor-pointer transition has-[:checked]:border-accent has-[:checked]:bg-accent-light">
+                <input type="checkbox" name="levels" value="${lv.id}" class="sr-only level-checkbox" />
+                <span class="text-sm font-semibold text-accent">${lv.display_name}</span>
+                ${lv.description ? `<span class="text-xs text-gray-400">${lv.description}</span>` : ''}
+              </label>`;
+          });
+          html += `</div>`;
+          levelsContainer.innerHTML += html;
+          totalLevels += data.custom_levels.length;
+        }
       }
 
-      if (data.custom_levels && data.custom_levels.length > 0) {
-        customContainer.classList.remove('hidden');
-        data.custom_levels.forEach(lv => {
-          customGrid.innerHTML += `
-            <label class="flex flex-col items-center justify-center gap-1 p-3 rounded-xl border-2 border-gray-200
-                           hover:border-accent cursor-pointer transition has-[:checked]:border-accent has-[:checked]:bg-accent-light">
-              <input type="checkbox" name="levels" value="${lv.id}" class="sr-only" />
-              <span class="text-sm font-semibold text-accent">${lv.display_name}</span>
-              ${lv.description ? `<span class="text-xs text-gray-400">${lv.description}</span>` : ''}
-            </label>`;
-        });
-      }
-
-      if ((!data.levels || data.levels.length === 0) && (!data.custom_levels || data.custom_levels.length === 0)) {
+      if (totalLevels === 0) {
         noMsg.classList.remove('hidden');
       }
     })
