@@ -151,7 +151,7 @@ class DepartmentDetailView(RoleRequiredMixin, View):
         # Department subjects
         department_subjects = DepartmentSubject.objects.filter(
             department=department,
-        ).select_related('subject').order_by('order', 'subject__name')
+        ).select_related('subject').order_by('subject__name')
 
         # Subject levels with class counts, grouped by subject (exclude Basic Facts)
         subject_groups = []
@@ -737,7 +737,7 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
         # Department subjects
         dept_subjects = DepartmentSubject.objects.filter(
             department=department,
-        ).select_related('subject').order_by('order', 'subject__name')
+        ).select_related('subject').order_by('subject__name')
 
         # Levels mapped to this department via DepartmentLevel (exclude Basic Facts)
         dept_levels = (

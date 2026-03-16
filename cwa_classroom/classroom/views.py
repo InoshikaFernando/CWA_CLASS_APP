@@ -648,7 +648,7 @@ class EditClassView(RoleRequiredMixin, View):
         if classroom.department:
             dept_subjects = DepartmentSubject.objects.filter(
                 department=classroom.department,
-            ).select_related('subject').order_by('order', 'subject__name')
+            ).select_related('subject').order_by('subject__name')
 
             dept_levels = (
                 DepartmentLevel.objects.filter(department=classroom.department)
@@ -1514,7 +1514,7 @@ class HoDSubjectLevelsView(RoleRequiredMixin, View):
 
         dept_subjects = DepartmentSubject.objects.filter(
             department=department,
-        ).select_related('subject').order_by('order', 'subject__name')
+        ).select_related('subject').order_by('subject__name')
 
         dept_levels = (
             DepartmentLevel.objects.filter(department=department)
