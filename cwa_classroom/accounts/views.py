@@ -1,3 +1,4 @@
+import logging
 import re
 
 from django.http import JsonResponse
@@ -6,11 +7,41 @@ from django.views import View
 from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
+from django.contrib.auth.views import PasswordResetView
 from django.db import transaction
 
 from django.utils.text import slugify
 
 from .models import CustomUser, Role, UserRole
+
+logger = logging.getLogger(__name__)
+
+
+class DiagnosticPasswordResetView(PasswordResetView):
+    """Override to add logging for debugging email delivery issues."""
+
+    def form_valid(self, form):
+        email = form.cleaned_data.get('email', '')
+        # Check if any users match this email
+        users = list(form.get_users(email))
+        if users:
+            logger.info(
+                'Password reset requested for %s — found %d matching user(s)',
+                email, len(users),
+            )
+        else:
+            logger.warning(
+                'Password reset requested for %s — NO matching users found '
+                '(email not registered, account inactive, or unusable password)',
+                email,
+            )
+        try:
+            response = super().form_valid(form)
+            logger.info('Password reset email sent successfully for %s', email)
+            return response
+        except Exception:
+            logger.exception('Failed to send password reset email for %s', email)
+            raise
 
 
 # ---------------------------------------------------------------------------

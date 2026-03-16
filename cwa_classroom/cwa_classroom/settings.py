@@ -281,7 +281,17 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 SITE_NAME = os.environ.get('SITE_NAME', 'Classroom')
 SITE_DESCRIPTION = 'A comprehensive educational platform for students ages 6-12.'
-SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000')
+# Auto-derive from ALLOWED_HOSTS when SITE_URL env var is not set:
+#   local  → http://localhost:8000
+#   test   → https://test-cwa-class-avinesh.pythonanywhere.com
+#   prod   → https://<prod-domain>
+def _default_site_url():
+    for host in ALLOWED_HOSTS:
+        if host not in ('localhost', '127.0.0.1', '*'):
+            return f'https://{host}'
+    return 'http://localhost:8000'
+
+SITE_URL = os.environ.get('SITE_URL', _default_site_url())
 
 # Contact form rate limiting (uses django cache)
 CONTACT_RATE_LIMIT_PER_HOUR = 5

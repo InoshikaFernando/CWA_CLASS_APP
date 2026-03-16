@@ -47,8 +47,8 @@ urlpatterns = [
     path('admin/', admin.site.urls),
 
     # --- Authentication ---
+    path('accounts/', include('accounts.urls')),  # custom overrides first
     path('accounts/', include('django.contrib.auth.urls')),
-    path('accounts/', include('accounts.urls')),
 
     # --- Core apps ---
     path('', include('classroom.urls')),

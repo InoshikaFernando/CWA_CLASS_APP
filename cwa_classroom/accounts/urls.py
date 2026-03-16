@@ -2,6 +2,8 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    # Override Django's built-in password_reset with diagnostic logging
+    path('password_reset/', views.DiagnosticPasswordResetView.as_view(), name='password_reset'),
     path('signup/teacher/', views.TeacherSignupView.as_view(), name='signup_teacher'),
     path('register/teacher-center/', views.TeacherCenterRegisterView.as_view(), name='register_teacher_center'),
     path('register/individual-student/', views.IndividualStudentRegisterView.as_view(), name='register_individual_student'),
