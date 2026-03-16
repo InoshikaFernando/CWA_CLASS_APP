@@ -83,13 +83,35 @@
       </div>
     {% endif %}
 
-    <!-- Global Classes (Open Practice mode or individual students) -->
-    {% if global_classes %}
+    <!-- Global Classes grouped by Subject (Open Practice mode or individual students) -->
+    {% if subject_classes %}
       <div class="mb-10">
         <h2 class="text-xl font-bold text-gray-800 mb-6">Available Classes</h2>
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {% for classroom in global_classes %}
-            {% include "partials/global_class_card.html" with classroom=classroom enrolled_class_ids=enrolled_class_ids pending_class_ids=pending_class_ids %}
+        <div class="space-y-3">
+          {% for group in subject_classes %}
+            <details open class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden group">
+              <summary class="flex items-center justify-between px-6 py-4 cursor-pointer select-none hover:bg-gray-50 transition">
+                <div class="flex items-center gap-3">
+                  <span class="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 font-bold text-sm">
+                    {{ group.subject.name|make_list|first }}
+                  </span>
+                  <div>
+                    <h3 class="font-bold text-gray-800">{{ group.subject.name }}</h3>
+                    <p class="text-xs text-gray-400">{{ group.classes|length }} class{{ group.classes|length|pluralize:"es" }}</p>
+                  </div>
+                </div>
+                <svg class="w-5 h-5 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
+                </svg>
+              </summary>
+              <div class="px-6 pb-5 pt-2">
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {% for classroom in group.classes %}
+                    {% include "partials/global_class_card.html" with classroom=classroom enrolled_class_ids=enrolled_class_ids pending_class_ids=pending_class_ids %}
+                  {% endfor %}
+                </div>
+              </div>
+            </details>
           {% endfor %}
         </div>
       </div>
