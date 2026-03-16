@@ -11,18 +11,8 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveField(
-            model_name='question',
-            name='created_by',
-        ),
-        migrations.RemoveField(
-            model_name='question',
-            name='level',
-        ),
-        migrations.RemoveField(
-            model_name='question',
-            name='topic',
-        ),
+        # Delete models directly — field-by-field removal fails on SQLite
+        # due to index rebuild referencing removed fields.
         migrations.DeleteModel(
             name='Answer',
         ),

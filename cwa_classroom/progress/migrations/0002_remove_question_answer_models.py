@@ -10,67 +10,25 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveField(
-            model_name='studentanswer',
-            name='level',
+        # Delete models directly — field-by-field removal fails on SQLite
+        # due to index rebuild referencing removed fields.
+        migrations.DeleteModel(
+            name='BasicFactsResult',
         ),
-        migrations.RemoveField(
-            model_name='studentanswer',
-            name='question',
-        ),
-        migrations.RemoveField(
-            model_name='studentanswer',
-            name='selected_answer',
-        ),
-        migrations.RemoveField(
-            model_name='studentanswer',
-            name='student',
-        ),
-        migrations.RemoveField(
-            model_name='studentanswer',
-            name='topic',
-        ),
-        migrations.RemoveField(
-            model_name='studentfinalanswer',
-            name='level',
-        ),
-        migrations.RemoveField(
-            model_name='studentfinalanswer',
-            name='student',
-        ),
-        migrations.RemoveField(
-            model_name='studentfinalanswer',
-            name='topic',
-        ),
-        migrations.RemoveField(
-            model_name='timelog',
-            name='student',
+        migrations.DeleteModel(
+            name='TimeLog',
         ),
         migrations.AlterUniqueTogether(
             name='topiclevelstatistics',
             unique_together=None,
         ),
-        migrations.RemoveField(
-            model_name='topiclevelstatistics',
-            name='level',
-        ),
-        migrations.RemoveField(
-            model_name='topiclevelstatistics',
-            name='topic',
-        ),
         migrations.DeleteModel(
-            name='BasicFactsResult',
+            name='TopicLevelStatistics',
         ),
         migrations.DeleteModel(
             name='StudentAnswer',
         ),
         migrations.DeleteModel(
             name='StudentFinalAnswer',
-        ),
-        migrations.DeleteModel(
-            name='TimeLog',
-        ),
-        migrations.DeleteModel(
-            name='TopicLevelStatistics',
         ),
     ]
