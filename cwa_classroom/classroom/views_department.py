@@ -747,26 +747,40 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
             .order_by('order', 'level__level_number')
         )
 
+        from .fee_utils import get_parent_fee_for_subject, get_parent_fee_for_level
+
         # Group levels by subject
         subject_groups = []
         for ds in dept_subjects:
+            parent_fee, parent_source = get_parent_fee_for_subject(department)
             levels_for_subject = []
             for dl in dept_levels:
                 if dl.level.subject_id == ds.subject_id:
                     class_count = ClassRoom.objects.filter(
                         department=department, levels=dl.level, is_active=True,
                     ).count()
+                    lvl_parent_fee, lvl_parent_source = get_parent_fee_for_level(dl)
                     levels_for_subject.append({
                         'dept_level': dl,
                         'level': dl.level,
                         'class_count': class_count,
+                        'parent_fee': lvl_parent_fee,
+                        'parent_source': lvl_parent_source,
                     })
             subject_groups.append({
                 'subject': ds.subject,
+                'dept_subject': ds,
                 'levels': levels_for_subject,
+                'parent_fee': parent_fee,
+                'parent_source': parent_source,
             })
 
         available_subjects = self._get_available_subjects(department)
+
+        # All departments in this school (for "move subject" dropdown)
+        all_departments = Department.objects.filter(
+            school=school, is_active=True,
+        ).exclude(id=department.id).order_by('name')
 
         return render(request, 'admin_dashboard/department_subject_levels.html', {
             'school': school,
@@ -774,6 +788,7 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
             'dept_subjects': dept_subjects,
             'subject_groups': subject_groups,
             'available_subjects': available_subjects,
+            'all_departments': all_departments,
         })
 
     def post(self, request, school_id, dept_id):
@@ -827,17 +842,107 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
 
             return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
 
+        # ---- Edit Subject Fee action ----
+        if action == 'edit_subject_fee':
+            from decimal import Decimal, InvalidOperation
+            subject_id = request.POST.get('subject_id', '').strip()
+            fee_str = request.POST.get('fee_override', '').strip()
+            ds = DepartmentSubject.objects.filter(department=department, subject_id=subject_id).first()
+            if ds:
+                if fee_str:
+                    try:
+                        ds.fee_override = Decimal(fee_str)
+                    except InvalidOperation:
+                        messages.error(request, 'Invalid fee amount.')
+                        return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
+                else:
+                    ds.fee_override = None
+                ds.save(update_fields=['fee_override'])
+                messages.success(request, f'Fee for {ds.subject.name} updated.')
+            return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
+
+        # ---- Edit Subject action ----
+        if action == 'edit_subject':
+            subject_id = request.POST.get('subject_id', '').strip()
+            new_name = request.POST.get('subject_name', '').strip()
+            new_dept_id = request.POST.get('new_department_id', '').strip()
+
+            ds = DepartmentSubject.objects.filter(department=department, subject_id=subject_id).select_related('subject').first()
+            if not ds:
+                messages.error(request, 'Subject not found in this department.')
+                return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
+
+            subject = ds.subject
+
+            # Update subject name
+            if new_name and new_name != subject.name:
+                subject.name = new_name
+                subject.slug = slugify(new_name)
+                # Ensure slug uniqueness
+                base_slug = subject.slug
+                counter = 1
+                while Subject.objects.filter(school=subject.school, slug=subject.slug).exclude(id=subject.id).exists():
+                    subject.slug = f'{base_slug}-{counter}'
+                    counter += 1
+                subject.save(update_fields=['name', 'slug'])
+
+            # Move subject to a different department
+            if new_dept_id and int(new_dept_id) != department.id:
+                new_dept = Department.objects.filter(id=new_dept_id, school=school, is_active=True).first()
+                if new_dept:
+                    # Check the subject isn't already in the target department
+                    if DepartmentSubject.objects.filter(department=new_dept, subject=subject).exists():
+                        messages.error(request, f'Subject "{subject.name}" is already in {new_dept.name}.')
+                    else:
+                        # Move the DepartmentSubject record
+                        ds.department = new_dept
+                        ds.save(update_fields=['department'])
+
+                        # Also move associated DepartmentLevel records
+                        DepartmentLevel.objects.filter(
+                            department=department,
+                            level__subject=subject,
+                        ).update(department=new_dept)
+
+                        # Update classes under this subject to the new department
+                        ClassRoom.objects.filter(
+                            department=department,
+                            subject=subject,
+                            is_active=True,
+                        ).update(department=new_dept)
+
+                        messages.success(request, f'Subject "{subject.name}" moved to {new_dept.name}.')
+                        return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
+                else:
+                    messages.error(request, 'Target department not found.')
+                    return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
+
+            messages.success(request, f'Subject "{subject.name}" updated.')
+            return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
+
         # ---- Edit Level action ----
         if action == 'edit_level':
+            from decimal import Decimal, InvalidOperation
             level_id = request.POST.get('level_id', '').strip()
             display_name = request.POST.get('display_name', '').strip()
             description = request.POST.get('description', '').strip()
+            fee_str = request.POST.get('fee_override', '').strip()
             if level_id and display_name:
                 level = Level.objects.filter(id=level_id).first()
-                if level and DepartmentLevel.objects.filter(department=department, level=level).exists():
+                dl = DepartmentLevel.objects.filter(department=department, level=level).first() if level else None
+                if level and dl:
                     level.display_name = display_name
                     level.description = description
                     level.save()
+                    # Update fee override on DepartmentLevel
+                    if fee_str:
+                        try:
+                            dl.fee_override = Decimal(fee_str)
+                        except InvalidOperation:
+                            dl.fee_override = None
+                    else:
+                        dl.fee_override = None
+                    dl.save(update_fields=['fee_override'])
                     messages.success(request, f'Level "{display_name}" updated.')
                 else:
                     messages.error(request, 'Level not found in this department.')
@@ -896,6 +1001,28 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
 
         messages.success(request, f'Level "{level_name}" created under {subject.name}.')
         return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
+
+
+class DepartmentUpdateFeeView(RoleRequiredMixin, View):
+    """Inline update of department default_fee."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT]
+
+    def post(self, request, school_id, dept_id):
+        school = get_object_or_404(School, id=school_id)
+        department = get_object_or_404(Department, id=dept_id, school=school)
+        fee_str = request.POST.get('default_fee', '').strip()
+        if fee_str:
+            from decimal import Decimal, InvalidOperation
+            try:
+                department.default_fee = Decimal(fee_str)
+            except InvalidOperation:
+                messages.error(request, 'Invalid fee amount.')
+                return redirect('admin_department_detail', school_id=school.id, dept_id=department.id)
+        else:
+            department.default_fee = None
+        department.save(update_fields=['default_fee'])
+        messages.success(request, 'Department fee updated.')
+        return redirect('admin_department_detail', school_id=school.id, dept_id=department.id)
 
 
 class DepartmentSubjectLevelRemoveView(RoleRequiredMixin, View):

@@ -593,6 +593,25 @@ class ClassDetailView(RoleRequiredMixin, View):
         # Show "Start Session" when no session exists today, or if today's was cancelled
         can_start = todays_session is None or todays_session.status == 'cancelled'
 
+        # Fee data for student list
+        from .fee_utils import get_effective_fee_for_student, get_fee_source_label, get_effective_fee_for_class
+        can_edit_fee = (
+            user.has_role(Role.HEAD_OF_DEPARTMENT)
+            or user.has_role(Role.HEAD_OF_INSTITUTE)
+            or user.has_role(Role.INSTITUTE_OWNER)
+            or user.has_role(Role.ADMIN)
+        )
+        class_effective_fee = get_effective_fee_for_class(classroom)
+
+        student_fee_data = []
+        for cs in ClassStudent.objects.filter(classroom=classroom).select_related('student'):
+            student_fee_data.append({
+                'student': cs.student,
+                'class_student': cs,
+                'effective_fee': get_effective_fee_for_student(cs),
+                'fee_source': get_fee_source_label(cs),
+            })
+
         return render(request, 'teacher/class_detail.html', {
             'classroom': classroom,
             'students': classroom.students.all(),
@@ -600,6 +619,9 @@ class ClassDetailView(RoleRequiredMixin, View):
             'sessions': sessions,
             'todays_session': todays_session,
             'can_start_session': can_start,
+            'student_fee_data': student_fee_data,
+            'class_effective_fee': class_effective_fee,
+            'can_edit_fee': can_edit_fee,
         })
 
 
@@ -675,6 +697,16 @@ class EditClassView(RoleRequiredMixin, View):
         if not current_subject_id and len(subject_groups) == 1:
             current_subject_id = subject_groups[0]['subject'].id
 
+        # Fee context
+        from .fee_utils import get_parent_fee_for_class
+        parent_fee, fee_source = get_parent_fee_for_class(classroom)
+        can_edit_fee = (
+            request.user.has_role(Role.HEAD_OF_DEPARTMENT)
+            or request.user.has_role(Role.HEAD_OF_INSTITUTE)
+            or request.user.has_role(Role.INSTITUTE_OWNER)
+            or request.user.has_role(Role.ADMIN)
+        )
+
         back_url = request.GET.get('next', '')
         return render(request, 'teacher/edit_class.html', {
             'classroom': classroom,
@@ -682,6 +714,9 @@ class EditClassView(RoleRequiredMixin, View):
             'selected_levels': list(classroom.levels.values_list('id', flat=True)),
             'current_subject_id': current_subject_id,
             'back_url': back_url,
+            'parent_fee': parent_fee,
+            'fee_source': fee_source,
+            'can_edit_fee': can_edit_fee,
         })
 
     def post(self, request, class_id):
@@ -703,6 +738,24 @@ class EditClassView(RoleRequiredMixin, View):
         classroom.start_time = start_time
         classroom.end_time = end_time
         classroom.description = description
+
+        # Fee override (HoD+ only)
+        can_edit_fee = (
+            request.user.has_role(Role.HEAD_OF_DEPARTMENT)
+            or request.user.has_role(Role.HEAD_OF_INSTITUTE)
+            or request.user.has_role(Role.INSTITUTE_OWNER)
+            or request.user.has_role(Role.ADMIN)
+        )
+        if can_edit_fee:
+            fee_str = request.POST.get('fee_override', '').strip()
+            if fee_str:
+                from decimal import Decimal, InvalidOperation
+                try:
+                    classroom.fee_override = Decimal(fee_str)
+                except InvalidOperation:
+                    classroom.fee_override = None
+            else:
+                classroom.fee_override = None
 
         # Derive subject from selected levels
         selected_levels = Level.objects.filter(id__in=level_ids)
@@ -1413,17 +1466,28 @@ class HoDSubjectLevelsView(RoleRequiredMixin, View):
     """Allow HoD/HoI to manage subject levels for their department."""
     required_roles = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT]
 
-    def _get_department(self, user):
+    def _get_departments_qs(self, user):
+        """Return queryset of all departments the user can access."""
         is_hod_only = (
             user.has_role(Role.HEAD_OF_DEPARTMENT)
             and not user.has_role(Role.HEAD_OF_INSTITUTE)
             and not user.has_role(Role.INSTITUTE_OWNER)
         )
         if is_hod_only:
-            return Department.objects.filter(head=user, is_active=True).first()
+            return Department.objects.filter(head=user, is_active=True)
         else:
             school_ids = School.objects.filter(admin=user).values_list('id', flat=True)
-            return Department.objects.filter(school_id__in=school_ids, is_active=True).first()
+            return Department.objects.filter(school_id__in=school_ids, is_active=True)
+
+    def _get_department(self, user, dept_id=None):
+        qs = self._get_departments_qs(user)
+        if dept_id:
+            return qs.filter(id=dept_id).first()
+        return qs.order_by('name').first()
+
+    def _get_all_departments(self, user):
+        """Return all departments the user can access (for the picker)."""
+        return self._get_departments_qs(user).order_by('name')
 
     def _next_level_number(self):
         from django.db.models import Max
@@ -1442,8 +1506,8 @@ class HoDSubjectLevelsView(RoleRequiredMixin, View):
             is_active=True,
         ).exclude(id__in=assigned_ids).order_by('order', 'name')
 
-    def get(self, request):
-        department = self._get_department(request.user)
+    def get(self, request, dept_id=None):
+        department = self._get_department(request.user, dept_id)
         if not department:
             messages.error(request, 'No department found.')
             return redirect('hod_overview')
@@ -1459,34 +1523,55 @@ class HoDSubjectLevelsView(RoleRequiredMixin, View):
             .order_by('order', 'level__level_number')
         )
 
+        from .fee_utils import get_parent_fee_for_subject, get_parent_fee_for_level
+
         # Group levels by subject
         subject_groups = []
         for ds in dept_subjects:
+            parent_fee, parent_source = get_parent_fee_for_subject(department)
             levels_for_subject = []
             for dl in dept_levels:
                 if dl.level.subject_id == ds.subject_id:
                     class_count = ClassRoom.objects.filter(
                         department=department, levels=dl.level, is_active=True,
                     ).count()
+                    lvl_parent_fee, lvl_parent_source = get_parent_fee_for_level(dl)
                     levels_for_subject.append({
                         'dept_level': dl, 'level': dl.level, 'class_count': class_count,
+                        'parent_fee': lvl_parent_fee,
+                        'parent_source': lvl_parent_source,
                     })
             subject_groups.append({
                 'subject': ds.subject,
+                'dept_subject': ds,
                 'levels': levels_for_subject,
+                'parent_fee': parent_fee,
+                'parent_source': parent_source,
             })
 
         available_subjects = self._get_available_subjects(department)
+        user_departments = self._get_all_departments(request.user)
+
+        # Other departments in this school (for "move subject" dropdown)
+        all_departments = Department.objects.filter(
+            school=department.school, is_active=True,
+        ).exclude(id=department.id).order_by('name')
 
         return render(request, 'hod/subject_levels.html', {
             'department': department,
             'dept_subjects': dept_subjects,
             'subject_groups': subject_groups,
             'available_subjects': available_subjects,
+            'all_departments': all_departments,
+            'user_departments': user_departments,
         })
 
-    def post(self, request):
-        department = self._get_department(request.user)
+    def _redirect_to_dept(self, department):
+        """Redirect back to the subject-levels page for the given department."""
+        return redirect('hod_subject_levels_dept', dept_id=department.id)
+
+    def post(self, request, dept_id=None):
+        department = self._get_department(request.user, dept_id)
         if not department:
             messages.error(request, 'No department found.')
             return redirect('hod_overview')
@@ -1537,25 +1622,116 @@ class HoDSubjectLevelsView(RoleRequiredMixin, View):
             else:
                 messages.error(request, 'Select a subject or enter a new subject name.')
 
-            return redirect('hod_subject_levels')
+            return self._redirect_to_dept(department)
+
+        # ---- Edit Subject Fee action ----
+        if action == 'edit_subject_fee':
+            from decimal import Decimal, InvalidOperation
+            subject_id = request.POST.get('subject_id', '').strip()
+            fee_str = request.POST.get('fee_override', '').strip()
+            ds = DepartmentSubject.objects.filter(department=department, subject_id=subject_id).first()
+            if ds:
+                if fee_str:
+                    try:
+                        ds.fee_override = Decimal(fee_str)
+                    except InvalidOperation:
+                        messages.error(request, 'Invalid fee amount.')
+                        return self._redirect_to_dept(department)
+                else:
+                    ds.fee_override = None
+                ds.save(update_fields=['fee_override'])
+                messages.success(request, f'Fee for {ds.subject.name} updated.')
+            return self._redirect_to_dept(department)
+
+        # ---- Edit Subject action ----
+        if action == 'edit_subject':
+            from django.utils.text import slugify as _slugify
+            subject_id = request.POST.get('subject_id', '').strip()
+            new_name = request.POST.get('subject_name', '').strip()
+            new_dept_id = request.POST.get('new_department_id', '').strip()
+
+            ds = DepartmentSubject.objects.filter(department=department, subject_id=subject_id).select_related('subject').first()
+            if not ds:
+                messages.error(request, 'Subject not found in this department.')
+                return self._redirect_to_dept(department)
+
+            subject = ds.subject
+
+            # Update subject name
+            if new_name and new_name != subject.name:
+                subject.name = new_name
+                subject.slug = _slugify(new_name)
+                # Ensure slug uniqueness
+                base_slug = subject.slug
+                counter = 1
+                while Subject.objects.filter(school=subject.school, slug=subject.slug).exclude(id=subject.id).exists():
+                    subject.slug = f'{base_slug}-{counter}'
+                    counter += 1
+                subject.save(update_fields=['name', 'slug'])
+
+            # Move subject to a different department
+            if new_dept_id and int(new_dept_id) != department.id:
+                new_dept = Department.objects.filter(id=new_dept_id, school=department.school, is_active=True).first()
+                if new_dept:
+                    # Check the subject isn't already in the target department
+                    if DepartmentSubject.objects.filter(department=new_dept, subject=subject).exists():
+                        messages.error(request, f'Subject "{subject.name}" is already in {new_dept.name}.')
+                    else:
+                        # Move the DepartmentSubject record
+                        ds.department = new_dept
+                        ds.save(update_fields=['department'])
+
+                        # Also move associated DepartmentLevel records
+                        DepartmentLevel.objects.filter(
+                            department=department,
+                            level__subject=subject,
+                        ).update(department=new_dept)
+
+                        # Update classes under this subject to the new department
+                        ClassRoom.objects.filter(
+                            department=department,
+                            subject=subject,
+                            is_active=True,
+                        ).update(department=new_dept)
+
+                        messages.success(request, f'Subject "{subject.name}" moved to {new_dept.name}.')
+                        return self._redirect_to_dept(department)
+                else:
+                    messages.error(request, 'Target department not found.')
+                    return self._redirect_to_dept(department)
+
+            messages.success(request, f'Subject "{subject.name}" updated.')
+            return self._redirect_to_dept(department)
 
         # ---- Edit Level action ----
         if action == 'edit_level':
+            from decimal import Decimal, InvalidOperation
             level_id = request.POST.get('level_id', '').strip()
             display_name = request.POST.get('display_name', '').strip()
             description = request.POST.get('description', '').strip()
+            fee_str = request.POST.get('fee_override', '').strip()
             if level_id and display_name:
                 level = Level.objects.filter(id=level_id).first()
-                if level and DepartmentLevel.objects.filter(department=department, level=level).exists():
+                dl = DepartmentLevel.objects.filter(department=department, level=level).first() if level else None
+                if level and dl:
                     level.display_name = display_name
                     level.description = description
                     level.save()
+                    # Update fee override on DepartmentLevel
+                    if fee_str:
+                        try:
+                            dl.fee_override = Decimal(fee_str)
+                        except InvalidOperation:
+                            dl.fee_override = None
+                    else:
+                        dl.fee_override = None
+                    dl.save(update_fields=['fee_override'])
                     messages.success(request, f'Level "{display_name}" updated.')
                 else:
                     messages.error(request, 'Level not found in this department.')
             else:
                 messages.error(request, 'Level name is required.')
-            return redirect('hod_subject_levels')
+            return self._redirect_to_dept(department)
 
         # ---- Add Level action (default) ----
         level_name = request.POST.get('level_name', '').strip()
@@ -1564,7 +1740,7 @@ class HoDSubjectLevelsView(RoleRequiredMixin, View):
 
         if not level_name:
             messages.error(request, 'Level name is required.')
-            return redirect('hod_subject_levels')
+            return self._redirect_to_dept(department)
 
         # Resolve subject
         subject = None
@@ -1605,29 +1781,65 @@ class HoDSubjectLevelsView(RoleRequiredMixin, View):
             )
 
         messages.success(request, f'Level "{level_name}" created under {subject.name}.')
-        return redirect('hod_subject_levels')
+        return self._redirect_to_dept(department)
 
 
 class HoDSubjectLevelRemoveView(RoleRequiredMixin, View):
     """Allow HoD to remove a level mapping."""
     required_roles = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT]
 
-    def post(self, request, level_id):
+    def post(self, request, dept_id, level_id):
         is_hod_only = (
             request.user.has_role(Role.HEAD_OF_DEPARTMENT)
             and not request.user.has_role(Role.HEAD_OF_INSTITUTE)
             and not request.user.has_role(Role.INSTITUTE_OWNER)
         )
         if is_hod_only:
-            department = Department.objects.filter(head=request.user, is_active=True).first()
+            department = Department.objects.filter(head=request.user, id=dept_id, is_active=True).first()
         else:
             school_ids = School.objects.filter(admin=request.user).values_list('id', flat=True)
-            department = Department.objects.filter(school_id__in=school_ids, is_active=True).first()
+            department = Department.objects.filter(school_id__in=school_ids, id=dept_id, is_active=True).first()
 
         if department:
             DepartmentLevel.objects.filter(department=department, level_id=level_id).delete()
             messages.success(request, 'Level removed from department.')
+            return redirect('hod_subject_levels_dept', dept_id=department.id)
         return redirect('hod_subject_levels')
+
+
+class UpdateStudentFeeView(RoleRequiredMixin, View):
+    """Inline update of per-student fee override. HoD+ only."""
+    required_roles = [
+        Role.HEAD_OF_DEPARTMENT,
+        Role.HEAD_OF_INSTITUTE,
+        Role.INSTITUTE_OWNER,
+        Role.ADMIN,
+    ]
+
+    def post(self, request, class_id, student_id):
+        user = request.user
+        # Permission: find the classroom and ensure access
+        if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
+            classroom = get_object_or_404(ClassRoom, id=class_id, is_active=True)
+        elif user.has_role(Role.HEAD_OF_DEPARTMENT):
+            classroom = get_object_or_404(ClassRoom, id=class_id, department__head=user, is_active=True)
+        else:
+            classroom = get_object_or_404(ClassRoom, id=class_id, teachers=user, is_active=True)
+
+        cs = get_object_or_404(ClassStudent, classroom=classroom, student_id=student_id)
+        fee_str = request.POST.get('fee_override', '').strip()
+        if fee_str:
+            from decimal import Decimal, InvalidOperation
+            try:
+                cs.fee_override = Decimal(fee_str)
+            except InvalidOperation:
+                messages.error(request, 'Invalid fee amount.')
+                return redirect('class_detail', class_id=class_id)
+        else:
+            cs.fee_override = None
+        cs.save(update_fields=['fee_override'])
+        messages.success(request, 'Student fee updated.')
+        return redirect('class_detail', class_id=class_id)
 
 
 class HoDCreateClassView(RoleRequiredMixin, View):

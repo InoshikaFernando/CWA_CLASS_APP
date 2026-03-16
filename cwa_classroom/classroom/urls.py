@@ -69,6 +69,7 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/levels/', views_department.DepartmentManageLevelsView.as_view(), name='admin_department_levels'),
     path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/subject-levels/', views_department.DepartmentSubjectLevelsView.as_view(), name='admin_department_subject_levels'),
     path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/subject-levels/<int:level_id>/remove/', views_department.DepartmentSubjectLevelRemoveView.as_view(), name='admin_department_subject_level_remove'),
+    path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/update-fee/', views_department.DepartmentUpdateFeeView.as_view(), name='admin_department_update_fee'),
 
     # Email management (admin)
     path('admin-dashboard/email/', views_email.EmailDashboardView.as_view(), name='email_dashboard'),
@@ -113,6 +114,9 @@ urlpatterns = [
     path('progress/class/<int:class_id>/record/', views_progress.RecordProgressView.as_view(), name='record_progress'),
     path('progress/student/<int:student_id>/', views_progress.StudentProgressView.as_view(), name='student_progress'),
 
+    # Per-student fee override
+    path('class/<int:class_id>/student/<int:student_id>/fee/', views.UpdateStudentFeeView.as_view(), name='update_student_fee'),
+
     # API
     path('api/department/<int:dept_id>/levels/', views.DepartmentLevelsAPIView.as_view(), name='api_department_levels'),
 
@@ -129,7 +133,8 @@ urlpatterns = [
     path('department/reports/', views.HoDReportsView.as_view(), name='hod_reports'),
     path('department/attendance/', views.HoDAttendanceReportView.as_view(), name='hod_attendance_report'),
     path('department/subject-levels/', views.HoDSubjectLevelsView.as_view(), name='hod_subject_levels'),
-    path('department/subject-levels/<int:level_id>/remove/', views.HoDSubjectLevelRemoveView.as_view(), name='hod_subject_level_remove'),
+    path('department/subject-levels/<int:dept_id>/', views.HoDSubjectLevelsView.as_view(), name='hod_subject_levels_dept'),
+    path('department/subject-levels/<int:dept_id>/<int:level_id>/remove/', views.HoDSubjectLevelRemoveView.as_view(), name='hod_subject_level_remove'),
 
     # Accounting
     path('accounting/', views.AccountingDashboardView.as_view(), name='accounting_dashboard'),

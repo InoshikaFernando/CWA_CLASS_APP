@@ -89,11 +89,62 @@
     <!-- Students -->
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
       <div class="flex items-center justify-between mb-4">
-        <h2 class="font-bold text-gray-800">Students ({{ students.count }})</h2>
+        <div>
+          <h2 class="font-bold text-gray-800">Students ({{ students.count }})</h2>
+          {% if class_effective_fee %}
+            <p class="text-xs text-gray-400">Class fee: ${{ class_effective_fee }}</p>
+          {% endif %}
+        </div>
         <a href="{% url 'assign_students' class_id=classroom.id %}"
            class="text-xs text-primary font-semibold hover:text-primary-dark transition">+ Add</a>
       </div>
-      {% if students %}
+      {% if student_fee_data %}
+      <ul class="space-y-2">
+        {% for item in student_fee_data %}
+        <li class="flex items-center justify-between py-2 border-b border-gray-50 last:border-0"
+            x-data="{ editingFee: false }">
+          <div class="flex items-center gap-2">
+            <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-primary-light text-primary text-xs font-bold">
+              {{ item.student.username|slice:":2"|upper }}
+            </span>
+            <div>
+              <span class="text-sm font-semibold text-gray-700">{{ item.student.get_full_name|default:item.student.username }}</span>
+              {% if item.effective_fee %}
+                <span class="text-xs {% if item.class_student.fee_override is not None %}text-emerald-600 font-semibold{% else %}text-gray-400{% endif %} ml-1">
+                  ${{ item.effective_fee }}
+                  {% if item.class_student.fee_override is not None %}
+                    <span class="text-emerald-400 font-normal">(override)</span>
+                  {% endif %}
+                </span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <div x-show="!editingFee" class="flex items-center gap-2">
+              {% if can_edit_fee %}
+                <button @click="editingFee = true" type="button"
+                        class="text-xs text-accent hover:text-accent-dark font-medium">Fee</button>
+              {% endif %}
+              <a href="{% url 'student_progress' student_id=item.student.id %}" class="text-xs text-primary hover:underline">Progress</a>
+            </div>
+            {% if can_edit_fee %}
+            <form x-show="editingFee" x-cloak method="post"
+                  action="{% url 'update_student_fee' class_id=classroom.id student_id=item.student.id %}"
+                  class="flex items-center gap-1">
+              {% csrf_token %}
+              <input type="number" name="fee_override" step="0.01" min="0"
+                     value="{{ item.class_student.fee_override|default:'' }}"
+                     placeholder="{% if class_effective_fee %}Inherit ${{ class_effective_fee }}{% else %}No fee{% endif %}"
+                     class="w-20 px-2 py-1 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-accent/30">
+              <button type="submit" class="text-xs bg-accent text-white px-2 py-1 rounded font-semibold">Save</button>
+              <button @click="editingFee = false" type="button" class="text-xs text-gray-400">✕</button>
+            </form>
+            {% endif %}
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% elif students %}
       <ul class="space-y-2">
         {% for s in students %}
         <li class="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">

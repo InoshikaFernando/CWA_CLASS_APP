@@ -29,7 +29,7 @@
   </div>
 
   <!-- Quick stats -->
-  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+  <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
     <div class="bg-white rounded-xl p-4 border border-slate-200">
       <p class="text-sm text-gray-500">Head of Department</p>
       {% if department.head %}
@@ -45,6 +45,34 @@
     <div class="bg-white rounded-xl p-4 border border-slate-200">
       <p class="text-sm text-gray-500">Classes</p>
       <p class="text-xl font-bold text-gray-900">{{ classes|length }}</p>
+    </div>
+    <div class="bg-white rounded-xl p-4 border border-slate-200" x-data="{ editing: false }">
+      <p class="text-sm text-gray-500">Default Fee (NZD)</p>
+      <div x-show="!editing" class="flex items-center justify-between mt-0.5">
+        {% if department.default_fee is not None %}
+          <p class="text-xl font-bold text-gray-900">${{ department.default_fee }}</p>
+        {% else %}
+          <p class="text-lg font-bold text-gray-400">Not set</p>
+        {% endif %}
+        <button @click="editing = true" type="button"
+                class="text-xs text-accent hover:text-accent-dark font-medium transition">Edit</button>
+      </div>
+      <div x-show="editing" x-cloak>
+        <form method="post" action="{% url 'admin_department_update_fee' school.id department.id %}" class="mt-1">
+          {% csrf_token %}
+          <div class="flex items-center gap-2">
+            <input type="number" name="default_fee" step="0.01" min="0"
+                   value="{{ department.default_fee|default:'' }}"
+                   placeholder="0.00"
+                   class="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent">
+            <button type="submit" class="text-xs bg-accent text-white px-2 py-1.5 rounded-lg font-semibold">Save</button>
+          </div>
+          <div class="flex items-center gap-2 mt-1">
+            <button @click="editing = false" type="button" class="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
+            <p class="text-xs text-gray-400">Blank = no fee</p>
+          </div>
+        </form>
+      </div>
     </div>
   </div>
 

@@ -179,6 +179,11 @@ class Department(models.Model):
         help_text='The HoD (Head of Department) user assigned to this department.',
     )
     is_active = models.BooleanField(default=True)
+    default_fee = models.DecimalField(
+        max_digits=8, decimal_places=2,
+        null=True, blank=True,
+        help_text='Default fee (NZD) for all subjects/levels/classes in this department.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -231,6 +236,11 @@ class DepartmentLevel(models.Model):
         help_text='Optional override, e.g. "Year 1 (AU)" to relabel a level for this department.',
     )
     order = models.PositiveIntegerField(default=0)
+    fee_override = models.DecimalField(
+        max_digits=8, decimal_places=2,
+        null=True, blank=True,
+        help_text='Fee override for this level. NULL = inherit from subject or department.',
+    )
 
     class Meta:
         unique_together = ('department', 'level')
@@ -257,6 +267,11 @@ class DepartmentSubject(models.Model):
         'Subject', on_delete=models.CASCADE, related_name='department_subjects',
     )
     order = models.PositiveIntegerField(default=0)
+    fee_override = models.DecimalField(
+        max_digits=8, decimal_places=2,
+        null=True, blank=True,
+        help_text='Fee override for this subject. NULL = inherit from department.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -404,6 +419,11 @@ class ClassRoom(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     is_active = models.BooleanField(default=True)
+    fee_override = models.DecimalField(
+        max_digits=8, decimal_places=2,
+        null=True, blank=True,
+        help_text='Fee override for this class. NULL = inherit from level/subject/department.',
+    )
 
     class Meta:
         ordering = ['name']
@@ -444,6 +464,11 @@ class ClassStudent(models.Model):
         related_name='class_student_entries',
     )
     joined_at = models.DateTimeField(auto_now_add=True)
+    fee_override = models.DecimalField(
+        max_digits=8, decimal_places=2,
+        null=True, blank=True,
+        help_text='Individual fee override for this student. NULL = inherit from class cascade.',
+    )
 
     class Meta:
         unique_together = ('classroom', 'student')
