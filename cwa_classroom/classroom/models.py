@@ -668,7 +668,8 @@ class ProgressCriteria(models.Model):
     ]
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='progress_criteria')
     subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name='progress_criteria')
-    level = models.ForeignKey(Level, on_delete=models.CASCADE, related_name='progress_criteria')
+    level = models.ForeignKey(Level, on_delete=models.CASCADE, null=True, blank=True, related_name='progress_criteria',
+                              help_text='Null = applies to all levels for the chosen subject.')
     parent = models.ForeignKey(
         'self',
         on_delete=models.SET_NULL,
@@ -696,13 +697,13 @@ class ProgressCriteria(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ('school', 'subject', 'level', 'name')
         ordering = ['subject', 'level', 'order']
         verbose_name = 'Progress Criteria'
         verbose_name_plural = 'Progress Criteria'
 
     def __str__(self):
-        return f'{self.name} ({self.subject.name} — {self.level.display_name})'
+        level_name = self.level.display_name if self.level else 'All Levels'
+        return f'{self.name} ({self.subject.name} — {level_name})'
 
 
 class ProgressRecord(models.Model):
