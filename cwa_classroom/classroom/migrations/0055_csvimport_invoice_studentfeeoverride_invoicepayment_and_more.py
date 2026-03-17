@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-        ('classroom', '0048_emailcampaign_emailpreference_emaillog'),
+        ('classroom', '0054_progresscriteria_level_nullable'),
     ]
 
     operations = [
