@@ -1230,7 +1230,10 @@ class HoDOverviewView(RoleRequiredMixin, View):
         my_teaching_classes = ClassRoom.objects.filter(
             class_teachers__teacher=request.user,
             is_active=True,
-        ).select_related('department', 'subject').prefetch_related('students', 'teachers')
+        ).select_related('department', 'subject').prefetch_related('students', 'teachers').annotate(
+            student_count=Count('students', distinct=True),
+            teacher_count=Count('teachers', distinct=True),
+        )
 
         if my_teaching_classes.exists():
             is_teacher_too = True
