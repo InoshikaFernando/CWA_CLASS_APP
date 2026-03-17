@@ -6,6 +6,9 @@ from .models import (
     ClassSession, Enrollment, StudentAttendance, TeacherAttendance,
     ProgressCriteria, ProgressRecord, Notification, DepartmentLevel,
     EmailCampaign, EmailLog, EmailPreference,
+    DepartmentFee, StudentFeeOverride, InvoiceNumberSequence,
+    Invoice, InvoiceLineItem, CSVColumnTemplate, CSVImport,
+    PaymentReferenceMapping, InvoicePayment, CreditTransaction,
 )
 
 
@@ -247,3 +250,95 @@ class EmailPreferenceAdmin(admin.ModelAdmin):
     list_display = ('user', 'receive_transactional', 'receive_campaigns', 'updated_at')
     list_filter = ('receive_transactional', 'receive_campaigns')
     search_fields = ('user__username', 'user__email')
+
+
+# ---------------------------------------------------------------------------
+# Invoicing
+# ---------------------------------------------------------------------------
+
+class InvoiceLineItemInline(admin.TabularInline):
+    model = InvoiceLineItem
+    extra = 0
+    readonly_fields = ('classroom', 'department', 'daily_rate', 'rate_source',
+                        'sessions_held', 'sessions_attended', 'sessions_charged', 'line_amount')
+
+
+class InvoicePaymentInline(admin.TabularInline):
+    model = InvoicePayment
+    extra = 0
+    readonly_fields = ('amount', 'payment_date', 'payment_method', 'reference_name', 'status')
+
+
+@admin.register(DepartmentFee)
+class DepartmentFeeAdmin(admin.ModelAdmin):
+    list_display = ('department', 'daily_rate', 'effective_from', 'created_by', 'created_at')
+    list_filter = ('department__school',)
+    search_fields = ('department__name',)
+
+
+@admin.register(StudentFeeOverride)
+class StudentFeeOverrideAdmin(admin.ModelAdmin):
+    list_display = ('student', 'school', 'daily_rate', 'reason', 'effective_from', 'created_at')
+    list_filter = ('school',)
+    search_fields = ('student__username', 'student__first_name', 'student__last_name')
+
+
+@admin.register(InvoiceNumberSequence)
+class InvoiceNumberSequenceAdmin(admin.ModelAdmin):
+    list_display = ('school', 'year', 'last_number')
+    list_filter = ('school', 'year')
+
+
+@admin.register(Invoice)
+class InvoiceAdmin(admin.ModelAdmin):
+    list_display = ('invoice_number', 'student', 'school', 'amount', 'status',
+                     'billing_period_start', 'billing_period_end', 'created_at')
+    list_filter = ('status', 'school', 'attendance_mode')
+    search_fields = ('invoice_number', 'student__username', 'student__first_name', 'student__last_name')
+    date_hierarchy = 'created_at'
+    readonly_fields = ('invoice_number', 'created_at', 'updated_at')
+    inlines = [InvoiceLineItemInline, InvoicePaymentInline]
+
+
+@admin.register(InvoiceLineItem)
+class InvoiceLineItemAdmin(admin.ModelAdmin):
+    list_display = ('invoice', 'classroom', 'daily_rate', 'sessions_charged', 'line_amount')
+    list_filter = ('rate_source',)
+
+
+@admin.register(CSVColumnTemplate)
+class CSVColumnTemplateAdmin(admin.ModelAdmin):
+    list_display = ('school', 'name', 'created_by', 'created_at')
+    list_filter = ('school',)
+
+
+@admin.register(CSVImport)
+class CSVImportAdmin(admin.ModelAdmin):
+    list_display = ('file_name', 'school', 'status', 'total_rows', 'matched_count',
+                     'unmatched_count', 'confirmed_count', 'uploaded_at')
+    list_filter = ('status', 'school')
+    readonly_fields = ('uploaded_at',)
+
+
+@admin.register(PaymentReferenceMapping)
+class PaymentReferenceMappingAdmin(admin.ModelAdmin):
+    list_display = ('reference_name', 'student', 'school', 'is_ignored', 'created_at')
+    list_filter = ('school', 'is_ignored')
+    search_fields = ('reference_name', 'student__username', 'student__first_name')
+
+
+@admin.register(InvoicePayment)
+class InvoicePaymentAdmin(admin.ModelAdmin):
+    list_display = ('student', 'amount', 'payment_date', 'payment_method', 'status',
+                     'invoice', 'created_at')
+    list_filter = ('status', 'payment_method', 'school')
+    search_fields = ('student__username', 'reference_name')
+    readonly_fields = ('created_at',)
+
+
+@admin.register(CreditTransaction)
+class CreditTransactionAdmin(admin.ModelAdmin):
+    list_display = ('student', 'school', 'amount', 'reason', 'created_at')
+    list_filter = ('reason', 'school')
+    search_fields = ('student__username',)
+    readonly_fields = ('created_at',)

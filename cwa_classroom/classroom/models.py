@@ -867,3 +867,268 @@ class EmailPreference(models.Model):
 
     def __str__(self):
         return f'{self.user.username} email prefs'
+
+
+# ---------------------------------------------------------------------------
+# Invoicing Models
+# ---------------------------------------------------------------------------
+
+class DepartmentFee(models.Model):
+    """Daily rate for a department, with effective date for audit trail."""
+    department = models.ForeignKey('Department', on_delete=models.CASCADE,
+                                   related_name='fees')
+    daily_rate = models.DecimalField(max_digits=10, decimal_places=2)
+    effective_from = models.DateField()
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                    null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-effective_from']
+
+    def __str__(self):
+        return f'{self.department} — ${self.daily_rate} from {self.effective_from}'
+
+
+class StudentFeeOverride(models.Model):
+    """Per-student daily rate override, scoped to a school."""
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                                 related_name='fee_overrides')
+    school = models.ForeignKey('School', on_delete=models.CASCADE,
+                                related_name='student_fee_overrides')
+    daily_rate = models.DecimalField(max_digits=10, decimal_places=2)
+    reason = models.TextField(blank=True)
+    effective_from = models.DateField()
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                    null=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-effective_from']
+
+    def __str__(self):
+        return f'{self.student} — ${self.daily_rate} from {self.effective_from}'
+
+
+class InvoiceNumberSequence(models.Model):
+    """Tracks the next invoice number per school per year.
+    Uses select_for_update() for concurrency safety."""
+    school = models.ForeignKey('School', on_delete=models.CASCADE,
+                                related_name='invoice_sequences')
+    year = models.PositiveIntegerField()
+    last_number = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        unique_together = ('school', 'year')
+
+    def __str__(self):
+        return f'{self.school} {self.year} — #{self.last_number}'
+
+
+class Invoice(models.Model):
+    ATTENDANCE_MODE_CHOICES = [
+        ('all_class_days', 'All Class Days'),
+        ('attended_days_only', 'Attended Days Only'),
+    ]
+    STATUS_CHOICES = [
+        ('draft', 'Draft'),
+        ('issued', 'Issued'),
+        ('partially_paid', 'Partially Paid'),
+        ('paid', 'Paid'),
+        ('cancelled', 'Cancelled'),
+    ]
+
+    invoice_number = models.CharField(max_length=50, unique=True)
+    school = models.ForeignKey('School', on_delete=models.CASCADE,
+                                related_name='invoices')
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                                 related_name='invoices')
+    billing_period_start = models.DateField()
+    billing_period_end = models.DateField()
+    attendance_mode = models.CharField(max_length=20, choices=ATTENDANCE_MODE_CHOICES)
+    calculated_amount = models.DecimalField(max_digits=10, decimal_places=2,
+                                             help_text='System-calculated sum of line items')
+    amount = models.DecimalField(max_digits=10, decimal_places=2,
+                                  help_text='Final amount (may be adjusted by HoI)')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+    notes = models.TextField(blank=True)
+    cancelled_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                      null=True, blank=True, related_name='+')
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancellation_reason = models.TextField(blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                    null=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.invoice_number} — {self.student} (${self.amount})'
+
+    @property
+    def amount_paid(self):
+        from django.db.models import Sum
+        return self.payments.filter(status='confirmed').aggregate(
+            total=Sum('amount'))['total'] or 0
+
+    @property
+    def amount_due(self):
+        return self.amount - self.amount_paid
+
+
+class InvoiceLineItem(models.Model):
+    RATE_SOURCE_CHOICES = [
+        ('student_override', 'Student Override'),
+        ('department_default', 'Department Default'),
+    ]
+
+    invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE,
+                                 related_name='line_items')
+    classroom = models.ForeignKey('ClassRoom', on_delete=models.SET_NULL, null=True)
+    department = models.ForeignKey('Department', on_delete=models.SET_NULL, null=True,
+                                    help_text='Denormalized for reporting')
+    daily_rate = models.DecimalField(max_digits=10, decimal_places=2)
+    rate_source = models.CharField(max_length=20, choices=RATE_SOURCE_CHOICES)
+    sessions_held = models.PositiveIntegerField()
+    sessions_attended = models.PositiveIntegerField()
+    sessions_charged = models.PositiveIntegerField()
+    line_amount = models.DecimalField(max_digits=10, decimal_places=2)
+
+    def __str__(self):
+        return f'{self.invoice.invoice_number} — {self.classroom} (${self.line_amount})'
+
+
+class CSVColumnTemplate(models.Model):
+    """Saved CSV column mapping templates per school."""
+    school = models.ForeignKey('School', on_delete=models.CASCADE,
+                                related_name='csv_column_templates')
+    name = models.CharField(max_length=100)
+    column_mapping = models.JSONField(
+        help_text='{"date_col": 0, "amount_col": 2, "reference_col": 3, '
+                  '"transaction_id_col": null, "amount_type": "credit"}')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                    null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('school', 'name')
+
+    def __str__(self):
+        return f'{self.school} — {self.name}'
+
+
+class CSVImport(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('processing', 'Processing'),
+        ('completed', 'Completed'),
+    ]
+
+    school = models.ForeignKey('School', on_delete=models.CASCADE,
+                                related_name='csv_imports')
+    file_name = models.CharField(max_length=255)
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                     null=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    column_mapping = models.JSONField(default=dict,
+                                       help_text='The column mapping used for this import')
+    total_rows = models.PositiveIntegerField(default=0)
+    credit_rows = models.PositiveIntegerField(default=0)
+    skipped_rows = models.PositiveIntegerField(default=0)
+    matched_count = models.PositiveIntegerField(default=0)
+    unmatched_count = models.PositiveIntegerField(default=0)
+    ignored_count = models.PositiveIntegerField(default=0)
+    confirmed_count = models.PositiveIntegerField(default=0)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+
+    def __str__(self):
+        return f'{self.file_name} ({self.status})'
+
+
+class PaymentReferenceMapping(models.Model):
+    """Maps bank CSV reference names to students for auto-matching."""
+    school = models.ForeignKey('School', on_delete=models.CASCADE,
+                                related_name='payment_reference_mappings')
+    reference_name = models.CharField(max_length=255,
+                                       help_text='Normalized: lowercase, trimmed')
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                 null=True, blank=True,
+                                 related_name='payment_reference_mappings')
+    is_ignored = models.BooleanField(default=False)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                    null=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('school', 'reference_name')
+        indexes = [
+            models.Index(fields=['school', 'reference_name']),
+        ]
+
+    def __str__(self):
+        if self.is_ignored:
+            return f'{self.reference_name} — IGNORED'
+        return f'{self.reference_name} → {self.student}'
+
+
+class InvoicePayment(models.Model):
+    STATUS_CHOICES = [
+        ('matched', 'Matched'),
+        ('confirmed', 'Confirmed'),
+        ('rejected', 'Rejected'),
+    ]
+    PAYMENT_METHOD_CHOICES = [
+        ('bank_transfer', 'Bank Transfer'),
+        ('cash', 'Cash'),
+        ('cheque', 'Cheque'),
+        ('other', 'Other'),
+    ]
+
+    invoice = models.ForeignKey(Invoice, on_delete=models.SET_NULL,
+                                 null=True, blank=True,
+                                 related_name='payments')
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                                 related_name='invoice_payments')
+    school = models.ForeignKey('School', on_delete=models.CASCADE)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    payment_date = models.DateField()
+    payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES,
+                                       default='bank_transfer')
+    reference_name = models.CharField(max_length=255, blank=True)
+    bank_transaction_id = models.CharField(max_length=255, blank=True)
+    csv_import = models.ForeignKey('CSVImport', on_delete=models.SET_NULL,
+                                    null=True, blank=True, related_name='payments')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='matched')
+    notes = models.TextField(blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                    null=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'${self.amount} — {self.student} ({self.status})'
+
+
+class CreditTransaction(models.Model):
+    """Tracks student credit balance changes (overpayments, cancellations, applications)."""
+    REASON_CHOICES = [
+        ('overpayment', 'Overpayment'),
+        ('invoice_cancelled', 'Invoice Cancelled'),
+        ('applied_to_invoice', 'Applied to Invoice'),
+    ]
+
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                                 related_name='credit_transactions')
+    school = models.ForeignKey('School', on_delete=models.CASCADE)
+    amount = models.DecimalField(max_digits=10, decimal_places=2,
+                                  help_text='Positive = credit added, Negative = credit used')
+    reason = models.CharField(max_length=30, choices=REASON_CHOICES)
+    related_payment = models.ForeignKey('InvoicePayment', on_delete=models.SET_NULL,
+                                         null=True, blank=True)
+    related_invoice = models.ForeignKey('Invoice', on_delete=models.SET_NULL,
+                                         null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'{self.student} — ${self.amount} ({self.reason})'

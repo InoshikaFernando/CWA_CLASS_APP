@@ -1,0 +1,226 @@
+{% extends "base.html" %}
+
+{% block title %}Invoice {{ invoice.invoice_number }}{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-8">
+    <div>
+      <a href="{% url 'invoice_list' %}" class="text-sm text-indigo-600 hover:text-indigo-800 font-medium">&larr; Back to Invoices</a>
+      <h1 class="text-3xl font-bold text-gray-900 mt-2">{{ invoice.invoice_number }}</h1>
+      <p class="text-gray-500 mt-1">{{ invoice.student.first_name }} {{ invoice.student.last_name }} &mdash; {{ invoice.billing_period_start|date:"M d" }} to {{ invoice.billing_period_end|date:"M d, Y" }}</p>
+    </div>
+    <span class="text-sm font-medium px-3 py-1.5 rounded-full
+      {% if invoice.status == 'draft' %}bg-gray-100 text-gray-600
+      {% elif invoice.status == 'issued' %}bg-blue-100 text-blue-700
+      {% elif invoice.status == 'partially_paid' %}bg-amber-100 text-amber-700
+      {% elif invoice.status == 'paid' %}bg-emerald-100 text-emerald-700
+      {% elif invoice.status == 'cancelled' %}bg-red-100 text-red-700
+      {% endif %}">
+      {{ invoice.get_status_display }}
+    </span>
+  </div>
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="mb-4 p-4 rounded-xl text-sm font-medium
+        {% if message.tags == 'success' %}bg-emerald-50 text-emerald-700 border border-emerald-200
+        {% elif message.tags == 'error' %}bg-red-50 text-red-700 border border-red-200
+        {% else %}bg-blue-50 text-blue-700 border border-blue-200{% endif %}">
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+    <!-- Main Content (2/3) -->
+    <div class="lg:col-span-2 space-y-6">
+
+      <!-- Summary Card -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div>
+            <p class="text-xs font-medium text-gray-500 uppercase">Calculated</p>
+            <p class="text-lg font-semibold text-gray-900">${{ invoice.calculated_amount }}</p>
+          </div>
+          <div>
+            <p class="text-xs font-medium text-gray-500 uppercase">Final Amount</p>
+            <p class="text-lg font-semibold text-gray-900">${{ invoice.amount }}</p>
+          </div>
+          <div>
+            <p class="text-xs font-medium text-gray-500 uppercase">Mode</p>
+            <p class="text-sm text-gray-700">{{ invoice.get_attendance_mode_display }}</p>
+          </div>
+          <div>
+            <p class="text-xs font-medium text-gray-500 uppercase">Credit Balance</p>
+            <p class="text-lg font-semibold {% if credit_balance > 0 %}text-emerald-600{% else %}text-gray-900{% endif %}">${{ credit_balance }}</p>
+          </div>
+        </div>
+        {% if invoice.notes %}
+          <div class="mt-4 pt-4 border-t border-slate-100">
+            <p class="text-xs font-medium text-gray-500 uppercase mb-1">Notes</p>
+            <p class="text-sm text-gray-700">{{ invoice.notes }}</p>
+          </div>
+        {% endif %}
+      </div>
+
+      <!-- Line Items -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-200">
+          <h2 class="text-lg font-semibold text-gray-900">Line Items</h2>
+        </div>
+        <table class="w-full">
+          <thead>
+            <tr class="border-b border-slate-100">
+              <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Class</th>
+              <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Department</th>
+              <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Rate</th>
+              <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Held</th>
+              <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Attended</th>
+              <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Charged</th>
+              <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for line in line_items %}
+              <tr class="border-b border-slate-50">
+                <td class="px-6 py-3 text-sm text-gray-900">{{ line.classroom.name }}</td>
+                <td class="px-6 py-3 text-sm text-gray-600">{{ line.department.name|default:"&mdash;" }}</td>
+                <td class="px-6 py-3 text-sm text-gray-600 text-right">${{ line.daily_rate }}</td>
+                <td class="px-6 py-3 text-sm text-gray-600 text-right">{{ line.sessions_held }}</td>
+                <td class="px-6 py-3 text-sm text-gray-600 text-right">{{ line.sessions_attended }}</td>
+                <td class="px-6 py-3 text-sm text-gray-600 text-right">{{ line.sessions_charged }}</td>
+                <td class="px-6 py-3 text-sm font-medium text-gray-900 text-right">${{ line.line_amount }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr class="bg-slate-50 border-t border-slate-200">
+              <td colspan="6" class="px-6 py-3 text-sm font-semibold text-gray-900 text-right">Total</td>
+              <td class="px-6 py-3 text-sm font-bold text-gray-900 text-right">${{ invoice.calculated_amount }}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <!-- Payment History -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-200">
+          <h2 class="text-lg font-semibold text-gray-900">Payment History</h2>
+        </div>
+        {% if payments %}
+          <table class="w-full">
+            <thead>
+              <tr class="border-b border-slate-100">
+                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Date</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Method</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Reference</th>
+                <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Amount</th>
+                <th class="px-6 py-3 text-center text-xs font-semibold text-gray-500 uppercase">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for payment in payments %}
+                <tr class="border-b border-slate-50">
+                  <td class="px-6 py-3 text-sm text-gray-900">{{ payment.payment_date|date:"M d, Y" }}</td>
+                  <td class="px-6 py-3 text-sm text-gray-600">{{ payment.get_payment_method_display }}</td>
+                  <td class="px-6 py-3 text-sm text-gray-600">{{ payment.reference_name|default:"&mdash;" }}</td>
+                  <td class="px-6 py-3 text-sm font-medium text-gray-900 text-right">${{ payment.amount }}</td>
+                  <td class="px-6 py-3 text-center">
+                    <span class="text-xs font-medium px-2 py-0.5 rounded-full
+                      {% if payment.status == 'confirmed' %}bg-emerald-100 text-emerald-700
+                      {% elif payment.status == 'pending' %}bg-amber-100 text-amber-700
+                      {% else %}bg-gray-100 text-gray-600{% endif %}">
+                      {{ payment.get_status_display }}
+                    </span>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div class="px-6 py-8 text-center">
+            <p class="text-gray-500">No payments recorded yet.</p>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Sidebar (1/3) -->
+    <div class="space-y-6">
+
+      <!-- Record Payment -->
+      {% if invoice.status == 'issued' or invoice.status == 'partially_paid' %}
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+          <h3 class="text-base font-semibold text-gray-900 mb-4">Record Payment</h3>
+          <form method="post" action="{% url 'record_manual_payment' invoice_id=invoice.id %}" class="space-y-3">
+            {% csrf_token %}
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">Amount ($)</label>
+              <input type="number" name="amount" step="0.01" min="0.01" placeholder="0.00"
+                class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">Payment Date</label>
+              <input type="date" name="payment_date"
+                class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">Method</label>
+              <select name="payment_method"
+                class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                <option value="cash">Cash</option>
+                <option value="bank_transfer">Bank Transfer</option>
+                <option value="card">Card</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">Notes (optional)</label>
+              <input type="text" name="notes" placeholder="Payment notes..."
+                class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+            </div>
+            <button type="submit"
+              class="w-full px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium">
+              Record Payment
+            </button>
+          </form>
+        </div>
+      {% endif %}
+
+      <!-- Cancel Invoice -->
+      {% if invoice.status != 'cancelled' and invoice.status != 'draft' %}
+        <div class="bg-white rounded-2xl border border-red-200 shadow-sm p-6">
+          <h3 class="text-base font-semibold text-red-800 mb-2">Cancel Invoice</h3>
+          <p class="text-xs text-red-600 mb-4">This action cannot be undone. Linked payments will become unlinked credits.</p>
+          <form method="post" action="{% url 'cancel_invoice' invoice_id=invoice.id %}"
+                onsubmit="return confirm('Are you sure you want to cancel this invoice?')">
+            {% csrf_token %}
+            <div class="mb-3">
+              <label class="block text-xs font-medium text-gray-600 mb-1">Reason</label>
+              <textarea name="cancellation_reason" rows="2" placeholder="Reason for cancellation..."
+                class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500" required></textarea>
+            </div>
+            <button type="submit"
+              class="w-full px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-medium">
+              Cancel Invoice
+            </button>
+          </form>
+        </div>
+      {% endif %}
+
+      {% if invoice.status == 'cancelled' and invoice.cancellation_reason %}
+        <div class="bg-red-50 rounded-2xl border border-red-200 p-6">
+          <h3 class="text-base font-semibold text-red-800 mb-2">Cancelled</h3>
+          <p class="text-sm text-red-700">{{ invoice.cancellation_reason }}</p>
+        </div>
+      {% endif %}
+    </div>
+
+  </div>
+
+</div>
+{% endblock %}

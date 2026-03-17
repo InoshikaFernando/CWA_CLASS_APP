@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}Generate Invoices{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <h1 class="text-3xl font-bold text-gray-900">Generate Invoices</h1>
+    <p class="text-gray-500 mt-1">{{ school.name }} &mdash; Create invoices for a billing period</p>
+  </div>
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="mb-4 p-4 rounded-xl text-sm font-medium
+        {% if message.tags == 'success' %}bg-emerald-50 text-emerald-700 border border-emerald-200
+        {% elif message.tags == 'error' %}bg-red-50 text-red-700 border border-red-200
+        {% elif message.tags == 'warning' %}bg-amber-50 text-amber-700 border border-amber-200
+        {% else %}bg-blue-50 text-blue-700 border border-blue-200{% endif %}">
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  {% if unmarked_sessions %}
+    <div class="mb-6 bg-red-50 border border-red-200 rounded-2xl p-6">
+      <div class="flex items-start gap-3">
+        <svg class="w-6 h-6 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+        </svg>
+        <div>
+          <h3 class="font-semibold text-red-800">Attendance Not Complete</h3>
+          <p class="text-sm text-red-700 mt-1">The following sessions have unmarked attendance. Please mark attendance before generating invoices.</p>
+          <ul class="mt-3 space-y-1 text-sm text-red-700">
+            {% for session in unmarked_sessions %}
+              <li>&bull; {{ session.classroom.name }} &mdash; {{ session.date|date:"M d, Y" }} ({{ session.start_time|time:"H:i" }})</li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
+  <!-- Form -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    <form method="post" action="{% url 'generate_invoices' %}" class="p-6 space-y-6">
+      {% csrf_token %}
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Billing Period Start</label>
+          <input type="date" name="billing_period_start"
+            value="{{ form_data.billing_period_start|default:'' }}"
+            class="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Billing Period End</label>
+          <input type="date" name="billing_period_end"
+            value="{{ form_data.billing_period_end|default:'' }}"
+            class="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required>
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">Attendance Mode</label>
+        <div class="space-y-2">
+          <label class="flex items-center gap-3 p-3 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition">
+            <input type="radio" name="attendance_mode" value="all_class_days"
+              {% if not form_data or form_data.attendance_mode == 'all_class_days' %}checked{% endif %}
+              class="w-4 h-4 text-indigo-600 focus:ring-indigo-500">
+            <div>
+              <span class="text-sm font-medium text-gray-900">All Class Days</span>
+              <p class="text-xs text-gray-500">Charge for every session held, regardless of attendance</p>
+            </div>
+          </label>
+          <label class="flex items-center gap-3 p-3 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition">
+            <input type="radio" name="attendance_mode" value="attended_only"
+              {% if form_data.attendance_mode == 'attended_only' %}checked{% endif %}
+              class="w-4 h-4 text-indigo-600 focus:ring-indigo-500">
+            <div>
+              <span class="text-sm font-medium text-gray-900">Attended Only</span>
+              <p class="text-xs text-gray-500">Charge only for sessions the student actually attended</p>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Department (optional)</label>
+        <select name="department_id"
+          class="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+          <option value="">All Departments</option>
+          {% for dept in departments %}
+            <option value="{{ dept.id }}" {% if form_data.department_id == dept.id|stringformat:"s" %}selected{% endif %}>{{ dept.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="flex justify-end pt-4 border-t border-slate-200">
+        <button type="submit"
+          class="px-6 py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition shadow-sm">
+          Generate Invoices
+        </button>
+      </div>
+    </form>
+  </div>
+
+</div>
+{% endblock %}
