@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block title %}Fee Configuration{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-8">
+    <div>
+      <h1 class="text-3xl font-bold text-gray-900">Fee Configuration</h1>
+      <p class="text-gray-500 mt-1">{{ school.name }} &mdash; Set class fees and student overrides</p>
+    </div>
+  </div>
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="mb-4 p-4 rounded-xl text-sm font-medium
+        {% if message.tags == 'success' %}bg-emerald-50 text-emerald-700 border border-emerald-200
+        {% elif message.tags == 'error' %}bg-red-50 text-red-700 border border-red-200
+        {% else %}bg-blue-50 text-blue-700 border border-blue-200{% endif %}">
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  <!-- Class Fees -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-8">
+    <div class="px-6 py-4 border-b border-slate-200">
+      <h2 class="text-lg font-semibold text-gray-900">Class Fees</h2>
+      <p class="text-sm text-gray-500 mt-1">Set the fee per class. Leave blank to inherit from the level/subject/department cascade.</p>
+    </div>
+
+    {% if classrooms %}
+      <table class="w-full">
+        <thead>
+          <tr class="border-b border-slate-100">
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Class</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Department</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Effective Fee</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Source</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Set Fee</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for cr in classrooms %}
+            <tr class="border-b border-slate-50 hover:bg-slate-50 transition">
+              <td class="px-6 py-4 font-medium text-gray-900">{{ cr.name }}</td>
+              <td class="px-6 py-4 text-gray-600">{{ cr.department.name|default:"&mdash;" }}</td>
+              <td class="px-6 py-4 text-gray-600">
+                {% if cr.effective_fee != None %}
+                  ${{ cr.effective_fee }}/session
+                {% else %}
+                  <span class="text-gray-400">Not set</span>
+                {% endif %}
+              </td>
+              <td class="px-6 py-4">
+                {% if cr.fee_source == 'Class override' %}
+                  <span class="text-xs px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-medium">{{ cr.fee_source }}</span>
+                {% elif cr.fee_source == 'No fee set' %}
+                  <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium">{{ cr.fee_source }}</span>
+                {% else %}
+                  <span class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium">{{ cr.fee_source }}</span>
+                {% endif %}
+              </td>
+              <td class="px-6 py-4">
+                <form method="post" action="{% url 'set_classroom_fee' classroom_id=cr.id %}" class="flex items-center gap-2">
+                  {% csrf_token %}
+                  <input type="number" name="fee_override" step="0.01" min="0" placeholder="{{ cr.effective_fee|default:'Rate' }}"
+                    {% if cr.fee_override != None %}value="{{ cr.fee_override }}"{% endif %}
+                    class="w-28 px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                  <button type="submit"
+                    class="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition font-medium">
+                    Set
+                  </button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="px-6 py-12 text-center">
+        <p class="text-gray-500">No classes found. Create classes first.</p>
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- Student Fee Overrides -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    <div class="px-6 py-4 border-b border-slate-200">
+      <h2 class="text-lg font-semibold text-gray-900">Student Fee Overrides</h2>
+      <p class="text-sm text-gray-500 mt-1">Override the class rate for specific students (e.g., scholarships, discounts).</p>
+    </div>
+
+    <!-- Add Override Form -->
+    <div class="px-6 py-4 border-b border-slate-100 bg-slate-50">
+      <form method="post" action="{% url 'add_student_fee_override' %}" class="flex flex-wrap items-end gap-4">
+        {% csrf_token %}
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Student</label>
+          <select name="student_id" required
+            class="px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+            <option value="">Select student...</option>
+            {% for ss in students %}
+              <option value="{{ ss.student.id }}">{{ ss.student.first_name }} {{ ss.student.last_name }} ({{ ss.student.username }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Daily Rate ($)</label>
+          <input type="number" name="daily_rate" step="0.01" min="0" placeholder="0.00"
+            class="w-28 px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Effective From</label>
+          <input type="date" name="effective_from"
+            class="px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Reason</label>
+          <input type="text" name="reason" placeholder="e.g., Scholarship"
+            class="w-40 px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+        </div>
+        <button type="submit"
+          class="px-4 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition font-medium">
+          Add Override
+        </button>
+      </form>
+    </div>
+
+    {% if student_overrides %}
+      <table class="w-full">
+        <thead>
+          <tr class="border-b border-slate-100">
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Student</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Daily Rate</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Reason</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Effective From</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for override in student_overrides %}
+            <tr class="border-b border-slate-50 hover:bg-slate-50 transition">
+              <td class="px-6 py-4 font-medium text-gray-900">{{ override.student.first_name }} {{ override.student.last_name }}</td>
+              <td class="px-6 py-4 text-gray-600">${{ override.daily_rate }}/day</td>
+              <td class="px-6 py-4 text-gray-600">{{ override.reason|default:"&mdash;" }}</td>
+              <td class="px-6 py-4 text-gray-600">{{ override.effective_from|date:"M d, Y" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="px-6 py-8 text-center">
+        <p class="text-gray-500">No student fee overrides configured.</p>
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

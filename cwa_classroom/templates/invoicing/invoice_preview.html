@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block title %}Invoice Preview{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-8">
+    <div>
+      <h1 class="text-3xl font-bold text-gray-900">Invoice Preview</h1>
+      <p class="text-gray-500 mt-1">Review draft invoices before issuing &mdash; {{ invoices|length }} invoice(s), total ${{ total }}</p>
+    </div>
+    <div class="flex gap-3">
+      <form method="post" action="{% url 'delete_draft_invoices' %}">
+        {% csrf_token %}
+        <button type="submit"
+          class="px-5 py-2.5 bg-white text-red-600 font-semibold rounded-xl border border-red-200 hover:bg-red-50 transition"
+          onclick="return confirm('Delete all draft invoices?')">
+          Discard All
+        </button>
+      </form>
+      <form method="post" action="{% url 'issue_invoices' %}">
+        {% csrf_token %}
+        <button type="submit"
+          class="px-5 py-2.5 bg-emerald-600 text-white font-semibold rounded-xl hover:bg-emerald-700 transition shadow-sm">
+          Issue All ({{ invoices|length }})
+        </button>
+      </form>
+    </div>
+  </div>
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="mb-4 p-4 rounded-xl text-sm font-medium
+        {% if message.tags == 'success' %}bg-emerald-50 text-emerald-700 border border-emerald-200
+        {% elif message.tags == 'error' %}bg-red-50 text-red-700 border border-red-200
+        {% else %}bg-blue-50 text-blue-700 border border-blue-200{% endif %}">
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  <!-- Invoices -->
+  <div class="space-y-4">
+    {% for invoice in invoices %}
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <!-- Summary Row (click to toggle) -->
+        <div class="px-6 py-4 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition"
+             onclick="var d=document.getElementById('detail-{{ invoice.id }}'); var a=this.querySelector('.arrow'); d.classList.toggle('hidden'); a.classList.toggle('rotate-180');">
+          <div class="flex items-center gap-4">
+            <span class="text-xs font-mono text-gray-400">{{ invoice.invoice_number }}</span>
+            <span class="font-medium text-gray-900">
+              {{ invoice.student.first_name }} {{ invoice.student.last_name }}
+            </span>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">Draft</span>
+          </div>
+          <div class="flex items-center gap-4">
+            <span class="text-lg font-semibold text-gray-900">${{ invoice.amount }}</span>
+            <svg class="w-5 h-5 text-gray-400 transition-transform arrow" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Expanded Details (hidden by default) -->
+        <div id="detail-{{ invoice.id }}" class="hidden border-t border-slate-100">
+          <!-- Line Items -->
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="bg-slate-50 border-b border-slate-100">
+                <th class="px-6 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Class</th>
+                <th class="px-6 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Department</th>
+                <th class="px-6 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Rate</th>
+                <th class="px-6 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Sessions</th>
+                <th class="px-6 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for line in invoice.line_items.all %}
+                <tr class="border-b border-slate-50">
+                  {% if line.rate_source == 'opening_balance' %}
+                    <td class="px-6 py-2 text-gray-900 font-medium">Opening Balance</td>
+                    <td class="px-6 py-2 text-gray-400">&mdash;</td>
+                    <td class="px-6 py-2 text-gray-400 text-right">&mdash;</td>
+                    <td class="px-6 py-2 text-gray-400 text-right">&mdash;</td>
+                  {% else %}
+                    <td class="px-6 py-2 text-gray-900">{{ line.classroom.name }}</td>
+                    <td class="px-6 py-2 text-gray-600">{{ line.department.name|default:"&mdash;" }}</td>
+                    <td class="px-6 py-2 text-gray-600 text-right">${{ line.daily_rate }}</td>
+                    <td class="px-6 py-2 text-gray-600 text-right">{{ line.sessions_charged }}</td>
+                  {% endif %}
+                  <td class="px-6 py-2 text-gray-900 font-medium text-right">${{ line.line_amount }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+
+          <!-- Edit Section -->
+          <div class="px-6 py-4 bg-slate-50 border-t border-slate-100">
+            <form method="post" action="{% url 'invoice_preview' %}" class="flex flex-wrap items-end gap-4">
+              {% csrf_token %}
+              <input type="hidden" name="invoice_id" value="{{ invoice.id }}">
+              <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">Adjusted Amount</label>
+                <input type="number" name="amount" step="0.01" value="{{ invoice.amount }}"
+                  class="w-32 px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+              </div>
+              <div class="flex-1">
+                <label class="block text-xs font-medium text-gray-600 mb-1">Notes</label>
+                <input type="text" name="notes" value="{{ invoice.notes|default:'' }}" placeholder="Optional notes..."
+                  class="w-full px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+              </div>
+              <button type="submit"
+                class="px-4 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition font-medium">
+                Update
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+
+  <!-- Bottom Actions -->
+  <div class="mt-8 flex justify-between items-center">
+    <form method="post" action="{% url 'delete_draft_invoices' %}">
+      {% csrf_token %}
+      <button type="submit"
+        class="px-5 py-2.5 text-red-600 font-semibold hover:text-red-800 transition"
+        onclick="return confirm('Delete all draft invoices?')">
+        Discard All Drafts
+      </button>
+    </form>
+    <form method="post" action="{% url 'issue_invoices' %}">
+      {% csrf_token %}
+      <button type="submit"
+        class="px-6 py-2.5 bg-emerald-600 text-white font-semibold rounded-xl hover:bg-emerald-700 transition shadow-sm">
+        Issue All Invoices ({{ invoices|length }})
+      </button>
+    </form>
+  </div>
+
+</div>
+{% endblock %}

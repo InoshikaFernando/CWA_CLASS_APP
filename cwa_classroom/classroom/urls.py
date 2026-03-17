@@ -7,6 +7,7 @@ from . import views_teacher
 from . import views_student
 from . import views_progress
 from . import views_hierarchy
+from . import views_invoicing
 
 urlpatterns = [
     # NOTE: The old HomeView at '/' has been replaced by PublicHomeView + SubjectsHubView
@@ -143,4 +144,25 @@ urlpatterns = [
     path('accounting/export/', views.AccountingExportView.as_view(), name='accounting_export'),
     path('accounting/refunds/', views.AccountingRefundsView.as_view(), name='accounting_refunds'),
     path('accounting/refund/<int:payment_id>/', views.ProcessRefundView.as_view(), name='process_refund'),
+
+    # Invoicing
+    path('invoicing/', views_invoicing.InvoiceListView.as_view(), name='invoice_list'),
+    path('invoicing/fees/', views_invoicing.FeeConfigurationView.as_view(), name='fee_configuration'),
+    path('invoicing/fees/class/<int:classroom_id>/set/', views_invoicing.SetClassroomFeeView.as_view(), name='set_classroom_fee'),
+    path('invoicing/fees/student-override/add/', views_invoicing.AddStudentFeeOverrideView.as_view(), name='add_student_fee_override'),
+    path('invoicing/generate/', views_invoicing.GenerateInvoicesView.as_view(), name='generate_invoices'),
+    path('invoicing/preview/', views_invoicing.InvoicePreviewView.as_view(), name='invoice_preview'),
+    path('invoicing/issue/', views_invoicing.IssueInvoicesView.as_view(), name='issue_invoices'),
+    path('invoicing/drafts/delete/', views_invoicing.DeleteDraftInvoicesView.as_view(), name='delete_draft_invoices'),
+    path('invoicing/<int:invoice_id>/', views_invoicing.InvoiceDetailView.as_view(), name='invoice_detail'),
+    path('invoicing/<int:invoice_id>/cancel/', views_invoicing.CancelInvoiceView.as_view(), name='cancel_invoice'),
+    path('invoicing/<int:invoice_id>/pay/', views_invoicing.RecordManualPaymentView.as_view(), name='record_manual_payment'),
+    path('invoicing/csv/upload/', views_invoicing.CSVUploadView.as_view(), name='csv_upload'),
+    path('invoicing/csv/mapping/', views_invoicing.CSVColumnMappingView.as_view(), name='csv_column_mapping'),
+    path('invoicing/csv/<int:import_id>/review/', views_invoicing.CSVReviewMatchesView.as_view(), name='csv_review_matches'),
+    path('invoicing/csv/<int:import_id>/confirm/', views_invoicing.ConfirmCSVPaymentsView.as_view(), name='confirm_csv_payments'),
+    path('invoicing/reference-mappings/', views_invoicing.ReferenceMappingsView.as_view(), name='reference_mappings'),
+    path('invoicing/opening-balances/', views_invoicing.OpeningBalancesView.as_view(), name='opening_balances'),
+    path('invoicing/opening-balances/<int:student_id>/set/', views_invoicing.SetOpeningBalanceView.as_view(), name='set_opening_balance'),
+    path('invoicing/api/student-search/', views_invoicing.StudentSearchAPIView.as_view(), name='student_search_api'),
 ]
