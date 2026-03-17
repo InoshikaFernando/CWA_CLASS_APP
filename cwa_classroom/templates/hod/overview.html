@@ -13,6 +13,60 @@
     {% endif %}
   </div>
 
+  <!-- ── Next Classes ────────────────────────────────────────── -->
+  {% if upcoming_sessions or next_classes_from_schedule %}
+  <div>
+    <h2 class="font-semibold text-base text-gray-900 mb-3">{{ next_classes_label }}</h2>
+    <div class="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1 snap-x">
+      {% if upcoming_sessions %}
+        {% for session in upcoming_sessions %}
+        <a href="{% url 'class_detail' class_id=session.classroom.id %}"
+           class="flex-shrink-0 w-56 bg-white rounded-xl border border-slate-200 shadow-sm p-4 hover:border-accent/40 hover:shadow-md transition snap-start group">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="inline-flex px-2 py-0.5 rounded-md text-xs font-bold bg-accent/10 text-accent">
+              {{ session.date|date:"D" }} {{ session.start_time|time:"g:iA" }}
+            </span>
+            {% if session.date == today %}
+              <span class="inline-flex px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700">Today</span>
+            {% endif %}
+          </div>
+          <p class="font-semibold text-gray-800 text-sm group-hover:text-accent transition truncate">{{ session.classroom.name }}</p>
+          <div class="flex items-center gap-2 text-xs text-gray-500 mt-1">
+            <span>{{ session.classroom.students.count }} student{{ session.classroom.students.count|pluralize }}</span>
+            {% if not is_teacher_too and session.classroom.teachers.count > 0 %}
+              <span class="text-gray-300">&middot;</span>
+              <span class="truncate">{% for t in session.classroom.teachers.all %}{{ t.get_full_name|default:t.username }}{% if not forloop.last %}, {% endif %}{% endfor %}</span>
+            {% endif %}
+          </div>
+        </a>
+        {% endfor %}
+      {% else %}
+        {% for classroom in next_classes_from_schedule %}
+        <a href="{% url 'class_detail' class_id=classroom.id %}"
+           class="flex-shrink-0 w-56 bg-white rounded-xl border border-slate-200 shadow-sm p-4 hover:border-accent/40 hover:shadow-md transition snap-start group">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="inline-flex px-2 py-0.5 rounded-md text-xs font-bold bg-accent/10 text-accent">
+              {{ classroom.next_date|date:"D" }}{% if classroom.start_time %} {{ classroom.start_time|time:"g:iA" }}{% endif %}
+            </span>
+            {% if classroom.next_date == today %}
+              <span class="inline-flex px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700">Today</span>
+            {% endif %}
+          </div>
+          <p class="font-semibold text-gray-800 text-sm group-hover:text-accent transition truncate">{{ classroom.name }}</p>
+          <div class="flex items-center gap-2 text-xs text-gray-500 mt-1">
+            <span>{{ classroom.student_count }} student{{ classroom.student_count|pluralize }}</span>
+            {% if not is_teacher_too and classroom.teacher_count > 0 %}
+              <span class="text-gray-300">&middot;</span>
+              <span class="truncate">{% for t in classroom.teachers.all %}{{ t.get_full_name|default:t.username }}{% if not forloop.last %}, {% endif %}{% endfor %}</span>
+            {% endif %}
+          </div>
+        </a>
+        {% endfor %}
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
   <!-- ── Stats Row ──────────────────────────────────────────── -->
   <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
 

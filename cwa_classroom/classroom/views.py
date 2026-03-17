@@ -1219,7 +1219,27 @@ class HoDOverviewView(RoleRequiredMixin, View):
         is_hod_only = self._is_hod_only(request.user)
 
         from django.db.models import Count
+        from django.utils import timezone
+        from datetime import timedelta
         from collections import defaultdict
+
+        # ── Next classes: check if user also teaches ──
+        today = timezone.localdate()
+        week_ahead = today + timedelta(days=7)
+
+        my_teaching_classes = ClassRoom.objects.filter(
+            class_teachers__teacher=request.user,
+            is_active=True,
+        ).select_related('department', 'subject').prefetch_related('students', 'teachers')
+
+        if my_teaching_classes.exists():
+            is_teacher_too = True
+            next_classes_scope = my_teaching_classes
+            next_classes_label = 'My Next Classes'
+        else:
+            is_teacher_too = False
+            next_classes_label = 'Upcoming Classes'
+            next_classes_scope = None  # set after HoD/HoI branch
 
         if is_hod_only:
             # HoD: scope to their departments
@@ -1310,6 +1330,50 @@ class HoDOverviewView(RoleRequiredMixin, View):
             group_label = 'Department'
         classes_grouped = dict(sorted(classes_grouped.items()))
 
+        # ── Next classes: upcoming sessions or schedule fallback ──
+        if next_classes_scope is None:
+            next_classes_scope = classes
+
+        upcoming_sessions = list(ClassSession.objects.filter(
+            classroom__in=next_classes_scope,
+            date__gte=today,
+            date__lte=week_ahead,
+            status='scheduled',
+        ).select_related(
+            'classroom', 'classroom__department', 'classroom__subject',
+        ).prefetch_related(
+            'classroom__teachers', 'classroom__students',
+        ).order_by('date', 'start_time')[:4])
+
+        # Fallback: derive from ClassRoom.day if no sessions exist
+        next_classes_from_schedule = []
+        if not upcoming_sessions:
+            DAY_MAP = {
+                'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
+                'friday': 4, 'saturday': 5, 'sunday': 6,
+            }
+            today_idx = today.weekday()
+            now_time = timezone.localtime().time()
+
+            def _days_until(day_str, start_time=None):
+                target = DAY_MAP.get(day_str, 7)
+                diff = (target - today_idx) % 7
+                if diff == 0:
+                    if start_time and start_time > now_time:
+                        return 0
+                    return 7
+                return diff
+
+            scheduled = sorted(
+                [c for c in (next_classes_scope if is_teacher_too else classes_list) if c.day],
+                key=lambda c: (_days_until(c.day, c.start_time), c.start_time or timezone.datetime.min.time()),
+            )
+            # Attach computed next_date for template display
+            for c in scheduled[:4]:
+                du = _days_until(c.day, c.start_time)
+                c.next_date = today + timedelta(days=du)
+            next_classes_from_schedule = scheduled[:4]
+
         return render(request, 'hod/overview.html', {
             'school_data': school_data,
             'classes': classes_list,
@@ -1324,6 +1388,11 @@ class HoDOverviewView(RoleRequiredMixin, View):
             'classes_no_teachers': classes_no_teachers,
             'classes_grouped': classes_grouped,
             'group_label': group_label,
+            'upcoming_sessions': upcoming_sessions,
+            'next_classes_from_schedule': next_classes_from_schedule,
+            'next_classes_label': next_classes_label,
+            'is_teacher_too': is_teacher_too,
+            'today': today,
         })
 
 
