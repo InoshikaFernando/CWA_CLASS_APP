@@ -8,7 +8,8 @@ from accounts.models import Role
 from .views import RoleRequiredMixin
 from .notifications import create_notification
 from .models import (
-    School, SchoolTeacher, Subject, Level, ClassRoom,
+    School, SchoolTeacher, Subject, Level, ClassRoom, Department,
+    ClassStudent, ClassTeacher, DepartmentSubject,
     ProgressCriteria, ProgressRecord, Notification,
 )
 
@@ -687,4 +688,120 @@ class StudentProgressView(RoleRequiredMixin, View):
             'achieved': achieved,
             'in_progress': in_progress_count,
             'not_started': not_started,
+        })
+
+
+# ---------------------------------------------------------------------------
+# Student Progress Report (overview across all students)
+# ---------------------------------------------------------------------------
+
+class StudentProgressReportView(RoleRequiredMixin, View):
+    """Show a filterable list of students with their progress summary.
+
+    Role-based access:
+    - HoI/Institute Owner: all students in all schools they own
+    - HoD: students in their department classes + classes they teach
+    - Teachers: students in classes they teach
+    """
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+        Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+        Role.INSTITUTE_OWNER,
+    ]
+
+    def _get_accessible_classes(self, user):
+        """Return ClassRoom queryset the user can see based on role."""
+        is_hoi = user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER)
+        is_hod = user.has_role(Role.HEAD_OF_DEPARTMENT)
+
+        if is_hoi:
+            school_ids = School.objects.filter(admin=user).values_list('id', flat=True)
+            return ClassRoom.objects.filter(school_id__in=school_ids, is_active=True)
+
+        if is_hod:
+            # Classes in departments they head + classes they teach
+            dept_ids = Department.objects.filter(head=user, is_active=True).values_list('id', flat=True)
+            dept_class_ids = ClassRoom.objects.filter(department_id__in=dept_ids, is_active=True).values_list('id', flat=True)
+            teach_class_ids = ClassTeacher.objects.filter(teacher=user).values_list('classroom_id', flat=True)
+            combined_ids = set(dept_class_ids) | set(teach_class_ids)
+            return ClassRoom.objects.filter(id__in=combined_ids, is_active=True)
+
+        # Teachers: only classes they teach
+        teach_class_ids = ClassTeacher.objects.filter(teacher=user).values_list('classroom_id', flat=True)
+        return ClassRoom.objects.filter(id__in=teach_class_ids, is_active=True)
+
+    def get(self, request):
+        accessible_classes = self._get_accessible_classes(request.user)
+
+        # Build filter options
+        dept_ids = accessible_classes.values_list('department_id', flat=True).distinct()
+        departments = Department.objects.filter(id__in=dept_ids, is_active=True).order_by('name')
+
+        subject_ids = accessible_classes.exclude(level__subject__isnull=True).values_list('level__subject_id', flat=True).distinct()
+        subjects = Subject.objects.filter(id__in=subject_ids, is_active=True).order_by('name')
+
+        classes = accessible_classes.select_related('department', 'level__subject').order_by('name')
+
+        # Apply filters
+        filter_dept = request.GET.get('department')
+        filter_subject = request.GET.get('subject')
+        filter_class = request.GET.get('classroom')
+
+        filtered_classes = accessible_classes
+        if filter_dept:
+            filtered_classes = filtered_classes.filter(department_id=filter_dept)
+        if filter_subject:
+            filtered_classes = filtered_classes.filter(level__subject_id=filter_subject)
+        if filter_class:
+            filtered_classes = filtered_classes.filter(id=filter_class)
+
+        # Get students in filtered classes
+        student_ids = ClassStudent.objects.filter(
+            classroom__in=filtered_classes
+        ).values_list('student_id', flat=True).distinct()
+
+        from accounts.models import CustomUser
+        students_qs = CustomUser.objects.filter(id__in=student_ids).order_by('first_name', 'last_name')
+
+        # Build progress summary per student
+        student_data = []
+        for student in students_qs:
+            # Get latest record per criteria
+            latest_ids_qs = (
+                ProgressRecord.objects
+                .filter(student=student)
+                .values('criteria_id')
+                .annotate(latest_id=Max('id'))
+            )
+            latest_ids = [r['latest_id'] for r in latest_ids_qs]
+            records = ProgressRecord.objects.filter(id__in=latest_ids)
+            total = len(latest_ids)
+            achieved = sum(1 for r in records if r.status == 'achieved')
+            in_progress_count = sum(1 for r in records if r.status == 'in_progress')
+            not_started = sum(1 for r in records if r.status == 'not_started')
+
+            # Get student's classes and department
+            student_classes = ClassRoom.objects.filter(
+                class_students__student=student,
+                id__in=filtered_classes
+            ).select_related('department').order_by('name')
+
+            student_data.append({
+                'student': student,
+                'classes': student_classes,
+                'department': student_classes.first().department if student_classes.exists() else None,
+                'total': total,
+                'achieved': achieved,
+                'in_progress': in_progress_count,
+                'not_started': not_started,
+            })
+
+        return render(request, 'progress/student_progress_report.html', {
+            'student_data': student_data,
+            'departments': departments,
+            'subjects': subjects,
+            'classes': classes,
+            'filter_dept': filter_dept or '',
+            'filter_subject': filter_subject or '',
+            'filter_class': filter_class or '',
         })

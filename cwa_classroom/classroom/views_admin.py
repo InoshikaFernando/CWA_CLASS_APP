@@ -11,7 +11,7 @@ from accounts.models import CustomUser, Role, UserRole
 from accounts.views import _validate_username, _generate_username_suggestion
 from .models import (
     School, SchoolTeacher, AcademicYear, ClassRoom, ClassSession, Department,
-    SchoolStudent, Level,
+    SchoolStudent, Level, Subject, DepartmentSubject,
 )
 from .views import RoleRequiredMixin
 from .email_utils import send_staff_welcome_email
@@ -96,7 +96,6 @@ class SchoolDetailView(RoleRequiredMixin, View):
         academic_years = AcademicYear.objects.filter(school=school)
         departments = Department.objects.filter(school=school).select_related('head')
         school_students = SchoolStudent.objects.filter(school=school).select_related('student')
-        custom_levels = Level.objects.filter(school=school).order_by('level_number')
         return render(request, 'admin_dashboard/school_detail.html', {
             'school': school,
             'teachers': teachers,
@@ -105,7 +104,6 @@ class SchoolDetailView(RoleRequiredMixin, View):
             'departments': departments,
             'school_students': school_students,
             'student_count': school_students.count(),
-            'custom_levels': custom_levels,
         })
 
 
@@ -131,6 +129,84 @@ class ManageStudentsRedirectView(RoleRequiredMixin, View):
             return redirect('admin_school_students', school_id=school.id)
         messages.info(request, 'Create a school first before managing students.')
         return redirect('admin_school_create')
+
+
+class ManageDepartmentsRedirectView(RoleRequiredMixin, View):
+    """Shortcut: redirects to the first school's department management page."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request):
+        school = School.objects.filter(admin=request.user).first()
+        if school:
+            return redirect('admin_school_departments', school_id=school.id)
+        messages.info(request, 'Create a school first before managing departments.')
+        return redirect('admin_school_create')
+
+
+class ManageSubjectsRedirectView(RoleRequiredMixin, View):
+    """Shortcut: redirects to the first school's subject management page."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request):
+        school = School.objects.filter(admin=request.user).first()
+        if school:
+            return redirect('admin_school_subjects', school_id=school.id)
+        messages.info(request, 'Create a school first before managing subjects.')
+        return redirect('admin_school_create')
+
+
+class SchoolSubjectManageView(RoleRequiredMixin, View):
+    """Manage subjects for a school: list global + school-created, create/edit/delete."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request, school_id):
+        school = get_object_or_404(School, id=school_id, admin=request.user)
+        global_subjects = Subject.objects.filter(school__isnull=True, is_active=True).order_by('order', 'name')
+        school_subjects = Subject.objects.filter(school=school, is_active=True).order_by('order', 'name')
+        return render(request, 'admin_dashboard/school_subjects.html', {
+            'school': school,
+            'global_subjects': global_subjects,
+            'school_subjects': school_subjects,
+        })
+
+    def post(self, request, school_id):
+        school = get_object_or_404(School, id=school_id, admin=request.user)
+        action = request.POST.get('action', 'create')
+
+        if action == 'create':
+            name = request.POST.get('name', '').strip()
+            if not name:
+                messages.error(request, 'Subject name is required.')
+                return redirect('admin_school_subjects', school_id=school.id)
+            slug = slugify(name)
+            base_slug = slug
+            cnt = 1
+            while Subject.objects.filter(school=school, slug=slug).exists():
+                slug = f'{base_slug}-{cnt}'
+                cnt += 1
+            Subject.objects.create(name=name, slug=slug, school=school, is_active=True)
+            messages.success(request, f'Subject "{name}" created.')
+
+        elif action == 'edit':
+            subject_id = request.POST.get('subject_id')
+            name = request.POST.get('name', '').strip()
+            subject = Subject.objects.filter(id=subject_id, school=school).first()
+            if subject and name:
+                subject.name = name
+                subject.slug = slugify(name)
+                subject.save()
+                messages.success(request, f'Subject updated to "{name}".')
+
+        elif action == 'delete':
+            subject_id = request.POST.get('subject_id')
+            subject = Subject.objects.filter(id=subject_id, school=school).first()
+            if subject:
+                name = subject.name
+                subject.is_active = False
+                subject.save()
+                messages.success(request, f'Subject "{name}" removed.')
+
+        return redirect('admin_school_subjects', school_id=school.id)
 
 
 class SchoolTeacherManageView(RoleRequiredMixin, View):
@@ -551,98 +627,3 @@ class SchoolStudentRemoveView(RoleRequiredMixin, View):
         else:
             messages.warning(request, 'Student was not found at this school.')
         return redirect('admin_school_students', school_id=school.id)
-
-
-# ── Custom Level CRUD ─────────────────────────────────────────────────────────
-
-class SchoolLevelManageView(RoleRequiredMixin, View):
-    """Manage custom levels for a school."""
-    required_roles = [
-        Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
-        Role.HEAD_OF_DEPARTMENT,
-    ]
-
-    def _get_school(self, request, school_id):
-        user = request.user
-        if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER) or user.has_role(Role.ADMIN):
-            return get_object_or_404(School, id=school_id, admin=user)
-        if user.has_role(Role.HEAD_OF_DEPARTMENT):
-            school = get_object_or_404(School, id=school_id)
-            if Department.objects.filter(school=school, head=user).exists():
-                return school
-        from django.http import Http404
-        raise Http404
-
-    def get(self, request, school_id):
-        school = self._get_school(request, school_id)
-        custom_levels = Level.objects.filter(school=school).order_by('level_number')
-        return render(request, 'admin_dashboard/school_levels.html', {
-            'school': school,
-            'custom_levels': custom_levels,
-        })
-
-    def post(self, request, school_id):
-        school = self._get_school(request, school_id)
-        display_name = request.POST.get('display_name', '').strip()
-        description = request.POST.get('description', '').strip()
-
-        if not display_name:
-            messages.error(request, 'Level name is required.')
-            return redirect('admin_school_levels', school_id=school.id)
-
-        # Auto-generate next level_number starting from 200
-        from django.db.models import Max
-        max_num = Level.objects.filter(level_number__gte=200).aggregate(
-            m=Max('level_number')
-        )['m']
-        next_num = (max_num or 199) + 1
-
-        Level.objects.create(
-            level_number=next_num,
-            display_name=display_name,
-            description=description,
-            school=school,
-        )
-        messages.success(request, f'Level "{display_name}" created.')
-        return redirect('admin_school_levels', school_id=school.id)
-
-
-class SchoolLevelEditView(RoleRequiredMixin, View):
-    """Edit a custom level's display name / description."""
-    required_roles = [
-        Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
-        Role.HEAD_OF_DEPARTMENT,
-    ]
-
-    def post(self, request, school_id, level_id):
-        school = SchoolLevelManageView._get_school(self, request, school_id)
-        level = get_object_or_404(Level, id=level_id, school=school)
-
-        display_name = request.POST.get('display_name', '').strip()
-        description = request.POST.get('description', '').strip()
-        if display_name:
-            level.display_name = display_name
-        level.description = description
-        level.save()
-        messages.success(request, f'Level "{level.display_name}" updated.')
-        return redirect('admin_school_levels', school_id=school.id)
-
-
-class SchoolLevelRemoveView(RoleRequiredMixin, View):
-    """Delete a custom level."""
-    required_roles = [
-        Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
-        Role.HEAD_OF_DEPARTMENT,
-    ]
-
-    def post(self, request, school_id, level_id):
-        school = SchoolLevelManageView._get_school(self, request, school_id)
-        level = Level.objects.filter(id=level_id, school=school).first()
-
-        if level:
-            name = level.display_name
-            level.delete()
-            messages.success(request, f'Level "{name}" deleted.')
-        else:
-            messages.warning(request, 'Level not found.')
-        return redirect('admin_school_levels', school_id=school.id)

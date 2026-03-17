@@ -43,6 +43,9 @@ urlpatterns = [
     path('admin-dashboard/schools/create/', views_admin.SchoolCreateView.as_view(), name='admin_school_create'),
     path('admin-dashboard/manage-teachers/', views_admin.ManageTeachersRedirectView.as_view(), name='admin_manage_teachers'),
     path('admin-dashboard/manage-students/', views_admin.ManageStudentsRedirectView.as_view(), name='admin_manage_students'),
+    path('admin-dashboard/manage-departments/', views_admin.ManageDepartmentsRedirectView.as_view(), name='admin_manage_departments'),
+    path('admin-dashboard/manage-subjects/', views_admin.ManageSubjectsRedirectView.as_view(), name='admin_manage_subjects'),
+    path('admin-dashboard/schools/<int:school_id>/subjects/', views_admin.SchoolSubjectManageView.as_view(), name='admin_school_subjects'),
     path('admin-dashboard/schools/<int:school_id>/', views_admin.SchoolDetailView.as_view(), name='admin_school_detail'),
     path('admin-dashboard/schools/<int:school_id>/teachers/', views_admin.SchoolTeacherManageView.as_view(), name='admin_school_teachers'),
     path('admin-dashboard/schools/<int:school_id>/teachers/<int:teacher_id>/edit/', views_admin.SchoolTeacherEditView.as_view(), name='admin_school_teacher_edit'),
@@ -53,11 +56,6 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/students/', views_admin.SchoolStudentManageView.as_view(), name='admin_school_students'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/edit/', views_admin.SchoolStudentEditView.as_view(), name='admin_school_student_edit'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/remove/', views_admin.SchoolStudentRemoveView.as_view(), name='admin_school_student_remove'),
-
-    # Custom level management (school-level)
-    path('admin-dashboard/schools/<int:school_id>/levels/', views_admin.SchoolLevelManageView.as_view(), name='admin_school_levels'),
-    path('admin-dashboard/schools/<int:school_id>/levels/<int:level_id>/edit/', views_admin.SchoolLevelEditView.as_view(), name='admin_school_level_edit'),
-    path('admin-dashboard/schools/<int:school_id>/levels/<int:level_id>/remove/', views_admin.SchoolLevelRemoveView.as_view(), name='admin_school_level_remove'),
 
     # Department management (within a school)
     path('admin-dashboard/schools/<int:school_id>/departments/', views_department.DepartmentListView.as_view(), name='admin_school_departments'),
@@ -114,6 +112,7 @@ urlpatterns = [
     path('progress/criteria/<int:criteria_id>/reject/', views_progress.ProgressCriteriaRejectView.as_view(), name='progress_criteria_reject'),
     path('progress/class/<int:class_id>/record/', views_progress.RecordProgressView.as_view(), name='record_progress'),
     path('progress/student/<int:student_id>/', views_progress.StudentProgressView.as_view(), name='student_progress'),
+    path('progress/report/', views_progress.StudentProgressReportView.as_view(), name='student_progress_report'),
 
     # Per-student fee override
     path('class/<int:class_id>/student/<int:student_id>/fee/', views.UpdateStudentFeeView.as_view(), name='update_student_fee'),
