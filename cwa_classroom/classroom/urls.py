@@ -148,7 +148,7 @@ urlpatterns = [
     # Invoicing
     path('invoicing/', views_invoicing.InvoiceListView.as_view(), name='invoice_list'),
     path('invoicing/fees/', views_invoicing.FeeConfigurationView.as_view(), name='fee_configuration'),
-    path('invoicing/fees/department/<int:dept_id>/set/', views_invoicing.SetDepartmentFeeView.as_view(), name='set_department_fee'),
+    path('invoicing/fees/class/<int:classroom_id>/set/', views_invoicing.SetClassroomFeeView.as_view(), name='set_classroom_fee'),
     path('invoicing/fees/student-override/add/', views_invoicing.AddStudentFeeOverrideView.as_view(), name='add_student_fee_override'),
     path('invoicing/generate/', views_invoicing.GenerateInvoicesView.as_view(), name='generate_invoices'),
     path('invoicing/preview/', views_invoicing.InvoicePreviewView.as_view(), name='invoice_preview'),

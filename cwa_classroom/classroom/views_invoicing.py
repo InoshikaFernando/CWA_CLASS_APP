@@ -17,13 +17,14 @@ from django.views import View
 
 from accounts.models import Role
 from .models import (
-    School, Department, SchoolStudent, SchoolTeacher,
+    School, Department, ClassRoom, SchoolStudent, SchoolTeacher,
     DepartmentFee, StudentFeeOverride, Invoice, InvoiceLineItem,
     CSVColumnTemplate, CSVImport, PaymentReferenceMapping,
     InvoicePayment, CreditTransaction,
 )
 from .views import RoleRequiredMixin
 from . import invoicing_services as svc
+from .fee_utils import get_effective_fee_for_class, _get_class_fee_source
 
 
 INVOICING_ROLES = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.ACCOUNTANT]
@@ -68,10 +69,13 @@ class FeeConfigurationView(RoleRequiredMixin, View):
             return redirect('subjects_hub')
 
         departments = Department.objects.filter(school=school, is_active=True)
-        for dept in departments:
-            dept.current_fee = DepartmentFee.objects.filter(
-                department=dept,
-            ).order_by('-effective_from').first()
+        classrooms = ClassRoom.objects.filter(
+            school=school, is_active=True,
+        ).select_related('department', 'subject').order_by('department__name', 'name')
+
+        for cr in classrooms:
+            cr.effective_fee = get_effective_fee_for_class(cr)
+            cr.fee_source = _get_class_fee_source(cr)
 
         student_overrides = StudentFeeOverride.objects.filter(
             school=school,
@@ -90,42 +94,38 @@ class FeeConfigurationView(RoleRequiredMixin, View):
 
         return render(request, 'invoicing/fee_configuration.html', {
             'school': school,
-            'departments': departments,
+            'classrooms': classrooms,
             'student_overrides': unique_overrides,
             'students': students,
         })
 
 
-class SetDepartmentFeeView(RoleRequiredMixin, View):
+class SetClassroomFeeView(RoleRequiredMixin, View):
     required_roles = INVOICING_ROLES
 
-    def post(self, request, dept_id):
+    def post(self, request, classroom_id):
         school = _get_single_school(request.user)
-        dept = get_object_or_404(Department, id=dept_id, school=school)
+        classroom = get_object_or_404(ClassRoom, id=classroom_id, school=school)
 
-        rate_str = request.POST.get('daily_rate', '').strip()
-        date_str = request.POST.get('effective_from', '').strip()
+        rate_str = request.POST.get('fee_override', '').strip()
+
+        if not rate_str:
+            classroom.fee_override = None
+            classroom.save(update_fields=['fee_override'])
+            messages.success(request, f'Fee cleared for {classroom.name} — will inherit from cascade.')
+            return redirect('fee_configuration')
 
         try:
-            daily_rate = Decimal(rate_str)
-            if daily_rate < 0:
+            fee = Decimal(rate_str)
+            if fee < 0:
                 raise ValueError
         except (InvalidOperation, ValueError):
-            messages.error(request, 'Daily rate must be a number >= 0.')
+            messages.error(request, 'Fee must be a number >= 0.')
             return redirect('fee_configuration')
 
-        effective_from = _parse_date(date_str)
-        if not effective_from:
-            messages.error(request, 'Valid effective date is required.')
-            return redirect('fee_configuration')
-
-        DepartmentFee.objects.create(
-            department=dept,
-            daily_rate=daily_rate,
-            effective_from=effective_from,
-            created_by=request.user,
-        )
-        messages.success(request, f'Fee set for {dept.name}: ${daily_rate}/day from {effective_from}.')
+        classroom.fee_override = fee
+        classroom.save(update_fields=['fee_override'])
+        messages.success(request, f'Fee set for {classroom.name}: ${fee}/session.')
         return redirect('fee_configuration')
 
 

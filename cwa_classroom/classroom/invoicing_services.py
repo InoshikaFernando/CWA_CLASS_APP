@@ -17,6 +17,7 @@ from .models import (
     Invoice, InvoiceLineItem, InvoicePayment, CreditTransaction,
     PaymentReferenceMapping, CSVImport, SchoolStudent,
 )
+from .fee_utils import get_effective_fee_for_student, get_fee_source_label
 
 
 # ---------------------------------------------------------------------------
@@ -26,25 +27,23 @@ from .models import (
 def resolve_daily_rate(student, classroom, billing_period_end):
     """
     Returns (daily_rate, rate_source) or (None, None) if no fee configured.
-    Resolution order: student override → department default.
-    Rate is resolved against billing_period_end date.
+    Uses the fee cascade: ClassStudent → ClassRoom → Level → Subject → Department.
     """
-    override = StudentFeeOverride.objects.filter(
-        student=student,
-        school=classroom.school,
-        effective_from__lte=billing_period_end,
-    ).order_by('-effective_from').first()
+    class_student = ClassStudent.objects.filter(
+        classroom=classroom, student=student,
+    ).first()
 
-    if override:
-        return override.daily_rate, 'student_override'
+    if not class_student:
+        return None, None
 
-    if classroom.department_id:
-        dept_fee = DepartmentFee.objects.filter(
-            department=classroom.department,
-            effective_from__lte=billing_period_end,
-        ).order_by('-effective_from').first()
-        if dept_fee:
-            return dept_fee.daily_rate, 'department_default'
+    fee = get_effective_fee_for_student(class_student)
+    if fee is not None:
+        source = get_fee_source_label(class_student)
+        # Map source labels to rate_source codes
+        if 'Student' in source:
+            return fee, 'student_override'
+        else:
+            return fee, 'class_default'
 
     return None, None
 
