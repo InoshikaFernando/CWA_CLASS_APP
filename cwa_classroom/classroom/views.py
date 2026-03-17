@@ -35,7 +35,7 @@ class RoleRequiredMixin(LoginRequiredMixin):
             has_any = any(request.user.has_role(r) for r in roles_to_check)
             if not has_any:
                 messages.error(request, "You don't have permission to access that page.")
-                return redirect('subjects_hub')
+                return redirect('public_home')
 
         return super().dispatch(request, *args, **kwargs)
 
@@ -2036,11 +2036,21 @@ class ProcessRefundView(RoleRequiredMixin, View):
 # ---------------------------------------------------------------------------
 
 class PublicHomeView(View):
-    """Public landing page. Redirects authenticated users to the hub."""
+    """Public landing page. Redirects authenticated users to their dashboard."""
 
     def get(self, request):
         if request.user.is_authenticated:
-            return redirect(reverse('subjects_hub'))
+            role = request.user.primary_role
+            if role == Role.ADMIN:
+                return redirect('admin_dashboard')
+            if role in (Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT):
+                return redirect('hod_overview')
+            if role == Role.ACCOUNTANT:
+                return redirect('accounting_dashboard')
+            if role in (Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER):
+                return redirect('teacher_dashboard')
+            # Students / Individual Students → subjects hub
+            return redirect('subjects_hub')
         return render(request, 'public/home.html')
 
 

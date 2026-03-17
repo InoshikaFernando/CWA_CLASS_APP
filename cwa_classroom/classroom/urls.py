@@ -13,7 +13,7 @@ urlpatterns = [
     # NOTE: The old HomeView at '/' has been replaced by PublicHomeView + SubjectsHubView
     # in the project-level urls.py. HomeView is kept at /app-home/ as a fallback.
     path('app-home/', views.HomeView.as_view(), name='home'),
-    path('dashboard/', views.StudentDashboardView.as_view(), name='student_dashboard'),
+    path('student-dashboard/', views.StudentDashboardView.as_view(), name='student_dashboard'),
     path('topics/', views.TopicsView.as_view(), name='topics'),
     path('topic/<int:topic_id>/levels/', views.TopicLevelsView.as_view(), name='topic_levels'),
     path('level/<int:level_number>/', views.LevelDetailView.as_view(), name='level_detail'),
@@ -126,15 +126,15 @@ urlpatterns = [
 
     # HoD / Dashboard
     path('dashboard/', views.HoDOverviewView.as_view(), name='hod_overview'),
-    path('dashboard/manage-classes/', views.HoDManageClassesView.as_view(), name='hod_manage_classes'),
-    path('dashboard/create-class/', views.HoDCreateClassView.as_view(), name='hod_create_class'),
-    path('dashboard/assign-class/', views.HoDAssignClassView.as_view(), name='hod_assign_class'),
-    path('dashboard/workload/', views.HoDWorkloadView.as_view(), name='hod_workload'),
-    path('dashboard/reports/', views.HoDReportsView.as_view(), name='hod_reports'),
-    path('dashboard/attendance/', views.HoDAttendanceReportView.as_view(), name='hod_attendance_report'),
-    path('dashboard/subject-levels/', views.HoDSubjectLevelsView.as_view(), name='hod_subject_levels'),
-    path('dashboard/subject-levels/<int:dept_id>/', views.HoDSubjectLevelsView.as_view(), name='hod_subject_levels_dept'),
-    path('dashboard/subject-levels/<int:dept_id>/<int:level_id>/remove/', views.HoDSubjectLevelRemoveView.as_view(), name='hod_subject_level_remove'),
+    path('department/manage-classes/', views.HoDManageClassesView.as_view(), name='hod_manage_classes'),
+    path('department/create-class/', views.HoDCreateClassView.as_view(), name='hod_create_class'),
+    path('department/assign-class/', views.HoDAssignClassView.as_view(), name='hod_assign_class'),
+    path('department/workload/', views.HoDWorkloadView.as_view(), name='hod_workload'),
+    path('department/reports/', views.HoDReportsView.as_view(), name='hod_reports'),
+    path('department/attendance/', views.HoDAttendanceReportView.as_view(), name='hod_attendance_report'),
+    path('department/subject-levels/', views.HoDSubjectLevelsView.as_view(), name='hod_subject_levels'),
+    path('department/subject-levels/<int:dept_id>/', views.HoDSubjectLevelsView.as_view(), name='hod_subject_levels_dept'),
+    path('department/subject-levels/<int:dept_id>/<int:level_id>/remove/', views.HoDSubjectLevelRemoveView.as_view(), name='hod_subject_level_remove'),
 
     # Accounting
     path('accounting/', views.AccountingDashboardView.as_view(), name='accounting_dashboard'),
