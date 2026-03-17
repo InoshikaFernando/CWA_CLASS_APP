@@ -140,24 +140,28 @@ def calculate_invoice_lines(student, school, billing_period_start, billing_perio
         if not classroom.is_active:
             continue
 
-        joined_date = enrollment.joined_at.date()
-        effective_start = max(billing_period_start, joined_date)
-
-        if effective_start > billing_period_end:
-            continue
-
-        sessions = ClassSession.objects.filter(
+        # Use full billing period — don't restrict by joined_at.
+        # If a student has attendance marked for a session, they should be
+        # charged for it even if they were formally enrolled after that date.
+        all_sessions = ClassSession.objects.filter(
             classroom=classroom,
-            status='completed',
-            date__range=(effective_start, billing_period_end),
-        )
-        sessions_held = sessions.count()
+            date__range=(billing_period_start, billing_period_end),
+        ).exclude(status='cancelled')
 
+        # Completed sessions = officially held
+        sessions_held = all_sessions.filter(status='completed').count()
+
+        # Count attendance from ALL non-cancelled sessions (not just completed).
+        # This also handles sessions where attendance was marked but status
+        # is still 'scheduled'.
         sessions_attended = StudentAttendance.objects.filter(
-            session__in=sessions,
+            session__in=all_sessions,
             student=student,
             status__in=['present', 'late'],
         ).count()
+
+        if sessions_held == 0 and sessions_attended == 0:
+            continue
 
         if attendance_mode == 'all_class_days':
             sessions_charged = sessions_held
