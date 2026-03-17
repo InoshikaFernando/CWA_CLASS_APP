@@ -124,17 +124,17 @@ urlpatterns = [
     path('school-hierarchy/', views_hierarchy.SchoolHierarchyView.as_view(), name='school_hierarchy_auto'),
     path('school-hierarchy/<int:school_id>/', views_hierarchy.SchoolHierarchyView.as_view(), name='school_hierarchy'),
 
-    # HoD
-    path('department/', views.HoDOverviewView.as_view(), name='hod_overview'),
-    path('department/manage-classes/', views.HoDManageClassesView.as_view(), name='hod_manage_classes'),
-    path('department/create-class/', views.HoDCreateClassView.as_view(), name='hod_create_class'),
-    path('department/assign-class/', views.HoDAssignClassView.as_view(), name='hod_assign_class'),
-    path('department/workload/', views.HoDWorkloadView.as_view(), name='hod_workload'),
-    path('department/reports/', views.HoDReportsView.as_view(), name='hod_reports'),
-    path('department/attendance/', views.HoDAttendanceReportView.as_view(), name='hod_attendance_report'),
-    path('department/subject-levels/', views.HoDSubjectLevelsView.as_view(), name='hod_subject_levels'),
-    path('department/subject-levels/<int:dept_id>/', views.HoDSubjectLevelsView.as_view(), name='hod_subject_levels_dept'),
-    path('department/subject-levels/<int:dept_id>/<int:level_id>/remove/', views.HoDSubjectLevelRemoveView.as_view(), name='hod_subject_level_remove'),
+    # HoD / Dashboard
+    path('dashboard/', views.HoDOverviewView.as_view(), name='hod_overview'),
+    path('dashboard/manage-classes/', views.HoDManageClassesView.as_view(), name='hod_manage_classes'),
+    path('dashboard/create-class/', views.HoDCreateClassView.as_view(), name='hod_create_class'),
+    path('dashboard/assign-class/', views.HoDAssignClassView.as_view(), name='hod_assign_class'),
+    path('dashboard/workload/', views.HoDWorkloadView.as_view(), name='hod_workload'),
+    path('dashboard/reports/', views.HoDReportsView.as_view(), name='hod_reports'),
+    path('dashboard/attendance/', views.HoDAttendanceReportView.as_view(), name='hod_attendance_report'),
+    path('dashboard/subject-levels/', views.HoDSubjectLevelsView.as_view(), name='hod_subject_levels'),
+    path('dashboard/subject-levels/<int:dept_id>/', views.HoDSubjectLevelsView.as_view(), name='hod_subject_levels_dept'),
+    path('dashboard/subject-levels/<int:dept_id>/<int:level_id>/remove/', views.HoDSubjectLevelRemoveView.as_view(), name='hod_subject_level_remove'),
 
     # Accounting
     path('accounting/', views.AccountingDashboardView.as_view(), name='accounting_dashboard'),
