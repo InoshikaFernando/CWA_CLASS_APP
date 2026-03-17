@@ -185,16 +185,24 @@
         {% if classes %}
           <div class="space-y-3">
             {% for cls in classes %}
-              <a href="{% url 'class_detail' cls.id %}"
-                 class="flex items-center justify-between p-3 bg-slate-50 rounded-xl hover:bg-slate-100 transition">
-                <div>
+              <div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl hover:bg-slate-100 transition">
+                <a href="{% url 'class_detail' cls.id %}" class="flex-1 min-w-0">
                   <p class="text-sm font-medium text-gray-900">{{ cls.name }}</p>
                   <p class="text-xs text-gray-500">Code: {{ cls.code }} &middot; {{ cls.students.count }} students</p>
+                </a>
+                <div class="flex items-center gap-2 ml-3">
+                  {% if cls.subject %}
+                    <span class="text-xs font-medium px-2 py-1 rounded-full bg-slate-200 text-slate-700">{{ cls.subject.name }}</span>
+                  {% endif %}
+                  <a href="{% url 'assign_students' class_id=cls.id %}"
+                     class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-accent text-white text-xs font-semibold rounded-lg hover:bg-accent-dark transition whitespace-nowrap">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z"/>
+                    </svg>
+                    Add Students
+                  </a>
                 </div>
-                {% if cls.subject %}
-                  <span class="text-xs font-medium px-2 py-1 rounded-full bg-slate-200 text-slate-700">{{ cls.subject.name }}</span>
-                {% endif %}
-              </a>
+              </div>
             {% endfor %}
           </div>
         {% else %}

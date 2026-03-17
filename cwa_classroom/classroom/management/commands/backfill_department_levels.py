@@ -2,9 +2,8 @@
 Backfill DepartmentLevel rows for existing departments that were created
 before the DepartmentLevel M2M feature was added.
 
-For Mathematics departments: auto-maps Year 1-9 (global levels with subject=Mathematics).
-For other departments with a subject: auto-maps global levels for that subject.
-Basic Facts (100-199) are always excluded.
+For each department, iterates its DepartmentSubject links and auto-maps
+global levels for each subject. Basic Facts (100-199) are always excluded.
 
 Usage:
     python manage.py backfill_department_levels
@@ -14,7 +13,7 @@ Usage:
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from classroom.models import Department, DepartmentLevel, Level
+from classroom.models import Department, DepartmentLevel, DepartmentSubject, Level
 
 
 class Command(BaseCommand):
@@ -30,13 +29,16 @@ class Command(BaseCommand):
         dry_run = options['dry_run']
         total_created = 0
 
-        departments = Department.objects.filter(
-            subject__isnull=False, is_active=True,
-        ).select_related('subject', 'school')
+        dept_subjects = (
+            DepartmentSubject.objects.filter(department__is_active=True)
+            .select_related('department', 'department__school', 'subject')
+            .order_by('department__school__name', 'department__name')
+        )
 
-        for dept in departments:
+        for ds in dept_subjects:
+            dept = ds.department
             subject_levels = Level.objects.filter(
-                subject=dept.subject, school__isnull=True,
+                subject=ds.subject, school__isnull=True,
             ).exclude(
                 level_number__gte=100, level_number__lt=200,
             ).order_by('level_number')
@@ -60,7 +62,8 @@ class Command(BaseCommand):
             if created_count:
                 total_created += created_count
                 self.stdout.write(
-                    f'  {dept.school.name} / {dept.name}: {created_count} levels {"would be " if dry_run else ""}mapped'
+                    f'  {dept.school.name} / {dept.name} / {ds.subject.name}: '
+                    f'{created_count} levels {"would be " if dry_run else ""}mapped'
                 )
 
         prefix = '[DRY RUN] ' if dry_run else ''

@@ -134,8 +134,12 @@ class SchoolHierarchyView(RoleRequiredMixin, View):
 
             # Build teacher list with classes
             teachers_data = []
+            seen_teacher_ids = set()      # track teachers already shown in this dept
+            shown_class_ids = set()       # track classes already shown in this dept
+
             for dt in dept_teacher_links:
                 teacher = dt.teacher
+                seen_teacher_ids.add(teacher.id)
                 role_display = school_teacher_roles.get(teacher.id, 'Teacher')
                 role_key = school_teacher_role_keys.get(teacher.id, 'teacher')
 
@@ -150,6 +154,7 @@ class SchoolHierarchyView(RoleRequiredMixin, View):
 
                 classes_data = []
                 for cls in teacher_classes:
+                    shown_class_ids.add(cls.id)
                     color = shared_class_colors.get(cls.id)
                     classes_data.append({
                         'classroom': cls,
@@ -165,6 +170,59 @@ class SchoolHierarchyView(RoleRequiredMixin, View):
                     'role_key': role_key,
                     'classes': classes_data,
                 })
+
+            # ── Also include classes that belong to this department via FK ──
+            # but whose teachers aren't formally in DepartmentTeacher
+            dept_owned_classes = ClassRoom.objects.filter(
+                department=dept, is_active=True,
+            ).exclude(id__in=shown_class_ids).annotate(
+                student_count=Count('class_students'),
+            ).distinct()
+
+            # Group these classes by their teacher(s)
+            extra_teacher_classes = {}  # teacher_id → list of class_data
+            for cls in dept_owned_classes:
+                cls_teachers = ClassTeacher.objects.filter(
+                    classroom=cls,
+                ).select_related('teacher')
+                if cls_teachers.exists():
+                    for ct in cls_teachers:
+                        extra_teacher_classes.setdefault(ct.teacher_id, {
+                            'teacher': ct.teacher,
+                            'classes': [],
+                        })
+                        color = shared_class_colors.get(cls.id)
+                        extra_teacher_classes[ct.teacher_id]['classes'].append({
+                            'classroom': cls,
+                            'is_shared': cls.id in shared_class_ids,
+                            'color': color,
+                            'student_count': cls.student_count,
+                            'can_view': cls.id in accessible_class_ids,
+                        })
+
+            # Merge extra teachers into teachers_data
+            for teacher_id, data in extra_teacher_classes.items():
+                teacher = data['teacher']
+                if teacher_id in seen_teacher_ids:
+                    # Teacher already shown — append their department-owned classes
+                    for td in teachers_data:
+                        if td['user'].id == teacher_id:
+                            existing_ids = {c['classroom'].id for c in td['classes']}
+                            for cls_data in data['classes']:
+                                if cls_data['classroom'].id not in existing_ids:
+                                    td['classes'].append(cls_data)
+                            break
+                else:
+                    # Teacher not in dept — add them with only dept-owned classes
+                    st = SchoolTeacher.objects.filter(
+                        school=school, teacher=teacher, is_active=True,
+                    ).first()
+                    teachers_data.append({
+                        'user': teacher,
+                        'role_display': st.get_role_display() if st else 'Teacher',
+                        'role_key': st.role if st else 'teacher',
+                        'classes': data['classes'],
+                    })
 
             # Sort teachers: senior_teacher first, then teacher, then junior_teacher
             role_order = {

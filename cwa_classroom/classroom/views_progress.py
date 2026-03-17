@@ -77,22 +77,35 @@ def _build_hierarchical_criteria(criteria_qs):
 # ---------------------------------------------------------------------------
 
 class ProgressCriteriaListView(RoleRequiredMixin, View):
-    """List progress criteria for the current school, with optional filters."""
+    """List progress criteria for the current school, with optional filters.
+    Also handles inline create/edit via POST actions."""
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
         Role.INSTITUTE_OWNER,
     ]
 
-    def get(self, request):
-        school = _get_school_or_redirect(request)
-        if school is None:
-            messages.error(request, 'No school selected. Please select a school first.')
-            return redirect('subjects_hub')
+    def _build_subject_levels_json(self, school):
+        """Build a JSON mapping of subject_id -> [{id, name}] for levels, excluding Basic Facts."""
+        import json
+        levels = Level.objects.filter(
+            Q(school__isnull=True) | Q(school=school),
+            subject__isnull=False,
+        ).exclude(
+            level_number__gte=100, level_number__lt=200,
+        ).select_related('subject').order_by('subject__name', 'level_number')
 
+        mapping = {}
+        for lv in levels:
+            subj_id = str(lv.subject_id)
+            if subj_id not in mapping:
+                mapping[subj_id] = []
+            mapping[subj_id].append({'id': lv.id, 'name': lv.display_name})
+        return json.dumps(mapping)
+
+    def _get_context(self, request, school, extra=None):
         criteria = ProgressCriteria.objects.filter(school=school)
 
-        # Optional query-param filters
         subject_id = request.GET.get('subject_id')
         level_id = request.GET.get('level_id')
         if subject_id:
@@ -104,22 +117,103 @@ class ProgressCriteriaListView(RoleRequiredMixin, View):
             'subject', 'level', 'created_by', 'approved_by', 'parent',
         ).order_by('subject__name', 'level__level_number', 'order', 'name')
 
-        hierarchical_criteria = _build_hierarchical_criteria(criteria)
-
-        # Show all active subjects and school-relevant levels for filters
-        subjects = Subject.objects.filter(is_active=True).order_by('order', 'name')
-        levels = Level.objects.filter(
-            Q(school__isnull=True) | Q(school=school)
-        ).order_by('level_number')
-
-        return render(request, 'progress/criteria_list.html', {
+        ctx = {
             'school': school,
-            'hierarchical_criteria': hierarchical_criteria,
-            'subjects': subjects,
-            'levels': levels,
+            'hierarchical_criteria': _build_hierarchical_criteria(criteria),
+            'subjects': Subject.objects.filter(is_active=True).order_by('name'),
+            'subject_levels_json': self._build_subject_levels_json(school),
             'selected_subject_id': int(subject_id) if subject_id else None,
             'selected_level_id': int(level_id) if level_id else None,
-        })
+        }
+        if extra:
+            ctx.update(extra)
+        return ctx
+
+    def get(self, request):
+        school = _get_school_or_redirect(request)
+        if school is None:
+            messages.error(request, 'No school selected. Please select a school first.')
+            return redirect('subjects_hub')
+
+        # If editing, load the criteria to edit
+        edit_id = request.GET.get('edit')
+        edit_criteria = None
+        if edit_id:
+            edit_criteria = ProgressCriteria.objects.filter(
+                pk=edit_id, school=school,
+            ).select_related('subject', 'level').first()
+
+        return render(request, 'progress/criteria_list.html',
+                      self._get_context(request, school, {'edit_criteria': edit_criteria}))
+
+    def post(self, request):
+        school = _get_school_or_redirect(request)
+        if school is None:
+            messages.error(request, 'No school selected. Please select a school first.')
+            return redirect('subjects_hub')
+
+        action = request.POST.get('action', 'create')
+
+        name = request.POST.get('name', '').strip()
+        description = request.POST.get('description', '').strip()
+        order = request.POST.get('order', '0').strip()
+        subject_id = request.POST.get('subject')
+        level_id = request.POST.get('level')  # empty = All Levels
+        parent_id = request.POST.get('parent')
+
+        if not name or not subject_id:
+            messages.error(request, 'Subject and name are required.')
+            return redirect('progress_criteria_list')
+
+        subject = get_object_or_404(Subject, pk=subject_id)
+        level = get_object_or_404(Level, pk=level_id) if level_id else None
+
+        try:
+            order_val = int(order)
+        except (ValueError, TypeError):
+            order_val = 0
+
+        auto_approve = (
+            request.user.has_role(Role.SENIOR_TEACHER)
+            or request.user.has_role(Role.HEAD_OF_DEPARTMENT)
+            or request.user.has_role(Role.HEAD_OF_INSTITUTE)
+            or request.user.has_role(Role.INSTITUTE_OWNER)
+        )
+
+        if action == 'edit':
+            criteria_id = request.POST.get('criteria_id')
+            criteria = get_object_or_404(ProgressCriteria, pk=criteria_id, school=school)
+            criteria.name = name
+            criteria.subject = subject
+            criteria.level = level
+            criteria.description = description
+            criteria.order = order_val
+            if parent_id:
+                criteria.parent_id = parent_id
+            criteria.save()
+            messages.success(request, f'Criteria "{name}" updated.')
+        else:
+            parent = None
+            if parent_id:
+                parent = ProgressCriteria.objects.filter(pk=parent_id, school=school).first()
+            ProgressCriteria.objects.create(
+                school=school,
+                subject=subject,
+                level=level,
+                parent=parent,
+                name=name,
+                description=description,
+                order=order_val,
+                status='approved' if auto_approve else 'draft',
+                created_by=request.user,
+                approved_by=request.user if auto_approve else None,
+            )
+            if auto_approve:
+                messages.success(request, f'Criteria "{name}" created and approved.')
+            else:
+                messages.success(request, f'Criteria "{name}" created as draft.')
+
+        return redirect('progress_criteria_list')
 
 
 class ProgressCriteriaCreateView(RoleRequiredMixin, View):
@@ -129,6 +223,24 @@ class ProgressCriteriaCreateView(RoleRequiredMixin, View):
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
         Role.INSTITUTE_OWNER,
     ]
+
+    def _build_subject_levels_json(self, school):
+        """Build a JSON mapping of subject_id -> [{id, name}] for levels, excluding Basic Facts."""
+        import json
+        levels = Level.objects.filter(
+            Q(school__isnull=True) | Q(school=school),
+            subject__isnull=False,
+        ).exclude(
+            level_number__gte=100, level_number__lt=200,  # Exclude Basic Facts (100-199)
+        ).select_related('subject').order_by('subject__name', 'level_number')
+
+        mapping = {}
+        for lv in levels:
+            subj_id = str(lv.subject_id)
+            if subj_id not in mapping:
+                mapping[subj_id] = []
+            mapping[subj_id].append({'id': lv.id, 'name': lv.display_name})
+        return json.dumps(mapping)
 
     def get(self, request):
         school = _get_school_or_redirect(request)
@@ -144,15 +256,12 @@ class ProgressCriteriaCreateView(RoleRequiredMixin, View):
                 pk=parent_id, school=school,
             ).select_related('subject', 'level').first()
 
-        subjects = Subject.objects.filter(is_active=True).order_by('order', 'name')
-        levels = Level.objects.filter(
-            Q(school__isnull=True) | Q(school=school)
-        ).order_by('level_number')
+        subjects = Subject.objects.filter(is_active=True).order_by('name')
 
         return render(request, 'progress/criteria_form.html', {
             'school': school,
             'subjects': subjects,
-            'levels': levels,
+            'subject_levels_json': self._build_subject_levels_json(school),
             'parent_criteria': parent_criteria,
         })
 
@@ -174,49 +283,40 @@ class ProgressCriteriaCreateView(RoleRequiredMixin, View):
         description = request.POST.get('description', '').strip()
         order = request.POST.get('order', '0').strip()
 
+        # Helper to re-render the form on validation error
+        def _rerender(error_msg, form_data):
+            messages.error(request, error_msg)
+            return render(request, 'progress/criteria_form.html', {
+                'school': school,
+                'subjects': Subject.objects.filter(is_active=True).order_by('name'),
+                'subject_levels_json': self._build_subject_levels_json(school),
+                'parent_criteria': parent_criteria,
+                'form_data': form_data,
+            })
+
         # Inherit subject/level from parent if set, otherwise read from form
         if parent_criteria:
             subject = parent_criteria.subject
             level = parent_criteria.level
         else:
             subject_id = request.POST.get('subject')
-            level_id = request.POST.get('level')
-            if not name or not subject_id or not level_id:
-                messages.error(request, 'Subject, level, and name are required.')
-                return render(request, 'progress/criteria_form.html', {
-                    'school': school,
-                    'subjects': Subject.objects.filter(is_active=True).order_by('order', 'name'),
-                    'levels': Level.objects.filter(
-                        Q(school__isnull=True) | Q(school=school)
-                    ).order_by('level_number'),
-                    'parent_criteria': parent_criteria,
-                    'form_data': {
-                        'subject': subject_id,
-                        'level': level_id,
-                        'name': name,
-                        'description': description,
-                        'order': order,
-                    },
-                })
-            subject = get_object_or_404(Subject, pk=subject_id)
-            level = get_object_or_404(Level, pk=level_id)
-
-        if not name:
-            messages.error(request, 'Name is required.')
-            return render(request, 'progress/criteria_form.html', {
-                'school': school,
-                'subjects': Subject.objects.filter(
-                    classrooms__school=school, classrooms__is_active=True,
-                ).distinct().order_by('order', 'name'),
-                'levels': Level.objects.filter(
-                    classrooms__school=school, classrooms__is_active=True,
-                ).distinct().order_by('level_number'),
-                'parent_criteria': parent_criteria,
-                'form_data': {
+            level_id = request.POST.get('level')  # empty string = "All Levels"
+            if not name or not subject_id:
+                return _rerender('Subject and name are required.', {
+                    'subject': subject_id,
+                    'level': level_id,
                     'name': name,
                     'description': description,
                     'order': order,
-                },
+                })
+            subject = get_object_or_404(Subject, pk=subject_id)
+            level = get_object_or_404(Level, pk=level_id) if level_id else None
+
+        if not name:
+            return _rerender('Name is required.', {
+                'name': name,
+                'description': description,
+                'order': order,
             })
 
         try:
@@ -417,7 +517,9 @@ class RecordProgressView(RoleRequiredMixin, View):
         if classroom.subject:
             criteria_qs = criteria_qs.filter(subject=classroom.subject)
         if classroom.levels.exists():
-            criteria_qs = criteria_qs.filter(level__in=classroom.levels.all())
+            criteria_qs = criteria_qs.filter(
+                Q(level__in=classroom.levels.all()) | Q(level__isnull=True)
+            )
 
         criteria_qs = criteria_qs.select_related('subject', 'level', 'parent').order_by(
             'subject__name', 'level__level_number', 'order', 'name',
@@ -478,7 +580,9 @@ class RecordProgressView(RoleRequiredMixin, View):
         if classroom.subject:
             criteria_qs = criteria_qs.filter(subject=classroom.subject)
         if classroom.levels.exists():
-            criteria_qs = criteria_qs.filter(level__in=classroom.levels.all())
+            criteria_qs = criteria_qs.filter(
+                Q(level__in=classroom.levels.all()) | Q(level__isnull=True)
+            )
 
         valid_statuses = {s[0] for s in ProgressRecord.STATUS_CHOICES}
         updated = 0

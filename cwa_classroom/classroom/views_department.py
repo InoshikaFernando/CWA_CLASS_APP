@@ -6,7 +6,7 @@ from django.utils.text import slugify
 
 from accounts.models import CustomUser, Role, UserRole
 from accounts.views import _validate_username, _generate_username_suggestion
-from .models import School, SchoolTeacher, Department, DepartmentTeacher, DepartmentLevel, ClassRoom, Subject, Level
+from .models import School, SchoolTeacher, Department, DepartmentTeacher, DepartmentLevel, DepartmentSubject, ClassRoom, Subject, Level
 from .views import RoleRequiredMixin
 from .email_utils import send_staff_welcome_email
 
@@ -37,9 +37,17 @@ class DepartmentCreateView(RoleRequiredMixin, View):
     """Create a new department in a school."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
+    def _get_subjects(self, school):
+        """Return global subjects + school-created subjects for the dropdown."""
+        from django.db.models import Q
+        return Subject.objects.filter(
+            Q(school__isnull=True) | Q(school=school),
+            is_active=True,
+        ).order_by('order', 'name')
+
     def get(self, request, school_id):
         school = get_object_or_404(School, id=school_id, admin=request.user)
-        subjects = Subject.objects.filter(is_active=True).order_by('order', 'name')
+        subjects = self._get_subjects(school)
         return render(request, 'admin_dashboard/department_form.html', {
             'school': school,
             'subjects': subjects,
@@ -49,21 +57,19 @@ class DepartmentCreateView(RoleRequiredMixin, View):
         school = get_object_or_404(School, id=school_id, admin=request.user)
         name = request.POST.get('name', '').strip()
         description = request.POST.get('description', '').strip()
-        subject_id = request.POST.get('subject', '').strip()
-        subjects = Subject.objects.filter(is_active=True).order_by('order', 'name')
+        subject_ids = request.POST.getlist('subjects')  # Multi-select
+        new_subject_name = request.POST.get('new_subject_name', '').strip()
+        subjects = self._get_subjects(school)
 
         if not name:
             messages.error(request, 'Department name is required.')
             return render(request, 'admin_dashboard/department_form.html', {
                 'school': school,
                 'subjects': subjects,
-                'form_data': {'name': name, 'description': description, 'subject': subject_id},
+                'form_data': {'name': name, 'description': description,
+                              'selected_subject_ids': subject_ids,
+                              'new_subject_name': new_subject_name},
             })
-
-        # Resolve subject
-        subject = None
-        if subject_id and subject_id != 'other':
-            subject = Subject.objects.filter(id=subject_id, is_active=True).first()
 
         slug = slugify(name)
         base_slug = slug
@@ -77,26 +83,51 @@ class DepartmentCreateView(RoleRequiredMixin, View):
             name=name,
             slug=slug,
             description=description,
-            subject=subject,
         )
-        # Auto-assign levels based on subject module via DepartmentLevel M2M
-        if subject:
-            from .models import DepartmentLevel
-            # Find all global levels belonging to this subject (e.g. Year 1-9 for Mathematics)
-            subject_levels = Level.objects.filter(
-                subject=subject, school__isnull=True,
-            ).exclude(
-                level_number__gte=100, level_number__lt=200,  # Exclude Basic Facts
+
+        # Resolve selected subjects and create DepartmentSubject links
+        resolved_subjects = []
+        for sid in subject_ids:
+            if sid == 'new':
+                continue  # Handled below
+            subj = Subject.objects.filter(id=sid, is_active=True).first()
+            if subj:
+                resolved_subjects.append(subj)
+
+        # Handle "Create New Subject" option
+        if new_subject_name:
+            subj_slug = slugify(new_subject_name)
+            base_s = subj_slug
+            cnt = 1
+            while Subject.objects.filter(school=school, slug=subj_slug).exists():
+                subj_slug = f'{base_s}-{cnt}'
+                cnt += 1
+            new_subj = Subject.objects.create(
+                name=new_subject_name, slug=subj_slug, school=school, is_active=True,
             )
-            for lv in subject_levels:
+            resolved_subjects.append(new_subj)
+
+        # Create DepartmentSubject links and auto-map levels
+        for order, subj in enumerate(resolved_subjects):
+            DepartmentSubject.objects.get_or_create(
+                department=dept, subject=subj,
+                defaults={'order': order},
+            )
+            # Auto-assign global levels for this subject
+            subj_levels = Level.objects.filter(
+                subject=subj, school__isnull=True,
+            ).exclude(level_number__gte=100, level_number__lt=200)
+            for lv in subj_levels:
                 DepartmentLevel.objects.get_or_create(
                     department=dept, level=lv,
                     defaults={'order': lv.level_number},
                 )
-        if subject:
-            messages.success(request, f'Department "{name}" created with {subject.name} question bank.')
+
+        if resolved_subjects:
+            names = ', '.join(s.name for s in resolved_subjects)
+            messages.success(request, f'Department "{name}" created with subjects: {names}.')
         else:
-            messages.success(request, f'Department "{name}" created as a custom subject.')
+            messages.success(request, f'Department "{name}" created.')
         return redirect('admin_school_departments', school_id=school.id)
 
 
@@ -112,32 +143,96 @@ class DepartmentDetailView(RoleRequiredMixin, View):
         ).select_related('teacher')
         classes = ClassRoom.objects.filter(
             department=department, is_active=True
-        ).prefetch_related('teachers', 'students')
+        ).prefetch_related('teachers', 'students', 'levels')
         mapped_levels = DepartmentLevel.objects.filter(
             department=department,
-        ).select_related('level').order_by('order', 'level__level_number')
+        ).select_related('level', 'level__subject').order_by('order', 'level__level_number')
+
+        # Department subjects
+        department_subjects = DepartmentSubject.objects.filter(
+            department=department,
+        ).select_related('subject').order_by('subject__name')
+
+        # Subject levels with class counts, grouped by subject (exclude Basic Facts)
+        subject_groups = []
+        for ds in department_subjects:
+            levels_for_subject = []
+            for dl in mapped_levels:
+                lv = dl.level
+                if 100 <= lv.level_number < 200:
+                    continue
+                if lv.subject_id == ds.subject_id:
+                    cls_count = sum(1 for c in classes if lv in c.levels.all())
+                    levels_for_subject.append({'level': lv, 'class_count': cls_count})
+            subject_groups.append({
+                'subject': ds.subject,
+                'levels': levels_for_subject,
+            })
+        # Also collect levels with no subject match (orphaned or unlinked)
+        assigned_subject_ids = {ds.subject_id for ds in department_subjects}
+        orphan_levels = []
+        for dl in mapped_levels:
+            lv = dl.level
+            if 100 <= lv.level_number < 200:
+                continue
+            if lv.subject_id not in assigned_subject_ids:
+                cls_count = sum(1 for c in classes if lv in c.levels.all())
+                orphan_levels.append({'level': lv, 'class_count': cls_count})
+
+        # Group classes by their first level for display
+        from collections import OrderedDict
+        classes_by_level = OrderedDict()
+        ungrouped = []
+        for cls in classes:
+            cls_levels = list(cls.levels.all())
+            if cls_levels:
+                key = cls_levels[0].display_name
+                classes_by_level.setdefault(key, []).append(cls)
+            else:
+                ungrouped.append(cls)
+        if ungrouped:
+            classes_by_level['No Level'] = ungrouped
+
         return render(request, 'admin_dashboard/department_detail.html', {
             'school': school,
             'department': department,
+            'department_subjects': department_subjects,
             'dept_teachers': dept_teachers,
             'classes': classes,
             'mapped_levels': mapped_levels,
+            'subject_groups': subject_groups,
+            'orphan_levels': orphan_levels,
+            'classes_by_level': classes_by_level,
         })
 
 
 class DepartmentEditView(RoleRequiredMixin, View):
-    """Edit department name and description."""
+    """Edit department name, description, and subject."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def _get_subjects(self, school):
+        from django.db.models import Q
+        return Subject.objects.filter(
+            Q(school__isnull=True) | Q(school=school),
+            is_active=True,
+        ).order_by('order', 'name')
 
     def get(self, request, school_id, dept_id):
         school = get_object_or_404(School, id=school_id, admin=request.user)
         department = get_object_or_404(Department, id=dept_id, school=school)
+        subjects = self._get_subjects(school)
+        current_subject_ids = list(
+            DepartmentSubject.objects.filter(department=department)
+            .values_list('subject_id', flat=True)
+        )
         return render(request, 'admin_dashboard/department_form.html', {
             'school': school,
             'department': department,
+            'subjects': subjects,
             'form_data': {
                 'name': department.name,
                 'description': department.description,
+                'selected_subject_ids': [str(sid) for sid in current_subject_ids],
             },
             'editing': True,
         })
@@ -147,15 +242,66 @@ class DepartmentEditView(RoleRequiredMixin, View):
         department = get_object_or_404(Department, id=dept_id, school=school)
         name = request.POST.get('name', '').strip()
         description = request.POST.get('description', '').strip()
+        subject_ids = request.POST.getlist('subjects')
+        new_subject_name = request.POST.get('new_subject_name', '').strip()
 
         if not name:
             messages.error(request, 'Department name is required.')
+            subjects = self._get_subjects(school)
             return render(request, 'admin_dashboard/department_form.html', {
                 'school': school,
                 'department': department,
-                'form_data': {'name': name, 'description': description},
+                'subjects': subjects,
+                'form_data': {'name': name, 'description': description,
+                              'selected_subject_ids': subject_ids},
                 'editing': True,
             })
+
+        # Resolve selected subjects
+        new_subject_set = set()
+        for sid in subject_ids:
+            if sid == 'new':
+                continue
+            subj = Subject.objects.filter(id=sid, is_active=True).first()
+            if subj:
+                new_subject_set.add(subj.id)
+
+        # Handle "Create New Subject"
+        if new_subject_name:
+            subj_slug = slugify(new_subject_name)
+            base_s = subj_slug
+            cnt = 1
+            while Subject.objects.filter(school=school, slug=subj_slug).exists():
+                subj_slug = f'{base_s}-{cnt}'
+                cnt += 1
+            new_subj = Subject.objects.create(
+                name=new_subject_name, slug=subj_slug, school=school, is_active=True,
+            )
+            new_subject_set.add(new_subj.id)
+
+        # Sync DepartmentSubject rows
+        current_ds = {ds.subject_id: ds for ds in DepartmentSubject.objects.filter(department=department)}
+        current_ids = set(current_ds.keys())
+
+        with transaction.atomic():
+            # Add new subjects
+            for sid in (new_subject_set - current_ids):
+                DepartmentSubject.objects.create(
+                    department=department, subject_id=sid,
+                    order=DepartmentSubject.objects.filter(department=department).count(),
+                )
+                # Auto-assign global levels for newly added subjects
+                subj_levels = Level.objects.filter(
+                    subject_id=sid, school__isnull=True,
+                ).exclude(level_number__gte=100, level_number__lt=200)
+                for lv in subj_levels:
+                    DepartmentLevel.objects.get_or_create(
+                        department=department, level=lv,
+                        defaults={'order': lv.level_number},
+                    )
+            # Remove unchecked subjects
+            for sid in (current_ids - new_subject_set):
+                current_ds[sid].delete()
 
         # Update slug if name changed
         if name != department.name:
@@ -454,21 +600,22 @@ class DepartmentManageLevelsView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT]
 
     def _get_available_levels(self, department):
-        """Return subject-appropriate levels for this department."""
-        if department.subject and department.subject.slug == 'mathematics':
-            # Maths: show Year 1-9 only (global, level_number 1-9)
-            return Level.objects.filter(
-                subject=department.subject, school__isnull=True,
+        """Return subject-appropriate levels for this department (across all its subjects)."""
+        from django.db.models import Q
+        dept_subject_ids = list(
+            DepartmentSubject.objects.filter(department=department)
+            .values_list('subject_id', flat=True)
+        )
+        if dept_subject_ids:
+            # Show global levels from all the department's subjects
+            qs = Level.objects.filter(
+                subject_id__in=dept_subject_ids, school__isnull=True,
             ).exclude(
                 level_number__gte=100, level_number__lt=200,
             ).order_by('level_number')
-        elif department.subject:
-            # Other subject with global levels
-            return Level.objects.filter(
-                subject=department.subject, school__isnull=True,
-            ).order_by('level_number')
+            return qs
         else:
-            # Custom department (no subject): show school custom levels (200+)
+            # Custom department (no subjects): show school custom levels (200+)
             return Level.objects.filter(
                 school=department.school, level_number__gte=200,
             ).order_by('level_number')
@@ -559,3 +706,337 @@ class DepartmentManageLevelsView(RoleRequiredMixin, View):
             messages.info(request, 'Level mappings saved.')
 
         return redirect('admin_department_detail', school_id=school.id, dept_id=department.id)
+
+
+class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
+    """Manage subject levels for a department — create new levels, view existing."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT]
+
+    def _next_level_number(self):
+        """Return the next available level_number (min 300 for subject levels)."""
+        from django.db.models import Max
+        max_num = Level.objects.aggregate(m=Max('level_number'))['m'] or 0
+        return max(max_num + 1, 300)
+
+    def _get_available_subjects(self, department):
+        """Return subjects available to add (global + school-created, not already assigned)."""
+        from django.db.models import Q
+        assigned_ids = set(
+            DepartmentSubject.objects.filter(department=department)
+            .values_list('subject_id', flat=True)
+        )
+        return Subject.objects.filter(
+            Q(school__isnull=True) | Q(school=department.school),
+            is_active=True,
+        ).exclude(id__in=assigned_ids).order_by('order', 'name')
+
+    def get(self, request, school_id, dept_id):
+        school = get_object_or_404(School, id=school_id)
+        department = get_object_or_404(Department, id=dept_id, school=school)
+
+        # Department subjects
+        dept_subjects = DepartmentSubject.objects.filter(
+            department=department,
+        ).select_related('subject').order_by('subject__name')
+
+        # Levels mapped to this department via DepartmentLevel (exclude Basic Facts)
+        dept_levels = (
+            DepartmentLevel.objects.filter(department=department)
+            .select_related('level', 'level__subject')
+            .exclude(level__level_number__gte=100, level__level_number__lt=200)
+            .order_by('order', 'level__level_number')
+        )
+
+        from .fee_utils import get_parent_fee_for_subject, get_parent_fee_for_level
+
+        # Group levels by subject
+        subject_groups = []
+        for ds in dept_subjects:
+            parent_fee, parent_source = get_parent_fee_for_subject(department)
+            levels_for_subject = []
+            for dl in dept_levels:
+                if dl.level.subject_id == ds.subject_id:
+                    class_count = ClassRoom.objects.filter(
+                        department=department, levels=dl.level, is_active=True,
+                    ).count()
+                    lvl_parent_fee, lvl_parent_source = get_parent_fee_for_level(dl)
+                    levels_for_subject.append({
+                        'dept_level': dl,
+                        'level': dl.level,
+                        'class_count': class_count,
+                        'parent_fee': lvl_parent_fee,
+                        'parent_source': lvl_parent_source,
+                    })
+            subject_groups.append({
+                'subject': ds.subject,
+                'dept_subject': ds,
+                'levels': levels_for_subject,
+                'parent_fee': parent_fee,
+                'parent_source': parent_source,
+            })
+
+        available_subjects = self._get_available_subjects(department)
+
+        # All departments in this school (for "move subject" dropdown)
+        all_departments = Department.objects.filter(
+            school=school, is_active=True,
+        ).exclude(id=department.id).order_by('name')
+
+        return render(request, 'admin_dashboard/department_subject_levels.html', {
+            'school': school,
+            'department': department,
+            'dept_subjects': dept_subjects,
+            'subject_groups': subject_groups,
+            'available_subjects': available_subjects,
+            'all_departments': all_departments,
+        })
+
+    def post(self, request, school_id, dept_id):
+        school = get_object_or_404(School, id=school_id)
+        department = get_object_or_404(Department, id=dept_id, school=school)
+
+        action = request.POST.get('action', 'add_level')
+
+        # ---- Add Subject action ----
+        if action == 'add_subject':
+            add_subject_id = request.POST.get('add_subject_id', '').strip()
+            new_subject_name = request.POST.get('new_subject_name', '').strip()
+
+            if add_subject_id:
+                subj = Subject.objects.filter(id=add_subject_id, is_active=True).first()
+                if subj:
+                    ds, created = DepartmentSubject.objects.get_or_create(
+                        department=department, subject=subj,
+                        defaults={'order': DepartmentSubject.objects.filter(department=department).count()},
+                    )
+                    if created:
+                        # Auto-map global levels for this subject
+                        subj_levels = Level.objects.filter(
+                            subject=subj, school__isnull=True,
+                        ).exclude(level_number__gte=100, level_number__lt=200)
+                        for lv in subj_levels:
+                            DepartmentLevel.objects.get_or_create(
+                                department=department, level=lv,
+                                defaults={'order': lv.level_number},
+                            )
+                        messages.success(request, f'Subject "{subj.name}" added to {department.name}.')
+                    else:
+                        messages.info(request, f'Subject "{subj.name}" is already assigned.')
+            elif new_subject_name:
+                subj_slug = slugify(new_subject_name)
+                base_slug = subj_slug
+                counter = 1
+                while Subject.objects.filter(school=department.school, slug=subj_slug).exists():
+                    subj_slug = f'{base_slug}-{counter}'
+                    counter += 1
+                subj = Subject.objects.create(
+                    name=new_subject_name, slug=subj_slug, school=department.school, is_active=True,
+                )
+                DepartmentSubject.objects.create(
+                    department=department, subject=subj,
+                    order=DepartmentSubject.objects.filter(department=department).count(),
+                )
+                messages.success(request, f'Subject "{new_subject_name}" created and added.')
+            else:
+                messages.error(request, 'Select a subject or enter a new subject name.')
+
+            return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
+
+        # ---- Edit Subject Fee action ----
+        if action == 'edit_subject_fee':
+            from decimal import Decimal, InvalidOperation
+            subject_id = request.POST.get('subject_id', '').strip()
+            fee_str = request.POST.get('fee_override', '').strip()
+            ds = DepartmentSubject.objects.filter(department=department, subject_id=subject_id).first()
+            if ds:
+                if fee_str:
+                    try:
+                        ds.fee_override = Decimal(fee_str)
+                    except InvalidOperation:
+                        messages.error(request, 'Invalid fee amount.')
+                        return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
+                else:
+                    ds.fee_override = None
+                ds.save(update_fields=['fee_override'])
+                messages.success(request, f'Fee for {ds.subject.name} updated.')
+            return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
+
+        # ---- Edit Subject action ----
+        if action == 'edit_subject':
+            subject_id = request.POST.get('subject_id', '').strip()
+            new_name = request.POST.get('subject_name', '').strip()
+            new_dept_id = request.POST.get('new_department_id', '').strip()
+
+            ds = DepartmentSubject.objects.filter(department=department, subject_id=subject_id).select_related('subject').first()
+            if not ds:
+                messages.error(request, 'Subject not found in this department.')
+                return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
+
+            subject = ds.subject
+
+            # Update subject name
+            if new_name and new_name != subject.name:
+                subject.name = new_name
+                subject.slug = slugify(new_name)
+                # Ensure slug uniqueness
+                base_slug = subject.slug
+                counter = 1
+                while Subject.objects.filter(school=subject.school, slug=subject.slug).exclude(id=subject.id).exists():
+                    subject.slug = f'{base_slug}-{counter}'
+                    counter += 1
+                subject.save(update_fields=['name', 'slug'])
+
+            # Move subject to a different department
+            if new_dept_id and int(new_dept_id) != department.id:
+                new_dept = Department.objects.filter(id=new_dept_id, school=school, is_active=True).first()
+                if new_dept:
+                    # Check the subject isn't already in the target department
+                    if DepartmentSubject.objects.filter(department=new_dept, subject=subject).exists():
+                        messages.error(request, f'Subject "{subject.name}" is already in {new_dept.name}.')
+                    else:
+                        # Move the DepartmentSubject record
+                        ds.department = new_dept
+                        ds.save(update_fields=['department'])
+
+                        # Also move associated DepartmentLevel records
+                        DepartmentLevel.objects.filter(
+                            department=department,
+                            level__subject=subject,
+                        ).update(department=new_dept)
+
+                        # Update classes under this subject to the new department
+                        ClassRoom.objects.filter(
+                            department=department,
+                            subject=subject,
+                            is_active=True,
+                        ).update(department=new_dept)
+
+                        messages.success(request, f'Subject "{subject.name}" moved to {new_dept.name}.')
+                        return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
+                else:
+                    messages.error(request, 'Target department not found.')
+                    return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
+
+            messages.success(request, f'Subject "{subject.name}" updated.')
+            return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
+
+        # ---- Edit Level action ----
+        if action == 'edit_level':
+            from decimal import Decimal, InvalidOperation
+            level_id = request.POST.get('level_id', '').strip()
+            display_name = request.POST.get('display_name', '').strip()
+            description = request.POST.get('description', '').strip()
+            fee_str = request.POST.get('fee_override', '').strip()
+            if level_id and display_name:
+                level = Level.objects.filter(id=level_id).first()
+                dl = DepartmentLevel.objects.filter(department=department, level=level).first() if level else None
+                if level and dl:
+                    level.display_name = display_name
+                    level.description = description
+                    level.save()
+                    # Update fee override on DepartmentLevel
+                    if fee_str:
+                        try:
+                            dl.fee_override = Decimal(fee_str)
+                        except InvalidOperation:
+                            dl.fee_override = None
+                    else:
+                        dl.fee_override = None
+                    dl.save(update_fields=['fee_override'])
+                    messages.success(request, f'Level "{display_name}" updated.')
+                else:
+                    messages.error(request, 'Level not found in this department.')
+            else:
+                messages.error(request, 'Level name is required.')
+            return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
+
+        # ---- Add Level action (default) ----
+        level_name = request.POST.get('level_name', '').strip()
+        level_description = request.POST.get('level_description', '').strip()
+        subject_id = request.POST.get('subject_id', '').strip()
+
+        if not level_name:
+            messages.error(request, 'Level name is required.')
+            return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
+
+        # Resolve which subject this level belongs to
+        subject = None
+        if subject_id:
+            subject = Subject.objects.filter(id=subject_id, is_active=True).first()
+
+        # If no subject selected and department has no subjects, auto-create one
+        if not subject:
+            dept_subjects = DepartmentSubject.objects.filter(department=department).select_related('subject')
+            if dept_subjects.exists():
+                # Use the first subject by default
+                subject = dept_subjects.first().subject
+            else:
+                # Auto-create a subject from department name
+                subj_slug = slugify(department.name)
+                base_slug = subj_slug
+                counter = 1
+                while Subject.objects.filter(school=school, slug=subj_slug).exists():
+                    subj_slug = f'{base_slug}-{counter}'
+                    counter += 1
+                subject = Subject.objects.create(
+                    name=department.name, slug=subj_slug, school=school, is_active=True,
+                )
+                DepartmentSubject.objects.create(
+                    department=department, subject=subject, order=0,
+                )
+                messages.info(request, f'Subject "{subject.name}" created for this department.')
+
+        level_number = self._next_level_number()
+        with transaction.atomic():
+            level = Level.objects.create(
+                level_number=level_number,
+                display_name=level_name,
+                description=level_description,
+                subject=subject,
+            )
+            DepartmentLevel.objects.get_or_create(
+                department=department, level=level,
+                defaults={'order': level_number},
+            )
+
+        messages.success(request, f'Level "{level_name}" created under {subject.name}.')
+        return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
+
+
+class DepartmentUpdateFeeView(RoleRequiredMixin, View):
+    """Inline update of department default_fee."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT]
+
+    def post(self, request, school_id, dept_id):
+        school = get_object_or_404(School, id=school_id)
+        department = get_object_or_404(Department, id=dept_id, school=school)
+        fee_str = request.POST.get('default_fee', '').strip()
+        if fee_str:
+            from decimal import Decimal, InvalidOperation
+            try:
+                department.default_fee = Decimal(fee_str)
+            except InvalidOperation:
+                messages.error(request, 'Invalid fee amount.')
+                return redirect('admin_department_detail', school_id=school.id, dept_id=department.id)
+        else:
+            department.default_fee = None
+        department.save(update_fields=['default_fee'])
+        messages.success(request, 'Department fee updated.')
+        return redirect('admin_department_detail', school_id=school.id, dept_id=department.id)
+
+
+class DepartmentSubjectLevelRemoveView(RoleRequiredMixin, View):
+    """Remove a level mapping from a department (does not delete the Level itself)."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT]
+
+    def post(self, request, school_id, dept_id, level_id):
+        school = get_object_or_404(School, id=school_id)
+        department = get_object_or_404(Department, id=dept_id, school=school)
+        deleted, _ = DepartmentLevel.objects.filter(
+            department=department, level_id=level_id,
+        ).delete()
+        if deleted:
+            messages.success(request, 'Level removed from department.')
+        else:
+            messages.info(request, 'Level was not mapped to this department.')
+        return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)

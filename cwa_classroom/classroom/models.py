@@ -5,14 +5,27 @@ from django.conf import settings
 
 
 class Subject(models.Model):
-    name = models.CharField(max_length=100, unique=True)
-    slug = models.SlugField(max_length=100, unique=True)
+    name = models.CharField(max_length=100)
+    slug = models.SlugField(max_length=100)
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
     order = models.PositiveIntegerField(default=0)
+    school = models.ForeignKey(
+        'School', on_delete=models.CASCADE,
+        null=True, blank=True,
+        related_name='school_subjects',
+        help_text='Null = global subject with question banks. Set = school-created custom subject.',
+    )
+    global_subject = models.ForeignKey(
+        'self', on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='school_variants',
+        help_text='Future: link to global subject when it becomes available for level mapping.',
+    )
 
     class Meta:
         ordering = ['order', 'name']
+        unique_together = ('school', 'slug')
 
     def __str__(self):
         return self.name
@@ -150,11 +163,9 @@ class Department(models.Model):
     name = models.CharField(max_length=200)
     slug = models.SlugField(max_length=200)
     description = models.TextField(blank=True)
-    subject = models.ForeignKey(
-        'Subject', on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='departments',
-        help_text='Link to an existing subject module for pre-built questions. Null = custom subject.',
+    subjects = models.ManyToManyField(
+        'Subject', through='DepartmentSubject',
+        related_name='departments_m2m', blank=True,
     )
     mapped_levels = models.ManyToManyField(
         'Level', through='DepartmentLevel',
@@ -168,6 +179,11 @@ class Department(models.Model):
         help_text='The HoD (Head of Department) user assigned to this department.',
     )
     is_active = models.BooleanField(default=True)
+    default_fee = models.DecimalField(
+        max_digits=8, decimal_places=2,
+        null=True, blank=True,
+        help_text='Default fee (NZD) for all subjects/levels/classes in this department.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -177,6 +193,12 @@ class Department(models.Model):
 
     def __str__(self):
         return f'{self.name} — {self.school.name}'
+
+    @property
+    def primary_subject(self):
+        """First subject — backwards compatibility."""
+        ds = self.department_subjects.select_related('subject').first()
+        return ds.subject if ds else None
 
 
 class DepartmentTeacher(models.Model):
@@ -214,6 +236,11 @@ class DepartmentLevel(models.Model):
         help_text='Optional override, e.g. "Year 1 (AU)" to relabel a level for this department.',
     )
     order = models.PositiveIntegerField(default=0)
+    fee_override = models.DecimalField(
+        max_digits=8, decimal_places=2,
+        null=True, blank=True,
+        help_text='Fee override for this level. NULL = inherit from subject or department.',
+    )
 
     class Meta:
         unique_together = ('department', 'level')
@@ -226,6 +253,45 @@ class DepartmentLevel(models.Model):
     @property
     def effective_display_name(self):
         return self.local_display_name or self.level.display_name
+
+
+class DepartmentSubject(models.Model):
+    """
+    Links a Subject to a Department.
+    Within a school, each subject is assigned to at most one department.
+    """
+    department = models.ForeignKey(
+        Department, on_delete=models.CASCADE, related_name='department_subjects',
+    )
+    subject = models.ForeignKey(
+        'Subject', on_delete=models.CASCADE, related_name='department_subjects',
+    )
+    order = models.PositiveIntegerField(default=0)
+    fee_override = models.DecimalField(
+        max_digits=8, decimal_places=2,
+        null=True, blank=True,
+        help_text='Fee override for this subject. NULL = inherit from department.',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('department', 'subject')
+        ordering = ['order', 'subject__name']
+
+    def __str__(self):
+        return f'{self.department.name} — {self.subject.name}'
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        existing = DepartmentSubject.objects.filter(
+            subject=self.subject,
+            department__school=self.department.school,
+        ).exclude(department=self.department)
+        if existing.exists():
+            raise ValidationError(
+                f'Subject "{self.subject.name}" is already assigned to '
+                f'"{existing.first().department.name}" in this school.'
+            )
 
 
 class AcademicYear(models.Model):
@@ -353,6 +419,11 @@ class ClassRoom(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     is_active = models.BooleanField(default=True)
+    fee_override = models.DecimalField(
+        max_digits=8, decimal_places=2,
+        null=True, blank=True,
+        help_text='Fee override for this class. NULL = inherit from level/subject/department.',
+    )
 
     class Meta:
         ordering = ['name']
@@ -393,6 +464,11 @@ class ClassStudent(models.Model):
         related_name='class_student_entries',
     )
     joined_at = models.DateTimeField(auto_now_add=True)
+    fee_override = models.DecimalField(
+        max_digits=8, decimal_places=2,
+        null=True, blank=True,
+        help_text='Individual fee override for this student. NULL = inherit from class cascade.',
+    )
 
     class Meta:
         unique_together = ('classroom', 'student')
@@ -592,7 +668,8 @@ class ProgressCriteria(models.Model):
     ]
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='progress_criteria')
     subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name='progress_criteria')
-    level = models.ForeignKey(Level, on_delete=models.CASCADE, related_name='progress_criteria')
+    level = models.ForeignKey(Level, on_delete=models.CASCADE, null=True, blank=True, related_name='progress_criteria',
+                              help_text='Null = applies to all levels for the chosen subject.')
     parent = models.ForeignKey(
         'self',
         on_delete=models.SET_NULL,
@@ -620,13 +697,13 @@ class ProgressCriteria(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ('school', 'subject', 'level', 'name')
         ordering = ['subject', 'level', 'order']
         verbose_name = 'Progress Criteria'
         verbose_name_plural = 'Progress Criteria'
 
     def __str__(self):
-        return f'{self.name} ({self.subject.name} — {self.level.display_name})'
+        level_name = self.level.display_name if self.level else 'All Levels'
+        return f'{self.name} ({self.subject.name} — {level_name})'
 
 
 class ProgressRecord(models.Model):

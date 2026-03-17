@@ -1,0 +1,342 @@
+{% extends "base.html" %}
+
+{% block title %}Subjects & Levels — {{ department.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto" x-data="{ showAddSubject: false }">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <a href="{% url 'hod_manage_classes' %}" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back to Classes</a>
+    <div class="flex items-center justify-between mt-2">
+      <div>
+        <h1 class="text-2xl font-display font-bold text-gray-900">Subjects & Levels</h1>
+        {% if user_departments|length > 1 %}
+          <div class="mt-1.5">
+            <select onchange="window.location.href = this.value"
+                    class="px-3 py-1.5 border border-slate-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-accent/20 focus:border-accent transition bg-white">
+              {% for dept in user_departments %}
+                <option value="{% url 'hod_subject_levels_dept' dept.id %}"
+                        {% if dept.id == department.id %}selected{% endif %}>
+                  {{ dept.name }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+        {% else %}
+          <p class="text-gray-500 mt-1">{{ department.name }}</p>
+        {% endif %}
+      </div>
+      <div class="flex items-center gap-4">
+        {% if department.default_fee is not None %}
+          <div class="text-right">
+            <p class="text-xs text-gray-400">Department Fee</p>
+            <p class="text-lg font-bold text-gray-900">${{ department.default_fee }}</p>
+          </div>
+        {% endif %}
+        <button @click="showAddSubject = true" type="button"
+                class="inline-flex items-center gap-1.5 px-4 py-2 bg-accent hover:bg-accent-dark text-white text-sm font-semibold rounded-xl shadow-sm hover:shadow transition">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+          </svg>
+          Add Subject
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Subject cards -->
+  {% for group in subject_groups %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm mb-5"
+       x-data="{ editingSubject: false, editingFee: false, addingLevel: false }">
+
+    <!-- Subject header -->
+    <div class="px-5 py-4 border-b border-slate-100">
+      <!-- Read-only header -->
+      <div x-show="!editingSubject && !editingFee" class="flex items-center justify-between">
+        <h2 class="text-base font-semibold text-gray-900">{{ group.subject.name }}</h2>
+        <div class="flex items-center gap-2">
+          <!-- Fee badge (clickable) -->
+          {% if group.dept_subject.fee_override is not None %}
+            <button @click="editingFee = true" type="button"
+                    class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition cursor-pointer"
+                    title="Edit fee">
+              ${{ group.dept_subject.fee_override }}
+            </button>
+          {% elif group.parent_fee %}
+            <button @click="editingFee = true" type="button"
+                    class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-slate-50 text-slate-500 hover:bg-slate-100 transition cursor-pointer"
+                    title="Edit fee">
+              ${{ group.parent_fee }} <span class="text-slate-400 text-[10px]">({{ group.parent_source }})</span>
+            </button>
+          {% else %}
+            <button @click="editingFee = true" type="button"
+                    class="text-xs text-gray-400 hover:text-accent transition cursor-pointer"
+                    title="Set fee">
+              Set fee
+            </button>
+          {% endif %}
+          <!-- Edit icon -->
+          <button @click="editingSubject = true" type="button"
+                  class="p-1 rounded-md text-gray-300 hover:text-accent hover:bg-accent/5 transition" title="Edit subject">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Edit subject form -->
+      <div x-show="editingSubject" x-cloak>
+        <form method="post" class="space-y-3">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="edit_subject">
+          <input type="hidden" name="subject_id" value="{{ group.subject.id }}">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1">Subject Name <span class="text-red-500">*</span></label>
+              <input type="text" name="subject_name" value="{{ group.subject.name }}" required
+                     class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1">Department</label>
+              <select name="new_department_id"
+                      class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
+                <option value="{{ department.id }}">{{ department.name }} (current)</option>
+                {% for dept in all_departments %}
+                  <option value="{{ dept.id }}">{{ dept.name }}</option>
+                {% endfor %}
+              </select>
+              <p class="text-xs text-gray-400 mt-0.5">Moving also moves levels and classes.</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button type="submit" class="px-3 py-1.5 bg-accent hover:bg-accent-dark text-white text-xs font-semibold rounded-lg transition">Save</button>
+            <button @click="editingSubject = false" type="button" class="px-3 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 transition">Cancel</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Edit fee form -->
+      <div x-show="editingFee" x-cloak>
+        <form method="post" class="flex items-center gap-2">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="edit_subject_fee">
+          <input type="hidden" name="subject_id" value="{{ group.subject.id }}">
+          <label class="text-xs font-semibold text-gray-600">Fee</label>
+          <input type="number" name="fee_override" step="0.01" min="0"
+                 value="{{ group.dept_subject.fee_override|default:'' }}"
+                 placeholder="{% if group.parent_fee %}Inherit ${{ group.parent_fee }}{% else %}No fee{% endif %}"
+                 class="w-28 px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-accent/20 focus:border-accent">
+          <button type="submit" class="px-2.5 py-1.5 bg-accent text-white text-xs font-semibold rounded-lg">Save</button>
+          <button @click="editingFee = false" type="button" class="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Levels list -->
+    <div class="px-5 py-3">
+      {% if group.levels %}
+        <div class="space-y-0.5">
+          {% for item in group.levels %}
+            <div class="group rounded-lg hover:bg-slate-50 transition" x-data="{ editing: false }">
+              <!-- Read-only row -->
+              <div x-show="!editing" class="flex items-center justify-between px-2.5 py-2">
+                <div class="flex items-center gap-2.5">
+                  <span class="inline-flex items-center justify-center w-7 h-7 rounded-md bg-accent/10 text-accent text-[11px] font-bold">
+                    {{ item.level.display_name|slice:":2"|upper }}
+                  </span>
+                  <div>
+                    <span class="text-sm font-medium text-gray-900">{{ item.level.display_name }}</span>
+                    {% if item.level.description %}
+                      <span class="text-xs text-gray-400 ml-1">{{ item.level.description }}</span>
+                    {% endif %}
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  {% if item.dept_level.fee_override is not None %}
+                    <span class="text-xs font-semibold text-emerald-600">${{ item.dept_level.fee_override }}</span>
+                  {% elif item.parent_fee %}
+                    <span class="text-xs text-gray-400">${{ item.parent_fee }}</span>
+                  {% endif %}
+                  <span class="text-xs text-gray-400">{{ item.class_count }} cls</span>
+                  <!-- Actions (hover-reveal on desktop, always visible on mobile) -->
+                  <div class="flex items-center gap-0.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition">
+                    <button @click="editing = true" type="button"
+                            class="p-1 rounded text-gray-400 hover:text-accent transition" title="Edit">
+                      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"/>
+                      </svg>
+                    </button>
+                    {% if item.class_count == 0 %}
+                      <form method="post" action="{% url 'hod_subject_level_remove' department.id item.level.id %}"
+                            onsubmit="return confirm('Remove this level?')">
+                        {% csrf_token %}
+                        <button type="submit" class="p-1 rounded text-gray-400 hover:text-red-500 transition" title="Remove">
+                          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/>
+                          </svg>
+                        </button>
+                      </form>
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
+              <!-- Edit mode -->
+              <div x-show="editing" x-cloak class="px-2.5 py-3">
+                <form method="post" class="space-y-3">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="edit_level">
+                  <input type="hidden" name="level_id" value="{{ item.level.id }}">
+                  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label class="block text-xs font-semibold text-gray-600 mb-1">Name</label>
+                      <input type="text" name="display_name" value="{{ item.level.display_name }}" required
+                             class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
+                    </div>
+                    <div>
+                      <label class="block text-xs font-semibold text-gray-600 mb-1">Fee (NZD)</label>
+                      <input type="number" name="fee_override" step="0.01" min="0"
+                             value="{{ item.dept_level.fee_override|default:'' }}"
+                             placeholder="{% if item.parent_fee %}${{ item.parent_fee }}{% else %}No fee{% endif %}"
+                             class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
+                    </div>
+                    <div>
+                      <label class="block text-xs font-semibold text-gray-600 mb-1">Description</label>
+                      <input type="text" name="description" value="{{ item.level.description|default:'' }}"
+                             placeholder="Optional"
+                             class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <button type="submit" class="px-3 py-1.5 bg-accent hover:bg-accent-dark text-white text-xs font-semibold rounded-lg transition">Save</button>
+                    <button @click="editing = false" type="button" class="px-3 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 transition">Cancel</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="text-sm text-gray-400 text-center py-3">No levels yet.</p>
+      {% endif %}
+
+      <!-- Add Level -->
+      <div class="mt-2 pt-2 border-t border-slate-100">
+        <div x-show="!addingLevel">
+          <button @click="addingLevel = true" type="button"
+                  class="text-xs text-gray-400 hover:text-accent font-medium transition">+ Add Level</button>
+        </div>
+        <div x-show="addingLevel" x-cloak class="pt-1">
+          <form method="post" class="space-y-3">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="add_level">
+            <input type="hidden" name="subject_id" value="{{ group.subject.id }}">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-semibold text-gray-600 mb-1">Level Name <span class="text-red-500">*</span></label>
+                <input type="text" name="level_name" required
+                       placeholder="e.g. Beginner, Intermediate"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-gray-600 mb-1">Description</label>
+                <input type="text" name="level_description"
+                       placeholder="Optional"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button type="submit" class="px-3 py-1.5 bg-accent hover:bg-accent-dark text-white text-xs font-semibold rounded-lg transition">Add</button>
+              <button @click="addingLevel = false" type="button" class="px-3 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 transition">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% empty %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm mb-5">
+    <div class="p-8 text-center">
+      <svg class="w-10 h-10 mx-auto text-gray-300 mb-3" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25"/>
+      </svg>
+      <p class="text-sm text-gray-500 mb-3">No subjects yet.</p>
+      <button @click="showAddSubject = true" type="button"
+              class="inline-flex items-center gap-1.5 px-4 py-2 bg-accent hover:bg-accent-dark text-white text-sm font-semibold rounded-xl transition">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+        </svg>
+        Add your first subject
+      </button>
+    </div>
+  </div>
+  {% endfor %}
+
+  <!-- Add Subject Modal -->
+  <div x-show="showAddSubject" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center p-4"
+       @keydown.escape.window="showAddSubject = false">
+    <!-- Backdrop -->
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="showAddSubject = false"
+         x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"></div>
+    <!-- Modal card -->
+    <div class="relative w-full max-w-md bg-white rounded-2xl shadow-xl"
+         x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+         x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95"
+         @click.outside="showAddSubject = false">
+      <!-- Modal header -->
+      <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+        <h2 class="text-lg font-display font-bold text-gray-900">Add Subject</h2>
+        <button @click="showAddSubject = false" type="button" class="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-slate-100 transition">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <!-- Modal body -->
+      <div class="px-6 py-5">
+        <form method="post" class="space-y-4">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="add_subject">
+          {% if available_subjects %}
+          <div>
+            <label for="add_subject_id" class="block text-sm font-semibold text-gray-700 mb-1.5">Existing Subject</label>
+            <select name="add_subject_id" id="add_subject_id"
+                    class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
+              <option value="">— Select a subject —</option>
+              {% for subj in available_subjects %}
+                <option value="{{ subj.id }}">{{ subj.name }}{% if not subj.school %} (Global){% endif %}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="relative">
+            <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-slate-200"></div></div>
+            <div class="relative flex justify-center text-xs"><span class="bg-white px-2 text-gray-400">OR</span></div>
+          </div>
+          {% endif %}
+          <div>
+            <label for="new_subject_name" class="block text-sm font-semibold text-gray-700 mb-1.5">Create New Subject</label>
+            <input type="text" name="new_subject_name" id="new_subject_name"
+                   placeholder="e.g. Python, Scratch, Guitar"
+                   class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
+            <p class="text-xs text-gray-400 mt-1">Leave blank if selecting an existing subject above.</p>
+          </div>
+          <div class="flex items-center gap-3 pt-2">
+            <button type="submit"
+                    class="flex-1 px-4 py-2.5 bg-accent hover:bg-accent-dark text-white text-sm font-semibold rounded-xl transition">
+              Add Subject
+            </button>
+            <button @click="showAddSubject = false" type="button"
+                    class="px-4 py-2.5 text-sm font-semibold text-gray-500 hover:text-gray-700 rounded-xl hover:bg-slate-50 transition">
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
