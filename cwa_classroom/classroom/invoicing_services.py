@@ -5,11 +5,15 @@ processing, fuzzy matching, and credit management.
 import csv
 import difflib
 import io
+import logging
 import re
 from decimal import Decimal
 
+from django.conf import settings
 from django.db import models, transaction
 from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 
 from .models import (
     ClassRoom, ClassSession, ClassStudent, StudentAttendance,
@@ -269,9 +273,12 @@ def create_draft_invoices(school, student_data, attendance_mode,
 def issue_invoices(invoice_ids, user):
     """
     Moves draft invoices to issued. Auto-applies credits.
+    Sends email notification to each student.
     Returns list of issued invoices.
     """
-    invoices = Invoice.objects.filter(id__in=invoice_ids, status='draft')
+    invoices = Invoice.objects.filter(
+        id__in=invoice_ids, status='draft',
+    ).select_related('student', 'school')
     issued = []
 
     with transaction.atomic():
@@ -285,7 +292,55 @@ def issue_invoices(invoice_ids, user):
 
             issued.append(invoice)
 
+    # Send email notifications (outside transaction)
+    for invoice in issued:
+        _send_invoice_email(invoice)
+
     return issued
+
+
+def _send_invoice_email(invoice):
+    """Send invoice issued email to the student."""
+    from .email_service import send_templated_email
+
+    student = invoice.student
+    if not student.email:
+        return
+
+    line_items = invoice.line_items.select_related('classroom').all()
+    site_url = getattr(settings, 'SITE_URL', '')
+
+    context = {
+        'invoice_number': invoice.invoice_number,
+        'amount': invoice.amount,
+        'billing_period': (
+            f"{invoice.billing_period_start.strftime('%b %d')} - "
+            f"{invoice.billing_period_end.strftime('%b %d, %Y')}"
+        ),
+        'school_name': invoice.school.name,
+        'line_items': [
+            {
+                'classroom': li.classroom.name,
+                'sessions_charged': li.sessions_charged,
+                'line_amount': li.line_amount,
+            }
+            for li in line_items
+        ],
+        'invoice_url': f'{site_url}/invoicing/{invoice.id}/' if site_url else '',
+        'notes': invoice.notes or '',
+    }
+
+    try:
+        send_templated_email(
+            recipient_email=student.email,
+            subject=f'Invoice {invoice.invoice_number} — {invoice.school.name}',
+            template_name='email/transactional/invoice_issued.html',
+            context=context,
+            recipient_user=student,
+            notification_type='invoice',
+        )
+    except Exception as e:
+        logger.exception('Failed to send invoice email for %s: %s', invoice.invoice_number, e)
 
 
 # ---------------------------------------------------------------------------
