@@ -321,10 +321,27 @@ class IssueInvoicesView(RoleRequiredMixin, View):
     required_roles = INVOICING_ROLES
 
     def post(self, request):
-        invoice_ids = request.session.get('draft_invoice_ids', [])
+        school = _get_single_school(request.user)
+
+        # Accept invoice IDs from POST body or session
+        post_ids = request.POST.getlist('invoice_ids')
+        if post_ids:
+            invoice_ids = [int(i) for i in post_ids if i.isdigit()]
+        else:
+            invoice_ids = request.session.get('draft_invoice_ids', [])
+
         if not invoice_ids:
             messages.error(request, 'No draft invoices to issue.')
-            return redirect('generate_invoices')
+            return redirect('invoice_list')
+
+        # Scope to user's school for safety
+        invoice_ids = list(Invoice.objects.filter(
+            id__in=invoice_ids, school=school, status='draft',
+        ).values_list('id', flat=True))
+
+        if not invoice_ids:
+            messages.error(request, 'No draft invoices found.')
+            return redirect('invoice_list')
 
         issued = svc.issue_invoices(invoice_ids, request.user)
         request.session.pop('draft_invoice_ids', None)
@@ -381,6 +398,9 @@ class InvoiceListView(RoleRequiredMixin, View):
         page = paginator.get_page(request.GET.get('page'))
 
         departments = Department.objects.filter(school=school, is_active=True)
+        draft_invoices = Invoice.objects.filter(school=school, status='draft')
+        draft_count = draft_invoices.count()
+        draft_ids = list(draft_invoices.values_list('id', flat=True))
 
         return render(request, 'invoicing/invoice_list.html', {
             'school': school,
@@ -389,6 +409,8 @@ class InvoiceListView(RoleRequiredMixin, View):
             'status_filter': status_filter or '',
             'search': search,
             'dept_filter': dept_filter or '',
+            'draft_count': draft_count,
+            'draft_ids': draft_ids,
         })
 
 

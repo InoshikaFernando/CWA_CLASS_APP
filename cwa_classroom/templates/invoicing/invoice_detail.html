@@ -152,6 +152,35 @@
     <!-- Sidebar (1/3) -->
     <div class="space-y-6">
 
+      <!-- Issue Draft -->
+      {% if invoice.status == 'draft' %}
+        <div class="bg-white rounded-2xl border border-emerald-200 shadow-sm p-6">
+          <h3 class="text-base font-semibold text-gray-900 mb-2">Issue Invoice</h3>
+          <p class="text-xs text-gray-500 mb-4">Change status from draft to issued. This will assign an invoice number and make it billable.</p>
+          <form method="post" action="{% url 'issue_invoices' %}"
+                onsubmit="return confirm('Issue this invoice?')">
+            {% csrf_token %}
+            <input type="hidden" name="invoice_ids" value="{{ invoice.id }}">
+            <button type="submit"
+              class="w-full px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium">
+              Issue Invoice
+            </button>
+          </form>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-red-200 shadow-sm p-6">
+          <h3 class="text-base font-semibold text-red-800 mb-2">Delete Draft</h3>
+          <form method="post" action="{% url 'cancel_invoice' invoice_id=invoice.id %}"
+                onsubmit="return confirm('Delete this draft invoice?')">
+            {% csrf_token %}
+            <button type="submit"
+              class="w-full px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-medium">
+              Delete Draft
+            </button>
+          </form>
+        </div>
+      {% endif %}
+
       <!-- Record Payment -->
       {% if invoice.status == 'issued' or invoice.status == 'partially_paid' %}
         <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">

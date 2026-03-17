@@ -11,10 +11,25 @@
       <h1 class="text-3xl font-bold text-gray-900">Invoices</h1>
       <p class="text-gray-500 mt-1">{{ school.name }}</p>
     </div>
-    <a href="{% url 'generate_invoices' %}"
-       class="px-5 py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition shadow-sm">
-      Generate Invoices
-    </a>
+    <div class="flex items-center gap-3">
+      {% if draft_count > 0 %}
+        <form method="post" action="{% url 'issue_invoices' %}"
+              onsubmit="return confirm('Issue all {{ draft_count }} draft invoice(s)?')">
+          {% csrf_token %}
+          {% for did in draft_ids %}
+            <input type="hidden" name="invoice_ids" value="{{ did }}">
+          {% endfor %}
+          <button type="submit"
+            class="px-5 py-2.5 bg-emerald-600 text-white font-semibold rounded-xl hover:bg-emerald-700 transition shadow-sm">
+            Issue All Drafts ({{ draft_count }})
+          </button>
+        </form>
+      {% endif %}
+      <a href="{% url 'generate_invoices' %}"
+         class="px-5 py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition shadow-sm">
+        Generate Invoices
+      </a>
+    </div>
   </div>
 
   {% if messages %}
