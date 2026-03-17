@@ -1218,13 +1218,19 @@ class HoDOverviewView(RoleRequiredMixin, View):
     def get(self, request):
         is_hod_only = self._is_hod_only(request.user)
 
+        from django.db.models import Count
+        from collections import defaultdict
+
         if is_hod_only:
             # HoD: scope to their departments
             departments = Department.objects.filter(head=request.user, is_active=True)
             dept_ids = list(departments.values_list('id', flat=True))
             classes = ClassRoom.objects.filter(
                 department_id__in=dept_ids, is_active=True
-            ).prefetch_related('teachers', 'students')
+            ).select_related('department', 'subject').prefetch_related('teachers', 'students').annotate(
+                student_count=Count('students', distinct=True),
+                teacher_count=Count('teachers', distinct=True),
+            )
             my_school_ids = list(departments.values_list('school_id', flat=True).distinct())
             teachers = CustomUser.objects.filter(
                 department_memberships__department_id__in=dept_ids,
@@ -1239,11 +1245,11 @@ class HoDOverviewView(RoleRequiredMixin, View):
                     'department': dept,
                     'school': dept.school,
                     'teacher_count': dept.department_teachers.count(),
-                    'student_count': sum(c.students.count() for c in dept_classes),
+                    'student_count': sum(c.student_count for c in dept_classes),
                     'class_count': len(dept_classes),
                 })
         else:
-            # HoI/Owner: scope to their schools (existing logic)
+            # HoI/Owner: scope to their schools
             departments = None
             my_schools = School.objects.filter(admin=request.user)
             my_school_ids = list(my_schools.values_list('id', flat=True))
@@ -1253,14 +1259,21 @@ class HoDOverviewView(RoleRequiredMixin, View):
                 student_count = ClassRoom.objects.filter(
                     school=s, is_active=True
                 ).values_list('students', flat=True).distinct().count()
+                dept_count = Department.objects.filter(school=s, is_active=True).count()
+                class_count = ClassRoom.objects.filter(school=s, is_active=True).count()
                 school_data.append({
                     'school': s,
                     'teacher_count': teacher_count,
                     'student_count': student_count,
+                    'department_count': dept_count,
+                    'class_count': class_count,
                 })
             classes = ClassRoom.objects.filter(
                 school_id__in=my_school_ids, is_active=True
-            ).prefetch_related('teachers', 'students')
+            ).select_related('department', 'subject').prefetch_related('teachers', 'students').annotate(
+                student_count=Count('students', distinct=True),
+                teacher_count=Count('teachers', distinct=True),
+            )
             teachers = CustomUser.objects.filter(
                 school_memberships__school_id__in=my_school_ids,
                 school_memberships__is_active=True,
@@ -1273,15 +1286,44 @@ class HoDOverviewView(RoleRequiredMixin, View):
         present_count = teacher_attendance_qs.filter(status='present').count()
         total_students = classes.values_list('students', flat=True).distinct().count()
 
+        # Pending enrollment requests
+        pending_enrollment_count = Enrollment.objects.filter(
+            classroom__in=classes, status='pending'
+        ).count()
+
+        # Alert data: classes needing attention
+        classes_list = list(classes)  # evaluate once for reuse
+        classes_no_students = [c for c in classes_list if c.student_count == 0]
+        classes_no_teachers = [c for c in classes_list if c.teacher_count == 0]
+
+        # Group classes by department (HoI) or subject (HoD)
+        classes_grouped = defaultdict(list)
+        if is_hod_only:
+            for c in classes_list:
+                key = c.subject.name if c.subject else 'No Subject'
+                classes_grouped[key].append(c)
+            group_label = 'Subject'
+        else:
+            for c in classes_list:
+                key = c.department.name if c.department else 'Unassigned'
+                classes_grouped[key].append(c)
+            group_label = 'Department'
+        classes_grouped = dict(sorted(classes_grouped.items()))
+
         return render(request, 'hod/overview.html', {
             'school_data': school_data,
-            'classes': classes,
+            'classes': classes_list,
             'teachers': teachers,
             'total_students': total_students,
             'total_sessions': total_sessions,
             'present_count': present_count,
             'is_hod_only': is_hod_only,
             'departments': departments,
+            'pending_enrollment_count': pending_enrollment_count,
+            'classes_no_students': classes_no_students,
+            'classes_no_teachers': classes_no_teachers,
+            'classes_grouped': classes_grouped,
+            'group_label': group_label,
         })
 
 
