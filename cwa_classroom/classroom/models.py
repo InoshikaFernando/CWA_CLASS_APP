@@ -500,6 +500,10 @@ class SchoolStudent(models.Model):
     )
     is_active = models.BooleanField(default=True)
     joined_at = models.DateTimeField(auto_now_add=True)
+    opening_balance = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0,
+        help_text='Outstanding amount from before the system. Consumed on first invoice.',
+    )
 
     class Meta:
         unique_together = ('school', 'student')
@@ -1074,6 +1078,7 @@ class InvoiceLineItem(models.Model):
     RATE_SOURCE_CHOICES = [
         ('student_override', 'Student Override'),
         ('department_default', 'Department Default'),
+        ('opening_balance', 'Opening Balance'),
     ]
 
     invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE,
@@ -1208,6 +1213,7 @@ class CreditTransaction(models.Model):
         ('overpayment', 'Overpayment'),
         ('invoice_cancelled', 'Invoice Cancelled'),
         ('applied_to_invoice', 'Applied to Invoice'),
+        ('opening_balance', 'Opening Balance Credit'),
     ]
 
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,

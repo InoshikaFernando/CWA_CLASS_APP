@@ -79,10 +79,17 @@
             <tbody>
               {% for line in invoice.line_items.all %}
                 <tr class="border-b border-slate-50">
-                  <td class="px-6 py-2 text-gray-900">{{ line.classroom.name }}</td>
-                  <td class="px-6 py-2 text-gray-600">{{ line.department.name|default:"&mdash;" }}</td>
-                  <td class="px-6 py-2 text-gray-600 text-right">${{ line.daily_rate }}</td>
-                  <td class="px-6 py-2 text-gray-600 text-right">{{ line.sessions_charged }}</td>
+                  {% if line.rate_source == 'opening_balance' %}
+                    <td class="px-6 py-2 text-gray-900 font-medium">Opening Balance</td>
+                    <td class="px-6 py-2 text-gray-400">&mdash;</td>
+                    <td class="px-6 py-2 text-gray-400 text-right">&mdash;</td>
+                    <td class="px-6 py-2 text-gray-400 text-right">&mdash;</td>
+                  {% else %}
+                    <td class="px-6 py-2 text-gray-900">{{ line.classroom.name }}</td>
+                    <td class="px-6 py-2 text-gray-600">{{ line.department.name|default:"&mdash;" }}</td>
+                    <td class="px-6 py-2 text-gray-600 text-right">${{ line.daily_rate }}</td>
+                    <td class="px-6 py-2 text-gray-600 text-right">{{ line.sessions_charged }}</td>
+                  {% endif %}
                   <td class="px-6 py-2 text-gray-900 font-medium text-right">${{ line.line_amount }}</td>
                 </tr>
               {% endfor %}

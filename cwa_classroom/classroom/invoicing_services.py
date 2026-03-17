@@ -217,6 +217,31 @@ def generate_invoice_number(school, year=None):
 
 
 # ---------------------------------------------------------------------------
+# Opening Balance
+# ---------------------------------------------------------------------------
+
+def set_opening_balance(school_student, amount):
+    """
+    Set opening balance for a student.
+    Positive = student owes money (added to first invoice).
+    Negative = student has credit (creates a CreditTransaction).
+    Zero = clears any previously set balance.
+    """
+    if amount < 0:
+        # Negative balance = student has credit from before
+        CreditTransaction.objects.create(
+            student=school_student.student,
+            school=school_student.school,
+            amount=abs(amount),
+            reason='opening_balance',
+        )
+        school_student.opening_balance = Decimal('0.00')
+    else:
+        school_student.opening_balance = amount
+    school_student.save(update_fields=['opening_balance'])
+
+
+# ---------------------------------------------------------------------------
 # Draft Invoice Creation
 # ---------------------------------------------------------------------------
 
@@ -265,6 +290,30 @@ def create_draft_invoices(school, student_data, attendance_mode,
                     sessions_charged=line['sessions_charged'],
                     line_amount=line['line_amount'],
                 )
+
+            # Add opening balance line item if student has one
+            school_student = SchoolStudent.objects.filter(
+                school=school, student=student,
+            ).first()
+            if school_student and school_student.opening_balance > 0:
+                ob = school_student.opening_balance
+                InvoiceLineItem.objects.create(
+                    invoice=invoice,
+                    classroom=None,
+                    department=None,
+                    daily_rate=Decimal('0.00'),
+                    rate_source='opening_balance',
+                    sessions_held=0,
+                    sessions_attended=0,
+                    sessions_charged=0,
+                    line_amount=ob,
+                )
+                invoice.calculated_amount += ob
+                invoice.amount += ob
+                invoice.save(update_fields=['calculated_amount', 'amount'])
+                # Consume the opening balance
+                school_student.opening_balance = Decimal('0.00')
+                school_student.save(update_fields=['opening_balance'])
 
             invoices.append(invoice)
 
@@ -352,11 +401,24 @@ def _send_invoice_email(invoice):
         # Line items
         'line_items': [
             {
-                'classroom': li.classroom.name,
-                'description': billing_period,
-                'sessions_charged': li.sessions_charged,
-                'daily_rate': li.daily_rate,
+                'classroom': li.classroom.name if li.classroom else 'Opening Balance',
+                'description': (
+                    'Balance carried forward'
+                    if li.rate_source == 'opening_balance'
+                    else billing_period
+                ),
+                'sessions_charged': (
+                    li.sessions_charged
+                    if li.rate_source != 'opening_balance'
+                    else ''
+                ),
+                'daily_rate': (
+                    li.daily_rate
+                    if li.rate_source != 'opening_balance'
+                    else ''
+                ),
                 'line_amount': li.line_amount,
+                'is_opening_balance': li.rate_source == 'opening_balance',
             }
             for li in line_items
         ],

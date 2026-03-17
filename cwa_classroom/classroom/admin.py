@@ -2,7 +2,7 @@ from django.contrib import admin
 from .models import (
     Subject, Level, Topic, ClassRoom, ClassTeacher, ClassStudent,
     StudentLevelEnrollment, SubjectApp, ContactMessage,
-    School, SchoolTeacher, AcademicYear, TopicLevel, SubTopic,
+    School, SchoolStudent, SchoolTeacher, AcademicYear, TopicLevel, SubTopic,
     ClassSession, Enrollment, StudentAttendance, TeacherAttendance,
     ProgressCriteria, ProgressRecord, Notification, DepartmentLevel,
     EmailCampaign, EmailLog, EmailPreference,
@@ -65,6 +65,14 @@ class SchoolTeacherAdmin(admin.ModelAdmin):
     list_display = ('teacher', 'school', 'role', 'is_active', 'joined_at')
     list_filter = ('role', 'is_active', 'school')
     search_fields = ('teacher__username', 'school__name')
+
+
+@admin.register(SchoolStudent)
+class SchoolStudentAdmin(admin.ModelAdmin):
+    list_display = ('student', 'school', 'opening_balance', 'is_active', 'joined_at')
+    list_filter = ('school', 'is_active')
+    list_editable = ('opening_balance',)
+    search_fields = ('student__username', 'student__first_name', 'student__last_name', 'school__name')
 
 
 @admin.register(AcademicYear)

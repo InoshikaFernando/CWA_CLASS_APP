@@ -162,5 +162,7 @@ urlpatterns = [
     path('invoicing/csv/<int:import_id>/review/', views_invoicing.CSVReviewMatchesView.as_view(), name='csv_review_matches'),
     path('invoicing/csv/<int:import_id>/confirm/', views_invoicing.ConfirmCSVPaymentsView.as_view(), name='confirm_csv_payments'),
     path('invoicing/reference-mappings/', views_invoicing.ReferenceMappingsView.as_view(), name='reference_mappings'),
+    path('invoicing/opening-balances/', views_invoicing.OpeningBalancesView.as_view(), name='opening_balances'),
+    path('invoicing/opening-balances/<int:student_id>/set/', views_invoicing.SetOpeningBalanceView.as_view(), name='set_opening_balance'),
     path('invoicing/api/student-search/', views_invoicing.StudentSearchAPIView.as_view(), name='student_search_api'),
 ]

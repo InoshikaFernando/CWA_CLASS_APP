@@ -78,10 +78,16 @@
   </tr>
   {% for line in line_items %}
   <tr style="border-bottom:1px solid #e2e8f0;">
+    {% if line.is_opening_balance %}
+    <td colspan="2" style="padding:8px 12px;color:#334155;font-size:13px;">Opening Balance &mdash; Balance carried forward</td>
+    <td style="padding:8px 12px;color:#94a3b8;font-size:13px;text-align:center;">&mdash;</td>
+    <td style="padding:8px 12px;color:#94a3b8;font-size:13px;text-align:right;">&mdash;</td>
+    {% else %}
     <td style="padding:8px 12px;color:#334155;font-size:13px;">{{ line.classroom }}</td>
     <td style="padding:8px 12px;color:#334155;font-size:13px;">{{ line.description }}</td>
     <td style="padding:8px 12px;color:#334155;font-size:13px;text-align:center;">{{ line.sessions_charged }}</td>
     <td style="padding:8px 12px;color:#334155;font-size:13px;text-align:right;">${{ line.daily_rate }}</td>
+    {% endif %}
     <td style="padding:8px 12px;color:#334155;font-size:13px;text-align:right;">${{ line.line_amount }}</td>
   </tr>
   {% endfor %}

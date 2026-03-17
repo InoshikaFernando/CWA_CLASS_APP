@@ -908,3 +908,65 @@ class StudentSearchAPIView(RoleRequiredMixin, View):
             for ss in students
         ]
         return JsonResponse({'results': results})
+
+
+# ===========================================================================
+# Opening Balances
+# ===========================================================================
+
+class OpeningBalancesView(RoleRequiredMixin, View):
+    required_roles = INVOICING_ROLES
+
+    def get(self, request):
+        school = _get_single_school(request.user)
+        if not school:
+            messages.error(request, 'No school found.')
+            return redirect('subjects_hub')
+
+        students = SchoolStudent.objects.filter(
+            school=school, is_active=True,
+        ).select_related('student').order_by(
+            'student__first_name', 'student__last_name',
+        )
+
+        return render(request, 'invoicing/opening_balances.html', {
+            'school': school,
+            'students': students,
+        })
+
+
+class SetOpeningBalanceView(RoleRequiredMixin, View):
+    required_roles = INVOICING_ROLES
+
+    def post(self, request, student_id):
+        school = _get_single_school(request.user)
+        if not school:
+            messages.error(request, 'No school found.')
+            return redirect('subjects_hub')
+
+        ss = get_object_or_404(
+            SchoolStudent, school=school, student_id=student_id, is_active=True,
+        )
+
+        amount_str = request.POST.get('opening_balance', '').strip()
+        if not amount_str:
+            messages.error(request, 'Amount is required.')
+            return redirect('opening_balances')
+
+        try:
+            amount = Decimal(amount_str)
+        except (InvalidOperation, ValueError):
+            messages.error(request, 'Invalid amount.')
+            return redirect('opening_balances')
+
+        name = f'{ss.student.first_name} {ss.student.last_name}'.strip() or ss.student.username
+        svc.set_opening_balance(ss, amount)
+
+        if amount < 0:
+            messages.success(request, f'Credit of ${abs(amount)} created for {name}.')
+        elif amount > 0:
+            messages.success(request, f'Opening balance of ${amount} set for {name}.')
+        else:
+            messages.success(request, f'Opening balance cleared for {name}.')
+
+        return redirect('opening_balances')
