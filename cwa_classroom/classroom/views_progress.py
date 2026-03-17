@@ -517,7 +517,9 @@ class RecordProgressView(RoleRequiredMixin, View):
         if classroom.subject:
             criteria_qs = criteria_qs.filter(subject=classroom.subject)
         if classroom.levels.exists():
-            criteria_qs = criteria_qs.filter(level__in=classroom.levels.all())
+            criteria_qs = criteria_qs.filter(
+                Q(level__in=classroom.levels.all()) | Q(level__isnull=True)
+            )
 
         criteria_qs = criteria_qs.select_related('subject', 'level', 'parent').order_by(
             'subject__name', 'level__level_number', 'order', 'name',
@@ -578,7 +580,9 @@ class RecordProgressView(RoleRequiredMixin, View):
         if classroom.subject:
             criteria_qs = criteria_qs.filter(subject=classroom.subject)
         if classroom.levels.exists():
-            criteria_qs = criteria_qs.filter(level__in=classroom.levels.all())
+            criteria_qs = criteria_qs.filter(
+                Q(level__in=classroom.levels.all()) | Q(level__isnull=True)
+            )
 
         valid_statuses = {s[0] for s in ProgressRecord.STATUS_CHOICES}
         updated = 0
