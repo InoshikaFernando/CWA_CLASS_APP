@@ -119,6 +119,19 @@ class School(models.Model):
         help_text='The admin user who owns this school.',
     )
     is_active = models.BooleanField(default=True)
+    # Bank details for invoices
+    bank_name = models.CharField(max_length=100, blank=True)
+    bank_bsb = models.CharField('BSB', max_length=20, blank=True)
+    bank_account_number = models.CharField(max_length=30, blank=True)
+    bank_account_name = models.CharField(max_length=200, blank=True)
+    invoice_terms = models.TextField(
+        blank=True,
+        help_text='Terms & conditions shown on invoices.',
+    )
+    invoice_due_days = models.PositiveIntegerField(
+        default=30,
+        help_text='Number of days after issue date before payment is due.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1028,6 +1041,8 @@ class Invoice(models.Model):
     amount = models.DecimalField(max_digits=10, decimal_places=2,
                                   help_text='Final amount (may be adjusted by HoI)')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+    issued_at = models.DateTimeField(null=True, blank=True)
+    due_date = models.DateField(null=True, blank=True)
     notes = models.TextField(blank=True)
     cancelled_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
                                       null=True, blank=True, related_name='+')

@@ -7,6 +7,7 @@ import difflib
 import io
 import logging
 import re
+from datetime import timedelta
 from decimal import Decimal
 
 from django.conf import settings
@@ -282,9 +283,15 @@ def issue_invoices(invoice_ids, user):
     issued = []
 
     with transaction.atomic():
+        now = timezone.now()
         for invoice in invoices:
             invoice.status = 'issued'
-            invoice.save(update_fields=['status', 'updated_at'])
+            invoice.issued_at = now
+            due_days = invoice.school.invoice_due_days or 30
+            invoice.due_date = now.date() + timedelta(days=due_days)
+            invoice.save(update_fields=[
+                'status', 'issued_at', 'due_date', 'updated_at',
+            ])
 
             credit_applied = apply_credits_to_invoice(invoice)
             if credit_applied > 0:
@@ -307,33 +314,63 @@ def _send_invoice_email(invoice):
     if not student.email:
         return
 
+    school = invoice.school
     line_items = invoice.line_items.select_related('classroom').all()
-    site_url = getattr(settings, 'SITE_URL', '')
+
+    # Format dates
+    invoice_date = ''
+    if invoice.issued_at:
+        invoice_date = invoice.issued_at.strftime('%b %d, %Y')
+    due_date = ''
+    if invoice.due_date:
+        due_date = invoice.due_date.strftime('%b %d, %Y')
+
+    billing_period = (
+        f"{invoice.billing_period_start.strftime('%b %d')} - "
+        f"{invoice.billing_period_end.strftime('%b %d, %Y')}"
+    )
 
     context = {
+        # School header
+        'school_name': school.name,
+        'school_address': school.address or '',
+        'school_phone': school.phone or '',
+        'school_email': school.email or '',
+        # Student
+        'student_name': f'{student.first_name} {student.last_name}'.strip(),
+        # Invoice details
         'invoice_number': invoice.invoice_number,
-        'amount': invoice.amount,
-        'billing_period': (
-            f"{invoice.billing_period_start.strftime('%b %d')} - "
-            f"{invoice.billing_period_end.strftime('%b %d, %Y')}"
-        ),
-        'school_name': invoice.school.name,
+        'invoice_date': invoice_date,
+        'due_date': due_date,
+        'amount_due': invoice.amount_due,
+        # Reference
+        'billing_period': billing_period,
+        # Line items
         'line_items': [
             {
                 'classroom': li.classroom.name,
+                'description': billing_period,
                 'sessions_charged': li.sessions_charged,
+                'daily_rate': li.daily_rate,
                 'line_amount': li.line_amount,
             }
             for li in line_items
         ],
-        'invoice_url': f'{site_url}/invoicing/{invoice.id}/' if site_url else '',
+        'total': invoice.calculated_amount,
+        # Bank details
+        'bank_account_name': school.bank_account_name or '',
+        'bank_bsb': school.bank_bsb or '',
+        'bank_account_number': school.bank_account_number or '',
+        'bank_name': school.bank_name or '',
+        # Terms & Notes
+        'invoice_terms': school.invoice_terms or '',
         'notes': invoice.notes or '',
     }
 
     try:
         send_templated_email(
             recipient_email=student.email,
-            subject=f'Invoice {invoice.invoice_number} — {invoice.school.name}',
+            subject=f'Invoice {invoice.invoice_number} — {school.name}',
             template_name='email/transactional/invoice_issued.html',
             context=context,
             recipient_user=student,

@@ -3,74 +3,129 @@
 {% block email_title %}Invoice {{ invoice_number }}{% endblock %}
 
 {% block email_content %}
-<div style="background-color:#eff6ff;border-left:4px solid #2563eb;padding:16px;border-radius:4px;margin-bottom:24px;">
-  <p style="margin:0;color:#2563eb;font-weight:700;font-size:16px;">New Invoice</p>
-</div>
-
-{% if recipient_name %}
-<p style="margin:0 0 16px;color:#334155;font-size:15px;">Hi {{ recipient_name }},</p>
-{% endif %}
-
-<p style="margin:0 0 24px;color:#334155;font-size:15px;">
-  A new invoice has been issued for your classes at <strong>{{ school_name }}</strong>.
-</p>
-
-<!-- Invoice Summary Card -->
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-  style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:24px;">
+<!-- School Header -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
   <tr>
-    <td style="padding:20px;">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+    <td style="vertical-align:top;">
+      <p style="margin:0;color:#1e293b;font-size:16px;font-weight:700;">{{ school_name }}</p>
+      {% if school_address %}
+        <p style="margin:4px 0 0;color:#64748b;font-size:13px;white-space:pre-line;">{{ school_address }}</p>
+      {% endif %}
+      {% if school_phone %}
+        <p style="margin:2px 0 0;color:#64748b;font-size:13px;">{{ school_phone }}</p>
+      {% endif %}
+      {% if school_email %}
+        <p style="margin:2px 0 0;color:#64748b;font-size:13px;">{{ school_email }}</p>
+      {% endif %}
+    </td>
+  </tr>
+</table>
+
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:0 0 24px;">
+
+<!-- Student + Invoice Details -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+  <tr>
+    <td style="vertical-align:top;width:50%;">
+      <p style="margin:0;color:#1e293b;font-size:14px;font-weight:600;">{{ student_name }}</p>
+    </td>
+    <td style="vertical-align:top;width:50%;text-align:right;">
+      <table role="presentation" cellpadding="0" cellspacing="0" style="margin-left:auto;">
         <tr>
-          <td style="padding:0 0 12px;">
-            <span style="color:#64748b;font-size:12px;text-transform:uppercase;font-weight:600;">Invoice Number</span><br>
-            <span style="color:#1e293b;font-size:16px;font-weight:700;font-family:monospace;">{{ invoice_number }}</span>
-          </td>
-          <td style="padding:0 0 12px;text-align:right;">
-            <span style="color:#64748b;font-size:12px;text-transform:uppercase;font-weight:600;">Amount Due</span><br>
-            <span style="color:#1e293b;font-size:22px;font-weight:700;">${{ amount }}</span>
-          </td>
+          <td style="padding:2px 12px 2px 0;color:#64748b;font-size:13px;text-align:right;">Invoice Number</td>
+          <td style="padding:2px 0;color:#1e293b;font-size:13px;font-weight:600;">{{ invoice_number }}</td>
         </tr>
         <tr>
-          <td colspan="2" style="padding:12px 0 0;border-top:1px solid #e2e8f0;">
-            <span style="color:#64748b;font-size:12px;text-transform:uppercase;font-weight:600;">Billing Period</span><br>
-            <span style="color:#334155;font-size:14px;">{{ billing_period }}</span>
-          </td>
+          <td style="padding:2px 12px 2px 0;color:#64748b;font-size:13px;text-align:right;">Date</td>
+          <td style="padding:2px 0;color:#1e293b;font-size:13px;">{{ invoice_date }}</td>
+        </tr>
+        {% if due_date %}
+        <tr>
+          <td style="padding:2px 12px 2px 0;color:#64748b;font-size:13px;text-align:right;">Due Date</td>
+          <td style="padding:2px 0;color:#1e293b;font-size:13px;">{{ due_date }}</td>
+        </tr>
+        {% endif %}
+        <tr>
+          <td style="padding:6px 12px 2px 0;color:#1e293b;font-size:13px;font-weight:700;text-align:right;">Amount Due</td>
+          <td style="padding:6px 0 2px;color:#1e293b;font-size:15px;font-weight:700;">${{ amount_due }}</td>
         </tr>
       </table>
     </td>
   </tr>
 </table>
 
+<!-- Reference -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px;">
+  <tr>
+    <td>
+      <p style="margin:0;color:#64748b;font-size:12px;font-weight:600;">Reference</p>
+      <p style="margin:2px 0 0;color:#1e293b;font-size:13px;">{{ billing_period }}</p>
+    </td>
+  </tr>
+</table>
+
+<!-- Line Items Table -->
 {% if line_items %}
-<!-- Line Items -->
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-  style="margin-bottom:24px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
-  <tr style="background-color:#f1f5f9;">
-    <td style="padding:10px 16px;color:#64748b;font-size:12px;font-weight:600;text-transform:uppercase;">Class</td>
-    <td style="padding:10px 16px;color:#64748b;font-size:12px;font-weight:600;text-transform:uppercase;text-align:right;">Sessions</td>
-    <td style="padding:10px 16px;color:#64748b;font-size:12px;font-weight:600;text-transform:uppercase;text-align:right;">Amount</td>
+  style="margin-bottom:16px;border-collapse:collapse;">
+  <!-- Header -->
+  <tr style="border-bottom:2px solid #f97316;">
+    <td style="padding:8px 12px;color:#1e293b;font-size:12px;font-weight:700;text-transform:uppercase;">Service</td>
+    <td style="padding:8px 12px;color:#1e293b;font-size:12px;font-weight:700;text-transform:uppercase;">Description</td>
+    <td style="padding:8px 12px;color:#1e293b;font-size:12px;font-weight:700;text-transform:uppercase;text-align:center;">Quantity</td>
+    <td style="padding:8px 12px;color:#1e293b;font-size:12px;font-weight:700;text-transform:uppercase;text-align:right;">Unit Price</td>
+    <td style="padding:8px 12px;color:#1e293b;font-size:12px;font-weight:700;text-transform:uppercase;text-align:right;">Line Total</td>
   </tr>
   {% for line in line_items %}
-  <tr style="border-top:1px solid #e2e8f0;">
-    <td style="padding:10px 16px;color:#334155;font-size:14px;">{{ line.classroom }}</td>
-    <td style="padding:10px 16px;color:#334155;font-size:14px;text-align:right;">{{ line.sessions_charged }}</td>
-    <td style="padding:10px 16px;color:#334155;font-size:14px;text-align:right;">${{ line.line_amount }}</td>
+  <tr style="border-bottom:1px solid #e2e8f0;">
+    <td style="padding:8px 12px;color:#334155;font-size:13px;">{{ line.classroom }}</td>
+    <td style="padding:8px 12px;color:#334155;font-size:13px;">{{ line.description }}</td>
+    <td style="padding:8px 12px;color:#334155;font-size:13px;text-align:center;">{{ line.sessions_charged }}</td>
+    <td style="padding:8px 12px;color:#334155;font-size:13px;text-align:right;">${{ line.daily_rate }}</td>
+    <td style="padding:8px 12px;color:#334155;font-size:13px;text-align:right;">${{ line.line_amount }}</td>
   </tr>
   {% endfor %}
+  <!-- Totals -->
+  <tr>
+    <td colspan="3" style="padding:0;"></td>
+    <td style="padding:10px 12px 4px;color:#64748b;font-size:13px;text-align:right;">Total</td>
+    <td style="padding:10px 12px 4px;color:#1e293b;font-size:13px;font-weight:600;text-align:right;">${{ total }}</td>
+  </tr>
+  <tr>
+    <td colspan="3" style="padding:0;"></td>
+    <td style="padding:4px 12px 10px;color:#1e293b;font-size:14px;font-weight:700;text-align:right;border-top:1px solid #e2e8f0;">Amount Due</td>
+    <td style="padding:4px 12px 10px;color:#1e293b;font-size:14px;font-weight:700;text-align:right;border-top:1px solid #e2e8f0;">${{ amount_due }}</td>
+  </tr>
 </table>
 {% endif %}
 
-{% if invoice_url %}
-<p style="margin:0;text-align:center;">
-  <a href="{{ invoice_url }}"
-     style="display:inline-block;background-color:#2563eb;color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px;">
-    View Invoice
-  </a>
-</p>
+<!-- Bank Details -->
+{% if bank_account_name %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+  style="margin-bottom:20px;background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
+  <tr>
+    <td style="padding:16px;">
+      <p style="margin:0 0 8px;color:#64748b;font-size:12px;font-weight:600;text-transform:uppercase;">Payment Details</p>
+      <p style="margin:0 0 2px;color:#334155;font-size:13px;">Name - {{ bank_account_name }}</p>
+      {% if bank_bsb %}<p style="margin:0 0 2px;color:#334155;font-size:13px;">BSB - {{ bank_bsb }}</p>{% endif %}
+      {% if bank_account_number %}<p style="margin:0 0 2px;color:#334155;font-size:13px;">AC - {{ bank_account_number }}</p>{% endif %}
+      {% if bank_name %}<p style="margin:0;color:#334155;font-size:13px;">{{ bank_name }}</p>{% endif %}
+    </td>
+  </tr>
+</table>
 {% endif %}
 
+<!-- Terms & Conditions -->
+{% if invoice_terms %}
+<div style="margin-bottom:20px;">
+  <p style="margin:0 0 4px;color:#1e293b;font-size:12px;font-weight:600;text-decoration:underline;">Terms & Conditions</p>
+  <p style="margin:0;color:#64748b;font-size:13px;white-space:pre-line;">{{ invoice_terms }}</p>
+</div>
+{% endif %}
+
+<p style="margin:20px 0 0;color:#334155;font-size:14px;font-weight:600;">Thank You.</p>
+
 {% if notes %}
-<p style="margin:24px 0 0;color:#64748b;font-size:13px;font-style:italic;">Note: {{ notes }}</p>
+<p style="margin:12px 0 0;color:#64748b;font-size:12px;font-style:italic;">Note: {{ notes }}</p>
 {% endif %}
 {% endblock %}
