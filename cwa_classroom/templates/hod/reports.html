@@ -1,41 +1,128 @@
 {% extends "base.html" %}
 {% block title %}Departmental Reports{% endblock %}
 {% block content %}
-<div class="max-w-4xl mx-auto space-y-6">
-  <h1 class="font-display text-2xl font-bold text-gray-900">Departmental Reports</h1>
-  {% if is_hod_only and departments %}
-    <p class="text-sm text-gray-500">
-      Showing reports for:
-      {% for dept in departments %}{{ dept.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
-    </p>
-  {% endif %}
-  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-      <h3 class="font-bold text-gray-800 mb-2">By Level</h3>
-      <div class="space-y-2">
-      {% for level in levels %}
-        <a href="{% url 'class_progress_list' %}" class="block text-sm text-gray-600 hover:text-primary font-semibold transition">{{ level.display_name }}</a>
-      {% endfor %}
+<div class="max-w-7xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <h1 class="text-2xl font-display font-bold text-gray-900">Departmental Reports</h1>
+    {% if is_hod_only and departments %}
+      <p class="text-gray-500 mt-1">
+        Reports for:
+        {% for dept in departments %}{{ dept.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
+      </p>
+    {% else %}
+      <p class="text-gray-500 mt-1">View reports, analytics, and attendance data</p>
+    {% endif %}
+  </div>
+
+  <!-- Stats cards -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 bg-accent/10 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6 text-accent" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-2xl font-bold text-gray-900">{{ levels|length }}</p>
+          <p class="text-sm text-gray-500">Academic Levels</p>
+        </div>
       </div>
     </div>
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-      <h3 class="font-bold text-gray-800 mb-2">By Topic</h3>
-      <div class="space-y-2 max-h-64 overflow-y-auto">
-      {% for topic in topics %}
-        <p class="text-sm text-gray-600">{{ topic.name }}</p>
-      {% endfor %}
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-2xl font-bold text-gray-900">{{ topics|length }}</p>
+          <p class="text-sm text-gray-500">Topics</p>
+        </div>
+      </div>
+    </div>
+    <a href="{% url 'hod_attendance_report' %}" class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:shadow-md hover:border-accent/30 transition group">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-lg font-bold text-gray-900 group-hover:text-accent transition">Attendance</p>
+          <p class="text-sm text-gray-500">View report &rarr;</p>
+        </div>
+      </div>
+    </a>
+  </div>
+
+  <!-- Report sections -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+    <!-- By Level -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+      <div class="px-6 py-5 border-b border-slate-100">
+        <h2 class="text-lg font-semibold text-gray-900">By Level</h2>
+      </div>
+      <div class="p-6">
+        {% if levels %}
+          <div class="space-y-2">
+            {% for level in levels %}
+              <a href="{% url 'class_progress_list' %}"
+                 class="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 transition">
+                <span class="text-sm font-medium text-gray-700">{{ level.display_name }}</span>
+                <svg class="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
+                </svg>
+              </a>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="text-sm text-gray-400 text-center py-4">No levels available.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- By Topic -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+      <div class="px-6 py-5 border-b border-slate-100">
+        <h2 class="text-lg font-semibold text-gray-900">By Topic</h2>
+      </div>
+      <div class="p-6">
+        {% if topics %}
+          <div class="space-y-2 max-h-64 overflow-y-auto">
+            {% for topic in topics %}
+              <div class="flex items-center gap-2 p-2">
+                <span class="w-2 h-2 rounded-full bg-accent flex-shrink-0"></span>
+                <span class="text-sm text-gray-700">{{ topic.name }}</span>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="text-sm text-gray-400 text-center py-4">No topics available.</p>
+        {% endif %}
       </div>
     </div>
   </div>
-  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-    <h3 class="font-bold text-gray-800 mb-2">Attendance</h3>
-    <p class="text-sm text-gray-600 mb-3">View teacher attendance records across your department.</p>
-    <a href="{% url 'hod_attendance_report' %}" class="text-sm text-primary font-semibold hover:underline">View Attendance Report</a>
+
+  <!-- Advanced Reports -->
+  <div class="bg-gradient-to-r from-accent/5 to-indigo-50 rounded-2xl border border-accent/20 p-6">
+    <div class="flex items-center justify-between">
+      <div>
+        <h3 class="font-bold text-gray-900 mb-1">Advanced Reports & Analytics</h3>
+        <p class="text-sm text-gray-600">Detailed cross-class analytics, exports, and financial reports are available in the Accounting section.</p>
+      </div>
+      <a href="{% url 'accounting_dashboard' %}"
+         class="inline-flex items-center gap-2 px-5 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm whitespace-nowrap">
+        Go to Accounting
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
+        </svg>
+      </a>
+    </div>
   </div>
-  <div class="bg-blue-50 rounded-2xl p-6 text-blue-800">
-    <p class="font-bold mb-1">Advanced Reports</p>
-    <p class="text-sm">Detailed cross-class analytics and exports are available in the Accounting section.</p>
-    <a href="{% url 'accounting_dashboard' %}" class="inline-block mt-3 text-sm bg-accent text-white font-semibold rounded-xl px-4 py-2 hover:bg-accent-dark transition">Go to Accounting</a>
-  </div>
+
 </div>
 {% endblock %}

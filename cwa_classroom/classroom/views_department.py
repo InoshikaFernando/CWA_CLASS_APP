@@ -19,9 +19,13 @@ class DepartmentListView(RoleRequiredMixin, View):
         school = get_object_or_404(School, id=school_id, admin=request.user)
         departments = Department.objects.filter(school=school).select_related('head')
         dept_data = []
+        total_teachers = 0
+        total_classes = 0
         for dept in departments:
             teacher_count = dept.department_teachers.count()
             class_count = dept.classrooms.filter(is_active=True).count()
+            total_teachers += teacher_count
+            total_classes += class_count
             dept_data.append({
                 'department': dept,
                 'teacher_count': teacher_count,
@@ -30,6 +34,9 @@ class DepartmentListView(RoleRequiredMixin, View):
         return render(request, 'admin_dashboard/departments.html', {
             'school': school,
             'dept_data': dept_data,
+            'total_departments': len(dept_data),
+            'total_teachers': total_teachers,
+            'total_classes': total_classes,
         })
 
 
@@ -1040,3 +1047,47 @@ class DepartmentSubjectLevelRemoveView(RoleRequiredMixin, View):
         else:
             messages.info(request, 'Level was not mapped to this department.')
         return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
+
+
+class DepartmentToggleActiveView(RoleRequiredMixin, View):
+    """Toggle the is_active status of a department."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def post(self, request, school_id, dept_id):
+        school = get_object_or_404(School, id=school_id, admin=request.user)
+        department = get_object_or_404(Department, id=dept_id, school=school)
+        department.is_active = not department.is_active
+        department.save(update_fields=['is_active'])
+        status = 'activated' if department.is_active else 'deactivated'
+        messages.success(request, f'Department "{department.name}" has been {status}.')
+        return redirect('admin_department_detail', school_id=school.id, dept_id=department.id)
+
+
+class DepartmentDeleteView(RoleRequiredMixin, View):
+    """Delete a department if it has no classes or teachers."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def post(self, request, school_id, dept_id):
+        school = get_object_or_404(School, id=school_id, admin=request.user)
+        department = get_object_or_404(Department, id=dept_id, school=school)
+
+        class_count = department.classrooms.filter(is_active=True).count()
+        teacher_count = department.department_teachers.count()
+
+        if class_count > 0 or teacher_count > 0:
+            parts = []
+            if class_count > 0:
+                parts.append(f'{class_count} class{"es" if class_count != 1 else ""}')
+            if teacher_count > 0:
+                parts.append(f'{teacher_count} teacher{"s" if teacher_count != 1 else ""}')
+            messages.error(
+                request,
+                f'Cannot deactivate "{department.name}" — it still has {" and ".join(parts)}. '
+                f'Remove or reassign them first.',
+            )
+            return redirect('admin_department_detail', school_id=school.id, dept_id=department.id)
+
+        department.is_active = False
+        department.save(update_fields=['is_active'])
+        messages.success(request, f'Department "{department.name}" has been deactivated.')
+        return redirect('admin_school_departments', school_id=school.id)

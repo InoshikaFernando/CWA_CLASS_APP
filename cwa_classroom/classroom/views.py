@@ -492,7 +492,7 @@ class CreateClassView(RoleRequiredMixin, View):
         if depts.exists():
             return depts
         # Fallback: all departments in teacher's school
-        school_membership = SchoolTeacher.objects.filter(teacher=user).select_related('school').first()
+        school_membership = SchoolTeacher.objects.filter(teacher=user, is_active=True).select_related('school').first()
         if school_membership:
             return Department.objects.filter(school=school_membership.school, is_active=True).select_related('school')
         return Department.objects.none()
@@ -794,7 +794,7 @@ class AssignStudentsView(RoleRequiredMixin, View):
         if classroom.school:
             from .models import SchoolStudent
             school_student_ids = SchoolStudent.objects.filter(
-                school=classroom.school
+                school=classroom.school, is_active=True
             ).values_list('student_id', flat=True)
             all_students = CustomUser.objects.filter(id__in=school_student_ids)
         else:
@@ -963,7 +963,7 @@ class ManageTeachersView(RoleRequiredMixin, View):
             teacher_ids.update(c.teachers.values_list('id', flat=True))
         specialty_map = {}
         if teacher_ids:
-            for st in SchoolTeacher.objects.filter(teacher_id__in=teacher_ids):
+            for st in SchoolTeacher.objects.filter(teacher_id__in=teacher_ids, is_active=True):
                 specialty_map[st.teacher_id] = st.specialty
         return render(request, 'teacher/manage_teachers.html', {
             'classes': classes,
@@ -1437,7 +1437,7 @@ class HoDManageClassesView(RoleRequiredMixin, View):
 
         # Build specialty map for all teachers across these schools
         specialty_map = {}
-        for st in SchoolTeacher.objects.filter(school_id__in=school_ids):
+        for st in SchoolTeacher.objects.filter(school_id__in=school_ids, is_active=True):
             specialty_map[st.teacher_id] = st.specialty
 
         return render(request, 'hod/manage_classes.html', {
@@ -2408,7 +2408,7 @@ class DepartmentLevelsAPIView(LoginRequiredMixin, View):
         from django.http import JsonResponse
         from .models import DepartmentLevel, DepartmentSubject
 
-        dept = Department.objects.filter(id=dept_id).first()
+        dept = Department.objects.filter(id=dept_id, is_active=True).first()
         if not dept:
             return JsonResponse({'error': 'Department not found'}, status=404)
 
