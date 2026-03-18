@@ -143,9 +143,10 @@ class SchoolHierarchyView(RoleRequiredMixin, View):
                 role_display = school_teacher_roles.get(teacher.id, 'Teacher')
                 role_key = school_teacher_role_keys.get(teacher.id, 'teacher')
 
-                # Classes for this teacher in this school
+                # Classes for this teacher in this department
                 teacher_classes = ClassRoom.objects.filter(
                     school=school,
+                    department=dept,
                     class_teachers__teacher=teacher,
                     is_active=True,
                 ).annotate(
@@ -234,10 +235,23 @@ class SchoolHierarchyView(RoleRequiredMixin, View):
             }
             teachers_data.sort(key=lambda t: role_order.get(t['role_key'], 5))
 
+            # ── Department-level aggregate stats (deduplicated) ──
+            all_dept_class_ids = set()
+            total_students = 0
+            for td in teachers_data:
+                for c in td['classes']:
+                    cid = c['classroom'].id
+                    if cid not in all_dept_class_ids:
+                        all_dept_class_ids.add(cid)
+                        total_students += c['student_count']
+
             dept_hierarchy.append({
                 'department': dept,
                 'hod': dept.head,
                 'teachers': teachers_data,
+                'total_teachers': len(teachers_data),
+                'total_classes': len(all_dept_class_ids),
+                'total_students': total_students,
             })
 
         return render(request, 'hierarchy/school_hierarchy.html', {

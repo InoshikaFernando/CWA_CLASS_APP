@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Student Progress Report{% endblock %}
+{% block content %}
+<div class="max-w-6xl mx-auto">
+
+  <div class="mb-8">
+    <h1 class="text-2xl font-display font-bold text-gray-900">Student Progress Report</h1>
+    <p class="text-gray-500 mt-1">Overview of student progress across classes.</p>
+  </div>
+
+  <!-- Filters -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-8">
+    <form method="get" class="flex flex-col sm:flex-row gap-4 items-end">
+      <div class="flex-1">
+        <label class="block text-sm font-medium text-gray-700 mb-1">Department</label>
+        <select name="department"
+                class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+          <option value="">All Departments</option>
+          {% for dept in departments %}
+            <option value="{{ dept.id }}" {% if filter_dept == dept.id|stringformat:"d" %}selected{% endif %}>{{ dept.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="flex-1">
+        <label class="block text-sm font-medium text-gray-700 mb-1">Subject</label>
+        <select name="subject"
+                class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+          <option value="">All Subjects</option>
+          {% for subj in subjects %}
+            <option value="{{ subj.id }}" {% if filter_subject == subj.id|stringformat:"d" %}selected{% endif %}>{{ subj.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="flex-1">
+        <label class="block text-sm font-medium text-gray-700 mb-1">Class</label>
+        <select name="classroom"
+                class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+          <option value="">All Classes</option>
+          {% for cls in classes %}
+            <option value="{{ cls.id }}" {% if filter_class == cls.id|stringformat:"d" %}selected{% endif %}>{{ cls.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit"
+              class="px-6 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-blue-600 transition shadow-sm whitespace-nowrap">
+        Filter
+      </button>
+    </form>
+  </div>
+
+  <!-- Results Table -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    <div class="px-6 py-5 border-b border-slate-100">
+      <h2 class="text-lg font-semibold text-gray-900">Students ({{ student_data|length }})</h2>
+    </div>
+
+    {% if student_data %}
+      <div class="overflow-x-auto">
+        <table class="w-full">
+          <thead>
+            <tr class="bg-slate-50 text-left text-sm font-semibold text-gray-600">
+              <th class="px-6 py-3">Student</th>
+              <th class="px-6 py-3">Department</th>
+              <th class="px-6 py-3">Class(es)</th>
+              <th class="px-6 py-3 text-center">Total</th>
+              <th class="px-6 py-3 text-center">Achieved</th>
+              <th class="px-6 py-3 text-center">In Progress</th>
+              <th class="px-6 py-3 text-center">Not Started</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            {% for item in student_data %}
+              <tr class="hover:bg-slate-50 transition">
+                <td class="px-6 py-4">
+                  <a href="{% url 'student_progress' item.student.id %}"
+                     class="text-accent hover:text-accent-dark font-medium transition">
+                    {{ item.student.get_full_name|default:item.student.username }}
+                  </a>
+                </td>
+                <td class="px-6 py-4 text-sm text-gray-600">
+                  {% if item.department %}{{ item.department.name }}{% else %}—{% endif %}
+                </td>
+                <td class="px-6 py-4 text-sm text-gray-600">
+                  {% for cls in item.classes %}
+                    {{ cls.name }}{% if not forloop.last %}, {% endif %}
+                  {% empty %}
+                    —
+                  {% endfor %}
+                </td>
+                <td class="px-6 py-4 text-center text-sm font-medium text-gray-900">{{ item.total }}</td>
+                <td class="px-6 py-4 text-center">
+                  {% if item.achieved > 0 %}
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">{{ item.achieved }}</span>
+                  {% else %}
+                    <span class="text-sm text-gray-400">0</span>
+                  {% endif %}
+                </td>
+                <td class="px-6 py-4 text-center">
+                  {% if item.in_progress > 0 %}
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">{{ item.in_progress }}</span>
+                  {% else %}
+                    <span class="text-sm text-gray-400">0</span>
+                  {% endif %}
+                </td>
+                <td class="px-6 py-4 text-center">
+                  {% if item.not_started > 0 %}
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">{{ item.not_started }}</span>
+                  {% else %}
+                    <span class="text-sm text-gray-400">0</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="px-6 py-12 text-center">
+        <p class="text-gray-500 font-medium">No students found</p>
+        <p class="text-sm text-gray-400 mt-1">Try adjusting your filters or assign students to classes first.</p>
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

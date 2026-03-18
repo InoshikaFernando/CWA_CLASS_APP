@@ -35,7 +35,7 @@ class RoleRequiredMixin(LoginRequiredMixin):
             has_any = any(request.user.has_role(r) for r in roles_to_check)
             if not has_any:
                 messages.error(request, "You don't have permission to access that page.")
-                return redirect('subjects_hub')
+                return redirect('public_home')
 
         return super().dispatch(request, *args, **kwargs)
 
@@ -1218,13 +1218,42 @@ class HoDOverviewView(RoleRequiredMixin, View):
     def get(self, request):
         is_hod_only = self._is_hod_only(request.user)
 
+        from django.db.models import Count
+        from django.utils import timezone
+        from datetime import timedelta
+        from collections import defaultdict
+
+        # ── Next classes: check if user also teaches ──
+        today = timezone.localdate()
+        week_ahead = today + timedelta(days=7)
+
+        my_teaching_classes = ClassRoom.objects.filter(
+            class_teachers__teacher=request.user,
+            is_active=True,
+        ).select_related('department', 'subject').prefetch_related('students', 'teachers').annotate(
+            student_count=Count('students', distinct=True),
+            teacher_count=Count('teachers', distinct=True),
+        )
+
+        if my_teaching_classes.exists():
+            is_teacher_too = True
+            next_classes_scope = my_teaching_classes
+            next_classes_label = 'My Next Classes'
+        else:
+            is_teacher_too = False
+            next_classes_label = 'Upcoming Classes'
+            next_classes_scope = None  # set after HoD/HoI branch
+
         if is_hod_only:
             # HoD: scope to their departments
             departments = Department.objects.filter(head=request.user, is_active=True)
             dept_ids = list(departments.values_list('id', flat=True))
             classes = ClassRoom.objects.filter(
                 department_id__in=dept_ids, is_active=True
-            ).prefetch_related('teachers', 'students')
+            ).select_related('department', 'subject').prefetch_related('teachers', 'students').annotate(
+                student_count=Count('students', distinct=True),
+                teacher_count=Count('teachers', distinct=True),
+            )
             my_school_ids = list(departments.values_list('school_id', flat=True).distinct())
             teachers = CustomUser.objects.filter(
                 department_memberships__department_id__in=dept_ids,
@@ -1239,11 +1268,11 @@ class HoDOverviewView(RoleRequiredMixin, View):
                     'department': dept,
                     'school': dept.school,
                     'teacher_count': dept.department_teachers.count(),
-                    'student_count': sum(c.students.count() for c in dept_classes),
+                    'student_count': sum(c.student_count for c in dept_classes),
                     'class_count': len(dept_classes),
                 })
         else:
-            # HoI/Owner: scope to their schools (existing logic)
+            # HoI/Owner: scope to their schools
             departments = None
             my_schools = School.objects.filter(admin=request.user)
             my_school_ids = list(my_schools.values_list('id', flat=True))
@@ -1253,14 +1282,21 @@ class HoDOverviewView(RoleRequiredMixin, View):
                 student_count = ClassRoom.objects.filter(
                     school=s, is_active=True
                 ).values_list('students', flat=True).distinct().count()
+                dept_count = Department.objects.filter(school=s, is_active=True).count()
+                class_count = ClassRoom.objects.filter(school=s, is_active=True).count()
                 school_data.append({
                     'school': s,
                     'teacher_count': teacher_count,
                     'student_count': student_count,
+                    'department_count': dept_count,
+                    'class_count': class_count,
                 })
             classes = ClassRoom.objects.filter(
                 school_id__in=my_school_ids, is_active=True
-            ).prefetch_related('teachers', 'students')
+            ).select_related('department', 'subject').prefetch_related('teachers', 'students').annotate(
+                student_count=Count('students', distinct=True),
+                teacher_count=Count('teachers', distinct=True),
+            )
             teachers = CustomUser.objects.filter(
                 school_memberships__school_id__in=my_school_ids,
                 school_memberships__is_active=True,
@@ -1273,15 +1309,93 @@ class HoDOverviewView(RoleRequiredMixin, View):
         present_count = teacher_attendance_qs.filter(status='present').count()
         total_students = classes.values_list('students', flat=True).distinct().count()
 
+        # Pending enrollment requests
+        pending_enrollment_count = Enrollment.objects.filter(
+            classroom__in=classes, status='pending'
+        ).count()
+
+        # Alert data: classes needing attention
+        classes_list = list(classes)  # evaluate once for reuse
+        classes_no_students = [c for c in classes_list if c.student_count == 0]
+        classes_no_teachers = [c for c in classes_list if c.teacher_count == 0]
+
+        # Group classes by department (HoI) or subject (HoD)
+        classes_grouped = defaultdict(list)
+        if is_hod_only:
+            for c in classes_list:
+                key = c.subject.name if c.subject else 'No Subject'
+                classes_grouped[key].append(c)
+            group_label = 'Subject'
+        else:
+            for c in classes_list:
+                key = c.department.name if c.department else 'Unassigned'
+                classes_grouped[key].append(c)
+            group_label = 'Department'
+        classes_grouped = dict(sorted(classes_grouped.items()))
+
+        # ── Next classes: upcoming sessions or schedule fallback ──
+        if next_classes_scope is None:
+            next_classes_scope = classes
+
+        upcoming_sessions = list(ClassSession.objects.filter(
+            classroom__in=next_classes_scope,
+            date__gte=today,
+            date__lte=week_ahead,
+            status='scheduled',
+        ).select_related(
+            'classroom', 'classroom__department', 'classroom__subject',
+        ).prefetch_related(
+            'classroom__teachers', 'classroom__students',
+        ).order_by('date', 'start_time')[:4])
+
+        # Fallback: derive from ClassRoom.day if no sessions exist
+        next_classes_from_schedule = []
+        if not upcoming_sessions:
+            DAY_MAP = {
+                'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
+                'friday': 4, 'saturday': 5, 'sunday': 6,
+            }
+            today_idx = today.weekday()
+            now_time = timezone.localtime().time()
+
+            def _days_until(day_str, start_time=None):
+                target = DAY_MAP.get(day_str, 7)
+                diff = (target - today_idx) % 7
+                if diff == 0:
+                    if start_time and start_time > now_time:
+                        return 0
+                    return 7
+                return diff
+
+            scheduled = sorted(
+                [c for c in (next_classes_scope if is_teacher_too else classes_list) if c.day],
+                key=lambda c: (_days_until(c.day, c.start_time), c.start_time or timezone.datetime.min.time()),
+            )
+            # Attach computed next_date for template display
+            for c in scheduled[:4]:
+                du = _days_until(c.day, c.start_time)
+                c.next_date = today + timedelta(days=du)
+            next_classes_from_schedule = scheduled[:4]
+
         return render(request, 'hod/overview.html', {
             'school_data': school_data,
-            'classes': classes,
+            'classes': classes_list,
             'teachers': teachers,
             'total_students': total_students,
             'total_sessions': total_sessions,
             'present_count': present_count,
             'is_hod_only': is_hod_only,
             'departments': departments,
+            'pending_enrollment_count': pending_enrollment_count,
+            'classes_no_students': classes_no_students,
+            'classes_no_teachers': classes_no_teachers,
+            'classes_grouped': classes_grouped,
+            'group_label': group_label,
+            'upcoming_sessions': upcoming_sessions,
+            'next_classes_from_schedule': next_classes_from_schedule,
+            'next_classes_label': next_classes_label,
+            'is_teacher_too': is_teacher_too,
+            'today': today,
         })
 
 
@@ -2036,11 +2150,21 @@ class ProcessRefundView(RoleRequiredMixin, View):
 # ---------------------------------------------------------------------------
 
 class PublicHomeView(View):
-    """Public landing page. Redirects authenticated users to the hub."""
+    """Public landing page. Redirects authenticated users to their dashboard."""
 
     def get(self, request):
         if request.user.is_authenticated:
-            return redirect(reverse('subjects_hub'))
+            role = request.user.primary_role
+            if role == Role.ADMIN:
+                return redirect('admin_dashboard')
+            if role in (Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT):
+                return redirect('hod_overview')
+            if role == Role.ACCOUNTANT:
+                return redirect('accounting_dashboard')
+            if role in (Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER):
+                return redirect('teacher_dashboard')
+            # Students / Individual Students → subjects hub
+            return redirect('subjects_hub')
         return render(request, 'public/home.html')
 
 
