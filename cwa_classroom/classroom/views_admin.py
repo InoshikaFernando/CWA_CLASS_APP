@@ -236,8 +236,8 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def _get_role_choices(self, user):
-        """Institute Owner / Admin can assign HoI; HoI cannot."""
-        if user.is_institute_owner or user.is_admin_user:
+        """Institute Owner / Admin / HoI can assign all roles including HoI."""
+        if user.is_institute_owner or user.is_admin_user or user.is_head_of_institute:
             return SchoolTeacher.ROLE_CHOICES
         return [c for c in SchoolTeacher.ROLE_CHOICES if c[0] != 'head_of_institute']
 
@@ -394,6 +394,29 @@ class SchoolTeacherEditView(RoleRequiredMixin, View):
         school_teacher.role = new_role
         school_teacher.specialty = specialty
         school_teacher.save()
+
+        # Sync system-wide UserRole to match the new school role
+        role_map = {
+            'head_of_institute': (Role.HEAD_OF_INSTITUTE, 'Head of Institute'),
+            'head_of_department': (Role.HEAD_OF_DEPARTMENT, 'Head of Department'),
+        }
+        if new_role in role_map:
+            role_name, display = role_map[new_role]
+            system_role, _ = Role.objects.get_or_create(
+                name=role_name, defaults={'display_name': display}
+            )
+        else:
+            system_role, _ = Role.objects.get_or_create(
+                name=Role.TEACHER, defaults={'display_name': 'Teacher'}
+            )
+        # Remove old teacher-level roles and assign the new one
+        teacher_role_names = [
+            Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT,
+            Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+        ]
+        UserRole.objects.filter(user=teacher, role__name__in=teacher_role_names).delete()
+        UserRole.objects.create(user=teacher, role=system_role, assigned_by=request.user)
+
         messages.success(
             request,
             f'{teacher.get_full_name()} updated.'
