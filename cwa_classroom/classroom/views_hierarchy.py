@@ -143,9 +143,10 @@ class SchoolHierarchyView(RoleRequiredMixin, View):
                 role_display = school_teacher_roles.get(teacher.id, 'Teacher')
                 role_key = school_teacher_role_keys.get(teacher.id, 'teacher')
 
-                # Classes for this teacher in this school
+                # Classes for this teacher in this department
                 teacher_classes = ClassRoom.objects.filter(
                     school=school,
+                    department=dept,
                     class_teachers__teacher=teacher,
                     is_active=True,
                 ).annotate(
