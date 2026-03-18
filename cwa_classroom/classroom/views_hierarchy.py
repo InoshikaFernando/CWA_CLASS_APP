@@ -108,60 +108,71 @@ class SchoolHierarchyView(RoleRequiredMixin, View):
                 ).values_list('id', flat=True)
             )
 
+        # ── Bulk-fetch all data upfront (eliminates N+1 queries) ──
+        all_dept_teacher_links = DepartmentTeacher.objects.filter(
+            department__in=departments,
+        ).select_related('teacher')
+
+        # Group by department_id
+        dept_teacher_map = {}  # dept_id → list of DepartmentTeacher
+        for dt in all_dept_teacher_links:
+            dept_teacher_map.setdefault(dt.department_id, []).append(dt)
+
+        # All school teacher roles in one query
+        all_school_teachers = SchoolTeacher.objects.filter(
+            school=school, is_active=True,
+        ).select_related('teacher')
+        school_teacher_role_map = {}   # teacher_id → role display
+        school_teacher_key_map = {}    # teacher_id → role key
+        school_teacher_obj_map = {}    # teacher_id → SchoolTeacher
+        for st in all_school_teachers:
+            school_teacher_role_map[st.teacher_id] = st.get_role_display()
+            school_teacher_key_map[st.teacher_id] = st.role
+            school_teacher_obj_map[st.teacher_id] = st
+
+        # Build teacher_id → set of class_ids from already-fetched all_class_teachers
+        teacher_class_ids = {}  # teacher_id → set of class_ids
+        for ct in all_class_teachers:
+            teacher_class_ids.setdefault(ct.teacher_id, set()).add(ct.classroom_id)
+
+        # Fetch all active classes for the school with student counts in one query
+        all_classes = ClassRoom.objects.filter(
+            school=school, is_active=True,
+        ).annotate(student_count=Count('class_students')).distinct()
+        class_obj_map = {cls.id: cls for cls in all_classes}
+
         # ── Build per-department hierarchy ───────────────────────
         dept_hierarchy = []
         for dept in departments:
-            # Teachers in this department
-            dept_teacher_links = DepartmentTeacher.objects.filter(
-                department=dept,
-            ).select_related('teacher')
+            dept_links = dept_teacher_map.get(dept.id, [])
+            # Pre-compute which classes belong to this department
+            dept_class_ids = {cls.id for cls in all_classes if cls.department_id == dept.id}
 
-            teacher_ids = [dt.teacher_id for dt in dept_teacher_links]
-
-            # Get SchoolTeacher role for each
-            school_teacher_roles = {
-                st.teacher_id: st.get_role_display()
-                for st in SchoolTeacher.objects.filter(
-                    school=school, teacher_id__in=teacher_ids, is_active=True,
-                )
-            }
-            school_teacher_role_keys = {
-                st.teacher_id: st.role
-                for st in SchoolTeacher.objects.filter(
-                    school=school, teacher_id__in=teacher_ids, is_active=True,
-                )
-            }
-
-            # Build teacher list with classes
             teachers_data = []
-            seen_teacher_ids = set()      # track teachers already shown in this dept
-            shown_class_ids = set()       # track classes already shown in this dept
+            seen_teacher_ids = set()
+            shown_class_ids = set()
 
-            for dt in dept_teacher_links:
+            for dt in dept_links:
                 teacher = dt.teacher
                 seen_teacher_ids.add(teacher.id)
-                role_display = school_teacher_roles.get(teacher.id, 'Teacher')
-                role_key = school_teacher_role_keys.get(teacher.id, 'teacher')
+                role_display = school_teacher_role_map.get(teacher.id, 'Teacher')
+                role_key = school_teacher_key_map.get(teacher.id, 'teacher')
 
-                # Classes for this teacher in this school
-                teacher_classes = ClassRoom.objects.filter(
-                    school=school,
-                    class_teachers__teacher=teacher,
-                    is_active=True,
-                ).annotate(
-                    student_count=Count('class_students'),
-                ).distinct()
-
+                # Get classes for this teacher, filtered to THIS department only
+                t_class_ids = teacher_class_ids.get(teacher.id, set())
                 classes_data = []
-                for cls in teacher_classes:
-                    shown_class_ids.add(cls.id)
-                    color = shared_class_colors.get(cls.id)
+                for cid in (t_class_ids & dept_class_ids):
+                    cls = class_obj_map.get(cid)
+                    if not cls:
+                        continue
+                    shown_class_ids.add(cid)
+                    color = shared_class_colors.get(cid)
                     classes_data.append({
                         'classroom': cls,
-                        'is_shared': cls.id in shared_class_ids,
+                        'is_shared': cid in shared_class_ids,
                         'color': color,
                         'student_count': cls.student_count,
-                        'can_view': cls.id in accessible_class_ids,
+                        'can_view': cid in accessible_class_ids,
                     })
 
                 teachers_data.append({
@@ -173,38 +184,34 @@ class SchoolHierarchyView(RoleRequiredMixin, View):
 
             # ── Also include classes that belong to this department via FK ──
             # but whose teachers aren't formally in DepartmentTeacher
-            dept_owned_classes = ClassRoom.objects.filter(
-                department=dept, is_active=True,
-            ).exclude(id__in=shown_class_ids).annotate(
-                student_count=Count('class_students'),
-            ).distinct()
-
-            # Group these classes by their teacher(s)
-            extra_teacher_classes = {}  # teacher_id → list of class_data
-            for cls in dept_owned_classes:
-                cls_teachers = ClassTeacher.objects.filter(
-                    classroom=cls,
-                ).select_related('teacher')
-                if cls_teachers.exists():
-                    for ct in cls_teachers:
-                        extra_teacher_classes.setdefault(ct.teacher_id, {
-                            'teacher': ct.teacher,
-                            'classes': [],
-                        })
-                        color = shared_class_colors.get(cls.id)
-                        extra_teacher_classes[ct.teacher_id]['classes'].append({
-                            'classroom': cls,
-                            'is_shared': cls.id in shared_class_ids,
-                            'color': color,
-                            'student_count': cls.student_count,
-                            'can_view': cls.id in accessible_class_ids,
-                        })
+            extra_teacher_classes = {}
+            for cls in all_classes:
+                if cls.department_id == dept.id and cls.id not in shown_class_ids:
+                    # Find teachers of this class from pre-built map
+                    cls_teacher_ids = class_teacher_map.get(cls.id, set())
+                    if cls_teacher_ids:
+                        for tid in cls_teacher_ids:
+                            if tid not in extra_teacher_classes:
+                                teacher_obj = school_teacher_obj_map.get(tid)
+                                extra_teacher_classes[tid] = {
+                                    'teacher': teacher_obj.teacher if teacher_obj else None,
+                                    'classes': [],
+                                }
+                            color = shared_class_colors.get(cls.id)
+                            extra_teacher_classes[tid]['classes'].append({
+                                'classroom': cls,
+                                'is_shared': cls.id in shared_class_ids,
+                                'color': color,
+                                'student_count': cls.student_count,
+                                'can_view': cls.id in accessible_class_ids,
+                            })
 
             # Merge extra teachers into teachers_data
             for teacher_id, data in extra_teacher_classes.items():
                 teacher = data['teacher']
+                if not teacher:
+                    continue
                 if teacher_id in seen_teacher_ids:
-                    # Teacher already shown — append their department-owned classes
                     for td in teachers_data:
                         if td['user'].id == teacher_id:
                             existing_ids = {c['classroom'].id for c in td['classes']}
@@ -213,18 +220,14 @@ class SchoolHierarchyView(RoleRequiredMixin, View):
                                     td['classes'].append(cls_data)
                             break
                 else:
-                    # Teacher not in dept — add them with only dept-owned classes
-                    st = SchoolTeacher.objects.filter(
-                        school=school, teacher=teacher, is_active=True,
-                    ).first()
                     teachers_data.append({
                         'user': teacher,
-                        'role_display': st.get_role_display() if st else 'Teacher',
-                        'role_key': st.role if st else 'teacher',
+                        'role_display': school_teacher_role_map.get(teacher_id, 'Teacher'),
+                        'role_key': school_teacher_key_map.get(teacher_id, 'teacher'),
                         'classes': data['classes'],
                     })
 
-            # Sort teachers: senior_teacher first, then teacher, then junior_teacher
+            # Sort teachers by role priority
             role_order = {
                 'head_of_institute': 0,
                 'head_of_department': 1,
@@ -234,10 +237,21 @@ class SchoolHierarchyView(RoleRequiredMixin, View):
             }
             teachers_data.sort(key=lambda t: role_order.get(t['role_key'], 5))
 
+            # Collect unassigned classes (in this dept but no teacher at all)
+            unassigned_classes = []
+            for cls in all_classes:
+                if cls.department_id == dept.id and cls.id not in shown_class_ids and cls.id not in class_teacher_map:
+                    unassigned_classes.append({
+                        'classroom': cls,
+                        'student_count': cls.student_count,
+                        'can_view': cls.id in accessible_class_ids,
+                    })
+
             dept_hierarchy.append({
                 'department': dept,
                 'hod': dept.head,
                 'teachers': teachers_data,
+                'unassigned_classes': unassigned_classes,
             })
 
         return render(request, 'hierarchy/school_hierarchy.html', {

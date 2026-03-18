@@ -83,7 +83,7 @@ def _user_can_access_classroom(user, classroom):
         return True
     # HoD of any department in the same school
     if classroom.school_id and Department.objects.filter(
-        school=classroom.school, head=user,
+        school=classroom.school, head=user, is_active=True,
     ).exists():
         return True
     if classroom.school_id and classroom.school.admin_id == user.id:

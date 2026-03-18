@@ -42,7 +42,12 @@ urlpatterns = [
     path('admin-dashboard/schools/create/', views_admin.SchoolCreateView.as_view(), name='admin_school_create'),
     path('admin-dashboard/manage-teachers/', views_admin.ManageTeachersRedirectView.as_view(), name='admin_manage_teachers'),
     path('admin-dashboard/manage-students/', views_admin.ManageStudentsRedirectView.as_view(), name='admin_manage_students'),
+    path('admin-dashboard/manage-departments/', views_admin.ManageDepartmentsRedirectView.as_view(), name='admin_manage_departments'),
+    path('admin-dashboard/manage-subjects/', views_admin.ManageSubjectsRedirectView.as_view(), name='admin_manage_subjects'),
     path('admin-dashboard/schools/<int:school_id>/', views_admin.SchoolDetailView.as_view(), name='admin_school_detail'),
+    path('admin-dashboard/schools/<int:school_id>/edit/', views_admin.SchoolEditView.as_view(), name='admin_school_edit'),
+    path('admin-dashboard/schools/<int:school_id>/toggle-active/', views_admin.SchoolToggleActiveView.as_view(), name='admin_school_toggle_active'),
+    path('admin-dashboard/schools/<int:school_id>/delete/', views_admin.SchoolDeleteView.as_view(), name='admin_school_delete'),
     path('admin-dashboard/schools/<int:school_id>/teachers/', views_admin.SchoolTeacherManageView.as_view(), name='admin_school_teachers'),
     path('admin-dashboard/schools/<int:school_id>/teachers/<int:teacher_id>/edit/', views_admin.SchoolTeacherEditView.as_view(), name='admin_school_teacher_edit'),
     path('admin-dashboard/schools/<int:school_id>/teachers/<int:teacher_id>/remove/', views_admin.SchoolTeacherRemoveView.as_view(), name='admin_school_teacher_remove'),
@@ -70,6 +75,8 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/subject-levels/', views_department.DepartmentSubjectLevelsView.as_view(), name='admin_department_subject_levels'),
     path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/subject-levels/<int:level_id>/remove/', views_department.DepartmentSubjectLevelRemoveView.as_view(), name='admin_department_subject_level_remove'),
     path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/update-fee/', views_department.DepartmentUpdateFeeView.as_view(), name='admin_department_update_fee'),
+    path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/toggle-active/', views_department.DepartmentToggleActiveView.as_view(), name='admin_department_toggle_active'),
+    path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/delete/', views_department.DepartmentDeleteView.as_view(), name='admin_department_delete'),
 
     # Email management (admin)
     path('admin-dashboard/email/', views_email.EmailDashboardView.as_view(), name='email_dashboard'),

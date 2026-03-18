@@ -7,6 +7,8 @@ from django.db import transaction
 from django.utils.text import slugify
 from django.utils import timezone
 
+from django.db.models import Count, Q
+
 from accounts.models import CustomUser, Role, UserRole
 from accounts.views import _validate_username, _generate_username_suggestion
 from .models import (
@@ -22,20 +24,30 @@ class AdminDashboardView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request):
-        schools = School.objects.filter(admin=request.user)
-        school_data = []
-        for school in schools:
-            teacher_count = SchoolTeacher.objects.filter(school=school, is_active=True).count()
-            student_count = ClassRoom.objects.filter(
-                school=school, is_active=True
-            ).values_list('students', flat=True).distinct().count()
-            school_data.append({
-                'school': school,
-                'teacher_count': teacher_count,
-                'student_count': student_count,
-            })
+        schools = School.objects.filter(admin=request.user).annotate(
+            teacher_count=Count(
+                'school_teachers',
+                filter=Q(school_teachers__is_active=True),
+                distinct=True,
+            ),
+            student_count=Count(
+                'school_students',
+                filter=Q(school_students__is_active=True),
+                distinct=True,
+            ),
+        )
+        school_data = [{
+            'school': s,
+            'teacher_count': s.teacher_count,
+            'student_count': s.student_count,
+        } for s in schools]
+        total_teachers = sum(s.teacher_count for s in schools)
+        total_students = sum(s.student_count for s in schools)
         return render(request, 'admin_dashboard/dashboard.html', {
             'school_data': school_data,
+            'total_schools': len(school_data),
+            'total_teachers': total_teachers,
+            'total_students': total_students,
         })
 
 
@@ -83,19 +95,89 @@ class SchoolCreateView(RoleRequiredMixin, View):
         return redirect('admin_school_detail', school_id=school.id)
 
 
+class SchoolEditView(RoleRequiredMixin, View):
+    """Edit an existing school's details."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request, school_id):
+        school = get_object_or_404(School, id=school_id, admin=request.user)
+        return render(request, 'admin_dashboard/school_form.html', {
+            'school': school,
+            'form_data': {
+                'name': school.name,
+                'address': school.address,
+                'phone': school.phone,
+                'email': school.email,
+            },
+        })
+
+    def post(self, request, school_id):
+        school = get_object_or_404(School, id=school_id, admin=request.user)
+        name = request.POST.get('name', '').strip()
+        address = request.POST.get('address', '').strip()
+        phone = request.POST.get('phone', '').strip()
+        email = request.POST.get('email', '').strip()
+
+        if not name:
+            messages.error(request, 'School name is required.')
+            return render(request, 'admin_dashboard/school_form.html', {
+                'school': school,
+                'form_data': {'name': name, 'address': address, 'phone': phone, 'email': email},
+            })
+
+        if name != school.name:
+            slug = slugify(name)
+            base_slug = slug
+            counter = 1
+            while School.objects.filter(slug=slug).exclude(id=school.id).exists():
+                slug = f'{base_slug}-{counter}'
+                counter += 1
+            school.slug = slug
+
+        school.name = name
+        school.address = address
+        school.phone = phone
+        school.email = email
+        school.save()
+        messages.success(request, f'School "{name}" updated successfully.')
+        return redirect('admin_school_detail', school_id=school.id)
+
+
+class SchoolToggleActiveView(RoleRequiredMixin, View):
+    """Toggle the is_active status of a school."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def post(self, request, school_id):
+        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school.is_active = not school.is_active
+        school.save(update_fields=['is_active'])
+        status = 'activated' if school.is_active else 'deactivated'
+        messages.success(request, f'School "{school.name}" has been {status}.')
+        return redirect('admin_school_detail', school_id=school.id)
+
+
+class SchoolDeleteView(RoleRequiredMixin, View):
+    """Deactivate a school (soft-delete). Redirects to toggle-active for consistency."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def post(self, request, school_id):
+        # Redirect to toggle-active — we never hard-delete schools
+        return redirect('admin_school_toggle_active', school_id=school_id)
+
+
 class SchoolDetailView(RoleRequiredMixin, View):
     """Show detailed information about a school the admin/HoD owns."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request, school_id):
         school = get_object_or_404(School, id=school_id, admin=request.user)
-        teachers = SchoolTeacher.objects.filter(school=school).select_related('teacher')
+        teachers = SchoolTeacher.objects.filter(school=school, is_active=True).select_related('teacher')
         classes = ClassRoom.objects.filter(school=school, is_active=True).prefetch_related(
             'teachers', 'students', 'levels'
         )
         academic_years = AcademicYear.objects.filter(school=school)
-        departments = Department.objects.filter(school=school).select_related('head')
-        school_students = SchoolStudent.objects.filter(school=school).select_related('student')
+        departments = Department.objects.filter(school=school, is_active=True).select_related('head')
+        school_students = SchoolStudent.objects.filter(school=school, is_active=True).select_related('student')
         custom_levels = Level.objects.filter(school=school).order_by('level_number')
         return render(request, 'admin_dashboard/school_detail.html', {
             'school': school,
@@ -133,6 +215,33 @@ class ManageStudentsRedirectView(RoleRequiredMixin, View):
         return redirect('admin_school_create')
 
 
+class ManageDepartmentsRedirectView(RoleRequiredMixin, View):
+    """Shortcut: redirects to the first school's departments page."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request):
+        school = School.objects.filter(admin=request.user).first()
+        if school:
+            return redirect('admin_school_departments', school_id=school.id)
+        messages.info(request, 'Create a school first.')
+        return redirect('admin_school_create')
+
+
+class ManageSubjectsRedirectView(RoleRequiredMixin, View):
+    """Shortcut: redirects to the first school's first department's subject-levels page."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request):
+        school = School.objects.filter(admin=request.user).first()
+        if school:
+            dept = Department.objects.filter(school=school, is_active=True).first()
+            if dept:
+                return redirect('admin_department_subject_levels', school_id=school.id, dept_id=dept.id)
+            return redirect('admin_school_departments', school_id=school.id)
+        messages.info(request, 'Create a school first.')
+        return redirect('admin_school_create')
+
+
 class SchoolTeacherManageView(RoleRequiredMixin, View):
     """Manage teachers assigned to a school: list and create new teachers."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
@@ -145,7 +254,7 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
 
     def get(self, request, school_id):
         school = get_object_or_404(School, id=school_id, admin=request.user)
-        school_teachers = SchoolTeacher.objects.filter(school=school).select_related('teacher')
+        school_teachers = SchoolTeacher.objects.filter(school=school, is_active=True).select_related('teacher')
         return render(request, 'admin_dashboard/school_teachers.html', {
             'school': school,
             'school_teachers': school_teachers,
@@ -191,7 +300,7 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
         if errors:
             for err in errors:
                 messages.error(request, err)
-            school_teachers = SchoolTeacher.objects.filter(school=school).select_related('teacher')
+            school_teachers = SchoolTeacher.objects.filter(school=school, is_active=True).select_related('teacher')
             return render(request, 'admin_dashboard/school_teachers.html', {
                 'school': school,
                 'school_teachers': school_teachers,
@@ -304,23 +413,32 @@ class SchoolTeacherEditView(RoleRequiredMixin, View):
 
 
 class SchoolTeacherRemoveView(RoleRequiredMixin, View):
-    """Remove a teacher from a school and delete their account."""
+    """Soft-remove a teacher from a school (deactivate, preserve account)."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def post(self, request, school_id, teacher_id):
         school = get_object_or_404(School, id=school_id, admin=request.user)
         school_teacher = SchoolTeacher.objects.filter(
-            school=school, teacher_id=teacher_id
+            school=school, teacher_id=teacher_id, is_active=True
         ).select_related('teacher').first()
 
         if school_teacher:
             teacher_user = school_teacher.teacher
             teacher_name = teacher_user.get_full_name() or teacher_user.username
-            # Delete the SchoolTeacher link
-            school_teacher.delete()
-            # Delete the user account entirely
-            teacher_user.delete()
-            messages.success(request, f'{teacher_name} has been removed and their account deleted.')
+            with transaction.atomic():
+                # Deactivate the SchoolTeacher link (keep user account intact)
+                school_teacher.is_active = False
+                school_teacher.save(update_fields=['is_active'])
+                # Remove from department assignments
+                DepartmentTeacher.objects.filter(
+                    department__school=school, teacher=teacher_user
+                ).delete()
+                # Remove from class assignments
+                from .models import ClassTeacher
+                ClassTeacher.objects.filter(
+                    classroom__school=school, teacher=teacher_user
+                ).delete()
+            messages.success(request, f'{teacher_name} has been removed from {school.name}.')
         else:
             messages.warning(request, 'Teacher was not found at this school.')
         return redirect('admin_school_teachers', school_id=school.id)
@@ -415,7 +533,7 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
         school = self._get_school(request, school_id)
         from django.db.models import Count, Q
         school_students = (
-            SchoolStudent.objects.filter(school=school)
+            SchoolStudent.objects.filter(school=school, is_active=True)
             .select_related('student')
             .annotate(
                 class_count=Count(
@@ -459,7 +577,7 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
         if errors:
             for err in errors:
                 messages.error(request, err)
-            school_students = SchoolStudent.objects.filter(school=school).select_related('student')
+            school_students = SchoolStudent.objects.filter(school=school, is_active=True).select_related('student')
             return render(request, 'admin_dashboard/school_students.html', {
                 'school': school,
                 'school_students': school_students,
@@ -530,7 +648,7 @@ class SchoolStudentEditView(RoleRequiredMixin, View):
 
 
 class SchoolStudentRemoveView(RoleRequiredMixin, View):
-    """Remove a student from a school and delete their account."""
+    """Soft-remove a student from a school (deactivate, preserve account and history)."""
     required_roles = [
         Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
         Role.HEAD_OF_DEPARTMENT, Role.TEACHER,
@@ -539,15 +657,16 @@ class SchoolStudentRemoveView(RoleRequiredMixin, View):
     def post(self, request, school_id, student_id):
         school = SchoolStudentManageView._get_school(self, request, school_id)
         school_student = SchoolStudent.objects.filter(
-            school=school, student_id=student_id
+            school=school, student_id=student_id, is_active=True
         ).select_related('student').first()
 
         if school_student:
             student_user = school_student.student
             name = student_user.get_full_name() or student_user.username
-            school_student.delete()
-            student_user.delete()
-            messages.success(request, f'{name} has been removed and their account deleted.')
+            # Deactivate the link (keep user account + ClassStudent history intact)
+            school_student.is_active = False
+            school_student.save(update_fields=['is_active'])
+            messages.success(request, f'{name} has been removed from {school.name}.')
         else:
             messages.warning(request, 'Student was not found at this school.')
         return redirect('admin_school_students', school_id=school.id)

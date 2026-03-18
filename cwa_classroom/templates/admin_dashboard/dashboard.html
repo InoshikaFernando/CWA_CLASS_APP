@@ -30,7 +30,7 @@
           </svg>
         </div>
         <div>
-          <p class="text-2xl font-bold text-gray-900">{{ school_data|length }}</p>
+          <p class="text-2xl font-bold text-gray-900">{{ total_schools }}</p>
           <p class="text-sm text-gray-500">Schools</p>
         </div>
       </div>
@@ -43,9 +43,7 @@
           </svg>
         </div>
         <div>
-          {% with total_teachers=0 %}
-          <p class="text-2xl font-bold text-gray-900">{% for s in school_data %}{% if forloop.first %}{{ s.teacher_count }}{% endif %}{% empty %}0{% endfor %}</p>
-          {% endwith %}
+          <p class="text-2xl font-bold text-gray-900">{{ total_teachers }}</p>
           <p class="text-sm text-gray-500">Total Teachers</p>
         </div>
       </div>
@@ -58,7 +56,7 @@
           </svg>
         </div>
         <div>
-          <p class="text-2xl font-bold text-gray-900">{% for s in school_data %}{% if forloop.first %}{{ s.student_count }}{% endif %}{% empty %}0{% endfor %}</p>
+          <p class="text-2xl font-bold text-gray-900">{{ total_students }}</p>
           <p class="text-sm text-gray-500">Total Students</p>
         </div>
       </div>
