@@ -23,19 +23,41 @@ class AdminDashboardView(RoleRequiredMixin, View):
 
     def get(self, request):
         schools = School.objects.filter(admin=request.user)
+
+        total_teachers = 0
+        total_students = 0
+        total_departments = 0
+        total_classes = 0
+
         school_data = []
         for school in schools:
             teacher_count = SchoolTeacher.objects.filter(school=school, is_active=True).count()
             student_count = ClassRoom.objects.filter(
                 school=school, is_active=True
             ).values_list('students', flat=True).distinct().count()
+            dept_count = Department.objects.filter(school=school).count()
+            class_count = ClassRoom.objects.filter(school=school, is_active=True).count()
+
+            total_teachers += teacher_count
+            total_students += student_count
+            total_departments += dept_count
+            total_classes += class_count
+
             school_data.append({
                 'school': school,
                 'teacher_count': teacher_count,
                 'student_count': student_count,
+                'department_count': dept_count,
+                'class_count': class_count,
             })
+
         return render(request, 'admin_dashboard/dashboard.html', {
             'school_data': school_data,
+            'total_schools': len(school_data),
+            'total_teachers': total_teachers,
+            'total_students': total_students,
+            'total_departments': total_departments,
+            'total_classes': total_classes,
         })
 
 
