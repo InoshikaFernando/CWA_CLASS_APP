@@ -412,6 +412,71 @@ class SchoolTeacherEditView(RoleRequiredMixin, View):
         return redirect('admin_school_teachers', school_id=school.id)
 
 
+class SchoolTeacherBatchUpdateView(RoleRequiredMixin, View):
+    """Batch update multiple teachers in one POST."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def post(self, request, school_id):
+        school = get_object_or_404(School, id=school_id, admin=request.user)
+        teacher_ids_str = request.POST.get('teacher_ids', '')
+        if not teacher_ids_str:
+            return redirect('admin_school_teachers', school_id=school.id)
+
+        teacher_ids = [int(x) for x in teacher_ids_str.split(',') if x.strip().isdigit()]
+        valid_roles = [c[0] for c in SchoolTeacher.ROLE_CHOICES]
+        updated = 0
+        errors = []
+
+        with transaction.atomic():
+            for tid in teacher_ids:
+                st = SchoolTeacher.objects.filter(
+                    school=school, teacher_id=tid, is_active=True
+                ).select_related('teacher').first()
+                if not st:
+                    continue
+
+                teacher = st.teacher
+                name = teacher.get_full_name() or teacher.username
+                username = request.POST.get(f'username_{tid}', '').strip()
+                first_name = request.POST.get(f'first_name_{tid}', '').strip()
+                last_name = request.POST.get(f'last_name_{tid}', '').strip()
+                email = request.POST.get(f'email_{tid}', '').strip()
+                role = request.POST.get(f'role_{tid}', '').strip()
+                specialty = request.POST.get(f'specialty_{tid}', '').strip()
+
+                # Validate username
+                if username and username != teacher.username:
+                    uname_errors = _validate_username(username, exclude_user_id=teacher.id)
+                    if uname_errors:
+                        errors.append(f'{name}: {uname_errors[0]}')
+                        continue
+                    teacher.username = username
+
+                if first_name:
+                    teacher.first_name = first_name
+                if last_name:
+                    teacher.last_name = last_name
+                if email and '@' in email:
+                    if not CustomUser.objects.filter(email=email).exclude(id=teacher.id).exists():
+                        teacher.email = email
+                    else:
+                        errors.append(f'{name}: email already in use.')
+                        continue
+                teacher.save()
+
+                if role in valid_roles:
+                    st.role = role
+                st.specialty = specialty
+                st.save()
+                updated += 1
+
+        if updated:
+            messages.success(request, f'{updated} teacher{"s" if updated != 1 else ""} updated.')
+        for err in errors:
+            messages.error(request, err)
+        return redirect('admin_school_teachers', school_id=school.id)
+
+
 class SchoolTeacherRemoveView(RoleRequiredMixin, View):
     """Soft-remove a teacher from a school (deactivate, preserve account)."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
@@ -644,6 +709,65 @@ class SchoolStudentEditView(RoleRequiredMixin, View):
                 student.email = email
         student.save()
         messages.success(request, f'{student.get_full_name()} updated.')
+        return redirect('admin_school_students', school_id=school.id)
+
+
+class SchoolStudentBatchUpdateView(RoleRequiredMixin, View):
+    """Batch update multiple students in one POST."""
+    required_roles = [
+        Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT, Role.TEACHER,
+    ]
+
+    def post(self, request, school_id):
+        school = SchoolStudentManageView._get_school(self, request, school_id)
+        student_ids_str = request.POST.get('student_ids', '')
+        if not student_ids_str:
+            return redirect('admin_school_students', school_id=school.id)
+
+        student_ids = [int(x) for x in student_ids_str.split(',') if x.strip().isdigit()]
+        updated = 0
+        errors = []
+
+        with transaction.atomic():
+            for sid in student_ids:
+                ss = SchoolStudent.objects.filter(
+                    school=school, student_id=sid, is_active=True
+                ).select_related('student').first()
+                if not ss:
+                    continue
+
+                student = ss.student
+                name = student.get_full_name() or student.username
+                username = request.POST.get(f'username_{sid}', '').strip()
+                first_name = request.POST.get(f'first_name_{sid}', '').strip()
+                last_name = request.POST.get(f'last_name_{sid}', '').strip()
+                email = request.POST.get(f'email_{sid}', '').strip()
+
+                if username and username != student.username:
+                    uname_errors = _validate_username(username, exclude_user_id=student.id)
+                    if uname_errors:
+                        errors.append(f'{name}: {uname_errors[0]}')
+                        continue
+                    student.username = username
+
+                if first_name:
+                    student.first_name = first_name
+                if last_name:
+                    student.last_name = last_name
+                if email and '@' in email:
+                    if not CustomUser.objects.filter(email=email).exclude(id=student.id).exists():
+                        student.email = email
+                    else:
+                        errors.append(f'{name}: email already in use.')
+                        continue
+                student.save()
+                updated += 1
+
+        if updated:
+            messages.success(request, f'{updated} student{"s" if updated != 1 else ""} updated.')
+        for err in errors:
+            messages.error(request, err)
         return redirect('admin_school_students', school_id=school.id)
 
 

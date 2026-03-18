@@ -3,7 +3,15 @@
 {% block title %}Manage Teachers — {{ school.name }}{% endblock %}
 
 {% block content %}
-<div class="max-w-7xl mx-auto">
+<div class="max-w-7xl mx-auto" :class="hasChanges ? 'pb-24' : ''"
+     x-data="{
+       modifiedIds: new Set(),
+       expanded: {},
+       get hasChanges() { return this.modifiedIds.size > 0 },
+       markModified(id) { this.modifiedIds.add(id); document.getElementById('teacher_ids').value = [...this.modifiedIds].join(',') },
+       toggle(id) { this.expanded[id] = !this.expanded[id] }
+     }"
+     x-init="window.addEventListener('beforeunload', (e) => { if (hasChanges) e.preventDefault() })">
 
   <!-- Header -->
   <div class="mb-8">
@@ -39,21 +47,21 @@
           </svg>
         </div>
         <div>
-          <p class="text-2xl font-bold text-gray-900">{% for st in school_teachers %}{% if st.role == 'head_of_department' %}{% with counter=counter|default:0|add:1 %}{% endwith %}{% endif %}{% endfor %}{{ counter|default:0 }}</p>
-          <p class="text-sm text-gray-500">Heads of Department</p>
+          <p class="text-2xl font-bold text-accent">Add New</p>
+          <p class="text-sm text-gray-500">Use form below</p>
         </div>
       </div>
     </div>
     <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
       <div class="flex items-center gap-4">
-        <div class="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center">
-          <svg class="w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+        <div class="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
           </svg>
         </div>
         <div>
-          <p class="text-2xl font-bold text-accent">Add New</p>
-          <p class="text-sm text-gray-500">Use form below</p>
+          <p class="text-2xl font-bold text-gray-900">Batch Edit</p>
+          <p class="text-sm text-gray-500">Edit many, save once</p>
         </div>
       </div>
     </div>
@@ -154,97 +162,137 @@
         </select>
       </div>
 
-      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
-        <div class="divide-y divide-slate-100">
-          {% for st in school_teachers %}
-            <div class="px-6 py-4"
-                 x-show="(search === '' || '{{ st.teacher.get_full_name|default:st.teacher.username|escapejs }}'.toLowerCase().includes(search.toLowerCase())) && (roleFilter === 'all' || roleFilter === '{{ st.role }}')">
-              <!-- Teacher Header -->
-              <div class="flex items-center justify-between mb-3">
-                <div class="flex items-center gap-3 min-w-0">
-                  <span class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-accent text-white text-sm font-bold flex-shrink-0">
-                    {{ st.teacher.first_name|slice:":1"|upper }}{{ st.teacher.last_name|slice:":1"|upper }}
-                  </span>
-                  <div class="min-w-0">
-                    <p class="font-medium text-gray-900">{{ st.teacher.get_full_name|default:st.teacher.username }}</p>
-                    <p class="text-xs text-gray-400">Login: <span class="font-mono">{{ st.teacher.username }}</span>{% if st.specialty %} &middot; {{ st.specialty }}{% endif %}</p>
+      <!-- Batch edit form -->
+      <form method="post" action="{% url 'admin_school_teacher_batch_update' school.id %}"
+            @submit="window.onbeforeunload = null">
+        {% csrf_token %}
+        <input type="hidden" name="teacher_ids" id="teacher_ids" value="">
+
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+          <div class="divide-y divide-slate-100">
+            {% for st in school_teachers %}
+              <div class="transition-all duration-200"
+                   :class="modifiedIds.has({{ st.teacher.id }}) ? 'bg-accent/5 border-l-4 border-l-accent' : ''"
+                   x-show="(search === '' || '{{ st.teacher.get_full_name|default:st.teacher.username|escapejs }}'.toLowerCase().includes(search.toLowerCase())) && (roleFilter === 'all' || roleFilter === '{{ st.role }}')">
+
+                <!-- Collapsed: read-only summary -->
+                <div class="flex items-center justify-between px-6 py-4 cursor-pointer" @click="toggle({{ st.teacher.id }})">
+                  <div class="flex items-center gap-3 min-w-0 flex-1">
+                    <span class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-accent text-white text-sm font-bold flex-shrink-0">
+                      {{ st.teacher.first_name|slice:":1"|upper }}{{ st.teacher.last_name|slice:":1"|upper }}
+                    </span>
+                    <div class="min-w-0">
+                      <p class="font-medium text-gray-900">{{ st.teacher.get_full_name|default:st.teacher.username }}</p>
+                      <p class="text-xs text-gray-400">{{ st.teacher.email }}{% if st.specialty %} &middot; {{ st.specialty }}{% endif %}</p>
+                    </div>
+                    <span class="text-xs font-medium px-2 py-1 rounded-full ml-2
+                      {% if st.role == 'head_of_institute' %}bg-amber-100 text-amber-700
+                      {% elif st.role == 'head_of_department' %}bg-emerald-100 text-emerald-700
+                      {% elif st.role == 'senior_teacher' %}bg-indigo-100 text-indigo-700
+                      {% elif st.role == 'teacher' %}bg-blue-100 text-blue-700
+                      {% else %}bg-sky-100 text-sky-700{% endif %}">
+                      {{ st.get_role_display }}
+                    </span>
                   </div>
-                  <span class="text-xs font-medium px-2 py-1 rounded-full ml-2
-                    {% if st.role == 'head_of_institute' %}bg-amber-100 text-amber-700
-                    {% elif st.role == 'head_of_department' %}bg-emerald-100 text-emerald-700
-                    {% elif st.role == 'senior_teacher' %}bg-indigo-100 text-indigo-700
-                    {% elif st.role == 'teacher' %}bg-blue-100 text-blue-700
-                    {% else %}bg-sky-100 text-sky-700{% endif %}">
-                    {{ st.get_role_display }}
-                  </span>
+                  <svg class="w-4 h-4 text-gray-400 transition-transform duration-200 flex-shrink-0"
+                       :class="expanded[{{ st.teacher.id }}] ? 'rotate-180' : ''"
+                       fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
+                  </svg>
                 </div>
-                <form method="post" action="{% url 'admin_school_teacher_remove' school.id st.teacher.id %}" class="flex-shrink-0">
-                  {% csrf_token %}
-                  <button type="submit"
-                          class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 rounded-lg transition"
-                          onclick="return confirm('Are you sure you want to remove {{ st.teacher.get_full_name|default:st.teacher.username|escapejs }} from {{ school.name|escapejs }}?')">
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/>
-                    </svg>
-                    Remove
-                  </button>
-                </form>
+
+                <!-- Expanded: edit fields -->
+                <div x-show="expanded[{{ st.teacher.id }}]" x-transition.duration.200ms x-cloak
+                     class="px-6 pb-4" @click.stop>
+                  <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 items-end ml-13">
+                    <div>
+                      <label class="block text-xs text-gray-400 mb-0.5">Username</label>
+                      <input type="text" name="username_{{ st.teacher.id }}" value="{{ st.teacher.username }}"
+                             @input="markModified({{ st.teacher.id }})"
+                             class="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent transition">
+                    </div>
+                    <div>
+                      <label class="block text-xs text-gray-400 mb-0.5">First Name</label>
+                      <input type="text" name="first_name_{{ st.teacher.id }}" value="{{ st.teacher.first_name }}"
+                             @input="markModified({{ st.teacher.id }})"
+                             class="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent transition">
+                    </div>
+                    <div>
+                      <label class="block text-xs text-gray-400 mb-0.5">Last Name</label>
+                      <input type="text" name="last_name_{{ st.teacher.id }}" value="{{ st.teacher.last_name }}"
+                             @input="markModified({{ st.teacher.id }})"
+                             class="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent transition">
+                    </div>
+                    <div>
+                      <label class="block text-xs text-gray-400 mb-0.5">Email</label>
+                      <input type="email" name="email_{{ st.teacher.id }}" value="{{ st.teacher.email }}"
+                             @input="markModified({{ st.teacher.id }})"
+                             class="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent transition">
+                    </div>
+                    <div>
+                      <label class="block text-xs text-gray-400 mb-0.5">Role</label>
+                      <select name="role_{{ st.teacher.id }}"
+                              @change="markModified({{ st.teacher.id }})"
+                              class="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent transition">
+                        {% for value, label in role_choices %}
+                          <option value="{{ value }}" {% if st.role == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    <div>
+                      <label class="block text-xs text-gray-400 mb-0.5">Specialty</label>
+                      <input type="text" name="specialty_{{ st.teacher.id }}" value="{{ st.specialty }}"
+                             @input="markModified({{ st.teacher.id }})"
+                             class="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent transition">
+                    </div>
+                  </div>
+                  <div class="mt-3 ml-13">
+                    <form method="post" action="{% url 'admin_school_teacher_remove' school.id st.teacher.id %}" class="inline">
+                      {% csrf_token %}
+                      <button type="submit"
+                              class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 rounded-lg transition"
+                              onclick="return confirm('Are you sure you want to remove {{ st.teacher.get_full_name|default:st.teacher.username|escapejs }} from {{ school.name|escapejs }}?')">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/>
+                        </svg>
+                        Remove from School
+                      </button>
+                    </form>
+                  </div>
+                </div>
               </div>
-              <!-- Inline Edit Form -->
-              <form method="post" action="{% url 'admin_school_teacher_edit' school.id st.teacher.id %}">
-                {% csrf_token %}
-                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 items-end">
-                  <div>
-                    <label class="block text-xs text-gray-400 mb-0.5">Username</label>
-                    <input type="text" name="username" value="{{ st.teacher.username }}"
-                           class="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent transition">
-                  </div>
-                  <div>
-                    <label class="block text-xs text-gray-400 mb-0.5">First Name</label>
-                    <input type="text" name="first_name" value="{{ st.teacher.first_name }}"
-                           class="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent transition">
-                  </div>
-                  <div>
-                    <label class="block text-xs text-gray-400 mb-0.5">Last Name</label>
-                    <input type="text" name="last_name" value="{{ st.teacher.last_name }}"
-                           class="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent transition">
-                  </div>
-                  <div>
-                    <label class="block text-xs text-gray-400 mb-0.5">Email</label>
-                    <input type="email" name="email" value="{{ st.teacher.email }}"
-                           class="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent transition">
-                  </div>
-                  <div>
-                    <label class="block text-xs text-gray-400 mb-0.5">Role</label>
-                    <select name="role"
-                            class="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent transition">
-                      {% for value, label in role_choices %}
-                        <option value="{{ value }}" {% if st.role == value %}selected{% endif %}>{{ label }}</option>
-                      {% endfor %}
-                    </select>
-                  </div>
-                  <div>
-                    <label class="block text-xs text-gray-400 mb-0.5">Specialty</label>
-                    <input type="text" name="specialty" value="{{ st.specialty }}"
-                           class="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent transition">
-                  </div>
-                </div>
-                <div class="mt-2 flex justify-end">
-                  <button type="submit"
-                          class="px-4 py-1.5 bg-accent text-white text-sm font-medium rounded-lg hover:bg-accent-dark transition">
-                    Save
-                  </button>
-                </div>
-              </form>
-            </div>
-          {% endfor %}
+            {% endfor %}
+          </div>
         </div>
-      </div>
+
+        <!-- Sticky Save Bar -->
+        <div x-show="hasChanges" x-transition
+             class="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 shadow-lg z-50 px-6 py-4">
+          <div class="max-w-7xl mx-auto flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-2 h-2 rounded-full bg-accent animate-pulse"></div>
+              <p class="text-sm font-medium text-gray-700">
+                <span x-text="modifiedIds.size"></span> teacher<span x-show="modifiedIds.size !== 1">s</span> modified
+              </p>
+            </div>
+            <div class="flex items-center gap-3">
+              <button type="button" @click="window.location.reload()"
+                      class="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 transition">
+                Discard
+              </button>
+              <button type="submit"
+                      class="px-6 py-2 bg-accent text-white text-sm font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm">
+                Save All Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      </form>
     </div>
   {% else %}
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">
       <svg class="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/>
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 4.5 0Z"/>
       </svg>
       <h3 class="text-lg font-semibold text-gray-700 mb-2">No teachers yet</h3>
       <p class="text-gray-500 mb-4">Use the form above to add your first teacher.</p>
