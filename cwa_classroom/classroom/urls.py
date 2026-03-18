@@ -155,6 +155,7 @@ urlpatterns = [
     path('invoicing/', views_invoicing.InvoiceListView.as_view(), name='invoice_list'),
     path('invoicing/fees/', views_invoicing.FeeConfigurationView.as_view(), name='fee_configuration'),
     path('invoicing/fees/class/<int:classroom_id>/set/', views_invoicing.SetClassroomFeeView.as_view(), name='set_classroom_fee'),
+    path('invoicing/fees/batch-update/', views_invoicing.BatchClassroomFeeView.as_view(), name='batch_classroom_fee'),
     path('invoicing/fees/student-override/add/', views_invoicing.AddStudentFeeOverrideView.as_view(), name='add_student_fee_override'),
     path('invoicing/generate/', views_invoicing.GenerateInvoicesView.as_view(), name='generate_invoices'),
     path('invoicing/preview/', views_invoicing.InvoicePreviewView.as_view(), name='invoice_preview'),
@@ -170,5 +171,6 @@ urlpatterns = [
     path('invoicing/reference-mappings/', views_invoicing.ReferenceMappingsView.as_view(), name='reference_mappings'),
     path('invoicing/opening-balances/', views_invoicing.OpeningBalancesView.as_view(), name='opening_balances'),
     path('invoicing/opening-balances/<int:student_id>/set/', views_invoicing.SetOpeningBalanceView.as_view(), name='set_opening_balance'),
+    path('invoicing/opening-balances/batch-update/', views_invoicing.BatchOpeningBalanceView.as_view(), name='batch_opening_balance'),
     path('invoicing/api/student-search/', views_invoicing.StudentSearchAPIView.as_view(), name='student_search_api'),
 ]

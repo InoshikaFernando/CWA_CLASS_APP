@@ -129,6 +129,77 @@ class SetClassroomFeeView(RoleRequiredMixin, View):
         return redirect('fee_configuration')
 
 
+class BatchClassroomFeeView(RoleRequiredMixin, View):
+    """Batch update fees for multiple classrooms in one POST."""
+    required_roles = INVOICING_ROLES
+
+    def post(self, request):
+        school = _get_single_school(request.user)
+        if not school:
+            return redirect('fee_configuration')
+
+        classroom_ids_str = request.POST.get('classroom_ids', '')
+        if not classroom_ids_str:
+            return redirect('fee_configuration')
+
+        classroom_ids = [int(x) for x in classroom_ids_str.split(',') if x.strip().isdigit()]
+        updated = 0
+
+        with transaction.atomic():
+            for cid in classroom_ids:
+                classroom = ClassRoom.objects.filter(id=cid, school=school).first()
+                if not classroom:
+                    continue
+                rate_str = request.POST.get(f'fee_{cid}', '').strip()
+                if not rate_str:
+                    classroom.fee_override = None
+                else:
+                    try:
+                        classroom.fee_override = Decimal(rate_str)
+                    except (InvalidOperation, ValueError):
+                        continue
+                classroom.save(update_fields=['fee_override'])
+                updated += 1
+
+        if updated:
+            messages.success(request, f'{updated} class fee{"s" if updated != 1 else ""} updated.')
+        return redirect('fee_configuration')
+
+
+class BatchOpeningBalanceView(RoleRequiredMixin, View):
+    """Batch update opening balances for multiple students in one POST."""
+    required_roles = INVOICING_ROLES
+
+    def post(self, request):
+        school = _get_single_school(request.user)
+        if not school:
+            return redirect('opening_balances')
+
+        student_ids_str = request.POST.get('student_ids', '')
+        if not student_ids_str:
+            return redirect('opening_balances')
+
+        student_ids = [int(x) for x in student_ids_str.split(',') if x.strip().isdigit()]
+        updated = 0
+
+        with transaction.atomic():
+            for sid in student_ids:
+                ss = SchoolStudent.objects.filter(school=school, student_id=sid, is_active=True).first()
+                if not ss:
+                    continue
+                bal_str = request.POST.get(f'balance_{sid}', '').strip()
+                try:
+                    ss.opening_balance = Decimal(bal_str) if bal_str else Decimal('0')
+                except (InvalidOperation, ValueError):
+                    continue
+                ss.save(update_fields=['opening_balance'])
+                updated += 1
+
+        if updated:
+            messages.success(request, f'{updated} balance{"s" if updated != 1 else ""} updated.')
+        return redirect('opening_balances')
+
+
 class AddStudentFeeOverrideView(RoleRequiredMixin, View):
     required_roles = INVOICING_ROLES
 
