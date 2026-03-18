@@ -13,7 +13,7 @@ from accounts.models import CustomUser, Role, UserRole
 from accounts.views import _validate_username, _generate_username_suggestion
 from .models import (
     School, SchoolTeacher, AcademicYear, ClassRoom, ClassSession, Department,
-    SchoolStudent, Level,
+    SchoolStudent, Level, Subject,
 )
 from .views import RoleRequiredMixin
 from .email_utils import send_staff_welcome_email
@@ -765,3 +765,57 @@ class SchoolLevelRemoveView(RoleRequiredMixin, View):
         else:
             messages.warning(request, 'Level not found.')
         return redirect('admin_school_levels', school_id=school.id)
+
+
+class SchoolSubjectManageView(RoleRequiredMixin, View):
+    """Manage subjects for a school: list global + school-created, create/edit/delete."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request, school_id):
+        school = get_object_or_404(School, id=school_id, admin=request.user)
+        global_subjects = Subject.objects.filter(school__isnull=True, is_active=True).order_by('order', 'name')
+        school_subjects = Subject.objects.filter(school=school, is_active=True).order_by('order', 'name')
+        return render(request, 'admin_dashboard/school_subjects.html', {
+            'school': school,
+            'global_subjects': global_subjects,
+            'school_subjects': school_subjects,
+        })
+
+    def post(self, request, school_id):
+        school = get_object_or_404(School, id=school_id, admin=request.user)
+        action = request.POST.get('action', 'create')
+
+        if action == 'create':
+            name = request.POST.get('name', '').strip()
+            if not name:
+                messages.error(request, 'Subject name is required.')
+                return redirect('admin_school_subjects', school_id=school.id)
+            slug = slugify(name)
+            base_slug = slug
+            cnt = 1
+            while Subject.objects.filter(school=school, slug=slug).exists():
+                slug = f'{base_slug}-{cnt}'
+                cnt += 1
+            Subject.objects.create(name=name, slug=slug, school=school, is_active=True)
+            messages.success(request, f'Subject "{name}" created.')
+
+        elif action == 'edit':
+            subject_id = request.POST.get('subject_id')
+            name = request.POST.get('name', '').strip()
+            subject = Subject.objects.filter(id=subject_id, school=school).first()
+            if subject and name:
+                subject.name = name
+                subject.slug = slugify(name)
+                subject.save()
+                messages.success(request, f'Subject updated to "{name}".')
+
+        elif action == 'delete':
+            subject_id = request.POST.get('subject_id')
+            subject = Subject.objects.filter(id=subject_id, school=school).first()
+            if subject:
+                name = subject.name
+                subject.is_active = False
+                subject.save()
+                messages.success(request, f'Subject "{name}" removed.')
+
+        return redirect('admin_school_subjects', school_id=school.id)
