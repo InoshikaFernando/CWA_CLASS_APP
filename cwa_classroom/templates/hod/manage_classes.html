@@ -2,81 +2,163 @@
 {% load classroom_extras %}
 {% block title %}Manage Classes{% endblock %}
 {% block content %}
-<div class="max-w-5xl mx-auto space-y-6">
+<div class="max-w-7xl mx-auto">
 
-  <div class="flex items-center justify-between">
-    <h1 class="font-display text-2xl font-bold text-gray-900">
-      {% if is_hod_only %}Department {% endif %}Classes
-    </h1>
-    <div class="flex items-center gap-2">
-      <a href="{% url 'progress_criteria_list' %}"
-         class="inline-flex items-center gap-1.5 px-4 py-2 bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl hover:bg-gray-50 transition text-sm">
-        Progress Criteria
-      </a>
-      <a href="{% url 'hod_create_class' %}"
-         class="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white font-semibold rounded-xl hover:bg-primary-dark transition text-sm shadow-sm">
-        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-        </svg>
-        Create Class
-      </a>
+  <!-- Header -->
+  <div class="mb-8">
+    <div class="flex items-center justify-between">
+      <div>
+        <h1 class="text-2xl font-display font-bold text-gray-900">
+          {% if is_hod_only %}Department {% endif %}Classes
+        </h1>
+        <p class="text-gray-500 mt-1">Manage classes, assign teachers, and track students</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <a href="{% url 'progress_criteria_list' %}"
+           class="inline-flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-gray-600 font-semibold rounded-xl hover:bg-gray-50 transition text-sm">
+          Progress Criteria
+        </a>
+        <a href="{% url 'hod_create_class' %}"
+           class="inline-flex items-center gap-2 px-5 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm text-sm">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+          </svg>
+          Create Class
+        </a>
+      </div>
     </div>
   </div>
 
-  <!-- Department Classes -->
-  <div class="space-y-4">
-    {% for classroom in classes %}
-      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-        <div class="flex items-center justify-between mb-3">
-          <div>
-            <h3 class="font-bold text-gray-800">{{ classroom.name }}</h3>
-            {% if classroom.department %}
-              <p class="text-xs text-gray-400">{{ classroom.department.name }}</p>
-            {% endif %}
-            {% if classroom.day or classroom.start_time %}
-            <p class="text-xs text-gray-500 mt-0.5">
-              {% if classroom.day %}{{ classroom.get_day_display }}{% endif %}
-              {% if classroom.start_time %} {{ classroom.start_time|time:"g:ia" }}{% if classroom.end_time %} – {{ classroom.end_time|time:"g:ia" }}{% endif %}{% endif %}
-            </p>
-            {% endif %}
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="text-xs font-mono text-gray-400 bg-slate-100 px-2 py-0.5 rounded">{{ classroom.code }}</span>
-            <a href="{% url 'edit_class' class_id=classroom.id %}?next={% url 'hod_manage_classes' %}"
-               class="text-sm bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold rounded-xl px-4 py-2 transition">
-              Edit
-            </a>
-            <a href="{% url 'assign_teachers' class_id=classroom.id %}" class="text-sm bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-4 py-2 transition">+ Assign Teacher</a>
-          </div>
+  <!-- Stats cards -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 bg-accent/10 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6 text-accent" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.438 60.438 0 00-.491 6.347A48.62 48.62 0 0112 20.904a48.62 48.62 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.636 50.636 0 00-2.658-.813A59.906 59.906 0 0112 3.493a59.903 59.903 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0112 13.489a50.702 50.702 0 017.74-3.342"/>
+          </svg>
         </div>
-        <div class="flex flex-wrap gap-2">
-          {% for t in classroom.teachers.all %}
-            <span class="bg-blue-50 text-blue-700 rounded-full px-3 py-1 text-sm font-semibold">
-              {{ t.get_full_name|default:t.username }}
-              {% with specialty=specialty_map|get_item:t.id %}
-                {% if specialty %}
-                  <span class="text-xs text-blue-500 font-normal">· {{ specialty }}</span>
-                {% endif %}
-              {% endwith %}
-            </span>
-          {% empty %}
-            <span class="text-sm text-gray-400">No teachers assigned.</span>
-          {% endfor %}
+        <div>
+          <p class="text-2xl font-bold text-gray-900">{{ classes|length }}</p>
+          <p class="text-sm text-gray-500">Total Classes</p>
         </div>
       </div>
-    {% empty %}
-      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">
-        <p class="text-gray-400 mb-4">No classes in your department yet.</p>
-        <a href="{% url 'hod_create_class' %}" class="text-accent hover:text-accent-dark font-medium text-sm">Create your first class &rarr;</a>
+    </div>
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-2xl font-bold text-gray-900">{{ teachers|length }}</p>
+          <p class="text-sm text-gray-500">Teachers</p>
+        </div>
       </div>
-    {% endfor %}
+    </div>
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 bg-amber-50 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6 text-amber-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-2xl font-bold text-gray-900">{% if unassigned_classes %}{{ unassigned_classes|length }}{% else %}0{% endif %}</p>
+          <p class="text-sm text-gray-500">Unassigned</p>
+        </div>
+      </div>
+    </div>
   </div>
+
+  <!-- Section heading + Search -->
+  <h2 class="text-lg font-semibold text-gray-900 mb-4">All Classes</h2>
+
+  {% if classes %}
+    <div x-data="{ search: '' }">
+      <div class="mb-6">
+        <div class="relative">
+          <svg class="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+          </svg>
+          <input type="text" x-model="search" placeholder="Search classes..."
+                 class="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
+        </div>
+      </div>
+
+      <div class="space-y-4">
+        {% for classroom in classes %}
+          <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6"
+               x-show="search === '' || '{{ classroom.name|escapejs }}'.toLowerCase().includes(search.toLowerCase())">
+            <div class="flex items-center justify-between mb-3">
+              <div>
+                <h3 class="font-bold text-gray-800">{{ classroom.name }}</h3>
+                {% if classroom.department %}
+                  <p class="text-xs text-gray-400">{{ classroom.department.name }}</p>
+                {% endif %}
+                {% if classroom.day or classroom.start_time %}
+                <p class="text-xs text-gray-500 mt-0.5">
+                  {% if classroom.day %}{{ classroom.get_day_display }}{% endif %}
+                  {% if classroom.start_time %} {{ classroom.start_time|time:"g:ia" }}{% if classroom.end_time %} – {{ classroom.end_time|time:"g:ia" }}{% endif %}{% endif %}
+                </p>
+                {% endif %}
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-mono text-gray-400 bg-slate-100 px-2 py-0.5 rounded">{{ classroom.code }}</span>
+                <a href="{% url 'edit_class' class_id=classroom.id %}?next={% url 'hod_manage_classes' %}"
+                   class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 bg-white border border-slate-200 rounded-xl transition">
+                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/>
+                  </svg>
+                  Edit
+                </a>
+                <a href="{% url 'assign_teachers' class_id=classroom.id %}"
+                   class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-accent hover:bg-accent-dark rounded-xl transition">
+                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z"/>
+                  </svg>
+                  Assign Teacher
+                </a>
+              </div>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              {% for t in classroom.teachers.all %}
+                <span class="bg-blue-50 text-blue-700 rounded-full px-3 py-1 text-sm font-semibold">
+                  {{ t.get_full_name|default:t.username }}
+                  {% with specialty=specialty_map|get_item:t.id %}
+                    {% if specialty %}
+                      <span class="text-xs text-blue-500 font-normal">· {{ specialty }}</span>
+                    {% endif %}
+                  {% endwith %}
+                </span>
+              {% empty %}
+                <span class="text-sm text-gray-400 italic">No teachers assigned</span>
+              {% endfor %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% else %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">
+      <svg class="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.438 60.438 0 00-.491 6.347A48.62 48.62 0 0112 20.904a48.62 48.62 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.636 50.636 0 00-2.658-.813A59.906 59.906 0 0112 3.493a59.903 59.903 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0112 13.489a50.702 50.702 0 017.74-3.342"/>
+      </svg>
+      <h3 class="text-lg font-semibold text-gray-700 mb-2">No classes yet</h3>
+      <p class="text-gray-500 mb-4">Create your first class to get started.</p>
+      <a href="{% url 'hod_create_class' %}"
+         class="inline-flex items-center gap-2 px-5 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition">
+        Create Class
+      </a>
+    </div>
+  {% endif %}
 
   <!-- Unassigned Classes -->
   {% if unassigned_classes %}
-  <div>
-    <h2 class="font-bold text-xl text-gray-800 mb-4">Unassigned Classes</h2>
-    <p class="text-sm text-gray-500 mb-4">These classes are in your school but not assigned to any department.</p>
+  <div class="mt-8">
+    <h2 class="text-lg font-semibold text-gray-900 mb-4">Unassigned Classes</h2>
+    <p class="text-sm text-gray-500 mb-4">These classes are not assigned to any department.</p>
     <div class="space-y-3">
       {% for classroom in unassigned_classes %}
         <div class="bg-white rounded-2xl border border-amber-200 shadow-sm p-5">
@@ -88,11 +170,6 @@
                 {% for t in classroom.teachers.all %}
                   <span class="bg-blue-50 text-blue-700 rounded-full px-2 py-0.5 text-xs font-semibold">
                     {{ t.get_full_name|default:t.username }}
-                    {% with specialty=specialty_map|get_item:t.id %}
-                      {% if specialty %}
-                        <span class="text-blue-500 font-normal">· {{ specialty }}</span>
-                      {% endif %}
-                    {% endwith %}
                   </span>
                 {% empty %}
                   <span class="text-xs text-gray-400">No teachers</span>
@@ -103,14 +180,14 @@
               {% csrf_token %}
               <input type="hidden" name="class_id" value="{{ classroom.id }}">
               <select name="department_id" required
-                      class="text-sm rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-primary focus:border-transparent transition">
+                      class="text-sm rounded-xl border border-slate-300 px-3 py-2 focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
                 <option value="">Department...</option>
                 {% for dept in departments %}
                   <option value="{{ dept.id }}">{{ dept.name }}</option>
                 {% endfor %}
               </select>
               <button type="submit"
-                      class="px-4 py-2 bg-primary text-white text-sm font-semibold rounded-lg hover:bg-primary-dark transition">
+                      class="px-4 py-2 bg-accent text-white text-sm font-semibold rounded-xl hover:bg-accent-dark transition">
                 Assign
               </button>
             </form>
