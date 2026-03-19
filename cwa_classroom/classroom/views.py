@@ -1595,6 +1595,70 @@ class HoDAttendanceReportView(RoleRequiredMixin, View):
         })
 
 
+class AttendanceDetailView(RoleRequiredMixin, View):
+    """Return session-level attendance detail for a teacher or student (HTMX partial)."""
+    required_roles = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT]
+
+    def get(self, request):
+        from django.db.models import Q
+
+        user_type = request.GET.get('type')  # 'teacher' or 'student'
+        user_id = request.GET.get('user_id')
+        status_filter = request.GET.get('status', 'all')
+
+        if user_type not in ('teacher', 'student') or not user_id:
+            return HttpResponse('')
+
+        is_hod_only = (
+            request.user.has_role(Role.HEAD_OF_DEPARTMENT)
+            and not request.user.has_role(Role.HEAD_OF_INSTITUTE)
+            and not request.user.has_role(Role.INSTITUTE_OWNER)
+        )
+
+        if user_type == 'teacher':
+            qs = TeacherAttendance.objects.filter(teacher_id=user_id)
+            if is_hod_only:
+                dept_ids = list(
+                    Department.objects.filter(head=request.user, is_active=True)
+                    .values_list('id', flat=True)
+                )
+                qs = qs.filter(session__classroom__department_id__in=dept_ids)
+            else:
+                school_ids = list(
+                    School.objects.filter(admin=request.user).values_list('id', flat=True)
+                )
+                qs = qs.filter(session__classroom__school_id__in=school_ids)
+
+            if status_filter and status_filter != 'all':
+                qs = qs.filter(status=status_filter)
+
+            records = qs.select_related('session', 'session__classroom').order_by('-session__date', '-session__start_time')
+        else:
+            qs = StudentAttendance.objects.filter(student_id=user_id)
+            if is_hod_only:
+                dept_ids = list(
+                    Department.objects.filter(head=request.user, is_active=True)
+                    .values_list('id', flat=True)
+                )
+                qs = qs.filter(session__classroom__department_id__in=dept_ids)
+            else:
+                school_ids = list(
+                    School.objects.filter(admin=request.user).values_list('id', flat=True)
+                )
+                qs = qs.filter(session__classroom__school_id__in=school_ids)
+
+            if status_filter and status_filter != 'all':
+                qs = qs.filter(status=status_filter)
+
+            records = qs.select_related('session', 'session__classroom').order_by('-session__date', '-session__start_time')
+
+        return render(request, 'hod/attendance_detail_partial.html', {
+            'records': records,
+            'user_type': user_type,
+            'status_filter': status_filter,
+        })
+
+
 class HoDSubjectLevelsView(RoleRequiredMixin, View):
     """Allow HoD/HoI to manage subject levels for their department."""
     required_roles = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT]
