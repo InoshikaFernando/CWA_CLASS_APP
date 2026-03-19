@@ -737,10 +737,10 @@ class StudentProgressReportView(RoleRequiredMixin, View):
         dept_ids = accessible_classes.values_list('department_id', flat=True).distinct()
         departments = Department.objects.filter(id__in=dept_ids, is_active=True).order_by('name')
 
-        subject_ids = accessible_classes.exclude(level__subject__isnull=True).values_list('level__subject_id', flat=True).distinct()
+        subject_ids = accessible_classes.exclude(subject__isnull=True).values_list('subject_id', flat=True).distinct()
         subjects = Subject.objects.filter(id__in=subject_ids, is_active=True).order_by('name')
 
-        classes = accessible_classes.select_related('department', 'level__subject').order_by('name')
+        classes = accessible_classes.select_related('department', 'subject').order_by('name')
 
         # Apply filters
         filter_dept = request.GET.get('department')
@@ -751,7 +751,7 @@ class StudentProgressReportView(RoleRequiredMixin, View):
         if filter_dept:
             filtered_classes = filtered_classes.filter(department_id=filter_dept)
         if filter_subject:
-            filtered_classes = filtered_classes.filter(level__subject_id=filter_subject)
+            filtered_classes = filtered_classes.filter(subject_id=filter_subject)
         if filter_class:
             filtered_classes = filtered_classes.filter(id=filter_class)
 
