@@ -35,7 +35,7 @@ def resolve_daily_rate(student, classroom, billing_period_end):
     Uses the fee cascade: ClassStudent → ClassRoom → Level → Subject → Department.
     """
     class_student = ClassStudent.objects.filter(
-        classroom=classroom, student=student,
+        classroom=classroom, student=student, is_active=True,
     ).first()
 
     if not class_student:
@@ -79,6 +79,7 @@ def validate_attendance_complete(school, billing_period_start, billing_period_en
             ClassStudent.objects.filter(
                 classroom=session.classroom,
                 joined_at__date__lte=session.date,
+                is_active=True,
             ).values_list('student_id', flat=True)
         )
         marked_students = set(
@@ -130,6 +131,7 @@ def calculate_invoice_lines(student, school, billing_period_start, billing_perio
     enrollments = ClassStudent.objects.filter(
         classroom__school=school,
         student=student,
+        is_active=True,
     ).select_related('classroom', 'classroom__department')
 
     lines = []

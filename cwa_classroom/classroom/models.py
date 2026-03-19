@@ -477,6 +477,7 @@ class ClassStudent(models.Model):
         related_name='class_student_entries',
     )
     joined_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
     fee_override = models.DecimalField(
         max_digits=8, decimal_places=2,
         null=True, blank=True,
@@ -572,6 +573,7 @@ class Enrollment(models.Model):
         ('pending', 'Pending'),
         ('approved', 'Approved'),
         ('rejected', 'Rejected'),
+        ('removed', 'Removed'),
     ]
     classroom = models.ForeignKey(ClassRoom, on_delete=models.CASCADE, related_name='enrollments')
     student = models.ForeignKey(

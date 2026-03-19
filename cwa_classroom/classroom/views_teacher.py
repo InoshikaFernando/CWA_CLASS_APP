@@ -334,10 +334,14 @@ class EnrollmentApproveView(RoleRequiredMixin, View):
         enrollment.save()
 
         # Create ClassStudent entry so the student is actually in the class
-        ClassStudent.objects.get_or_create(
+        # (reactivate if previously removed)
+        cs, created = ClassStudent.objects.get_or_create(
             classroom=enrollment.classroom,
             student=enrollment.student,
         )
+        if not created and not cs.is_active:
+            cs.is_active = True
+            cs.save(update_fields=['is_active'])
 
         # Auto-create SchoolStudent link when class belongs to a school
         if enrollment.classroom.school_id:
@@ -507,8 +511,12 @@ class SessionAttendanceView(RoleRequiredMixin, View):
             messages.error(request, 'You do not have access to this class.')
             return redirect('teacher_dashboard')
 
-        # All enrolled students for this classroom
-        enrolled_students = list(session.classroom.students.all().order_by(
+        # All active enrolled students for this classroom
+        from accounts.models import CustomUser
+        active_ids = ClassStudent.objects.filter(
+            classroom=session.classroom, is_active=True,
+        ).values_list('student_id', flat=True)
+        enrolled_students = list(CustomUser.objects.filter(id__in=active_ids).order_by(
             'last_name', 'first_name', 'username',
         ))
 
@@ -581,7 +589,11 @@ class SessionAttendanceView(RoleRequiredMixin, View):
             messages.error(request, 'You do not have access to this class.')
             return redirect('teacher_dashboard')
 
-        enrolled_students = list(session.classroom.students.all())
+        from accounts.models import CustomUser
+        active_ids = ClassStudent.objects.filter(
+            classroom=session.classroom, is_active=True,
+        ).values_list('student_id', flat=True)
+        enrolled_students = list(CustomUser.objects.filter(id__in=active_ids))
         saved_count = 0
 
         for student in enrolled_students:

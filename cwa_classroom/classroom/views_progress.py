@@ -528,7 +528,11 @@ class RecordProgressView(RoleRequiredMixin, View):
 
         hierarchical_criteria = _build_hierarchical_criteria(criteria_qs)
 
-        students = classroom.students.all().order_by('last_name', 'first_name', 'username')
+        from accounts.models import CustomUser
+        active_ids = ClassStudent.objects.filter(
+            classroom=classroom, is_active=True,
+        ).values_list('student_id', flat=True)
+        students = CustomUser.objects.filter(id__in=active_ids).order_by('last_name', 'first_name', 'username')
 
         # Build a lookup of *latest* records: {(student_id, criteria_id): status}
         # Since there can be multiple records per (student, criteria) across sessions,
@@ -572,7 +576,11 @@ class RecordProgressView(RoleRequiredMixin, View):
 
     def post(self, request, class_id):
         classroom = get_object_or_404(ClassRoom, pk=class_id)
-        students = classroom.students.all()
+        from accounts.models import CustomUser
+        active_ids = ClassStudent.objects.filter(
+            classroom=classroom, is_active=True,
+        ).values_list('student_id', flat=True)
+        students = CustomUser.objects.filter(id__in=active_ids)
 
         criteria_qs = ProgressCriteria.objects.filter(
             school=classroom.school,
@@ -757,7 +765,7 @@ class StudentProgressReportView(RoleRequiredMixin, View):
 
         # Get students in filtered classes
         student_ids = ClassStudent.objects.filter(
-            classroom__in=filtered_classes
+            classroom__in=filtered_classes, is_active=True,
         ).values_list('student_id', flat=True).distinct()
 
         from accounts.models import CustomUser

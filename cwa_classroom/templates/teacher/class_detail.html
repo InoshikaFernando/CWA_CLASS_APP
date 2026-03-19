@@ -131,6 +131,11 @@
                         class="text-xs text-accent hover:text-accent-dark font-medium">Fee</button>
               {% endif %}
               <a href="{% url 'student_progress' student_id=item.student.id %}" class="text-xs text-primary hover:underline">Progress</a>
+              <form method="post" action="{% url 'class_student_remove' class_id=classroom.id student_id=item.student.id %}" class="inline"
+                    onsubmit="return confirm('Remove {{ item.student.get_full_name|default:item.student.username }} from this class?')">
+                {% csrf_token %}
+                <button type="submit" class="text-xs text-red-500 hover:text-red-700 font-medium">Remove</button>
+              </form>
             </div>
             {% if can_edit_fee %}
             <form x-show="editingFee" x-cloak method="post"
@@ -159,7 +164,14 @@
             </span>
             <span class="text-sm font-semibold text-gray-700">{{ s.get_full_name|default:s.username }}</span>
           </div>
-          <a href="{% url 'student_progress' student_id=s.id %}" class="text-xs text-primary hover:underline">Progress</a>
+          <div class="flex items-center gap-2">
+            <a href="{% url 'student_progress' student_id=s.id %}" class="text-xs text-primary hover:underline">Progress</a>
+            <form method="post" action="{% url 'class_student_remove' class_id=classroom.id student_id=s.id %}" class="inline"
+                  onsubmit="return confirm('Remove {{ s.get_full_name|default:s.username }} from this class?')">
+              {% csrf_token %}
+              <button type="submit" class="text-xs text-red-500 hover:text-red-700 font-medium">Remove</button>
+            </form>
+          </div>
         </li>
         {% endfor %}
       </ul>

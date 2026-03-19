@@ -604,7 +604,7 @@ class ClassDetailView(RoleRequiredMixin, View):
         class_effective_fee = get_effective_fee_for_class(classroom)
 
         student_fee_data = []
-        for cs in ClassStudent.objects.filter(classroom=classroom).select_related('student'):
+        for cs in ClassStudent.objects.filter(classroom=classroom, is_active=True).select_related('student'):
             student_fee_data.append({
                 'student': cs.student,
                 'class_student': cs,
@@ -612,9 +612,13 @@ class ClassDetailView(RoleRequiredMixin, View):
                 'fee_source': get_fee_source_label(cs),
             })
 
+        active_student_ids = ClassStudent.objects.filter(
+            classroom=classroom, is_active=True,
+        ).values_list('student_id', flat=True)
+
         return render(request, 'teacher/class_detail.html', {
             'classroom': classroom,
-            'students': classroom.students.all(),
+            'students': CustomUser.objects.filter(id__in=active_student_ids),
             'teachers': classroom.teachers.all(),
             'sessions': sessions,
             'todays_session': todays_session,
@@ -799,10 +803,13 @@ class AssignStudentsView(RoleRequiredMixin, View):
             all_students = CustomUser.objects.filter(id__in=school_student_ids)
         else:
             all_students = CustomUser.objects.filter(roles__name=Role.STUDENT)
+        active_enrolled_ids = ClassStudent.objects.filter(
+            classroom=classroom, is_active=True,
+        ).values_list('student_id', flat=True)
         return render(request, 'teacher/assign_students.html', {
             'classroom': classroom,
             'all_students': all_students,
-            'enrolled': classroom.students.all(),
+            'enrolled': CustomUser.objects.filter(id__in=active_enrolled_ids),
         })
 
     def post(self, request, class_id):
@@ -811,8 +818,12 @@ class AssignStudentsView(RoleRequiredMixin, View):
         added = 0
         for sid in student_ids:
             student = get_object_or_404(CustomUser, id=sid)
-            _, created = ClassStudent.objects.get_or_create(classroom=classroom, student=student)
-            if created:
+            cs, created = ClassStudent.objects.get_or_create(classroom=classroom, student=student)
+            if not created and not cs.is_active:
+                cs.is_active = True
+                cs.save(update_fields=['is_active'])
+                added += 1
+            elif created:
                 added += 1
         messages.success(request, f'{added} student(s) added.')
         return redirect('class_detail', class_id=class_id)
@@ -892,7 +903,10 @@ class ClassAttendanceView(RoleRequiredMixin, View):
             ).order_by('-date', '-start_time')[:20]
         )
 
-        students = classroom.students.all().order_by('last_name', 'first_name', 'username')
+        active_ids = ClassStudent.objects.filter(
+            classroom=classroom, is_active=True,
+        ).values_list('student_id', flat=True)
+        students = CustomUser.objects.filter(id__in=active_ids).order_by('last_name', 'first_name', 'username')
 
         # Batch-fetch all attendance records for these sessions
         att_map = {}
@@ -941,12 +955,16 @@ class ClassProgressListView(RoleRequiredMixin, View):
     ]
 
     def get(self, request):
+        from django.db.models import Count, Q
         from .views_teacher import _get_teacher_current_school, _get_teacher_classes
         current_school = _get_teacher_current_school(request)
         if current_school:
             classes = _get_teacher_classes(request.user, current_school)
         else:
             classes = ClassRoom.objects.filter(teachers=request.user, is_active=True)
+        classes = classes.annotate(
+            active_student_count=Count('class_students', filter=Q(class_students__is_active=True)),
+        )
         return render(request, 'teacher/class_progress_list.html', {'classes': classes})
 
 
@@ -1957,6 +1975,41 @@ class UpdateStudentFeeView(RoleRequiredMixin, View):
         return redirect('class_detail', class_id=class_id)
 
 
+class ClassStudentRemoveView(RoleRequiredMixin, View):
+    """Soft-remove a student from a class (deactivate, preserve attendance and invoice history)."""
+    required_roles = [
+        Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT,
+        Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+    ]
+
+    def post(self, request, class_id, student_id):
+        user = request.user
+        if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
+            classroom = get_object_or_404(ClassRoom, id=class_id, school__admin=user)
+        elif user.has_role(Role.HEAD_OF_DEPARTMENT):
+            classroom = get_object_or_404(ClassRoom, id=class_id, department__head=user)
+        else:
+            classroom = get_object_or_404(ClassRoom, id=class_id, teachers=request.user)
+
+        cs = ClassStudent.objects.filter(
+            classroom=classroom, student_id=student_id, is_active=True,
+        ).select_related('student').first()
+
+        if cs:
+            name = cs.student.get_full_name() or cs.student.username
+            cs.is_active = False
+            cs.save(update_fields=['is_active'])
+            # Mark enrollment as removed so the student can re-request later
+            Enrollment.objects.filter(
+                classroom=classroom, student_id=student_id, status='approved',
+            ).update(status='removed')
+            messages.success(request, f'{name} has been removed from {classroom.name}.')
+        else:
+            messages.warning(request, 'Student not found in this class.')
+        return redirect('class_detail', class_id=class_id)
+
+
 class HoDCreateClassView(RoleRequiredMixin, View):
     """Allow HoI/HoD to create a class under a department."""
     required_roles = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT]
@@ -2259,7 +2312,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
         # Enrollment status sets for the class cards
         enrolled_class_ids = set(
             ClassStudent.objects.filter(
-                student=user,
+                student=user, is_active=True,
             ).values_list('classroom_id', flat=True)
         )
         pending_class_ids = set(

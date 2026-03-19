@@ -198,7 +198,7 @@ def _resolve_campaign_recipients(campaign):
     class_ids = filter_data.get('class_ids', [])
     if class_ids:
         student_ids = ClassStudent.objects.filter(
-            classroom_id__in=class_ids,
+            classroom_id__in=class_ids, is_active=True,
         ).values_list('student_id', flat=True)
         user_ids.update(student_ids)
 

@@ -13,7 +13,7 @@
         <p class="text-sm text-emerald-600 font-semibold mb-2">{{ classroom.subject.name }}</p>
       {% endif %}
       <div class="flex gap-3 text-sm text-gray-500">
-        <span>{{ classroom.students.count }} student{{ classroom.students.count|pluralize }}</span>
+        <span>{{ classroom.active_student_count }} student{{ classroom.active_student_count|pluralize }}</span>
         <span>{{ classroom.levels.count }} level{{ classroom.levels.count|pluralize }}</span>
       </div>
     </a>

@@ -34,9 +34,9 @@ class JoinClassByCodeView(RoleRequiredMixin, View):
             messages.error(request, 'No active class found with that code.')
             return render(request, 'student/join_class.html', {'code': code})
 
-        # Check if student is already a member of this class
+        # Check if student is already an active member of this class
         if ClassStudent.objects.filter(
-            classroom=classroom, student=request.user
+            classroom=classroom, student=request.user, is_active=True,
         ).exists():
             messages.info(
                 request,
@@ -61,8 +61,8 @@ class JoinClassByCodeView(RoleRequiredMixin, View):
                     request,
                     f'Your enrollment in "{classroom.name}" has already been approved.',
                 )
-            elif existing_enrollment.status == 'rejected':
-                # Allow re-requesting after rejection: reset to pending
+            elif existing_enrollment.status in ('rejected', 'removed'):
+                # Allow re-requesting after rejection/removal: reset to pending
                 existing_enrollment.status = 'pending'
                 existing_enrollment.requested_at = timezone.now()
                 existing_enrollment.rejection_reason = ''
@@ -148,9 +148,9 @@ class MyClassesView(LoginRequiredMixin, View):
     """Show the student's enrolled classes and any pending enrollment requests."""
 
     def get(self, request):
-        # Classes the student is already a full member of
+        # Classes the student is already an active member of
         enrolled_entries = (
-            ClassStudent.objects.filter(student=request.user)
+            ClassStudent.objects.filter(student=request.user, is_active=True)
             .select_related('classroom', 'classroom__subject')
             .order_by('classroom__name')
         )
@@ -177,9 +177,9 @@ class StudentClassDetailView(LoginRequiredMixin, View):
     def get(self, request, class_id):
         classroom = get_object_or_404(ClassRoom, id=class_id, is_active=True)
 
-        # Verify the student is enrolled in this class
+        # Verify the student is actively enrolled in this class
         if not ClassStudent.objects.filter(
-            classroom=classroom, student=request.user
+            classroom=classroom, student=request.user, is_active=True,
         ).exists():
             messages.error(
                 request, 'You are not enrolled in this class.'
@@ -329,9 +329,9 @@ class StudentSelfMarkAttendanceView(LoginRequiredMixin, View):
             id=session_id,
         )
 
-        # Verify the student is enrolled in this class
+        # Verify the student is actively enrolled in this class
         if not ClassStudent.objects.filter(
-            classroom=session.classroom, student=request.user
+            classroom=session.classroom, student=request.user, is_active=True,
         ).exists():
             messages.error(request, 'You are not enrolled in this class.')
             return redirect('student_my_classes')
@@ -388,12 +388,18 @@ class EnrollGlobalClassView(RoleRequiredMixin, View):
 
         # Already enrolled?
         if ClassStudent.objects.filter(
-            classroom=classroom, student=request.user,
+            classroom=classroom, student=request.user, is_active=True,
         ).exists():
             messages.info(request, f'You are already enrolled in "{classroom.name}".')
             return redirect('subjects_hub')
 
-        # Auto-enroll (no approval needed for global classes)
-        ClassStudent.objects.create(classroom=classroom, student=request.user)
+        # Auto-enroll (no approval needed for global classes) — reactivate if previously removed
+        cs, created = ClassStudent.objects.get_or_create(
+            classroom=classroom, student=request.user,
+            defaults={'is_active': True},
+        )
+        if not created and not cs.is_active:
+            cs.is_active = True
+            cs.save(update_fields=['is_active'])
         messages.success(request, f'You have been enrolled in "{classroom.name}".')
         return redirect('subjects_hub')
