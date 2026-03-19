@@ -1230,3 +1230,166 @@ class CreditTransaction(models.Model):
 
     def __str__(self):
         return f'{self.student} — ${self.amount} ({self.reason})'
+
+
+# ---------------------------------------------------------------------------
+# Salary Models
+# ---------------------------------------------------------------------------
+
+class TeacherHourlyRate(models.Model):
+    """Default hourly rate for teachers at a school, with effective date."""
+    school = models.ForeignKey('School', on_delete=models.CASCADE,
+                                related_name='teacher_hourly_rates')
+    hourly_rate = models.DecimalField(max_digits=10, decimal_places=2)
+    effective_from = models.DateField()
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                    null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-effective_from']
+
+    def __str__(self):
+        return f'{self.school} — ${self.hourly_rate}/hr from {self.effective_from}'
+
+
+class TeacherRateOverride(models.Model):
+    """Per-teacher hourly rate override, scoped to a school."""
+    teacher = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                                 related_name='salary_rate_overrides')
+    school = models.ForeignKey('School', on_delete=models.CASCADE,
+                                related_name='teacher_rate_overrides')
+    hourly_rate = models.DecimalField(max_digits=10, decimal_places=2)
+    reason = models.TextField(blank=True)
+    effective_from = models.DateField()
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                    null=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-effective_from']
+
+    def __str__(self):
+        return f'{self.teacher} — ${self.hourly_rate}/hr from {self.effective_from}'
+
+
+class SalaryNumberSequence(models.Model):
+    """Tracks the next salary slip number per school per year."""
+    school = models.ForeignKey('School', on_delete=models.CASCADE,
+                                related_name='salary_sequences')
+    year = models.PositiveIntegerField()
+    last_number = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        unique_together = ('school', 'year')
+
+    def __str__(self):
+        return f'{self.school} {self.year} — #{self.last_number}'
+
+
+class SalarySlip(models.Model):
+    STATUS_CHOICES = [
+        ('draft', 'Draft'),
+        ('issued', 'Issued'),
+        ('partially_paid', 'Partially Paid'),
+        ('paid', 'Paid'),
+        ('cancelled', 'Cancelled'),
+    ]
+
+    slip_number = models.CharField(max_length=50, unique=True)
+    school = models.ForeignKey('School', on_delete=models.CASCADE,
+                                related_name='salary_slips')
+    teacher = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                                 related_name='salary_slips')
+    billing_period_start = models.DateField()
+    billing_period_end = models.DateField()
+    calculated_amount = models.DecimalField(max_digits=10, decimal_places=2,
+                                             help_text='System-calculated sum of line items')
+    amount = models.DecimalField(max_digits=10, decimal_places=2,
+                                  help_text='Final amount (may be adjusted)')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+    issued_at = models.DateTimeField(null=True, blank=True)
+    due_date = models.DateField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    cancelled_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                      null=True, blank=True, related_name='+')
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancellation_reason = models.TextField(blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                    null=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.slip_number} — {self.teacher} (${self.amount})'
+
+    @property
+    def amount_paid(self):
+        from django.db.models import Sum
+        return self.payments.filter(status='confirmed').aggregate(
+            total=Sum('amount'))['total'] or 0
+
+    @property
+    def amount_due(self):
+        return self.amount - self.amount_paid
+
+
+class SalarySlipLineItem(models.Model):
+    RATE_SOURCE_CHOICES = [
+        ('teacher_override', 'Teacher Override'),
+        ('school_default', 'School Default'),
+    ]
+
+    salary_slip = models.ForeignKey(SalarySlip, on_delete=models.CASCADE,
+                                      related_name='line_items')
+    classroom = models.ForeignKey('ClassRoom', on_delete=models.SET_NULL, null=True)
+    department = models.ForeignKey('Department', on_delete=models.SET_NULL, null=True,
+                                    help_text='Denormalized for reporting')
+    hourly_rate = models.DecimalField(max_digits=10, decimal_places=2)
+    rate_source = models.CharField(max_length=20, choices=RATE_SOURCE_CHOICES)
+    sessions_taught = models.PositiveIntegerField()
+    hours_per_session = models.DecimalField(max_digits=5, decimal_places=2,
+                                              help_text='Average duration per session in hours')
+    total_hours = models.DecimalField(max_digits=8, decimal_places=2)
+    line_amount = models.DecimalField(max_digits=10, decimal_places=2)
+
+    def __str__(self):
+        return f'{self.salary_slip.slip_number} — {self.classroom} (${self.line_amount})'
+
+
+class SalaryPayment(models.Model):
+    STATUS_CHOICES = [
+        ('matched', 'Matched'),
+        ('confirmed', 'Confirmed'),
+        ('rejected', 'Rejected'),
+    ]
+    PAYMENT_METHOD_CHOICES = [
+        ('bank_transfer', 'Bank Transfer'),
+        ('cash', 'Cash'),
+        ('cheque', 'Cheque'),
+        ('other', 'Other'),
+    ]
+
+    salary_slip = models.ForeignKey(SalarySlip, on_delete=models.SET_NULL,
+                                      null=True, blank=True,
+                                      related_name='payments')
+    teacher = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                                 related_name='salary_payments')
+    school = models.ForeignKey('School', on_delete=models.CASCADE)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    payment_date = models.DateField()
+    payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES,
+                                       default='bank_transfer')
+    reference_name = models.CharField(max_length=255, blank=True)
+    bank_transaction_id = models.CharField(max_length=255, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='confirmed')
+    notes = models.TextField(blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                    null=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'${self.amount} — {self.teacher} ({self.status})'

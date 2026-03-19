@@ -8,6 +8,7 @@ from . import views_student
 from . import views_progress
 from . import views_hierarchy
 from . import views_invoicing
+from . import views_salaries
 
 urlpatterns = [
     # NOTE: The old HomeView at '/' has been replaced by PublicHomeView + SubjectsHubView
@@ -173,4 +174,19 @@ urlpatterns = [
     path('invoicing/opening-balances/<int:student_id>/set/', views_invoicing.SetOpeningBalanceView.as_view(), name='set_opening_balance'),
     path('invoicing/opening-balances/batch-update/', views_invoicing.BatchOpeningBalanceView.as_view(), name='batch_opening_balance'),
     path('invoicing/api/student-search/', views_invoicing.StudentSearchAPIView.as_view(), name='student_search_api'),
+
+    # Salaries
+    path('salaries/', views_salaries.SalarySlipListView.as_view(), name='salary_slip_list'),
+    path('salaries/rates/', views_salaries.SalaryRateConfigurationView.as_view(), name='salary_rate_configuration'),
+    path('salaries/rates/set-default/', views_salaries.SetSchoolDefaultRateView.as_view(), name='set_school_default_rate'),
+    path('salaries/rates/teacher-override/add/', views_salaries.AddTeacherRateOverrideView.as_view(), name='add_teacher_rate_override'),
+    path('salaries/rates/batch-update/', views_salaries.BatchTeacherRateView.as_view(), name='batch_teacher_rate'),
+    path('salaries/generate/', views_salaries.GenerateSalarySlipsView.as_view(), name='generate_salary_slips'),
+    path('salaries/preview/', views_salaries.SalarySlipPreviewView.as_view(), name='salary_slip_preview'),
+    path('salaries/issue/', views_salaries.IssueSalarySlipsView.as_view(), name='issue_salary_slips'),
+    path('salaries/drafts/delete/', views_salaries.DeleteDraftSalarySlipsView.as_view(), name='delete_draft_salary_slips'),
+    path('salaries/<int:slip_id>/', views_salaries.SalarySlipDetailView.as_view(), name='salary_slip_detail'),
+    path('salaries/<int:slip_id>/cancel/', views_salaries.CancelSalarySlipView.as_view(), name='cancel_salary_slip'),
+    path('salaries/<int:slip_id>/pay/', views_salaries.RecordSalaryPaymentView.as_view(), name='record_salary_payment'),
+    path('salaries/api/teacher-search/', views_salaries.TeacherSearchAPIView.as_view(), name='teacher_search_api'),
 ]

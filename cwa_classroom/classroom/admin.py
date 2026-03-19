@@ -9,6 +9,8 @@ from .models import (
     DepartmentFee, StudentFeeOverride, InvoiceNumberSequence,
     Invoice, InvoiceLineItem, CSVColumnTemplate, CSVImport,
     PaymentReferenceMapping, InvoicePayment, CreditTransaction,
+    TeacherHourlyRate, TeacherRateOverride, SalaryNumberSequence,
+    SalarySlip, SalarySlipLineItem, SalaryPayment,
 )
 
 
@@ -349,4 +351,66 @@ class CreditTransactionAdmin(admin.ModelAdmin):
     list_display = ('student', 'school', 'amount', 'reason', 'created_at')
     list_filter = ('reason', 'school')
     search_fields = ('student__username',)
+    readonly_fields = ('created_at',)
+
+
+# ---------------------------------------------------------------------------
+# Salary Admin
+# ---------------------------------------------------------------------------
+
+class SalarySlipLineItemInline(admin.TabularInline):
+    model = SalarySlipLineItem
+    extra = 0
+    readonly_fields = ('classroom', 'department', 'hourly_rate', 'rate_source',
+                        'sessions_taught', 'hours_per_session', 'total_hours', 'line_amount')
+
+
+class SalaryPaymentInline(admin.TabularInline):
+    model = SalaryPayment
+    extra = 0
+    readonly_fields = ('amount', 'payment_date', 'payment_method', 'reference_name', 'status')
+
+
+@admin.register(TeacherHourlyRate)
+class TeacherHourlyRateAdmin(admin.ModelAdmin):
+    list_display = ('school', 'hourly_rate', 'effective_from', 'created_by', 'created_at')
+    list_filter = ('school',)
+
+
+@admin.register(TeacherRateOverride)
+class TeacherRateOverrideAdmin(admin.ModelAdmin):
+    list_display = ('teacher', 'school', 'hourly_rate', 'reason', 'effective_from', 'created_at')
+    list_filter = ('school',)
+    search_fields = ('teacher__username', 'teacher__first_name', 'teacher__last_name')
+
+
+@admin.register(SalaryNumberSequence)
+class SalaryNumberSequenceAdmin(admin.ModelAdmin):
+    list_display = ('school', 'year', 'last_number')
+    list_filter = ('school', 'year')
+
+
+@admin.register(SalarySlip)
+class SalarySlipAdmin(admin.ModelAdmin):
+    list_display = ('slip_number', 'teacher', 'school', 'amount', 'status',
+                     'billing_period_start', 'billing_period_end', 'created_at')
+    list_filter = ('status', 'school')
+    search_fields = ('slip_number', 'teacher__username', 'teacher__first_name', 'teacher__last_name')
+    date_hierarchy = 'created_at'
+    readonly_fields = ('slip_number', 'created_at', 'updated_at')
+    inlines = [SalarySlipLineItemInline, SalaryPaymentInline]
+
+
+@admin.register(SalarySlipLineItem)
+class SalarySlipLineItemAdmin(admin.ModelAdmin):
+    list_display = ('salary_slip', 'classroom', 'hourly_rate', 'sessions_taught', 'total_hours', 'line_amount')
+    list_filter = ('rate_source',)
+
+
+@admin.register(SalaryPayment)
+class SalaryPaymentAdmin(admin.ModelAdmin):
+    list_display = ('teacher', 'amount', 'payment_date', 'payment_method', 'status',
+                     'salary_slip', 'created_at')
+    list_filter = ('status', 'payment_method', 'school')
+    search_fields = ('teacher__username', 'reference_name')
     readonly_fields = ('created_at',)
