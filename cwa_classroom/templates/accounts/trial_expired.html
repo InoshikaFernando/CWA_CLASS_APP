@@ -34,5 +34,8 @@
 {% endblock %}
 
 {% block footer_links %}
-  <a href="{% url 'logout' %}" class="hover:text-primary transition">Back to Login</a>
+  <form method="post" action="{% url 'logout' %}" class="inline">
+    {% csrf_token %}
+    <button type="submit" class="hover:text-primary transition">Back to Login</button>
+  </form>
 {% endblock %}

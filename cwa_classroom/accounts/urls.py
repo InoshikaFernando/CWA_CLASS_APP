@@ -1,7 +1,13 @@
 from django.urls import path
+from django.contrib.auth.views import LogoutView
+from django.views.decorators.csrf import csrf_exempt
 from . import views
 
 urlpatterns = [
+    # CSRF-exempt logout: prevents 403 when CSRF token is stale due to
+    # login/logout in another tab (CPP-36).  Logging out is safe to exempt.
+    path('logout/', csrf_exempt(LogoutView.as_view()), name='logout'),
+
     # Override Django's built-in password_reset with diagnostic logging
     path('password_reset/', views.DiagnosticPasswordResetView.as_view(), name='password_reset'),
     path('signup/teacher/', views.TeacherSignupView.as_view(), name='signup_teacher'),
