@@ -79,9 +79,15 @@
               </p>
               <p class="text-xs text-gray-500">{{ row.teacher__username }}</p>
             </td>
-            <td class="px-6 py-4 text-center font-bold text-gray-900">{{ row.total_sessions }}</td>
-            <td class="px-6 py-4 text-center font-bold text-emerald-600">{{ row.present_count }}</td>
-            <td class="px-6 py-4 text-center font-bold text-red-500">{{ row.absent_count }}</td>
+            <td class="px-6 py-4 text-center font-bold text-gray-900">
+              <button class="hover:underline cursor-pointer" onclick="loadDetail('teacher', {{ row.teacher__id }}, 'all', this)">{{ row.total_sessions }}</button>
+            </td>
+            <td class="px-6 py-4 text-center font-bold text-emerald-600">
+              <button class="hover:underline cursor-pointer" onclick="loadDetail('teacher', {{ row.teacher__id }}, 'present', this)">{{ row.present_count }}</button>
+            </td>
+            <td class="px-6 py-4 text-center font-bold text-red-500">
+              <button class="hover:underline cursor-pointer" onclick="loadDetail('teacher', {{ row.teacher__id }}, 'absent', this)">{{ row.absent_count }}</button>
+            </td>
             <td class="px-6 py-4 text-center">
               {% if row.total_sessions > 0 %}
                 {% widthratio row.present_count row.total_sessions 100 as rate %}
@@ -97,6 +103,7 @@
               {% endif %}
             </td>
           </tr>
+          <tr id="detail-teacher-{{ row.teacher__id }}" class="hidden"></tr>
         {% empty %}
           <tr>
             <td colspan="5" class="px-6 py-12 text-center text-gray-500">No teacher attendance data yet.</td>
@@ -131,10 +138,18 @@
               </p>
               <p class="text-xs text-gray-500">{{ row.student__username }}</p>
             </td>
-            <td class="px-6 py-4 text-center font-bold text-gray-900">{{ row.total_sessions }}</td>
-            <td class="px-6 py-4 text-center font-bold text-emerald-600">{{ row.present_count }}</td>
-            <td class="px-6 py-4 text-center font-bold text-yellow-600">{{ row.late_count }}</td>
-            <td class="px-6 py-4 text-center font-bold text-red-500">{{ row.absent_count }}</td>
+            <td class="px-6 py-4 text-center font-bold text-gray-900">
+              <button class="hover:underline cursor-pointer" onclick="loadDetail('student', {{ row.student__id }}, 'all', this)">{{ row.total_sessions }}</button>
+            </td>
+            <td class="px-6 py-4 text-center font-bold text-emerald-600">
+              <button class="hover:underline cursor-pointer" onclick="loadDetail('student', {{ row.student__id }}, 'present', this)">{{ row.present_count }}</button>
+            </td>
+            <td class="px-6 py-4 text-center font-bold text-yellow-600">
+              <button class="hover:underline cursor-pointer" onclick="loadDetail('student', {{ row.student__id }}, 'late', this)">{{ row.late_count }}</button>
+            </td>
+            <td class="px-6 py-4 text-center font-bold text-red-500">
+              <button class="hover:underline cursor-pointer" onclick="loadDetail('student', {{ row.student__id }}, 'absent', this)">{{ row.absent_count }}</button>
+            </td>
             <td class="px-6 py-4 text-center">
               {% if row.total_sessions > 0 %}
                 {% widthratio row.present_count row.total_sessions 100 as rate %}
@@ -150,6 +165,7 @@
               {% endif %}
             </td>
           </tr>
+          <tr id="detail-student-{{ row.student__id }}" class="hidden"></tr>
         {% empty %}
           <tr>
             <td colspan="6" class="px-6 py-12 text-center text-gray-500">No student attendance data yet.</td>
@@ -162,4 +178,46 @@
 
   </div>
 </div>
+
+<script>
+  var _openKey = null;   // e.g. "teacher-54-all"
+  var _openId = null;    // e.g. "teacher-54"
+
+  function loadDetail(type, userId, status, btn) {
+    var id = type + '-' + userId;
+    var key = id + '-' + status;
+    var row = document.getElementById('detail-' + id);
+
+    // Clicking same button again → collapse
+    if (_openKey === key) {
+      row.classList.add('hidden');
+      row.innerHTML = '';
+      _openKey = null;
+      _openId = null;
+      return;
+    }
+
+    // Close any previously open detail row
+    if (_openId && _openId !== id) {
+      var prev = document.getElementById('detail-' + _openId);
+      if (prev) { prev.classList.add('hidden'); prev.innerHTML = ''; }
+    }
+
+    // Show loading state
+    row.innerHTML = '<td colspan="100%" class="px-6 py-4 text-center text-gray-400 text-sm">Loading...</td>';
+    row.classList.remove('hidden');
+    _openKey = key;
+    _openId = id;
+
+    // Fetch detail
+    fetch('{% url "attendance_detail" %}?type=' + type + '&user_id=' + userId + '&status=' + status)
+      .then(function(r) { return r.text(); })
+      .then(function(html) {
+        // Only update if this is still the active request
+        if (_openKey === key) {
+          row.innerHTML = html;
+        }
+      });
+  }
+</script>
 {% endblock %}
