@@ -16,6 +16,7 @@ from .models import (
     StudentLevelEnrollment, SubjectApp, ContactMessage, CONTACT_SUBJECT_CHOICES,
     School, SchoolTeacher, SchoolStudent, ClassSession, StudentAttendance,
     TeacherAttendance, Department, DepartmentLevel, DepartmentSubject, Enrollment,
+    Invoice, InvoicePayment, InvoiceLineItem, SalarySlip, SalarySlipLineItem,
 )
 
 logger = logging.getLogger(__name__)
@@ -1377,6 +1378,180 @@ class HoDOverviewView(RoleRequiredMixin, View):
                 c.next_date = today + timedelta(days=du)
             next_classes_from_schedule = scheduled[:4]
 
+        # ── Report widgets data ────────────────────────────────────
+        import json
+        from decimal import Decimal
+        from django.db.models import Sum, F, DecimalField
+        from django.db.models.functions import Coalesce
+
+        now = timezone.now()
+        current_month_start = today.replace(day=1)
+        if today.month == 12:
+            next_month_start = today.replace(year=today.year + 1, month=1, day=1)
+        else:
+            next_month_start = today.replace(month=today.month + 1, day=1)
+
+        # ── 1. Monthly Statistics (current month) ─────────────────
+        # Active students this month (students in active classes)
+        monthly_active_students = total_students
+
+        # Active teachers this month
+        monthly_active_teachers = teachers.count()
+
+        # Invoice totals for current month (non-cancelled, scoped to schools)
+        month_invoices = Invoice.objects.filter(
+            school_id__in=my_school_ids,
+            billing_period_start__lt=next_month_start,
+            billing_period_end__gte=current_month_start,
+        ).exclude(status='cancelled')
+        monthly_invoice_total = month_invoices.aggregate(
+            total=Coalesce(Sum('amount'), Decimal('0.00'))
+        )['total']
+
+        # Student lessons (sessions) this month
+        month_sessions_qs = ClassSession.objects.filter(
+            classroom__in=classes,
+            date__gte=current_month_start,
+            date__lt=next_month_start,
+            status__in=['completed', 'scheduled'],
+        )
+        monthly_lesson_count = month_sessions_qs.count()
+
+        # Student hours this month (sum of session durations)
+        from django.db.models import ExpressionWrapper, DurationField
+        month_completed = month_sessions_qs.filter(status='completed')
+        total_minutes = 0
+        for s in month_completed.only('start_time', 'end_time'):
+            from datetime import datetime as dt
+            start = dt.combine(today, s.start_time)
+            end = dt.combine(today, s.end_time)
+            total_minutes += max((end - start).total_seconds() / 60, 0)
+        monthly_student_hours = round(total_minutes / 60, 1)
+
+        # Payments received this month
+        monthly_payments = InvoicePayment.objects.filter(
+            school_id__in=my_school_ids,
+            payment_date__gte=current_month_start,
+            payment_date__lt=next_month_start,
+            status='confirmed',
+        ).aggregate(total=Coalesce(Sum('amount'), Decimal('0.00')))['total']
+
+        # ── 2. Revenue by Service (current month) ─────────────────
+        revenue_by_class = (
+            InvoiceLineItem.objects.filter(
+                invoice__school_id__in=my_school_ids,
+                invoice__billing_period_start__lt=next_month_start,
+                invoice__billing_period_end__gte=current_month_start,
+            )
+            .exclude(invoice__status='cancelled')
+            .values('classroom__name')
+            .annotate(total=Sum('line_amount'))
+            .order_by('-total')
+        )
+        revenue_labels = []
+        revenue_data = []
+        revenue_table = []
+        for row in revenue_by_class:
+            name = row['classroom__name'] or 'Unknown'
+            amount = row['total'] or Decimal('0')
+            revenue_labels.append(name)
+            revenue_data.append(float(amount))
+            revenue_table.append({'name': name, 'amount': amount})
+        revenue_total = sum(revenue_data)
+
+        # ── 3. Lesson Profit Snapshot (Jan → current month) ───────
+        profit_snapshot = []
+        for m in range(1, today.month + 1):
+            m_start = today.replace(month=m, day=1)
+            if m == 12:
+                m_end = today.replace(year=today.year + 1, month=1, day=1)
+            else:
+                m_end = today.replace(month=m + 1, day=1)
+
+            # Revenue: sum of invoice line items for this month
+            m_revenue = (
+                InvoiceLineItem.objects.filter(
+                    invoice__school_id__in=my_school_ids,
+                    invoice__billing_period_start__lt=m_end,
+                    invoice__billing_period_end__gte=m_start,
+                )
+                .exclude(invoice__status='cancelled')
+                .aggregate(total=Coalesce(Sum('line_amount'), Decimal('0.00')))['total']
+            )
+
+            # Wages: sum of salary slip line items for this month
+            m_wages = (
+                SalarySlipLineItem.objects.filter(
+                    salary_slip__school_id__in=my_school_ids,
+                    salary_slip__billing_period_start__lt=m_end,
+                    salary_slip__billing_period_end__gte=m_start,
+                )
+                .exclude(salary_slip__status='cancelled')
+                .aggregate(total=Coalesce(Sum('line_amount'), Decimal('0.00')))['total']
+            )
+
+            # Hours & count from salary slip line items
+            m_salary_agg = (
+                SalarySlipLineItem.objects.filter(
+                    salary_slip__school_id__in=my_school_ids,
+                    salary_slip__billing_period_start__lt=m_end,
+                    salary_slip__billing_period_end__gte=m_start,
+                )
+                .exclude(salary_slip__status='cancelled')
+                .aggregate(
+                    hours=Coalesce(Sum('total_hours'), Decimal('0.00')),
+                    count=Coalesce(Sum('sessions_taught'), 0),
+                )
+            )
+
+            m_profit = m_revenue - m_wages
+            profit_snapshot.append({
+                'month': m_start.strftime('%b'),
+                'revenue': m_revenue,
+                'wages': m_wages,
+                'profit': m_profit,
+                'hours': m_salary_agg['hours'],
+                'count': m_salary_agg['count'],
+            })
+
+        # ── 4 & 5. Upcoming birthdays (next 7 days) ──────────────
+        birthday_end = today + timedelta(days=7)
+
+        def _birthday_in_range(qs, start, end):
+            """Filter users whose birthday falls within a date range (handles year wrap)."""
+            results = []
+            for user in qs.exclude(date_of_birth__isnull=True):
+                dob = user.date_of_birth
+                try:
+                    this_year_bday = dob.replace(year=start.year)
+                except ValueError:
+                    # Feb 29 in a non-leap year
+                    this_year_bday = dob.replace(year=start.year, month=3, day=1)
+                try:
+                    next_year_bday = dob.replace(year=start.year + 1)
+                except ValueError:
+                    next_year_bday = dob.replace(year=start.year + 1, month=3, day=1)
+                if start <= this_year_bday <= end:
+                    user.upcoming_birthday = this_year_bday
+                    user.turning_age = this_year_bday.year - dob.year
+                    results.append(user)
+                elif start <= next_year_bday <= end:
+                    user.upcoming_birthday = next_year_bday
+                    user.turning_age = next_year_bday.year - dob.year
+                    results.append(user)
+            return sorted(results, key=lambda u: u.upcoming_birthday)
+
+        # Students with upcoming birthdays
+        all_student_ids = (
+            ClassStudent.objects.filter(classroom__in=classes)
+            .values_list('student_id', flat=True).distinct()
+        )
+        student_birthday_qs = CustomUser.objects.filter(id__in=all_student_ids)
+        student_birthdays = _birthday_in_range(student_birthday_qs, today, birthday_end)
+
+        # Teachers/employees with upcoming birthdays
+        teacher_birthdays = _birthday_in_range(teachers, today, birthday_end)
+
         return render(request, 'hod/overview.html', {
             'school_data': school_data,
             'classes': classes_list,
@@ -1396,6 +1571,21 @@ class HoDOverviewView(RoleRequiredMixin, View):
             'next_classes_label': next_classes_label,
             'is_teacher_too': is_teacher_too,
             'today': today,
+            # Report widgets
+            'monthly_active_students': monthly_active_students,
+            'monthly_active_teachers': monthly_active_teachers,
+            'monthly_invoice_total': monthly_invoice_total,
+            'monthly_lesson_count': monthly_lesson_count,
+            'monthly_student_hours': monthly_student_hours,
+            'monthly_payments': monthly_payments,
+            'revenue_table': revenue_table,
+            'revenue_labels_json': json.dumps(revenue_labels),
+            'revenue_data_json': json.dumps(revenue_data),
+            'revenue_total': revenue_total,
+            'profit_snapshot': profit_snapshot,
+            'student_birthdays': student_birthdays,
+            'teacher_birthdays': teacher_birthdays,
+            'current_month_name': now.strftime('%B %Y'),
         })
 
 
