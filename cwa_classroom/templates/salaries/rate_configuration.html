@@ -10,7 +10,7 @@
        markModified(id) { this.modifiedIds.add(id); document.getElementById('teacher_ids').value = [...this.modifiedIds].join(',') }
      }"
      :class="hasChanges ? 'pb-24' : ''"
-     x-init="window.addEventListener('beforeunload', (e) => { if (hasChanges) e.preventDefault() })">
+     x-init="window.onbeforeunload = (e) => { if (hasChanges) { e.preventDefault(); return '' } }">
 
   <!-- Header -->
   <div class="mb-8">
