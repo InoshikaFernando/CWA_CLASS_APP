@@ -102,6 +102,7 @@ urlpatterns = [
     path('teacher/class/<int:class_id>/create-session/', views_teacher.CreateSessionView.as_view(), name='create_session'),
     path('teacher/session/<int:session_id>/complete/', views_teacher.CompleteSessionView.as_view(), name='complete_session'),
     path('teacher/session/<int:session_id>/cancel/', views_teacher.CancelSessionView.as_view(), name='cancel_session'),
+    path('teacher/session/<int:session_id>/delete/', views_teacher.DeleteSessionView.as_view(), name='delete_session'),
 
     # Student enrollment & classes
     path('student/join/', views_student.JoinClassByCodeView.as_view(), name='student_join_class'),
