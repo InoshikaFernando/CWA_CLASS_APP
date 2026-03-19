@@ -677,8 +677,13 @@ class StudentProgressView(RoleRequiredMixin, View):
                 }
             grouped[key]['records'].append(record)
 
-        # Convert to a list sorted by subject name then level number
-        progress_groups = sorted(
+        # Add per-group counts and convert to a sorted list
+        for group_data in grouped.values():
+            recs = group_data['records']
+            group_data['total'] = len(recs)
+            group_data['achieved'] = sum(1 for r in recs if r.status == 'achieved')
+
+        grouped_progress = sorted(
             grouped.values(),
             key=lambda g: (g['subject'].name, g['level'].level_number),
         )
@@ -691,11 +696,13 @@ class StudentProgressView(RoleRequiredMixin, View):
 
         return render(request, 'progress/student_progress.html', {
             'student': student,
-            'progress_groups': progress_groups,
-            'total': total,
-            'achieved': achieved,
-            'in_progress': in_progress_count,
-            'not_started': not_started,
+            'grouped_progress': grouped_progress,
+            'overall': {
+                'total': total,
+                'achieved': achieved,
+                'in_progress': in_progress_count,
+                'not_started': not_started,
+            },
         })
 
 
