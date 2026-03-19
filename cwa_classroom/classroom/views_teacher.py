@@ -938,6 +938,40 @@ class StartSessionView(RoleRequiredMixin, View):
 
 
 # ---------------------------------------------------------------------------
+# 11b. DeleteSessionView
+# ---------------------------------------------------------------------------
+
+class DeleteSessionView(RoleRequiredMixin, View):
+    """Delete a session and all associated attendance/progress records."""
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+        Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+    ]
+
+    def post(self, request, session_id):
+        session = get_object_or_404(
+            ClassSession.objects.select_related('classroom', 'classroom__department', 'classroom__school'),
+            id=session_id,
+        )
+
+        if not _user_can_access_classroom(request.user, session.classroom):
+            messages.error(request, 'You do not have access to this class.')
+            return redirect('teacher_dashboard')
+
+        class_id = session.classroom_id
+        session_label = f'{session.date.strftime("%d %b %Y")} ({session.start_time.strftime("%H:%M")}\u2013{session.end_time.strftime("%H:%M")})'
+
+        # Delete related records explicitly, then the session itself
+        StudentAttendance.objects.filter(session=session).delete()
+        TeacherAttendance.objects.filter(session=session).delete()
+        ProgressRecord.objects.filter(session=session).delete()
+        session.delete()
+
+        messages.success(request, f'Session on {session_label} and all related records deleted.')
+        return redirect('class_detail', class_id=class_id)
+
+
+# ---------------------------------------------------------------------------
 # 12. CreateSessionView
 # ---------------------------------------------------------------------------
 
