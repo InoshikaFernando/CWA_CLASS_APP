@@ -615,6 +615,17 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
     def post(self, request, school_id):
         school = self._get_school(request, school_id)
 
+        # Check student limit before adding
+        from billing.entitlements import check_student_limit
+        allowed, current, limit = check_student_limit(school)
+        if not allowed:
+            messages.error(
+                request,
+                f'Your plan allows {limit} students. '
+                f'You currently have {current}. Please upgrade your plan.',
+            )
+            return redirect('admin_school_students', school_id=school.id)
+
         first_name = request.POST.get('first_name', '').strip()
         last_name = request.POST.get('last_name', '').strip()
         email = request.POST.get('email', '').strip()
@@ -943,3 +954,139 @@ class SchoolSubjectManageView(RoleRequiredMixin, View):
                 messages.success(request, f'Subject "{name}" removed.')
 
         return redirect('admin_school_subjects', school_id=school.id)
+
+
+# ---------------------------------------------------------------------------
+# Account Blocking & School Suspension (Admin only)
+# ---------------------------------------------------------------------------
+
+def _invalidate_user_sessions(user):
+    """Delete all database sessions belonging to a specific user."""
+    from django.contrib.sessions.models import Session
+    from django.utils import timezone as tz
+    for session in Session.objects.filter(expire_date__gte=tz.now()):
+        data = session.get_decoded()
+        if str(data.get('_auth_user_id')) == str(user.pk):
+            session.delete()
+
+
+class BlockUserView(RoleRequiredMixin, View):
+    """Block a user account. Admin/HoI only."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def post(self, request):
+        user_id = request.POST.get('user_id')
+        reason = request.POST.get('reason', '').strip()
+        block_type = request.POST.get('block_type', 'permanent')
+        expires_at = request.POST.get('expires_at', '').strip()
+
+        user = get_object_or_404(CustomUser, id=user_id)
+
+        # Don't allow blocking yourself or other admins
+        if user == request.user:
+            messages.error(request, 'You cannot block your own account.')
+            return redirect(request.META.get('HTTP_REFERER', 'subjects_hub'))
+        if user.is_admin_user and not request.user.is_admin_user:
+            messages.error(request, 'Only system admins can block other admins.')
+            return redirect(request.META.get('HTTP_REFERER', 'subjects_hub'))
+
+        user.is_blocked = True
+        user.blocked_at = timezone.now()
+        user.blocked_reason = reason
+        user.blocked_by = request.user
+        user.block_type = block_type
+        if block_type == 'temporary' and expires_at:
+            from django.utils.dateparse import parse_datetime
+            user.block_expires_at = parse_datetime(expires_at)
+        else:
+            user.block_expires_at = None
+        user.save(update_fields=[
+            'is_blocked', 'blocked_at', 'blocked_reason',
+            'blocked_by', 'block_type', 'block_expires_at',
+        ])
+
+        # Force logout all sessions
+        _invalidate_user_sessions(user)
+
+        from audit.services import log_event
+        log_event(
+            user=request.user, category='admin_action', action='user_blocked',
+            detail={'target_user': user.username, 'reason': reason, 'block_type': block_type},
+            request=request,
+        )
+
+        messages.success(request, f'Account "{user.username}" has been blocked.')
+        return redirect(request.META.get('HTTP_REFERER', 'subjects_hub'))
+
+
+class UnblockUserView(RoleRequiredMixin, View):
+    """Unblock a user account. Admin/HoI only."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def post(self, request):
+        user_id = request.POST.get('user_id')
+        user = get_object_or_404(CustomUser, id=user_id)
+
+        user.is_blocked = False
+        user.block_type = ''
+        user.save(update_fields=['is_blocked', 'block_type'])
+
+        messages.success(request, f'Account "{user.username}" has been unblocked.')
+        return redirect(request.META.get('HTTP_REFERER', 'subjects_hub'))
+
+
+class SuspendSchoolView(RoleRequiredMixin, View):
+    """Suspend a school. System admin only."""
+    required_roles = [Role.ADMIN]
+
+    def post(self, request):
+        school_id = request.POST.get('school_id')
+        reason = request.POST.get('reason', '').strip()
+        school = get_object_or_404(School, id=school_id)
+
+        school.is_suspended = True
+        school.suspended_at = timezone.now()
+        school.suspended_reason = reason
+        school.suspended_by = request.user
+        school.save(update_fields=[
+            'is_suspended', 'suspended_at', 'suspended_reason', 'suspended_by',
+        ])
+
+        # Force logout all users in this school
+        from .models import SchoolTeacher as ST, SchoolStudent as SS
+        user_ids = set()
+        user_ids.update(
+            ST.objects.filter(school=school, is_active=True)
+            .values_list('teacher_id', flat=True)
+        )
+        user_ids.update(
+            SS.objects.filter(school=school, is_active=True)
+            .values_list('student_id', flat=True)
+        )
+        if school.admin_id:
+            user_ids.add(school.admin_id)
+
+        for uid in user_ids:
+            try:
+                u = CustomUser.objects.get(id=uid)
+                _invalidate_user_sessions(u)
+            except CustomUser.DoesNotExist:
+                pass
+
+        messages.success(request, f'School "{school.name}" has been suspended.')
+        return redirect(request.META.get('HTTP_REFERER', 'subjects_hub'))
+
+
+class UnsuspendSchoolView(RoleRequiredMixin, View):
+    """Unsuspend a school. System admin only."""
+    required_roles = [Role.ADMIN]
+
+    def post(self, request):
+        school_id = request.POST.get('school_id')
+        school = get_object_or_404(School, id=school_id)
+
+        school.is_suspended = False
+        school.save(update_fields=['is_suspended'])
+
+        messages.success(request, f'School "{school.name}" has been unsuspended.')
+        return redirect(request.META.get('HTTP_REFERER', 'subjects_hub'))

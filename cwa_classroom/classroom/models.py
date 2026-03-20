@@ -132,6 +132,17 @@ class School(models.Model):
         default=30,
         help_text='Number of days after issue date before payment is due.',
     )
+    # Suspension
+    is_suspended = models.BooleanField(default=False)
+    suspended_at = models.DateTimeField(null=True, blank=True)
+    suspended_reason = models.TextField(blank=True)
+    suspended_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='+',
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

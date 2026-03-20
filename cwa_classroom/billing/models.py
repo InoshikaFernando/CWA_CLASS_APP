@@ -148,6 +148,135 @@ class PromoCode(models.Model):
         return True
 
 
+class InstitutePlan(models.Model):
+    """Subscription plan tiers for institutes/schools."""
+    name = models.CharField(max_length=100)
+    slug = models.SlugField(max_length=50, unique=True)
+    price = models.DecimalField(max_digits=8, decimal_places=2)
+    stripe_price_id = models.CharField(max_length=200, blank=True)
+    class_limit = models.PositiveIntegerField(
+        help_text='Maximum active classes allowed.',
+    )
+    student_limit = models.PositiveIntegerField(
+        help_text='Maximum active students allowed.',
+    )
+    invoice_limit_yearly = models.PositiveIntegerField(
+        help_text='Invoices included per year before overage billing.',
+    )
+    extra_invoice_rate = models.DecimalField(
+        max_digits=6, decimal_places=2,
+        help_text='Cost per invoice beyond the yearly limit.',
+    )
+    stripe_overage_price_id = models.CharField(
+        max_length=200, blank=True,
+        help_text='Stripe metered price ID for invoice overages.',
+    )
+    trial_days = models.PositiveSmallIntegerField(default=14)
+    is_active = models.BooleanField(default=True)
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['order', 'price']
+
+    def __str__(self):
+        return f'{self.name} (${self.price}/mo)'
+
+
+class SchoolSubscription(models.Model):
+    """Links a School to an InstitutePlan with Stripe billing."""
+    STATUS_TRIALING = 'trialing'
+    STATUS_ACTIVE = 'active'
+    STATUS_PAST_DUE = 'past_due'
+    STATUS_CANCELLED = 'cancelled'
+    STATUS_EXPIRED = 'expired'
+    STATUS_SUSPENDED = 'suspended'
+
+    STATUS_CHOICES = [
+        (STATUS_TRIALING, 'Trialing'),
+        (STATUS_ACTIVE, 'Active'),
+        (STATUS_PAST_DUE, 'Past Due'),
+        (STATUS_CANCELLED, 'Cancelled'),
+        (STATUS_EXPIRED, 'Expired'),
+        (STATUS_SUSPENDED, 'Suspended'),
+    ]
+
+    school = models.OneToOneField(
+        'classroom.School',
+        on_delete=models.CASCADE,
+        related_name='subscription',
+    )
+    plan = models.ForeignKey(
+        InstitutePlan,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='school_subscriptions',
+    )
+    stripe_subscription_id = models.CharField(max_length=200, blank=True)
+    stripe_customer_id = models.CharField(max_length=200, blank=True)
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_TRIALING,
+    )
+    trial_end = models.DateTimeField(null=True, blank=True)
+    current_period_start = models.DateTimeField(null=True, blank=True)
+    current_period_end = models.DateTimeField(null=True, blank=True)
+    invoices_used_this_year = models.PositiveIntegerField(default=0)
+    invoice_year_start = models.DateField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        plan_name = self.plan.name if self.plan else 'No plan'
+        return f'{self.school.name} — {plan_name} — {self.status}'
+
+    @property
+    def is_active_or_trialing(self):
+        return self.status in (self.STATUS_ACTIVE, self.STATUS_TRIALING)
+
+    @property
+    def trial_days_remaining(self):
+        if self.status != self.STATUS_TRIALING or not self.trial_end:
+            return 0
+        delta = self.trial_end - timezone.now()
+        total_seconds = delta.total_seconds()
+        if total_seconds <= 0:
+            return 0
+        return math.ceil(total_seconds / 86400)
+
+
+class ModuleSubscription(models.Model):
+    """Per-school module add-on subscriptions ($10/mo each)."""
+    MODULE_TEACHERS_ATTENDANCE = 'teachers_attendance'
+    MODULE_STUDENTS_ATTENDANCE = 'students_attendance'
+    MODULE_PROGRESS_REPORTS = 'student_progress_reports'
+
+    MODULE_CHOICES = [
+        (MODULE_TEACHERS_ATTENDANCE, 'Teachers Attendance'),
+        (MODULE_STUDENTS_ATTENDANCE, 'Students Attendance'),
+        (MODULE_PROGRESS_REPORTS, 'Student Progress Reports'),
+    ]
+
+    school_subscription = models.ForeignKey(
+        SchoolSubscription,
+        on_delete=models.CASCADE,
+        related_name='modules',
+    )
+    module = models.CharField(max_length=50, choices=MODULE_CHOICES)
+    stripe_subscription_item_id = models.CharField(max_length=200, blank=True)
+    is_active = models.BooleanField(default=True)
+    activated_at = models.DateTimeField(auto_now_add=True)
+    deactivated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ('school_subscription', 'module')
+        ordering = ['module']
+
+    def __str__(self):
+        return f'{self.school_subscription.school.name} — {self.get_module_display()}'
+
+
 class Subscription(models.Model):
     STATUS_ACTIVE = 'active'
     STATUS_TRIALING = 'trialing'
@@ -175,6 +304,8 @@ class Subscription(models.Model):
     trial_end = models.DateTimeField(null=True, blank=True)
     current_period_start = models.DateTimeField(null=True, blank=True)
     current_period_end = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancel_at_period_end = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -197,3 +328,17 @@ class Subscription(models.Model):
         if total_seconds <= 0:
             return 0
         return math.ceil(total_seconds / 86400)
+
+
+class StripeEvent(models.Model):
+    """Idempotency table to track processed Stripe webhook events."""
+    event_id = models.CharField(max_length=200, unique=True, db_index=True)
+    event_type = models.CharField(max_length=100)
+    processed_at = models.DateTimeField(auto_now_add=True)
+    payload = models.JSONField(default=dict)
+
+    class Meta:
+        ordering = ['-processed_at']
+
+    def __str__(self):
+        return f'{self.event_type} — {self.event_id}'

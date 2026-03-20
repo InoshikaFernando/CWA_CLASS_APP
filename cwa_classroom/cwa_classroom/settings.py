@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     'quiz',
     'billing',
     'progress',
+    'audit',
 
     # Subject apps
     'maths',
@@ -77,6 +78,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'django_htmx.middleware.HtmxMiddleware',
     'cwa_classroom.middleware.TrialExpiryMiddleware',
+    'cwa_classroom.middleware.AccountBlockMiddleware',
 ]
 
 ROOT_URLCONF = 'cwa_classroom.urls'

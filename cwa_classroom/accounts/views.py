@@ -7,7 +7,7 @@ from django.views import View
 from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
-from django.contrib.auth.views import PasswordResetView
+from django.contrib.auth.views import LoginView, PasswordResetView
 from django.db import transaction
 
 from django.utils.text import slugify
@@ -15,6 +15,52 @@ from django.utils.text import slugify
 from .models import CustomUser, Role, UserRole
 
 logger = logging.getLogger(__name__)
+
+
+class AuditLoginView(LoginView):
+    """Login view with audit logging and rate limiting."""
+
+    def post(self, request, *args, **kwargs):
+        from billing.rate_limiting import check_rate_limit
+        from audit.services import get_client_ip
+        ip = get_client_ip(request) or 'unknown'
+        if not check_rate_limit(f'login:{ip}', max_attempts=5, window_seconds=900):
+            from audit.services import log_event
+            log_event(
+                category='auth', action='login_rate_limited',
+                result='blocked', detail={'ip': ip}, request=request,
+            )
+            messages.error(request, 'Too many login attempts. Please try again in 15 minutes.')
+            return render(request, self.template_name, self.get_context_data())
+        return super().post(request, *args, **kwargs)
+
+    def form_valid(self, form):
+        from audit.services import log_event
+        from billing.rate_limiting import reset_rate_limit
+        from audit.services import get_client_ip
+        response = super().form_valid(form)
+        log_event(
+            user=self.request.user,
+            category='auth',
+            action='login_success',
+            request=self.request,
+        )
+        # Clear rate limit on successful login
+        ip = get_client_ip(self.request) or 'unknown'
+        reset_rate_limit(f'login:{ip}')
+        return response
+
+    def form_invalid(self, form):
+        from audit.services import log_event
+        username = form.cleaned_data.get('username', '')
+        log_event(
+            category='auth',
+            action='login_failed',
+            result='blocked',
+            detail={'username': username},
+            request=self.request,
+        )
+        return super().form_invalid(form)
 
 
 class DiagnosticPasswordResetView(PasswordResetView):
@@ -82,7 +128,10 @@ class TeacherCenterRegisterView(View):
             })
 
         try:
+            from datetime import timedelta
+            from django.utils import timezone
             from classroom.models import School
+            from billing.models import InstitutePlan, SchoolSubscription
 
             with transaction.atomic():
                 # 1. Create user
@@ -104,10 +153,22 @@ class TeacherCenterRegisterView(View):
                 while School.objects.filter(slug=slug).exists():
                     slug = f'{base_slug}-{counter}'
                     counter += 1
-                School.objects.create(
+                school = School.objects.create(
                     name=center_name,
                     slug=slug,
                     admin=user,
+                )
+
+                # 4. Create school subscription with 14-day trial
+                default_plan = InstitutePlan.objects.filter(
+                    slug='basic', is_active=True,
+                ).first()
+                trial_days = default_plan.trial_days if default_plan else 14
+                SchoolSubscription.objects.create(
+                    school=school,
+                    plan=default_plan,
+                    status=SchoolSubscription.STATUS_TRIALING,
+                    trial_end=timezone.now() + timedelta(days=trial_days),
                 )
 
             login(request, user)
@@ -309,6 +370,12 @@ class TrialExpiredView(View):
         from billing.models import Package
         packages = Package.objects.filter(is_active=True, price__gt=0).order_by('price')
         return render(request, 'accounts/trial_expired.html', {'packages': packages})
+
+
+class AccountBlockedView(View):
+    """Landing page shown when a user's account is blocked or school is suspended."""
+    def get(self, request):
+        return render(request, 'accounts/account_blocked.html')
 
 
 # ---------------------------------------------------------------------------

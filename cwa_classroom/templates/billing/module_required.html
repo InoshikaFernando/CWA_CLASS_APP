@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Feature Not Available{% endblock %}
+
+{% block content %}
+<div class="max-w-lg mx-auto text-center py-12">
+  <div class="text-5xl mb-4">🔒</div>
+  <h1 class="font-display text-2xl text-primary mb-2">Feature Not Available</h1>
+  <p class="text-gray-500 text-sm mb-4">
+    The <strong>{{ module_name }}</strong> module is required to access this feature.
+  </p>
+
+  {% if is_hoi or is_institute_owner %}
+    <p class="text-gray-500 text-sm mb-6">
+      Add this module to your plan for <strong>$10/month</strong>.
+    </p>
+    <a href="{% url 'institute_plan_upgrade' %}"
+       class="inline-block bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition">
+      Upgrade Plan
+    </a>
+  {% else %}
+    <p class="text-gray-500 text-sm mb-6">
+      Please contact your school administrator to enable this module.
+    </p>
+  {% endif %}
+
+  <div class="mt-4">
+    <a href="javascript:history.back()" class="text-sm text-gray-400 hover:text-gray-600">Go Back</a>
+  </div>
+</div>
+{% endblock %}

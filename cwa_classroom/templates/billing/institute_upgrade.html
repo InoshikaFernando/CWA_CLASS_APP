@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Upgrade Plan{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+  <h1 class="font-display text-2xl text-primary mb-2">Upgrade Your Plan</h1>
+  <p class="text-gray-500 text-sm mb-6">
+    {% if school %}{{ school.name }} {% endif %}
+    {% if current_plan %}is on the <strong>{{ current_plan.name }}</strong> plan.{% endif %}
+  </p>
+
+  {% if messages %}
+  <div class="mb-4">
+    {% for message in messages %}
+    <div class="p-3 rounded-lg text-sm {% if message.tags == 'error' %}bg-red-50 text-red-700{% elif message.tags == 'warning' %}bg-yellow-50 text-yellow-700{% else %}bg-green-50 text-green-700{% endif %}">
+      {{ message }}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- Current Usage -->
+  {% if subscription %}
+  <div class="bg-gray-50 rounded-xl p-4 mb-6">
+    <h3 class="font-semibold text-gray-800 mb-3">Current Usage</h3>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div>
+        <p class="text-xs text-gray-500 uppercase">Classes</p>
+        <p class="text-lg font-bold {% if current_plan and current_classes >= current_plan.class_limit %}text-red-600{% else %}text-gray-800{% endif %}">
+          {{ current_classes }} / {% if current_plan %}{{ current_plan.class_limit }}{% else %}&mdash;{% endif %}
+        </p>
+      </div>
+      <div>
+        <p class="text-xs text-gray-500 uppercase">Students</p>
+        <p class="text-lg font-bold {% if current_plan and current_students >= current_plan.student_limit %}text-red-600{% else %}text-gray-800{% endif %}">
+          {{ current_students }} / {% if current_plan %}{{ current_plan.student_limit }}{% else %}&mdash;{% endif %}
+        </p>
+      </div>
+      <div>
+        <p class="text-xs text-gray-500 uppercase">Invoices (this year)</p>
+        <p class="text-lg font-bold {% if invoices_used >= invoice_limit and invoice_limit > 0 %}text-yellow-600{% else %}text-gray-800{% endif %}">
+          {{ invoices_used }} / {% if invoice_limit %}{{ invoice_limit }}{% else %}&mdash;{% endif %}
+        </p>
+        {% if invoices_used > invoice_limit and invoice_limit > 0 %}
+          <p class="text-xs text-yellow-600">{{ invoices_used|add:"-"|add:invoice_limit }} extra at ${{ overage_rate }}/each</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Available Plans -->
+  <div class="space-y-3">
+    {% for plan in plans %}
+    <div class="border rounded-xl p-4 flex justify-between items-center
+      {% if current_plan and current_plan.id == plan.id %}border-primary bg-primary-light{% else %}border-gray-200 hover:border-gray-300{% endif %}">
+      <div>
+        <h3 class="font-bold text-gray-800">{{ plan.name }}
+          {% if current_plan and current_plan.id == plan.id %}<span class="text-xs text-primary">(current)</span>{% endif %}
+        </h3>
+        <p class="text-xs text-gray-500">
+          {{ plan.class_limit }} classes, {{ plan.student_limit }} students, {{ plan.invoice_limit_yearly }} invoices/yr
+        </p>
+      </div>
+      <div class="text-right">
+        <span class="text-lg font-bold text-gray-800">${{ plan.price }}</span>
+        <span class="text-xs text-gray-500">/mo</span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="mt-6 text-center">
+    <a href="{% url 'institute_plan_select' %}"
+       class="inline-block bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition">
+      View Full Plan Details
+    </a>
+  </div>
+</div>
+{% endblock %}
