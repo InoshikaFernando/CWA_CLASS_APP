@@ -75,6 +75,8 @@ class HomeView(LoginRequiredMixin, View):
             return redirect('hod_overview')
         if role == Role.ACCOUNTANT:
             return redirect('accounting_dashboard')
+        if role == Role.PARENT:
+            return redirect('parent_dashboard')
 
         if role in (Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER):
             return redirect('teacher_dashboard')
@@ -2485,6 +2487,8 @@ class PublicHomeView(View):
                 return redirect('hod_overview')
             if role == Role.ACCOUNTANT:
                 return redirect('accounting_dashboard')
+            if role == Role.PARENT:
+                return redirect('parent_dashboard')
             if role in (Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER):
                 return redirect('teacher_dashboard')
             # Students / Individual Students → subjects hub
@@ -2515,6 +2519,8 @@ class SubjectsHubView(LoginRequiredMixin, View):
             return redirect('hod_overview')
         if role == Role.ACCOUNTANT:
             return redirect('accounting_dashboard')
+        if role == Role.PARENT:
+            return redirect('parent_dashboard')
         if role in (Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER):
             return redirect('teacher_dashboard')
 

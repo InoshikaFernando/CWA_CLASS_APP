@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Attendance — {{ active_child.first_name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-8">
+
+  <div>
+    <h1 class="font-display text-3xl text-gray-800">Attendance</h1>
+    <p class="text-violet-500 text-sm mt-1 font-semibold">{{ active_child.first_name }} {{ active_child.last_name }} &middot; {{ active_school.name }}</p>
+  </div>
+
+  {% if overall_completed %}
+    <!-- Overall Stats -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div class="bg-gradient-to-br from-violet-500 to-purple-500 rounded-2xl p-4 text-white">
+        <p class="text-2xl font-bold">{{ overall_completed }}</p>
+        <p class="text-xs text-white/70">Sessions</p>
+      </div>
+      <div class="bg-gradient-to-br from-emerald-500 to-green-500 rounded-2xl p-4 text-white">
+        <p class="text-2xl font-bold">{{ total_present }}</p>
+        <p class="text-xs text-white/70">Present</p>
+      </div>
+      <div class="bg-gradient-to-br from-amber-500 to-orange-500 rounded-2xl p-4 text-white">
+        <p class="text-2xl font-bold">{{ total_late }}</p>
+        <p class="text-xs text-white/70">Late</p>
+      </div>
+      <div class="bg-gradient-to-br from-red-500 to-rose-500 rounded-2xl p-4 text-white">
+        <p class="text-2xl font-bold">{{ total_absent }}</p>
+        <p class="text-xs text-white/70">Absent</p>
+      </div>
+    </div>
+
+    <!-- Attendance % badge -->
+    <div class="flex justify-center">
+      <div class="inline-flex items-center gap-2 px-6 py-3 rounded-2xl
+                  {% if overall_pct >= 90 %}bg-emerald-100 text-emerald-700{% elif overall_pct >= 75 %}bg-amber-100 text-amber-700{% else %}bg-red-100 text-red-700{% endif %}">
+        <span class="text-2xl font-bold">{{ overall_pct }}%</span>
+        <span class="text-sm font-medium">Overall Attendance</span>
+      </div>
+    </div>
+
+    <!-- Per-class summaries -->
+    {% if class_summaries %}
+      <div>
+        <h2 class="font-semibold text-gray-700 mb-3">By Class</h2>
+        <div class="grid gap-3 sm:grid-cols-2">
+          {% for cs in class_summaries %}
+            <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <p class="font-semibold text-gray-800 mb-2">{{ cs.classroom.name }}</p>
+              <div class="flex items-center gap-4 text-sm">
+                <span class="text-emerald-600">{{ cs.present }} present</span>
+                <span class="text-amber-600">{{ cs.late }} late</span>
+                <span class="text-red-500">{{ cs.absent }} absent</span>
+                <span class="ml-auto font-bold {% if cs.pct >= 90 %}text-emerald-600{% elif cs.pct >= 75 %}text-amber-600{% else %}text-red-500{% endif %}">{{ cs.pct }}%</span>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
+    <!-- Recent records -->
+    {% if attendance_records %}
+      <div>
+        <h2 class="font-semibold text-gray-700 mb-3">Recent Records</h2>
+        <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+                <th class="px-6 py-3 text-left">Date</th>
+                <th class="px-6 py-3 text-left">Class</th>
+                <th class="px-6 py-3 text-center">Status</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+              {% for rec in attendance_records %}
+                <tr>
+                  <td class="px-6 py-3 text-gray-700">{{ rec.session.date|date:"d M Y" }}</td>
+                  <td class="px-6 py-3 text-gray-600">{{ rec.session.classroom.name }}</td>
+                  <td class="px-6 py-3 text-center">
+                    {% if rec.status == 'present' %}
+                      <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">Present</span>
+                    {% elif rec.status == 'late' %}
+                      <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">Late</span>
+                    {% else %}
+                      <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">Absent</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% endif %}
+
+  {% else %}
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center">
+      <p class="text-gray-400">No attendance records yet for {{ active_child.first_name }}.</p>
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}

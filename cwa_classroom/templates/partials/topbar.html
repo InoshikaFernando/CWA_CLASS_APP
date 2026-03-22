@@ -52,6 +52,8 @@
           <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-amber-600 text-white">Head of Institute</span>
         {% elif role == 'accountant' %}
           <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-teal-600 text-white">Accountant</span>
+        {% elif role == 'parent' %}
+          <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-gradient-to-r from-violet-500 to-purple-500 text-white shadow-sm">Parent</span>
         {% endif %}
       {% endwith %}
 
@@ -144,6 +146,8 @@
       {% include "partials/sidebar_senior_teacher.html" %}
     {% elif is_teacher or is_junior_teacher %}
       {% include "partials/sidebar_teacher.html" %}
+    {% elif is_parent %}
+      {% include "partials/sidebar_parent.html" %}
     {% elif is_student or is_individual_student %}
       {% include "partials/sidebar_student.html" %}
     {% elif is_accountant %}

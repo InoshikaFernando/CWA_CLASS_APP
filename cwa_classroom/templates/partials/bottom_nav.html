@@ -39,6 +39,36 @@
 
 </nav>
 
+{% elif is_parent %}
+<nav class="fixed bottom-0 inset-x-0 h-16 bg-white/95 backdrop-blur-lg border-t-2 border-violet-300 z-40
+            flex items-center justify-around px-2 shadow-[0_-2px_10px_rgba(139,92,246,0.1)]">
+  <a href="{% url 'parent_dashboard' %}" class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl
+       {% if request.path == '/classroom/parent/' %}text-violet-600{% else %}text-gray-400 hover:text-violet-500{% endif %} transition">
+    <span class="text-lg leading-none">🏠</span>
+    <span class="text-xs font-bold">Home</span>
+  </a>
+  <a href="{% url 'parent_attendance' %}" class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl
+       {% if 'attendance' in request.path %}text-violet-600{% else %}text-gray-400 hover:text-violet-500{% endif %} transition">
+    <span class="text-lg leading-none">✅</span>
+    <span class="text-xs font-bold">Attend</span>
+  </a>
+  <a href="{% url 'parent_invoices' %}" class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl
+       {% if 'invoices' in request.path %}text-violet-600{% else %}text-gray-400 hover:text-violet-500{% endif %} transition">
+    <span class="text-lg leading-none">🧾</span>
+    <span class="text-xs font-bold">Invoices</span>
+  </a>
+  <a href="{% url 'parent_progress' %}" class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl
+       {% if 'progress' in request.path %}text-violet-600{% else %}text-gray-400 hover:text-violet-500{% endif %} transition">
+    <span class="text-lg leading-none">📊</span>
+    <span class="text-xs font-bold">Progress</span>
+  </a>
+  <a href="{% url 'profile' %}" class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl
+       {% if 'profile' in request.path %}text-violet-600{% else %}text-gray-400 hover:text-violet-500{% endif %} transition">
+    <span class="text-lg leading-none">👤</span>
+    <span class="text-xs font-bold">Profile</span>
+  </a>
+</nav>
+
 {% elif is_teacher or is_hoi or is_hod or is_accountant %}
 <nav class="fixed bottom-0 inset-x-0 h-16 bg-white border-t border-slate-200 z-40
             flex items-center justify-around px-2">

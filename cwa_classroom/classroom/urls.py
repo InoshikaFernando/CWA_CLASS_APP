@@ -9,6 +9,7 @@ from . import views_progress
 from . import views_hierarchy
 from . import views_invoicing
 from . import views_salaries
+from . import views_parent
 
 urlpatterns = [
     # NOTE: The old HomeView at '/' has been replaced by PublicHomeView + SubjectsHubView
@@ -104,8 +105,14 @@ urlpatterns = [
     path('teacher/session/<int:session_id>/cancel/', views_teacher.CancelSessionView.as_view(), name='cancel_session'),
     path('teacher/session/<int:session_id>/delete/', views_teacher.DeleteSessionView.as_view(), name='delete_session'),
 
-    # Parent portal (stub — full views in CPP-67/68/69)
-    path('parent/', views.ParentDashboardStubView.as_view(), name='parent_dashboard'),
+    # Parent portal
+    path('parent/', views_parent.ParentDashboardView.as_view(), name='parent_dashboard'),
+    path('parent/switch-child/<int:student_id>/', views_parent.ParentSwitchChildView.as_view(), name='parent_switch_child'),
+    path('parent/invoices/', views_parent.ParentInvoicesView.as_view(), name='parent_invoices'),
+    path('parent/invoices/<int:invoice_id>/', views_parent.ParentInvoiceDetailView.as_view(), name='parent_invoice_detail'),
+    path('parent/payments/', views_parent.ParentPaymentHistoryView.as_view(), name='parent_payment_history'),
+    path('parent/attendance/', views_parent.ParentAttendanceView.as_view(), name='parent_attendance'),
+    path('parent/progress/', views_parent.ParentProgressView.as_view(), name='parent_progress'),
 
     # Student enrollment & classes
     path('student/join/', views_student.JoinClassByCodeView.as_view(), name='student_join_class'),
