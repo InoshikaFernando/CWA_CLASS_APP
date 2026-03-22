@@ -189,10 +189,10 @@ class StudentDashboardView(LoginRequiredMixin, View):
         ).select_related('level').order_by('-completed_at')[:5]
 
         # ── Time log ─────────────────────────────────────────────────
-        from maths.views import update_time_log_from_activities
+        from maths.views import get_or_create_time_log
         from classroom.views import _format_seconds
 
-        time_log = update_time_log_from_activities(user)
+        time_log = get_or_create_time_log(user)
         time_daily = _format_seconds(time_log.daily_total_seconds)
         time_weekly = _format_seconds(time_log.weekly_total_seconds)
 

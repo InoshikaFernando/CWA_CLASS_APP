@@ -543,9 +543,9 @@ def dashboard(request):
         classes = request.user.classes.all()
         return render(request, "maths/teacher_dashboard.html", {"classes": classes})
 
-    # ── Time log (fresh working time from quiz completions) ───────────────
+    # ── Time log (read heartbeat-accumulated time) ────────────────────────
     try:
-        time_log = update_time_log_from_activities(request.user)
+        time_log = get_or_create_time_log(request.user)
     except Exception:
         time_log = None
 
@@ -1432,15 +1432,13 @@ def update_time_log_from_activities(user):
 @login_required
 @require_http_methods(["GET", "POST"])
 def update_time_log(request):
-    """AJAX endpoint to get current time log (calculated from activities)"""
+    """AJAX endpoint to get current time log (heartbeat-accumulated time)"""
     if not request.user.is_authenticated or request.user.is_teacher:
         return JsonResponse({'error': 'Not authorized'}, status=401)
-    
+
     try:
-        # Recalculate time from activities
-        time_log = update_time_log_from_activities(request.user)
-        
-        # Always return current time calculated from activities
+        time_log = get_or_create_time_log(request.user)
+
         return JsonResponse({
             'success': True,
             'daily_seconds': time_log.daily_total_seconds,
@@ -2125,10 +2123,6 @@ def take_quiz(request, level_number):
             
             save_basic_facts_result()
             
-            # Update time log from activities
-            if not request.user.is_teacher:
-                update_time_log_from_activities(request.user)
-            
             # Also keep in session for backward compatibility (optional)
             basic_facts_results_key = f"basic_facts_results_{request.user.id}_{level_number}"
             results_list = request.session.get(basic_facts_results_key, [])
@@ -2151,10 +2145,6 @@ def take_quiz(request, level_number):
         # Clear timer from session
         if timer_session_key in request.session:
             del request.session[timer_session_key]
-        
-        # Update time log from activities (for both Basic Facts and regular quizzes)
-        if not request.user.is_teacher:
-            update_time_log_from_activities(request.user)
         
         # Calculate points using the formula: percentage * 100 * 60 / time_seconds
         # For Basic Facts, divide by 10
@@ -2506,9 +2496,6 @@ def topic_questions(request, level_number, topic_name):
         total_time_seconds = max(1, int(now_ts - start_ts))
 
         student_answers.update(time_taken_seconds=total_time_seconds)
-
-        if not request.user.is_teacher:
-            update_time_log_from_activities(request.user)
 
         def update_stats_async():
             try:
