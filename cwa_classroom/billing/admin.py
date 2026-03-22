@@ -1,6 +1,7 @@
 from django.contrib import admin
 from .models import (
     Package, DiscountCode, Payment, Subscription, PromoCode,
+    InstituteDiscountCode,
     InstitutePlan, SchoolSubscription, ModuleSubscription, StripeEvent,
 )
 
@@ -48,6 +49,31 @@ class ModuleSubscriptionInline(admin.TabularInline):
     model = ModuleSubscription
     extra = 0
     readonly_fields = ('activated_at',)
+
+
+@admin.register(InstituteDiscountCode)
+class InstituteDiscountCodeAdmin(admin.ModelAdmin):
+    list_display = (
+        'code', 'description', 'discount_percent',
+        'override_class_limit', 'override_student_limit',
+        'uses', 'max_uses', 'is_active', 'expires_at',
+    )
+    list_editable = ('is_active',)
+    list_filter = ('is_active', 'discount_percent')
+    search_fields = ('code', 'description')
+    readonly_fields = ('uses', 'created_at')
+    fieldsets = (
+        (None, {
+            'fields': ('code', 'description', 'discount_percent', 'is_active'),
+        }),
+        ('Limit Overrides', {
+            'fields': ('override_class_limit', 'override_student_limit'),
+            'description': 'Leave blank to use plan defaults. Set to 0 for unlimited.',
+        }),
+        ('Usage', {
+            'fields': ('max_uses', 'uses', 'expires_at', 'created_at'),
+        }),
+    )
 
 
 @admin.register(InstitutePlan)

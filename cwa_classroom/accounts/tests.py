@@ -3,7 +3,9 @@ from django.test import TestCase, Client
 from django.urls import reverse
 
 from accounts.models import CustomUser, Role
-from billing.models import InstitutePlan, Package, SchoolSubscription, Subscription
+from billing.models import (
+    InstitutePlan, InstituteDiscountCode, Package, SchoolSubscription, Subscription,
+)
 
 
 class InstituteRegistrationTest(TestCase):
@@ -275,6 +277,94 @@ class IndividualStudentRegistrationTest(TestCase):
         user = CustomUser.objects.create_user('existing', 'e@t.com', 'pass1234')
         self.client.force_login(user)
         resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 302)
+
+
+class InstituteDiscountCodeTest(TestCase):
+    """Test institute registration with discount codes."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.plan, _ = InstitutePlan.objects.get_or_create(
+            slug='basic', defaults={
+                'name': 'Basic', 'price': 89, 'class_limit': 5,
+                'student_limit': 100, 'invoice_limit_yearly': 500,
+                'extra_invoice_rate': 0.30, 'trial_days': 14, 'order': 1,
+            },
+        )
+        cls.free_code = InstituteDiscountCode.objects.create(
+            code='FREEACCESS', discount_percent=100,
+            override_class_limit=0, override_student_limit=0,
+        )
+        cls.half_off = InstituteDiscountCode.objects.create(
+            code='HALF50', discount_percent=50,
+        )
+        cls.expired_code = InstituteDiscountCode.objects.create(
+            code='EXPIRED', discount_percent=100, is_active=False,
+        )
+
+    def setUp(self):
+        self.client = Client()
+        self.url = reverse('register_teacher_center')
+
+    def _reg_data(self, code='', suffix=''):
+        return {
+            'center_name': f'School {suffix}',
+            'username': f'user{suffix}',
+            'email': f'user{suffix}@test.com',
+            'password': 'securepass1',
+            'confirm_password': 'securepass1',
+            'plan_id': self.plan.id,
+            'discount_code': code,
+        }
+
+    def test_100_percent_code_activates_immediately(self):
+        resp = self.client.post(self.url, self._reg_data('FREEACCESS', 'free'))
+        self.assertEqual(resp.status_code, 302)
+        from classroom.models import School
+        school = School.objects.get(name='School free')
+        sub = SchoolSubscription.objects.get(school=school)
+        self.assertEqual(sub.status, SchoolSubscription.STATUS_ACTIVE)
+        self.assertIsNone(sub.trial_end)
+        self.assertEqual(sub.discount_code, self.free_code)
+
+    def test_partial_discount_still_trials(self):
+        resp = self.client.post(self.url, self._reg_data('HALF50', 'half'))
+        self.assertEqual(resp.status_code, 302)
+        from classroom.models import School
+        school = School.objects.get(name='School half')
+        sub = SchoolSubscription.objects.get(school=school)
+        self.assertEqual(sub.status, SchoolSubscription.STATUS_TRIALING)
+        self.assertIsNotNone(sub.trial_end)
+        self.assertEqual(sub.discount_code, self.half_off)
+
+    def test_discount_code_usage_incremented(self):
+        self.assertEqual(self.free_code.uses, 0)
+        self.client.post(self.url, self._reg_data('FREEACCESS', 'inc'))
+        self.free_code.refresh_from_db()
+        self.assertEqual(self.free_code.uses, 1)
+
+    def test_invalid_code_shows_error(self):
+        resp = self.client.post(self.url, self._reg_data('NOSUCHCODE', 'bad'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Invalid discount code')
+
+    def test_expired_code_shows_error(self):
+        resp = self.client.post(self.url, self._reg_data('EXPIRED', 'exp'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'expired')
+
+    def test_no_code_still_works(self):
+        resp = self.client.post(self.url, self._reg_data('', 'nocode'))
+        self.assertEqual(resp.status_code, 302)
+        from classroom.models import School
+        school = School.objects.get(name='School nocode')
+        sub = SchoolSubscription.objects.get(school=school)
+        self.assertEqual(sub.status, SchoolSubscription.STATUS_TRIALING)
+        self.assertIsNone(sub.discount_code)
+
+    def test_case_insensitive_code(self):
+        resp = self.client.post(self.url, self._reg_data('freeaccess', 'case'))
         self.assertEqual(resp.status_code, 302)
 
 

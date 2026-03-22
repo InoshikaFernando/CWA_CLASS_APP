@@ -124,23 +124,36 @@ class TeacherCenterRegisterView(View):
         confirm = request.POST.get('confirm_password', '')
         center_name = request.POST.get('center_name', '').strip()
         plan_id = request.POST.get('plan_id', '').strip()
+        discount_code_str = request.POST.get('discount_code', '').strip().upper()
 
         errors = _validate_registration(username, email, password, confirm)
         if not center_name:
             errors.append('School / centre name is required.')
 
-        from billing.models import InstitutePlan, SchoolSubscription
+        from billing.models import InstitutePlan, InstituteDiscountCode, SchoolSubscription
         plan = None
         if plan_id:
             plan = InstitutePlan.objects.filter(id=plan_id, is_active=True).first()
         if not plan:
             errors.append('Please select a plan.')
 
+        # Validate discount code (optional)
+        discount_obj = None
+        if discount_code_str:
+            discount_obj = InstituteDiscountCode.objects.filter(
+                code__iexact=discount_code_str,
+            ).first()
+            if not discount_obj:
+                errors.append('Invalid discount code.')
+            elif not discount_obj.is_valid():
+                errors.append('This discount code has expired or reached its usage limit.')
+
         if errors:
             return render(request, 'accounts/register_teacher.html', {
                 'errors': errors, 'username': username, 'email': email,
                 'center_name': center_name, 'center_mode': True,
                 'plans': self._get_plans(), 'selected_plan_id': plan_id,
+                'discount_code': discount_code_str,
             })
 
         try:
@@ -174,14 +187,28 @@ class TeacherCenterRegisterView(View):
                     admin=user,
                 )
 
-                # 4. Create school subscription with selected plan + trial
-                trial_days = plan.trial_days if plan else 14
+                # 4. Create school subscription
+                # If 100% discount code → active immediately, otherwise trial
+                if discount_obj and discount_obj.is_fully_free:
+                    status = SchoolSubscription.STATUS_ACTIVE
+                    trial_end = None
+                else:
+                    status = SchoolSubscription.STATUS_TRIALING
+                    trial_days = plan.trial_days if plan else 14
+                    trial_end = timezone.now() + timedelta(days=trial_days)
+
                 SchoolSubscription.objects.create(
                     school=school,
                     plan=plan,
-                    status=SchoolSubscription.STATUS_TRIALING,
-                    trial_end=timezone.now() + timedelta(days=trial_days),
+                    discount_code=discount_obj,
+                    status=status,
+                    trial_end=trial_end,
                 )
+
+                # Increment discount code usage
+                if discount_obj:
+                    discount_obj.uses += 1
+                    discount_obj.save(update_fields=['uses'])
 
             login(request, user)
             messages.success(request, f'Welcome! Your school "{center_name}" is ready.')
@@ -191,6 +218,7 @@ class TeacherCenterRegisterView(View):
                 'errors': [str(e)], 'username': username, 'email': email,
                 'center_name': center_name, 'center_mode': True,
                 'plans': self._get_plans(), 'selected_plan_id': plan_id,
+                'discount_code': discount_code_str,
             })
 
 

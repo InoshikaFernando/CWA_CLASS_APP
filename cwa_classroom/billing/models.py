@@ -148,6 +148,52 @@ class PromoCode(models.Model):
         return True
 
 
+class InstituteDiscountCode(models.Model):
+    """Discount codes for institutes — created by superusers via Django admin."""
+    code = models.CharField(max_length=50, unique=True)
+    description = models.CharField(max_length=200, blank=True)
+    discount_percent = models.PositiveSmallIntegerField(
+        default=100,
+        help_text='100 = fully free (unlimited access), otherwise % off monthly price.',
+    )
+    # Override plan limits when code grants unlimited access
+    override_class_limit = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text='Override class limit. Leave blank to use plan default. 0 = unlimited.',
+    )
+    override_student_limit = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text='Override student limit. Leave blank to use plan default. 0 = unlimited.',
+    )
+    max_uses = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text='Leave blank for unlimited uses.',
+    )
+    uses = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.code} ({self.discount_percent}% off)'
+
+    def is_valid(self):
+        if not self.is_active:
+            return False
+        if self.expires_at and timezone.now() > self.expires_at:
+            return False
+        if self.max_uses is not None and self.uses >= self.max_uses:
+            return False
+        return True
+
+    @property
+    def is_fully_free(self):
+        return self.discount_percent == 100
+
+
 class InstitutePlan(models.Model):
     """Subscription plan tiers for institutes/schools."""
     name = models.CharField(max_length=100)
@@ -210,6 +256,13 @@ class SchoolSubscription(models.Model):
         on_delete=models.SET_NULL,
         null=True, blank=True,
         related_name='school_subscriptions',
+    )
+    discount_code = models.ForeignKey(
+        InstituteDiscountCode,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='subscriptions',
+        help_text='Discount code applied at registration.',
     )
     stripe_subscription_id = models.CharField(max_length=200, blank=True)
     stripe_customer_id = models.CharField(max_length=200, blank=True)
