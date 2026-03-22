@@ -189,20 +189,24 @@ class TeacherCenterRegisterView(View):
 
                 # 4. Create school subscription
                 # If 100% discount code → active immediately, otherwise trial
-                if discount_obj and discount_obj.is_fully_free:
+                is_free = discount_obj and discount_obj.is_fully_free
+                if is_free:
                     status = SchoolSubscription.STATUS_ACTIVE
                     trial_end = None
+                    has_used_trial = False
                 else:
                     status = SchoolSubscription.STATUS_TRIALING
                     trial_days = plan.trial_days if plan else 14
                     trial_end = timezone.now() + timedelta(days=trial_days)
+                    has_used_trial = True
 
-                SchoolSubscription.objects.create(
+                sub = SchoolSubscription.objects.create(
                     school=school,
                     plan=plan,
                     discount_code=discount_obj,
                     status=status,
                     trial_end=trial_end,
+                    has_used_trial=has_used_trial,
                 )
 
                 # Increment discount code usage
@@ -211,6 +215,20 @@ class TeacherCenterRegisterView(View):
                     discount_obj.save(update_fields=['uses'])
 
             login(request, user)
+
+            # If plan has a Stripe price and not fully free → redirect to Stripe Checkout
+            if plan and plan.stripe_price_id and not is_free:
+                try:
+                    from billing.stripe_service import create_institute_checkout_session
+                    session = create_institute_checkout_session(
+                        school, plan, request,
+                        trial_period_days=plan.trial_days if plan.trial_days else 14,
+                    )
+                    return redirect(session.url)
+                except Exception:
+                    # Stripe not configured or failed — fall through to dashboard
+                    pass
+
             messages.success(request, f'Welcome! Your school "{center_name}" is ready.')
             return redirect('subjects_hub')
         except Exception as e:

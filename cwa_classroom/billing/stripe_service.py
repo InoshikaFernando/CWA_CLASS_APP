@@ -79,14 +79,27 @@ def get_or_create_customer(user=None, school=None):
 # Checkout Sessions
 # ---------------------------------------------------------------------------
 
-def create_institute_checkout_session(school, plan, request):
+def create_institute_checkout_session(school, plan, request, trial_period_days=None):
     """
     Create a Stripe Checkout Session for an institute subscription.
     Returns the Checkout Session object (use session.url to redirect).
+
+    If trial_period_days is set, Stripe collects card details but does not
+    charge until the trial ends. After the trial, billing starts automatically.
     """
     customer_id = get_or_create_customer(school=school)
 
     line_items = [{'price': plan.stripe_price_id, 'quantity': 1}]
+
+    sub_data = {
+        'metadata': {
+            'school_id': school.id,
+            'plan_id': plan.id,
+            'type': 'institute',
+        },
+    }
+    if trial_period_days:
+        sub_data['trial_period_days'] = trial_period_days
 
     session = stripe.checkout.Session.create(
         customer=customer_id,
@@ -103,13 +116,7 @@ def create_institute_checkout_session(school, plan, request):
             'plan_id': plan.id,
             'type': 'institute',
         },
-        subscription_data={
-            'metadata': {
-                'school_id': school.id,
-                'plan_id': plan.id,
-                'type': 'institute',
-            },
-        },
+        subscription_data=sub_data,
         billing_address_collection='required',
         payment_method_types=['card'],
     )

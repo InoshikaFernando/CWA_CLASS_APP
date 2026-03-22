@@ -24,7 +24,7 @@ class AdminDashboardView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request):
-        schools = School.objects.filter(admin=request.user).annotate(
+        schools = School.objects.filter(admin=request.user, is_active=True).annotate(
             teacher_count=Count(
                 'school_teachers',
                 filter=Q(school_teachers__is_active=True),

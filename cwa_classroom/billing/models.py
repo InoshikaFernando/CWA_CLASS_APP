@@ -272,6 +272,10 @@ class SchoolSubscription(models.Model):
     trial_end = models.DateTimeField(null=True, blank=True)
     current_period_start = models.DateTimeField(null=True, blank=True)
     current_period_end = models.DateTimeField(null=True, blank=True)
+    has_used_trial = models.BooleanField(
+        default=False,
+        help_text='Set to True after the first trial. Prevents repeat trials on upgrade/downgrade.',
+    )
     invoices_used_this_year = models.PositiveIntegerField(default=0)
     invoice_year_start = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

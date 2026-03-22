@@ -78,6 +78,7 @@ class InstituteRegistrationTest(TestCase):
         self.assertEqual(sub.plan, self.plan_basic)
         self.assertEqual(sub.status, SchoolSubscription.STATUS_TRIALING)
         self.assertIsNotNone(sub.trial_end)
+        self.assertTrue(sub.has_used_trial)
 
     def test_register_with_silver_plan(self):
         self.client.post(self.url, {
@@ -418,3 +419,118 @@ class SchoolToggleActiveTest(TestCase):
         self.client.post(url)
         self.school.refresh_from_db()
         self.assertFalse(self.school.is_active)
+
+
+class DashboardSchoolCountTest(TestCase):
+    """Test that dashboard excludes deactivated schools."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.admin = CustomUser.objects.create_user('admin', 'a@t.com', 'pass1234')
+        admin_role, _ = Role.objects.get_or_create(
+            name=Role.ADMIN, defaults={'display_name': 'Admin'},
+        )
+        hoi_role, _ = Role.objects.get_or_create(
+            name=Role.HEAD_OF_INSTITUTE,
+            defaults={'display_name': 'Head of Institute'},
+        )
+        cls.admin.roles.add(admin_role)
+        cls.admin.roles.add(hoi_role)
+        from classroom.models import School
+        cls.active_school = School.objects.create(
+            name='Active School', slug='active', admin=cls.admin, is_active=True,
+        )
+        cls.inactive_school = School.objects.create(
+            name='Inactive School', slug='inactive', admin=cls.admin, is_active=False,
+        )
+
+    def setUp(self):
+        self.client = Client()
+        self.client.force_login(self.admin)
+
+    def test_dashboard_excludes_inactive_schools(self):
+        url = reverse('admin_dashboard')
+        resp = self.client.get(url)
+        self.assertEqual(resp.context['total_schools'], 1)
+        self.assertContains(resp, 'Active School')
+        self.assertNotContains(resp, 'Inactive School')
+
+
+class StripeTrialRegistrationTest(TestCase):
+    """Test that registration with stripe_price_id redirects to Stripe."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.plan_with_stripe, _ = InstitutePlan.objects.get_or_create(
+            slug='stripe-plan', defaults={
+                'name': 'Stripe Plan', 'price': 89,
+                'class_limit': 5, 'student_limit': 100,
+                'invoice_limit_yearly': 500, 'extra_invoice_rate': 0.30,
+                'trial_days': 14, 'order': 10,
+                'stripe_price_id': 'price_test_123',
+            },
+        )
+        cls.plan_no_stripe, _ = InstitutePlan.objects.get_or_create(
+            slug='no-stripe', defaults={
+                'name': 'No Stripe', 'price': 50,
+                'class_limit': 3, 'student_limit': 50,
+                'invoice_limit_yearly': 200, 'extra_invoice_rate': 0.50,
+                'trial_days': 14, 'order': 11,
+                'stripe_price_id': '',
+            },
+        )
+
+    def setUp(self):
+        self.client = Client()
+        self.url = reverse('register_teacher_center')
+
+    def test_no_stripe_price_redirects_to_dashboard(self):
+        """Plan without stripe_price_id should redirect to subjects_hub."""
+        resp = self.client.post(self.url, {
+            'center_name': 'No Stripe School',
+            'username': 'nostripe',
+            'email': 'nostripe@test.com',
+            'password': 'securepass1',
+            'confirm_password': 'securepass1',
+            'plan_id': self.plan_no_stripe.id,
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/hub/', resp.url)
+
+    def test_has_used_trial_set_on_registration(self):
+        """has_used_trial should be True after registering with a trial plan."""
+        self.client.post(self.url, {
+            'center_name': 'Trial School',
+            'username': 'trialuser',
+            'email': 'trial@test.com',
+            'password': 'securepass1',
+            'confirm_password': 'securepass1',
+            'plan_id': self.plan_no_stripe.id,
+        })
+        from classroom.models import School
+        school = School.objects.get(name='Trial School')
+        sub = SchoolSubscription.objects.get(school=school)
+        self.assertTrue(sub.has_used_trial)
+        self.assertEqual(sub.status, SchoolSubscription.STATUS_TRIALING)
+
+    def test_free_discount_skips_stripe_and_no_trial(self):
+        """100% discount should activate immediately, has_used_trial=False."""
+        code = InstituteDiscountCode.objects.create(
+            code='SKIPSTRIPE', discount_percent=100, max_uses=1,
+        )
+        resp = self.client.post(self.url, {
+            'center_name': 'Free School',
+            'username': 'freeuser',
+            'email': 'free@test.com',
+            'password': 'securepass1',
+            'confirm_password': 'securepass1',
+            'plan_id': self.plan_with_stripe.id,
+            'discount_code': 'SKIPSTRIPE',
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/hub/', resp.url)
+        from classroom.models import School
+        school = School.objects.get(name='Free School')
+        sub = SchoolSubscription.objects.get(school=school)
+        self.assertEqual(sub.status, SchoolSubscription.STATUS_ACTIVE)
+        self.assertFalse(sub.has_used_trial)
