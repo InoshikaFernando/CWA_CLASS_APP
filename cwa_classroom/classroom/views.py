@@ -383,8 +383,8 @@ class StudentDashboardView(LoginRequiredMixin, View):
         except (ImportError, Exception):
             recent_np = []
 
-        from maths.views import update_time_log_from_activities
-        time_log = update_time_log_from_activities(request.user)
+        from maths.views import get_or_create_time_log
+        time_log = get_or_create_time_log(request.user)
 
         return render(request, 'student/dashboard.html', {
             'progress_grid': progress_grid,
