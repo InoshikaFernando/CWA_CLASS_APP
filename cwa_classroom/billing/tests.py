@@ -336,12 +336,14 @@ class RegistrationSubscriptionTest(TestCase):
 
     def test_teacher_center_registration_creates_subscription(self):
         client = Client()
+        basic_plan = InstitutePlan.objects.get(slug='basic')
         response = client.post(reverse('register_teacher_center'), {
             'username': 'newschool',
             'email': 'new@school.com',
             'password': 'TestPass123!',
             'confirm_password': 'TestPass123!',
             'center_name': 'New Test School',
+            'plan_id': basic_plan.id,
         })
         self.assertEqual(response.status_code, 302)
 

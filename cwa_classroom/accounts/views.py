@@ -106,10 +106,16 @@ class TeacherSignupView(View):
 class TeacherCenterRegisterView(View):
     """Register as Head of Institute — creates a user, school, and assigns HoI role."""
 
+    def _get_plans(self):
+        from billing.models import InstitutePlan
+        return InstitutePlan.objects.filter(is_active=True).order_by('order', 'price')
+
     def get(self, request):
         if request.user.is_authenticated:
             return redirect('subjects_hub')
-        return render(request, 'accounts/register_teacher.html', {'center_mode': True})
+        return render(request, 'accounts/register_teacher.html', {
+            'center_mode': True, 'plans': self._get_plans(),
+        })
 
     def post(self, request):
         username = request.POST.get('username', '').strip()
@@ -117,21 +123,30 @@ class TeacherCenterRegisterView(View):
         password = request.POST.get('password', '')
         confirm = request.POST.get('confirm_password', '')
         center_name = request.POST.get('center_name', '').strip()
+        plan_id = request.POST.get('plan_id', '').strip()
 
         errors = _validate_registration(username, email, password, confirm)
         if not center_name:
             errors.append('School / centre name is required.')
+
+        from billing.models import InstitutePlan, SchoolSubscription
+        plan = None
+        if plan_id:
+            plan = InstitutePlan.objects.filter(id=plan_id, is_active=True).first()
+        if not plan:
+            errors.append('Please select a plan.')
+
         if errors:
             return render(request, 'accounts/register_teacher.html', {
                 'errors': errors, 'username': username, 'email': email,
                 'center_name': center_name, 'center_mode': True,
+                'plans': self._get_plans(), 'selected_plan_id': plan_id,
             })
 
         try:
             from datetime import timedelta
             from django.utils import timezone
             from classroom.models import School
-            from billing.models import InstitutePlan, SchoolSubscription
 
             with transaction.atomic():
                 # 1. Create user
@@ -159,14 +174,11 @@ class TeacherCenterRegisterView(View):
                     admin=user,
                 )
 
-                # 4. Create school subscription with 14-day trial
-                default_plan = InstitutePlan.objects.filter(
-                    slug='basic', is_active=True,
-                ).first()
-                trial_days = default_plan.trial_days if default_plan else 14
+                # 4. Create school subscription with selected plan + trial
+                trial_days = plan.trial_days if plan else 14
                 SchoolSubscription.objects.create(
                     school=school,
-                    plan=default_plan,
+                    plan=plan,
                     status=SchoolSubscription.STATUS_TRIALING,
                     trial_end=timezone.now() + timedelta(days=trial_days),
                 )
@@ -178,6 +190,7 @@ class TeacherCenterRegisterView(View):
             return render(request, 'accounts/register_teacher.html', {
                 'errors': [str(e)], 'username': username, 'email': email,
                 'center_name': center_name, 'center_mode': True,
+                'plans': self._get_plans(), 'selected_plan_id': plan_id,
             })
 
 

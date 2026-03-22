@@ -147,6 +147,9 @@ class SchoolToggleActiveView(RoleRequiredMixin, View):
     """Toggle the is_active status of a school."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
+    def get(self, request, school_id):
+        return redirect('admin_school_detail', school_id=school_id)
+
     def post(self, request, school_id):
         school = get_object_or_404(School, id=school_id, admin=request.user)
         school.is_active = not school.is_active
