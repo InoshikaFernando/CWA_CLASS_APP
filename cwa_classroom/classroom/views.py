@@ -2453,6 +2453,23 @@ class ProcessRefundView(RoleRequiredMixin, View):
 
 
 # ---------------------------------------------------------------------------
+# Parent Dashboard Stub (replaced by full view in CPP-67)
+# ---------------------------------------------------------------------------
+
+class ParentDashboardStubView(RoleRequiredMixin, View):
+    required_roles = [Role.PARENT]
+
+    def get(self, request):
+        from .models import ParentStudent
+        children = ParentStudent.objects.filter(
+            parent=request.user, is_active=True,
+        ).select_related('student', 'school')
+        return render(request, 'parent/dashboard_stub.html', {
+            'children': children,
+        })
+
+
+# ---------------------------------------------------------------------------
 # Public Landing & Subject Hub Views
 # ---------------------------------------------------------------------------
 

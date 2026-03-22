@@ -104,6 +104,9 @@ urlpatterns = [
     path('teacher/session/<int:session_id>/cancel/', views_teacher.CancelSessionView.as_view(), name='cancel_session'),
     path('teacher/session/<int:session_id>/delete/', views_teacher.DeleteSessionView.as_view(), name='delete_session'),
 
+    # Parent portal (stub — full views in CPP-67/68/69)
+    path('parent/', views.ParentDashboardStubView.as_view(), name='parent_dashboard'),
+
     # Student enrollment & classes
     path('student/join/', views_student.JoinClassByCodeView.as_view(), name='student_join_class'),
     path('student/my-classes/', views_student.MyClassesView.as_view(), name='student_my_classes'),

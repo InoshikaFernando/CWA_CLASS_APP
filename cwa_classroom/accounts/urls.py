@@ -19,4 +19,8 @@ urlpatterns = [
     path('account/change-package/', views.ChangePackageView.as_view(), name='change_package'),
     path('api/check-username/', views.CheckUsernameView.as_view(), name='check_username'),
     path('trial-expired/', views.TrialExpiredView.as_view(), name='trial_expired'),
+
+    # Parent registration (invite-based)
+    path('register/parent/<uuid:token>/', views.ParentRegisterView.as_view(), name='register_parent'),
+    path('accept-invite/<uuid:token>/', views.ParentAcceptInviteView.as_view(), name='accept_parent_invite'),
 ]
