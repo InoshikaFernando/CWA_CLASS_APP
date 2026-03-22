@@ -328,6 +328,9 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
                     first_name=first_name,
                     last_name=last_name,
                 )
+                user.must_change_password = True
+                user.profile_completed = False
+                user.save(update_fields=['must_change_password', 'profile_completed'])
                 # Assign system-wide role based on school role
                 if role == 'head_of_institute':
                     system_role, _ = Role.objects.get_or_create(

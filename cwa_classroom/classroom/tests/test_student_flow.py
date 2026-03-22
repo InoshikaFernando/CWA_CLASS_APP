@@ -359,3 +359,50 @@ class EmailLoginTest(TestCase):
             'password': 'testpass123',
         })
         self.assertEqual(resp.status_code, 200)  # Re-renders login page
+
+
+# ---------------------------------------------------------------------------
+# 6. Teacher creation also requires profile completion
+# ---------------------------------------------------------------------------
+
+class TeacherProfileCompletionTest(TestCase):
+    """Teachers created by HoI should also be forced to complete profile."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.hoi_user = _create_user('hoi_teacher_test', first_name='Head', last_name='TC')
+        _assign_role(cls.hoi_user, Role.HEAD_OF_INSTITUTE)
+        cls.school = _setup_school_with_subscription(cls.hoi_user)
+
+    def setUp(self):
+        self.client = Client()
+        self.client.force_login(self.hoi_user)
+
+    def test_create_teacher_sets_must_change_password(self):
+        """New teachers should have must_change_password=True."""
+        url = reverse('admin_school_teachers', kwargs={'school_id': self.school.id})
+        self.client.post(url, {
+            'first_name': 'New',
+            'last_name': 'Teacher',
+            'email': 'newteacher@example.com',
+            'password': 'temppass123',
+            'role': 'teacher',
+            'specialty': '',
+        })
+        teacher = CustomUser.objects.get(email='newteacher@example.com')
+        self.assertTrue(teacher.must_change_password)
+        self.assertFalse(teacher.profile_completed)
+
+    def test_new_teacher_redirected_to_complete_profile(self):
+        """Teachers with must_change_password=True should be redirected."""
+        teacher = _create_user('new_teacher_redir', password='temppass123')
+        teacher.must_change_password = True
+        teacher.profile_completed = False
+        teacher.save(update_fields=['must_change_password', 'profile_completed'])
+        _assign_role(teacher, Role.TEACHER)
+
+        client = Client()
+        client.force_login(teacher)
+        resp = client.get(reverse('subjects_hub'))
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('complete-profile', resp.url)
