@@ -305,3 +305,57 @@ class MiddlewareStudentRoleTest(TestCase):
         student = _create_user('individual_student')
         _assign_role(student, Role.INDIVIDUAL_STUDENT)
         self.assertFalse(TrialExpiryMiddleware._is_institute_user(student))
+
+
+# ---------------------------------------------------------------------------
+# 5. Email or Username Login
+# ---------------------------------------------------------------------------
+
+class EmailLoginTest(TestCase):
+    """Test that users can login with either username or email."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = _create_user(
+            'logintest', password='testpass123',
+            email='logintest@example.com',
+            first_name='Login', last_name='Test',
+        )
+
+    def test_login_with_username(self):
+        """Should be able to login with username."""
+        client = Client()
+        resp = client.post(reverse('login'), {
+            'username': 'logintest',
+            'password': 'testpass123',
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertNotIn('login', resp.url)
+
+    def test_login_with_email(self):
+        """Should be able to login with email address."""
+        client = Client()
+        resp = client.post(reverse('login'), {
+            'username': 'logintest@example.com',
+            'password': 'testpass123',
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertNotIn('login', resp.url)
+
+    def test_login_with_wrong_password(self):
+        """Wrong password should fail."""
+        client = Client()
+        resp = client.post(reverse('login'), {
+            'username': 'logintest@example.com',
+            'password': 'wrongpassword',
+        })
+        self.assertEqual(resp.status_code, 200)  # Re-renders login page
+
+    def test_login_with_nonexistent_email(self):
+        """Non-existent email should fail gracefully."""
+        client = Client()
+        resp = client.post(reverse('login'), {
+            'username': 'nobody@example.com',
+            'password': 'testpass123',
+        })
+        self.assertEqual(resp.status_code, 200)  # Re-renders login page

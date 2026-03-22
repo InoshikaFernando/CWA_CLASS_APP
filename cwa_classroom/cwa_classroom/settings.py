@@ -82,6 +82,10 @@ MIDDLEWARE = [
     'cwa_classroom.middleware.ProfileCompletionMiddleware',
 ]
 
+AUTHENTICATION_BACKENDS = [
+    'accounts.backends.EmailOrUsernameBackend',
+]
+
 ROOT_URLCONF = 'cwa_classroom.urls'
 
 TEMPLATES = [
