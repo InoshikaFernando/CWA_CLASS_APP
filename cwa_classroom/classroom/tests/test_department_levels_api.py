@@ -5,7 +5,7 @@ from django.urls import reverse
 
 from accounts.models import CustomUser, Role
 from classroom.models import (
-    School, SchoolTeacher, Department, Subject, Level, DepartmentLevel,
+    School, SchoolTeacher, Department, DepartmentSubject, Subject, Level, DepartmentLevel,
 )
 
 
@@ -51,11 +51,15 @@ class DepartmentLevelsAPITestBase(TestCase):
 
         cls.dept_maths = Department.objects.create(
             school=cls.school, name='Mathematics', slug='maths',
-            subject=cls.maths,
+        )
+        DepartmentSubject.objects.create(
+            department=cls.dept_maths, subject=cls.maths,
         )
         cls.dept_coding = Department.objects.create(
             school=cls.school, name='Coding', slug='coding',
-            subject=cls.coding,
+        )
+        DepartmentSubject.objects.create(
+            department=cls.dept_coding, subject=cls.coding,
         )
 
 
@@ -118,7 +122,7 @@ class DepartmentLevelsAPITest(DepartmentLevelsAPITestBase):
         """Year levels go in 'levels', custom (200+) go in 'custom_levels'."""
         custom_lv, _ = Level.objects.get_or_create(
             level_number=200,
-            defaults={'display_name': 'Custom L1', 'school': self.school},
+            defaults={'display_name': 'Custom L1', 'school': self.school, 'subject': self.maths},
         )
         DepartmentLevel.objects.create(
             department=self.dept_maths, level=self.year_levels[0], order=1,
@@ -140,8 +144,8 @@ class DepartmentLevelsAPITest(DepartmentLevelsAPITestBase):
         url = reverse('api_department_levels', args=[self.dept_maths.id])
         resp = self.client.get(url)
         data = json.loads(resp.content)
-        self.assertIsNotNone(data['subject'])
-        self.assertEqual(data['subject']['name'], 'Mathematics')
+        self.assertTrue(len(data['subjects']) > 0)
+        self.assertEqual(data['subjects'][0]['name'], 'Mathematics')
 
     def test_api_subject_null_for_no_subject_dept(self):
         dept_custom = Department.objects.create(
@@ -150,7 +154,7 @@ class DepartmentLevelsAPITest(DepartmentLevelsAPITestBase):
         url = reverse('api_department_levels', args=[dept_custom.id])
         resp = self.client.get(url)
         data = json.loads(resp.content)
-        self.assertIsNone(data['subject'])
+        self.assertEqual(data['subjects'], [])
 
 
 class AutoAssignmentTest(DepartmentLevelsAPITestBase):
@@ -166,7 +170,10 @@ class AutoAssignmentTest(DepartmentLevelsAPITestBase):
             name='School 2', slug='school-2', admin=self.admin_user,
         )
         new_dept = Department.objects.create(
-            school=school2, name='Maths', slug='maths', subject=self.maths,
+            school=school2, name='Maths', slug='maths',
+        )
+        DepartmentSubject.objects.create(
+            department=new_dept, subject=self.maths,
         )
         # Simulate what DepartmentCreateView does
         subject_levels = Level.objects.filter(

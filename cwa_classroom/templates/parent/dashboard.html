@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Parent Dashboard{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-8">
+
+  <div>
+    <h1 class="font-display text-3xl text-gray-800">Welcome, {{ request.user.first_name }}</h1>
+    <p class="text-violet-500 text-sm mt-1 font-semibold">Your children's overview</p>
+  </div>
+
+  {% if child_summaries %}
+    <div class="grid gap-4 sm:grid-cols-2">
+      {% for item in child_summaries %}
+        <div class="bg-white rounded-2xl border border-violet-100 shadow-sm p-6 hover:shadow-md transition">
+          <div class="flex items-center gap-3 mb-4">
+            <span class="w-11 h-11 rounded-full bg-gradient-to-br from-violet-500 to-purple-500 flex items-center justify-center text-white font-bold text-sm">
+              {{ item.link.student.first_name|slice:":1" }}{{ item.link.student.last_name|slice:":1" }}
+            </span>
+            <div>
+              <p class="font-semibold text-gray-800">{{ item.link.student.first_name }} {{ item.link.student.last_name }}</p>
+              <p class="text-xs text-gray-400">{{ item.link.school.name }}</p>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-3 gap-3 text-center">
+            <div class="bg-violet-50 rounded-xl py-3">
+              <p class="text-lg font-bold text-violet-600">{{ item.class_count }}</p>
+              <p class="text-xs text-gray-500">Classes</p>
+            </div>
+            <div class="bg-emerald-50 rounded-xl py-3">
+              <p class="text-lg font-bold text-emerald-600">{{ item.attendance_pct }}%</p>
+              <p class="text-xs text-gray-500">Attendance</p>
+            </div>
+            <div class="{% if item.outstanding_invoices %}bg-amber-50{% else %}bg-green-50{% endif %} rounded-xl py-3">
+              <p class="text-lg font-bold {% if item.outstanding_invoices %}text-amber-600{% else %}text-green-600{% endif %}">{{ item.outstanding_invoices }}</p>
+              <p class="text-xs text-gray-500">Unpaid</p>
+            </div>
+          </div>
+
+          {% if active_child and item.link.student.id != active_child.id %}
+            <form method="post" action="{% url 'parent_switch_child' item.link.student.id %}" class="mt-4">
+              {% csrf_token %}
+              <button type="submit" class="w-full text-sm text-violet-600 hover:text-violet-700 font-medium transition">
+                Switch to {{ item.link.student.first_name }} &rarr;
+              </button>
+            </form>
+          {% else %}
+            <p class="mt-4 text-xs text-center text-violet-400 font-medium">Currently viewing</p>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center">
+      <p class="text-gray-400">No children linked to your account yet.</p>
+      <p class="text-gray-400 text-sm mt-1">Your school will send you an invite link.</p>
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}
