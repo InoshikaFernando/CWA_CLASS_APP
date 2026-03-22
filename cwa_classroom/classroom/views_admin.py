@@ -675,11 +675,23 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
                     username=username, email=email, password=password,
                     first_name=first_name, last_name=last_name,
                 )
+                user.must_change_password = True
+                user.profile_completed = False
+                user.save(update_fields=['must_change_password', 'profile_completed'])
                 student_role, _ = Role.objects.get_or_create(
                     name=Role.STUDENT, defaults={'display_name': 'Student'}
                 )
                 UserRole.objects.create(user=user, role=student_role, assigned_by=request.user)
                 SchoolStudent.objects.create(school=school, student=user)
+
+            # Send welcome email with login credentials
+            from classroom.email_utils import send_staff_welcome_email
+            send_staff_welcome_email(
+                user=user,
+                plain_password=password,
+                role_display='Student',
+                school=school,
+            )
             messages.success(request, f'{first_name} {last_name} added as student. Login username: {username}')
         except Exception as e:
             messages.error(request, f'Error creating student: {e}')

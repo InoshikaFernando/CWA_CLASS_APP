@@ -79,6 +79,7 @@ MIDDLEWARE = [
     'django_htmx.middleware.HtmxMiddleware',
     'cwa_classroom.middleware.TrialExpiryMiddleware',
     'cwa_classroom.middleware.AccountBlockMiddleware',
+    'cwa_classroom.middleware.ProfileCompletionMiddleware',
 ]
 
 ROOT_URLCONF = 'cwa_classroom.urls'

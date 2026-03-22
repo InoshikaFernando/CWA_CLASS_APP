@@ -618,6 +618,70 @@ class ParentAcceptInviteView(LoginRequiredMixin, View):
 
 
 # ---------------------------------------------------------------------------
+# Profile Completion (first login after HoI creates student)
+# ---------------------------------------------------------------------------
+
+class CompleteProfileView(LoginRequiredMixin, View):
+    """Force new students to change password and complete profile on first login."""
+
+    def get(self, request):
+        if not request.user.must_change_password and request.user.profile_completed:
+            return redirect('subjects_hub')
+        return render(request, 'accounts/complete_profile.html')
+
+    def post(self, request):
+        user = request.user
+        errors = []
+
+        # Password change (required on first login)
+        if user.must_change_password:
+            new_pw = request.POST.get('new_password', '')
+            confirm_pw = request.POST.get('confirm_password', '')
+            if len(new_pw) < 8:
+                errors.append('Password must be at least 8 characters.')
+            elif new_pw != confirm_pw:
+                errors.append('Passwords do not match.')
+
+        # Profile fields
+        first_name = request.POST.get('first_name', '').strip()
+        last_name = request.POST.get('last_name', '').strip()
+        dob = request.POST.get('date_of_birth', '').strip()
+        country = request.POST.get('country', '').strip()
+        region = request.POST.get('region', '').strip()
+
+        if not first_name:
+            errors.append('First name is required.')
+        if not last_name:
+            errors.append('Last name is required.')
+
+        if errors:
+            for err in errors:
+                messages.error(request, err)
+            return render(request, 'accounts/complete_profile.html')
+
+        # Save profile
+        user.first_name = first_name
+        user.last_name = last_name
+        if dob:
+            user.date_of_birth = dob
+        user.country = country
+        user.region = region
+        user.profile_completed = True
+
+        if user.must_change_password:
+            user.set_password(request.POST.get('new_password', ''))
+            user.must_change_password = False
+
+        user.save()
+
+        if not request.user.must_change_password:
+            update_session_auth_hash(request, user)
+
+        messages.success(request, 'Profile completed successfully! Welcome aboard.')
+        return redirect('subjects_hub')
+
+
+# ---------------------------------------------------------------------------
 # Profile
 # ---------------------------------------------------------------------------
 

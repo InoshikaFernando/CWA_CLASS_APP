@@ -48,6 +48,10 @@ class CustomUser(AbstractUser):
         blank=True,
     )
 
+    # Profile completion
+    must_change_password = models.BooleanField(default=False)
+    profile_completed = models.BooleanField(default=True)
+
     # Account blocking
     BLOCK_TEMPORARY = 'temporary'
     BLOCK_PERMANENT = 'permanent'

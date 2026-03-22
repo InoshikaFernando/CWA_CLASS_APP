@@ -195,6 +195,7 @@ class TrialExpiryMiddleware:
             Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
             Role.HEAD_OF_DEPARTMENT, Role.ACCOUNTANT,
             Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+            Role.STUDENT,
         )
         return any(user.has_role(r) for r in institute_roles)
 
@@ -285,5 +286,35 @@ class AccountBlockMiddleware:
             )
             logout(request)
             return redirect('account_blocked')
+
+        return self.get_response(request)
+
+
+class ProfileCompletionMiddleware:
+    """
+    Force new users (created by HoI) to change password and complete
+    their profile before accessing the rest of the application.
+    """
+
+    ALLOWED_PATHS = (
+        '/accounts/complete-profile/',
+        '/accounts/logout/',
+        '/accounts/blocked/',
+        '/admin/',
+        '/static/',
+    )
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if not request.user.is_authenticated:
+            return self.get_response(request)
+
+        if any(request.path.startswith(p) for p in self.ALLOWED_PATHS):
+            return self.get_response(request)
+
+        if request.user.must_change_password or not request.user.profile_completed:
+            return redirect('complete_profile')
 
         return self.get_response(request)
