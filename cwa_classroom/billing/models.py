@@ -166,8 +166,8 @@ class InstituteDiscountCode(models.Model):
         help_text='Override student limit. Leave blank to use plan default. 0 = unlimited.',
     )
     max_uses = models.PositiveIntegerField(
-        null=True, blank=True,
-        help_text='Leave blank for unlimited uses.',
+        default=1,
+        help_text='Number of times this code can be used. Default 1 (single-use).',
     )
     uses = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)

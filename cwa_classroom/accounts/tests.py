@@ -364,8 +364,28 @@ class InstituteDiscountCodeTest(TestCase):
         self.assertIsNone(sub.discount_code)
 
     def test_case_insensitive_code(self):
-        resp = self.client.post(self.url, self._reg_data('freeaccess', 'case'))
+        code = InstituteDiscountCode.objects.create(
+            code='CASETEST', discount_percent=100, max_uses=1,
+        )
+        resp = self.client.post(self.url, self._reg_data('casetest', 'case'))
         self.assertEqual(resp.status_code, 302)
+
+    def test_single_use_code_expires_after_use(self):
+        """A single-use code should be rejected on second use."""
+        code = InstituteDiscountCode.objects.create(
+            code='ONESHOT', discount_percent=100, max_uses=1,
+        )
+        # First use succeeds
+        resp1 = self.client.post(self.url, self._reg_data('ONESHOT', 'first'))
+        self.assertEqual(resp1.status_code, 302)
+        code.refresh_from_db()
+        self.assertEqual(code.uses, 1)
+        self.assertFalse(code.is_valid())
+
+        # Second use fails
+        resp2 = self.client.post(self.url, self._reg_data('ONESHOT', 'second'))
+        self.assertEqual(resp2.status_code, 200)
+        self.assertContains(resp2, 'expired')
 
 
 class SchoolToggleActiveTest(TestCase):
