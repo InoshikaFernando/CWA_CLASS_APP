@@ -7,7 +7,7 @@ overwrite heartbeat-accumulated time.
 import json
 from datetime import timedelta
 
-from django.test import TestCase, RequestFactory
+from django.test import TestCase
 from django.utils import timezone
 from django.utils.timezone import localtime
 
