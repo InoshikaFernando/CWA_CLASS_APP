@@ -443,7 +443,7 @@ class ProgressCriteriaApproveView(RoleRequiredMixin, ModuleRequiredMixin, View):
 
         if criteria.status != 'pending_approval':
             messages.error(request, 'Only pending criteria can be approved.')
-            return redirect('progress_criteria_approval_list')
+            return redirect('progress_criteria_approvals')
 
         criteria.status = 'approved'
         criteria.approved_by = request.user
@@ -464,7 +464,7 @@ class ProgressCriteriaApproveView(RoleRequiredMixin, ModuleRequiredMixin, View):
             )
 
         messages.success(request, f'Criteria "{criteria.name}" approved.')
-        return redirect('progress_criteria_approval_list')
+        return redirect('progress_criteria_approvals')
 
 
 class ProgressCriteriaRejectView(RoleRequiredMixin, ModuleRequiredMixin, View):
@@ -480,7 +480,7 @@ class ProgressCriteriaRejectView(RoleRequiredMixin, ModuleRequiredMixin, View):
 
         if criteria.status != 'pending_approval':
             messages.error(request, 'Only pending criteria can be rejected.')
-            return redirect('progress_criteria_approval_list')
+            return redirect('progress_criteria_approvals')
 
         criteria.status = 'rejected'
         criteria.save()
@@ -500,7 +500,7 @@ class ProgressCriteriaRejectView(RoleRequiredMixin, ModuleRequiredMixin, View):
             )
 
         messages.success(request, f'Criteria "{criteria.name}" rejected.')
-        return redirect('progress_criteria_approval_list')
+        return redirect('progress_criteria_approvals')
 
 
 # ---------------------------------------------------------------------------
