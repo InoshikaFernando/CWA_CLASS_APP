@@ -75,6 +75,8 @@ class HomeView(LoginRequiredMixin, View):
             return redirect('hod_overview')
         if role == Role.ACCOUNTANT:
             return redirect('accounting_dashboard')
+        if role == Role.PARENT:
+            return redirect('parent_dashboard')
 
         if role in (Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER):
             return redirect('teacher_dashboard')
@@ -381,8 +383,8 @@ class StudentDashboardView(LoginRequiredMixin, View):
         except (ImportError, Exception):
             recent_np = []
 
-        from maths.views import update_time_log_from_activities
-        time_log = update_time_log_from_activities(request.user)
+        from maths.views import get_or_create_time_log
+        time_log = get_or_create_time_log(request.user)
 
         return render(request, 'student/dashboard.html', {
             'progress_grid': progress_grid,
@@ -2453,6 +2455,23 @@ class ProcessRefundView(RoleRequiredMixin, View):
 
 
 # ---------------------------------------------------------------------------
+# Parent Dashboard Stub (replaced by full view in CPP-67)
+# ---------------------------------------------------------------------------
+
+class ParentDashboardStubView(RoleRequiredMixin, View):
+    required_roles = [Role.PARENT]
+
+    def get(self, request):
+        from .models import ParentStudent
+        children = ParentStudent.objects.filter(
+            parent=request.user, is_active=True,
+        ).select_related('student', 'school')
+        return render(request, 'parent/dashboard_stub.html', {
+            'children': children,
+        })
+
+
+# ---------------------------------------------------------------------------
 # Public Landing & Subject Hub Views
 # ---------------------------------------------------------------------------
 
@@ -2468,6 +2487,8 @@ class PublicHomeView(View):
                 return redirect('hod_overview')
             if role == Role.ACCOUNTANT:
                 return redirect('accounting_dashboard')
+            if role == Role.PARENT:
+                return redirect('parent_dashboard')
             if role in (Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER):
                 return redirect('teacher_dashboard')
             # Students / Individual Students → subjects hub
@@ -2498,6 +2519,8 @@ class SubjectsHubView(LoginRequiredMixin, View):
             return redirect('hod_overview')
         if role == Role.ACCOUNTANT:
             return redirect('accounting_dashboard')
+        if role == Role.PARENT:
+            return redirect('parent_dashboard')
         if role in (Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER):
             return redirect('teacher_dashboard')
 

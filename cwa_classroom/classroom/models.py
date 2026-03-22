@@ -799,6 +799,108 @@ class Notification(models.Model):
 
 
 # ---------------------------------------------------------------------------
+# Parent / Family Account models
+# ---------------------------------------------------------------------------
+
+class ParentStudent(models.Model):
+    """Links a parent user to a student user within a school context."""
+    RELATIONSHIP_CHOICES = [
+        ('mother', 'Mother'),
+        ('father', 'Father'),
+        ('guardian', 'Guardian'),
+        ('other', 'Other'),
+    ]
+
+    parent = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='parent_student_links',
+    )
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='student_parent_links',
+    )
+    school = models.ForeignKey(
+        'School', on_delete=models.CASCADE,
+        related_name='parent_student_links',
+    )
+    relationship = models.CharField(
+        max_length=30, choices=RELATIONSHIP_CHOICES, blank=True,
+    )
+    is_primary_contact = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, related_name='+',
+    )
+
+    class Meta:
+        unique_together = ('parent', 'student', 'school')
+        ordering = ['student__first_name', 'student__last_name']
+
+    def __str__(self):
+        return f'{self.parent.username} → {self.student.username} @ {self.school.name}'
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        existing = ParentStudent.objects.filter(
+            student=self.student, school=self.school, is_active=True,
+        ).exclude(pk=self.pk).count()
+        if existing >= 2:
+            raise ValidationError(
+                f'{self.student.username} already has 2 active parent links '
+                f'in {self.school.name}.'
+            )
+
+
+class ParentInvite(models.Model):
+    """Invite token for a parent to register or link to a student."""
+    import uuid
+
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('accepted', 'Accepted'),
+        ('expired', 'Expired'),
+        ('revoked', 'Revoked'),
+    ]
+
+    token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    school = models.ForeignKey(
+        'School', on_delete=models.CASCADE,
+        related_name='parent_invites',
+    )
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='parent_invites',
+    )
+    parent_email = models.EmailField()
+    relationship = models.CharField(max_length=30, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    invited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, related_name='+',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    accepted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+    )
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Invite {self.parent_email} → {self.student.username} ({self.status})'
+
+    @property
+    def is_valid(self):
+        from django.utils import timezone
+        return self.status == 'pending' and self.expires_at > timezone.now()
+
+
+# ---------------------------------------------------------------------------
 # Subject Hub models (public landing page & subject hub feature)
 # ---------------------------------------------------------------------------
 

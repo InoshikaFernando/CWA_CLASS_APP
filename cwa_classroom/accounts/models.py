@@ -26,6 +26,7 @@ class Role(models.Model):
     HEAD_OF_INSTITUTE = 'head_of_institute'
     HEAD_OF_DEPARTMENT = 'head_of_department'
     INSTITUTE_OWNER = 'institute_owner'
+    PARENT = 'parent'
 
 
 class CustomUser(AbstractUser):
@@ -58,6 +59,7 @@ class CustomUser(AbstractUser):
         Role.JUNIOR_TEACHER,
         Role.INDIVIDUAL_STUDENT,
         Role.STUDENT,
+        Role.PARENT,
     ]
 
     def has_role(self, role_name):
@@ -118,6 +120,10 @@ class CustomUser(AbstractUser):
     @property
     def is_institute_owner(self):
         return self.has_role(Role.INSTITUTE_OWNER)
+
+    @property
+    def is_parent(self):
+        return self.has_role(Role.PARENT)
 
     @property
     def age(self):

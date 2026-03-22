@@ -9,6 +9,8 @@ from . import views_progress
 from . import views_hierarchy
 from . import views_invoicing
 from . import views_salaries
+from . import views_parent
+from . import views_parent_admin
 
 urlpatterns = [
     # NOTE: The old HomeView at '/' has been replaced by PublicHomeView + SubjectsHubView
@@ -63,6 +65,13 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/remove/', views_admin.SchoolStudentRemoveView.as_view(), name='admin_school_student_remove'),
     path('admin-dashboard/schools/<int:school_id>/students/batch-update/', views_admin.SchoolStudentBatchUpdateView.as_view(), name='admin_school_student_batch_update'),
 
+    # Parent management (school-level)
+    path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/invite-parent/', views_parent_admin.ParentInviteCreateView.as_view(), name='invite_parent'),
+    path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/parents/', views_parent_admin.StudentParentLinksView.as_view(), name='student_parent_links'),
+    path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/parents/<int:link_id>/remove/', views_parent_admin.ParentStudentUnlinkView.as_view(), name='unlink_parent_student'),
+    path('admin-dashboard/schools/<int:school_id>/parent-invites/', views_parent_admin.ParentInviteListView.as_view(), name='parent_invite_list'),
+    path('admin-dashboard/schools/<int:school_id>/parent-invites/<int:invite_id>/revoke/', views_parent_admin.ParentInviteRevokeView.as_view(), name='revoke_parent_invite'),
+
     # Department management (within a school)
     path('admin-dashboard/schools/<int:school_id>/departments/', views_department.DepartmentListView.as_view(), name='admin_school_departments'),
     path('admin-dashboard/schools/<int:school_id>/departments/create/', views_department.DepartmentCreateView.as_view(), name='admin_department_create'),
@@ -103,6 +112,15 @@ urlpatterns = [
     path('teacher/session/<int:session_id>/complete/', views_teacher.CompleteSessionView.as_view(), name='complete_session'),
     path('teacher/session/<int:session_id>/cancel/', views_teacher.CancelSessionView.as_view(), name='cancel_session'),
     path('teacher/session/<int:session_id>/delete/', views_teacher.DeleteSessionView.as_view(), name='delete_session'),
+
+    # Parent portal
+    path('parent/', views_parent.ParentDashboardView.as_view(), name='parent_dashboard'),
+    path('parent/switch-child/<int:student_id>/', views_parent.ParentSwitchChildView.as_view(), name='parent_switch_child'),
+    path('parent/invoices/', views_parent.ParentInvoicesView.as_view(), name='parent_invoices'),
+    path('parent/invoices/<int:invoice_id>/', views_parent.ParentInvoiceDetailView.as_view(), name='parent_invoice_detail'),
+    path('parent/payments/', views_parent.ParentPaymentHistoryView.as_view(), name='parent_payment_history'),
+    path('parent/attendance/', views_parent.ParentAttendanceView.as_view(), name='parent_attendance'),
+    path('parent/progress/', views_parent.ParentProgressView.as_view(), name='parent_progress'),
 
     # Student enrollment & classes
     path('student/join/', views_student.JoinClassByCodeView.as_view(), name='student_join_class'),
