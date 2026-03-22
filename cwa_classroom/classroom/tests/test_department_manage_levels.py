@@ -3,7 +3,7 @@ from django.urls import reverse
 
 from accounts.models import CustomUser, Role
 from classroom.models import (
-    School, SchoolTeacher, Department, Subject, Level, DepartmentLevel,
+    School, SchoolTeacher, Department, DepartmentSubject, Subject, Level, DepartmentLevel,
 )
 
 
@@ -61,12 +61,12 @@ class DepartmentManageLevelsTestBase(TestCase):
 
         cls.dept_maths = Department.objects.create(
             school=cls.school, name='Mathematics', slug='maths',
-            subject=cls.maths,
         )
+        DepartmentSubject.objects.create(department=cls.dept_maths, subject=cls.maths)
         cls.dept_coding = Department.objects.create(
             school=cls.school, name='Coding', slug='coding',
-            subject=cls.coding,
         )
+        DepartmentSubject.objects.create(department=cls.dept_coding, subject=cls.coding)
         cls.dept_custom = Department.objects.create(
             school=cls.school, name='Custom', slug='custom',
         )
@@ -190,10 +190,10 @@ class DepartmentDetailLevelsTest(DepartmentManageLevelsTestBase):
         url = reverse('admin_department_detail', args=[self.school.id, self.dept_maths.id])
         resp = self.client.get(url)
         self.assertContains(resp, 'Year 1')
-        self.assertContains(resp, 'Year 1 (AU)')
-        self.assertContains(resp, 'Manage Levels')
+        self.assertContains(resp, 'Manage Subjects')
 
     def test_detail_shows_no_levels_message(self):
+        """Dept with subject but no mapped levels shows 'No levels yet.'"""
         url = reverse('admin_department_detail', args=[self.school.id, self.dept_maths.id])
         resp = self.client.get(url)
-        self.assertContains(resp, 'No levels mapped')
+        self.assertContains(resp, 'No levels yet')

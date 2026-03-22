@@ -3,7 +3,7 @@ from django.test import TestCase
 
 from accounts.models import CustomUser, Role
 from classroom.models import (
-    School, Department, Subject, Level, DepartmentLevel,
+    School, Department, DepartmentSubject, Subject, Level, DepartmentLevel,
 )
 
 
@@ -50,16 +50,16 @@ class DepartmentLevelTestBase(TestCase):
 
         cls.dept_a_maths = Department.objects.create(
             school=cls.school_a, name='Mathematics', slug='maths',
-            subject=cls.maths,
         )
+        DepartmentSubject.objects.create(department=cls.dept_a_maths, subject=cls.maths)
         cls.dept_b_maths = Department.objects.create(
             school=cls.school_b, name='Mathematics', slug='maths',
-            subject=cls.maths,
         )
+        DepartmentSubject.objects.create(department=cls.dept_b_maths, subject=cls.maths)
         cls.dept_a_coding = Department.objects.create(
             school=cls.school_a, name='Coding', slug='coding',
-            subject=cls.coding,
         )
+        DepartmentSubject.objects.create(department=cls.dept_a_coding, subject=cls.coding)
 
 
 class DepartmentLevelModelTest(DepartmentLevelTestBase):

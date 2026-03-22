@@ -26,6 +26,7 @@ class AuditLogModelTest(TestCase):
         AuditLog.objects.create(category='auth', action='first')
         AuditLog.objects.create(category='auth', action='second')
         logs = list(AuditLog.objects.values_list('action', flat=True))
+        # Ordering is -created_at, -pk; when timestamps match, higher pk comes first
         self.assertEqual(logs[0], 'second')
 
 
