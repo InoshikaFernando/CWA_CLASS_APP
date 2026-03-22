@@ -10,6 +10,7 @@ from . import views_hierarchy
 from . import views_invoicing
 from . import views_salaries
 from . import views_parent
+from . import views_parent_admin
 
 urlpatterns = [
     # NOTE: The old HomeView at '/' has been replaced by PublicHomeView + SubjectsHubView
@@ -63,6 +64,13 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/edit/', views_admin.SchoolStudentEditView.as_view(), name='admin_school_student_edit'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/remove/', views_admin.SchoolStudentRemoveView.as_view(), name='admin_school_student_remove'),
     path('admin-dashboard/schools/<int:school_id>/students/batch-update/', views_admin.SchoolStudentBatchUpdateView.as_view(), name='admin_school_student_batch_update'),
+
+    # Parent management (school-level)
+    path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/invite-parent/', views_parent_admin.ParentInviteCreateView.as_view(), name='invite_parent'),
+    path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/parents/', views_parent_admin.StudentParentLinksView.as_view(), name='student_parent_links'),
+    path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/parents/<int:link_id>/remove/', views_parent_admin.ParentStudentUnlinkView.as_view(), name='unlink_parent_student'),
+    path('admin-dashboard/schools/<int:school_id>/parent-invites/', views_parent_admin.ParentInviteListView.as_view(), name='parent_invite_list'),
+    path('admin-dashboard/schools/<int:school_id>/parent-invites/<int:invite_id>/revoke/', views_parent_admin.ParentInviteRevokeView.as_view(), name='revoke_parent_invite'),
 
     # Department management (within a school)
     path('admin-dashboard/schools/<int:school_id>/departments/', views_department.DepartmentListView.as_view(), name='admin_school_departments'),
