@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Parents — {{ student.first_name }} {{ student.last_name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+
+  <div class="flex items-center gap-3">
+    <a href="{% url 'admin_school_students' school.id %}" class="text-primary hover:text-primary-dark transition">
+      <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/>
+      </svg>
+    </a>
+    <div>
+      <h1 class="font-display text-2xl text-gray-800">Parent Links</h1>
+      <p class="text-sm text-gray-400">{{ student.first_name }} {{ student.last_name }} &middot; {{ school.name }}</p>
+    </div>
+  </div>
+
+  {% if links %}
+    <div class="space-y-3">
+      {% for link in links %}
+        <div class="bg-white rounded-2xl border {% if link.is_active %}border-gray-100{% else %}border-red-100 opacity-60{% endif %} shadow-sm p-5 flex items-center justify-between">
+          <div>
+            <p class="font-semibold text-gray-800">{{ link.parent.first_name }} {{ link.parent.last_name }}</p>
+            <p class="text-sm text-gray-400">{{ link.parent.email }}</p>
+            <p class="text-xs text-gray-400 mt-1">
+              {{ link.get_relationship_display|default:"—" }}
+              {% if link.is_primary_contact %}&middot; Primary Contact{% endif %}
+              &middot; Linked {{ link.created_at|date:"d M Y" }}
+            </p>
+          </div>
+          <div class="flex items-center gap-3">
+            {% if link.is_active %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">Active</span>
+              <form method="post" action="{% url 'unlink_parent_student' school.id student.id link.id %}">
+                {% csrf_token %}
+                <button type="submit" class="text-xs text-red-500 hover:text-red-600 font-medium"
+                        onclick="return confirm('Remove this parent link?')">Remove</button>
+              </form>
+            {% else %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-600">Removed</span>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center">
+      <p class="text-gray-400">No parent links for this student.</p>
+    </div>
+  {% endif %}
+
+  <a href="{% url 'invite_parent' school.id student.id %}"
+     class="inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-primary-dark transition">
+    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+    </svg>
+    Invite New Parent
+  </a>
+
+</div>
+{% endblock %}

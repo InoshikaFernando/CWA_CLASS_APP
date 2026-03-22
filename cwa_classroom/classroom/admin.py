@@ -11,6 +11,7 @@ from .models import (
     PaymentReferenceMapping, InvoicePayment, CreditTransaction,
     TeacherHourlyRate, TeacherRateOverride, SalaryNumberSequence,
     SalarySlip, SalarySlipLineItem, SalaryPayment,
+    ParentStudent, ParentInvite,
 )
 
 
@@ -414,3 +415,23 @@ class SalaryPaymentAdmin(admin.ModelAdmin):
     list_filter = ('status', 'payment_method', 'school')
     search_fields = ('teacher__username', 'reference_name')
     readonly_fields = ('created_at',)
+
+
+# ---------------------------------------------------------------------------
+# Parent / Family Account
+# ---------------------------------------------------------------------------
+
+@admin.register(ParentStudent)
+class ParentStudentAdmin(admin.ModelAdmin):
+    list_display = ('parent', 'student', 'school', 'relationship', 'is_active', 'created_at')
+    list_filter = ('is_active', 'relationship', 'school')
+    search_fields = ('parent__username', 'parent__email', 'student__username', 'student__email')
+    readonly_fields = ('created_at',)
+
+
+@admin.register(ParentInvite)
+class ParentInviteAdmin(admin.ModelAdmin):
+    list_display = ('parent_email', 'student', 'school', 'status', 'created_at', 'expires_at')
+    list_filter = ('status', 'school')
+    search_fields = ('parent_email', 'student__username')
+    readonly_fields = ('token', 'created_at', 'accepted_at')

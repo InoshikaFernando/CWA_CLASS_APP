@@ -438,6 +438,186 @@ class AccountBlockedView(View):
 
 
 # ---------------------------------------------------------------------------
+# Parent Registration (invite-based)
+# ---------------------------------------------------------------------------
+
+class ParentRegisterView(View):
+    """Register as a parent using an invite token. Creates user + PARENT role + ParentStudent link."""
+
+    def get(self, request, token):
+        from classroom.models import ParentInvite
+        invite = get_object_or_404(ParentInvite, token=token)
+
+        if not invite.is_valid:
+            from django.utils import timezone as tz
+            if invite.status == 'pending' and invite.expires_at <= tz.now():
+                effective_status = 'expired'
+            else:
+                effective_status = invite.status
+            status_msg = {
+                'accepted': 'This invite has already been used.',
+                'expired': 'This invite has expired. Please contact the school for a new one.',
+                'revoked': 'This invite has been revoked. Please contact the school.',
+            }.get(effective_status, 'This invite is no longer valid.')
+            return render(request, 'accounts/parent_invite_invalid.html', {
+                'message': status_msg,
+            })
+
+        # If already logged in, redirect to accept-invite flow
+        if request.user.is_authenticated:
+            return redirect('accept_parent_invite', token=token)
+
+        return render(request, 'accounts/register_parent.html', {
+            'invite': invite,
+            'email': invite.parent_email,
+        })
+
+    def post(self, request, token):
+        from django.utils import timezone
+        from classroom.models import ParentInvite, ParentStudent
+
+        invite = get_object_or_404(ParentInvite, token=token)
+        if not invite.is_valid:
+            messages.error(request, 'This invite is no longer valid.')
+            return redirect('login')
+
+        first_name = request.POST.get('first_name', '').strip()
+        last_name = request.POST.get('last_name', '').strip()
+        email = request.POST.get('email', '').strip() or invite.parent_email
+        password = request.POST.get('password', '')
+        confirm = request.POST.get('confirm_password', '')
+        username = request.POST.get('username', '').strip()
+
+        errors = []
+        if not first_name:
+            errors.append('First name is required.')
+        if not last_name:
+            errors.append('Last name is required.')
+        if not email or '@' not in email:
+            errors.append('A valid email address is required.')
+        elif CustomUser.objects.filter(email=email).exists():
+            errors.append('An account with this email already exists. Please log in and accept the invite.')
+        if len(password) < 8:
+            errors.append('Password must be at least 8 characters.')
+        if password != confirm:
+            errors.append('Passwords do not match.')
+
+        if username:
+            errors.extend(_validate_username(username))
+        elif email and '@' in email:
+            username = _generate_username_suggestion(email)
+
+        if errors:
+            return render(request, 'accounts/register_parent.html', {
+                'invite': invite,
+                'errors': errors,
+                'first_name': first_name,
+                'last_name': last_name,
+                'email': email,
+                'username': username,
+            })
+
+        try:
+            with transaction.atomic():
+                user = CustomUser.objects.create_user(
+                    username=username, email=email, password=password,
+                    first_name=first_name, last_name=last_name,
+                )
+                parent_role, _ = Role.objects.get_or_create(
+                    name=Role.PARENT,
+                    defaults={'display_name': 'Parent'},
+                )
+                UserRole.objects.create(user=user, role=parent_role)
+
+                ParentStudent.objects.create(
+                    parent=user, student=invite.student,
+                    school=invite.school,
+                    relationship=invite.relationship,
+                    created_by=invite.invited_by,
+                )
+
+                invite.status = 'accepted'
+                invite.accepted_at = timezone.now()
+                invite.accepted_by = user
+                invite.save(update_fields=['status', 'accepted_at', 'accepted_by'])
+
+            login(request, user)
+            messages.success(
+                request,
+                f'Welcome, {first_name}! You are now linked to '
+                f'{invite.student.first_name} {invite.student.last_name}.',
+            )
+            return redirect('parent_dashboard')
+
+        except Exception as e:
+            return render(request, 'accounts/register_parent.html', {
+                'invite': invite,
+                'errors': [str(e)],
+                'first_name': first_name,
+                'last_name': last_name,
+                'email': email,
+            })
+
+
+class ParentAcceptInviteView(LoginRequiredMixin, View):
+    """Accept a parent invite for an existing logged-in user."""
+
+    def get(self, request, token):
+        from classroom.models import ParentInvite
+        invite = get_object_or_404(ParentInvite, token=token)
+
+        if not invite.is_valid:
+            messages.error(request, 'This invite is no longer valid.')
+            return redirect('subjects_hub')
+
+        return render(request, 'accounts/accept_parent_invite.html', {
+            'invite': invite,
+        })
+
+    def post(self, request, token):
+        from django.utils import timezone
+        from classroom.models import ParentInvite, ParentStudent
+
+        invite = get_object_or_404(ParentInvite, token=token)
+        if not invite.is_valid:
+            messages.error(request, 'This invite is no longer valid.')
+            return redirect('subjects_hub')
+
+        try:
+            with transaction.atomic():
+                # Add PARENT role if user doesn't have it
+                if not request.user.is_parent:
+                    parent_role, _ = Role.objects.get_or_create(
+                        name=Role.PARENT,
+                        defaults={'display_name': 'Parent'},
+                    )
+                    UserRole.objects.create(user=request.user, role=parent_role)
+
+                ParentStudent.objects.create(
+                    parent=request.user, student=invite.student,
+                    school=invite.school,
+                    relationship=invite.relationship,
+                    created_by=invite.invited_by,
+                )
+
+                invite.status = 'accepted'
+                invite.accepted_at = timezone.now()
+                invite.accepted_by = request.user
+                invite.save(update_fields=['status', 'accepted_at', 'accepted_by'])
+
+            messages.success(
+                request,
+                f'You are now linked to '
+                f'{invite.student.first_name} {invite.student.last_name}.',
+            )
+            return redirect('parent_dashboard')
+
+        except Exception as e:
+            messages.error(request, str(e))
+            return redirect('subjects_hub')
+
+
+# ---------------------------------------------------------------------------
 # Profile
 # ---------------------------------------------------------------------------
 

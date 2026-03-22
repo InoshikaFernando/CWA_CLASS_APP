@@ -16,6 +16,7 @@ def user_role(request):
         'is_institute_owner': request.user.is_institute_owner,
         'is_accountant': request.user.is_accountant,
         'is_admin_user': request.user.is_admin_user,
+        'is_parent': request.user.is_parent,
     }
 
     # Add school subscription info for institute users

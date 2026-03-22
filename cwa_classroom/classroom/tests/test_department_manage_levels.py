@@ -190,6 +190,7 @@ class DepartmentDetailLevelsTest(DepartmentManageLevelsTestBase):
         url = reverse('admin_department_detail', args=[self.school.id, self.dept_maths.id])
         resp = self.client.get(url)
         self.assertContains(resp, 'Year 1')
+        self.assertContains(resp, 'Year 2')
         self.assertContains(resp, 'Manage Subjects')
 
     def test_detail_shows_no_levels_message(self):
