@@ -1691,9 +1691,15 @@ class HoDManageClassesView(RoleRequiredMixin, View):
             selected_dept_id = None
 
         if is_hod_only:
+            from django.db.models import Q
+            headed_dept_ids = set(headed_depts.values_list('id', flat=True))
+            # For headed departments: show ALL classes
+            # For other departments: show only classes they teach
             classes = ClassRoom.objects.filter(
-                department_id__in=filter_dept_ids, is_active=True
-            ).select_related('department').prefetch_related('teachers')
+                Q(department_id__in=[d for d in filter_dept_ids if d in headed_dept_ids])
+                | Q(department_id__in=[d for d in filter_dept_ids if d not in headed_dept_ids], teachers=request.user),
+                is_active=True,
+            ).distinct().select_related('department').prefetch_related('teachers')
             teachers = CustomUser.objects.filter(
                 department_memberships__department_id__in=filter_dept_ids,
             ).distinct()
