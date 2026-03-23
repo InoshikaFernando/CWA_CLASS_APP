@@ -170,6 +170,10 @@ class InstituteDiscountCode(models.Model):
         help_text='Number of times this code can be used. Default 1 (single-use).',
     )
     uses = models.PositiveIntegerField(default=0)
+    stripe_coupon_id = models.CharField(
+        max_length=100, blank=True,
+        help_text='Stripe Coupon ID. When set, this coupon is applied to the Stripe subscription.',
+    )
     is_active = models.BooleanField(default=True)
     expires_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

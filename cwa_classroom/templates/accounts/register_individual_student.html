@@ -11,18 +11,18 @@
 
 {% block card_content %}
   <h1 class="font-display text-3xl text-primary text-center mb-1">Join Classroom</h1>
-  <p class="text-center text-gray-400 text-sm mb-6">Create your student account in 3 easy steps.</p>
+  <p class="text-center text-gray-400 text-sm mb-6">Create your student account.</p>
 
-  <!-- Step indicator -->
+  <!-- Step indicator (4 steps) -->
   <div class="flex items-center justify-center gap-2 mb-8" id="step-indicator">
-    {% for i in "123" %}
+    {% for i in "1234" %}
     <div class="step-dot flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold
                 {% if forloop.first %}bg-primary text-white{% else %}bg-gray-200 text-gray-400{% endif %}"
          data-step="{{ forloop.counter }}">
       {{ forloop.counter }}
     </div>
     {% if not forloop.last %}
-      <div class="h-0.5 w-10 bg-gray-200 step-line" data-after="{{ forloop.counter }}"></div>
+      <div class="h-0.5 w-8 bg-gray-200 step-line" data-after="{{ forloop.counter }}"></div>
     {% endif %}
     {% endfor %}
   </div>
@@ -36,7 +36,7 @@
   <form method="post" id="reg-form" class="space-y-0">
     {% csrf_token %}
 
-    <!-- ── Step 1: Account Details ─────────────────────────── -->
+    <!-- Step 1: Account Details -->
     <div id="step-1" class="step-panel space-y-4">
       <div>
         <label class="block text-sm font-semibold text-gray-700 mb-1.5">Username</label>
@@ -62,15 +62,79 @@
                placeholder="Re-enter your password" autocomplete="new-password"
                class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
       </div>
-      <button type="button" onclick="goStep(2)"
+      <button type="button" id="btn-step1"
               class="w-full bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-5 py-3 transition mt-2">
-        Next: Choose Plan →
+        Next: Personal Details &rarr;
       </button>
     </div>
 
-    <!-- ── Step 2: Package Selection ──────────────────────── -->
+    <!-- Step 2: Personal & Address Details -->
     <div id="step-2" class="step-panel hidden space-y-4">
-      <p class="text-sm text-gray-500 text-center">All plans include a <strong class="text-primary">14-day free trial</strong>. No card required.</p>
+      <h2 class="font-bold text-lg text-gray-800 text-center">Personal Details</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">First Name</label>
+          <input type="text" name="first_name" value="{{ first_name|default:'' }}" id="f-first"
+                 class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Last Name</label>
+          <input type="text" name="last_name" value="{{ last_name|default:'' }}" id="f-last"
+                 class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+        </div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Date of Birth</label>
+          <input type="date" name="date_of_birth" value="{{ date_of_birth|default:'' }}"
+                 class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Phone</label>
+          <input type="tel" name="phone" value="{{ phone|default:'' }}"
+                 placeholder="e.g. +64 21 123 4567"
+                 class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1.5">Street Address</label>
+        <input type="text" name="street_address" value="{{ street_address|default:'' }}"
+               placeholder="123 Main Street"
+               class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">City</label>
+          <input type="text" name="city" value="{{ city|default:'' }}"
+                 class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Postal Code</label>
+          <input type="text" name="postal_code" value="{{ postal_code|default:'' }}"
+                 class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1.5">Country</label>
+        <input type="text" name="country" value="{{ country|default:'' }}"
+               placeholder="e.g. New Zealand"
+               class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+      </div>
+      <div class="flex gap-3 pt-2">
+        <button type="button" onclick="goStep(1)"
+                class="flex-1 bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl px-5 py-3 hover:bg-gray-50 transition">
+          &larr; Back
+        </button>
+        <button type="button" onclick="goStep(3)"
+                class="flex-1 bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-5 py-3 transition">
+          Next: Choose Plan &rarr;
+        </button>
+      </div>
+    </div>
+
+    <!-- Step 3: Package Selection -->
+    <div id="step-3" class="step-panel hidden space-y-4">
+      <p class="text-sm text-gray-500 text-center">All plans include a <strong class="text-primary">14-day free trial</strong>.</p>
 
       <div class="grid grid-cols-2 gap-3">
         {% for package in packages %}
@@ -98,54 +162,45 @@
       </div>
 
       <div class="flex gap-3 pt-2">
-        <button type="button" onclick="goStep(1)"
+        <button type="button" onclick="goStep(2)"
                 class="flex-1 bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl px-5 py-3 hover:bg-gray-50 transition">
-          ← Back
+          &larr; Back
         </button>
-        <button type="button" onclick="validateStep2()"
+        <button type="button" onclick="validateStep3()"
                 class="flex-1 bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-5 py-3 transition">
-          Next: Discount →
+          Next &rarr;
         </button>
       </div>
     </div>
 
-    <!-- ── Step 3: Discount Code + Submit ─────────────────── -->
-    <div id="step-3" class="step-panel hidden space-y-4">
+    <!-- Step 4: Discount Code + Submit -->
+    <div id="step-4" class="step-panel hidden space-y-4">
       <div>
         <label class="block text-sm font-semibold text-gray-700 mb-1.5">
           Discount Code <span class="font-normal text-gray-400">(optional)</span>
         </label>
         <input type="text" name="discount_code" value="{{ discount_code|default:'' }}"
-               placeholder="e.g. SCHOOL2025"
+               placeholder="Enter code"
                class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 uppercase tracking-wider focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
-        <p class="text-xs text-gray-400 mt-1">A 100% discount code gives you immediate free access.</p>
-      </div>
-
-      <div class="bg-primary-light rounded-xl p-4 text-sm text-green-800 space-y-1">
-        <p class="font-semibold">What happens next:</p>
-        <p>✓ With a 100% code → instant free access</p>
-        <p>✓ Otherwise → 14-day free trial starts now</p>
-        <p>✓ No card required until trial ends</p>
       </div>
 
       <div class="flex gap-3 pt-2">
-        <button type="button" onclick="goStep(2)"
+        <button type="button" onclick="goStep(3)"
                 class="flex-1 bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl px-5 py-3 hover:bg-gray-50 transition">
-          ← Back
+          &larr; Back
         </button>
         <button type="submit"
                 class="flex-1 bg-accent hover:bg-accent-dark text-white font-semibold rounded-xl px-5 py-3 transition">
-          Create Account 🎉
+          Create Account
         </button>
       </div>
     </div>
 
   </form>
 
-  <!-- Shown if server validation failed — jump straight to step 3 -->
   {% if errors %}
   <script>
-    document.addEventListener('DOMContentLoaded', () => goStep(3));
+    document.addEventListener('DOMContentLoaded', () => goStep(4));
   </script>
   {% endif %}
 
@@ -158,19 +213,14 @@
 
 {% block extra_js %}
 <script>
-  const TOTAL_STEPS = 3;
-
   function goStep(n) {
-    // Hide all panels
     document.querySelectorAll('.step-panel').forEach(el => el.classList.add('hidden'));
-    // Show target
     document.getElementById('step-' + n).classList.remove('hidden');
-    // Update dots
     document.querySelectorAll('.step-dot').forEach(dot => {
       const step = parseInt(dot.dataset.step);
       if (step < n) {
         dot.className = dot.className.replace('bg-gray-200 text-gray-400', 'bg-primary-light text-primary');
-        dot.innerHTML = '✓';
+        dot.innerHTML = '&#10003;';
       } else if (step === n) {
         dot.className = dot.className.replace('bg-gray-200 text-gray-400', 'bg-primary text-white');
         dot.className = dot.className.replace('bg-primary-light text-primary', 'bg-primary text-white');
@@ -181,7 +231,6 @@
         dot.innerHTML = step;
       }
     });
-    // Update lines
     document.querySelectorAll('.step-line').forEach(line => {
       const after = parseInt(line.dataset.after);
       line.classList.toggle('bg-primary', after < n);
@@ -194,18 +243,13 @@
     radio.closest('.package-card').classList.add('selected', 'border-primary');
   }
 
-  function validateStep2() {
+  function validateStep3() {
     const selected = document.querySelector('input[name="package_id"]:checked');
-    if (!selected) {
-      alert('Please select a package before continuing.');
-      return;
-    }
-    goStep(3);
+    if (!selected) { alert('Please select a package before continuing.'); return; }
+    goStep(4);
   }
 
-  // Step 1 validation before advancing
-  const step1Next = document.querySelector('#step-1 button[type=button]');
-  step1Next.addEventListener('click', function(e) {
+  document.getElementById('btn-step1').addEventListener('click', function() {
     const username = document.getElementById('f-username').value.trim();
     const email = document.getElementById('f-email').value.trim();
     const password = document.getElementById('f-password').value;
@@ -215,10 +259,7 @@
     if (!email.includes('@')) msgs.push('Valid email required.');
     if (password.length < 8) msgs.push('Password must be at least 8 characters.');
     if (password !== confirm) msgs.push('Passwords do not match.');
-    if (msgs.length) {
-      alert(msgs.join('\n'));
-      return;
-    }
+    if (msgs.length) { alert(msgs.join('\n')); return; }
     goStep(2);
   });
 </script>

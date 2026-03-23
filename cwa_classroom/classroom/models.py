@@ -132,6 +132,14 @@ class School(models.Model):
         default=30,
         help_text='Number of days after issue date before payment is due.',
     )
+    # Company / structured address
+    abn = models.CharField('ABN / Tax ID', max_length=50, blank=True)
+    street_address = models.CharField(max_length=255, blank=True)
+    city = models.CharField(max_length=100, blank=True)
+    state_region = models.CharField(max_length=100, blank=True)
+    postal_code = models.CharField(max_length=20, blank=True)
+    country = models.CharField(max_length=100, blank=True)
+
     # Suspension
     is_suspended = models.BooleanField(default=False)
     suspended_at = models.DateTimeField(null=True, blank=True)

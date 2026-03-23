@@ -48,6 +48,12 @@ class CustomUser(AbstractUser):
         blank=True,
     )
 
+    # Address / contact
+    phone = models.CharField(max_length=30, blank=True)
+    street_address = models.CharField(max_length=255, blank=True)
+    city = models.CharField(max_length=100, blank=True)
+    postal_code = models.CharField(max_length=20, blank=True)
+
     # Profile completion
     must_change_password = models.BooleanField(default=False)
     profile_completed = models.BooleanField(default=True)

@@ -79,13 +79,14 @@ def get_or_create_customer(user=None, school=None):
 # Checkout Sessions
 # ---------------------------------------------------------------------------
 
-def create_institute_checkout_session(school, plan, request, trial_period_days=None):
+def create_institute_checkout_session(school, plan, request, trial_period_days=None, stripe_coupon_id=None):
     """
     Create a Stripe Checkout Session for an institute subscription.
     Returns the Checkout Session object (use session.url to redirect).
 
     If trial_period_days is set, Stripe collects card details but does not
     charge until the trial ends. After the trial, billing starts automatically.
+    If stripe_coupon_id is set, applies the discount coupon to the subscription.
     """
     customer_id = get_or_create_customer(school=school)
 
@@ -101,7 +102,7 @@ def create_institute_checkout_session(school, plan, request, trial_period_days=N
     if trial_period_days:
         sub_data['trial_period_days'] = trial_period_days
 
-    session = stripe.checkout.Session.create(
+    session_kwargs = dict(
         customer=customer_id,
         mode='subscription',
         line_items=line_items,
@@ -120,17 +121,22 @@ def create_institute_checkout_session(school, plan, request, trial_period_days=N
         billing_address_collection='required',
         payment_method_types=['card'],
     )
+
+    if stripe_coupon_id:
+        session_kwargs['discounts'] = [{'coupon': stripe_coupon_id}]
+
+    session = stripe.checkout.Session.create(**session_kwargs)
     return session
 
 
-def create_individual_checkout_session(user, package, request):
+def create_individual_checkout_session(user, package, request, stripe_coupon_id=None):
     """
     Create a Stripe Checkout Session for an individual student subscription.
     Returns the Checkout Session object.
     """
     customer_id = get_or_create_customer(user=user)
 
-    session = stripe.checkout.Session.create(
+    session_kwargs = dict(
         customer=customer_id,
         mode='subscription',
         line_items=[{'price': package.stripe_price_id, 'quantity': 1}],
@@ -155,6 +161,51 @@ def create_individual_checkout_session(user, package, request):
         billing_address_collection='required',
         payment_method_types=['card'],
     )
+
+    if stripe_coupon_id:
+        session_kwargs['discounts'] = [{'coupon': stripe_coupon_id}]
+
+    session = stripe.checkout.Session.create(**session_kwargs)
+    return session
+
+
+def create_student_checkout_session(user, package, request, stripe_coupon_id=None):
+    """
+    Create a Stripe Checkout Session for a school student subscription.
+    School students are invited by HoI and need their own $19.90/mo subscription.
+    """
+    customer_id = get_or_create_customer(user=user)
+
+    session_kwargs = dict(
+        customer=customer_id,
+        mode='subscription',
+        line_items=[{'price': package.stripe_price_id, 'quantity': 1}],
+        success_url=request.build_absolute_uri(
+            reverse('subjects_hub')
+        ) + '?subscription=active',
+        cancel_url=request.build_absolute_uri(
+            reverse('complete_profile')
+        ),
+        metadata={
+            'user_id': user.id,
+            'package_id': package.id,
+            'type': 'school_student',
+        },
+        subscription_data={
+            'metadata': {
+                'user_id': user.id,
+                'package_id': package.id,
+                'type': 'school_student',
+            },
+        },
+        billing_address_collection='required',
+        payment_method_types=['card'],
+    )
+
+    if stripe_coupon_id:
+        session_kwargs['discounts'] = [{'coupon': stripe_coupon_id}]
+
+    session = stripe.checkout.Session.create(**session_kwargs)
     return session
 
 
