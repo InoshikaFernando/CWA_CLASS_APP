@@ -13,7 +13,7 @@ from accounts.models import CustomUser, Role, UserRole
 from accounts.views import _validate_username, _generate_username_suggestion
 from .models import (
     School, SchoolTeacher, AcademicYear, ClassRoom, ClassSession, Department,
-    SchoolStudent, Level, Subject,
+    DepartmentTeacher, SchoolStudent, Level, Subject,
 )
 from .views import RoleRequiredMixin
 from .email_utils import send_staff_welcome_email
