@@ -3,6 +3,7 @@ import logging
 from django.conf import settings
 from django.core.cache import cache
 from django.core.mail import send_mail
+from django.http import Http404
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.views import View
@@ -586,10 +587,13 @@ class ClassDetailView(RoleRequiredMixin, View):
         if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
             classroom = get_object_or_404(ClassRoom, id=class_id, school__admin=user)
         elif user.has_role(Role.HEAD_OF_DEPARTMENT):
-            classroom = get_object_or_404(
-                ClassRoom, id=class_id,
-                department__head=user,
-            )
+            # HoD can view classes in their department OR classes they teach
+            classroom = ClassRoom.objects.filter(
+                Q(department__head=user) | Q(teachers=user),
+                id=class_id,
+            ).distinct().first()
+            if not classroom:
+                raise Http404
         else:
             classroom = get_object_or_404(ClassRoom, id=class_id, teachers=request.user)
 
@@ -1586,22 +1590,68 @@ class HoDManageClassesView(RoleRequiredMixin, View):
             and not request.user.has_role(Role.INSTITUTE_OWNER)
         )
 
+        # Department filter from query param
+        selected_dept_id = request.GET.get('department')
+        try:
+            selected_dept_id = int(selected_dept_id) if selected_dept_id else None
+        except (ValueError, TypeError):
+            selected_dept_id = None
+
         if is_hod_only:
-            departments = Department.objects.filter(head=request.user, is_active=True)
-            dept_ids = list(departments.values_list('id', flat=True))
+            # HoD sees departments they head + departments of classes they teach
+            headed_depts = Department.objects.filter(head=request.user, is_active=True)
+            headed_dept_ids = set(headed_depts.values_list('id', flat=True))
+            teaching_dept_ids = set(
+                ClassRoom.objects.filter(
+                    teachers=request.user, is_active=True, department__isnull=False,
+                ).values_list('department_id', flat=True).distinct()
+            )
+            all_dept_ids = headed_dept_ids | teaching_dept_ids
+            departments = Department.objects.filter(id__in=all_dept_ids, is_active=True)
             school_ids = list(departments.values_list('school_id', flat=True).distinct())
-            classes = ClassRoom.objects.filter(
-                department_id__in=dept_ids, is_active=True
-            ).select_related('department').prefetch_related('teachers')
+
+            if selected_dept_id and selected_dept_id in all_dept_ids:
+                # Filter by specific department
+                if selected_dept_id in headed_dept_ids:
+                    # Headed department: show ALL classes
+                    classes = ClassRoom.objects.filter(
+                        department_id=selected_dept_id, is_active=True
+                    ).select_related('department').prefetch_related('teachers')
+                else:
+                    # Other department: show only classes they teach
+                    classes = ClassRoom.objects.filter(
+                        department_id=selected_dept_id, teachers=request.user, is_active=True
+                    ).select_related('department').prefetch_related('teachers')
+            else:
+                # No filter / invalid: show all visible classes
+                selected_dept_id = None
+                headed_classes = ClassRoom.objects.filter(
+                    department_id__in=headed_dept_ids, is_active=True
+                )
+                teaching_classes = ClassRoom.objects.filter(
+                    teachers=request.user, is_active=True
+                ).exclude(department_id__in=headed_dept_ids)
+                classes = (headed_classes | teaching_classes).distinct().select_related(
+                    'department'
+                ).prefetch_related('teachers')
+
+            dept_ids = list(all_dept_ids)
             teachers = CustomUser.objects.filter(
                 department_memberships__department_id__in=dept_ids,
             ).distinct()
         else:
             school_ids = list(School.objects.filter(admin=request.user).values_list('id', flat=True))
             departments = Department.objects.filter(school_id__in=school_ids, is_active=True)
-            classes = ClassRoom.objects.filter(
-                school_id__in=school_ids, is_active=True
-            ).select_related('department').prefetch_related('teachers')
+
+            if selected_dept_id:
+                classes = ClassRoom.objects.filter(
+                    department_id=selected_dept_id, school_id__in=school_ids, is_active=True
+                ).select_related('department').prefetch_related('teachers')
+            else:
+                classes = ClassRoom.objects.filter(
+                    school_id__in=school_ids, is_active=True
+                ).select_related('department').prefetch_related('teachers')
+
             teachers = CustomUser.objects.filter(
                 school_memberships__school_id__in=school_ids,
                 school_memberships__is_active=True,
@@ -1624,6 +1674,7 @@ class HoDManageClassesView(RoleRequiredMixin, View):
             'departments': departments,
             'unassigned_classes': unassigned_classes,
             'specialty_map': specialty_map,
+            'selected_dept_id': selected_dept_id,
         })
 
 
