@@ -314,6 +314,21 @@ class SchoolSubscription(models.Model):
         return math.ceil(total_seconds / 86400)
 
 
+class ModuleProduct(models.Model):
+    """Stores Stripe pricing for each module add-on (in database, not .env)."""
+    module = models.CharField(max_length=50, unique=True)
+    name = models.CharField(max_length=100)
+    stripe_price_id = models.CharField(max_length=200, blank=True)
+    price = models.DecimalField(max_digits=8, decimal_places=2, default=10.00)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['module']
+
+    def __str__(self):
+        return f'{self.name} (${self.price}/mo)'
+
+
 class ModuleSubscription(models.Model):
     """Per-school module add-on subscriptions ($10/mo each)."""
     MODULE_TEACHERS_ATTENDANCE = 'teachers_attendance'

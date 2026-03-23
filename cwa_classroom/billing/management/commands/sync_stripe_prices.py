@@ -15,7 +15,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
-from billing.models import InstitutePlan, Package
+from billing.models import InstitutePlan, ModuleProduct, Package
 
 
 class Command(BaseCommand):
@@ -172,11 +172,79 @@ class Command(BaseCommand):
                     f"no matching Stripe price found"
                 ))
 
+        # Sync ModuleProduct records (match by product metadata or name keyword)
+        module_products = ModuleProduct.objects.filter(is_active=True)
+        updated_modules = 0
+        skipped_modules = 0
+
+        # Build lookup by product metadata module_slug, or by name keyword
+        stripe_module_map = {}
+        for price in prices:
+            if not (price.recurring and price.recurring.interval == 'month'):
+                continue
+            product = price.product
+            product_name = product.name if hasattr(product, 'name') else ''
+            metadata = product.metadata if hasattr(product, 'metadata') else {}
+
+            # Match by metadata first
+            if metadata.get('module_slug'):
+                stripe_module_map[metadata['module_slug']] = {
+                    'price_id': price.id,
+                    'product_name': product_name,
+                }
+            # Fallback: match by name keyword
+            else:
+                name_lower = product_name.lower()
+                if 'teachers attendance' in name_lower:
+                    stripe_module_map.setdefault('teachers_attendance', {
+                        'price_id': price.id, 'product_name': product_name,
+                    })
+                elif 'students attendance' in name_lower:
+                    stripe_module_map.setdefault('students_attendance', {
+                        'price_id': price.id, 'product_name': product_name,
+                    })
+                elif 'progress report' in name_lower:
+                    stripe_module_map.setdefault('student_progress_reports', {
+                        'price_id': price.id, 'product_name': product_name,
+                    })
+
+        self.stdout.write(self.style.MIGRATE_HEADING('\n=== Module Products ==='))
+        for mp in module_products:
+            match = stripe_module_map.get(mp.module)
+            if match:
+                if mp.stripe_price_id == match['price_id']:
+                    self.stdout.write(
+                        f"  {mp.name} -- already synced: {match['price_id']}"
+                    )
+                    skipped_modules += 1
+                    continue
+
+                if dry_run:
+                    self.stdout.write(self.style.WARNING(
+                        f"  [DRY RUN] {mp.name} -- "
+                        f"would set stripe_price_id to {match['price_id']} "
+                        f"(from: {match['product_name']})"
+                    ))
+                else:
+                    mp.stripe_price_id = match['price_id']
+                    mp.save(update_fields=['stripe_price_id'])
+                    self.stdout.write(self.style.SUCCESS(
+                        f"  [OK] {mp.name} -- "
+                        f"set stripe_price_id={match['price_id']} "
+                        f"(from: {match['product_name']})"
+                    ))
+                updated_modules += 1
+            else:
+                self.stdout.write(self.style.WARNING(
+                    f"  [MISS] {mp.name} -- no matching Stripe price found"
+                ))
+
         # Summary
         self.stdout.write(self.style.MIGRATE_HEADING('\n=== Summary ==='))
         action = 'would update' if dry_run else 'updated'
         self.stdout.write(f"  Institute Plans: {action} {updated_plans}, skipped {skipped_plans}")
         self.stdout.write(f"  Packages: {action} {updated_packages}, skipped {skipped_packages}")
+        self.stdout.write(f"  Module Products: {action} {updated_modules}, skipped {skipped_modules}")
 
         if dry_run:
-            self.stdout.write(self.style.WARNING('\nDry run — no changes saved. Run without --dry-run to apply.'))
+            self.stdout.write(self.style.WARNING('\nDry run -- no changes saved. Run without --dry-run to apply.'))

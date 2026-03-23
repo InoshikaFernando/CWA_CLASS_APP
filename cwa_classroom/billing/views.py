@@ -516,8 +516,9 @@ class ModuleToggleView(LoginRequiredMixin, View):
             messages.error(request, 'Please subscribe to a plan first.')
             return redirect('institute_plan_select')
 
-        module_prices = getattr(settings, 'MODULE_STRIPE_PRICES', {})
-        stripe_price_id = module_prices.get(module_slug, '')
+        from billing.models import ModuleProduct
+        module_product = ModuleProduct.objects.filter(module=module_slug, is_active=True).first()
+        stripe_price_id = module_product.stripe_price_id if module_product else ''
 
         try:
             if action == 'add':
