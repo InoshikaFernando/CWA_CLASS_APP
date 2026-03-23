@@ -1348,6 +1348,22 @@ class HoDOverviewView(RoleRequiredMixin, View):
         present_count = teacher_attendance_qs.filter(status='present').count()
         total_students = classes.values_list('students', flat=True).distinct().count()
 
+        # For HoD dashboard stats: count across ALL classes they teach + head
+        if is_hod_only and my_teaching_classes.exists():
+            from django.db.models import Q
+            headed_dept_ids = set(Department.objects.filter(
+                head=request.user, is_active=True
+            ).values_list('id', flat=True))
+            all_my_classes = ClassRoom.objects.filter(
+                Q(department_id__in=headed_dept_ids) | Q(teachers=request.user),
+                is_active=True,
+            ).distinct()
+            my_classes_count = all_my_classes.count()
+            my_students_count = all_my_classes.values_list('students', flat=True).distinct().count()
+        else:
+            my_classes_count = len(classes) if hasattr(classes, '__len__') else classes.count()
+            my_students_count = total_students
+
         # Pending enrollment requests
         pending_enrollment_count = Enrollment.objects.filter(
             classroom__in=classes, status='pending'
@@ -1616,6 +1632,8 @@ class HoDOverviewView(RoleRequiredMixin, View):
             'classes': classes_list,
             'teachers': teachers,
             'total_students': total_students,
+            'my_classes_count': my_classes_count,
+            'my_students_count': my_students_count,
             'total_sessions': total_sessions,
             'present_count': present_count,
             'is_hod_only': is_hod_only,
