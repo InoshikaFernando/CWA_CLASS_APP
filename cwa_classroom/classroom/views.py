@@ -834,9 +834,9 @@ class AssignStudentsView(RoleRequiredMixin, View):
             school_student_ids = SchoolStudent.objects.filter(
                 school=classroom.school, is_active=True
             ).values_list('student_id', flat=True)
-            all_students = CustomUser.objects.filter(id__in=school_student_ids)
+            all_students = CustomUser.objects.filter(id__in=school_student_ids).order_by('first_name', 'last_name', 'username')
         else:
-            all_students = CustomUser.objects.filter(roles__name=Role.STUDENT)
+            all_students = CustomUser.objects.filter(roles__name=Role.STUDENT).order_by('first_name', 'last_name', 'username')
         active_enrolled_ids = ClassStudent.objects.filter(
             classroom=classroom, is_active=True,
         ).values_list('student_id', flat=True)
