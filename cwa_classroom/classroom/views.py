@@ -30,13 +30,15 @@ class RoleRequiredMixin(LoginRequiredMixin):
         if not request.user.is_authenticated:
             return self.handle_no_permission()
 
-        # Check required_roles list first, then fall back to singular required_role
-        roles_to_check = self.required_roles or ([self.required_role] if self.required_role else [])
-        if roles_to_check:
-            has_any = any(request.user.has_role(r) for r in roles_to_check)
-            if not has_any:
-                messages.error(request, "You don't have permission to access that page.")
-                return redirect('public_home')
+        # Superusers bypass role checks
+        if not request.user.is_superuser:
+            # Check required_roles list first, then fall back to singular required_role
+            roles_to_check = self.required_roles or ([self.required_role] if self.required_role else [])
+            if roles_to_check:
+                has_any = any(request.user.has_role(r) for r in roles_to_check)
+                if not has_any:
+                    messages.error(request, "You don't have permission to access that page.")
+                    return redirect('public_home')
 
         return super().dispatch(request, *args, **kwargs)
 
@@ -1023,13 +1025,28 @@ class BulkStudentRegistrationView(RoleRequiredMixin, View):
 
 
 class UploadQuestionsView(RoleRequiredMixin, View):
-    required_role = Role.TEACHER
+    required_roles = [
+        Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER,
+        Role.TEACHER, Role.JUNIOR_TEACHER,
+    ]
 
     def get(self, request):
-        return render(request, 'teacher/upload_questions.html', {
+        school_id, dept_id, classroom_ids = _get_question_scope(request.user)
+        ctx = {
             'topics': Topic.objects.filter(is_active=True).select_related('subject'),
             'levels': Level.objects.filter(level_number__lte=8),
-        })
+        }
+        # Teachers must pick a classroom for bulk upload too
+        if request.user.is_any_teacher and not (
+            request.user.has_role(Role.HEAD_OF_INSTITUTE)
+            or request.user.has_role(Role.INSTITUTE_OWNER)
+            or request.user.has_role(Role.HEAD_OF_DEPARTMENT)
+        ):
+            ctx['classrooms'] = ClassRoom.objects.filter(
+                id__in=classroom_ids, is_active=True,
+            ).order_by('name')
+        return render(request, 'teacher/upload_questions.html', ctx)
 
     def post(self, request):
         import json
@@ -1052,10 +1069,22 @@ class UploadQuestionsView(RoleRequiredMixin, View):
         except (MathsTopic.DoesNotExist, MathsLevel.DoesNotExist) as e:
             messages.error(request, str(e))
             return redirect('upload_questions')
-        # Tag uploaded questions with teacher's school
-        user_school_id = SchoolTeacher.objects.filter(
-            teacher=request.user, is_active=True
-        ).values_list('school_id', flat=True).first()
+
+        school_id, dept_id, classroom_ids = _get_question_scope(request.user)
+
+        # For teachers, get the selected classroom
+        selected_classroom_id = None
+        if request.user.is_any_teacher and not (
+            request.user.has_role(Role.HEAD_OF_INSTITUTE)
+            or request.user.has_role(Role.INSTITUTE_OWNER)
+            or request.user.has_role(Role.HEAD_OF_DEPARTMENT)
+        ):
+            selected_classroom_id = request.POST.get('classroom')
+            if not selected_classroom_id or int(selected_classroom_id) not in classroom_ids:
+                messages.error(request, 'Please select a valid classroom.')
+                return redirect('upload_questions')
+            selected_classroom_id = int(selected_classroom_id)
+
         inserted = updated = failed = 0
         errors = []
         for i, q_data in enumerate(data.get('questions', []), 1):
@@ -1069,7 +1098,8 @@ class UploadQuestionsView(RoleRequiredMixin, View):
                 with transaction.atomic():
                     existing = MathsQuestion.objects.filter(
                         question_text=question_text, topic=maths_topic, level=maths_level,
-                        school_id=user_school_id,
+                        school_id=school_id, department_id=dept_id,
+                        classroom_id=selected_classroom_id,
                     ).first()
                     fields = {'question_type': question_type, 'difficulty': q_data.get('difficulty', 1),
                               'points': q_data.get('points', 1), 'explanation': q_data.get('explanation', '')}
@@ -1079,7 +1109,8 @@ class UploadQuestionsView(RoleRequiredMixin, View):
                     else:
                         question = MathsQuestion.objects.create(
                             question_text=question_text, topic=maths_topic, level=maths_level,
-                            school_id=user_school_id, **fields
+                            school_id=school_id, department_id=dept_id,
+                            classroom_id=selected_classroom_id, **fields
                         )
                         inserted += 1
                     for a in answers_data:
@@ -1098,35 +1129,157 @@ class UploadQuestionsView(RoleRequiredMixin, View):
         })
 
 
+def _get_question_scope(user):
+    """Return (school_id, department_id, classroom_ids) based on user role.
+
+    Scope hierarchy:
+      superuser  → global (all None)
+      HoI        → school only
+      HoD        → school + department
+      Teacher    → school + department + classroom(s)
+    """
+    from .models import DepartmentTeacher
+
+    if user.is_superuser:
+        return None, None, []
+
+    school_teacher = SchoolTeacher.objects.filter(
+        teacher=user, is_active=True
+    ).select_related('school').first()
+    school_id = school_teacher.school_id if school_teacher else None
+
+    if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
+        return school_id, None, []
+
+    if user.has_role(Role.HEAD_OF_DEPARTMENT):
+        dept = Department.objects.filter(head=user, school_id=school_id).first()
+        return school_id, dept.id if dept else None, []
+
+    # Teacher (senior, regular, junior) — get their department + classrooms
+    dept_membership = DepartmentTeacher.objects.filter(
+        teacher=user, department__school_id=school_id
+    ).first()
+    dept_id = dept_membership.department_id if dept_membership else None
+    classroom_ids = list(
+        ClassTeacher.objects.filter(
+            teacher=user, classroom__school_id=school_id, classroom__is_active=True,
+        ).values_list('classroom_id', flat=True)
+    )
+    return school_id, dept_id, classroom_ids
+
+
+def _can_edit_question(user, question):
+    """Check if user can edit/delete a question based on scope."""
+    if user.is_superuser:
+        return True
+    school_id, dept_id, classroom_ids = _get_question_scope(user)
+    # Global questions — only superuser (handled above)
+    if question.school_id is None:
+        return False
+    # School-scoped — HoI/owner of that school
+    if question.department_id is None and question.classroom_id is None:
+        if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
+            return question.school_id == school_id
+        return False
+    # Department-scoped — HoD of that department
+    if question.classroom_id is None:
+        if user.has_role(Role.HEAD_OF_DEPARTMENT):
+            return question.department_id == dept_id
+        return False
+    # Class-scoped — teacher of that class
+    return question.classroom_id in classroom_ids
+
+
 class QuestionListView(LoginRequiredMixin, View):
     def get(self, request, level_number):
         from django.db.models import Q
         from maths.models import Question as MathsQuestion, Level as MathsLevel
         level = get_object_or_404(Level, level_number=level_number)
         maths_level = MathsLevel.objects.filter(level_number=level_number).first()
-        if maths_level:
-            # Show global questions + current school's private questions
-            user_school = SchoolTeacher.objects.filter(
-                teacher=request.user, is_active=True
-            ).values_list('school', flat=True).first()
-            q_filter = Q(level=maths_level) & (Q(school__isnull=True) | Q(school_id=user_school))
-            questions = MathsQuestion.objects.filter(q_filter).select_related('topic', 'school').prefetch_related('answers')
+        if not maths_level:
+            return render(request, 'teacher/question_list.html', {
+                'level': level, 'questions': MathsQuestion.objects.none(),
+            })
+
+        school_id, dept_id, classroom_ids = _get_question_scope(request.user)
+
+        # Global questions are always visible
+        q_filter = Q(level=maths_level) & Q(school__isnull=True)
+
+        if request.user.is_superuser:
+            # Superuser sees everything
+            q_filter = Q(level=maths_level)
+        elif request.user.has_role(Role.HEAD_OF_INSTITUTE) or request.user.has_role(Role.INSTITUTE_OWNER):
+            # HoI sees global + all questions in their school (any scope)
+            q_filter = Q(level=maths_level) & (
+                Q(school__isnull=True) | Q(school_id=school_id)
+            )
+        elif request.user.has_role(Role.HEAD_OF_DEPARTMENT):
+            # HoD sees global + school-scoped + their department's questions (not class-scoped)
+            q_filter = Q(level=maths_level) & (
+                Q(school__isnull=True)
+                | Q(school_id=school_id, department__isnull=True)
+                | Q(department_id=dept_id, classroom__isnull=True)
+            )
         else:
-            questions = MathsQuestion.objects.none()
-        return render(request, 'teacher/question_list.html', {'level': level, 'questions': questions})
+            # Teacher sees global + school-scoped + department-scoped + their class questions
+            q_filter = Q(level=maths_level) & (
+                Q(school__isnull=True)
+                | Q(school_id=school_id, department__isnull=True)
+                | Q(department_id=dept_id, classroom__isnull=True)
+                | Q(classroom_id__in=classroom_ids)
+            )
+
+        questions = (
+            MathsQuestion.objects.filter(q_filter)
+            .select_related('topic', 'school', 'department', 'classroom')
+            .prefetch_related('answers')
+        )
+        return render(request, 'teacher/question_list.html', {
+            'level': level, 'questions': questions, 'user_can_edit': _can_edit_question,
+        })
 
 
 class AddQuestionView(RoleRequiredMixin, View):
-    required_role = Role.TEACHER
+    required_roles = [
+        Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER,
+        Role.TEACHER, Role.JUNIOR_TEACHER,
+    ]
 
-    def get(self, request, level_number):
+    def _build_context(self, request, level):
         from maths.models import Question as MathsQuestion
-        level = get_object_or_404(Level, level_number=level_number)
-        return render(request, 'teacher/question_form.html', {
-            'level': level, 'topics': Topic.objects.filter(levels=level, is_active=True),
+        school_id, dept_id, classroom_ids = _get_question_scope(request.user)
+        ctx = {
+            'level': level,
+            'topics': Topic.objects.filter(levels=level, is_active=True),
             'question_types': MathsQuestion.QUESTION_TYPES,
             'difficulty_choices': MathsQuestion.DIFFICULTY_CHOICES,
-        })
+        }
+        # Teachers must pick a classroom
+        if request.user.is_any_teacher and not (
+            request.user.has_role(Role.HEAD_OF_INSTITUTE)
+            or request.user.has_role(Role.INSTITUTE_OWNER)
+            or request.user.has_role(Role.HEAD_OF_DEPARTMENT)
+        ):
+            ctx['classrooms'] = ClassRoom.objects.filter(
+                id__in=classroom_ids, is_active=True,
+            ).order_by('name')
+        # Scope label for the template
+        if request.user.is_superuser:
+            ctx['scope_label'] = 'Global'
+        elif request.user.has_role(Role.HEAD_OF_INSTITUTE) or request.user.has_role(Role.INSTITUTE_OWNER):
+            ctx['scope_label'] = 'School'
+        elif request.user.has_role(Role.HEAD_OF_DEPARTMENT):
+            dept = Department.objects.filter(id=dept_id).first()
+            ctx['scope_label'] = f'Department: {dept.name}' if dept else 'Department'
+        else:
+            ctx['scope_label'] = 'Class'
+        return ctx
+
+    def get(self, request, level_number):
+        level = get_object_or_404(Level, level_number=level_number)
+        return render(request, 'teacher/question_form.html', self._build_context(request, level))
 
     def post(self, request, level_number):
         from maths.models import (Question as MathsQuestion, Answer as MathsAnswer,
@@ -1135,14 +1288,29 @@ class AddQuestionView(RoleRequiredMixin, View):
         classroom_topic = get_object_or_404(Topic, id=request.POST.get('topic'))
         maths_level = get_object_or_404(MathsLevel, level_number=level_number)
         maths_topic = MathsTopic.objects.filter(name=classroom_topic.name).first()
-        # Tag question with teacher's school
-        user_school_id = SchoolTeacher.objects.filter(
-            teacher=request.user, is_active=True
-        ).values_list('school_id', flat=True).first()
+
+        school_id, dept_id, classroom_ids = _get_question_scope(request.user)
+
+        # For teachers, get the selected classroom
+        selected_classroom_id = None
+        if request.user.is_any_teacher and not (
+            request.user.has_role(Role.HEAD_OF_INSTITUTE)
+            or request.user.has_role(Role.INSTITUTE_OWNER)
+            or request.user.has_role(Role.HEAD_OF_DEPARTMENT)
+        ):
+            selected_classroom_id = request.POST.get('classroom')
+            if not selected_classroom_id or int(selected_classroom_id) not in classroom_ids:
+                messages.error(request, 'Please select a valid classroom.')
+                return render(request, 'teacher/question_form.html',
+                              self._build_context(request, level))
+            selected_classroom_id = int(selected_classroom_id)
+
         with transaction.atomic():
             question = MathsQuestion.objects.create(
                 topic=maths_topic, level=maths_level,
-                school_id=user_school_id,
+                school_id=school_id,
+                department_id=dept_id,
+                classroom_id=selected_classroom_id,
                 question_text=request.POST.get('question_text', '').strip(),
                 question_type=request.POST.get('question_type', MathsQuestion.MULTIPLE_CHOICE),
                 difficulty=int(request.POST.get('difficulty', 1)),
@@ -1163,26 +1331,44 @@ class AddQuestionView(RoleRequiredMixin, View):
 
 
 class EditQuestionView(RoleRequiredMixin, View):
-    required_role = Role.TEACHER
+    required_roles = [
+        Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER,
+        Role.TEACHER, Role.JUNIOR_TEACHER,
+    ]
 
     def get(self, request, question_id):
         from maths.models import Question as MathsQuestion
         question = get_object_or_404(MathsQuestion, id=question_id)
+        if not _can_edit_question(request.user, question):
+            messages.error(request, 'You do not have permission to edit this question.')
+            return redirect('question_list', level_number=question.level.level_number)
+        answers = list(question.answers.order_by('order', 'id'))
+        # Pad to 4 answers for the template
+        answer_data = []
+        for i in range(4):
+            if i < len(answers):
+                answer_data.append({
+                    'text': answers[i].answer_text,
+                    'is_correct': answers[i].is_correct,
+                })
+            else:
+                answer_data.append({'text': '', 'is_correct': False})
         return render(request, 'teacher/question_form.html', {
             'question': question, 'level': question.level,
             'topics': Topic.objects.filter(is_active=True).order_by('name'),
             'question_types': MathsQuestion.QUESTION_TYPES,
             'difficulty_choices': MathsQuestion.DIFFICULTY_CHOICES,
             'is_global': question.school is None,
+            'answer_data': answer_data,
         })
 
     def post(self, request, question_id):
         from maths.models import (Question as MathsQuestion, Answer as MathsAnswer,
                                   Topic as MathsTopic)
         question = get_object_or_404(MathsQuestion, id=question_id)
-        # Only allow editing school-owned questions, not global ones
-        if question.school is None:
-            messages.error(request, 'Global questions cannot be edited.')
+        if not _can_edit_question(request.user, question):
+            messages.error(request, 'You do not have permission to edit this question.')
             return redirect('question_list', level_number=question.level.level_number)
         classroom_topic = get_object_or_404(Topic, id=request.POST.get('topic'))
         question.topic = MathsTopic.objects.filter(name=classroom_topic.name).first()
@@ -1208,14 +1394,17 @@ class EditQuestionView(RoleRequiredMixin, View):
 
 
 class DeleteQuestionView(RoleRequiredMixin, View):
-    required_role = Role.TEACHER
+    required_roles = [
+        Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER,
+        Role.TEACHER, Role.JUNIOR_TEACHER,
+    ]
 
     def post(self, request, question_id):
         from maths.models import Question as MathsQuestion
         question = get_object_or_404(MathsQuestion, id=question_id)
-        # Only allow deleting school-owned questions, not global ones
-        if question.school is None:
-            messages.error(request, 'Global questions cannot be deleted.')
+        if not _can_edit_question(request.user, question):
+            messages.error(request, 'You do not have permission to delete this question.')
             return redirect('question_list', level_number=question.level.level_number)
         level_number = question.level.level_number
         question.delete()

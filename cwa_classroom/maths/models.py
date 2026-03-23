@@ -103,6 +103,16 @@ class Question(models.Model):
         null=True, blank=True, related_name='questions',
         help_text='Null = global/shared question. Set = private to this school only.',
     )
+    department = models.ForeignKey(
+        'classroom.Department', on_delete=models.CASCADE,
+        null=True, blank=True, related_name='questions',
+        help_text='Null = not department-scoped. Set = visible to this department only.',
+    )
+    classroom = models.ForeignKey(
+        'classroom.ClassRoom', on_delete=models.CASCADE,
+        null=True, blank=True, related_name='maths_questions',
+        help_text='Null = not class-scoped. Set = visible to this class only.',
+    )
     question_text = models.TextField()
     question_type = models.CharField(max_length=20, choices=QUESTION_TYPES, default='multiple_choice')
     difficulty = models.PositiveIntegerField(default=1, help_text="1=Easy, 2=Medium, 3=Hard")
