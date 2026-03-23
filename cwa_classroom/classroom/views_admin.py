@@ -208,10 +208,20 @@ class ManageTeachersRedirectView(RoleRequiredMixin, View):
 
 class ManageStudentsRedirectView(RoleRequiredMixin, View):
     """Shortcut: redirects to the first school's student management page."""
-    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+                      Role.HEAD_OF_DEPARTMENT, Role.TEACHER]
 
     def get(self, request):
         school = School.objects.filter(admin=request.user).first()
+        if not school:
+            # HoD/teacher: find school via department or teaching assignment
+            dept = Department.objects.filter(head=request.user, is_active=True).first()
+            if dept:
+                school = dept.school
+            else:
+                st = SchoolTeacher.objects.filter(teacher=request.user, is_active=True).first()
+                if st:
+                    school = st.school
         if school:
             return redirect('admin_school_students', school_id=school.id)
         messages.info(request, 'Create a school first before managing students.')
