@@ -122,6 +122,31 @@ class HandleCheckoutCompletedInstituteTest(WebhookHandlerTestBase):
         self.school_sub.refresh_from_db()
         self.assertEqual(self.school_sub.plan, gold_plan)
 
+    def test_auto_creates_subscription_for_existing_school(self):
+        """Schools created before billing system should get a subscription auto-created."""
+        # Delete the subscription to simulate a pre-billing school
+        self.school_sub.delete()
+        self.assertFalse(SchoolSubscription.objects.filter(school=self.school).exists())
+
+        event_data = {
+            'object': {
+                'metadata': {
+                    'type': 'institute',
+                    'school_id': str(self.school.id),
+                    'plan_id': str(self.plan.id),
+                },
+                'subscription': 'sub_auto_create',
+            }
+        }
+
+        handle_checkout_completed(event_data)
+
+        # Subscription should now exist and be active
+        sub = SchoolSubscription.objects.get(school=self.school)
+        self.assertEqual(sub.status, SchoolSubscription.STATUS_ACTIVE)
+        self.assertEqual(sub.stripe_subscription_id, 'sub_auto_create')
+        self.assertEqual(sub.plan, self.plan)
+
     def test_missing_school_id_does_nothing(self):
         """Should silently return if school_id is missing."""
         event_data = {

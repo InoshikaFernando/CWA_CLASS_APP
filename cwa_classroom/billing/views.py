@@ -506,7 +506,7 @@ class ModuleToggleView(LoginRequiredMixin, View):
     """Toggle a module add-on for an institute subscription."""
 
     def post(self, request):
-        module_slug = request.POST.get('module', '')
+        module_slug = request.POST.get('module_slug', '') or request.POST.get('module', '')
         action = request.POST.get('action', '')  # 'add' or 'remove'
 
         if module_slug not in dict(ModuleSubscription.MODULE_CHOICES):
