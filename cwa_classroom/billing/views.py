@@ -136,6 +136,7 @@ class StripeWebhookView(View):
 
     EVENT_HANDLERS = {
         'checkout.session.completed': 'billing.webhook_handlers.handle_checkout_completed',
+        'customer.subscription.created': 'billing.webhook_handlers.handle_subscription_updated',
         'customer.subscription.updated': 'billing.webhook_handlers.handle_subscription_updated',
         'customer.subscription.deleted': 'billing.webhook_handlers.handle_subscription_deleted',
         'invoice.payment_succeeded': 'billing.webhook_handlers.handle_payment_succeeded',
