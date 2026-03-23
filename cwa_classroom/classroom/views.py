@@ -1853,15 +1853,16 @@ class HoDAttendanceReportView(RoleRequiredMixin, ModuleRequiredMixin, View):
         )
 
         if is_hod_only:
+            from django.db.models import Q
             dept_ids = list(
                 Department.objects.filter(head=request.user, is_active=True).values_list('id', flat=True)
             )
-            teacher_att_qs = TeacherAttendance.objects.filter(
-                session__classroom__department_id__in=dept_ids,
+            teaching_class_ids = list(
+                ClassRoom.objects.filter(teachers=request.user, is_active=True).values_list('id', flat=True)
             )
-            student_att_qs = StudentAttendance.objects.filter(
-                session__classroom__department_id__in=dept_ids,
-            )
+            class_filter = Q(session__classroom__department_id__in=dept_ids) | Q(session__classroom_id__in=teaching_class_ids)
+            teacher_att_qs = TeacherAttendance.objects.filter(class_filter)
+            student_att_qs = StudentAttendance.objects.filter(class_filter)
         else:
             my_school_ids = list(School.objects.filter(admin=request.user).values_list('id', flat=True))
             teacher_att_qs = TeacherAttendance.objects.filter(
