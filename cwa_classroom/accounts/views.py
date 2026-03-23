@@ -1,7 +1,7 @@
 import logging
 import re
 
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
 from django.contrib.auth import login, update_session_auth_hash
@@ -15,6 +15,19 @@ from django.utils.text import slugify
 from .models import CustomUser, Role, UserRole
 
 logger = logging.getLogger(__name__)
+
+
+def _check_registration_rate_limit(request):
+    """Returns an HttpResponse(429) if rate limited, else None."""
+    from django.conf import settings as django_settings
+    if getattr(django_settings, 'TESTING', False):
+        return None
+    from billing.rate_limiting import check_rate_limit
+    from audit.services import get_client_ip
+    ip = get_client_ip(request) or 'unknown'
+    if not check_rate_limit(f'register:{ip}', max_attempts=10, window_seconds=3600):
+        return HttpResponse('Too many registration attempts. Please try again later.', status=429)
+    return None
 
 
 class AuditLoginView(LoginView):
@@ -65,6 +78,15 @@ class AuditLoginView(LoginView):
 
 class DiagnosticPasswordResetView(PasswordResetView):
     """Override to add logging for debugging email delivery issues."""
+
+    def post(self, request, *args, **kwargs):
+        from billing.rate_limiting import check_rate_limit
+        from audit.services import get_client_ip
+        ip = get_client_ip(request) or 'unknown'
+        if not check_rate_limit(f'password_reset:{ip}', max_attempts=5, window_seconds=900):
+            messages.error(request, 'Too many password reset attempts. Please try again in 15 minutes.')
+            return render(request, self.template_name, self.get_context_data())
+        return super().post(request, *args, **kwargs)
 
     def form_valid(self, form):
         email = form.cleaned_data.get('email', '')
@@ -118,6 +140,10 @@ class TeacherCenterRegisterView(View):
         })
 
     def post(self, request):
+        rate_limited = _check_registration_rate_limit(request)
+        if rate_limited:
+            return rate_limited
+
         username = request.POST.get('username', '').strip()
         email = request.POST.get('email', '').strip()
         password = request.POST.get('password', '')
@@ -226,6 +252,7 @@ class TeacherCenterRegisterView(View):
                     status=status,
                     trial_end=trial_end,
                     has_used_trial=has_used_trial,
+                    invoice_year_start=timezone.now().date(),
                 )
 
                 # Increment discount code usage
@@ -277,6 +304,10 @@ class SchoolStudentRegisterView(View):
         return render(request, 'accounts/register_school_student.html')
 
     def post(self, request):
+        rate_limited = _check_registration_rate_limit(request)
+        if rate_limited:
+            return rate_limited
+
         first_name = request.POST.get('first_name', '').strip()
         last_name = request.POST.get('last_name', '').strip()
         email = request.POST.get('email', '').strip()
@@ -354,6 +385,10 @@ class IndividualStudentRegisterView(View):
         return render(request, 'accounts/register_individual_student.html', {'packages': packages})
 
     def post(self, request):
+        rate_limited = _check_registration_rate_limit(request)
+        if rate_limited:
+            return rate_limited
+
         from billing.models import Package, DiscountCode, Subscription
         from django.utils import timezone
         from datetime import timedelta
@@ -1082,6 +1117,12 @@ def _validate_registration(username, email, password, confirm):
 class CheckUsernameView(View):
     """AJAX endpoint: check if a username is available."""
     def get(self, request):
+        from billing.rate_limiting import check_rate_limit
+        from audit.services import get_client_ip
+        ip = get_client_ip(request) or 'unknown'
+        if not check_rate_limit(f'check_username:{ip}', max_attempts=30, window_seconds=60):
+            return JsonResponse({'available': False, 'errors': ['Too many requests.']}, status=429)
+
         username = request.GET.get('username', '').strip()
         exclude_id = request.GET.get('exclude_id')
         try:

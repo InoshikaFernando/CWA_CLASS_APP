@@ -6,6 +6,7 @@ from django.utils import timezone
 
 
 class Package(models.Model):
+    """Individual student subscription package. billing_type is reserved for future one-time purchases."""
     BILLING_RECURRING = 'recurring'
     BILLING_ONE_TIME = 'one_time'
 
@@ -52,6 +53,10 @@ class DiscountCode(models.Model):
         help_text='Leave blank for unlimited uses.',
     )
     uses = models.PositiveIntegerField(default=0)
+    stripe_coupon_id = models.CharField(
+        max_length=100, blank=True,
+        help_text='Stripe Coupon ID. Applied to checkout when discount is not 100%.',
+    )
     is_active = models.BooleanField(default=True)
     expires_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -77,6 +82,7 @@ class DiscountCode(models.Model):
 
 
 class Payment(models.Model):
+    """LEGACY: Used by the deprecated PaymentIntent checkout flow. Retained for historical records."""
     STATUS_PENDING = 'pending'
     STATUS_SUCCEEDED = 'succeeded'
     STATUS_FAILED = 'failed'
@@ -280,6 +286,7 @@ class SchoolSubscription(models.Model):
         default=False,
         help_text='Set to True after the first trial. Prevents repeat trials on upgrade/downgrade.',
     )
+    cancel_at_period_end = models.BooleanField(default=False)
     invoices_used_this_year = models.PositiveIntegerField(default=0)
     invoice_year_start = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

@@ -203,7 +203,7 @@ class TrialExpiryMiddleware:
     def _is_trial_expired(sub):
         if sub.status == sub.STATUS_ACTIVE:
             return False
-        if sub.status == sub.STATUS_EXPIRED:
+        if sub.status in (sub.STATUS_EXPIRED, sub.STATUS_CANCELLED):
             return True
         if sub.status == sub.STATUS_TRIALING and sub.trial_end:
             return timezone.now() > sub.trial_end
@@ -214,7 +214,11 @@ class TrialExpiryMiddleware:
         from billing.models import SchoolSubscription
         if sub.status == SchoolSubscription.STATUS_ACTIVE:
             return False
-        if sub.status == SchoolSubscription.STATUS_EXPIRED:
+        if sub.status in (
+            SchoolSubscription.STATUS_EXPIRED,
+            SchoolSubscription.STATUS_CANCELLED,
+            SchoolSubscription.STATUS_SUSPENDED,
+        ):
             return True
         if sub.status == SchoolSubscription.STATUS_TRIALING and sub.trial_end:
             return timezone.now() > sub.trial_end

@@ -18,6 +18,8 @@ stripe.api_key = settings.STRIPE_SECRET_KEY
 
 
 class CheckoutView(LoginRequiredMixin, View):
+    """DEPRECATED: Legacy PaymentIntent checkout. Use Stripe Checkout Sessions instead."""
+
     def get(self, request, package_id):
         package = get_object_or_404(Package, id=package_id, is_active=True)
         return render(request, 'billing/checkout.html', {
@@ -27,7 +29,7 @@ class CheckoutView(LoginRequiredMixin, View):
 
 
 class CreatePaymentIntentView(LoginRequiredMixin, View):
-    """Create a Stripe PaymentIntent and return the client_secret."""
+    """DEPRECATED: Create a Stripe PaymentIntent. Use Stripe Checkout Sessions instead."""
 
     def post(self, request, package_id):
         package = get_object_or_404(Package, id=package_id, is_active=True)
@@ -68,7 +70,7 @@ class CreatePaymentIntentView(LoginRequiredMixin, View):
 
 
 class ConfirmPaymentView(LoginRequiredMixin, View):
-    """Called after successful Stripe payment to activate the subscription."""
+    """DEPRECATED: Confirm a PaymentIntent. Use Stripe Checkout Sessions + webhooks instead."""
 
     def post(self, request):
         data = json.loads(request.body)
@@ -143,6 +145,14 @@ class StripeWebhookView(View):
     def post(self, request):
         import logging
         logger = logging.getLogger(__name__)
+
+        # Rate limit webhook requests
+        from billing.rate_limiting import check_rate_limit
+        from audit.services import get_client_ip
+        ip = get_client_ip(request) or 'unknown'
+        if not check_rate_limit(f'webhook:{ip}', max_attempts=100, window_seconds=60):
+            return HttpResponse(status=429)
+
         payload = request.body
         sig_header = request.META.get('HTTP_STRIPE_SIGNATURE', '')
 
@@ -371,7 +381,12 @@ class InstituteCheckoutView(LoginRequiredMixin, View):
 
         try:
             from billing.stripe_service import create_institute_checkout_session
-            session = create_institute_checkout_session(school, plan, request)
+            sub = get_school_subscription(school)
+            # Only offer trial if the school hasn't used one before
+            trial_days = plan.trial_days if (not sub or not sub.has_used_trial) else None
+            session = create_institute_checkout_session(
+                school, plan, request, trial_period_days=trial_days,
+            )
             return redirect(session.url)
         except stripe.error.StripeError as e:
             messages.error(request, f'Payment error: {e.user_message or str(e)}')
@@ -478,3 +493,74 @@ class StripeBillingPortalView(LoginRequiredMixin, View):
         except stripe.error.StripeError as e:
             messages.error(request, f'Could not open billing portal: {e}')
             return redirect('institute_subscription_dashboard')
+
+
+class ModuleToggleView(LoginRequiredMixin, View):
+    """Toggle a module add-on for an institute subscription."""
+
+    def post(self, request):
+        module_slug = request.POST.get('module', '')
+        action = request.POST.get('action', '')  # 'add' or 'remove'
+
+        if module_slug not in dict(ModuleSubscription.MODULE_CHOICES):
+            messages.error(request, 'Invalid module.')
+            return redirect('institute_subscription_dashboard')
+
+        school = get_school_for_user(request.user)
+        if not school:
+            messages.error(request, 'No school found for your account.')
+            return redirect('subjects_hub')
+
+        sub = get_school_subscription(school)
+        if not sub or not sub.stripe_subscription_id:
+            messages.error(request, 'Please subscribe to a plan first.')
+            return redirect('institute_plan_select')
+
+        module_prices = getattr(settings, 'MODULE_STRIPE_PRICES', {})
+        stripe_price_id = module_prices.get(module_slug, '')
+
+        try:
+            if action == 'add':
+                if not stripe_price_id:
+                    messages.error(request, 'Module pricing not configured. Please contact support.')
+                    return redirect('institute_subscription_dashboard')
+                from billing.stripe_service import add_module_to_subscription
+                add_module_to_subscription(sub, module_slug, stripe_price_id)
+                module_name = dict(ModuleSubscription.MODULE_CHOICES).get(module_slug, module_slug)
+                messages.success(request, f'{module_name} module activated.')
+            elif action == 'remove':
+                from billing.stripe_service import remove_module_from_subscription
+                removed = remove_module_from_subscription(sub, module_slug)
+                if removed:
+                    module_name = dict(ModuleSubscription.MODULE_CHOICES).get(module_slug, module_slug)
+                    messages.success(request, f'{module_name} module deactivated.')
+                else:
+                    messages.info(request, 'Module was not active.')
+            else:
+                messages.error(request, 'Invalid action.')
+        except (stripe.error.StripeError, ValueError) as e:
+            messages.error(request, f'Could not update module: {e}')
+
+        return redirect('institute_subscription_dashboard')
+
+
+class BillingHistoryView(LoginRequiredMixin, View):
+    """Show billing history — links to Stripe Billing Portal for full invoice details."""
+
+    def get(self, request):
+        school = get_school_for_user(request.user)
+        sub = get_school_subscription(school) if school else None
+
+        # Also check individual subscription
+        individual_sub = None
+        if not sub and hasattr(request.user, 'subscription'):
+            try:
+                individual_sub = request.user.subscription
+            except Exception:
+                pass
+
+        return render(request, 'billing/billing_history.html', {
+            'school': school,
+            'subscription': sub,
+            'individual_sub': individual_sub,
+        })

@@ -20,7 +20,7 @@ def user_role(request):
     }
 
     # Add school subscription info for institute users
-    from billing.entitlements import get_school_for_user, get_school_subscription
+    from billing.entitlements import get_school_for_user, get_school_subscription, get_all_schools_for_user
     school = get_school_for_user(request.user)
     if school:
         sub = get_school_subscription(school)
@@ -28,5 +28,11 @@ def user_role(request):
             ctx['school_subscription'] = sub
             ctx['school_plan'] = sub.plan
             ctx['school_trial_days_remaining'] = sub.trial_days_remaining
+
+    # Multi-school switcher: list all schools the user belongs to
+    all_schools = get_all_schools_for_user(request.user)
+    if all_schools.count() > 1:
+        ctx['user_schools'] = all_schools
+        ctx['current_school'] = school
 
     return ctx

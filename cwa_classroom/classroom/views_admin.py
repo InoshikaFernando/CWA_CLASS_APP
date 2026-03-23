@@ -1070,6 +1070,14 @@ class SuspendSchoolView(RoleRequiredMixin, View):
             'is_suspended', 'suspended_at', 'suspended_reason', 'suspended_by',
         ])
 
+        # Set subscription status to suspended
+        from billing.entitlements import get_school_subscription
+        from billing.models import SchoolSubscription
+        sub = get_school_subscription(school)
+        if sub:
+            sub.status = SchoolSubscription.STATUS_SUSPENDED
+            sub.save(update_fields=['status', 'updated_at'])
+
         # Force logout all users in this school
         from .models import SchoolTeacher as ST, SchoolStudent as SS
         user_ids = set()
@@ -1105,6 +1113,14 @@ class UnsuspendSchoolView(RoleRequiredMixin, View):
 
         school.is_suspended = False
         school.save(update_fields=['is_suspended'])
+
+        # Restore subscription to active
+        from billing.entitlements import get_school_subscription
+        from billing.models import SchoolSubscription
+        sub = get_school_subscription(school)
+        if sub and sub.status == SchoolSubscription.STATUS_SUSPENDED:
+            sub.status = SchoolSubscription.STATUS_ACTIVE
+            sub.save(update_fields=['status', 'updated_at'])
 
         messages.success(request, f'School "{school.name}" has been unsuspended.')
         return redirect(request.META.get('HTTP_REFERER', 'subjects_hub'))
