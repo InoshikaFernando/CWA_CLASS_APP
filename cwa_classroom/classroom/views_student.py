@@ -1,3 +1,4 @@
+from django.http import Http404
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -386,9 +387,21 @@ class EnrollGlobalClassView(RoleRequiredMixin, View):
     required_roles = [Role.STUDENT, Role.INDIVIDUAL_STUDENT]
 
     def post(self, request, class_id):
-        classroom = get_object_or_404(
-            ClassRoom, id=class_id, school__isnull=True, is_active=True,
-        )
+        # Try global class first, then school class if student belongs to that school
+        classroom = ClassRoom.objects.filter(
+            id=class_id, school__isnull=True, is_active=True,
+        ).first()
+        if not classroom:
+            # School student enrolling in their school's class
+            from .models import SchoolStudent
+            student_school_ids = list(SchoolStudent.objects.filter(
+                student=request.user, is_active=True,
+            ).values_list('school_id', flat=True))
+            classroom = ClassRoom.objects.filter(
+                id=class_id, school_id__in=student_school_ids, is_active=True,
+            ).first()
+        if not classroom:
+            raise Http404
 
         # Already enrolled?
         if ClassStudent.objects.filter(
