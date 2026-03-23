@@ -51,21 +51,15 @@ class DepartmentLevelTestBase(TestCase):
         cls.dept_a_maths = Department.objects.create(
             school=cls.school_a, name='Mathematics', slug='maths',
         )
-        DepartmentSubject.objects.create(
-            department=cls.dept_a_maths, subject=cls.maths,
-        )
+        DepartmentSubject.objects.create(department=cls.dept_a_maths, subject=cls.maths)
         cls.dept_b_maths = Department.objects.create(
             school=cls.school_b, name='Mathematics', slug='maths',
         )
-        DepartmentSubject.objects.create(
-            department=cls.dept_b_maths, subject=cls.maths,
-        )
+        DepartmentSubject.objects.create(department=cls.dept_b_maths, subject=cls.maths)
         cls.dept_a_coding = Department.objects.create(
             school=cls.school_a, name='Coding', slug='coding',
         )
-        DepartmentSubject.objects.create(
-            department=cls.dept_a_coding, subject=cls.coding,
-        )
+        DepartmentSubject.objects.create(department=cls.dept_a_coding, subject=cls.coding)
 
 
 class DepartmentLevelModelTest(DepartmentLevelTestBase):

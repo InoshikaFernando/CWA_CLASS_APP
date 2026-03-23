@@ -1,0 +1,9 @@
+Hi {{ name }},
+
+Your free trial for {{ school.name }} expires in {{ days_remaining }} day{{ days_remaining|pluralize }}.
+
+To continue using all features without interruption, please subscribe to a plan before your trial ends.
+
+Log in and visit the Subscription page to choose a plan.
+
+— The {{ site_name }} Team

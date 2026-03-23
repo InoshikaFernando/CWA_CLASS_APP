@@ -5,6 +5,8 @@ from django.contrib import messages
 from django.utils import timezone
 
 from accounts.models import Role
+from billing.mixins import ModuleRequiredMixin
+from billing.models import ModuleSubscription
 from .views import RoleRequiredMixin
 from .notifications import create_notification
 from .models import (
@@ -238,8 +240,9 @@ class StudentClassDetailView(LoginRequiredMixin, View):
         })
 
 
-class StudentAttendanceHistoryView(LoginRequiredMixin, View):
+class StudentAttendanceHistoryView(LoginRequiredMixin, ModuleRequiredMixin, View):
     """Show the student's own attendance records across all enrolled classes."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
 
     def get(self, request):
         # Get all classes the student belongs to
@@ -320,8 +323,9 @@ class StudentAttendanceHistoryView(LoginRequiredMixin, View):
         })
 
 
-class StudentSelfMarkAttendanceView(LoginRequiredMixin, View):
+class StudentSelfMarkAttendanceView(LoginRequiredMixin, ModuleRequiredMixin, View):
     """Allow a student to self-report attendance for a session (requires teacher approval)."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
 
     def post(self, request, session_id):
         session = get_object_or_404(

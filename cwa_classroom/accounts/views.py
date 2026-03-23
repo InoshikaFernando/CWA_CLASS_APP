@@ -1,13 +1,13 @@
 import logging
 import re
 
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
 from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
-from django.contrib.auth.views import PasswordResetView
+from django.contrib.auth.views import LoginView, PasswordResetView
 from django.db import transaction
 
 from django.utils.text import slugify
@@ -17,8 +17,76 @@ from .models import CustomUser, Role, UserRole
 logger = logging.getLogger(__name__)
 
 
+def _check_registration_rate_limit(request):
+    """Returns an HttpResponse(429) if rate limited, else None."""
+    from django.conf import settings as django_settings
+    if getattr(django_settings, 'TESTING', False):
+        return None
+    from billing.rate_limiting import check_rate_limit
+    from audit.services import get_client_ip
+    ip = get_client_ip(request) or 'unknown'
+    if not check_rate_limit(f'register:{ip}', max_attempts=10, window_seconds=3600):
+        return HttpResponse('Too many registration attempts. Please try again later.', status=429)
+    return None
+
+
+class AuditLoginView(LoginView):
+    """Login view with audit logging and rate limiting."""
+
+    def post(self, request, *args, **kwargs):
+        from billing.rate_limiting import check_rate_limit
+        from audit.services import get_client_ip
+        ip = get_client_ip(request) or 'unknown'
+        if not check_rate_limit(f'login:{ip}', max_attempts=5, window_seconds=900):
+            from audit.services import log_event
+            log_event(
+                category='auth', action='login_rate_limited',
+                result='blocked', detail={'ip': ip}, request=request,
+            )
+            messages.error(request, 'Too many login attempts. Please try again in 15 minutes.')
+            return render(request, self.template_name, self.get_context_data())
+        return super().post(request, *args, **kwargs)
+
+    def form_valid(self, form):
+        from audit.services import log_event
+        from billing.rate_limiting import reset_rate_limit
+        from audit.services import get_client_ip
+        response = super().form_valid(form)
+        log_event(
+            user=self.request.user,
+            category='auth',
+            action='login_success',
+            request=self.request,
+        )
+        # Clear rate limit on successful login
+        ip = get_client_ip(self.request) or 'unknown'
+        reset_rate_limit(f'login:{ip}')
+        return response
+
+    def form_invalid(self, form):
+        from audit.services import log_event
+        username = form.cleaned_data.get('username', '')
+        log_event(
+            category='auth',
+            action='login_failed',
+            result='blocked',
+            detail={'username': username},
+            request=self.request,
+        )
+        return super().form_invalid(form)
+
+
 class DiagnosticPasswordResetView(PasswordResetView):
     """Override to add logging for debugging email delivery issues."""
+
+    def post(self, request, *args, **kwargs):
+        from billing.rate_limiting import check_rate_limit
+        from audit.services import get_client_ip
+        ip = get_client_ip(request) or 'unknown'
+        if not check_rate_limit(f'password_reset:{ip}', max_attempts=5, window_seconds=900):
+            messages.error(request, 'Too many password reset attempts. Please try again in 15 minutes.')
+            return render(request, self.template_name, self.get_context_data())
+        return super().post(request, *args, **kwargs)
 
     def form_valid(self, form):
         email = form.cleaned_data.get('email', '')
@@ -60,28 +128,75 @@ class TeacherSignupView(View):
 class TeacherCenterRegisterView(View):
     """Register as Head of Institute — creates a user, school, and assigns HoI role."""
 
+    def _get_plans(self):
+        from billing.models import InstitutePlan
+        return InstitutePlan.objects.filter(is_active=True).order_by('order', 'price')
+
     def get(self, request):
         if request.user.is_authenticated:
             return redirect('subjects_hub')
-        return render(request, 'accounts/register_teacher.html', {'center_mode': True})
+        return render(request, 'accounts/register_teacher.html', {
+            'center_mode': True, 'plans': self._get_plans(),
+        })
 
     def post(self, request):
+        rate_limited = _check_registration_rate_limit(request)
+        if rate_limited:
+            return rate_limited
+
         username = request.POST.get('username', '').strip()
         email = request.POST.get('email', '').strip()
         password = request.POST.get('password', '')
         confirm = request.POST.get('confirm_password', '')
         center_name = request.POST.get('center_name', '').strip()
+        plan_id = request.POST.get('plan_id', '').strip()
+        discount_code_str = request.POST.get('discount_code', '').strip().upper()
+
+        # Company / address fields (Step 2)
+        abn = request.POST.get('abn', '').strip()
+        phone = request.POST.get('phone', '').strip()
+        street_address = request.POST.get('street_address', '').strip()
+        city = request.POST.get('city', '').strip()
+        state_region = request.POST.get('state_region', '').strip()
+        postal_code = request.POST.get('postal_code', '').strip()
+        country = request.POST.get('country', '').strip()
 
         errors = _validate_registration(username, email, password, confirm)
         if not center_name:
             errors.append('School / centre name is required.')
+
+        from billing.models import InstitutePlan, InstituteDiscountCode, SchoolSubscription
+        plan = None
+        if plan_id:
+            plan = InstitutePlan.objects.filter(id=plan_id, is_active=True).first()
+        if not plan:
+            errors.append('Please select a plan.')
+
+        # Validate discount code (optional)
+        discount_obj = None
+        if discount_code_str:
+            discount_obj = InstituteDiscountCode.objects.filter(
+                code__iexact=discount_code_str,
+            ).first()
+            if not discount_obj:
+                errors.append('Invalid discount code.')
+            elif not discount_obj.is_valid():
+                errors.append('This discount code has expired or reached its usage limit.')
+
         if errors:
             return render(request, 'accounts/register_teacher.html', {
                 'errors': errors, 'username': username, 'email': email,
                 'center_name': center_name, 'center_mode': True,
+                'plans': self._get_plans(), 'selected_plan_id': plan_id,
+                'discount_code': discount_code_str,
+                'abn': abn, 'phone': phone, 'street_address': street_address,
+                'city': city, 'state_region': state_region,
+                'postal_code': postal_code, 'country': country,
             })
 
         try:
+            from datetime import timedelta
+            from django.utils import timezone
             from classroom.models import School
 
             with transaction.atomic():
@@ -104,19 +219,75 @@ class TeacherCenterRegisterView(View):
                 while School.objects.filter(slug=slug).exists():
                     slug = f'{base_slug}-{counter}'
                     counter += 1
-                School.objects.create(
+                school = School.objects.create(
                     name=center_name,
                     slug=slug,
                     admin=user,
+                    abn=abn,
+                    phone=phone,
+                    street_address=street_address,
+                    city=city,
+                    state_region=state_region,
+                    postal_code=postal_code,
+                    country=country,
                 )
 
+                # 4. Create school subscription
+                # If 100% discount code → active immediately, otherwise trial
+                is_free = discount_obj and discount_obj.is_fully_free
+                if is_free:
+                    status = SchoolSubscription.STATUS_ACTIVE
+                    trial_end = None
+                    has_used_trial = False
+                else:
+                    status = SchoolSubscription.STATUS_TRIALING
+                    trial_days = plan.trial_days if plan else 14
+                    trial_end = timezone.now() + timedelta(days=trial_days)
+                    has_used_trial = True
+
+                sub = SchoolSubscription.objects.create(
+                    school=school,
+                    plan=plan,
+                    discount_code=discount_obj,
+                    status=status,
+                    trial_end=trial_end,
+                    has_used_trial=has_used_trial,
+                    invoice_year_start=timezone.now().date(),
+                )
+
+                # Increment discount code usage
+                if discount_obj:
+                    discount_obj.uses += 1
+                    discount_obj.save(update_fields=['uses'])
+
             login(request, user)
+
+            # If plan has a Stripe price and not fully free → redirect to Stripe Checkout
+            if plan and plan.stripe_price_id and not is_free:
+                try:
+                    from billing.stripe_service import create_institute_checkout_session
+                    stripe_coupon = discount_obj.stripe_coupon_id if discount_obj and discount_obj.stripe_coupon_id else None
+                    session = create_institute_checkout_session(
+                        school, plan, request,
+                        trial_period_days=plan.trial_days if plan.trial_days else 14,
+                        stripe_coupon_id=stripe_coupon,
+                    )
+                    return redirect(session.url)
+                except Exception:
+                    # Stripe not configured or failed — fall through to dashboard
+                    pass
+
             messages.success(request, f'Welcome! Your school "{center_name}" is ready.')
             return redirect('subjects_hub')
         except Exception as e:
             return render(request, 'accounts/register_teacher.html', {
                 'errors': [str(e)], 'username': username, 'email': email,
                 'center_name': center_name, 'center_mode': True,
+                'plans': self._get_plans(), 'selected_plan_id': plan_id,
+                'discount_code': discount_code_str,
+                'abn': abn, 'phone': phone, 'street_address': street_address,
+                'city': city, 'state_region': state_region,
+                'postal_code': postal_code, 'country': country,
             })
 
 
@@ -133,6 +304,10 @@ class SchoolStudentRegisterView(View):
         return render(request, 'accounts/register_school_student.html')
 
     def post(self, request):
+        rate_limited = _check_registration_rate_limit(request)
+        if rate_limited:
+            return rate_limited
+
         first_name = request.POST.get('first_name', '').strip()
         last_name = request.POST.get('last_name', '').strip()
         email = request.POST.get('email', '').strip()
@@ -210,6 +385,10 @@ class IndividualStudentRegisterView(View):
         return render(request, 'accounts/register_individual_student.html', {'packages': packages})
 
     def post(self, request):
+        rate_limited = _check_registration_rate_limit(request)
+        if rate_limited:
+            return rate_limited
+
         from billing.models import Package, DiscountCode, Subscription
         from django.utils import timezone
         from datetime import timedelta
@@ -220,6 +399,16 @@ class IndividualStudentRegisterView(View):
         confirm = request.POST.get('confirm_password', '')
         package_id = request.POST.get('package_id')
         discount_code_str = request.POST.get('discount_code', '').strip().upper()
+
+        # Personal / address fields (Step 2)
+        first_name = request.POST.get('first_name', '').strip()
+        last_name = request.POST.get('last_name', '').strip()
+        date_of_birth = request.POST.get('date_of_birth', '').strip()
+        phone = request.POST.get('phone', '').strip()
+        street_address = request.POST.get('street_address', '').strip()
+        city = request.POST.get('city', '').strip()
+        postal_code = request.POST.get('postal_code', '').strip()
+        country = request.POST.get('country', '').strip()
 
         errors = _validate_registration(username, email, password, confirm)
 
@@ -233,31 +422,41 @@ class IndividualStudentRegisterView(View):
 
         packages = Package.objects.filter(is_active=True).order_by('price')
 
+        ctx = {
+            'username': username, 'email': email,
+            'packages': packages, 'selected_package_id': package_id,
+            'discount_code': discount_code_str,
+            'first_name': first_name, 'last_name': last_name,
+            'date_of_birth': date_of_birth, 'phone': phone,
+            'street_address': street_address, 'city': city,
+            'postal_code': postal_code, 'country': country,
+        }
+
         if errors:
-            return render(request, 'accounts/register_individual_student.html', {
-                'errors': errors, 'username': username, 'email': email,
-                'packages': packages, 'selected_package_id': package_id,
-            })
+            ctx['errors'] = errors
+            return render(request, 'accounts/register_individual_student.html', ctx)
 
         # Validate discount code if provided
         discount = None
         if discount_code_str:
             discount = DiscountCode.objects.filter(code=discount_code_str).first()
             if not discount or not discount.is_valid():
-                return render(request, 'accounts/register_individual_student.html', {
-                    'errors': ['Invalid or expired discount code.'],
-                    'username': username, 'email': email,
-                    'packages': packages, 'selected_package_id': package_id,
-                    'discount_code': discount_code_str,
-                })
+                ctx['errors'] = ['Invalid or expired discount code.']
+                return render(request, 'accounts/register_individual_student.html', ctx)
 
         try:
             with transaction.atomic():
-                # Create user
                 user = CustomUser.objects.create_user(
                     username=username, email=email, password=password,
                     package=package,
+                    first_name=first_name, last_name=last_name,
+                    phone=phone, street_address=street_address,
+                    city=city, postal_code=postal_code, country=country,
                 )
+                if date_of_birth:
+                    user.date_of_birth = date_of_birth
+                    user.save(update_fields=['date_of_birth'])
+
                 role, _ = Role.objects.get_or_create(
                     name=Role.INDIVIDUAL_STUDENT,
                     defaults={'display_name': 'Individual Student'},
@@ -267,41 +466,49 @@ class IndividualStudentRegisterView(View):
                 # Create subscription record
                 if package.is_free:
                     Subscription.objects.create(
-                        user=user,
-                        package=package,
+                        user=user, package=package,
                         status=Subscription.STATUS_ACTIVE,
                     )
                 else:
                     trial_end = timezone.now() + timedelta(days=package.trial_days)
                     Subscription.objects.create(
-                        user=user,
-                        package=package,
+                        user=user, package=package,
                         status=Subscription.STATUS_TRIALING,
                         trial_end=trial_end,
                     )
 
                 # Handle discount code
-                if discount and discount.is_fully_free:
+                if discount:
                     discount.uses += 1
-                    discount.save()
-                    login(request, user)
-                    messages.success(request, f'Welcome, {username}! Your free access is active.')
-                    return redirect('select_classes')
+                    discount.save(update_fields=['uses'])
 
-            login(request, user)
+                    if discount.is_fully_free:
+                        sub = user.subscription
+                        sub.status = Subscription.STATUS_ACTIVE
+                        sub.trial_end = None
+                        sub.save(update_fields=['status', 'trial_end'])
 
-            # Paid package — go to Stripe checkout
-            if not package.is_free:
-                return redirect('billing_checkout', package_id=package.id)
+            login(request, user, backend='accounts.backends.EmailOrUsernameBackend')
+
+            # Paid package with Stripe price → redirect to Stripe Checkout
+            if not package.is_free and package.stripe_price_id and not (discount and discount.is_fully_free):
+                try:
+                    from billing.stripe_service import create_individual_checkout_session
+                    stripe_coupon = getattr(discount, 'stripe_coupon_id', None) if discount else None
+                    session = create_individual_checkout_session(
+                        user, package, request,
+                        stripe_coupon_id=stripe_coupon if stripe_coupon else None,
+                    )
+                    return redirect(session.url)
+                except Exception:
+                    pass
 
             messages.success(request, f'Welcome, {username}!')
             return redirect('select_classes')
 
         except Exception as e:
-            return render(request, 'accounts/register_individual_student.html', {
-                'errors': [str(e)], 'username': username, 'email': email,
-                'packages': packages, 'selected_package_id': package_id,
-            })
+            ctx['errors'] = [str(e)]
+            return render(request, 'accounts/register_individual_student.html', ctx)
 
 
 class TrialExpiredView(View):
@@ -309,6 +516,12 @@ class TrialExpiredView(View):
         from billing.models import Package
         packages = Package.objects.filter(is_active=True, price__gt=0).order_by('price')
         return render(request, 'accounts/trial_expired.html', {'packages': packages})
+
+
+class AccountBlockedView(View):
+    """Landing page shown when a user's account is blocked or school is suspended."""
+    def get(self, request):
+        return render(request, 'accounts/account_blocked.html')
 
 
 # ---------------------------------------------------------------------------
@@ -489,6 +702,154 @@ class ParentAcceptInviteView(LoginRequiredMixin, View):
         except Exception as e:
             messages.error(request, str(e))
             return redirect('subjects_hub')
+
+
+# ---------------------------------------------------------------------------
+# Profile Completion (first login after HoI creates student)
+# ---------------------------------------------------------------------------
+
+class CompleteProfileView(LoginRequiredMixin, View):
+    """Force new students/teachers to change password, complete profile,
+    and subscribe (school students need $19.90/mo subscription)."""
+
+    def _get_student_package(self):
+        """Get the default student subscription package."""
+        from billing.models import Package
+        return Package.objects.filter(is_active=True, price__gt=0).order_by('price').first()
+
+    def get(self, request):
+        if not request.user.must_change_password and request.user.profile_completed:
+            return redirect('subjects_hub')
+        return render(request, 'accounts/complete_profile.html', {
+            'student_package': self._get_student_package() if request.user.is_student else None,
+        })
+
+    def post(self, request):
+        user = request.user
+        errors = []
+
+        # Password change (required on first login)
+        if user.must_change_password:
+            new_pw = request.POST.get('new_password', '')
+            confirm_pw = request.POST.get('confirm_password', '')
+            if len(new_pw) < 8:
+                errors.append('Password must be at least 8 characters.')
+            elif new_pw != confirm_pw:
+                errors.append('Passwords do not match.')
+
+        # Profile fields
+        first_name = request.POST.get('first_name', '').strip()
+        last_name = request.POST.get('last_name', '').strip()
+        dob = request.POST.get('date_of_birth', '').strip()
+        country = request.POST.get('country', '').strip()
+        region = request.POST.get('region', '').strip()
+        phone = request.POST.get('phone', '').strip()
+        street_address = request.POST.get('street_address', '').strip()
+        city = request.POST.get('city', '').strip()
+        postal_code = request.POST.get('postal_code', '').strip()
+
+        # Discount code for school students
+        discount_code_str = request.POST.get('discount_code', '').strip().upper()
+
+        if not first_name:
+            errors.append('First name is required.')
+        if not last_name:
+            errors.append('Last name is required.')
+
+        # Validate discount code if provided
+        from billing.models import InstituteDiscountCode
+        discount_obj = None
+        if discount_code_str:
+            discount_obj = InstituteDiscountCode.objects.filter(
+                code__iexact=discount_code_str,
+            ).first()
+            if not discount_obj:
+                errors.append('Invalid discount code.')
+            elif not discount_obj.is_valid():
+                errors.append('This discount code has expired or reached its usage limit.')
+
+        if errors:
+            for err in errors:
+                messages.error(request, err)
+            return render(request, 'accounts/complete_profile.html', {
+                'student_package': self._get_student_package() if user.is_student else None,
+            })
+
+        # Save profile
+        user.first_name = first_name
+        user.last_name = last_name
+        if dob:
+            user.date_of_birth = dob
+        user.country = country
+        user.region = region
+        user.phone = phone
+        user.street_address = street_address
+        user.city = city
+        user.postal_code = postal_code
+        user.profile_completed = True
+
+        if user.must_change_password:
+            user.set_password(request.POST.get('new_password', ''))
+            user.must_change_password = False
+
+        user.save()
+        update_session_auth_hash(request, user)
+
+        # Increment discount code usage
+        if discount_obj:
+            discount_obj.uses += 1
+            discount_obj.save(update_fields=['uses'])
+
+        # School students need their own subscription
+        if user.is_student:
+            from billing.models import Package, Subscription
+            from django.utils import timezone
+            from datetime import timedelta
+
+            package = self._get_student_package()
+            if package:
+                # Create subscription
+                is_free = discount_obj and discount_obj.is_fully_free
+                if is_free:
+                    Subscription.objects.get_or_create(
+                        user=user,
+                        defaults={
+                            'package': package,
+                            'status': Subscription.STATUS_ACTIVE,
+                        },
+                    )
+                    user.package = package
+                    user.save(update_fields=['package'])
+                    messages.success(request, 'Profile completed! Free access activated.')
+                    return redirect('subjects_hub')
+                else:
+                    trial_end = timezone.now() + timedelta(days=package.trial_days)
+                    Subscription.objects.get_or_create(
+                        user=user,
+                        defaults={
+                            'package': package,
+                            'status': Subscription.STATUS_TRIALING,
+                            'trial_end': trial_end,
+                        },
+                    )
+                    user.package = package
+                    user.save(update_fields=['package'])
+
+                    # Redirect to Stripe Checkout for card details
+                    if package.stripe_price_id:
+                        try:
+                            from billing.stripe_service import create_student_checkout_session
+                            stripe_coupon = discount_obj.stripe_coupon_id if discount_obj and discount_obj.stripe_coupon_id else None
+                            session = create_student_checkout_session(
+                                user, package, request,
+                                stripe_coupon_id=stripe_coupon,
+                            )
+                            return redirect(session.url)
+                        except Exception:
+                            pass
+
+        messages.success(request, 'Profile completed successfully! Welcome aboard.')
+        return redirect('subjects_hub')
 
 
 # ---------------------------------------------------------------------------
@@ -756,6 +1117,12 @@ def _validate_registration(username, email, password, confirm):
 class CheckUsernameView(View):
     """AJAX endpoint: check if a username is available."""
     def get(self, request):
+        from billing.rate_limiting import check_rate_limit
+        from audit.services import get_client_ip
+        ip = get_client_ip(request) or 'unknown'
+        if not check_rate_limit(f'check_username:{ip}', max_attempts=30, window_seconds=60):
+            return JsonResponse({'available': False, 'errors': ['Too many requests.']}, status=429)
+
         username = request.GET.get('username', '').strip()
         exclude_id = request.GET.get('exclude_id')
         try:

@@ -1,3 +1,4 @@
+{% load billing_tags %}
 <nav class="flex flex-col h-full px-3 py-3 gap-0.5" x-data="{ deptOpen: true, academicsOpen: true }">
 
   <a href="{% url 'hod_overview' %}"
@@ -67,6 +68,8 @@
   </button>
   <div x-show="academicsOpen" x-transition class="flex flex-col gap-0.5">
 
+    {% school_has_module 'student_progress_reports' as has_progress %}
+    {% if has_progress %}
     <a href="{% url 'progress_criteria_list' %}"
        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
               {% if 'progress/criteria' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
@@ -75,6 +78,7 @@
       </svg>
       <span>Progress Criteria</span>
     </a>
+    {% endif %}
 
     <a href="{% url 'hod_reports' %}"
        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
@@ -85,6 +89,8 @@
       <span>Departmental Reports</span>
     </a>
 
+    {% school_has_module 'students_attendance' as has_attendance %}
+    {% if has_attendance %}
     <a href="{% url 'hod_attendance_report' %}"
        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
               {% if request.path == '/department/attendance/' %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
@@ -93,7 +99,9 @@
       </svg>
       <span>Attendance Report</span>
     </a>
+    {% endif %}
 
+    {% if has_progress %}
     <a href="{% url 'student_progress_report' %}"
        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
               {% if 'progress/report' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
@@ -102,6 +110,7 @@
       </svg>
       <span>Student Progress Report</span>
     </a>
+    {% endif %}
 
   </div>
 

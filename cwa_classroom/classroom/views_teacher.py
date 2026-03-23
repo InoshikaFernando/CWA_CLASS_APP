@@ -2,11 +2,14 @@ from datetime import timedelta
 
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
 from django.utils import timezone
 from django.db.models import Count, Q
 
 from accounts.models import Role
+from billing.mixins import ModuleRequiredMixin
+from billing.models import ModuleSubscription
 from .views import RoleRequiredMixin
 from .notifications import create_notification
 from .models import (
@@ -256,23 +259,23 @@ class TeacherDashboardView(RoleRequiredMixin, View):
 # 2. SchoolSwitcherView
 # ---------------------------------------------------------------------------
 
-class SchoolSwitcherView(RoleRequiredMixin, View):
-    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
+class SchoolSwitcherView(LoginRequiredMixin, View):
+    """Switch active school for multi-school users (teachers, students, HoI)."""
 
     def post(self, request):
         school_id = request.POST.get('school_id')
         if school_id:
-            # Validate the teacher actually belongs to this school
-            exists = SchoolTeacher.objects.filter(
-                school_id=school_id,
-                teacher=request.user,
-                is_active=True,
-            ).exists()
-            if exists:
+            from billing.entitlements import get_all_schools_for_user
+            # Validate user belongs to this school (any role)
+            allowed_ids = set(
+                get_all_schools_for_user(request.user).values_list('id', flat=True)
+            )
+            if int(school_id) in allowed_ids:
                 request.session['current_school_id'] = int(school_id)
             else:
                 messages.error(request, 'You are not a member of that school.')
-        return redirect('teacher_dashboard')
+        referer = request.META.get('HTTP_REFERER', '')
+        return redirect(referer or 'subjects_hub')
 
 
 # ---------------------------------------------------------------------------
@@ -345,6 +348,20 @@ class EnrollmentApproveView(RoleRequiredMixin, View):
 
         # Auto-create SchoolStudent link when class belongs to a school
         if enrollment.classroom.school_id:
+            # Check student limit before adding to school
+            from billing.entitlements import check_student_limit
+            is_existing = SchoolStudent.objects.filter(
+                school=enrollment.classroom.school,
+                student=enrollment.student,
+            ).exists()
+            if not is_existing:
+                allowed, current, limit = check_student_limit(enrollment.classroom.school)
+                if not allowed:
+                    messages.warning(
+                        request,
+                        f'Student added to class but school student limit ({limit}) reached. '
+                        f'Please upgrade your plan.',
+                    )
             SchoolStudent.objects.get_or_create(
                 school=enrollment.classroom.school,
                 student=enrollment.student,
@@ -412,7 +429,8 @@ class EnrollmentRejectView(RoleRequiredMixin, View):
 # 6. SessionAttendanceView
 # ---------------------------------------------------------------------------
 
-class SessionAttendanceView(RoleRequiredMixin, View):
+class SessionAttendanceView(RoleRequiredMixin, ModuleRequiredMixin, View):
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
@@ -706,7 +724,8 @@ class SessionAttendanceView(RoleRequiredMixin, View):
 # 7. TeacherSelfAttendanceView
 # ---------------------------------------------------------------------------
 
-class TeacherSelfAttendanceView(RoleRequiredMixin, View):
+class TeacherSelfAttendanceView(RoleRequiredMixin, ModuleRequiredMixin, View):
+    required_module = ModuleSubscription.MODULE_TEACHERS_ATTENDANCE
     required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
 
     def post(self, request, session_id):
@@ -750,8 +769,9 @@ class TeacherSelfAttendanceView(RoleRequiredMixin, View):
 # 8. Student Attendance Approval Views
 # ---------------------------------------------------------------------------
 
-class StudentAttendanceApprovalListView(RoleRequiredMixin, View):
+class StudentAttendanceApprovalListView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """List self-reported student attendance records pending teacher approval."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
@@ -795,8 +815,9 @@ class StudentAttendanceApprovalListView(RoleRequiredMixin, View):
         })
 
 
-class StudentAttendanceApproveView(RoleRequiredMixin, View):
+class StudentAttendanceApproveView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Approve a single self-reported student attendance record."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
@@ -825,8 +846,9 @@ class StudentAttendanceApproveView(RoleRequiredMixin, View):
         return redirect('attendance_approvals')
 
 
-class StudentAttendanceRejectView(RoleRequiredMixin, View):
+class StudentAttendanceRejectView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Reject (delete) a self-reported student attendance record so they can re-mark."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
@@ -851,8 +873,9 @@ class StudentAttendanceRejectView(RoleRequiredMixin, View):
         return redirect('attendance_approvals')
 
 
-class StudentAttendanceBulkApproveView(RoleRequiredMixin, View):
+class StudentAttendanceBulkApproveView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Bulk approve all pending self-reported records for a session."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,

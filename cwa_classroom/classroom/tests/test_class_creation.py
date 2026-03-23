@@ -3,8 +3,8 @@ from django.urls import reverse
 
 from accounts.models import CustomUser, Role, UserRole
 from classroom.models import (
-    School, SchoolTeacher, Department, DepartmentTeacher,
-    DepartmentSubject, Subject, Level, DepartmentLevel, ClassRoom,
+    School, SchoolTeacher, Department, DepartmentSubject, DepartmentTeacher,
+    Subject, Level, DepartmentLevel, ClassRoom,
 )
 
 
@@ -66,9 +66,7 @@ class ClassCreationTestBase(TestCase):
             school=cls.school, name='Mathematics', slug='maths',
             head=cls.hod_user,
         )
-        DepartmentSubject.objects.create(
-            department=cls.dept_maths, subject=cls.maths,
-        )
+        DepartmentSubject.objects.create(department=cls.dept_maths, subject=cls.maths)
         DepartmentTeacher.objects.create(
             department=cls.dept_maths, teacher=cls.hod_user,
         )

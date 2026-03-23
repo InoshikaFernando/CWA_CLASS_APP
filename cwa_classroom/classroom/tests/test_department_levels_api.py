@@ -52,15 +52,11 @@ class DepartmentLevelsAPITestBase(TestCase):
         cls.dept_maths = Department.objects.create(
             school=cls.school, name='Mathematics', slug='maths',
         )
-        DepartmentSubject.objects.create(
-            department=cls.dept_maths, subject=cls.maths,
-        )
+        DepartmentSubject.objects.create(department=cls.dept_maths, subject=cls.maths)
         cls.dept_coding = Department.objects.create(
             school=cls.school, name='Coding', slug='coding',
         )
-        DepartmentSubject.objects.create(
-            department=cls.dept_coding, subject=cls.coding,
-        )
+        DepartmentSubject.objects.create(department=cls.dept_coding, subject=cls.coding)
 
 
 class DepartmentLevelsAPITest(DepartmentLevelsAPITestBase):
@@ -172,9 +168,7 @@ class AutoAssignmentTest(DepartmentLevelsAPITestBase):
         new_dept = Department.objects.create(
             school=school2, name='Maths', slug='maths',
         )
-        DepartmentSubject.objects.create(
-            department=new_dept, subject=self.maths,
-        )
+        DepartmentSubject.objects.create(department=new_dept, subject=self.maths)
         # Simulate what DepartmentCreateView does
         subject_levels = Level.objects.filter(
             subject=self.maths, school__isnull=True,

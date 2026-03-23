@@ -45,9 +45,7 @@ class BackfillDepartmentLevelsTest(TestCase):
         cls.dept = Department.objects.create(
             school=cls.school, name='Mathematics', slug='maths',
         )
-        DepartmentSubject.objects.create(
-            department=cls.dept, subject=cls.maths,
-        )
+        DepartmentSubject.objects.create(department=cls.dept, subject=cls.maths)
 
     def test_backfill_creates_rows(self):
         """Running backfill should create DepartmentLevel rows for Year 1-9."""

@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
@@ -46,6 +47,37 @@ class CustomUser(AbstractUser):
         related_name='users',
         blank=True,
     )
+
+    # Address / contact
+    phone = models.CharField(max_length=30, blank=True)
+    street_address = models.CharField(max_length=255, blank=True)
+    city = models.CharField(max_length=100, blank=True)
+    postal_code = models.CharField(max_length=20, blank=True)
+
+    # Profile completion
+    must_change_password = models.BooleanField(default=False)
+    profile_completed = models.BooleanField(default=True)
+
+    # Account blocking
+    BLOCK_TEMPORARY = 'temporary'
+    BLOCK_PERMANENT = 'permanent'
+    BLOCK_TYPE_CHOICES = [
+        (BLOCK_TEMPORARY, 'Temporary'),
+        (BLOCK_PERMANENT, 'Permanent'),
+    ]
+
+    is_blocked = models.BooleanField(default=False)
+    blocked_at = models.DateTimeField(null=True, blank=True)
+    blocked_reason = models.TextField(blank=True)
+    blocked_by = models.ForeignKey(
+        'self', null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='blocked_users',
+    )
+    block_type = models.CharField(
+        max_length=20, choices=BLOCK_TYPE_CHOICES, blank=True,
+    )
+    block_expires_at = models.DateTimeField(null=True, blank=True)
 
     # Role priority order for dashboard redirect
     ROLE_PRIORITY = [

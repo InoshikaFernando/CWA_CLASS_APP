@@ -1,0 +1,46 @@
+{% extends "base_auth.html" %}
+{% block title %}Trial Expired{% endblock %}
+
+{% block card_content %}
+<div class="text-center mb-6">
+  <h1 class="font-display text-2xl text-primary mb-2">Your Free Trial Has Ended</h1>
+  {% if school %}
+    <p class="text-gray-500 text-sm">The trial for <strong>{{ school.name }}</strong> has expired.</p>
+  {% endif %}
+  <p class="text-gray-500 text-sm mt-2">Subscribe to a plan to continue using all features.</p>
+  <p class="text-yellow-600 text-xs mt-2">We cannot guarantee your data unless you subscribe.</p>
+</div>
+
+{% if plans %}
+<div class="space-y-3">
+  {% for plan in plans %}
+  <div class="border rounded-xl p-4 {% if plan.slug == 'silver' %}border-primary bg-primary-light{% else %}border-gray-200{% endif %}">
+    <div class="flex justify-between items-center">
+      <div>
+        <h3 class="font-bold text-gray-800">{{ plan.name }}</h3>
+        <p class="text-xs text-gray-500">
+          {{ plan.class_limit }} classes, {{ plan.student_limit }} students,
+          {{ plan.invoice_limit_yearly }} invoices/yr
+        </p>
+      </div>
+      <div class="text-right">
+        <span class="text-lg font-bold text-gray-800">${{ plan.price }}</span>
+        <span class="text-xs text-gray-500">/mo</span>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="mt-6 text-center">
+  <a href="{% url 'institute_plan_select' %}"
+     class="inline-block bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition">
+    Choose a Plan
+  </a>
+</div>
+{% endif %}
+
+<div class="mt-4 text-center">
+  <a href="{% url 'logout' %}" class="text-sm text-gray-400 hover:text-gray-600">Log out</a>
+</div>
+{% endblock %}

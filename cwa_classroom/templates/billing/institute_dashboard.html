@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}Subscription Dashboard{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+  <div class="flex justify-between items-center mb-6">
+    <div>
+      <h1 class="font-display text-2xl text-primary">Subscription</h1>
+      <p class="text-gray-500 text-sm">{{ school.name }}</p>
+    </div>
+    <a href="{% url 'institute_plan_select' %}"
+       class="bg-primary hover:bg-primary-dark text-white text-sm font-semibold rounded-lg px-4 py-2 transition">
+      {% if plan %}Change Plan{% else %}Select Plan{% endif %}
+    </a>
+    {% if subscription.stripe_customer_id %}
+    <a href="{% url 'stripe_billing_portal' %}"
+       class="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold rounded-lg px-4 py-2 transition">
+      Payment Methods
+    </a>
+    {% endif %}
+  </div>
+
+  {% if messages %}
+  <div class="mb-4">
+    {% for message in messages %}
+    <div class="p-3 rounded-lg text-sm {% if message.tags == 'error' %}bg-red-50 text-red-700{% elif message.tags == 'warning' %}bg-yellow-50 text-yellow-700{% else %}bg-green-50 text-green-700{% endif %}">
+      {{ message }}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- Plan & Status -->
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+    <div class="border border-gray-200 rounded-xl p-4">
+      <p class="text-xs text-gray-500 uppercase mb-1">Current Plan</p>
+      <p class="text-xl font-bold text-gray-800">{{ plan.name|default:"No Plan" }}</p>
+      {% if plan %}
+        <p class="text-sm text-gray-500">${{ plan.price }}/month</p>
+      {% endif %}
+    </div>
+    <div class="border border-gray-200 rounded-xl p-4">
+      <p class="text-xs text-gray-500 uppercase mb-1">Status</p>
+      <p class="text-xl font-bold
+        {% if subscription.status == 'active' %}text-green-600
+        {% elif subscription.status == 'trialing' %}text-blue-600
+        {% elif subscription.status == 'past_due' %}text-yellow-600
+        {% else %}text-red-600{% endif %}">
+        {{ subscription.get_status_display }}
+      </p>
+      {% if subscription.status == 'trialing' and subscription.trial_days_remaining > 0 %}
+        <p class="text-sm text-blue-500">{{ subscription.trial_days_remaining }} day{{ subscription.trial_days_remaining|pluralize }} remaining</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Usage -->
+  <div class="border border-gray-200 rounded-xl p-4 mb-6">
+    <h3 class="font-semibold text-gray-800 mb-3">Usage</h3>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div>
+        <p class="text-xs text-gray-500 uppercase">Classes</p>
+        <div class="flex items-baseline gap-1">
+          <span class="text-2xl font-bold {% if current_classes >= class_limit and class_limit > 0 %}text-red-600{% else %}text-gray-800{% endif %}">{{ current_classes }}</span>
+          <span class="text-sm text-gray-400">/ {{ class_limit }}</span>
+        </div>
+        {% if class_limit > 0 %}
+        <div class="mt-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+          <div class="h-full rounded-full {% if current_classes >= class_limit %}bg-red-500{% elif current_classes > class_limit|add:"-2" %}bg-yellow-500{% else %}bg-primary{% endif %}"
+               style="width: {% widthratio current_classes class_limit 100 %}%"></div>
+        </div>
+        {% endif %}
+      </div>
+      <div>
+        <p class="text-xs text-gray-500 uppercase">Students</p>
+        <div class="flex items-baseline gap-1">
+          <span class="text-2xl font-bold {% if current_students >= student_limit and student_limit > 0 %}text-red-600{% else %}text-gray-800{% endif %}">{{ current_students }}</span>
+          <span class="text-sm text-gray-400">/ {{ student_limit }}</span>
+        </div>
+        {% if student_limit > 0 %}
+        <div class="mt-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+          <div class="h-full rounded-full {% if current_students >= student_limit %}bg-red-500{% elif current_students > student_limit|add:"-10" %}bg-yellow-500{% else %}bg-primary{% endif %}"
+               style="width: {% widthratio current_students student_limit 100 %}%"></div>
+        </div>
+        {% endif %}
+      </div>
+      <div>
+        <p class="text-xs text-gray-500 uppercase">Invoices (this year)</p>
+        <div class="flex items-baseline gap-1">
+          <span class="text-2xl font-bold text-gray-800">{{ invoices_used }}</span>
+          <span class="text-sm text-gray-400">/ {{ invoice_limit }}</span>
+        </div>
+        {% if invoice_limit > 0 %}
+        <div class="mt-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+          <div class="h-full rounded-full {% if invoices_used >= invoice_limit %}bg-yellow-500{% else %}bg-primary{% endif %}"
+               style="width: {% widthratio invoices_used invoice_limit 100 %}%"></div>
+        </div>
+        {% if invoices_used > invoice_limit %}
+          <p class="text-xs text-yellow-600 mt-1">${{ overage_rate }}/extra invoice applies</p>
+        {% endif %}
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Modules -->
+  <div class="border border-gray-200 rounded-xl p-4 mb-6">
+    <h3 class="font-semibold text-gray-800 mb-3">Modules ($10/mo each)</h3>
+    <div class="space-y-2">
+      {% for module_key, module_name in all_modules %}
+      <div class="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
+        <span class="text-sm text-gray-700">{{ module_name }}</span>
+        {% if module_key in active_modules %}
+          <span class="text-xs font-semibold text-green-600 bg-green-50 px-2 py-1 rounded-full">Active</span>
+        {% else %}
+          <span class="text-xs text-gray-400">Not subscribed</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Cancel Subscription -->
+  {% if subscription.stripe_subscription_id and subscription.status == 'active' %}
+  <div class="border border-gray-200 rounded-xl p-4">
+    <h3 class="font-semibold text-gray-800 mb-2">Cancel Subscription</h3>
+    <p class="text-sm text-gray-500 mb-3">
+      Your subscription will remain active until the end of the current billing period.
+      You will not be charged again.
+    </p>
+    <form method="post" action="{% url 'institute_cancel_subscription' %}"
+          onsubmit="return confirm('Are you sure you want to cancel your subscription?')">
+      {% csrf_token %}
+      <button type="submit"
+              class="text-sm text-red-600 hover:text-red-800 font-medium transition">
+        Cancel Subscription
+      </button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

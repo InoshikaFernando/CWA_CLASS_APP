@@ -59,6 +59,12 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/teachers/batch-update/', views_admin.SchoolTeacherBatchUpdateView.as_view(), name='admin_school_teacher_batch_update'),
     path('admin-dashboard/schools/<int:school_id>/academic-year/create/', views_admin.AcademicYearCreateView.as_view(), name='admin_academic_year_create'),
 
+    # Account blocking & school suspension
+    path('admin-dashboard/block-user/', views_admin.BlockUserView.as_view(), name='admin_block_user'),
+    path('admin-dashboard/unblock-user/', views_admin.UnblockUserView.as_view(), name='admin_unblock_user'),
+    path('admin-dashboard/suspend-school/', views_admin.SuspendSchoolView.as_view(), name='admin_suspend_school'),
+    path('admin-dashboard/unsuspend-school/', views_admin.UnsuspendSchoolView.as_view(), name='admin_unsuspend_school'),
+
     # Student management (school-level)
     path('admin-dashboard/schools/<int:school_id>/students/', views_admin.SchoolStudentManageView.as_view(), name='admin_school_students'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/edit/', views_admin.SchoolStudentEditView.as_view(), name='admin_school_student_edit'),

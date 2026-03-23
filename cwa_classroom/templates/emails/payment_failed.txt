@@ -1,0 +1,9 @@
+Hi {{ name }},
+
+We were unable to process your payment{% if school %} for {{ school.name }}{% endif %}.
+
+Please update your payment method to avoid any interruption to your service.
+
+You can update your billing details by logging in and visiting the Billing Portal.
+
+— The {{ site_name }} Team

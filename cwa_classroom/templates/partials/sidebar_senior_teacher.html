@@ -1,3 +1,4 @@
+{% load billing_tags %}
 <nav class="flex flex-col h-full px-3 py-3 gap-0.5">
 
   <!-- Dashboard -->
@@ -30,6 +31,8 @@
     <span>Enrollments</span>
   </a>
 
+  {% school_has_module 'student_progress_reports' as has_progress %}
+  {% if has_progress %}
   <!-- Class Progress -->
   <a href="{% url 'class_progress_list' %}"
      class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
@@ -49,6 +52,7 @@
     </svg>
     <span>Student Progress Report</span>
   </a>
+  {% endif %}
 
   <!-- School Hierarchy -->
   <a href="{% url 'school_hierarchy_auto' %}"
@@ -70,6 +74,7 @@
     <span>Browse Topics</span>
   </a>
 
+  {% if has_progress %}
   <!-- Progress Criteria -->
   <a href="/progress/criteria/"
      class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
@@ -89,7 +94,10 @@
     </svg>
     <span>Criteria Approvals</span>
   </a>
+  {% endif %}
 
+  {% school_has_module 'students_attendance' as has_attendance %}
+  {% if has_attendance %}
   <!-- Attendance Approvals -->
   <a href="{% url 'attendance_approvals' %}"
      class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
@@ -99,6 +107,7 @@
     </svg>
     <span>Attendance Approvals</span>
   </a>
+  {% endif %}
 
   <!-- Upload Questions -->
   <a href="{% url 'upload_questions' %}"

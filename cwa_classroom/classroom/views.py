@@ -11,6 +11,8 @@ from django.contrib import messages
 from django.db import transaction
 
 from accounts.models import CustomUser, Role, UserRole
+from billing.mixins import ModuleRequiredMixin
+from billing.models import ModuleSubscription
 from .models import (
     ClassRoom, Subject, Topic, Level, ClassTeacher, ClassStudent,
     StudentLevelEnrollment, SubjectApp, ContactMessage, CONTACT_SUBJECT_CHOICES,
@@ -525,6 +527,17 @@ class CreateClassView(RoleRequiredMixin, View):
             messages.error(request, 'Please select a department.')
             return redirect('create_class')
 
+        # Check class limit before creating
+        from billing.entitlements import check_class_limit
+        allowed, current, limit = check_class_limit(department.school)
+        if not allowed:
+            messages.error(
+                request,
+                f'Your plan allows {limit} classes. '
+                f'You currently have {current}. Please upgrade your plan.',
+            )
+            return redirect('create_class')
+
         # Validate levels are mapped to the selected department via DepartmentLevel
         from .models import DepartmentLevel
         mapped_level_ids = set(
@@ -880,7 +893,8 @@ class AssignTeachersView(LoginRequiredMixin, View):
         return redirect('class_detail', class_id=class_id)
 
 
-class ClassAttendanceView(RoleRequiredMixin, View):
+class ClassAttendanceView(RoleRequiredMixin, ModuleRequiredMixin, View):
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
     required_roles = [
         Role.TEACHER, Role.HEAD_OF_DEPARTMENT,
         Role.HEAD_OF_INSTITUTE, Role.INSTITUTE_OWNER,
@@ -1572,6 +1586,27 @@ class HoDOverviewView(RoleRequiredMixin, View):
         # Teachers/employees with upcoming birthdays
         teacher_birthdays = _birthday_in_range(teachers, today, birthday_end)
 
+        # ── Subscription usage (for HoI/Owner) ──
+        subscription_usage = None
+        if not is_hod_only and my_school_ids:
+            from billing.entitlements import get_school_subscription, check_class_limit, check_student_limit, check_invoice_limit
+            primary_school = School.objects.filter(id__in=my_school_ids).first()
+            if primary_school:
+                sub = get_school_subscription(primary_school)
+                if sub and sub.plan:
+                    _, curr_classes, class_limit = check_class_limit(primary_school)
+                    _, curr_students, student_limit = check_student_limit(primary_school)
+                    _, inv_used, inv_limit, overage_rate = check_invoice_limit(primary_school)
+                    subscription_usage = {
+                        'plan': sub.plan,
+                        'status': sub.get_status_display(),
+                        'trial_days': sub.trial_days_remaining,
+                        'classes': curr_classes, 'class_limit': class_limit,
+                        'students': curr_students, 'student_limit': student_limit,
+                        'invoices': inv_used, 'invoice_limit': inv_limit,
+                        'overage_rate': overage_rate,
+                    }
+
         return render(request, 'hod/overview.html', {
             'school_data': school_data,
             'classes': classes_list,
@@ -1606,6 +1641,7 @@ class HoDOverviewView(RoleRequiredMixin, View):
             'student_birthdays': student_birthdays,
             'teacher_birthdays': teacher_birthdays,
             'current_month_name': now.strftime('%B %Y'),
+            'subscription_usage': subscription_usage,
         })
 
 
@@ -1726,7 +1762,8 @@ class HoDReportsView(RoleRequiredMixin, View):
         })
 
 
-class HoDAttendanceReportView(RoleRequiredMixin, View):
+class HoDAttendanceReportView(RoleRequiredMixin, ModuleRequiredMixin, View):
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
     required_roles = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT]
 
     def get(self, request):
@@ -1787,8 +1824,9 @@ class HoDAttendanceReportView(RoleRequiredMixin, View):
         })
 
 
-class AttendanceDetailView(RoleRequiredMixin, View):
+class AttendanceDetailView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Return session-level attendance detail for a teacher or student (HTMX partial)."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
     required_roles = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT]
 
     def get(self, request):
@@ -2308,6 +2346,17 @@ class HoDCreateClassView(RoleRequiredMixin, View):
 
         if not department:
             messages.error(request, 'Please select a valid department.')
+            return redirect('hod_create_class')
+
+        # Check class limit before creating
+        from billing.entitlements import check_class_limit
+        allowed, current, limit = check_class_limit(department.school)
+        if not allowed:
+            messages.error(
+                request,
+                f'Your plan allows {limit} classes. '
+                f'You currently have {current}. Please upgrade your plan.',
+            )
             return redirect('hod_create_class')
 
         # Validate levels are mapped to the department via DepartmentLevel

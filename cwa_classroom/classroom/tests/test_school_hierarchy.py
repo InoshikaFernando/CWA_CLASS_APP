@@ -106,9 +106,7 @@ class SchoolHierarchyTestBase(TestCase):
             school=cls.school, name='Mathematics', slug='maths',
             head=cls.hod_user,
         )
-        DepartmentSubject.objects.create(
-            department=cls.dept, subject=cls.maths,
-        )
+        DepartmentSubject.objects.create(department=cls.dept, subject=cls.maths)
         DepartmentTeacher.objects.create(
             department=cls.dept, teacher=cls.teacher_a,
         )

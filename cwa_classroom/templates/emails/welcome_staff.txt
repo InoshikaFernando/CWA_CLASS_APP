@@ -10,11 +10,12 @@ Department: {{ department.name }}{% endif %}
 
 Login Credentials
 -----------------
+Username: {{ user.username }}
 Email: {{ email }}
 Password: {{ password }}
 
 Log in here: {{ login_url }}
 
-For security, we recommend changing your password after your first login.
+IMPORTANT: You will be required to change your password on your first login.
 
 — The {{ site_name }} Team
