@@ -107,7 +107,7 @@
                x-show="search === '' || '{{ classroom.name|escapejs }}'.toLowerCase().includes(search.toLowerCase())">
             <div class="flex items-center justify-between mb-3">
               <div>
-                <h3 class="font-bold text-gray-800">{{ classroom.name }}</h3>
+                <a href="{% url 'class_detail' class_id=classroom.id %}" class="font-bold text-gray-800 hover:text-accent transition">{{ classroom.name }}</a>
                 {% if classroom.department %}
                   <p class="text-xs text-gray-400">{{ classroom.department.name }}</p>
                 {% endif %}
