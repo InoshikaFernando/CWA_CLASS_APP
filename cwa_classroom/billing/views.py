@@ -178,6 +178,7 @@ class StripeWebhookView(View):
 
         # New: dispatch to dedicated handlers
         handler_path = self.EVENT_HANDLERS.get(event_type)
+        handler_succeeded = True
         if handler_path:
             try:
                 module_path, func_name = handler_path.rsplit('.', 1)
@@ -187,13 +188,18 @@ class StripeWebhookView(View):
                 handler(event['data'])
             except Exception:
                 logger.exception('Error handling webhook event %s', event_type)
+                handler_succeeded = False
 
-        # Record processed event
-        StripeEvent.objects.create(
-            event_id=event_id,
-            event_type=event_type,
-            payload=event.get('data', {}),
-        )
+        # Only record event if handler succeeded — allows retry on failure
+        if handler_succeeded:
+            StripeEvent.objects.create(
+                event_id=event_id,
+                event_type=event_type,
+                payload=event.get('data', {}),
+            )
+        else:
+            # Return 500 so Stripe retries the event
+            return HttpResponse(status=500)
 
         return HttpResponse(status=200)
 
