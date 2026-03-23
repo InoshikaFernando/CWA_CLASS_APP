@@ -3,6 +3,7 @@ import logging
 from django.conf import settings
 from django.core.cache import cache
 from django.core.mail import send_mail
+from django.http import Http404
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.views import View
@@ -585,10 +586,13 @@ class ClassDetailView(RoleRequiredMixin, View):
         if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
             classroom = get_object_or_404(ClassRoom, id=class_id, school__admin=user)
         elif user.has_role(Role.HEAD_OF_DEPARTMENT):
-            classroom = get_object_or_404(
-                ClassRoom, id=class_id,
-                department__head=user,
-            )
+            # HoD can view classes in their department OR classes they teach
+            classroom = ClassRoom.objects.filter(
+                Q(department__head=user) | Q(teachers=user),
+                id=class_id,
+            ).distinct().first()
+            if not classroom:
+                raise Http404
         else:
             classroom = get_object_or_404(ClassRoom, id=class_id, teachers=request.user)
 
