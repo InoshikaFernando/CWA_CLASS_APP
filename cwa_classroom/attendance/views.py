@@ -6,7 +6,7 @@ Decoupled from classroom app as part of CPP-64.
 """
 
 from django.db.models import Count, Q
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, render
 from django.views import View
 
@@ -33,10 +33,13 @@ class ClassAttendanceView(RoleRequiredMixin, ModuleRequiredMixin, View):
         if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
             classroom = get_object_or_404(ClassRoom, id=class_id, school__admin=user)
         elif user.has_role(Role.HEAD_OF_DEPARTMENT):
-            classroom = get_object_or_404(
-                ClassRoom, id=class_id,
-                department__head=user,
-            )
+            # HoD can view classes in their department OR classes they teach
+            classroom = ClassRoom.objects.filter(
+                Q(department__head=user) | Q(teachers=user),
+                id=class_id,
+            ).distinct().first()
+            if not classroom:
+                raise Http404
         else:
             classroom = get_object_or_404(ClassRoom, id=class_id, teachers=user)
 
@@ -107,12 +110,12 @@ class HoDAttendanceReportView(RoleRequiredMixin, ModuleRequiredMixin, View):
             dept_ids = list(
                 Department.objects.filter(head=request.user, is_active=True).values_list('id', flat=True)
             )
-            teacher_att_qs = TeacherAttendance.objects.filter(
-                session__classroom__department_id__in=dept_ids,
+            teaching_class_ids = list(
+                ClassRoom.objects.filter(teachers=request.user, is_active=True).values_list('id', flat=True)
             )
-            student_att_qs = StudentAttendance.objects.filter(
-                session__classroom__department_id__in=dept_ids,
-            )
+            class_filter = Q(session__classroom__department_id__in=dept_ids) | Q(session__classroom_id__in=teaching_class_ids)
+            teacher_att_qs = TeacherAttendance.objects.filter(class_filter)
+            student_att_qs = StudentAttendance.objects.filter(class_filter)
         else:
             my_school_ids = list(School.objects.filter(admin=request.user).values_list('id', flat=True))
             teacher_att_qs = TeacherAttendance.objects.filter(
