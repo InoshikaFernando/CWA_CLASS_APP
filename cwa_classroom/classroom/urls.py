@@ -11,6 +11,9 @@ from . import views_invoicing
 from . import views_salaries
 from . import views_parent
 from . import views_parent_admin
+from attendance import views as attendance_views
+from attendance import views_teacher as attendance_views_teacher
+from attendance import views_student as attendance_views_student
 
 urlpatterns = [
     # NOTE: The old HomeView at '/' has been replaced by PublicHomeView + SubjectsHubView
@@ -27,7 +30,7 @@ urlpatterns = [
     path('class/<int:class_id>/edit/', views.EditClassView.as_view(), name='edit_class'),
     path('class/<int:class_id>/assign-students/', views.AssignStudentsView.as_view(), name='assign_students'),
     path('class/<int:class_id>/assign-teachers/', views.AssignTeachersView.as_view(), name='assign_teachers'),
-    path('class/<int:class_id>/attendance/', views.ClassAttendanceView.as_view(), name='class_attendance'),
+    path('class/<int:class_id>/attendance/', attendance_views.ClassAttendanceView.as_view(), name='class_attendance'),
     path('class/progress/', views.ClassProgressListView.as_view(), name='class_progress_list'),
     path('class/manage-teachers/', views.ManageTeachersView.as_view(), name='manage_teachers'),
 
@@ -105,19 +108,19 @@ urlpatterns = [
     path('teacher/enrollment-requests/', views_teacher.EnrollmentRequestsView.as_view(), name='enrollment_requests'),
     path('teacher/enrollment/<int:enrollment_id>/approve/', views_teacher.EnrollmentApproveView.as_view(), name='enrollment_approve'),
     path('teacher/enrollment/<int:enrollment_id>/reject/', views_teacher.EnrollmentRejectView.as_view(), name='enrollment_reject'),
-    path('teacher/session/<int:session_id>/attendance/', views_teacher.SessionAttendanceView.as_view(), name='session_attendance'),
-    path('teacher/session/<int:session_id>/self-attendance/', views_teacher.TeacherSelfAttendanceView.as_view(), name='teacher_self_attendance'),
-    path('teacher/attendance-approvals/', views_teacher.StudentAttendanceApprovalListView.as_view(), name='attendance_approvals'),
-    path('teacher/attendance/<int:attendance_id>/approve/', views_teacher.StudentAttendanceApproveView.as_view(), name='attendance_approve'),
-    path('teacher/attendance/<int:attendance_id>/reject/', views_teacher.StudentAttendanceRejectView.as_view(), name='attendance_reject'),
-    path('teacher/attendance/bulk-approve/', views_teacher.StudentAttendanceBulkApproveView.as_view(), name='attendance_bulk_approve'),
+    path('teacher/session/<int:session_id>/attendance/', attendance_views_teacher.SessionAttendanceView.as_view(), name='session_attendance'),
+    path('teacher/session/<int:session_id>/self-attendance/', attendance_views_teacher.TeacherSelfAttendanceView.as_view(), name='teacher_self_attendance'),
+    path('teacher/attendance-approvals/', attendance_views_teacher.StudentAttendanceApprovalListView.as_view(), name='attendance_approvals'),
+    path('teacher/attendance/<int:attendance_id>/approve/', attendance_views_teacher.StudentAttendanceApproveView.as_view(), name='attendance_approve'),
+    path('teacher/attendance/<int:attendance_id>/reject/', attendance_views_teacher.StudentAttendanceRejectView.as_view(), name='attendance_reject'),
+    path('teacher/attendance/bulk-approve/', attendance_views_teacher.StudentAttendanceBulkApproveView.as_view(), name='attendance_bulk_approve'),
 
     # Session management
-    path('teacher/class/<int:class_id>/start-session/', views_teacher.StartSessionView.as_view(), name='start_session'),
-    path('teacher/class/<int:class_id>/create-session/', views_teacher.CreateSessionView.as_view(), name='create_session'),
-    path('teacher/session/<int:session_id>/complete/', views_teacher.CompleteSessionView.as_view(), name='complete_session'),
-    path('teacher/session/<int:session_id>/cancel/', views_teacher.CancelSessionView.as_view(), name='cancel_session'),
-    path('teacher/session/<int:session_id>/delete/', views_teacher.DeleteSessionView.as_view(), name='delete_session'),
+    path('teacher/class/<int:class_id>/start-session/', attendance_views_teacher.StartSessionView.as_view(), name='start_session'),
+    path('teacher/class/<int:class_id>/create-session/', attendance_views_teacher.CreateSessionView.as_view(), name='create_session'),
+    path('teacher/session/<int:session_id>/complete/', attendance_views_teacher.CompleteSessionView.as_view(), name='complete_session'),
+    path('teacher/session/<int:session_id>/cancel/', attendance_views_teacher.CancelSessionView.as_view(), name='cancel_session'),
+    path('teacher/session/<int:session_id>/delete/', attendance_views_teacher.DeleteSessionView.as_view(), name='delete_session'),
 
     # Parent portal
     path('parent/', views_parent.ParentDashboardView.as_view(), name='parent_dashboard'),
@@ -132,8 +135,8 @@ urlpatterns = [
     path('student/join/', views_student.JoinClassByCodeView.as_view(), name='student_join_class'),
     path('student/my-classes/', views_student.MyClassesView.as_view(), name='student_my_classes'),
     path('student/class/<int:class_id>/', views_student.StudentClassDetailView.as_view(), name='student_class_detail'),
-    path('student/attendance/', views_student.StudentAttendanceHistoryView.as_view(), name='student_attendance_history'),
-    path('student/session/<int:session_id>/mark-attendance/', views_student.StudentSelfMarkAttendanceView.as_view(), name='student_mark_attendance'),
+    path('student/attendance/', attendance_views_student.StudentAttendanceHistoryView.as_view(), name='student_attendance_history'),
+    path('student/session/<int:session_id>/mark-attendance/', attendance_views_student.StudentSelfMarkAttendanceView.as_view(), name='student_mark_attendance'),
     path('student/enroll-global/<int:class_id>/', views_student.EnrollGlobalClassView.as_view(), name='student_enroll_global_class'),
 
     # Progress criteria & tracking
@@ -165,8 +168,8 @@ urlpatterns = [
     path('department/assign-class/', views.HoDAssignClassView.as_view(), name='hod_assign_class'),
     path('department/workload/', views.HoDWorkloadView.as_view(), name='hod_workload'),
     path('department/reports/', views.HoDReportsView.as_view(), name='hod_reports'),
-    path('department/attendance/', views.HoDAttendanceReportView.as_view(), name='hod_attendance_report'),
-    path('department/attendance/detail/', views.AttendanceDetailView.as_view(), name='attendance_detail'),
+    path('department/attendance/', attendance_views.HoDAttendanceReportView.as_view(), name='hod_attendance_report'),
+    path('department/attendance/detail/', attendance_views.AttendanceDetailView.as_view(), name='attendance_detail'),
     path('department/subject-levels/', views.HoDSubjectLevelsView.as_view(), name='hod_subject_levels'),
     path('department/subject-levels/<int:dept_id>/', views.HoDSubjectLevelsView.as_view(), name='hod_subject_levels_dept'),
     path('department/subject-levels/<int:dept_id>/<int:level_id>/remove/', views.HoDSubjectLevelRemoveView.as_view(), name='hod_subject_level_remove'),

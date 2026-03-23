@@ -17,12 +17,13 @@ from billing.models import InstitutePlan, SchoolSubscription
 from classroom.models import (
     School, SchoolTeacher, Department, DepartmentSubject,
     Subject, Level, ClassRoom, ClassTeacher, ClassStudent,
-    SchoolStudent, ClassSession, StudentAttendance,
+    SchoolStudent,
     Invoice, InvoiceLineItem, InvoicePayment,
     DepartmentFee, StudentFeeOverride,
     ProgressCriteria, ProgressRecord,
     Notification, ParentStudent, CreditTransaction,
 )
+from attendance.models import ClassSession, StudentAttendance
 
 
 # ---------------------------------------------------------------------------

@@ -9,10 +9,11 @@ from django.utils import timezone
 from accounts.models import CustomUser, Role, UserRole
 from classroom.models import (
     School, SchoolStudent, Department, DepartmentSubject, Subject,
-    ClassRoom, ClassStudent, ClassSession, StudentAttendance,
+    ClassRoom, ClassStudent,
     ParentStudent, Invoice, InvoiceLineItem, InvoicePayment,
     ProgressCriteria, ProgressRecord, Level,
 )
+from attendance.models import ClassSession, StudentAttendance
 
 
 class ParentPortalTestBase(TestCase):

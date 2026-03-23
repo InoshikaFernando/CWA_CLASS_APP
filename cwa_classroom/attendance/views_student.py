@@ -10,12 +10,15 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views import View
 
+from billing.mixins import ModuleRequiredMixin
+from billing.models import ModuleSubscription
 from classroom.models import ClassStudent
 from .models import ClassSession, StudentAttendance
 
 
 
-class StudentAttendanceHistoryView(LoginRequiredMixin, View):
+class StudentAttendanceHistoryView(LoginRequiredMixin, ModuleRequiredMixin, View):
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
     """Show the student's own attendance records across all enrolled classes."""
 
     def get(self, request):
@@ -97,7 +100,8 @@ class StudentAttendanceHistoryView(LoginRequiredMixin, View):
         })
 
 
-class StudentSelfMarkAttendanceView(LoginRequiredMixin, View):
+class StudentSelfMarkAttendanceView(LoginRequiredMixin, ModuleRequiredMixin, View):
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
     """Allow a student to self-report attendance for a session (requires teacher approval)."""
 
     def post(self, request, session_id):

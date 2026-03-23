@@ -22,8 +22,8 @@ from classroom.models import (
     School, SchoolTeacher, Department, DepartmentSubject,
     Subject, Level, DepartmentLevel, ClassRoom, ClassTeacher,
     ClassStudent, SchoolStudent, ProgressCriteria, ProgressRecord,
-    ClassSession, StudentAttendance, TeacherAttendance,
 )
+from attendance.models import ClassSession, StudentAttendance, TeacherAttendance
 
 
 # ---------------------------------------------------------------------------

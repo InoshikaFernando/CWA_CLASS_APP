@@ -8,9 +8,10 @@ from django.views import View
 
 from accounts.models import Role
 from .models import (
-    ParentStudent, ClassStudent, ClassSession, StudentAttendance,
+    ParentStudent, ClassStudent,
     Invoice, InvoicePayment, ProgressRecord,
 )
+from attendance.models import ClassSession, StudentAttendance
 from .views import RoleRequiredMixin
 
 

@@ -12,10 +12,11 @@ from django.utils import timezone
 logger = logging.getLogger(__name__)
 
 from .models import (
-    ClassRoom, ClassSession, ClassTeacher, TeacherAttendance,
+    ClassRoom, ClassTeacher,
     TeacherHourlyRate, TeacherRateOverride, SalaryNumberSequence,
     SalarySlip, SalarySlipLineItem, SalaryPayment, SchoolTeacher,
 )
+from attendance.models import ClassSession, TeacherAttendance
 
 
 # ---------------------------------------------------------------------------

@@ -551,35 +551,10 @@ class StudentLevelEnrollment(models.Model):
 
 
 # ---------------------------------------------------------------------------
-# Class Sessions & Scheduling
+# Class Sessions & Scheduling  (moved to attendance app — CPP-64)
 # ---------------------------------------------------------------------------
-
-class ClassSession(models.Model):
-    """A single scheduled session (lesson) for a class."""
-    STATUS_CHOICES = [
-        ('scheduled', 'Scheduled'),
-        ('completed', 'Completed'),
-        ('cancelled', 'Cancelled'),
-    ]
-    classroom = models.ForeignKey(ClassRoom, on_delete=models.CASCADE, related_name='sessions')
-    date = models.DateField()
-    start_time = models.TimeField()
-    end_time = models.TimeField()
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='scheduled')
-    cancellation_reason = models.TextField(blank=True)
-    created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='created_sessions',
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ['date', 'start_time']
-
-    def __str__(self):
-        return f'{self.classroom.name} — {self.date} {self.start_time}'
+# ClassSession, StudentAttendance, TeacherAttendance now live in
+# attendance/models.py.  Import from there instead of classroom.models.
 
 
 # ---------------------------------------------------------------------------
@@ -619,77 +594,6 @@ class Enrollment(models.Model):
         return f'{self.student.username} → {self.classroom.name} ({self.status})'
 
 
-# ---------------------------------------------------------------------------
-# Attendance
-# ---------------------------------------------------------------------------
-
-class StudentAttendance(models.Model):
-    """Tracks student attendance for a specific class session."""
-    STATUS_CHOICES = [
-        ('present', 'Present'),
-        ('absent', 'Absent'),
-        ('late', 'Late'),
-    ]
-    session = models.ForeignKey(ClassSession, on_delete=models.CASCADE, related_name='student_attendance')
-    student = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name='attendance_records',
-    )
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='present')
-    marked_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        related_name='attendance_marks_given',
-    )
-    marked_at = models.DateTimeField(auto_now_add=True)
-    self_reported = models.BooleanField(default=False)
-    approved_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='student_attendance_approvals',
-    )
-    approved_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        unique_together = ('session', 'student')
-        ordering = ['session', 'student']
-
-    def __str__(self):
-        return f'{self.student.username} — {self.session} ({self.status})'
-
-
-class TeacherAttendance(models.Model):
-    """Tracks teacher attendance (self-reported, admin-approved)."""
-    STATUS_CHOICES = [
-        ('present', 'Present'),
-        ('absent', 'Absent'),
-    ]
-    session = models.ForeignKey(ClassSession, on_delete=models.CASCADE, related_name='teacher_attendance')
-    teacher = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name='teacher_attendance_records',
-    )
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='present')
-    self_reported = models.BooleanField(default=True)
-    approved_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='teacher_attendance_approvals',
-    )
-    approved_at = models.DateTimeField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        unique_together = ('session', 'teacher')
-        ordering = ['session', 'teacher']
-
-    def __str__(self):
-        return f'{self.teacher.username} — {self.session} ({self.status})'
 
 
 # ---------------------------------------------------------------------------
@@ -758,7 +662,7 @@ class ProgressRecord(models.Model):
     )
     criteria = models.ForeignKey(ProgressCriteria, on_delete=models.CASCADE, related_name='records')
     session = models.ForeignKey(
-        ClassSession,
+        'attendance.ClassSession',
         on_delete=models.SET_NULL,
         null=True, blank=True,
         related_name='progress_records',

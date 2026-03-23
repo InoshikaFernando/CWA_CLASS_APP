@@ -12,9 +12,10 @@ from django.db.models import Count, Q
 from accounts.models import CustomUser, Role, UserRole
 from accounts.views import _validate_username, _generate_username_suggestion
 from .models import (
-    School, SchoolTeacher, AcademicYear, ClassRoom, ClassSession, Department,
+    School, SchoolTeacher, AcademicYear, ClassRoom, Department,
     SchoolStudent, Level, Subject,
 )
+from attendance.models import ClassSession
 from .views import RoleRequiredMixin
 from .email_utils import send_staff_welcome_email
 

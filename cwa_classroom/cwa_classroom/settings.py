@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     # Project apps
     'accounts',
     'classroom',
+    'attendance',
     'quiz',
     'billing',
     'progress',

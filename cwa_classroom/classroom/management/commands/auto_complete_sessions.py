@@ -12,7 +12,7 @@ Run via cron / PythonAnywhere scheduled task, e.g. every 15 minutes:
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from classroom.models import ClassSession
+from attendance.models import ClassSession
 
 
 class Command(BaseCommand):

@@ -3,7 +3,7 @@ from .models import (
     Subject, Level, Topic, ClassRoom, ClassTeacher, ClassStudent,
     StudentLevelEnrollment, SubjectApp, ContactMessage,
     School, SchoolStudent, SchoolTeacher, AcademicYear, TopicLevel, SubTopic,
-    ClassSession, Enrollment, StudentAttendance, TeacherAttendance,
+    Enrollment,
     ProgressCriteria, ProgressRecord, Notification, DepartmentLevel,
     EmailCampaign, EmailLog, EmailPreference,
     DepartmentFee, StudentFeeOverride, InvoiceNumberSequence,
@@ -13,6 +13,7 @@ from .models import (
     SalarySlip, SalarySlipLineItem, SalaryPayment,
     ParentStudent, ParentInvite,
 )
+from attendance.models import ClassSession
 
 
 # ---------------------------------------------------------------------------
@@ -157,33 +158,14 @@ class StudentLevelEnrollmentAdmin(admin.ModelAdmin):
 
 
 # ---------------------------------------------------------------------------
-# Sessions, Enrollment, Attendance
+# Enrollment (attendance admin moved to attendance app)
 # ---------------------------------------------------------------------------
-
-@admin.register(ClassSession)
-class ClassSessionAdmin(admin.ModelAdmin):
-    list_display = ('classroom', 'date', 'start_time', 'end_time', 'status')
-    list_filter = ('status', 'classroom__school')
-    date_hierarchy = 'date'
-
 
 @admin.register(Enrollment)
 class EnrollmentAdmin(admin.ModelAdmin):
     list_display = ('student', 'classroom', 'status', 'requested_at', 'approved_at')
     list_filter = ('status', 'classroom__school')
     search_fields = ('student__username', 'classroom__name')
-
-
-@admin.register(StudentAttendance)
-class StudentAttendanceAdmin(admin.ModelAdmin):
-    list_display = ('student', 'session', 'status', 'marked_by', 'marked_at')
-    list_filter = ('status',)
-
-
-@admin.register(TeacherAttendance)
-class TeacherAttendanceAdmin(admin.ModelAdmin):
-    list_display = ('teacher', 'session', 'status', 'self_reported', 'approved_by')
-    list_filter = ('status', 'self_reported')
 
 
 # ---------------------------------------------------------------------------

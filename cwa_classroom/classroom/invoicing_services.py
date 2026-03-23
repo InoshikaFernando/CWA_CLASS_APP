@@ -17,11 +17,12 @@ from django.utils import timezone
 logger = logging.getLogger(__name__)
 
 from .models import (
-    ClassRoom, ClassSession, ClassStudent, StudentAttendance,
+    ClassRoom, ClassStudent,
     DepartmentFee, StudentFeeOverride, InvoiceNumberSequence,
     Invoice, InvoiceLineItem, InvoicePayment, CreditTransaction,
     PaymentReferenceMapping, CSVImport, SchoolStudent,
 )
+from attendance.models import ClassSession, StudentAttendance
 from .fee_utils import get_effective_fee_for_student, get_fee_source_label
 
 

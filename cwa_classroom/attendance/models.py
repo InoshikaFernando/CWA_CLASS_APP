@@ -151,7 +151,7 @@ class TeacherAttendance(models.Model):
 
     class Meta:
         unique_together = ('session', 'teacher')
-        db_table = 'classroom_teacheratttendance'
+        db_table = 'classroom_teacherattendance'
 
     def __str__(self):
         return f'{self.teacher.username} — {self.session} ({self.status})'
