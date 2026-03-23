@@ -1832,7 +1832,7 @@ class HoDReportsView(RoleRequiredMixin, View):
 
         return render(request, 'hod/reports.html', {
             'levels': Level.objects.filter(level_number__lte=8),
-            'topics': Topic.objects.filter(is_active=True),
+            'topics': Topic.objects.filter(is_active=True, parent__isnull=True),
             'attendance_report_url': 'hod_attendance_report',
             'is_hod_only': is_hod_only,
             'departments': departments,
