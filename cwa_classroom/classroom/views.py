@@ -656,11 +656,18 @@ class EditClassView(RoleRequiredMixin, View):
     ]
 
     def _get_classroom(self, request, class_id):
+        from django.db.models import Q
         user = request.user
         if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
             return get_object_or_404(ClassRoom, id=class_id, school__admin=user)
         elif user.has_role(Role.HEAD_OF_DEPARTMENT):
-            return get_object_or_404(ClassRoom, id=class_id, department__head=user)
+            classroom = ClassRoom.objects.filter(
+                Q(department__head=user) | Q(teachers=user),
+                id=class_id,
+            ).distinct().first()
+            if not classroom:
+                raise Http404
+            return classroom
         else:
             return get_object_or_404(ClassRoom, id=class_id, teachers=request.user)
 
@@ -804,11 +811,18 @@ class AssignStudentsView(RoleRequiredMixin, View):
     ]
 
     def _get_classroom(self, request, class_id):
+        from django.db.models import Q
         user = request.user
         if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
             return get_object_or_404(ClassRoom, id=class_id, school__admin=user)
         elif user.has_role(Role.HEAD_OF_DEPARTMENT):
-            return get_object_or_404(ClassRoom, id=class_id, department__head=user)
+            classroom = ClassRoom.objects.filter(
+                Q(department__head=user) | Q(teachers=user),
+                id=class_id,
+            ).distinct().first()
+            if not classroom:
+                raise Http404
+            return classroom
         else:
             return get_object_or_404(ClassRoom, id=class_id, teachers=request.user)
 
@@ -905,14 +919,17 @@ class ClassAttendanceView(RoleRequiredMixin, ModuleRequiredMixin, View):
     ]
 
     def get(self, request, class_id):
+        from django.db.models import Q
         user = request.user
         if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
             classroom = get_object_or_404(ClassRoom, id=class_id, school__admin=user)
         elif user.has_role(Role.HEAD_OF_DEPARTMENT):
-            classroom = get_object_or_404(
-                ClassRoom, id=class_id,
-                department__head=user,
-            )
+            classroom = ClassRoom.objects.filter(
+                Q(department__head=user) | Q(teachers=user),
+                id=class_id,
+            ).distinct().first()
+            if not classroom:
+                raise Http404
         else:
             classroom = get_object_or_404(ClassRoom, id=class_id, teachers=user)
 
@@ -2306,10 +2323,16 @@ class UpdateStudentFeeView(RoleRequiredMixin, View):
     def post(self, request, class_id, student_id):
         user = request.user
         # Permission: find the classroom and ensure access
+        from django.db.models import Q
         if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
             classroom = get_object_or_404(ClassRoom, id=class_id, is_active=True)
         elif user.has_role(Role.HEAD_OF_DEPARTMENT):
-            classroom = get_object_or_404(ClassRoom, id=class_id, department__head=user, is_active=True)
+            classroom = ClassRoom.objects.filter(
+                Q(department__head=user) | Q(teachers=user),
+                id=class_id, is_active=True,
+            ).distinct().first()
+            if not classroom:
+                raise Http404
         else:
             classroom = get_object_or_404(ClassRoom, id=class_id, teachers=user, is_active=True)
 
@@ -2338,11 +2361,17 @@ class ClassStudentRemoveView(RoleRequiredMixin, View):
     ]
 
     def post(self, request, class_id, student_id):
+        from django.db.models import Q
         user = request.user
         if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
             classroom = get_object_or_404(ClassRoom, id=class_id, school__admin=user)
         elif user.has_role(Role.HEAD_OF_DEPARTMENT):
-            classroom = get_object_or_404(ClassRoom, id=class_id, department__head=user)
+            classroom = ClassRoom.objects.filter(
+                Q(department__head=user) | Q(teachers=user),
+                id=class_id,
+            ).distinct().first()
+            if not classroom:
+                raise Http404
         else:
             classroom = get_object_or_404(ClassRoom, id=class_id, teachers=request.user)
 
