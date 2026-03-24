@@ -108,7 +108,7 @@
           </svg>
         </div>
         <div>
-          <p class="text-xl font-bold text-gray-900">{{ classes|length }}</p>
+          <p class="text-xl font-bold text-gray-900">{{ my_classes_count }}</p>
           <p class="text-xs text-gray-500 font-medium">Classes</p>
         </div>
       </div>
@@ -128,7 +128,7 @@
       </div>
     </a>
 
-    <a href="{% if not is_hod_only %}{% url 'admin_manage_students' %}{% else %}{% url 'hod_manage_classes' %}{% endif %}" class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm hover:shadow-md hover:border-amber-200 transition">
+    <a href="{% if not is_hod_only %}{% url 'admin_manage_students' %}{% else %}{% url 'admin_manage_students' %}{% endif %}" class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm hover:shadow-md hover:border-amber-200 transition">
       <div class="flex items-center gap-3">
         <div class="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center flex-shrink-0">
           <svg class="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -136,7 +136,7 @@
           </svg>
         </div>
         <div>
-          <p class="text-xl font-bold text-gray-900">{{ total_students }}</p>
+          <p class="text-xl font-bold text-gray-900">{{ my_students_count }}</p>
           <p class="text-xs text-gray-500 font-medium">Students</p>
         </div>
       </div>

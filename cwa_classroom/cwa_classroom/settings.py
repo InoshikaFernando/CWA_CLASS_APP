@@ -14,6 +14,7 @@ Required env vars for production / test deploys:
 """
 
 import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -249,6 +250,17 @@ STRIPE_SECRET_KEY = os.environ.get('STRIPE_SECRET_KEY', '')
 STRIPE_PUBLISHABLE_KEY = os.environ.get('STRIPE_PUBLISHABLE_KEY', '')
 STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET', '')
 STRIPE_CURRENCY = os.environ.get('STRIPE_CURRENCY', 'nzd')
+
+# True when running under `manage.py test` — disables rate limiting in views
+TESTING = 'test' in sys.argv
+
+# Module add-on Stripe Price IDs (module_slug → stripe_price_id)
+# Populate with actual Stripe price IDs in production
+MODULE_STRIPE_PRICES = {
+    'teachers_attendance': os.environ.get('STRIPE_PRICE_TEACHERS_ATTENDANCE', ''),
+    'students_attendance': os.environ.get('STRIPE_PRICE_STUDENTS_ATTENDANCE', ''),
+    'student_progress_reports': os.environ.get('STRIPE_PRICE_PROGRESS_REPORTS', ''),
+}
 
 
 # ---------------------------------------------------------------------------

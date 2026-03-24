@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
 from django.utils import timezone
 from django.db.models import Count, Q
@@ -259,23 +260,23 @@ class TeacherDashboardView(RoleRequiredMixin, View):
 # 2. SchoolSwitcherView
 # ---------------------------------------------------------------------------
 
-class SchoolSwitcherView(RoleRequiredMixin, View):
-    required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
+class SchoolSwitcherView(LoginRequiredMixin, View):
+    """Switch active school for multi-school users (teachers, students, HoI)."""
 
     def post(self, request):
         school_id = request.POST.get('school_id')
         if school_id:
-            # Validate the teacher actually belongs to this school
-            exists = SchoolTeacher.objects.filter(
-                school_id=school_id,
-                teacher=request.user,
-                is_active=True,
-            ).exists()
-            if exists:
+            from billing.entitlements import get_all_schools_for_user
+            # Validate user belongs to this school (any role)
+            allowed_ids = set(
+                get_all_schools_for_user(request.user).values_list('id', flat=True)
+            )
+            if int(school_id) in allowed_ids:
                 request.session['current_school_id'] = int(school_id)
             else:
                 messages.error(request, 'You are not a member of that school.')
-        return redirect('teacher_dashboard')
+        referer = request.META.get('HTTP_REFERER', '')
+        return redirect(referer or 'subjects_hub')
 
 
 # ---------------------------------------------------------------------------

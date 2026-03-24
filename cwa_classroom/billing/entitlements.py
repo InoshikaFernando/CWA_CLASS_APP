@@ -33,17 +33,37 @@ def get_school_subscription(school):
         return None
 
 
+def _effective_class_limit(sub):
+    """Get the effective class limit, considering discount code overrides."""
+    if sub.discount_code and sub.discount_code.override_class_limit is not None:
+        return sub.discount_code.override_class_limit
+    return sub.plan.class_limit
+
+
+def _effective_student_limit(sub):
+    """Get the effective student limit, considering discount code overrides."""
+    if sub.discount_code and sub.discount_code.override_student_limit is not None:
+        return sub.discount_code.override_student_limit
+    return sub.plan.student_limit
+
+
 def check_class_limit(school):
     """
     Check if a school can create another class.
     Returns (allowed: bool, current: int, limit: int).
     Legacy schools (no subscription) are always allowed.
+    Discount code overrides take precedence over plan limits (0 = unlimited).
     """
     sub = get_school_subscription(school)
     if not sub or not sub.plan:
         return (True, 0, 0)
+    limit = _effective_class_limit(sub)
+    if limit == 0:
+        # Unlimited
+        current = ClassRoom.objects.filter(school=school, is_active=True).count()
+        return (True, current, 0)
     current = ClassRoom.objects.filter(school=school, is_active=True).count()
-    return (current < sub.plan.class_limit, current, sub.plan.class_limit)
+    return (current < limit, current, limit)
 
 
 def check_student_limit(school):
@@ -51,12 +71,17 @@ def check_student_limit(school):
     Check if a school can add another student.
     Returns (allowed: bool, current: int, limit: int).
     Legacy schools (no subscription) are always allowed.
+    Discount code overrides take precedence over plan limits (0 = unlimited).
     """
     sub = get_school_subscription(school)
     if not sub or not sub.plan:
         return (True, 0, 0)
+    limit = _effective_student_limit(sub)
+    if limit == 0:
+        current = SchoolStudent.objects.filter(school=school, is_active=True).count()
+        return (True, current, 0)
     current = SchoolStudent.objects.filter(school=school, is_active=True).count()
-    return (current < sub.plan.student_limit, current, sub.plan.student_limit)
+    return (current < limit, current, limit)
 
 
 def check_invoice_limit(school):
@@ -187,9 +212,24 @@ def record_invoice_usage(school, count):
     """
     Increment the invoice usage counter for a school's subscription.
     Called after generating invoices.
+    Auto-resets the counter if a year has elapsed since invoice_year_start.
     """
+    from django.utils import timezone as tz
+
     sub = get_school_subscription(school)
     if not sub or not sub.plan:
         return
+
+    today = tz.localdate()
+
+    # Auto-reset if a year has elapsed
+    if sub.invoice_year_start and (today - sub.invoice_year_start).days >= 365:
+        sub.invoices_used_this_year = 0
+        sub.invoice_year_start = today
+
+    # Initialize invoice_year_start if never set
+    if not sub.invoice_year_start:
+        sub.invoice_year_start = today
+
     sub.invoices_used_this_year += count
-    sub.save(update_fields=['invoices_used_this_year', 'updated_at'])
+    sub.save(update_fields=['invoices_used_this_year', 'invoice_year_start', 'updated_at'])

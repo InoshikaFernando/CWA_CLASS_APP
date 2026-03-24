@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Audit Logs{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto">
+  <div class="flex justify-between items-center mb-4">
+    <h1 class="font-display text-2xl text-primary">Audit Logs</h1>
+    <a href="{% url 'audit_dashboard' %}" class="text-blue-600 hover:underline text-sm">&larr; Dashboard</a>
+  </div>
+
+  <!-- Filters -->
+  <form method="get" class="flex flex-wrap gap-3 mb-6">
+    <select name="category" class="form-select text-sm rounded border-gray-300">
+      <option value="">All Categories</option>
+      {% for value, label in categories %}
+      <option value="{{ value }}" {% if value == category %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <input type="text" name="action" value="{{ action }}" placeholder="Action (e.g. login_failed)" class="form-input text-sm rounded border-gray-300 w-48" />
+    <select name="result" class="form-select text-sm rounded border-gray-300">
+      <option value="">All Results</option>
+      <option value="allowed" {% if result == 'allowed' %}selected{% endif %}>Allowed</option>
+      <option value="blocked" {% if result == 'blocked' %}selected{% endif %}>Blocked</option>
+    </select>
+    <button type="submit" class="btn btn-sm btn-primary">Filter</button>
+  </form>
+
+  <!-- Events Table -->
+  <div class="card overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="bg-gray-50 text-left text-xs text-gray-500 uppercase">
+          <th class="px-4 py-2">Time</th>
+          <th class="px-4 py-2">User</th>
+          <th class="px-4 py-2">School</th>
+          <th class="px-4 py-2">Category</th>
+          <th class="px-4 py-2">Action</th>
+          <th class="px-4 py-2">Result</th>
+          <th class="px-4 py-2">IP</th>
+          <th class="px-4 py-2">Endpoint</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for event in events %}
+        <tr class="border-t{% if event.result == 'blocked' %} bg-red-50{% endif %}">
+          <td class="px-4 py-2 whitespace-nowrap">{{ event.created_at|date:"Y-m-d H:i:s" }}</td>
+          <td class="px-4 py-2">{{ event.user.username|default:"-" }}</td>
+          <td class="px-4 py-2">{{ event.school.name|default:"-" }}</td>
+          <td class="px-4 py-2">{{ event.get_category_display }}</td>
+          <td class="px-4 py-2 font-mono text-xs">{{ event.action }}</td>
+          <td class="px-4 py-2">
+            <span class="inline-block px-2 py-0.5 rounded text-xs font-medium
+              {% if event.result == 'allowed' %}bg-green-100 text-green-800{% else %}bg-red-100 text-red-800{% endif %}">
+              {{ event.result }}
+            </span>
+          </td>
+          <td class="px-4 py-2 font-mono text-xs">{{ event.ip_address|default:"-" }}</td>
+          <td class="px-4 py-2 text-xs truncate max-w-[200px]">{{ event.endpoint|default:"-" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="8" class="px-4 py-8 text-center text-gray-400">No matching events.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  <div class="flex justify-between mt-4 text-sm">
+    {% if page > 1 %}
+    <a href="?page={{ page|add:"-1" }}&category={{ category }}&action={{ action }}&result={{ result }}" class="text-blue-600 hover:underline">&larr; Previous</a>
+    {% else %}
+    <span></span>
+    {% endif %}
+    <span class="text-gray-500">Page {{ page }}</span>
+    {% if has_next %}
+    <a href="?page={{ page|add:"1" }}&category={{ category }}&action={{ action }}&result={{ result }}" class="text-blue-600 hover:underline">Next &rarr;</a>
+    {% else %}
+    <span></span>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

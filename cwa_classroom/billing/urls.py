@@ -23,4 +23,6 @@ urlpatterns = [
     path('billing/institute/change-plan/', views.InstituteChangePlanView.as_view(), name='institute_change_plan'),
     path('billing/institute/cancel/', views.InstituteCancelSubscriptionView.as_view(), name='institute_cancel_subscription'),
     path('billing/portal/', views.StripeBillingPortalView.as_view(), name='stripe_billing_portal'),
+    path('billing/institute/module/toggle/', views.ModuleToggleView.as_view(), name='module_toggle'),
+    path('billing/history/', views.BillingHistoryView.as_view(), name='billing_history'),
 ]

@@ -62,9 +62,34 @@
           {{ plan.class_limit }} classes, {{ plan.student_limit }} students, {{ plan.invoice_limit_yearly }} invoices/yr
         </p>
       </div>
-      <div class="text-right">
-        <span class="text-lg font-bold text-gray-800">${{ plan.price }}</span>
-        <span class="text-xs text-gray-500">/mo</span>
+      <div class="flex items-center gap-4">
+        <div class="text-right">
+          <span class="text-lg font-bold text-gray-800">${{ plan.price }}</span>
+          <span class="text-xs text-gray-500">/mo</span>
+        </div>
+        <div>
+          {% if current_plan and current_plan.id == plan.id %}
+            <span class="inline-block text-sm text-gray-400 px-4 py-2">Active</span>
+          {% elif subscription and subscription.stripe_subscription_id %}
+            <form method="post" action="{% url 'institute_change_plan' %}">
+              {% csrf_token %}
+              <input type="hidden" name="plan" value="{{ plan.slug }}">
+              <button type="submit"
+                      class="bg-primary hover:bg-primary-dark text-white text-sm font-semibold rounded-lg px-4 py-2 transition">
+                {% if current_plan and plan.price > current_plan.price %}Upgrade{% elif current_plan and plan.price < current_plan.price %}Downgrade{% else %}Switch{% endif %}
+              </button>
+            </form>
+          {% else %}
+            <form method="post" action="{% url 'institute_checkout' %}">
+              {% csrf_token %}
+              <input type="hidden" name="plan" value="{{ plan.slug }}">
+              <button type="submit"
+                      class="bg-primary hover:bg-primary-dark text-white text-sm font-semibold rounded-lg px-4 py-2 transition">
+                Subscribe
+              </button>
+            </form>
+          {% endif %}
+        </div>
       </div>
     </div>
     {% endfor %}
@@ -72,8 +97,8 @@
 
   <div class="mt-6 text-center">
     <a href="{% url 'institute_plan_select' %}"
-       class="inline-block bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition">
-      View Full Plan Details
+       class="text-blue-600 hover:underline text-sm">
+      View Full Plan Comparison
     </a>
   </div>
 </div>

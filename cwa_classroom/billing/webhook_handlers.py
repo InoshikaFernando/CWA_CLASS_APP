@@ -26,7 +26,7 @@ def _ts_to_dt(timestamp):
 def handle_checkout_completed(event_data):
     """
     Activate subscription after successful Stripe Checkout.
-    Works for both individual students and institutes.
+    Works for individual students, school students, and institutes.
     """
     session = event_data['object']
     metadata = session.get('metadata', {})
@@ -35,7 +35,7 @@ def handle_checkout_completed(event_data):
 
     if sub_type == 'institute':
         _activate_institute_from_checkout(metadata, stripe_subscription_id)
-    elif sub_type == 'individual':
+    elif sub_type in ('individual', 'school_student'):
         _activate_individual_from_checkout(metadata, stripe_subscription_id)
     else:
         logger.warning('Unknown checkout type: %s', sub_type)
@@ -52,15 +52,24 @@ def _activate_institute_from_checkout(metadata, stripe_subscription_id):
 
     try:
         school = School.objects.get(id=school_id)
-        sub = school.subscription
-    except (School.DoesNotExist, SchoolSubscription.DoesNotExist):
-        logger.error('School %s or subscription not found', school_id)
+    except School.DoesNotExist:
+        logger.error('School %s not found', school_id)
         return
 
-    plan = InstitutePlan.objects.filter(id=plan_id).first() if plan_id else sub.plan
+    plan = InstitutePlan.objects.filter(id=plan_id).first()
+
+    # Get or create subscription — handles schools created before billing system
+    try:
+        sub = school.subscription
+    except SchoolSubscription.DoesNotExist:
+        logger.info('Creating SchoolSubscription for existing school %s', school_id)
+        sub = SchoolSubscription(school=school)
+        if plan:
+            sub.plan = plan
 
     sub.status = SchoolSubscription.STATUS_ACTIVE
     sub.stripe_subscription_id = stripe_subscription_id or sub.stripe_subscription_id
+    sub.stripe_customer_id = sub.stripe_customer_id or ''
     sub.trial_end = None
     sub.current_period_start = timezone.now()
     if plan:
@@ -154,17 +163,39 @@ def _sync_institute_subscription(stripe_sub_id, status, metadata,
         try:
             sub = SchoolSubscription.objects.get(stripe_subscription_id=stripe_sub_id)
         except SchoolSubscription.DoesNotExist:
-            logger.warning('No SchoolSubscription found for stripe_sub %s', stripe_sub_id)
-            return
+            # Auto-create for schools that existed before billing system
+            if school_id:
+                from classroom.models import School
+                try:
+                    school = School.objects.get(id=school_id)
+                    sub = SchoolSubscription(school=school)
+                    logger.info('Auto-creating SchoolSubscription for school %s', school_id)
+                except School.DoesNotExist:
+                    logger.warning('No School found for id %s', school_id)
+                    return
+            else:
+                logger.warning('No SchoolSubscription found for stripe_sub %s', stripe_sub_id)
+                return
 
     sub.status = STATUS_MAP.get(status, status)
     sub.stripe_subscription_id = stripe_sub_id
+    sub.cancel_at_period_end = cancel_at_period_end
     if period_start:
         sub.current_period_start = period_start
     if period_end:
         sub.current_period_end = period_end
+    if status in ('canceled', 'cancelled'):
+        sub.cancel_at_period_end = False
     sub.save()
     logger.info('Institute subscription synced: school=%s status=%s', sub.school_id, sub.status)
+
+    # Send cancellation email
+    if status in ('canceled', 'cancelled'):
+        try:
+            from billing.email_utils import notify_subscription_cancelled
+            notify_subscription_cancelled(school=sub.school)
+        except Exception:
+            logger.exception('Failed to send cancellation email for school %s', sub.school_id)
 
 
 def _sync_individual_subscription(stripe_sub_id, status, metadata,
@@ -300,3 +331,30 @@ def handle_payment_failed(event_data):
             'currency': invoice.get('currency', 'nzd'),
         },
     )
+
+    # Send payment failure notification email
+    try:
+        from billing.email_utils import notify_payment_failed
+        from billing.models import SchoolSubscription, Subscription
+        school = None
+        user = None
+        if stripe_sub_id:
+            try:
+                school_sub = SchoolSubscription.objects.select_related('school__admin').get(
+                    stripe_subscription_id=stripe_sub_id,
+                )
+                school = school_sub.school
+            except SchoolSubscription.DoesNotExist:
+                try:
+                    ind_sub = Subscription.objects.select_related('user').get(
+                        stripe_subscription_id=stripe_sub_id,
+                    )
+                    user = ind_sub.user
+                except Subscription.DoesNotExist:
+                    pass
+        notify_payment_failed(school=school, user=user, detail={
+            'amount_cents': amount,
+            'currency': invoice.get('currency', 'nzd'),
+        })
+    except Exception:
+        logger.exception('Failed to send payment failure notification')

@@ -13,6 +13,20 @@
         </h1>
         <p class="text-gray-500 mt-1">Manage classes, assign teachers, and track students</p>
       </div>
+      {% if departments|length > 1 %}
+      <div class="mr-auto ml-6">
+        <select onchange="window.location.href=this.value"
+                class="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent">
+          <option value="{% url 'hod_manage_classes' %}" {% if not selected_dept_id %}selected{% endif %}>All Departments</option>
+          {% for dept in departments %}
+          <option value="{% url 'hod_manage_classes' %}?department={{ dept.id }}"
+                  {% if selected_dept_id == dept.id %}selected{% endif %}>
+            {{ dept.name }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
       <div class="flex items-center gap-2">
         <a href="{% url 'progress_criteria_list' %}"
            class="inline-flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-gray-600 font-semibold rounded-xl hover:bg-gray-50 transition text-sm">
@@ -89,11 +103,12 @@
 
       <div class="space-y-4">
         {% for classroom in classes %}
-          <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6"
-               x-show="search === '' || '{{ classroom.name|escapejs }}'.toLowerCase().includes(search.toLowerCase())">
+          <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 cursor-pointer hover:border-accent/40 hover:shadow-md transition"
+               x-show="search === '' || '{{ classroom.name|escapejs }}'.toLowerCase().includes(search.toLowerCase())"
+               onclick="if(!event.target.closest('a,button')){window.location='{% url 'class_detail' class_id=classroom.id %}'}">
             <div class="flex items-center justify-between mb-3">
               <div>
-                <h3 class="font-bold text-gray-800">{{ classroom.name }}</h3>
+                <span class="font-bold text-gray-800">{{ classroom.name }}</span>
                 {% if classroom.department %}
                   <p class="text-xs text-gray-400">{{ classroom.department.name }}</p>
                 {% endif %}
