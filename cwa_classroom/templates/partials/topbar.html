@@ -41,9 +41,9 @@
         {% elif role == 'junior_teacher' %}
           <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-sky-500 text-white">Junior Teacher</span>
         {% elif role == 'student' %}
-          <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-gradient-to-r from-emerald-500 to-green-500 text-white shadow-sm">🎓 Student</span>
+          <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-teal-600 text-white">Student</span>
         {% elif role == 'individual_student' %}
-          <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-gradient-to-r from-teal-500 to-emerald-500 text-white shadow-sm">⭐ Student</span>
+          <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-cyan-600 text-white">Student</span>
         {% elif role == 'institute_owner' %}
           <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-orange-600 text-white">Institute Owner</span>
         {% elif role == 'head_of_department' %}
@@ -53,7 +53,7 @@
         {% elif role == 'accountant' %}
           <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-teal-600 text-white">Accountant</span>
         {% elif role == 'parent' %}
-          <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-gradient-to-r from-violet-500 to-purple-500 text-white shadow-sm">Parent</span>
+          <span class="hidden md:inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-violet-600 text-white">Parent</span>
         {% endif %}
       {% endwith %}
 
@@ -128,7 +128,7 @@
         <button class="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-primary transition"
                 onclick="this.nextElementSibling.classList.toggle('hidden')">
           <!-- Avatar initials -->
-          <span class="inline-flex items-center justify-center w-8 h-8 rounded-full {% if is_student or is_individual_student %}bg-gradient-to-br from-emerald-500 to-teal-500{% else %}bg-accent{% endif %} text-white text-xs font-bold">
+          <span class="inline-flex items-center justify-center w-8 h-8 rounded-full {% if is_student or is_individual_student %}bg-teal-600{% else %}bg-accent{% endif %} text-white text-xs font-bold">
             {{ request.user.username|slice:":2"|upper }}
           </span>
           <!-- Chevron (desktop) -->
@@ -172,7 +172,7 @@
 
 <!-- Mobile slide-out drawer -->
 <div id="mobile-drawer"
-     class="fixed inset-y-0 left-0 z-50 w-72 {% if is_student or is_individual_student %}bg-gradient-to-b from-emerald-600 via-green-600 to-teal-700{% else %}bg-primary{% endif %} transform -translate-x-full transition-transform duration-300 ease-in-out md:hidden">
+     class="fixed inset-y-0 left-0 z-50 w-72 {% if is_student or is_individual_student %}bg-teal-700{% elif is_parent %}bg-violet-700{% else %}bg-primary{% endif %} transform -translate-x-full transition-transform duration-300 ease-in-out md:hidden">
   <div class="flex items-center justify-between p-4 border-b border-white/20">
     <span class="font-display text-white text-xl">Menu</span>
     <button class="text-white" onclick="closeMobileDrawer()">
