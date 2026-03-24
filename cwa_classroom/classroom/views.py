@@ -67,7 +67,11 @@ class HomeView(LoginRequiredMixin, View):
             if role is None:
                 return redirect('/admin/')
 
-        role = request.user.primary_role
+        active_role = request.session.get('active_role')
+        if active_role and request.user.has_role(active_role):
+            role = active_role
+        else:
+            role = request.user.primary_role
 
         if role == Role.ADMIN or role is None and request.user.is_superuser:
             return redirect('admin_dashboard')
@@ -2669,7 +2673,11 @@ class SubjectsHubView(LoginRequiredMixin, View):
 
     def get(self, request):
         user = request.user
-        role = user.primary_role
+        active_role = request.session.get('active_role')
+        if active_role and user.has_role(active_role):
+            role = active_role
+        else:
+            role = user.primary_role
 
         # Redirect non-student roles to their dashboards
         if role == Role.ADMIN:

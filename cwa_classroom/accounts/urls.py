@@ -2,6 +2,7 @@ from django.urls import path
 from django.contrib.auth.views import LogoutView
 from django.views.decorators.csrf import csrf_exempt
 from . import views
+from .views_parent_join import ParentSelfJoinView
 
 urlpatterns = [
     # CSRF-exempt logout: prevents 403 when CSRF token is stale due to
@@ -27,4 +28,10 @@ urlpatterns = [
     # Parent registration (invite-based)
     path('register/parent/<uuid:token>/', views.ParentRegisterView.as_view(), name='register_parent'),
     path('accept-invite/<uuid:token>/', views.ParentAcceptInviteView.as_view(), name='accept_parent_invite'),
+
+    # Role switcher
+    path('switch-role/', views.SwitchRoleView.as_view(), name='switch_role'),
+
+    # Parent self-join (public)
+    path('register/parent-join/', ParentSelfJoinView.as_view(), name='register_parent_join'),
 ]
