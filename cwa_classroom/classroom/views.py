@@ -1286,12 +1286,14 @@ class HoDOverviewView(RoleRequiredMixin, View):
             next_classes_scope = None  # set after HoD/HoI branch
 
         if is_hod_only:
-            # HoD: scope to their departments
+            # HoD: scope to their departments + classes they teach in other depts
+            from django.db.models import Q
             departments = Department.objects.filter(head=request.user, is_active=True)
             dept_ids = list(departments.values_list('id', flat=True))
             classes = ClassRoom.objects.filter(
-                department_id__in=dept_ids, is_active=True
-            ).select_related('department', 'subject').prefetch_related('teachers', 'students').annotate(
+                Q(department_id__in=dept_ids, is_active=True) |
+                Q(teachers=request.user, is_active=True)
+            ).distinct().select_related('department', 'subject').prefetch_related('teachers', 'students').annotate(
                 student_count=Count('students', distinct=True),
                 teacher_count=Count('teachers', distinct=True),
             )
@@ -1640,12 +1642,14 @@ class HoDManageClassesView(RoleRequiredMixin, View):
         )
 
         if is_hod_only:
+            from django.db.models import Q
             departments = Department.objects.filter(head=request.user, is_active=True)
             dept_ids = list(departments.values_list('id', flat=True))
             school_ids = list(departments.values_list('school_id', flat=True).distinct())
             classes = ClassRoom.objects.filter(
-                department_id__in=dept_ids, is_active=True
-            ).select_related('department').prefetch_related('teachers')
+                Q(department_id__in=dept_ids, is_active=True) |
+                Q(teachers=request.user, is_active=True)
+            ).distinct().select_related('department').prefetch_related('teachers')
             teachers = CustomUser.objects.filter(
                 department_memberships__department_id__in=dept_ids,
             ).distinct()
