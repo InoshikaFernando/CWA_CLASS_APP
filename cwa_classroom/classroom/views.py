@@ -2746,14 +2746,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
                                 covered_subject_ids.add(subj.global_subject_id)
                             covered_subject_ids.add(subj.id)
 
-                            # Determine link: enrolled class or school class list
-                            enrolled_cr = enrolled_classes.get(subj.id)
-                            if enrolled_cr:
-                                link = reverse('class_detail', args=[enrolled_cr.id])
-                            else:
-                                link = reverse('student_my_classes')
-
-                            # Try to find a matching SubjectApp for icon/color
+                            # Try to find a matching SubjectApp for icon/color/link
                             matching_app = SubjectApp.objects.filter(
                                 subject=subj, is_active=True,
                             ).first()
@@ -2761,6 +2754,15 @@ class SubjectsHubView(LoginRequiredMixin, View):
                                 matching_app = SubjectApp.objects.filter(
                                     subject_id=subj.global_subject_id, is_active=True,
                                 ).first()
+
+                            # Determine link: SubjectApp external_url > enrolled class > my classes
+                            enrolled_cr = enrolled_classes.get(subj.id)
+                            if matching_app and matching_app.external_url:
+                                link = matching_app.external_url
+                            elif enrolled_cr:
+                                link = reverse('class_detail', args=[enrolled_cr.id])
+                            else:
+                                link = reverse('student_my_classes')
 
                             subject_cards.append({
                                 'name': subj.name,

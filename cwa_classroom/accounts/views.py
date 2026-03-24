@@ -876,8 +876,17 @@ class CompleteProfileView(LoginRequiredMixin, View):
                                 stripe_coupon_id=stripe_coupon,
                             )
                             return redirect(session.url)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            import logging
+                            logging.getLogger(__name__).error(
+                                f'Stripe checkout session creation failed for user {user.id}: {e}'
+                            )
+                            messages.warning(request, 'Could not redirect to payment page. Please visit Billing to set up payment.')
+                    else:
+                        import logging
+                        logging.getLogger(__name__).warning(
+                            f'Package {package.id} ({package.name}) has no stripe_price_id — skipping Stripe redirect'
+                        )
 
         messages.success(request, 'Profile completed successfully! Welcome aboard.')
         return redirect('subjects_hub')
