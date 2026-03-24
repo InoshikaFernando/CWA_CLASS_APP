@@ -325,17 +325,15 @@ class CSVImportE2ETests(CSVImportTestBase):
     def test_upload_with_preset_shows_banner(self):
         self.client.login(username='hoi', password='pass1234')
         from django.core.files.uploadedfile import SimpleUploadedFile
-        # Use Teachworks-like headers
+        # Use Teachworks Families-like headers
         tw_csv = (
-            b'First Name,Last Name,Email,Birth Date,Subjects,Default Service,'
-            b'Family First,Family Last,Family Email,Family phone\n'
-            b'Ryan,Smith,ryan@school.nz,2010-05-15,Year 7,Year 7 Mon,'
-            b'Mary,Smith,mary@parent.com,+6421111\n'
+            b'First Name,Last Name,Children,Email,Mobile Phone\n'
+            b'Mary,Smith,Ryan Smith,mary@parent.com,+6421111\n'
         )
-        csv_file = SimpleUploadedFile('students.csv', tw_csv, content_type='text/csv')
+        csv_file = SimpleUploadedFile('families.csv', tw_csv, content_type='text/csv')
         resp = self.client.post(
             reverse('student_csv_upload'),
-            {'csv_file': csv_file, 'source_preset': 'teachworks'},
+            {'csv_file': csv_file, 'source_preset': 'teachworks_families'},
         )
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'auto-mapped')
@@ -353,7 +351,7 @@ class CSVImportE2ETests(CSVImportTestBase):
 
 class SourcePresetTests(CSVImportTestBase):
 
-    TEACHWORKS_HEADERS = [
+    TEACHWORKS_STUDENTS_HEADERS = [
         'Type', 'Student ID', 'Customer ID', 'First Name', 'Last Name',
         'Family First', 'Family Last', 'Email', 'Additional Email',
         'Mobile phone', 'Home phone', 'Family Email', 'Family Additional Email',
@@ -365,8 +363,14 @@ class SourcePresetTests(CSVImportTestBase):
         'Status', 'Family Status', 'Teachers',
     ]
 
-    def test_apply_teachworks_preset(self):
-        mapping = apply_preset('teachworks', self.TEACHWORKS_HEADERS)
+    TEACHWORKS_FAMILIES_HEADERS = [
+        'ID', 'Title', 'First Name', 'Last Name', 'Children', 'Email',
+        'Additional Email', 'Mobile Phone', 'Home Phone', 'Work Phone',
+        'Address', 'Address 2', 'City', 'State', 'Zip', 'Country',
+    ]
+
+    def test_apply_teachworks_students_preset(self):
+        mapping = apply_preset('teachworks_students', self.TEACHWORKS_STUDENTS_HEADERS)
         self.assertEqual(mapping['first_name'], 3)   # 'First Name'
         self.assertEqual(mapping['last_name'], 4)     # 'Last Name'
         self.assertEqual(mapping['date_of_birth'], 23)  # 'Birth Date'
@@ -375,39 +379,77 @@ class SourcePresetTests(CSVImportTestBase):
         self.assertEqual(mapping['parent1_first_name'], 5)  # 'Family First'
         self.assertEqual(mapping['parent1_email'], 11)     # 'Family Email'
 
+    def test_apply_teachworks_families_preset(self):
+        mapping = apply_preset('teachworks_families', self.TEACHWORKS_FAMILIES_HEADERS)
+        self.assertEqual(mapping['children'], 4)           # 'Children'
+        self.assertEqual(mapping['parent1_first_name'], 2) # 'First Name'
+        self.assertEqual(mapping['parent1_last_name'], 3)  # 'Last Name'
+        self.assertEqual(mapping['parent1_email'], 5)      # 'Email'
+        self.assertEqual(mapping['parent1_phone'], 7)      # 'Mobile Phone'
+
     def test_apply_unknown_preset_returns_empty(self):
         mapping = apply_preset('nonexistent', ['A', 'B', 'C'])
         self.assertEqual(mapping, {})
 
     def test_preset_case_insensitive(self):
-        headers = ['FIRST NAME', 'last name', 'Email', 'birth date']
-        mapping = apply_preset('teachworks', headers)
+        headers = ['FIRST NAME', 'last name', 'FAMILY EMAIL', 'birth date']
+        mapping = apply_preset('teachworks_students', headers)
         self.assertEqual(mapping['first_name'], 0)
         self.assertEqual(mapping['last_name'], 1)
         self.assertEqual(mapping['date_of_birth'], 3)
 
-    def test_teachworks_full_import(self):
-        """End-to-end: Teachworks CSV → preview → import."""
-        tw_csv = (
-            b'First Name,Last Name,Email,Birth Date,Subjects,Default Service,'
-            b'Family First,Family Last,Family Email,Family phone,Address,City,Country\n'
-            b'Ryan,Smith,,2010-05-15,Year 7,Year 7 Mon,'
-            b'Mary,Smith,mary@parent.com,+6421111,5 Gomery Ct,Melbourne,AU\n'
-        )
-        headers, rows = parse_csv_file(tw_csv)
-        mapping = apply_preset('teachworks', headers)
+    def test_children_column_expands_rows(self):
+        """Families CSV with children column expands into student rows."""
+        from classroom.import_services import _expand_children_rows, _split_child_name
 
-        # Teachworks students often don't have their own email —
-        # the system should use family email as fallback
-        # For now verify the mapping is correct
-        self.assertIn('first_name', mapping)
-        self.assertIn('parent1_email', mapping)
-        self.assertIn('parent1_address', mapping)
+        # Test name splitting
+        self.assertEqual(_split_child_name('Ryan Smith'), ('Ryan', 'Smith'))
+        self.assertEqual(_split_child_name('Ridma Amreen Rahman'), ('Ridma', 'Amreen Rahman'))
+        self.assertEqual(_split_child_name('Ryan'), ('Ryan', ''))
+
+        # Test row expansion
+        rows = [
+            ['', '', 'Parent', 'Smith', 'Ryan Smith, Jane Smith', 'parent@test.com'],
+        ]
+        expanded = _expand_children_rows(rows, {'children': 4})
+        self.assertEqual(len(expanded), 2)
+        # Extra columns appended for child first/last
+        self.assertEqual(expanded[0][-2], 'Ryan')
+        self.assertEqual(expanded[0][-1], 'Smith')
+        self.assertEqual(expanded[1][-2], 'Jane')
+        self.assertEqual(expanded[1][-1], 'Smith')
+
+    def test_families_import_with_children(self):
+        """End-to-end: Teachworks Families CSV → preview → import."""
+        families_csv = (
+            b'First Name,Last Name,Children,Email,Mobile Phone,Address,City,Country\n'
+            b'Mary,Smith,"Ryan Smith, Jane Smith",mary@parent.com,+6421111,5 Main St,Auckland,NZ\n'
+            b'Bob,Doe,Tom Doe,bob@parent.com,+6422222,10 Oak Ave,Wellington,NZ\n'
+        )
+        headers, rows = parse_csv_file(families_csv)
+        mapping = apply_preset('teachworks_families', headers)
+
+        preview = validate_and_preview(rows, mapping, self.school)
+        # Mary's row expands to 2 children, Bob's to 1 = 3 students total
+        self.assertEqual(len(preview['students_new']), 3)
+        # 2 guardians (Mary + Bob)
+        self.assertEqual(len(preview['guardians_new']), 2)
+
+        # Verify student names
+        names = {s['first_name'] for s in preview['students_new']}
+        self.assertIn('Ryan', names)
+        self.assertIn('Jane', names)
+        self.assertIn('Tom', names)
+
+        # Each student should have their parent as guardian
+        for s in preview['students_new']:
+            self.assertEqual(len(s['guardians']), 1)
 
     def test_source_presets_registry(self):
-        self.assertIn('teachworks', SOURCE_PRESETS)
-        self.assertIn('name', SOURCE_PRESETS['teachworks'])
-        self.assertIn('mapping', SOURCE_PRESETS['teachworks'])
+        self.assertIn('teachworks_families', SOURCE_PRESETS)
+        self.assertIn('teachworks_students', SOURCE_PRESETS)
+        self.assertIn('name', SOURCE_PRESETS['teachworks_families'])
+        self.assertIn('mapping', SOURCE_PRESETS['teachworks_families'])
 
 
 class ParseUploadFileTests(CSVImportTestBase):

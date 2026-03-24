@@ -25,10 +25,12 @@ MAX_CSV_ROWS = 5000
 
 # All mappable columns — key is the system field, value is the display label
 COLUMN_FIELDS = {
-    # Required
-    'first_name': 'First Name',
-    'last_name': 'Last Name',
+    # Required (at least first_name+last_name OR children)
+    'first_name': 'Student First Name',
+    'last_name': 'Student Last Name',
     'email': 'Student Email',
+    # Special — comma-separated "FirstName LastName" list (expands into multiple students)
+    'children': 'Children (full names)',
     # Optional — student
     'username': 'Username',
     'date_of_birth': 'Date of Birth',
@@ -64,20 +66,34 @@ COLUMN_FIELDS = {
 }
 
 REQUIRED_FIELDS = {'first_name', 'last_name', 'email'}
+# When 'children' column is mapped, first_name/last_name/email are not required
+CHILDREN_MODE_REPLACES = {'first_name', 'last_name', 'email'}
 
 # ── Source system presets ────────────────────────────────────
 # Each preset maps our system field → the CSV/XLS header name used by that system.
 # To add a new source system, add an entry here — no code changes needed.
 
 SOURCE_PRESETS = {
-    'teachworks': {
-        'name': 'Teachworks',
-        'description': 'Import from Teachworks Students export (.xls or .csv)',
-        'file_type': 'Students',
+    'teachworks_families': {
+        'name': 'Teachworks (Families)',
+        'description': 'Import from Teachworks Families export (.xls). Parents as rows, children in one column.',
+        'mapping': {
+            'children': 'Children',
+            'parent1_first_name': 'First Name',
+            'parent1_last_name': 'Last Name',
+            'parent1_email': 'Email',
+            'parent1_phone': 'Mobile Phone',
+            'parent1_address': 'Address',
+            'parent1_city': 'City',
+            'parent1_country': 'Country',
+        },
+    },
+    'teachworks_students': {
+        'name': 'Teachworks (Students)',
+        'description': 'Import from Teachworks Students export (.xls). One student per row.',
         'mapping': {
             'first_name': 'First Name',
             'last_name': 'Last Name',
-            'email': 'Email',
             'date_of_birth': 'Birth Date',
             'level': 'Subjects',
             'class_name': 'Default Service',
@@ -248,6 +264,46 @@ def _build_column_mapping(post_data):
     return mapping
 
 
+def _split_child_name(full_name):
+    """Split 'FirstName LastName' into (first, last). Last word is last name."""
+    parts = full_name.strip().split()
+    if len(parts) == 0:
+        return '', ''
+    if len(parts) == 1:
+        return parts[0], ''
+    return parts[0], ' '.join(parts[1:])
+
+
+def _expand_children_rows(data_rows, column_mapping):
+    """If 'children' column is mapped, expand each row into one row per child.
+
+    Each child inherits all other columns from the parent row.
+    The children column contains comma-separated full names like:
+    "Ryan Smith, Jane Smith"
+    """
+    children_idx = column_mapping.get('children')
+    if children_idx is None:
+        return data_rows
+
+    expanded = []
+    for row in data_rows:
+        children_val = _get_cell(row, children_idx)
+        if not children_val:
+            expanded.append(row)
+            continue
+        # Split by comma
+        child_names = [c.strip() for c in children_val.split(',') if c.strip()]
+        for child_name in child_names:
+            first_name, last_name = _split_child_name(child_name)
+            # Create a new row with child name injected
+            new_row = list(row)
+            # We'll store child names in extra positions appended to row
+            new_row.append(first_name)  # index = len(original row)
+            new_row.append(last_name)   # index = len(original row) + 1
+            expanded.append(new_row)
+    return expanded
+
+
 def validate_and_preview(data_rows, column_mapping, school):
     """
     Process CSV rows into a preview of what will be created.
@@ -256,27 +312,80 @@ def validate_and_preview(data_rows, column_mapping, school):
     errors = []
     warnings = []
 
+    # Children mode: 'children' column is mapped, first_name/last_name come from it
+    children_mode = 'children' in column_mapping
+
     # Check required fields are mapped
-    for f in REQUIRED_FIELDS:
+    if children_mode:
+        required = REQUIRED_FIELDS - CHILDREN_MODE_REPLACES
+        # In children mode, parent email is required instead of student email
+        if 'parent1_email' not in column_mapping:
+            errors.append('When using "Children" column, "Parent 1 Email" must be mapped.')
+    else:
+        required = REQUIRED_FIELDS
+    for f in required:
         if f not in column_mapping:
             errors.append(f'Required column "{COLUMN_FIELDS[f]}" is not mapped.')
     if errors:
         return {'errors': errors, 'warnings': warnings}
 
-    # Collect student data grouped by email
-    students_by_email = {}
+    # Expand children column if present
+    if children_mode:
+        original_col_count = len(data_rows[0]) if data_rows else 0
+        data_rows = _expand_children_rows(data_rows, column_mapping)
+        # Child first/last name are at appended positions
+        child_first_idx = original_col_count
+        child_last_idx = original_col_count + 1
+    else:
+        child_first_idx = None
+        child_last_idx = None
+
+    # Collect student data grouped by a unique key
+    students_by_key = {}
     for row_idx, row in enumerate(data_rows, start=2):  # row 2 = first data row
-        email = _get_cell(row, column_mapping.get('email')).lower()
-        if not email:
-            errors.append(f'Row {row_idx}: Missing email.')
-            continue
-        first_name = _get_cell(row, column_mapping.get('first_name'))
-        last_name = _get_cell(row, column_mapping.get('last_name'))
-        if not first_name or not last_name:
-            errors.append(f'Row {row_idx}: Missing first or last name.')
+        # Determine student name
+        if children_mode:
+            first_name = _get_cell(row, child_first_idx)
+            last_name = _get_cell(row, child_last_idx)
+        else:
+            first_name = _get_cell(row, column_mapping.get('first_name'))
+            last_name = _get_cell(row, column_mapping.get('last_name'))
+
+        if not first_name:
+            if children_mode:
+                continue  # Empty child slot, skip
+            errors.append(f'Row {row_idx}: Missing first name.')
             continue
 
-        if email not in students_by_email:
+        # Determine student email
+        email = _get_cell(row, column_mapping.get('email')).lower()
+        parent_email = _get_cell(row, column_mapping.get('parent1_email')).lower()
+
+        if not email:
+            if parent_email:
+                # Auto-generate student email from parent email
+                prefix = parent_email.split('@')[0]
+                domain = parent_email.split('@')[1] if '@' in parent_email else 'local'
+                child_slug = slugify(f'{first_name}-{last_name}') if last_name else slugify(first_name)
+                email = f'{child_slug}.{prefix}@{domain}'.lower()
+                warnings.append(
+                    f'Row {row_idx}: No student email — generated "{email}" from parent email.'
+                )
+            else:
+                errors.append(f'Row {row_idx}: Missing email for {first_name} {last_name}.')
+                continue
+
+        if not last_name:
+            # Use parent's last name as fallback
+            parent_last = _get_cell(row, column_mapping.get('parent1_last_name'))
+            if parent_last:
+                last_name = parent_last
+                warnings.append(f'Row {row_idx}: Using parent last name for {first_name}.')
+            else:
+                errors.append(f'Row {row_idx}: Missing last name for {first_name}.')
+                continue
+
+        if email not in students_by_key:
             username = _get_cell(row, column_mapping.get('username'))
             if not username:
                 username = email.split('@')[0]
@@ -291,7 +400,7 @@ def validate_and_preview(data_rows, column_mapping, school):
                 opening_balance = Decimal('0')
                 warnings.append(f'Row {row_idx}: Invalid opening_balance "{balance_str}".')
 
-            students_by_email[email] = {
+            students_by_key[email] = {
                 'email': email,
                 'username': username,
                 'first_name': first_name,
@@ -305,7 +414,7 @@ def validate_and_preview(data_rows, column_mapping, school):
                 'row_indices': [],
             }
 
-        student = students_by_email[email]
+        student = students_by_key[email]
         student['row_indices'].append(row_idx)
 
         # Collect class assignment from this row
@@ -346,13 +455,13 @@ def validate_and_preview(data_rows, column_mapping, school):
     # Categorise entities as new or existing
     existing_emails = set(
         CustomUser.objects.filter(
-            email__in=students_by_email.keys()
+            email__in=students_by_key.keys()
         ).values_list('email', flat=True)
     )
 
     students_new = []
     students_existing = []
-    for email, sdata in students_by_email.items():
+    for email, sdata in students_by_key.items():
         if email in existing_emails:
             students_existing.append(sdata)
         else:
@@ -360,7 +469,7 @@ def validate_and_preview(data_rows, column_mapping, school):
 
     # Collect unique class structures
     all_classes = {}
-    for sdata in students_by_email.values():
+    for sdata in students_by_key.values():
         for c in sdata['classes']:
             key = (c['class_name'], c['department'], c['subject'])
             if key not in all_classes:
@@ -392,7 +501,7 @@ def validate_and_preview(data_rows, column_mapping, school):
 
     # Unique guardians
     all_guardians = {}
-    for sdata in students_by_email.values():
+    for sdata in students_by_key.values():
         for g in sdata['guardians']:
             all_guardians[g['email']] = g
     existing_guardian_emails = set(
