@@ -1028,23 +1028,26 @@ IMPORT_ROLES = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
 
 class StudentCSVUploadView(RoleRequiredMixin, View):
-    """Step 1: Upload CSV and map columns."""
+    """Step 1: Upload CSV/XLS and map columns."""
     required_roles = IMPORT_ROLES
 
     def get(self, request):
-        return render(request, 'admin/csv_student_upload.html')
+        from . import import_services as isvc
+        return render(request, 'admin/csv_student_upload.html', {
+            'source_presets': isvc.SOURCE_PRESETS,
+        })
 
     def post(self, request):
         from . import import_services as isvc
         csv_file = request.FILES.get('csv_file')
         if not csv_file:
-            messages.error(request, 'Please select a CSV file.')
+            messages.error(request, 'Please select a file.')
             return redirect('student_csv_upload')
         if csv_file.size > isvc.MAX_CSV_SIZE:
             messages.error(request, 'File exceeds 10 MB limit.')
             return redirect('student_csv_upload')
         try:
-            headers, data_rows = isvc.parse_csv_file(csv_file.read())
+            headers, data_rows = isvc.parse_upload_file(csv_file.read(), csv_file.name)
         except ValueError as e:
             messages.error(request, str(e))
             return redirect('student_csv_upload')
@@ -1052,10 +1055,19 @@ class StudentCSVUploadView(RoleRequiredMixin, View):
         request.session['csv_student_headers'] = headers
         request.session['csv_student_data'] = data_rows
 
+        # Auto-apply preset if selected
+        source_preset = request.POST.get('source_preset', '')
+        preset_mapping = {}
+        if source_preset and source_preset in isvc.SOURCE_PRESETS:
+            preset_mapping = isvc.apply_preset(source_preset, headers)
+
         return render(request, 'admin/csv_student_upload.html', {
             'headers': headers,
             'preview_rows': data_rows[:5],
             'column_fields': isvc.COLUMN_FIELDS,
+            'source_presets': isvc.SOURCE_PRESETS,
+            'selected_preset': source_preset,
+            'preset_mapping': preset_mapping,
             'show_mapping': True,
         })
 

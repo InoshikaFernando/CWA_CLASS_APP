@@ -65,6 +65,61 @@ COLUMN_FIELDS = {
 
 REQUIRED_FIELDS = {'first_name', 'last_name', 'email'}
 
+# ── Source system presets ────────────────────────────────────
+# Each preset maps our system field → the CSV/XLS header name used by that system.
+# To add a new source system, add an entry here — no code changes needed.
+
+SOURCE_PRESETS = {
+    'teachworks': {
+        'name': 'Teachworks',
+        'description': 'Import from Teachworks Students export (.xls or .csv)',
+        'file_type': 'Students',
+        'mapping': {
+            'first_name': 'First Name',
+            'last_name': 'Last Name',
+            'email': 'Email',
+            'date_of_birth': 'Birth Date',
+            'level': 'Subjects',
+            'class_name': 'Default Service',
+            'parent1_first_name': 'Family First',
+            'parent1_last_name': 'Family Last',
+            'parent1_email': 'Family Email',
+            'parent1_phone': 'Family phone',
+            'parent1_address': 'Address',
+            'parent1_city': 'City',
+            'parent1_country': 'Country',
+        },
+    },
+    # Add more presets here as needed, e.g.:
+    # 'hero': {
+    #     'name': 'HERO',
+    #     'description': 'Import from HERO student export',
+    #     'mapping': { ... },
+    # },
+}
+
+
+def apply_preset(preset_key, headers):
+    """Apply a source preset to auto-map column indices from CSV headers.
+
+    Returns a column_mapping dict {system_field: column_index} ready for
+    validate_and_preview().
+    """
+    preset = SOURCE_PRESETS.get(preset_key)
+    if not preset:
+        return {}
+
+    # Build a case-insensitive header lookup
+    header_lower = {h.lower().strip(): i for i, h in enumerate(headers)}
+
+    mapping = {}
+    for system_field, csv_header in preset['mapping'].items():
+        idx = header_lower.get(csv_header.lower())
+        if idx is not None:
+            mapping[system_field] = idx
+    return mapping
+
+
 DAY_MAP = {
     'monday': 'monday', 'mon': 'monday',
     'tuesday': 'tuesday', 'tue': 'tuesday', 'tues': 'tuesday',
@@ -101,6 +156,59 @@ def parse_csv_file(file_content):
     headers = [h.strip() for h in rows[0]]
     data_rows = rows[1:]
     return headers, data_rows
+
+
+def parse_xls_file(file_content):
+    """Parse .xls file bytes. Returns (headers, data_rows) or raises ValueError."""
+    try:
+        import xlrd
+    except ImportError:
+        raise ValueError('XLS support requires the xlrd package. Install with: pip install xlrd')
+
+    wb = xlrd.open_workbook(file_contents=file_content)
+    sh = wb.sheet_by_index(0)
+
+    if sh.nrows < 2:
+        raise ValueError('XLS must have a header row and at least one data row.')
+    if sh.nrows - 1 > MAX_CSV_ROWS:
+        raise ValueError(f'XLS exceeds maximum of {MAX_CSV_ROWS} rows.')
+
+    headers = [str(sh.cell_value(0, c)).strip() for c in range(sh.ncols)]
+
+    data_rows = []
+    for r in range(1, sh.nrows):
+        row = []
+        for c in range(sh.ncols):
+            cell = sh.cell(r, c)
+            if cell.ctype == xlrd.XL_CELL_DATE:
+                # Convert Excel date serial to date string
+                try:
+                    dt = xlrd.xldate_as_datetime(cell.value, wb.datemode)
+                    row.append(dt.strftime('%Y-%m-%d'))
+                except Exception:
+                    row.append(str(cell.value))
+            elif cell.ctype == xlrd.XL_CELL_NUMBER:
+                # Keep as int if whole number, else float string
+                if cell.value == int(cell.value):
+                    row.append(str(int(cell.value)))
+                else:
+                    row.append(str(cell.value))
+            else:
+                row.append(str(cell.value).strip())
+        data_rows.append(row)
+
+    return headers, data_rows
+
+
+def parse_upload_file(file_content, filename):
+    """Route to CSV or XLS parser based on file extension."""
+    ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else ''
+    if ext == 'xls':
+        return parse_xls_file(file_content)
+    elif ext == 'xlsx':
+        raise ValueError('XLSX format is not supported. Please save as .xls or export as .csv.')
+    else:
+        return parse_csv_file(file_content)
 
 
 def _get_cell(row, col_idx):
