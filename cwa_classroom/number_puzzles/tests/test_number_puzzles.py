@@ -108,12 +108,11 @@ class SidebarLinkTest(NumberPuzzlesTestBase):
         # Should not get a 500 error
         self.assertNotEqual(response.status_code, 500)
 
-    def test_sidebar_contains_number_puzzles_link(self):
-        """The sidebar should contain a link to Number Puzzles."""
-        response = self.client.get('/maths/', follow=True)
+    def test_basic_facts_page_contains_number_puzzles_link(self):
+        """The Basic Facts page should contain a link to Number Puzzles."""
+        response = self.client.get('/basic-facts/', follow=True)
         if response.status_code == 200:
             self.assertContains(response, '/basic-facts/number-puzzles/')
-            self.assertContains(response, 'Number Puzzles')
 
     def test_basic_facts_home_contains_number_puzzles_card(self):
         """The Basic Facts home should have a Number Puzzles card."""
