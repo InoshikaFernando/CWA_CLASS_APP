@@ -161,7 +161,10 @@
                     </span>
                     <div class="min-w-0">
                       <p class="font-medium text-gray-900">{{ ss.student.get_full_name|default:ss.student.username }}</p>
-                      <p class="text-xs text-gray-400">{{ ss.student.email }} &middot; {{ ss.class_count }} class{{ ss.class_count|pluralize:"es" }}</p>
+                      <p class="text-xs text-gray-400">
+                        <span class="font-mono text-gray-500">ID: {{ ss.student.id }}</span>
+                        &middot; {{ ss.student.email }} &middot; {{ ss.class_count }} class{{ ss.class_count|pluralize:"es" }}
+                      </p>
                     </div>
                   </div>
                   <svg class="w-4 h-4 text-gray-400 transition-transform duration-200 flex-shrink-0"

@@ -88,7 +88,7 @@
       "Bash(git rm -r --cached \"cwa_classroom/accounts/__pycache__/\" \"cwa_classroom/billing/__pycache__/\" \"cwa_classroom/classroom/__pycache__/\" \"cwa_classroom/cwa_classroom/__pycache__/\" \"cwa_classroom/progress/__pycache__/\" \"cwa_classroom/quiz/__pycache__/\")",
       "Bash(cmd /c \"find /c /v \"\"\"\" C:\\\\Source\\\\CWA_CLASS_APP\\\\backup.sql\")",
       "Bash(tr -d '`')",
-      "Bash(mysql -u root -proot -h 192.168.240.1 -P 3306 -e \"SELECT VERSION\\(\\); SHOW DATABASES;\")",
+      "Bash(mysql -u root -proot -h 127.0.0.1 -P 3306 -e \"SELECT VERSION\\(\\); SHOW DATABASES;\")",
       "Bash(cmd /c \"mysql --version\")",
       "Bash(cmd /c \"where mysql\")",
       "Bash(python3 -c \":*)",
@@ -360,7 +360,12 @@
       "Bash(./venv/Scripts/python.exe manage.py backfill_department_levels --dry-run)",
       "Bash(./venv/Scripts/python.exe manage.py backfill_department_levels)",
       "Bash(python manage.py test classroom.tests.test_school_hierarchy -v2)",
-      "Bash(where gh)"
+      "Bash(where gh)",
+      "mcp__5ef70484-069b-4230-bf47-89324f7b64fc__searchAtlassian",
+      "mcp__5ef70484-069b-4230-bf47-89324f7b64fc__searchJiraIssuesUsingJql",
+      "Bash(python3 -c \"import json,sys; data=json.load\\(sys.stdin\\); [print\\(f\"\"{n[''key'']}: {n[''fields''][''summary'']} [{n[''fields''][''status''][''name'']}]\"\"\\) for n in data[''issues''][''nodes'']]\")",
+      "mcp__5ef70484-069b-4230-bf47-89324f7b64fc__getTransitionsForJiraIssue",
+      "mcp__5ef70484-069b-4230-bf47-89324f7b64fc__transitionJiraIssue"
     ]
   }
 }
