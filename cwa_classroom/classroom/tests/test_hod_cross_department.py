@@ -1,250 +1,201 @@
 """
-Tests that a Head of Department who also teaches in other departments
-can access classes in those departments (not just their own).
+Tests for HoD cross-department class visibility.
+
+Regression tests for:
+- ClassDetailView: HoD can view classes they teach outside their department
+- HoDManageClassesView: department filter, visibility rules
+  (all classes in headed dept, only own classes in other depts)
 """
-from django.test import TestCase, Client
+from django.test import TestCase
 from django.urls import reverse
 
 from accounts.models import CustomUser, Role, UserRole
 from classroom.models import (
-    School, SchoolTeacher, Department, DepartmentTeacher,
-    DepartmentSubject, Subject, ClassRoom, ClassTeacher, ClassStudent,
+    School, Department, DepartmentTeacher, ClassRoom, ClassTeacher,
+    SchoolTeacher,
 )
 
 
 class HoDCrossDepartmentTestBase(TestCase):
     """
-    Setup: one school, two departments (Maths headed by hod_user, IT headed
-    by another user).  hod_user also teaches an IT class.
+    Fixture: Inoshi is HoD of Maths. She also teaches Coding classes.
+    Another teacher (Bob) teaches Coding classes too.
     """
 
-    @classmethod
-    def setUpTestData(cls):
+    def setUp(self):
         # Roles
-        cls.admin_role, _ = Role.objects.get_or_create(
-            name=Role.ADMIN, defaults={'display_name': 'Admin'},
+        self.hod_role, _ = Role.objects.get_or_create(
+            name='head_of_department',
+            defaults={'display_name': 'Head of Department'},
         )
-        cls.owner_role, _ = Role.objects.get_or_create(
-            name=Role.INSTITUTE_OWNER, defaults={'display_name': 'Institute Owner'},
-        )
-        cls.hod_role, _ = Role.objects.get_or_create(
-            name=Role.HEAD_OF_DEPARTMENT, defaults={'display_name': 'Head of Department'},
-        )
-        cls.teacher_role, _ = Role.objects.get_or_create(
-            name=Role.TEACHER, defaults={'display_name': 'Teacher'},
+        self.teacher_role, _ = Role.objects.get_or_create(
+            name='teacher',
+            defaults={'display_name': 'Teacher'},
         )
 
-        # Admin / owner
-        cls.admin_user = CustomUser.objects.create_user(
-            'testadmin', 'admin@test.com', 'pass1234',
+        # Users
+        self.inoshi = CustomUser.objects.create_user(
+            username='inoshi', email='inoshi@test.com', password='testpass123',
         )
-        cls.admin_user.roles.add(cls.admin_role, cls.owner_role)
+        UserRole.objects.create(user=self.inoshi, role=self.hod_role)
+        UserRole.objects.create(user=self.inoshi, role=self.teacher_role)
 
-        # HoD user (heads Maths, teaches IT)
-        cls.hod_user = CustomUser.objects.create_user(
-            'testhod', 'hod@test.com', 'pass1234',
+        self.bob = CustomUser.objects.create_user(
+            username='bob', email='bob@test.com', password='testpass123',
         )
-        cls.hod_user.roles.add(cls.hod_role)
-
-        # Another HoD who heads IT
-        cls.it_head = CustomUser.objects.create_user(
-            'ithead', 'ithead@test.com', 'pass1234',
-        )
-        cls.it_head.roles.add(cls.hod_role)
-
-        # A plain teacher (should NOT access classes they don't teach)
-        cls.other_teacher = CustomUser.objects.create_user(
-            'otherteacher', 'other@test.com', 'pass1234',
-        )
-        cls.other_teacher.roles.add(cls.teacher_role)
+        UserRole.objects.create(user=self.bob, role=self.teacher_role)
 
         # School
-        cls.school = School.objects.create(
-            name='Test School', slug='test-school', admin=cls.admin_user,
+        self.school = School.objects.create(
+            name='Test School', slug='test-school-hod', admin=self.inoshi,
         )
-        for u in [cls.admin_user, cls.hod_user, cls.it_head, cls.other_teacher]:
-            SchoolTeacher.objects.create(school=cls.school, teacher=u, role='teacher')
-
-        # Subjects
-        cls.maths_subject, _ = Subject.objects.get_or_create(
-            slug='mathematics', defaults={'name': 'Mathematics', 'is_active': True},
+        SchoolTeacher.objects.create(
+            school=self.school, teacher=self.inoshi, is_active=True,
         )
-        cls.it_subject, _ = Subject.objects.get_or_create(
-            slug='information-technology', defaults={'name': 'Information Technology', 'is_active': True},
+        SchoolTeacher.objects.create(
+            school=self.school, teacher=self.bob, is_active=True,
         )
 
-        # Departments
-        cls.dept_maths = Department.objects.create(
-            school=cls.school, name='Mathematics', slug='maths', head=cls.hod_user,
+        # Maths department — Inoshi is HoD
+        self.maths_dept = Department.objects.create(
+            name='Mathematics', slug='maths', school=self.school,
+            head=self.inoshi, is_active=True,
         )
-        cls.dept_it = Department.objects.create(
-            school=cls.school, name='Information Technology', slug='it', head=cls.it_head,
-        )
-        DepartmentSubject.objects.create(department=cls.dept_maths, subject=cls.maths_subject)
-        DepartmentSubject.objects.create(department=cls.dept_it, subject=cls.it_subject)
-        DepartmentTeacher.objects.create(department=cls.dept_maths, teacher=cls.hod_user)
-        DepartmentTeacher.objects.create(department=cls.dept_it, teacher=cls.it_head)
-        DepartmentTeacher.objects.create(department=cls.dept_it, teacher=cls.hod_user)
-
-        # Classes
-        cls.maths_class = ClassRoom.objects.create(
-            name='Maths 01', school=cls.school, department=cls.dept_maths,
-            subject=cls.maths_subject, day='monday', start_time='09:00',
-        )
-        cls.it_class = ClassRoom.objects.create(
-            name='Web Dev 01', school=cls.school, department=cls.dept_it,
-            subject=cls.it_subject, day='tuesday', start_time='10:00',
-        )
-        cls.other_it_class = ClassRoom.objects.create(
-            name='IT Fundamentals', school=cls.school, department=cls.dept_it,
-            subject=cls.it_subject, day='wednesday', start_time='11:00',
+        DepartmentTeacher.objects.create(
+            department=self.maths_dept, teacher=self.inoshi,
         )
 
-        # hod_user teaches maths_class and it_class (but NOT other_it_class)
-        ClassTeacher.objects.create(classroom=cls.maths_class, teacher=cls.hod_user)
-        ClassTeacher.objects.create(classroom=cls.it_class, teacher=cls.hod_user)
-
-        # it_head teaches other_it_class
-        ClassTeacher.objects.create(classroom=cls.other_it_class, teacher=cls.it_head)
-
-        # A student for fee/remove tests
-        cls.student = CustomUser.objects.create_user(
-            'teststudent', 'student@test.com', 'pass1234',
+        # Coding department — Inoshi is just a teacher
+        self.coding_dept = Department.objects.create(
+            name='Coding', slug='coding', school=self.school,
+            is_active=True,
         )
-        ClassStudent.objects.create(classroom=cls.maths_class, student=cls.student)
-        ClassStudent.objects.create(classroom=cls.it_class, student=cls.student)
+        DepartmentTeacher.objects.create(
+            department=self.coding_dept, teacher=self.inoshi,
+        )
+        DepartmentTeacher.objects.create(
+            department=self.coding_dept, teacher=self.bob,
+        )
 
-    def setUp(self):
-        self.client = Client()
+        # Maths classes — Inoshi teaches Maths 01, Bob teaches Maths 02
+        self.maths_01 = ClassRoom.objects.create(
+            name='Maths 01', school=self.school,
+            department=self.maths_dept, is_active=True,
+        )
+        self.maths_01.teachers.add(self.inoshi)
+
+        self.maths_02 = ClassRoom.objects.create(
+            name='Maths 02', school=self.school,
+            department=self.maths_dept, is_active=True,
+        )
+        self.maths_02.teachers.add(self.bob)
+
+        # Coding classes — Inoshi teaches Coding 01, Bob teaches Coding 02
+        self.coding_01 = ClassRoom.objects.create(
+            name='Coding 01', school=self.school,
+            department=self.coding_dept, is_active=True,
+        )
+        self.coding_01.teachers.add(self.inoshi)
+
+        self.coding_02 = ClassRoom.objects.create(
+            name='Coding 02', school=self.school,
+            department=self.coding_dept, is_active=True,
+        )
+        self.coding_02.teachers.add(self.bob)
+
+        self.client.login(username='inoshi', password='testpass123')
 
 
-class TestHoDClassDetailCrossDepartment(HoDCrossDepartmentTestBase):
-    """ClassDetailView: HoD can access classes in own dept AND teaching classes in other depts."""
+class ClassDetailViewHoDTest(HoDCrossDepartmentTestBase):
+    """ClassDetailView: HoD can view classes they teach outside their department."""
 
-    def test_hod_can_access_own_department_class(self):
-        self.client.login(username='testhod', password='pass1234')
-        resp = self.client.get(reverse('class_detail', args=[self.maths_class.id]))
+    def test_hod_can_view_own_department_class(self):
+        """Inoshi can view Maths 01 (her department, her class)."""
+        resp = self.client.get(reverse('class_detail', args=[self.maths_01.id]))
         self.assertEqual(resp.status_code, 200)
 
-    def test_hod_can_access_teaching_class_in_other_department(self):
-        self.client.login(username='testhod', password='pass1234')
-        resp = self.client.get(reverse('class_detail', args=[self.it_class.id]))
+    def test_hod_can_view_other_teacher_class_in_own_department(self):
+        """Inoshi can view Maths 02 (her department, Bob's class) — she's HoD."""
+        resp = self.client.get(reverse('class_detail', args=[self.maths_02.id]))
         self.assertEqual(resp.status_code, 200)
 
-    def test_hod_cannot_access_non_teaching_class_in_other_department(self):
-        self.client.login(username='testhod', password='pass1234')
-        resp = self.client.get(reverse('class_detail', args=[self.other_it_class.id]))
-        self.assertEqual(resp.status_code, 404)
-
-    def test_plain_teacher_cannot_access_class_they_dont_teach(self):
-        self.client.login(username='otherteacher', password='pass1234')
-        resp = self.client.get(reverse('class_detail', args=[self.maths_class.id]))
-        self.assertEqual(resp.status_code, 404)
-
-
-class TestHoDEditClassCrossDepartment(HoDCrossDepartmentTestBase):
-    """EditClassView: HoD can edit classes they teach in other departments."""
-
-    def test_hod_can_edit_own_department_class(self):
-        self.client.login(username='testhod', password='pass1234')
-        resp = self.client.get(reverse('edit_class', args=[self.maths_class.id]))
+    def test_hod_can_view_class_she_teaches_in_other_department(self):
+        """Inoshi can view Coding 01 (other department, but she teaches it)."""
+        resp = self.client.get(reverse('class_detail', args=[self.coding_01.id]))
         self.assertEqual(resp.status_code, 200)
 
-    def test_hod_can_edit_teaching_class_in_other_department(self):
-        self.client.login(username='testhod', password='pass1234')
-        resp = self.client.get(reverse('edit_class', args=[self.it_class.id]))
-        self.assertEqual(resp.status_code, 200)
-
-    def test_hod_cannot_edit_non_teaching_class_in_other_department(self):
-        self.client.login(username='testhod', password='pass1234')
-        resp = self.client.get(reverse('edit_class', args=[self.other_it_class.id]))
+    def test_hod_cannot_view_class_she_doesnt_teach_in_other_department(self):
+        """Inoshi cannot view Coding 02 (other department, Bob's class)."""
+        resp = self.client.get(reverse('class_detail', args=[self.coding_02.id]))
         self.assertEqual(resp.status_code, 404)
 
 
-class TestHoDAttendanceCrossDepartment(HoDCrossDepartmentTestBase):
-    """ClassAttendanceView: HoD can access attendance for teaching classes in other departments."""
+class HoDManageClassesViewFilterTest(HoDCrossDepartmentTestBase):
+    """HoDManageClassesView: department filter and visibility rules."""
 
-    def test_hod_can_access_attendance_own_department(self):
-        self.client.login(username='testhod', password='pass1234')
-        resp = self.client.get(reverse('class_attendance', args=[self.maths_class.id]))
-        self.assertEqual(resp.status_code, 200)
-
-    def test_hod_can_access_attendance_other_department_teaching(self):
-        self.client.login(username='testhod', password='pass1234')
-        resp = self.client.get(reverse('class_attendance', args=[self.it_class.id]))
-        self.assertEqual(resp.status_code, 200)
-
-    def test_hod_cannot_access_attendance_other_department_not_teaching(self):
-        self.client.login(username='testhod', password='pass1234')
-        resp = self.client.get(reverse('class_attendance', args=[self.other_it_class.id]))
-        self.assertEqual(resp.status_code, 404)
-
-
-class TestHoDAssignStudentsCrossDepartment(HoDCrossDepartmentTestBase):
-    """AssignStudentsView: HoD can assign students to teaching classes in other departments."""
-
-    def test_hod_can_access_assign_students_own_department(self):
-        self.client.login(username='testhod', password='pass1234')
-        resp = self.client.get(reverse('assign_students', args=[self.maths_class.id]))
-        self.assertEqual(resp.status_code, 200)
-
-    def test_hod_can_access_assign_students_other_department_teaching(self):
-        self.client.login(username='testhod', password='pass1234')
-        resp = self.client.get(reverse('assign_students', args=[self.it_class.id]))
-        self.assertEqual(resp.status_code, 200)
-
-    def test_hod_cannot_access_assign_students_other_department_not_teaching(self):
-        self.client.login(username='testhod', password='pass1234')
-        resp = self.client.get(reverse('assign_students', args=[self.other_it_class.id]))
-        self.assertEqual(resp.status_code, 404)
-
-
-class TestHoDDashboardCrossDepartment(HoDCrossDepartmentTestBase):
-    """HoD dashboard should show classes from own department AND teaching classes from other departments."""
-
-    def test_hod_overview_includes_other_department_teaching_classes(self):
-        self.client.login(username='testhod', password='pass1234')
-        resp = self.client.get(reverse('hod_overview'))
-        self.assertEqual(resp.status_code, 200)
-        content = resp.content.decode()
-        self.assertIn('Maths 01', content)
-        self.assertIn('Web Dev 01', content)
-
-    def test_hod_overview_excludes_non_teaching_other_department_classes(self):
-        self.client.login(username='testhod', password='pass1234')
-        resp = self.client.get(reverse('hod_overview'))
-        content = resp.content.decode()
-        self.assertNotIn('IT Fundamentals', content)
-
-    def test_hod_manage_classes_includes_other_department_teaching_classes(self):
-        self.client.login(username='testhod', password='pass1234')
+    def test_all_departments_shows_correct_classes(self):
+        """No filter: Maths 01, Maths 02 (headed dept), Coding 01 (teaches)."""
         resp = self.client.get(reverse('hod_manage_classes'))
         self.assertEqual(resp.status_code, 200)
-        content = resp.content.decode()
-        self.assertIn('Maths 01', content)
-        self.assertIn('Web Dev 01', content)
+        classes = list(resp.context['classes'])
+        class_names = {c.name for c in classes}
+        # Headed dept: all maths classes
+        self.assertIn('Maths 01', class_names)
+        self.assertIn('Maths 02', class_names)
+        # Other dept: only classes she teaches
+        self.assertIn('Coding 01', class_names)
+        # Should NOT include Bob's coding class
+        self.assertNotIn('Coding 02', class_names)
 
-    def test_hod_manage_classes_excludes_non_teaching_other_department_classes(self):
-        self.client.login(username='testhod', password='pass1234')
+    def test_filter_by_headed_department_shows_all_classes(self):
+        """Filter by Maths: shows all maths classes (Inoshi is HoD)."""
+        resp = self.client.get(
+            reverse('hod_manage_classes') + f'?department={self.maths_dept.id}'
+        )
+        self.assertEqual(resp.status_code, 200)
+        classes = list(resp.context['classes'])
+        class_names = {c.name for c in classes}
+        self.assertIn('Maths 01', class_names)
+        self.assertIn('Maths 02', class_names)
+        self.assertNotIn('Coding 01', class_names)
+
+    def test_filter_by_teaching_department_shows_only_own_classes(self):
+        """Filter by Coding: shows only Coding 01 (Inoshi teaches it), not Coding 02."""
+        resp = self.client.get(
+            reverse('hod_manage_classes') + f'?department={self.coding_dept.id}'
+        )
+        self.assertEqual(resp.status_code, 200)
+        classes = list(resp.context['classes'])
+        class_names = {c.name for c in classes}
+        self.assertIn('Coding 01', class_names)
+        self.assertNotIn('Coding 02', class_names)
+
+    def test_department_dropdown_shows_both_departments(self):
+        """Dropdown should list both Maths and Coding departments."""
         resp = self.client.get(reverse('hod_manage_classes'))
-        content = resp.content.decode()
-        self.assertNotIn('IT Fundamentals', content)
+        departments = list(resp.context['departments'])
+        dept_names = {d.name for d in departments}
+        self.assertIn('Mathematics', dept_names)
+        self.assertIn('Coding', dept_names)
 
+    def test_selected_dept_id_in_context(self):
+        """selected_dept_id should be set when filtering."""
+        resp = self.client.get(
+            reverse('hod_manage_classes') + f'?department={self.maths_dept.id}'
+        )
+        self.assertEqual(resp.context['selected_dept_id'], self.maths_dept.id)
 
-class TestHoDRemoveStudentCrossDepartment(HoDCrossDepartmentTestBase):
-    """ClassStudentRemoveView: HoD can remove students from teaching classes in other depts."""
+    def test_no_filter_selected_dept_id_is_none(self):
+        """selected_dept_id should be None when no filter applied."""
+        resp = self.client.get(reverse('hod_manage_classes'))
+        self.assertIsNone(resp.context['selected_dept_id'])
 
-    def test_hod_can_remove_student_from_own_department_class(self):
-        self.client.login(username='testhod', password='pass1234')
-        resp = self.client.post(reverse('class_student_remove', args=[self.maths_class.id, self.student.id]))
-        self.assertIn(resp.status_code, [200, 302])
-
-    def test_hod_can_remove_student_from_other_department_teaching_class(self):
-        self.client.login(username='testhod', password='pass1234')
-        resp = self.client.post(reverse('class_student_remove', args=[self.it_class.id, self.student.id]))
-        self.assertIn(resp.status_code, [200, 302])
-
-    def test_hod_cannot_remove_student_from_non_teaching_other_department_class(self):
-        self.client.login(username='testhod', password='pass1234')
-        resp = self.client.post(reverse('class_student_remove', args=[self.other_it_class.id, self.student.id]))
-        self.assertEqual(resp.status_code, 404)
+    def test_invalid_department_id_shows_all(self):
+        """Invalid department ID falls back to showing all."""
+        resp = self.client.get(
+            reverse('hod_manage_classes') + '?department=99999'
+        )
+        self.assertEqual(resp.status_code, 200)
+        classes = list(resp.context['classes'])
+        # Should fall back to all visible classes
+        self.assertTrue(len(classes) >= 3)

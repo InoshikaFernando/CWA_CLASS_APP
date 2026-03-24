@@ -90,7 +90,7 @@
 
       <!-- Department grid -->
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {% for item in dept_data %}
+        {% for item in page %}
           <a href="{% url 'admin_department_detail' school.id item.department.id %}"
              x-show="(search === '' || '{{ item.department.name|escapejs }}'.toLowerCase().includes(search.toLowerCase())) && (statusFilter === 'all' || (statusFilter === 'active' && {{ item.department.is_active|yesno:'true,false' }}) || (statusFilter === 'inactive' && !{{ item.department.is_active|yesno:'true,false' }}))"
              class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:shadow-md hover:border-accent/30 transition group">
@@ -142,6 +142,7 @@
            class="text-center py-8">
         <p class="text-gray-500">No departments match your search.</p>
       </div>
+      {% include "partials/pagination.html" with page=page %}
     </div>
 
   {% else %}

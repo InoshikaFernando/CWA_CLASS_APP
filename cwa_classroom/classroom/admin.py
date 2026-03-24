@@ -11,7 +11,7 @@ from .models import (
     PaymentReferenceMapping, InvoicePayment, CreditTransaction,
     TeacherHourlyRate, TeacherRateOverride, SalaryNumberSequence,
     SalarySlip, SalarySlipLineItem, SalaryPayment,
-    ParentStudent, ParentInvite,
+    ParentStudent, ParentInvite, Term,
 )
 
 
@@ -82,6 +82,13 @@ class SchoolStudentAdmin(admin.ModelAdmin):
 class AcademicYearAdmin(admin.ModelAdmin):
     list_display = ('school', 'year', 'start_date', 'end_date', 'is_current')
     list_filter = ('school', 'is_current')
+
+
+@admin.register(Term)
+class TermAdmin(admin.ModelAdmin):
+    list_display = ('name', 'school', 'academic_year', 'start_date', 'end_date', 'order')
+    list_filter = ('school', 'academic_year')
+    ordering = ('school', 'order', 'start_date')
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +227,7 @@ class NotificationAdmin(admin.ModelAdmin):
 
 @admin.register(SubjectApp)
 class SubjectAppAdmin(admin.ModelAdmin):
-    list_display = ('name', 'slug', 'is_active', 'is_coming_soon', 'order', 'external_url')
+    list_display = ('name', 'slug', 'subject', 'is_active', 'is_coming_soon', 'order', 'external_url')
     list_filter = ('is_active', 'is_coming_soon')
     list_editable = ('order', 'is_active', 'is_coming_soon')
     prepopulated_fields = {'slug': ('name',)}

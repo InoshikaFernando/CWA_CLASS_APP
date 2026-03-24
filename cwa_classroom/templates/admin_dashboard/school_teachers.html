@@ -175,7 +175,7 @@
 
         <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
           <div class="divide-y divide-slate-100">
-            {% for st in school_teachers %}
+            {% for st in page %}
               <div class="transition-all duration-200"
                    :class="modifiedIds.has({{ st.teacher.id }}) ? 'bg-accent/5 border-l-4 border-l-accent' : ''"
                    x-show="(search === '' || '{{ st.teacher.get_full_name|default:st.teacher.username|escapejs }}'.toLowerCase().includes(search.toLowerCase())) && (roleFilter === 'all' || roleFilter === '{{ st.role }}')">
@@ -293,6 +293,7 @@
           </div>
         </div>
       </form>
+      {% include "partials/pagination.html" with page=page %}
     </div>
   {% else %}
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">

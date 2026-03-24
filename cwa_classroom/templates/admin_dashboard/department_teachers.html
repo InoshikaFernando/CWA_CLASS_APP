@@ -21,7 +21,7 @@
         <form method="post">
           {% csrf_token %}
           <div class="space-y-2 mb-6 max-h-96 overflow-y-auto">
-            {% for st in school_teachers %}
+            {% for st in page %}
               <label class="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-accent/30 hover:bg-accent/5 cursor-pointer transition
                             {% if st.teacher.id in assigned_ids %}border-accent/20 bg-accent/5{% endif %}">
                 <input type="checkbox" name="teacher_ids" value="{{ st.teacher.id }}"
@@ -54,6 +54,8 @@
       {% endif %}
     </div>
   </div>
+
+  {% include "partials/pagination.html" %}
 
 </div>
 {% endblock %}

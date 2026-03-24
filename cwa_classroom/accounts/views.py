@@ -58,6 +58,8 @@ class AuditLoginView(LoginView):
             action='login_success',
             request=self.request,
         )
+        # Clear stale active_role from previous session
+        self.request.session.pop('active_role', None)
         # Clear rate limit on successful login
         ip = get_client_ip(self.request) or 'unknown'
         reset_rate_limit(f'login:{ip}')
@@ -74,6 +76,35 @@ class AuditLoginView(LoginView):
             request=self.request,
         )
         return super().form_invalid(form)
+
+
+class SwitchRoleView(LoginRequiredMixin, View):
+    """POST-only view to switch the user's active role."""
+
+    def post(self, request):
+        role = request.POST.get('role', '')
+        if not role or not request.user.has_role(role):
+            messages.error(request, 'Invalid role.')
+            return redirect('home')
+
+        request.session['active_role'] = role
+
+        # Redirect to the appropriate dashboard for the new role
+        dashboard_map = {
+            Role.PARENT: 'parent_dashboard',
+            Role.ADMIN: 'admin_dashboard',
+            Role.INSTITUTE_OWNER: 'admin_dashboard',
+            Role.HEAD_OF_INSTITUTE: 'admin_dashboard',
+            Role.HEAD_OF_DEPARTMENT: 'hod_overview',
+            Role.SENIOR_TEACHER: 'teacher_dashboard',
+            Role.TEACHER: 'teacher_dashboard',
+            Role.JUNIOR_TEACHER: 'teacher_dashboard',
+            Role.STUDENT: 'subjects_hub',
+            Role.INDIVIDUAL_STUDENT: 'subjects_hub',
+            Role.ACCOUNTANT: 'invoice_list',
+        }
+        target = dashboard_map.get(role, 'home')
+        return redirect(target)
 
 
 class DiagnosticPasswordResetView(PasswordResetView):
@@ -845,8 +876,17 @@ class CompleteProfileView(LoginRequiredMixin, View):
                                 stripe_coupon_id=stripe_coupon,
                             )
                             return redirect(session.url)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            import logging
+                            logging.getLogger(__name__).error(
+                                f'Stripe checkout session creation failed for user {user.id}: {e}'
+                            )
+                            messages.warning(request, 'Could not redirect to payment page. Please visit Billing to set up payment.')
+                    else:
+                        import logging
+                        logging.getLogger(__name__).warning(
+                            f'Package {package.id} ({package.name}) has no stripe_price_id — skipping Stripe redirect'
+                        )
 
         messages.success(request, 'Profile completed successfully! Welcome aboard.')
         return redirect('subjects_hub')

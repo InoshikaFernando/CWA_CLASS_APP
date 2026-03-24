@@ -390,6 +390,18 @@ class ModuleToggleViewTest(TestCase):
         )
         self.sub.stripe_subscription_id = 'sub_toggle_123'
         self.sub.save()
+        from billing.models import ModuleProduct
+        mp, _ = ModuleProduct.objects.get_or_create(
+            module='teachers_attendance',
+            defaults={
+                'name': 'Teachers Attendance',
+                'stripe_price_id': 'price_test_teachers_att',
+                'price': 10.00,
+            },
+        )
+        if not mp.stripe_price_id:
+            mp.stripe_price_id = 'price_test_teachers_att'
+            mp.save()
         self.client.login(username='mod_toggle', password='testpass123')
 
     def test_invalid_module_shows_error(self):

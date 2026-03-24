@@ -1,0 +1,207 @@
+{% extends "base_public.html" %}
+
+{% block title %}Register as Parent{% endblock %}
+{% block meta_description %}Create a parent account and link to your child's school profile using their Student ID.{% endblock %}
+
+{% block content %}
+<section class="py-16 bg-gradient-to-br from-violet-50 to-slate-50 min-h-[60vh]">
+  <div class="max-w-xl mx-auto px-4 sm:px-6">
+
+    <div class="text-center mb-8">
+      <div class="inline-flex items-center justify-center w-16 h-16 bg-violet-100 rounded-2xl mb-4">
+        <svg class="w-8 h-8 text-violet-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+        </svg>
+      </div>
+      <h1 class="font-display text-3xl text-gray-800 mb-2">Register as Parent</h1>
+      <p class="text-gray-500 text-sm">
+        Create your account and link to your child using their Student ID.
+      </p>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
+
+      {% if errors %}
+      <div class="mb-6 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm space-y-1">
+        {% for key, msg in errors.items %}
+          <p>{{ msg }}</p>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if messages %}
+      <div class="mb-6">
+        {% for message in messages %}
+        <div class="px-4 py-3 rounded-xl text-sm
+                    {% if message.tags == 'error' %}bg-red-50 border border-red-200 text-red-700
+                    {% elif message.tags == 'warning' %}bg-amber-50 border border-amber-200 text-amber-700
+                    {% else %}bg-green-50 border border-green-200 text-green-700{% endif %}">
+          {{ message }}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <form method="post" class="space-y-5" id="parent-join-form">
+        {% csrf_token %}
+
+        <!-- Name -->
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-semibold text-gray-700 mb-1.5">First Name <span class="text-red-500">*</span></label>
+            <input type="text" name="first_name" value="{{ form_data.first_name|default:'' }}" required autofocus
+                   placeholder="Jane"
+                   class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition" />
+          </div>
+          <div>
+            <label class="block text-sm font-semibold text-gray-700 mb-1.5">Last Name <span class="text-red-500">*</span></label>
+            <input type="text" name="last_name" value="{{ form_data.last_name|default:'' }}" required
+                   placeholder="Doe"
+                   class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition" />
+          </div>
+        </div>
+
+        <!-- Email -->
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Email Address <span class="text-red-500">*</span></label>
+          <input type="email" name="email" value="{{ form_data.email|default:'' }}" required
+                 placeholder="parent@example.com"
+                 class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition" />
+        </div>
+
+        <!-- Username -->
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Username <span class="text-gray-400 font-normal">(optional)</span></label>
+          <input type="text" name="username" value="{{ form_data.username|default:'' }}"
+                 placeholder="Leave blank to auto-generate from email"
+                 class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition" />
+          <p class="text-xs text-gray-400 mt-1">Letters and numbers only. Auto-generated if left blank.</p>
+        </div>
+
+        <!-- Password -->
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Password <span class="text-red-500">*</span></label>
+          <input type="password" name="password" required minlength="8"
+                 placeholder="At least 8 characters"
+                 class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition" />
+        </div>
+
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Confirm Password <span class="text-red-500">*</span></label>
+          <input type="password" name="confirm_password" required
+                 placeholder="Re-enter your password"
+                 class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition" />
+        </div>
+
+        <!-- Student IDs Section -->
+        <div class="border-t border-gray-100 pt-5">
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Link to Your Children <span class="text-red-500">*</span></label>
+          <p class="text-xs text-gray-400 mb-3">Enter the Student ID provided by your child's school (e.g. STU-001-0042).</p>
+
+          <div id="student-rows" class="space-y-3">
+            <!-- Row 0 (always visible) -->
+            <div class="flex gap-3 items-start student-row">
+              <div class="flex-1">
+                <input type="text" name="student_id_0"
+                       value="{% for sid, rel in form_data.student_entries %}{% if forloop.counter0 == 0 %}{{ sid }}{% endif %}{% endfor %}"
+                       required placeholder="e.g. STU-001-0042"
+                       class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition" />
+              </div>
+              <div class="w-36">
+                <select name="relationship_0"
+                        class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition">
+                  {% for val, label in relationship_choices %}
+                  <option value="{{ val }}"
+                    {% for sid, rel in form_data.student_entries %}{% if forloop.counter0 == 0 and rel == val %} selected{% endif %}{% endfor %}>
+                    {{ label }}
+                  </option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <button type="button" id="add-student-btn"
+                  onclick="addStudentRow()"
+                  class="mt-3 inline-flex items-center gap-1 text-sm font-medium text-violet-600 hover:text-violet-700 transition">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+            </svg>
+            Add another student
+          </button>
+        </div>
+
+        <button type="submit"
+                class="w-full bg-violet-600 hover:bg-violet-700 text-white font-semibold rounded-xl px-5 py-3 transition text-base">
+          Create Account
+        </button>
+      </form>
+
+      <div class="mt-6 text-center text-sm text-gray-500">
+        Already have an account?
+        <a href="{% url 'login' %}" class="text-violet-600 font-semibold hover:text-violet-700 transition">Sign in</a>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<script>
+(function() {
+  var rowCount = 1;
+  var maxRows = 5;
+  var container = document.getElementById('student-rows');
+  var addBtn = document.getElementById('add-student-btn');
+
+  // Relationship options HTML (built from server-rendered choices)
+  var relationshipOptions = '';
+  {% for val, label in relationship_choices %}
+  relationshipOptions += '<option value="{{ val }}">{{ label }}</option>';
+  {% endfor %}
+
+  window.addStudentRow = function() {
+    if (rowCount >= maxRows) return;
+
+    var div = document.createElement('div');
+    div.className = 'flex gap-3 items-start student-row';
+    div.innerHTML =
+      '<div class="flex-1">' +
+        '<input type="text" name="student_id_' + rowCount + '" placeholder="e.g. STU-001-0042"' +
+        ' class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition" />' +
+      '</div>' +
+      '<div class="w-36">' +
+        '<select name="relationship_' + rowCount + '"' +
+        ' class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition">' +
+        relationshipOptions +
+        '</select>' +
+      '</div>' +
+      '<button type="button" onclick="this.parentElement.remove(); rowCount--; addBtn.classList.remove(\'hidden\');"' +
+      ' class="text-gray-400 hover:text-red-500 transition mt-2.5">' +
+        '<svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">' +
+          '<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>' +
+        '</svg>' +
+      '</button>';
+
+    container.appendChild(div);
+    rowCount++;
+
+    if (rowCount >= maxRows) {
+      addBtn.classList.add('hidden');
+    }
+  };
+
+  // Restore additional rows from form_data on page reload
+  {% if form_data.student_entries %}
+    {% for sid, rel in form_data.student_entries %}
+      {% if not forloop.first %}
+        addStudentRow();
+        var rows = container.querySelectorAll('.student-row');
+        var lastRow = rows[rows.length - 1];
+        lastRow.querySelector('input[type="text"]').value = '{{ sid }}';
+        lastRow.querySelector('select').value = '{{ rel }}';
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+})();
+</script>
+{% endblock %}

@@ -136,6 +136,7 @@ class StripeWebhookView(View):
 
     EVENT_HANDLERS = {
         'checkout.session.completed': 'billing.webhook_handlers.handle_checkout_completed',
+        'customer.subscription.created': 'billing.webhook_handlers.handle_subscription_updated',
         'customer.subscription.updated': 'billing.webhook_handlers.handle_subscription_updated',
         'customer.subscription.deleted': 'billing.webhook_handlers.handle_subscription_deleted',
         'invoice.payment_succeeded': 'billing.webhook_handlers.handle_payment_succeeded',
@@ -177,6 +178,7 @@ class StripeWebhookView(View):
 
         # New: dispatch to dedicated handlers
         handler_path = self.EVENT_HANDLERS.get(event_type)
+        handler_succeeded = True
         if handler_path:
             try:
                 module_path, func_name = handler_path.rsplit('.', 1)
@@ -186,13 +188,18 @@ class StripeWebhookView(View):
                 handler(event['data'])
             except Exception:
                 logger.exception('Error handling webhook event %s', event_type)
+                handler_succeeded = False
 
-        # Record processed event
-        StripeEvent.objects.create(
-            event_id=event_id,
-            event_type=event_type,
-            payload=event.get('data', {}),
-        )
+        # Only record event if handler succeeded — allows retry on failure
+        if handler_succeeded:
+            StripeEvent.objects.create(
+                event_id=event_id,
+                event_type=event_type,
+                payload=event.get('data', {}),
+            )
+        else:
+            # Return 500 so Stripe retries the event
+            return HttpResponse(status=500)
 
         return HttpResponse(status=200)
 
@@ -499,7 +506,7 @@ class ModuleToggleView(LoginRequiredMixin, View):
     """Toggle a module add-on for an institute subscription."""
 
     def post(self, request):
-        module_slug = request.POST.get('module', '')
+        module_slug = request.POST.get('module_slug', '') or request.POST.get('module', '')
         action = request.POST.get('action', '')  # 'add' or 'remove'
 
         if module_slug not in dict(ModuleSubscription.MODULE_CHOICES):
@@ -516,8 +523,9 @@ class ModuleToggleView(LoginRequiredMixin, View):
             messages.error(request, 'Please subscribe to a plan first.')
             return redirect('institute_plan_select')
 
-        module_prices = getattr(settings, 'MODULE_STRIPE_PRICES', {})
-        stripe_price_id = module_prices.get(module_slug, '')
+        from billing.models import ModuleProduct
+        module_product = ModuleProduct.objects.filter(module=module_slug, is_active=True).first()
+        stripe_price_id = module_product.stripe_price_id if module_product else ''
 
         try:
             if action == 'add':

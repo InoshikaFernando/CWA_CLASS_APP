@@ -110,11 +110,32 @@
       {% for module_key, module_name in all_modules %}
       <div class="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
         <span class="text-sm text-gray-700">{{ module_name }}</span>
-        {% if module_key in active_modules %}
-          <span class="text-xs font-semibold text-green-600 bg-green-50 px-2 py-1 rounded-full">Active</span>
-        {% else %}
-          <span class="text-xs text-gray-400">Not subscribed</span>
-        {% endif %}
+        <div class="flex items-center gap-2">
+          {% if module_key in active_modules %}
+            <span class="text-xs font-semibold text-green-600 bg-green-50 px-2 py-1 rounded-full">Active</span>
+            {% if subscription.stripe_subscription_id %}
+            <form id="remove-{{ module_key }}" method="post" action="{% url 'module_toggle' %}">
+              {% csrf_token %}
+              <input type="hidden" name="module_slug" value="{{ module_key }}">
+              <input type="hidden" name="action" value="remove">
+              <button type="button" @click="$refs.modal.show({ title: 'Remove Module', message: 'Remove {{ module_name }}? $10/mo will be removed from your next invoice.', confirmText: 'Remove', variant: 'danger', formId: 'remove-{{ module_key }}' })"
+                      class="text-xs text-red-500 hover:text-red-700 font-medium">Remove</button>
+            </form>
+            {% endif %}
+          {% else %}
+            {% if subscription.stripe_subscription_id %}
+            <form id="add-{{ module_key }}" method="post" action="{% url 'module_toggle' %}">
+              {% csrf_token %}
+              <input type="hidden" name="module_slug" value="{{ module_key }}">
+              <input type="hidden" name="action" value="add">
+              <button type="button" @click="$refs.modal.show({ title: 'Add Module', message: 'Add {{ module_name }} for $10/month?', confirmText: 'Add Module', variant: 'default', formId: 'add-{{ module_key }}' })"
+                      class="text-xs bg-primary hover:bg-primary-dark text-white font-semibold rounded-lg px-3 py-1 transition">Add</button>
+            </form>
+            {% else %}
+            <span class="text-xs text-gray-400">Subscribe to a plan first</span>
+            {% endif %}
+          {% endif %}
+        </div>
       </div>
       {% endfor %}
     </div>
@@ -128,15 +149,73 @@
       Your subscription will remain active until the end of the current billing period.
       You will not be charged again.
     </p>
-    <form method="post" action="{% url 'institute_cancel_subscription' %}"
-          onsubmit="return confirm('Are you sure you want to cancel your subscription?')">
+    <form id="cancel-subscription" method="post" action="{% url 'institute_cancel_subscription' %}">
       {% csrf_token %}
-      <button type="submit"
+      <button type="button"
+              @click="$refs.modal.show({ title: 'Cancel Subscription', message: 'Are you sure? Your subscription will remain active until the end of the billing period.', confirmText: 'Cancel Subscription', variant: 'danger', formId: 'cancel-subscription' })"
               class="text-sm text-red-600 hover:text-red-800 font-medium transition">
         Cancel Subscription
       </button>
     </form>
   </div>
   {% endif %}
+
+  <!-- Confirm Modal -->
+  <div x-data="confirmModal()" x-ref="modal" x-cloak>
+    <div x-show="open" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+         class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" @click="cancel()"></div>
+    <div x-show="open" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+         x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95"
+         class="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6" @click.stop>
+        <div class="flex justify-center mb-4">
+          <div class="w-12 h-12 rounded-full flex items-center justify-center"
+               :class="variant === 'danger' ? 'bg-red-100' : 'bg-blue-100'">
+            <svg class="w-6 h-6" :class="variant === 'danger' ? 'text-red-600' : 'text-blue-600'"
+                 fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path x-show="variant === 'danger'" stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+              <path x-show="variant !== 'danger'" stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z"/>
+            </svg>
+          </div>
+        </div>
+        <h3 class="text-lg font-bold text-gray-900 text-center mb-2" x-text="title"></h3>
+        <p class="text-sm text-gray-500 text-center mb-6" x-text="message"></p>
+        <div class="flex gap-3">
+          <button @click="cancel()"
+                  class="flex-1 px-4 py-2.5 text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl transition">
+            Cancel
+          </button>
+          <button @click="proceed()"
+                  class="flex-1 px-4 py-2.5 text-sm font-semibold text-white rounded-xl transition"
+                  :class="variant === 'danger' ? 'bg-red-600 hover:bg-red-700' : 'bg-primary hover:bg-primary-dark'"
+                  x-text="confirmText">
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
+
+<script>
+function confirmModal() {
+  return {
+    open: false, title: '', message: '', confirmText: 'Confirm',
+    variant: 'default', _formId: null,
+    show(opts) {
+      this.title = opts.title || 'Confirm';
+      this.message = opts.message || 'Are you sure?';
+      this.confirmText = opts.confirmText || 'Confirm';
+      this.variant = opts.variant || 'default';
+      this._formId = opts.formId || null;
+      this.open = true;
+    },
+    cancel() { this.open = false; },
+    proceed() {
+      this.open = false;
+      if (this._formId) document.getElementById(this._formId).submit();
+    }
+  };
+}
+</script>
 {% endblock %}

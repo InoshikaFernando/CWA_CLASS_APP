@@ -1,6 +1,6 @@
 # Full System Specification — claude/gracious-ramanujan
 
-**Generated:** 2026-03-23
+**Generated:** 2026-03-23 (Updated: 2026-03-24)
 **Branch:** claude/gracious-ramanujan
 **Base:** main (cc6de993)
 
@@ -407,6 +407,8 @@ Constants: `ADMIN`, `SENIOR_TEACHER`, `TEACHER`, `JUNIOR_TEACHER`, `STUDENT`, `I
 | `/billing/institute/upgrade/` | InstitutePlanUpgradeView | GET |
 | `/billing/portal/` | StripeBillingPortalView | GET |
 | `/billing/module-required/` | ModuleRequiredView | GET |
+| `/billing/institute/module/toggle/` | ModuleToggleView | POST |
+| `/billing/history/` | BillingHistoryView | GET |
 
 ### Admin Actions
 | URL | View | Method |
@@ -423,6 +425,9 @@ Constants: `ADMIN`, `SENIOR_TEACHER`, `TEACHER`, `JUNIOR_TEACHER`, `STUDENT`, `I
 | Command | Purpose |
 |---------|---------|
 | `reset_invoice_counters` | Resets yearly invoice counters (cron: Jan 1). Supports `--dry-run` |
+| `sync_stripe_prices` | Fetches Stripe products/prices and syncs IDs into InstitutePlan, Package, and ModuleProduct records. Supports `--dry-run` |
+| `backfill_subscriptions` | Creates SchoolSubscription records for schools created before billing system. Supports `--dry-run` and `--status` |
+| `send_trial_expiry_warnings` | Sends email warnings to schools with expiring trials |
 
 ---
 
@@ -435,10 +440,8 @@ Constants: `ADMIN`, `SENIOR_TEACHER`, `TEACHER`, `JUNIOR_TEACHER`, `STUDENT`, `I
 
 **Impact:** A school with a `cancelled` subscription (not expired trial) could still access all features.
 
-#### B. `school_student` Checkout Type Not Handled in Webhooks
-`create_student_checkout_session()` sets `metadata.type = 'school_student'`, but `handle_checkout_completed()` only handles `'institute'` and `'individual'` types. A school student completing Stripe checkout would log a warning and the subscription would NOT be activated.
-
-**Impact:** School students who pay via Stripe will not get their subscription activated.
+#### B. ~~`school_student` Checkout Type Not Handled in Webhooks~~ **RESOLVED**
+`handle_checkout_completed()` now handles `'school_student'` type alongside `'individual'`.
 
 #### C. Invoice Year Reset Logic Incomplete
 `SchoolSubscription.invoice_year_start` field exists but is **never set** during registration or subscription activation. `reset_invoice_counters` command resets `invoices_used_this_year` but doesn't set `invoice_year_start`. The `check_invoice_limit()` function doesn't verify whether the current year matches `invoice_year_start`.
@@ -450,10 +453,8 @@ These fields exist on the model but are **never read** by any entitlement check,
 
 **Impact:** Discount codes promising custom limits will not deliver on that promise.
 
-#### E. No Stripe Price IDs in Seed Data
-Migration `0005_seed_institute_plans.py` seeds plans with `stripe_price_id=''` and `stripe_overage_price_id=''`. Without these IDs, Stripe Checkout will fail for all plans. There's no management command or admin action to populate them.
-
-**Impact:** Fresh deployments cannot use Stripe billing without manual database updates.
+#### E. ~~No Stripe Price IDs in Seed Data~~ **RESOLVED**
+Added `sync_stripe_prices` management command that fetches Stripe products/prices and matches them to InstitutePlan, Package, and ModuleProduct records by price amount. Run after deployment to populate all Stripe IDs.
 
 ### 10.2 SIGNIFICANT GAPS
 
@@ -474,10 +475,8 @@ The `DiscountCode` model has **no `stripe_coupon_id` field**, so individual stud
 
 **Impact:** Institute subscriptions pending cancellation at period end cannot be displayed correctly.
 
-#### I. No Module Add/Remove Views
-`add_module_to_subscription()` and `remove_module_from_subscription()` exist in `stripe_service.py`, but there are **no views or URL endpoints** that call them. The `InstituteSubscriptionDashboardView` shows module status but has no activation/deactivation UI.
-
-**Impact:** Module add-ons can only be managed via Django admin or shell — no self-service UI.
+#### I. ~~No Module Add/Remove Views~~ **RESOLVED**
+Added `ModuleToggleView` at `/billing/institute/module/toggle/` with Add/Remove buttons on the subscription dashboard. Module pricing stored in `ModuleProduct` model (database, not `.env`). Sidebar now includes Billing link for HoI/admin roles.
 
 #### J. Individual Student Legacy PaymentIntent Flow
 `CheckoutView`, `CreatePaymentIntentView`, and `ConfirmPaymentView` implement a legacy PaymentIntent-based checkout (not Checkout Sessions). This runs alongside the newer `create_individual_checkout_session()` flow. Both can create `Subscription` records.
@@ -532,10 +531,8 @@ The `{% school_has_module %}` template tag exists but its exact implementation w
 #### V. Welcome Email Sends Username in Plaintext
 `emails/welcome_staff.html` and `.txt` templates appear to send the username (and possibly temporary password) via email.
 
-#### W. No Webhook Retry Handling
-If a webhook handler throws an exception, the event is still recorded in `StripeEvent` (line 181-185 runs after the handler). This means a failed handler will never be retried since the idempotency check passes.
-
-**Impact:** Failed webhook processing is silently lost. Should only record after successful processing.
+#### W. ~~No Webhook Retry Handling~~ **RESOLVED**
+Webhook view now returns 500 on handler failure (instead of recording the event and returning 200). Stripe will retry failed events. Also added `customer.subscription.created` handler and auto-creates `SchoolSubscription` for schools that existed before the billing system.
 
 #### X. `Subscription` and `SchoolSubscription` Are Parallel Systems
 Individual students use `Subscription` (per-user), institutes use `SchoolSubscription` (per-school). These share no base class or common interface, leading to duplicated logic in middleware, webhook handlers, and entitlements.
@@ -548,14 +545,57 @@ Individual students use `Subscription` (per-user), institutes use `SchoolSubscri
 |-----------|-------|-------|
 | `billing/tests.py` | Plan limits, entitlements, module access, rate limiting, blocking | ~53 |
 | `billing/tests_stripe.py` | Stripe webhook handlers, checkout flows | ~37 |
+| `billing/tests_views_coverage.py` | Billing views, mixins, audit risk detection | 68 |
+| `billing/tests_webhook_handlers.py` | Webhook handlers end-to-end, idempotency, auto-create subscriptions | 32 |
 | `accounts/tests.py` | Registration, login, profile completion | ~varies |
 | `classroom/tests/test_e2e_school_setup.py` | End-to-end school setup | ~varies |
 | `classroom/tests/test_e2e_invoicing.py` | End-to-end invoicing | ~varies |
 | `classroom/tests/test_e2e_attendance_progress.py` | E2E attendance and progress | ~varies |
 | `classroom/tests/test_registration_flows.py` | All registration paths | ~varies |
 | `classroom/tests/test_student_flow.py` | Student lifecycle | ~varies |
+| `classroom/tests/test_views_coverage.py` | Classroom views (home, class CRUD, HoD, admin, contact) | 102 |
+| `classroom/tests/test_remaining_views_coverage.py` | Teacher, student, department, email, salary, invoicing, progress views | 121 |
+| `classroom/tests/test_department_views_coverage.py` | Department CRUD, HoD assignment, subjects, levels | 56 |
+| `classroom/tests/test_invoicing_main_views_coverage.py` | Invoicing views, fee config, accounting, role access | 85 |
+| `classroom/tests/test_accounts_admin_teacher_coverage.py` | Profile, select classes, parent invite, admin, teacher views | 52 |
+| `classroom/tests/test_sidebar_navigation.py` | Sidebar links presence for all roles (billing link regression) | 47 |
+| `classroom/tests/test_hod_cross_department.py` | HoD cross-department class visibility and filtering | 11 |
 
-**Total reported:** 409+ passing tests
+**Total:** 1,000+ passing tests at 80% code coverage
+
+## 12. New Models Added
+
+### ModuleProduct
+| Field | Type | Purpose |
+|-------|------|---------|
+| module | CharField(50, unique) | Module slug (e.g. `students_attendance`) |
+| name | CharField(100) | Display name |
+| stripe_price_id | CharField(200, blank) | Stripe Price ID (synced via `sync_stripe_prices`) |
+| price | DecimalField | Monthly price (default $10) |
+| is_active | BooleanField | Toggle availability |
+
+Replaces the `MODULE_STRIPE_PRICES` settings dict — all module pricing now stored in database.
+
+## 13. HoD Cross-Department Access Pattern
+
+HoD users who teach classes outside their headed department follow this access pattern:
+- **Headed department**: Full access to all classes, students, attendance
+- **Other departments**: Access only to classes they personally teach
+
+Views updated with `Q(department__head=user) | Q(teachers=user)` pattern:
+- `ClassDetailView`, `EditClassView`, `AssignStudentsView`
+- `ClassAttendanceView`, `UpdateStudentFeeView`, `ClassStudentRemoveView`
+- `HoDManageClassesView` (with department dropdown filter)
+- `HoDOverviewView` (dashboard stats include all teaching classes)
+- `HoDAttendanceReportView` (attendance data includes all teaching classes)
+
+## 14. Sidebar Navigation
+
+Billing link added to:
+- `sidebar_admin.html` (Admin/HoI/Institute Owner)
+- `sidebar_hod.html` (Head of Department)
+
+Links to `institute_subscription_dashboard` for plan management and module toggles.
 
 ---
 
@@ -569,6 +609,12 @@ Individual students use `Subscription` (per-user), institutes use `SchoolSubscri
 | `STRIPE_WEBHOOK_SECRET` | Webhook signature verification |
 | `STRIPE_CURRENCY` | Default currency (nzd) |
 | `AUTHENTICATION_BACKENDS` | Must include `accounts.backends.EmailOrUsernameBackend` |
+
+### Deployment Checklist
+1. `python manage.py migrate` — apply all migrations including `ModuleProduct`
+2. `python manage.py sync_stripe_prices` — sync Stripe Price IDs into database
+3. `python manage.py backfill_subscriptions` — create subscriptions for legacy schools
+4. Configure Stripe webhook endpoint with events: `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_succeeded`, `invoice.payment_failed`
 
 ### Subdomain Configuration
 | Subdomain | URL Config |

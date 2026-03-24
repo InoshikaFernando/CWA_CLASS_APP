@@ -1,3 +1,4 @@
+from django.core.paginator import Paginator
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
 from django.contrib import messages
@@ -110,11 +111,14 @@ class EmailCampaignListView(RoleRequiredMixin, View):
             messages.error(request, 'No school found.')
             return redirect('admin_dashboard')
 
-        campaigns = EmailCampaign.objects.filter(school=school)
+        campaigns = EmailCampaign.objects.filter(school=school).order_by('-created_at')
+        paginator = Paginator(campaigns, 25)
+        page = paginator.get_page(request.GET.get('page'))
 
         return render(request, 'admin_dashboard/email_campaign_list.html', {
             'school': school,
-            'campaigns': campaigns,
+            'campaigns': page,
+            'page': page,
         })
 
 

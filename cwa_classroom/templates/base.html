@@ -50,7 +50,7 @@
   {% block extra_head %}{% endblock %}
 </head>
 
-<body class="{% if is_parent %}bg-gradient-to-br from-violet-50 via-white to-purple-50{% elif is_student or is_individual_student %}bg-gradient-to-br from-emerald-50 via-white to-teal-50{% else %}bg-slate-50{% endif %} font-body text-gray-700 antialiased">
+<body class="{% if is_parent %}bg-violet-50{% elif is_student or is_individual_student %}bg-white{% else %}bg-slate-50{% endif %} font-body text-gray-700 antialiased">
 
   <!-- ── Topbar ─────────────────────────────────────────────── -->
   {% include "partials/topbar.html" %}
@@ -59,7 +59,7 @@
 
     <!-- ── Sidebar (desktop) ──────────────────────────────────── -->
     <aside id="sidebar"
-           class="hidden md:flex flex-col w-64 {% if is_parent %}bg-gradient-to-b from-violet-600 via-purple-600 to-indigo-700{% elif is_student or is_individual_student %}bg-gradient-to-b from-emerald-600 via-green-600 to-teal-700{% else %}bg-primary{% endif %} fixed top-16 bottom-0 left-0 z-30 overflow-y-auto">
+           class="hidden md:flex flex-col w-64 {% if is_parent %}bg-violet-700{% elif is_student or is_individual_student %}bg-sky-600{% else %}bg-primary{% endif %} fixed top-16 bottom-0 left-0 z-30 overflow-y-auto">
       {% block sidebar %}
         {% if is_admin_user %}
           {% include "partials/sidebar_admin.html" %}

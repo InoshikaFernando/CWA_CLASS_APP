@@ -1,6 +1,7 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
 from django.contrib import messages
+from django.core.paginator import Paginator
 from django.db import transaction
 from django.utils.text import slugify
 
@@ -31,9 +32,12 @@ class DepartmentListView(RoleRequiredMixin, View):
                 'teacher_count': teacher_count,
                 'class_count': class_count,
             })
+        paginator = Paginator(dept_data, 25)
+        page = paginator.get_page(request.GET.get('page'))
         return render(request, 'admin_dashboard/departments.html', {
             'school': school,
-            'dept_data': dept_data,
+            'dept_data': page,
+            'page': page,
             'total_departments': len(dept_data),
             'total_teachers': total_teachers,
             'total_classes': total_classes,
@@ -487,6 +491,8 @@ class DepartmentManageTeachersView(RoleRequiredMixin, View):
         school_teachers = SchoolTeacher.objects.filter(
             school=school, is_active=True
         ).select_related('teacher')
+        paginator = Paginator(school_teachers, 25)
+        page = paginator.get_page(request.GET.get('page'))
         # Currently assigned teacher IDs
         assigned_ids = set(
             DepartmentTeacher.objects.filter(department=department).values_list('teacher_id', flat=True)
@@ -494,7 +500,8 @@ class DepartmentManageTeachersView(RoleRequiredMixin, View):
         return render(request, 'admin_dashboard/department_teachers.html', {
             'school': school,
             'department': department,
-            'school_teachers': school_teachers,
+            'school_teachers': page,
+            'page': page,
             'assigned_ids': assigned_ids,
         })
 

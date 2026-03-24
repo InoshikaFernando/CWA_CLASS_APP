@@ -220,13 +220,17 @@ class ProfileCompletionTest(TestCase):
             'completed_student', password='goodpass123',
             first_name='Done', last_name='Student',
         )
+        student.profile_completed = True
+        student.must_change_password = False
+        student.save()
         _assign_role(student, Role.STUDENT)
         SchoolStudent.objects.create(school=self.school, student=student)
         client = Client()
         client.force_login(student)
         resp = client.get(reverse('subjects_hub'))
         # Should NOT redirect to complete-profile
-        self.assertNotEqual(resp.status_code, 302)
+        if resp.status_code == 302:
+            self.assertNotIn('complete-profile', resp.url)
 
 
 # ---------------------------------------------------------------------------

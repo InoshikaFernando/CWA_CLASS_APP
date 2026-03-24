@@ -52,15 +52,24 @@ def _activate_institute_from_checkout(metadata, stripe_subscription_id):
 
     try:
         school = School.objects.get(id=school_id)
-        sub = school.subscription
-    except (School.DoesNotExist, SchoolSubscription.DoesNotExist):
-        logger.error('School %s or subscription not found', school_id)
+    except School.DoesNotExist:
+        logger.error('School %s not found', school_id)
         return
 
-    plan = InstitutePlan.objects.filter(id=plan_id).first() if plan_id else sub.plan
+    plan = InstitutePlan.objects.filter(id=plan_id).first()
+
+    # Get or create subscription — handles schools created before billing system
+    try:
+        sub = school.subscription
+    except SchoolSubscription.DoesNotExist:
+        logger.info('Creating SchoolSubscription for existing school %s', school_id)
+        sub = SchoolSubscription(school=school)
+        if plan:
+            sub.plan = plan
 
     sub.status = SchoolSubscription.STATUS_ACTIVE
     sub.stripe_subscription_id = stripe_subscription_id or sub.stripe_subscription_id
+    sub.stripe_customer_id = sub.stripe_customer_id or ''
     sub.trial_end = None
     sub.current_period_start = timezone.now()
     if plan:
@@ -154,8 +163,19 @@ def _sync_institute_subscription(stripe_sub_id, status, metadata,
         try:
             sub = SchoolSubscription.objects.get(stripe_subscription_id=stripe_sub_id)
         except SchoolSubscription.DoesNotExist:
-            logger.warning('No SchoolSubscription found for stripe_sub %s', stripe_sub_id)
-            return
+            # Auto-create for schools that existed before billing system
+            if school_id:
+                from classroom.models import School
+                try:
+                    school = School.objects.get(id=school_id)
+                    sub = SchoolSubscription(school=school)
+                    logger.info('Auto-creating SchoolSubscription for school %s', school_id)
+                except School.DoesNotExist:
+                    logger.warning('No School found for id %s', school_id)
+                    return
+            else:
+                logger.warning('No SchoolSubscription found for stripe_sub %s', stripe_sub_id)
+                return
 
     sub.status = STATUS_MAP.get(status, status)
     sub.stripe_subscription_id = stripe_sub_id

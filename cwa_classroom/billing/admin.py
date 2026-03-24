@@ -2,7 +2,8 @@ from django.contrib import admin
 from .models import (
     Package, DiscountCode, Payment, Subscription, PromoCode,
     InstituteDiscountCode,
-    InstitutePlan, SchoolSubscription, ModuleSubscription, StripeEvent,
+    InstitutePlan, SchoolSubscription, ModuleProduct, ModuleSubscription,
+    StripeEvent,
 )
 
 
@@ -98,6 +99,13 @@ class SchoolSubscriptionAdmin(admin.ModelAdmin):
     search_fields = ('school__name', 'stripe_subscription_id')
     readonly_fields = ('created_at', 'updated_at')
     inlines = [ModuleSubscriptionInline]
+
+
+@admin.register(ModuleProduct)
+class ModuleProductAdmin(admin.ModelAdmin):
+    list_display = ('name', 'module', 'price', 'stripe_price_id', 'is_active')
+    list_editable = ('is_active',)
+    search_fields = ('name', 'module')
 
 
 @admin.register(ModuleSubscription)

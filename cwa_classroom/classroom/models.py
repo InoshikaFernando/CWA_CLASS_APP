@@ -351,6 +351,26 @@ class AcademicYear(models.Model):
         super().save(*args, **kwargs)
 
 
+class Term(models.Model):
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='terms')
+    academic_year = models.ForeignKey(
+        AcademicYear, on_delete=models.CASCADE, related_name='terms',
+        null=True, blank=True,
+    )
+    name = models.CharField(max_length=50)  # "Term 1", "Term 2", etc.
+    start_date = models.DateField()
+    end_date = models.DateField()
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['order', 'start_date']
+        unique_together = ('school', 'name', 'academic_year')
+
+    def __str__(self):
+        yr = f' ({self.academic_year.year})' if self.academic_year else ''
+        return f'{self.name}{yr} — {self.school.name}'
+
+
 # ---------------------------------------------------------------------------
 # Curriculum extensions: TopicLevel & SubTopic
 # ---------------------------------------------------------------------------
@@ -518,6 +538,10 @@ class SchoolStudent(models.Model):
         on_delete=models.CASCADE,
         related_name='school_student_entries',
     )
+    student_id_code = models.CharField(
+        max_length=20, blank=True, db_index=True,
+        help_text='Auto-generated student ID (e.g. STU-001-0042). Used for parent linking.',
+    )
     is_active = models.BooleanField(default=True)
     joined_at = models.DateTimeField(auto_now_add=True)
     opening_balance = models.DecimalField(
@@ -528,6 +552,27 @@ class SchoolStudent(models.Model):
     class Meta:
         unique_together = ('school', 'student')
         ordering = ['student__first_name', 'student__last_name']
+
+    def save(self, *args, **kwargs):
+        if not self.student_id_code:
+            self.student_id_code = self._generate_student_id()
+        super().save(*args, **kwargs)
+
+    def _generate_student_id(self):
+        """Generate a unique student ID like STU-001-0042."""
+        school_part = f'{self.school_id:03d}'
+        last = SchoolStudent.objects.filter(
+            school=self.school,
+            student_id_code__startswith=f'STU-{school_part}-',
+        ).order_by('-student_id_code').values_list('student_id_code', flat=True).first()
+        if last:
+            try:
+                seq = int(last.split('-')[-1]) + 1
+            except (ValueError, IndexError):
+                seq = 1
+        else:
+            seq = 1
+        return f'STU-{school_part}-{seq:04d}'
 
     def __str__(self):
         return f'{self.student.username} @ {self.school.name}'

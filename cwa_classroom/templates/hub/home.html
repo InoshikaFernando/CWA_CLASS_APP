@@ -1,122 +1,77 @@
-{% extends "base_public.html" %}
+{% extends "base.html" %}
 
-{% block title %}Subjects Hub{% endblock %}
+{% block title %}Home{% endblock %}
 {% block meta_description %}Your subjects hub — explore and launch available subjects.{% endblock %}
 
 {% block content %}
-<section class="py-12 bg-gradient-to-br from-blue-50 to-red-50 min-h-[70vh]">
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
-    <!-- Greeting -->
-    <div class="mb-10">
-      <h1 class="font-display text-3xl md:text-4xl text-gray-800 mb-2">
-        Welcome back, {{ user.get_full_name|default:user.username }}!
-      </h1>
-      <p class="text-gray-500">Explore your subjects below.</p>
+  <!-- Greeting -->
+  <h1 class="text-2xl md:text-3xl font-bold text-gray-800">
+    {{ greeting_tod }}, {{ user.first_name|default:user.username }}!
+  </h1>
+
+  <!-- Time Stats -->
+  <div class="flex gap-4 mt-4">
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 px-5 py-4 min-w-[120px]">
+      <p class="text-sm text-gray-500">Today</p>
+      <p class="text-xl font-bold text-gray-800">{{ time_daily }}</p>
     </div>
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 px-5 py-4 min-w-[120px]">
+      <p class="text-sm text-gray-500">This Week</p>
+      <p class="text-xl font-bold text-gray-800">{{ time_weekly }}</p>
+    </div>
+  </div>
 
-    <!-- Source Toggle (school students only) -->
-    {% if is_school_student and schools %}
-      <div class="mb-8">
-        <div class="inline-flex rounded-xl bg-white border border-slate-200 shadow-sm p-1">
-          {% for school in schools %}
-            <a href="?source=school"
-               class="px-5 py-2 rounded-lg text-sm font-semibold transition
-                      {% if active_source == 'school' %}bg-emerald-500 text-white shadow{% else %}text-gray-600 hover:bg-gray-100{% endif %}">
-              {{ school.name }}
-            </a>
-          {% endfor %}
-          <a href="?source=open"
-             class="px-5 py-2 rounded-lg text-sm font-semibold transition
-                    {% if active_source == 'open' %}bg-blue-500 text-white shadow{% else %}text-gray-600 hover:bg-gray-100{% endif %}">
-            Open Practice
-          </a>
-        </div>
-      </div>
-    {% endif %}
-
-    <!-- Subject Cards (always first) -->
-    <div class="mb-10">
-      <h2 class="text-xl font-bold text-gray-800 mb-6">Your Subjects</h2>
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {% for subject in subjects %}
-          {% include "partials/subject_card.html" with subject=subject %}
-        {% empty %}
-          <div class="col-span-full text-center py-12">
-            <p class="text-gray-400 text-lg">No subjects available yet. Check back soon!</p>
-          </div>
+  <!-- School Sections (school students) -->
+  {% for school_data in school_sections %}
+  <div class="mt-8">
+    {% if school_sections|length > 1 %}
+    {# Multiple schools: accordion per school #}
+    <details open class="group">
+      <summary class="flex items-center gap-2 cursor-pointer select-none">
+        <h2 class="text-lg font-semibold text-gray-700">{{ school_data.school.name }}</h2>
+        <svg class="w-5 h-5 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
+        </svg>
+      </summary>
+      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-4">
+        {% for card in school_data.subjects %}
+          {% include "hub/_subject_card.html" with card=card %}
         {% endfor %}
       </div>
+    </details>
+    {% else %}
+    {# Single school: flat section #}
+    <h2 class="text-lg font-semibold text-gray-700">Your School: {{ school_data.school.name }}</h2>
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-4">
+      {% for card in school_data.subjects %}
+        {% include "hub/_subject_card.html" with card=card %}
+      {% endfor %}
     </div>
-
-    <!-- School Classes grouped by Department (school mode) -->
-    {% if department_classes %}
-      <div class="mb-10">
-        <h2 class="text-xl font-bold text-gray-800 mb-6">Classes to Enrol</h2>
-        <div class="space-y-3">
-          {% for group in department_classes %}
-            <details class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden group">
-              <summary class="flex items-center justify-between px-6 py-4 cursor-pointer select-none hover:bg-gray-50 transition">
-                <div class="flex items-center gap-3">
-                  <span class="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 font-bold text-sm">
-                    {{ group.department.name|make_list|first }}
-                  </span>
-                  <div>
-                    <h3 class="font-bold text-gray-800">{{ group.department.name }}</h3>
-                    <p class="text-xs text-gray-400">{{ group.classes|length }} class{{ group.classes|length|pluralize:"es" }}</p>
-                  </div>
-                </div>
-                <svg class="w-5 h-5 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
-                </svg>
-              </summary>
-              <div class="px-6 pb-5 pt-2">
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {% for classroom in group.classes %}
-                    {% include "partials/global_class_card.html" with classroom=classroom enrolled_class_ids=enrolled_class_ids pending_class_ids=pending_class_ids %}
-                  {% endfor %}
-                </div>
-              </div>
-            </details>
-          {% endfor %}
-        </div>
-      </div>
     {% endif %}
-
-    <!-- Global Classes grouped by Subject (Open Practice mode or individual students) -->
-    {% if subject_classes %}
-      <div class="mb-10">
-        <h2 class="text-xl font-bold text-gray-800 mb-6">Available Classes</h2>
-        <div class="space-y-3">
-          {% for group in subject_classes %}
-            <details open class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden group">
-              <summary class="flex items-center justify-between px-6 py-4 cursor-pointer select-none hover:bg-gray-50 transition">
-                <div class="flex items-center gap-3">
-                  <span class="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 font-bold text-sm">
-                    {{ group.subject.name|make_list|first }}
-                  </span>
-                  <div>
-                    <h3 class="font-bold text-gray-800">{{ group.subject.name }}</h3>
-                    <p class="text-xs text-gray-400">{{ group.classes|length }} class{{ group.classes|length|pluralize:"es" }}</p>
-                  </div>
-                </div>
-                <svg class="w-5 h-5 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
-                </svg>
-              </summary>
-              <div class="px-6 pb-5 pt-2">
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                  {% for classroom in group.classes %}
-                    {% include "partials/global_class_card.html" with classroom=classroom enrolled_class_ids=enrolled_class_ids pending_class_ids=pending_class_ids %}
-                  {% endfor %}
-                </div>
-              </div>
-            </details>
-          {% endfor %}
-        </div>
-      </div>
-    {% endif %}
-
   </div>
-</section>
+  {% endfor %}
+
+  <!-- Global Subjects -->
+  {% if global_subjects %}
+  <div class="mt-8">
+    <h2 class="text-lg font-semibold text-gray-700">
+      {% if school_sections %}More Subjects{% else %}Your Subjects{% endif %}
+    </h2>
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-4">
+      {% for app in global_subjects %}
+        {% include "hub/_global_subject_card.html" with subject=app %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if not school_sections and not global_subjects %}
+  <div class="mt-12 text-center">
+    <p class="text-gray-400 text-lg">No subjects available yet. Check back soon!</p>
+  </div>
+  {% endif %}
+
+</div>
 {% endblock %}

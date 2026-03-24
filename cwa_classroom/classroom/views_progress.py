@@ -1,3 +1,4 @@
+from django.core.paginator import Paginator
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
 from django.contrib import messages
@@ -423,10 +424,13 @@ class ProgressCriteriaApprovalListView(RoleRequiredMixin, ModuleRequiredMixin, V
             .filter(school=school, status='pending_approval')
             .select_related('subject', 'level', 'created_by', 'parent')
         )
+        paginator = Paginator(criteria, 25)
+        page = paginator.get_page(request.GET.get('page'))
 
         return render(request, 'progress/criteria_approval.html', {
             'school': school,
-            'criteria': criteria,
+            'criteria': page,
+            'page': page,
         })
 
 
