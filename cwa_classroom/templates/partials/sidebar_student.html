@@ -75,23 +75,21 @@
   <!-- Spacer -->
   <div class="flex-1"></div>
 
-  <!-- Trial banner (IndividualStudent only) -->
-  {% if is_individual_student and request.user.subscription.status == 'trialing' %}
+  <!-- Trial banner (all students) -->
+  {% if trial_info.is_trialing %}
     <div class="mx-1 mb-2 px-3 py-2.5 bg-yellow-400/20 border border-yellow-300/30 rounded-2xl text-center">
       <p class="text-xs font-bold text-yellow-100">
-        ⏳ Trial ends in {{ request.user.subscription.trial_days_remaining }} day{{ request.user.subscription.trial_days_remaining|pluralize }}
+        ⏳ Trial ends in {{ trial_info.days_remaining }} day{{ trial_info.days_remaining|pluralize }}
       </p>
     </div>
   {% endif %}
 
-  <!-- Billing (IndividualStudent only) -->
-  {% if is_individual_student %}
-  <a href="{% url 'change_package' %}"
+  <!-- Billing (all students) -->
+  <a href="{% url 'billing_history' %}"
      class="flex items-center gap-3 px-4 py-3 rounded-2xl text-white font-bold transition hover:bg-white/15 hover:scale-[1.01]">
     <span class="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-white/20 text-lg">💳</span>
     <span>Billing</span>
   </a>
-  {% endif %}
 
   <!-- Profile -->
   <a href="{% url 'profile' %}"

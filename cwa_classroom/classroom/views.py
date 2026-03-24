@@ -2667,8 +2667,8 @@ class SubjectsHubView(LoginRequiredMixin, View):
     """
     Authenticated home -- shows greeting + subject cards.
     Redirects non-student roles to their role-specific dashboards.
-    Students and Individual Students stay on the subjects hub with
-    optional school/open-practice toggle.
+    Students see school-based subject cards; Individual Students see
+    global SubjectApp cards. Both see time stats.
     """
 
     def get(self, request):
@@ -2697,92 +2697,120 @@ class SubjectsHubView(LoginRequiredMixin, View):
 
         # ----- Student / Individual Student -----
 
-        # School students go directly to their dashboard (enrolled classes view)
-        if user.has_role(Role.STUDENT) and not user.has_role(Role.INDIVIDUAL_STUDENT):
-            return redirect('student_dashboard')
+        # Time-of-day greeting
+        from django.utils import timezone as tz
+        from django.utils.timezone import localtime
+        local_hour = localtime(tz.now()).hour
+        if local_hour < 12:
+            greeting_tod = 'Good morning'
+        elif local_hour < 17:
+            greeting_tod = 'Good afternoon'
+        else:
+            greeting_tod = 'Good evening'
 
-        # SubjectApp cards (always shown)
-        subjects = SubjectApp.objects.exclude(
-            is_active=False, is_coming_soon=False,
-        ).order_by('order')
+        # Time stats
+        from maths.views import get_or_create_time_log
+        time_log = get_or_create_time_log(user)
+        time_daily = _format_seconds(time_log.daily_seconds)
+        time_weekly = _format_seconds(time_log.weekly_seconds)
 
-        # Determine if user is a school student
         is_school_student = user.has_role(Role.STUDENT)
-        schools = []
+
+        # ── SCHOOL STUDENT path ──
         if is_school_student:
-            schools = list(
-                School.objects.filter(
-                    school_students__student=user,
-                    school_students__is_active=True,
-                    is_active=True,
-                ).distinct()
-            )
+            school_memberships = SchoolStudent.objects.filter(
+                student=user, is_active=True, school__is_active=True,
+            ).select_related('school')
+            schools = [ss.school for ss in school_memberships]
 
-        # Source toggle: "school" or "open"
-        active_source = request.GET.get(
-            'source', 'school' if schools else 'open',
-        )
-        active_school = schools[0] if (active_source == 'school' and schools) else None
+            if schools:
+                # Enrolled class lookup: classroom_id -> classroom
+                enrolled_classes = {}
+                for cs in ClassStudent.objects.filter(
+                    student=user, is_active=True,
+                ).select_related('classroom', 'classroom__subject'):
+                    enrolled_classes[cs.classroom.subject_id] = cs.classroom
 
-        # Global classes grouped by subject (for "Open Practice" or individual students)
-        subject_classes = []
-        if active_source == 'open' or not schools:
-            subjects_with_classes = Subject.objects.filter(
-                classrooms__school__isnull=True,
-                classrooms__is_active=True,
-            ).distinct().order_by('order', 'name')
-            for subj in subjects_with_classes:
-                classes = list(
-                    ClassRoom.objects.filter(
-                        subject=subj, school__isnull=True, is_active=True,
-                    ).select_related('subject').order_by('name')
-                )
-                if classes:
-                    subject_classes.append({
-                        'subject': subj,
-                        'classes': classes,
-                    })
+                # Build per-school sections
+                school_sections = []
+                covered_subject_ids = set()  # SubjectApp.subject_id values covered by schools
+                for school in schools:
+                    departments = Department.objects.filter(
+                        school=school, is_active=True,
+                    ).prefetch_related('subjects')
+                    subject_cards = []
+                    for dept in departments:
+                        for subj in dept.subjects.filter(is_active=True):
+                            # Track which global subjects are covered
+                            if subj.global_subject_id:
+                                covered_subject_ids.add(subj.global_subject_id)
+                            covered_subject_ids.add(subj.id)
 
-        # School departments with classes (for school mode)
-        department_classes = []
-        if active_school:
-            departments = Department.objects.filter(
-                school=active_school, is_active=True,
-            ).order_by('name')
-            for dept in departments:
-                classes = list(
-                    ClassRoom.objects.filter(
-                        department=dept, is_active=True,
-                    ).select_related('subject').order_by('name')
-                )
-                if classes:
-                    department_classes.append({
-                        'department': dept,
-                        'classes': classes,
-                    })
+                            # Determine link: enrolled class or school class list
+                            enrolled_cr = enrolled_classes.get(subj.id)
+                            if enrolled_cr:
+                                link = reverse('class_detail', args=[enrolled_cr.id])
+                            else:
+                                link = reverse('student_my_classes')
 
-        # Enrollment status sets for the class cards
-        enrolled_class_ids = set(
-            ClassStudent.objects.filter(
-                student=user, is_active=True,
-            ).values_list('classroom_id', flat=True)
-        )
-        pending_class_ids = set(
-            Enrollment.objects.filter(
-                student=user, status='pending',
-            ).values_list('classroom_id', flat=True)
+                            # Try to find a matching SubjectApp for icon/color
+                            matching_app = SubjectApp.objects.filter(
+                                subject=subj, is_active=True,
+                            ).first()
+                            if not matching_app and subj.global_subject_id:
+                                matching_app = SubjectApp.objects.filter(
+                                    subject_id=subj.global_subject_id, is_active=True,
+                                ).first()
+
+                            subject_cards.append({
+                                'name': subj.name,
+                                'description': matching_app.description if matching_app else '',
+                                'icon_name': matching_app.icon_name if matching_app else '',
+                                'color': matching_app.color if matching_app else '#16a34a',
+                                'link': link,
+                                'is_enrolled': enrolled_cr is not None,
+                            })
+
+                    if subject_cards:
+                        school_sections.append({
+                            'school': school,
+                            'subjects': subject_cards,
+                        })
+
+                # Global SubjectApps NOT covered by any school
+                global_apps = SubjectApp.objects.filter(
+                    is_active=True, is_coming_soon=False,
+                ).order_by('order')
+                global_subjects = []
+                for app in global_apps:
+                    app_subject_id = app.subject_id
+                    if app_subject_id and app_subject_id in covered_subject_ids:
+                        continue
+                    global_subjects.append(app)
+
+                return render(request, 'hub/home.html', {
+                    'greeting_tod': greeting_tod,
+                    'time_daily': time_daily,
+                    'time_weekly': time_weekly,
+                    'school_sections': school_sections,
+                    'global_subjects': global_subjects,
+                    'is_school_student': True,
+                })
+
+        # ── INDIVIDUAL STUDENT path (or school student with no schools) ──
+        global_subjects = list(
+            SubjectApp.objects.filter(
+                is_active=True, is_coming_soon=False,
+            ).order_by('order')
         )
 
         return render(request, 'hub/home.html', {
-            'subjects': subjects,
-            'schools': schools,
-            'is_school_student': is_school_student,
-            'active_source': active_source,
-            'active_school': active_school,
-            'subject_classes': subject_classes,
-            'department_classes': department_classes,
-            'enrolled_class_ids': enrolled_class_ids,
-            'pending_class_ids': pending_class_ids,
+            'greeting_tod': greeting_tod,
+            'time_daily': time_daily,
+            'time_weekly': time_weekly,
+            'school_sections': [],
+            'global_subjects': global_subjects,
+            'is_school_student': False,
         })
 
 

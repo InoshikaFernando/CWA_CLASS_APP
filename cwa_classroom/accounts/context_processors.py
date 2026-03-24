@@ -52,4 +52,24 @@ def user_role(request):
         ctx['user_schools'] = all_schools
         ctx['current_school'] = school
 
+    # Trial info for all students (sidebar trial banner)
+    trial_info = {'is_trialing': False, 'days_remaining': 0}
+    if active_role in (Role.STUDENT, Role.INDIVIDUAL_STUDENT):
+        if active_role == Role.INDIVIDUAL_STUDENT:
+            try:
+                ind_sub = user.subscription
+                if ind_sub and ind_sub.status == 'trialing':
+                    trial_info = {'is_trialing': True, 'days_remaining': ind_sub.trial_days_remaining}
+            except Exception:
+                pass
+        else:
+            # School student — check school subscription
+            from classroom.models import SchoolStudent
+            ss = SchoolStudent.objects.filter(student=user, is_active=True).select_related('school').first()
+            if ss:
+                school_sub = get_school_subscription(ss.school)
+                if school_sub and school_sub.status == 'trialing':
+                    trial_info = {'is_trialing': True, 'days_remaining': school_sub.trial_days_remaining}
+    ctx['trial_info'] = trial_info
+
     return ctx
