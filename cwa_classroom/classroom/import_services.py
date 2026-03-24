@@ -25,9 +25,10 @@ MAX_CSV_ROWS = 5000
 
 # All mappable columns — key is the system field, value is the display label
 COLUMN_FIELDS = {
-    # Required (at least first_name+last_name OR children)
+    # Required (at least first_name+last_name OR full_name OR children)
     'first_name': 'Student First Name',
     'last_name': 'Student Last Name',
+    'full_name': 'Student Full Name',
     'email': 'Student Email',
     # Special — comma-separated "FirstName LastName" list (expands into multiple students)
     'children': 'Children (full names)',
@@ -66,8 +67,9 @@ COLUMN_FIELDS = {
 }
 
 REQUIRED_FIELDS = {'first_name', 'last_name', 'email'}
-# When 'children' column is mapped, first_name/last_name/email are not required
+# When 'children' or 'full_name' is mapped, first_name/last_name are not required
 CHILDREN_MODE_REPLACES = {'first_name', 'last_name', 'email'}
+FULL_NAME_MODE_REPLACES = {'first_name', 'last_name'}
 
 # ── Source system presets ────────────────────────────────────
 # Each preset maps our system field → the CSV/XLS header name used by that system.
@@ -312,15 +314,17 @@ def validate_and_preview(data_rows, column_mapping, school):
     errors = []
     warnings = []
 
-    # Children mode: 'children' column is mapped, first_name/last_name come from it
+    # Mode detection
     children_mode = 'children' in column_mapping
+    full_name_mode = 'full_name' in column_mapping and not children_mode
 
     # Check required fields are mapped
     if children_mode:
         required = REQUIRED_FIELDS - CHILDREN_MODE_REPLACES
-        # In children mode, parent email is required instead of student email
         if 'parent1_email' not in column_mapping:
             errors.append('When using "Children" column, "Parent 1 Email" must be mapped.')
+    elif full_name_mode:
+        required = REQUIRED_FIELDS - FULL_NAME_MODE_REPLACES
     else:
         required = REQUIRED_FIELDS
     for f in required:
@@ -333,7 +337,6 @@ def validate_and_preview(data_rows, column_mapping, school):
     if children_mode:
         original_col_count = len(data_rows[0]) if data_rows else 0
         data_rows = _expand_children_rows(data_rows, column_mapping)
-        # Child first/last name are at appended positions
         child_first_idx = original_col_count
         child_last_idx = original_col_count + 1
     else:
@@ -347,6 +350,21 @@ def validate_and_preview(data_rows, column_mapping, school):
         if children_mode:
             first_name = _get_cell(row, child_first_idx)
             last_name = _get_cell(row, child_last_idx)
+        elif full_name_mode:
+            raw_full_name = _get_cell(row, column_mapping.get('full_name'))
+            if raw_full_name:
+                first_name, last_name = _split_child_name(raw_full_name)
+            else:
+                first_name, last_name = '', ''
+            # Allow explicit first/last to override if also mapped
+            if column_mapping.get('first_name') is not None:
+                override = _get_cell(row, column_mapping.get('first_name'))
+                if override:
+                    first_name = override
+            if column_mapping.get('last_name') is not None:
+                override = _get_cell(row, column_mapping.get('last_name'))
+                if override:
+                    last_name = override
         else:
             first_name = _get_cell(row, column_mapping.get('first_name'))
             last_name = _get_cell(row, column_mapping.get('last_name'))
@@ -381,6 +399,9 @@ def validate_and_preview(data_rows, column_mapping, school):
             if parent_last:
                 last_name = parent_last
                 warnings.append(f'Row {row_idx}: Using parent last name for {first_name}.')
+            elif full_name_mode or children_mode:
+                # Single-word names are OK in full_name/children mode
+                last_name = ''
             else:
                 errors.append(f'Row {row_idx}: Missing last name for {first_name}.')
                 continue

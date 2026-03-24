@@ -110,7 +110,10 @@
           <label class="block text-xs font-semibold text-gray-600 mb-1">
             {{ label }}
             {% if field == 'first_name' or field == 'last_name' or field == 'email' %}
-            <span class="text-red-500">*</span>
+            <span class="text-red-500 required-star" data-field="{{ field }}">*</span>
+            {% endif %}
+            {% if field == 'full_name' %}
+            <span class="text-gray-400 text-[10px] ml-1">or use First + Last Name</span>
             {% endif %}
           </label>
           <select name="col_{{ field }}"
@@ -118,7 +121,7 @@
             <option value="-1">-- Not mapped --</option>
             {% for h in headers %}
             <option value="{{ forloop.counter0 }}"
-              {% if h|lower == field|lower or h|lower == label|lower %}selected{% endif %}
+              {% if not selected_preset %}{% if h|lower == field|lower or h|lower == label|lower %}selected{% endif %}{% endif %}
             >{{ h }}</option>
             {% endfor %}
           </select>
@@ -158,6 +161,25 @@ function updatePresetSelection(radio) {
   for (const [field, idx] of Object.entries(presetMapping)) {
     const select = document.querySelector('select[name="col_' + field + '"]');
     if (select) select.value = String(idx);
+  }
+
+  // If 'children' is mapped, first_name/last_name/email are not required
+  if ('children' in presetMapping) {
+    document.querySelectorAll('.required-star').forEach(star => {
+      const field = star.dataset.field;
+      if (field === 'first_name' || field === 'last_name' || field === 'email') {
+        star.style.display = 'none';
+      }
+    });
+  }
+  // If 'full_name' is mapped, first_name/last_name are not required
+  if ('full_name' in presetMapping) {
+    document.querySelectorAll('.required-star').forEach(star => {
+      const field = star.dataset.field;
+      if (field === 'first_name' || field === 'last_name') {
+        star.style.display = 'none';
+      }
+    });
   }
 })();
 {% endif %}

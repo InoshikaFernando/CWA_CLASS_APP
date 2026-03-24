@@ -133,6 +133,32 @@ class ValidateAndPreviewTests(CSVImportTestBase):
         self.assertEqual(len(result['classes_new']), 1)  # Year 7 Mon
         self.assertIn('Mathematics', result['departments_new'])
 
+    def test_full_name_splits_into_first_last(self):
+        """full_name column auto-splits into first + last name."""
+        csv = (
+            b'full_name,email\n'
+            b'John Smith,john@test.com\n'
+            b'Ridma Amreen Rahman,ridma@test.com\n'
+            b'Madonna,madonna@test.com\n'
+        )
+        headers, rows = parse_csv_file(csv)
+        mapping = {'full_name': 0, 'email': 1}
+        result = validate_and_preview(rows, mapping, self.school)
+        self.assertEqual(len(result['errors']), 0)
+        self.assertEqual(len(result['students_new']), 3)
+
+        names = {s['first_name']: s['last_name'] for s in result['students_new']}
+        self.assertEqual(names['John'], 'Smith')
+        self.assertEqual(names['Ridma'], 'Amreen Rahman')
+        self.assertEqual(names['Madonna'], '')  # single name
+
+    def test_full_name_not_required_when_first_last_mapped(self):
+        """first_name + last_name still works without full_name."""
+        headers, rows = parse_csv_file(self.SIMPLE_CSV)
+        mapping = self._mapping(headers)
+        result = validate_and_preview(rows, mapping, self.school)
+        self.assertEqual(len(result['students_new']), 2)
+
     def test_student_deduplication(self):
         headers, rows = parse_csv_file(self.MULTI_CLASS_CSV)
         mapping = self._mapping(headers)
