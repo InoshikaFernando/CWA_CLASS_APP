@@ -5,7 +5,7 @@
 
   <div>
     <h1 class="font-display text-3xl text-gray-800">📊 My Progress</h1>
-    <p class="text-sky-500 text-sm mt-1 font-semibold">Your performance across all topics and levels.</p>
+    <p class="text-emerald-500 text-sm mt-1 font-semibold">Your performance across all topics and levels.</p>
   </div>
 
   <!-- Filter controls -->
@@ -13,19 +13,19 @@
   <div class="flex flex-wrap items-center gap-2">
     <a href="{% url 'student_dashboard' %}"
        class="px-4 py-2 rounded-xl text-sm font-semibold transition
-              {% if not filter_class_id and not filter_subject_id %}bg-sky-500 text-white shadow-sm{% else %}bg-white border border-slate-200 text-gray-600 hover:bg-gray-50{% endif %}">
+              {% if not filter_class_id and not filter_subject_id %}bg-emerald-500 text-white shadow-sm{% else %}bg-white border border-slate-200 text-gray-600 hover:bg-gray-50{% endif %}">
       All
     </a>
     {% for subject in enrolled_subjects %}
       <a href="{% url 'student_dashboard' %}?subject_id={{ subject.id }}"
          class="px-4 py-2 rounded-xl text-sm font-semibold transition
-                {% if filter_subject_id == subject.id %}bg-sky-500 text-white shadow-sm{% else %}bg-white border border-slate-200 text-gray-600 hover:bg-gray-50{% endif %}">
+                {% if filter_subject_id == subject.id %}bg-emerald-500 text-white shadow-sm{% else %}bg-white border border-slate-200 text-gray-600 hover:bg-gray-50{% endif %}">
         {{ subject.name }}
       </a>
     {% endfor %}
     {% if enrolled_classes|length > 1 %}
       <select onchange="if(this.value) window.location.href=this.value; else window.location.href='{% url 'student_dashboard' %}';"
-              class="px-4 py-2 rounded-xl text-sm font-semibold border border-slate-200 bg-white text-gray-600 focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition">
+              class="px-4 py-2 rounded-xl text-sm font-semibold border border-slate-200 bg-white text-gray-600 focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 transition">
         <option value="">Filter by class...</option>
         {% for cls in enrolled_classes %}
           <option value="{% url 'student_dashboard' %}?class_id={{ cls.id }}"
@@ -40,11 +40,11 @@
 
   <!-- Time stats -->
   <div class="grid grid-cols-2 gap-4">
-    <div class="bg-sky-500 rounded-2xl shadow-sm p-5 text-center">
+    <div class="bg-emerald-500 rounded-2xl shadow-sm p-5 text-center">
       <p class="font-display text-3xl text-white">{{ time_daily }}</p>
       <p class="text-xs text-white/80 font-bold uppercase tracking-wide mt-1">Today</p>
     </div>
-    <div class="bg-sky-600 rounded-2xl shadow-sm p-5 text-center">
+    <div class="bg-emerald-600 rounded-2xl shadow-sm p-5 text-center">
       <p class="font-display text-3xl text-white">{{ time_weekly }}</p>
       <p class="text-xs text-white/80 font-bold uppercase tracking-wide mt-1">This Week</p>
     </div>
@@ -52,10 +52,10 @@
 
   <!-- ── Year Level Progress (accordion) ─────────────────────────────────── -->
   {% if progress_grid %}
-  <details class="group bg-white rounded-2xl border border-sky-100 shadow-sm overflow-hidden">
-    <summary class="flex items-center justify-between px-5 py-4 cursor-pointer select-none bg-sky-50 hover:bg-sky-100/50 transition">
-      <h2 class="font-bold text-lg text-sky-700">📚 Year Level Progress</h2>
-      <svg class="w-5 h-5 text-sky-500 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+  <details class="group bg-white rounded-2xl border border-emerald-100 shadow-sm overflow-hidden">
+    <summary class="flex items-center justify-between px-5 py-4 cursor-pointer select-none bg-emerald-50 hover:bg-emerald-100/50 transition">
+      <h2 class="font-bold text-lg text-emerald-700">📚 Year Level Progress</h2>
+      <svg class="w-5 h-5 text-emerald-500 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
       </svg>
     </summary>
@@ -73,10 +73,10 @@
       </div>
 
       {% for row in progress_grid %}
-      <details class="group/row border border-sky-100 rounded-xl overflow-hidden">
-        <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none bg-sky-50/50 hover:bg-sky-50 transition">
+      <details class="group/row border border-emerald-100 rounded-xl overflow-hidden">
+        <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none bg-emerald-50/50 hover:bg-emerald-50 transition">
           <h3 class="font-bold text-gray-800">{{ row.level.display_name }}</h3>
-          <svg class="w-4 h-4 text-sky-400 transition-transform group-open/row:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg class="w-4 h-4 text-emerald-400 transition-transform group-open/row:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
           </svg>
         </summary>
@@ -244,7 +244,7 @@
   {% if recent_topic or recent_bf or recent_tt or recent_np %}
   <div>
     <h2 class="font-bold text-xl text-gray-800 mb-4">🕐 Recent Activity</h2>
-    <div class="bg-white rounded-2xl border border-sky-100 shadow-sm divide-y divide-sky-50">
+    <div class="bg-white rounded-2xl border border-emerald-100 shadow-sm divide-y divide-emerald-50">
       {% for r in recent_topic %}
       <div class="flex items-center justify-between px-5 py-3">
         <div>
