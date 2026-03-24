@@ -76,22 +76,8 @@ FULL_NAME_MODE_REPLACES = {'first_name', 'last_name'}
 # To add a new source system, add an entry here — no code changes needed.
 
 SOURCE_PRESETS = {
-    'teachworks_families': {
-        'name': 'Teachworks (Families)',
-        'description': 'Import from Teachworks Families export (.xls). Parents as rows, children in one column.',
-        'mapping': {
-            'children': 'Children',
-            'parent1_first_name': 'First Name',
-            'parent1_last_name': 'Last Name',
-            'parent1_email': 'Email',
-            'parent1_phone': 'Mobile Phone',
-            'parent1_address': 'Address',
-            'parent1_city': 'City',
-            'parent1_country': 'Country',
-        },
-    },
-    'teachworks_students': {
-        'name': 'Teachworks (Students)',
+    'teachworks': {
+        'name': 'Teachworks',
         'description': 'Import from Teachworks Students export (.xls). One student per row.',
         'mapping': {
             'first_name': 'First Name',
