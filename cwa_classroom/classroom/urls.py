@@ -32,6 +32,12 @@ urlpatterns = [
     # Bulk registration
     path('bulk-student-registration/', views.BulkStudentRegistrationView.as_view(), name='bulk_student_registration'),
 
+    # CSV student import
+    path('import-students/', views.StudentCSVUploadView.as_view(), name='student_csv_upload'),
+    path('import-students/preview/', views.StudentCSVPreviewView.as_view(), name='student_csv_preview'),
+    path('import-students/confirm/', views.StudentCSVConfirmView.as_view(), name='student_csv_confirm'),
+    path('import-students/credentials/', views.StudentCSVCredentialsView.as_view(), name='student_csv_credentials'),
+
     # Question management
     path('upload-questions/', views.UploadQuestionsView.as_view(), name='upload_questions'),
     path('level/<int:level_number>/questions/', views.QuestionListView.as_view(), name='question_list'),

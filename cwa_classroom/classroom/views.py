@@ -1024,6 +1024,156 @@ class BulkStudentRegistrationView(RoleRequiredMixin, View):
         return render(request, 'teacher/bulk_register.html', {'results': results})
 
 
+IMPORT_ROLES = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+
+class StudentCSVUploadView(RoleRequiredMixin, View):
+    """Step 1: Upload CSV and map columns."""
+    required_roles = IMPORT_ROLES
+
+    def get(self, request):
+        return render(request, 'admin/csv_student_upload.html')
+
+    def post(self, request):
+        from . import import_services as isvc
+        csv_file = request.FILES.get('csv_file')
+        if not csv_file:
+            messages.error(request, 'Please select a CSV file.')
+            return redirect('student_csv_upload')
+        if csv_file.size > isvc.MAX_CSV_SIZE:
+            messages.error(request, 'File exceeds 10 MB limit.')
+            return redirect('student_csv_upload')
+        try:
+            headers, data_rows = isvc.parse_csv_file(csv_file.read())
+        except ValueError as e:
+            messages.error(request, str(e))
+            return redirect('student_csv_upload')
+
+        request.session['csv_student_headers'] = headers
+        request.session['csv_student_data'] = data_rows
+
+        return render(request, 'admin/csv_student_upload.html', {
+            'headers': headers,
+            'preview_rows': data_rows[:5],
+            'column_fields': isvc.COLUMN_FIELDS,
+            'show_mapping': True,
+        })
+
+
+class StudentCSVPreviewView(RoleRequiredMixin, View):
+    """Step 2: Preview what will be created."""
+    required_roles = IMPORT_ROLES
+
+    def post(self, request):
+        from . import import_services as isvc
+        data_rows = request.session.get('csv_student_data')
+        if not data_rows:
+            messages.error(request, 'No CSV data. Please upload again.')
+            return redirect('student_csv_upload')
+
+        school_id = SchoolTeacher.objects.filter(
+            teacher=request.user, is_active=True,
+        ).values_list('school_id', flat=True).first()
+        if not school_id and request.user.is_superuser:
+            school_id = School.objects.first()
+            school_id = school_id.id if school_id else None
+        if not school_id:
+            messages.error(request, 'No school found.')
+            return redirect('student_csv_upload')
+        school = School.objects.get(id=school_id)
+
+        column_mapping = isvc._build_column_mapping(request.POST)
+        preview = isvc.validate_and_preview(data_rows, column_mapping, school)
+
+        if preview['errors'] and not preview.get('students_new') and not preview.get('students_existing'):
+            for err in preview['errors']:
+                messages.error(request, err)
+            return redirect('student_csv_upload')
+
+        # Store mapping and school for confirm step
+        request.session['csv_student_mapping'] = column_mapping
+        request.session['csv_student_school_id'] = school.id
+        request.session['csv_student_preview'] = {
+            'students_new_count': len(preview['students_new']),
+            'students_existing_count': len(preview['students_existing']),
+            'departments_new': preview['departments_new'],
+            'subjects_new': preview['subjects_new'],
+            'classes_new_count': len(preview['classes_new']),
+            'classes_existing_count': len(preview['classes_existing']),
+            'guardians_new_count': len(preview['guardians_new']),
+            'guardians_existing_count': len(preview['guardians_existing']),
+        }
+
+        return render(request, 'admin/csv_student_preview.html', {
+            'preview': preview,
+            'school': school,
+        })
+
+
+class StudentCSVConfirmView(RoleRequiredMixin, View):
+    """Step 3: Execute import and show results."""
+    required_roles = IMPORT_ROLES
+
+    def post(self, request):
+        from . import import_services as isvc
+        data_rows = request.session.get('csv_student_data')
+        column_mapping = request.session.get('csv_student_mapping')
+        school_id = request.session.get('csv_student_school_id')
+        if not data_rows or not column_mapping or not school_id:
+            messages.error(request, 'Session expired. Please upload again.')
+            return redirect('student_csv_upload')
+
+        school = School.objects.get(id=school_id)
+        preview = isvc.validate_and_preview(data_rows, column_mapping, school)
+
+        if preview['errors'] and not preview.get('students_new') and not preview.get('students_existing'):
+            for err in preview['errors']:
+                messages.error(request, err)
+            return redirect('student_csv_upload')
+
+        try:
+            results = isvc.execute_import(preview, school, request.user)
+        except Exception as e:
+            logger.exception('CSV student import failed')
+            messages.error(request, f'Import failed: {e}')
+            return redirect('student_csv_upload')
+
+        # Store credentials for download
+        request.session['csv_student_credentials'] = results['credentials']
+
+        # Clear CSV data from session
+        for key in ('csv_student_data', 'csv_student_headers', 'csv_student_mapping',
+                     'csv_student_school_id', 'csv_student_preview'):
+            request.session.pop(key, None)
+
+        return render(request, 'admin/csv_student_results.html', {
+            'results': results,
+            'school': school,
+        })
+
+
+class StudentCSVCredentialsView(RoleRequiredMixin, View):
+    """Download generated credentials as CSV."""
+    required_roles = IMPORT_ROLES
+
+    def get(self, request):
+        import csv as csv_mod
+        from django.http import HttpResponse
+        credentials = request.session.get('csv_student_credentials', [])
+        if not credentials:
+            messages.error(request, 'No credentials available.')
+            return redirect('student_csv_upload')
+
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="student_credentials.csv"'
+        writer = csv_mod.writer(response)
+        writer.writerow(['Username', 'Email', 'Password', 'First Name', 'Last Name'])
+        for c in credentials:
+            writer.writerow([c['username'], c['email'], c['password'],
+                           c['first_name'], c['last_name']])
+        return response
+
+
 class UploadQuestionsView(RoleRequiredMixin, View):
     required_roles = [
         Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,

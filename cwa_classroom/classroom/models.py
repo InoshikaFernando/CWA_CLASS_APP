@@ -514,6 +514,55 @@ class SchoolStudent(models.Model):
         return f'{self.student.username} @ {self.school.name}'
 
 
+# ---------------------------------------------------------------------------
+# Guardian / StudentGuardian
+# ---------------------------------------------------------------------------
+
+class Guardian(models.Model):
+    """A parent or guardian linked to one or more students within a school."""
+    RELATIONSHIP_CHOICES = [
+        ('mother', 'Mother'),
+        ('father', 'Father'),
+        ('guardian', 'Guardian'),
+        ('other', 'Other'),
+    ]
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='guardians')
+    first_name = models.CharField(max_length=150)
+    last_name = models.CharField(max_length=150)
+    email = models.EmailField()
+    phone = models.CharField(max_length=30, blank=True)
+    relationship = models.CharField(max_length=20, choices=RELATIONSHIP_CHOICES, default='guardian')
+    address = models.CharField(max_length=300, blank=True)
+    city = models.CharField(max_length=100, blank=True)
+    country = models.CharField(max_length=100, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('school', 'email')
+        ordering = ['last_name', 'first_name']
+
+    def __str__(self):
+        return f'{self.first_name} {self.last_name} ({self.email})'
+
+
+class StudentGuardian(models.Model):
+    """Links students to their guardians (M2M through table)."""
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='student_guardians',
+    )
+    guardian = models.ForeignKey(
+        Guardian, on_delete=models.CASCADE, related_name='guardian_students',
+    )
+    is_primary = models.BooleanField(default=False)
+
+    class Meta:
+        unique_together = ('student', 'guardian')
+
+    def __str__(self):
+        return f'{self.student.username} ← {self.guardian}'
+
+
 class StudentLevelEnrollment(models.Model):
     student = models.ForeignKey(
         settings.AUTH_USER_MODEL,

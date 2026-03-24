@@ -1,0 +1,322 @@
+"""Tests for CSV student bulk import — services, views, and permissions."""
+from decimal import Decimal
+
+from django.test import TestCase
+from django.urls import reverse
+
+from accounts.models import CustomUser, Role, UserRole
+from classroom.models import (
+    School, SchoolTeacher, SchoolStudent, Department, DepartmentSubject,
+    Subject, Level, ClassRoom, ClassStudent, Guardian, StudentGuardian,
+)
+from classroom.import_services import (
+    parse_csv_file, validate_and_preview, execute_import, _build_column_mapping,
+)
+
+
+class CSVImportTestBase(TestCase):
+    """Shared fixtures."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.role_hoi, _ = Role.objects.get_or_create(
+            name=Role.HEAD_OF_INSTITUTE,
+            defaults={'display_name': 'Head of Institute'},
+        )
+        cls.role_teacher, _ = Role.objects.get_or_create(
+            name=Role.TEACHER, defaults={'display_name': 'Teacher'},
+        )
+        cls.role_student, _ = Role.objects.get_or_create(
+            name=Role.STUDENT, defaults={'display_name': 'Student'},
+        )
+
+        cls.superuser = CustomUser.objects.create_superuser(
+            'superadmin', 'super@test.com', 'pass1234',
+        )
+        cls.hoi_user = CustomUser.objects.create_user(
+            'hoi', 'hoi@test.com', 'pass1234',
+        )
+        cls.hoi_user.roles.add(cls.role_hoi)
+
+        cls.teacher_user = CustomUser.objects.create_user(
+            'teacher', 'teacher@test.com', 'pass1234',
+        )
+        cls.teacher_user.roles.add(cls.role_teacher)
+
+        cls.student_user = CustomUser.objects.create_user(
+            'student', 'student@test.com', 'pass1234',
+        )
+        cls.student_user.roles.add(cls.role_student)
+
+        cls.school = School.objects.create(
+            name='Test School', slug='test-school', admin=cls.superuser,
+        )
+        SchoolTeacher.objects.create(
+            school=cls.school, teacher=cls.hoi_user,
+            role='head_of_institute',
+        )
+
+        # A level for matching
+        cls.level7, _ = Level.objects.get_or_create(
+            level_number=7,
+            defaults={'display_name': 'Year 7'},
+        )
+
+    SIMPLE_CSV = (
+        b'first_name,last_name,email,department,subject,level,class_name,class_day\n'
+        b'John,Smith,john@school.nz,Mathematics,Mathematics,Year 7,Year 7 Mon,Monday\n'
+        b'Jane,Doe,jane@school.nz,Mathematics,Mathematics,Year 7,Year 7 Mon,Monday\n'
+    )
+
+    MULTI_CLASS_CSV = (
+        b'first_name,last_name,email,department,subject,level,class_name,class_day\n'
+        b'John,Smith,john@school.nz,Mathematics,Mathematics,Year 7,Year 7 Mon,Monday\n'
+        b'John,Smith,john@school.nz,Mathematics,Mathematics,Year 7,Year 7 Wed,Wednesday\n'
+    )
+
+    GUARDIAN_CSV = (
+        b'first_name,last_name,email,parent1_first_name,parent1_last_name,parent1_email,parent1_phone,parent1_relationship\n'
+        b'John,Smith,john@school.nz,Mary,Smith,mary@parent.com,+6421111,Mother\n'
+        b'Jane,Smith,jane@school.nz,Mary,Smith,mary@parent.com,+6421111,Mother\n'
+    )
+
+
+# ─────────────────────────────────────────────────────────────
+# 1. parse_csv_file
+# ─────────────────────────────────────────────────────────────
+
+class ParseCSVTests(CSVImportTestBase):
+
+    def test_valid_csv(self):
+        headers, rows = parse_csv_file(self.SIMPLE_CSV)
+        self.assertEqual(len(headers), 8)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(headers[0], 'first_name')
+
+    def test_latin1_encoding(self):
+        content = 'first_name,last_name,email\nJos\xe9,Garc\xeda,jose@test.com\n'.encode('latin-1')
+        headers, rows = parse_csv_file(content)
+        self.assertEqual(len(rows), 1)
+
+    def test_empty_csv_raises(self):
+        with self.assertRaises(ValueError):
+            parse_csv_file(b'first_name,last_name,email\n')
+
+    def test_header_only_raises(self):
+        with self.assertRaises(ValueError):
+            parse_csv_file(b'first_name\n')
+
+
+# ─────────────────────────────────────────────────────────────
+# 2. validate_and_preview
+# ─────────────────────────────────────────────────────────────
+
+class ValidateAndPreviewTests(CSVImportTestBase):
+
+    def _mapping(self, headers):
+        """Auto-map headers by position."""
+        return {h: i for i, h in enumerate(headers)}
+
+    def test_missing_required_field_error(self):
+        headers, rows = parse_csv_file(self.SIMPLE_CSV)
+        # Only map first_name, missing last_name and email
+        mapping = {'first_name': 0}
+        result = validate_and_preview(rows, mapping, self.school)
+        self.assertTrue(any('Last Name' in e for e in result['errors']))
+
+    def test_basic_preview(self):
+        headers, rows = parse_csv_file(self.SIMPLE_CSV)
+        mapping = self._mapping(headers)
+        result = validate_and_preview(rows, mapping, self.school)
+        self.assertEqual(len(result['students_new']), 2)
+        self.assertEqual(len(result['classes_new']), 1)  # Year 7 Mon
+        self.assertIn('Mathematics', result['departments_new'])
+
+    def test_student_deduplication(self):
+        headers, rows = parse_csv_file(self.MULTI_CLASS_CSV)
+        mapping = self._mapping(headers)
+        result = validate_and_preview(rows, mapping, self.school)
+        # John appears twice but should be deduped to 1 student
+        self.assertEqual(len(result['students_new']), 1)
+        # But enrolled in 2 classes
+        self.assertEqual(len(result['students_new'][0]['classes']), 2)
+
+    def test_existing_student_detected(self):
+        # Pre-create John
+        CustomUser.objects.create_user('john', 'john@school.nz', 'pass1234')
+        headers, rows = parse_csv_file(self.SIMPLE_CSV)
+        mapping = self._mapping(headers)
+        result = validate_and_preview(rows, mapping, self.school)
+        self.assertEqual(len(result['students_existing']), 1)
+        self.assertEqual(len(result['students_new']), 1)
+
+    def test_guardian_dedup_across_siblings(self):
+        headers, rows = parse_csv_file(self.GUARDIAN_CSV)
+        mapping = self._mapping(headers)
+        result = validate_and_preview(rows, mapping, self.school)
+        # Both students share mary@parent.com
+        self.assertEqual(len(result['guardians_new']), 1)
+        self.assertEqual(result['guardians_new'][0]['email'], 'mary@parent.com')
+
+    def test_missing_email_row_error(self):
+        csv = b'first_name,last_name,email\nJohn,Smith,\n'
+        headers, rows = parse_csv_file(csv)
+        mapping = self._mapping(headers)
+        result = validate_and_preview(rows, mapping, self.school)
+        self.assertTrue(any('Missing email' in e for e in result['errors']))
+
+
+# ─────────────────────────────────────────────────────────────
+# 3. execute_import
+# ─────────────────────────────────────────────────────────────
+
+class ExecuteImportTests(CSVImportTestBase):
+
+    def test_full_import(self):
+        headers, rows = parse_csv_file(self.SIMPLE_CSV)
+        mapping = {h: i for i, h in enumerate(headers)}
+        preview = validate_and_preview(rows, mapping, self.school)
+        results = execute_import(preview, self.school, self.hoi_user)
+
+        self.assertEqual(results['counts']['students_created'], 2)
+        self.assertEqual(results['counts']['classes_created'], 1)
+        self.assertEqual(results['counts']['departments_created'], 1)
+        self.assertEqual(len(results['credentials']), 2)
+
+        # Verify DB state
+        self.assertTrue(CustomUser.objects.filter(email='john@school.nz').exists())
+        self.assertTrue(CustomUser.objects.filter(email='jane@school.nz').exists())
+        john = CustomUser.objects.get(email='john@school.nz')
+        self.assertTrue(SchoolStudent.objects.filter(student=john, school=self.school).exists())
+        self.assertTrue(ClassStudent.objects.filter(student=john).exists())
+        self.assertTrue(Department.objects.filter(school=self.school, name='Mathematics').exists())
+        classroom = ClassRoom.objects.get(name='Year 7 Mon', school=self.school)
+        self.assertEqual(classroom.day, 'monday')
+
+    def test_multi_class_enrollment(self):
+        headers, rows = parse_csv_file(self.MULTI_CLASS_CSV)
+        mapping = {h: i for i, h in enumerate(headers)}
+        preview = validate_and_preview(rows, mapping, self.school)
+        results = execute_import(preview, self.school, self.hoi_user)
+
+        self.assertEqual(results['counts']['students_created'], 1)
+        self.assertEqual(results['counts']['classes_created'], 2)
+        john = CustomUser.objects.get(email='john@school.nz')
+        self.assertEqual(ClassStudent.objects.filter(student=john).count(), 2)
+
+    def test_guardian_creation_and_linking(self):
+        headers, rows = parse_csv_file(self.GUARDIAN_CSV)
+        mapping = {h: i for i, h in enumerate(headers)}
+        preview = validate_and_preview(rows, mapping, self.school)
+        results = execute_import(preview, self.school, self.hoi_user)
+
+        self.assertEqual(results['counts']['guardians_created'], 1)
+        mary = Guardian.objects.get(email='mary@parent.com', school=self.school)
+        self.assertEqual(mary.first_name, 'Mary')
+        self.assertEqual(mary.relationship, 'mother')
+        # Both students linked to same guardian
+        self.assertEqual(StudentGuardian.objects.filter(guardian=mary).count(), 2)
+
+    def test_credentials_contain_passwords(self):
+        headers, rows = parse_csv_file(self.SIMPLE_CSV)
+        mapping = {h: i for i, h in enumerate(headers)}
+        preview = validate_and_preview(rows, mapping, self.school)
+        results = execute_import(preview, self.school, self.hoi_user)
+
+        for cred in results['credentials']:
+            self.assertIn('password', cred)
+            self.assertTrue(len(cred['password']) >= 10)
+            # Verify the password actually works
+            user = CustomUser.objects.get(email=cred['email'])
+            self.assertTrue(user.check_password(cred['password']))
+
+    def test_existing_student_not_duplicated(self):
+        # Pre-create John
+        john = CustomUser.objects.create_user(
+            'john_existing', 'john@school.nz', 'oldpass',
+            first_name='John', last_name='Smith',
+        )
+        headers, rows = parse_csv_file(self.SIMPLE_CSV)
+        mapping = {h: i for i, h in enumerate(headers)}
+        preview = validate_and_preview(rows, mapping, self.school)
+        results = execute_import(preview, self.school, self.hoi_user)
+
+        # Only Jane should be created
+        self.assertEqual(results['counts']['students_created'], 1)
+        # John should still be enrolled in class
+        self.assertTrue(ClassStudent.objects.filter(student=john).exists())
+
+    def test_unique_username_collision(self):
+        # Pre-create a user with username 'john'
+        CustomUser.objects.create_user('john', 'other@test.com', 'pass1234')
+        headers, rows = parse_csv_file(self.SIMPLE_CSV)
+        mapping = {h: i for i, h in enumerate(headers)}
+        preview = validate_and_preview(rows, mapping, self.school)
+        results = execute_import(preview, self.school, self.hoi_user)
+
+        # john@school.nz should get username 'john1' (collision avoidance)
+        new_john = CustomUser.objects.get(email='john@school.nz')
+        self.assertNotEqual(new_john.username, 'john')
+        self.assertTrue(new_john.username.startswith('john'))
+
+    def test_department_subject_link(self):
+        headers, rows = parse_csv_file(self.SIMPLE_CSV)
+        mapping = {h: i for i, h in enumerate(headers)}
+        preview = validate_and_preview(rows, mapping, self.school)
+        execute_import(preview, self.school, self.hoi_user)
+
+        dept = Department.objects.get(school=self.school, name='Mathematics')
+        # Subject may be school-scoped or global depending on seed data
+        subj = Subject.objects.filter(name='Mathematics').first()
+        self.assertIsNotNone(subj)
+        self.assertTrue(DepartmentSubject.objects.filter(
+            department=dept, subject=subj,
+        ).exists())
+
+
+# ─────────────────────────────────────────────────────────────
+# 4. View access tests
+# ─────────────────────────────────────────────────────────────
+
+class CSVImportViewAccessTests(CSVImportTestBase):
+
+    def test_superuser_can_access_upload(self):
+        self.client.login(username='superadmin', password='pass1234')
+        resp = self.client.get(reverse('student_csv_upload'))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_hoi_can_access_upload(self):
+        self.client.login(username='hoi', password='pass1234')
+        resp = self.client.get(reverse('student_csv_upload'))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_teacher_cannot_access_upload(self):
+        self.client.login(username='teacher', password='pass1234')
+        resp = self.client.get(reverse('student_csv_upload'))
+        self.assertEqual(resp.status_code, 302)
+
+    def test_student_cannot_access_upload(self):
+        self.client.login(username='student', password='pass1234')
+        resp = self.client.get(reverse('student_csv_upload'))
+        self.assertEqual(resp.status_code, 302)
+
+    def test_credentials_empty_redirects(self):
+        self.client.login(username='hoi', password='pass1234')
+        resp = self.client.get(reverse('student_csv_credentials'))
+        self.assertEqual(resp.status_code, 302)
+
+
+# ─────────────────────────────────────────────────────────────
+# 5. End-to-end view test
+# ─────────────────────────────────────────────────────────────
+
+class CSVImportE2ETests(CSVImportTestBase):
+
+    def test_upload_parses_and_shows_mapping(self):
+        self.client.login(username='hoi', password='pass1234')
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        csv_file = SimpleUploadedFile('students.csv', self.SIMPLE_CSV, content_type='text/csv')
+        resp = self.client.post(reverse('student_csv_upload'), {'csv_file': csv_file})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Map CSV Columns')
+        self.assertContains(resp, 'first_name')
