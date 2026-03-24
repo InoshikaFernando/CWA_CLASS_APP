@@ -1024,7 +1024,7 @@ class BulkStudentRegistrationView(RoleRequiredMixin, View):
         return render(request, 'teacher/bulk_register.html', {'results': results})
 
 
-IMPORT_ROLES = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+IMPORT_ROLES = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT]
 
 
 class StudentCSVUploadView(RoleRequiredMixin, View):
@@ -1112,9 +1112,28 @@ class StudentCSVPreviewView(RoleRequiredMixin, View):
         # Check if school has departments — if so, show structure mapping step
         departments = Department.objects.filter(school=school, is_active=True)
         if departments.exists():
-            # Extract what the CSV contains for subjects/levels/classes
             csv_structure = isvc.extract_csv_structure(data_rows, column_mapping)
             request.session['csv_student_structure'] = csv_structure
+
+            # If user is HoD, auto-select their department
+            hod_dept = Department.objects.filter(
+                school=school, head=request.user, is_active=True,
+            ).first()
+            if hod_dept:
+                mapping_context = isvc.build_smart_mapping_context(csv_structure, hod_dept)
+                return render(request, 'admin/csv_student_structure_mapping.html', {
+                    'departments': departments,
+                    'selected_department': hod_dept,
+                    'csv_structure': csv_structure,
+                    'mapping_context': mapping_context,
+                    'preview_summary': {
+                        'students_new': len(preview['students_new']),
+                        'students_existing': len(preview['students_existing']),
+                        'guardians_new': len(preview['guardians_new']),
+                    },
+                    'school': school,
+                })
+
             return render(request, 'admin/csv_student_structure_mapping.html', {
                 'departments': departments,
                 'csv_structure': csv_structure,

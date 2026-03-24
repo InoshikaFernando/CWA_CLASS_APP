@@ -296,6 +296,39 @@ function selectDept(radio) {
 document.addEventListener('DOMContentLoaded', function() {
   const checked = document.querySelector('.dept-card input:checked');
   if (checked) selectDept(checked);
+
+  // Auto-map: pre-select dropdowns where CSV values match system values
+  {% if mapping_context %}
+  const autoMaps = {
+    'subject_map_': { {% for csv_val, sys_id in mapping_context.auto_map_subjects.items %}"{{ csv_val }}": "{{ sys_id }}",{% endfor %} },
+    'level_map_': { {% for csv_val, sys_id in mapping_context.auto_map_levels.items %}"{{ csv_val }}": "{{ sys_id }}",{% endfor %} },
+    'class_map_': { {% for csv_val, sys_id in mapping_context.auto_map_classes.items %}"{{ csv_val }}": "{{ sys_id }}",{% endfor %} },
+  };
+  let autoCount = 0;
+  for (const [prefix, map] of Object.entries(autoMaps)) {
+    for (const [csvVal, sysId] of Object.entries(map)) {
+      const select = document.querySelector('select[name="' + prefix + csvVal + '"]');
+      if (select) {
+        select.value = String(sysId);
+        // Highlight auto-mapped rows
+        const row = select.closest('.bg-gray-50');
+        if (row) {
+          row.classList.remove('bg-gray-50');
+          row.classList.add('bg-green-50', 'border', 'border-green-200');
+        }
+        autoCount++;
+      }
+    }
+  }
+  if (autoCount > 0) {
+    // Show a banner
+    const banner = document.createElement('div');
+    banner.className = 'bg-green-50 rounded-xl border border-green-200 p-3 mb-4 text-sm text-green-800';
+    banner.innerHTML = '✅ <strong>' + autoCount + ' items</strong> auto-matched by name. Review and adjust if needed.';
+    const form = document.querySelector('form[action*="map-structure"]');
+    if (form) form.insertBefore(banner, form.firstChild);
+  }
+  {% endif %}
 });
 </script>
 {% endblock %}

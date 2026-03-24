@@ -644,6 +644,35 @@ def build_smart_mapping_context(csv_structure, department):
             return 'system_only'
         return 'neither'
 
+    # Auto-map: match CSV values to system values by normalized name
+    def _auto_match(csv_list, system_list, name_key='name'):
+        """Return {csv_value: system_id} for exact or fuzzy matches."""
+        matches = {}
+        sys_lookup = {}
+        for s in system_list:
+            key = s[name_key].strip().lower()
+            sys_lookup[key] = s['id']
+            # Also index without common prefixes/suffixes for fuzzy match
+            for prefix in ('year ', 'yr '):
+                if key.startswith(prefix):
+                    sys_lookup[key[len(prefix):]] = s['id']
+
+        for csv_val in csv_list:
+            norm = csv_val.strip().lower()
+            if norm in sys_lookup:
+                matches[csv_val] = sys_lookup[norm]
+            else:
+                # Try without 'year '/'yr ' prefix
+                for prefix in ('year ', 'yr '):
+                    if norm.startswith(prefix) and norm[len(prefix):] in sys_lookup:
+                        matches[csv_val] = sys_lookup[norm[len(prefix):]]
+                        break
+        return matches
+
+    auto_map_subjects = _auto_match(csv_subjects, system_subjects, 'name')
+    auto_map_levels = _auto_match(csv_levels, system_levels, 'display_name')
+    auto_map_classes = _auto_match(csv_classes, system_classes, 'name')
+
     return {
         'subject_scenario': scenario(csv_subjects, system_subjects),
         'level_scenario': scenario(csv_levels, system_levels),
@@ -654,6 +683,9 @@ def build_smart_mapping_context(csv_structure, department):
         'csv_subjects': csv_subjects,
         'csv_levels': csv_levels,
         'csv_classes': csv_classes,
+        'auto_map_subjects': auto_map_subjects,
+        'auto_map_levels': auto_map_levels,
+        'auto_map_classes': auto_map_classes,
     }
 
 
