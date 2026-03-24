@@ -97,7 +97,7 @@ SOURCE_PRESETS = {
             'first_name': 'First Name',
             'last_name': 'Last Name',
             'date_of_birth': 'Birth Date',
-            'level': 'Subjects',
+            'level': 'Subjects',       # Teachworks "Subjects" = our Level (Year 6, VCE Methods, etc.)
             'class_name': 'Default Service',
             'parent1_first_name': 'Family First',
             'parent1_last_name': 'Family Last',
