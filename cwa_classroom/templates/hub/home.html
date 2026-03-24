@@ -1,122 +1,202 @@
-{% extends "base_public.html" %}
+{% extends "base.html" %}
+{% load static %}
 
-{% block title %}Subjects Hub{% endblock %}
-{% block meta_description %}Your subjects hub — explore and launch available subjects.{% endblock %}
+{% block title %}Home{% endblock %}
 
 {% block content %}
-<section class="py-12 bg-gradient-to-br from-blue-50 to-red-50 min-h-[70vh]">
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<div class="max-w-6xl mx-auto">
 
-    <!-- Greeting -->
-    <div class="mb-10">
-      <h1 class="font-display text-3xl md:text-4xl text-gray-800 mb-2">
-        Welcome back, {{ user.get_full_name|default:user.username }}!
-      </h1>
-      <p class="text-gray-500">Explore your subjects below.</p>
-    </div>
-
-    <!-- Source Toggle (school students only) -->
-    {% if is_school_student and schools %}
-      <div class="mb-8">
-        <div class="inline-flex rounded-xl bg-white border border-slate-200 shadow-sm p-1">
-          {% for school in schools %}
-            <a href="?source=school"
-               class="px-5 py-2 rounded-lg text-sm font-semibold transition
-                      {% if active_source == 'school' %}bg-emerald-500 text-white shadow{% else %}text-gray-600 hover:bg-gray-100{% endif %}">
-              {{ school.name }}
-            </a>
-          {% endfor %}
-          <a href="?source=open"
-             class="px-5 py-2 rounded-lg text-sm font-semibold transition
-                    {% if active_source == 'open' %}bg-blue-500 text-white shadow{% else %}text-gray-600 hover:bg-gray-100{% endif %}">
-            Open Practice
-          </a>
-        </div>
+  <!-- ── Hero greeting ────────────────────────────────────────── -->
+  <section class="mb-8">
+    <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+      <div>
+        <p class="text-sm font-semibold text-emerald-600 mb-1">
+          {% now "l, j F" %}
+        </p>
+        <h1 class="font-display text-2xl md:text-3xl text-gray-900">
+          Good morning, {{ user.first_name|default:user.username }}!
+        </h1>
       </div>
-    {% endif %}
 
-    <!-- Subject Cards (always first) -->
-    <div class="mb-10">
-      <h2 class="text-xl font-bold text-gray-800 mb-6">Your Subjects</h2>
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {% for subject in subjects %}
-          {% include "partials/subject_card.html" with subject=subject %}
-        {% empty %}
-          <div class="col-span-full text-center py-12">
-            <p class="text-gray-400 text-lg">No subjects available yet. Check back soon!</p>
+      <!-- Mini stats -->
+      <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-4 py-2.5 shadow-sm">
+          <span class="text-emerald-500 text-lg">&#9201;</span>
+          <div>
+            <p class="text-[10px] uppercase tracking-wider text-gray-400 font-semibold leading-none">Today</p>
+            <p class="text-lg font-bold text-gray-800 leading-tight">0m</p>
           </div>
-        {% endfor %}
+        </div>
+        <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-4 py-2.5 shadow-sm">
+          <span class="text-blue-500 text-lg">&#128200;</span>
+          <div>
+            <p class="text-[10px] uppercase tracking-wider text-gray-400 font-semibold leading-none">This Week</p>
+            <p class="text-lg font-bold text-gray-800 leading-tight">0m</p>
+          </div>
+        </div>
       </div>
     </div>
+  </section>
 
-    <!-- School Classes grouped by Department (school mode) -->
-    {% if department_classes %}
-      <div class="mb-10">
-        <h2 class="text-xl font-bold text-gray-800 mb-6">Classes to Enrol</h2>
-        <div class="space-y-3">
-          {% for group in department_classes %}
-            <details class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden group">
-              <summary class="flex items-center justify-between px-6 py-4 cursor-pointer select-none hover:bg-gray-50 transition">
-                <div class="flex items-center gap-3">
-                  <span class="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 font-bold text-sm">
-                    {{ group.department.name|make_list|first }}
-                  </span>
-                  <div>
-                    <h3 class="font-bold text-gray-800">{{ group.department.name }}</h3>
-                    <p class="text-xs text-gray-400">{{ group.classes|length }} class{{ group.classes|length|pluralize:"es" }}</p>
-                  </div>
-                </div>
-                <svg class="w-5 h-5 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
-                </svg>
-              </summary>
-              <div class="px-6 pb-5 pt-2">
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {% for classroom in group.classes %}
-                    {% include "partials/global_class_card.html" with classroom=classroom enrolled_class_ids=enrolled_class_ids pending_class_ids=pending_class_ids %}
-                  {% endfor %}
-                </div>
-              </div>
-            </details>
-          {% endfor %}
+  <!-- ── Source Toggle (school students only) ──────────────────── -->
+  {% if is_school_student and schools %}
+  <section class="mb-8">
+    <div class="inline-flex rounded-xl bg-white border border-slate-200 shadow-sm p-1">
+      {% for school in schools %}
+        <a href="?source=school"
+           class="px-5 py-2 rounded-lg text-sm font-semibold transition
+                  {% if active_source == 'school' %}bg-emerald-500 text-white shadow{% else %}text-gray-600 hover:bg-gray-100{% endif %}">
+          {{ school.name }}
+        </a>
+      {% endfor %}
+      <a href="?source=open"
+         class="px-5 py-2 rounded-lg text-sm font-semibold transition
+                {% if active_source == 'open' %}bg-blue-500 text-white shadow{% else %}text-gray-600 hover:bg-gray-100{% endif %}">
+        Open Practice
+      </a>
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- ── Quick Actions (common items only — no subject-specific) ── -->
+  <section class="mb-10">
+    <h2 class="text-xs uppercase tracking-wider text-gray-400 font-bold mb-3">Quick Actions</h2>
+    <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+
+      <a href="{% url 'student_my_classes' %}"
+         class="group flex flex-col items-center gap-2 bg-white border border-slate-200 rounded-2xl p-4 shadow-sm
+                hover:shadow-md hover:border-emerald-300 hover:-translate-y-0.5 transition-all">
+        <span class="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-blue-100 text-2xl
+                     group-hover:scale-110 transition-transform">&#127979;</span>
+        <span class="text-xs font-bold text-gray-600 text-center leading-tight">My Classes</span>
+      </a>
+
+      <a href="{% url 'student_join_class' %}"
+         class="group flex flex-col items-center gap-2 bg-white border border-slate-200 rounded-2xl p-4 shadow-sm
+                hover:shadow-md hover:border-emerald-300 hover:-translate-y-0.5 transition-all">
+        <span class="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-green-100 text-2xl
+                     group-hover:scale-110 transition-transform">&#10133;</span>
+        <span class="text-xs font-bold text-gray-600 text-center leading-tight">Join Class</span>
+      </a>
+
+      <a href="{% url 'student_dashboard' %}"
+         class="group flex flex-col items-center gap-2 bg-white border border-slate-200 rounded-2xl p-4 shadow-sm
+                hover:shadow-md hover:border-emerald-300 hover:-translate-y-0.5 transition-all">
+        <span class="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-indigo-100 text-2xl
+                     group-hover:scale-110 transition-transform">&#128202;</span>
+        <span class="text-xs font-bold text-gray-600 text-center leading-tight">Progress</span>
+      </a>
+
+      <a href="{% url 'student_attendance_history' %}"
+         class="group flex flex-col items-center gap-2 bg-white border border-slate-200 rounded-2xl p-4 shadow-sm
+                hover:shadow-md hover:border-emerald-300 hover:-translate-y-0.5 transition-all">
+        <span class="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-emerald-100 text-2xl
+                     group-hover:scale-110 transition-transform">&#9989;</span>
+        <span class="text-xs font-bold text-gray-600 text-center leading-tight">Attendance</span>
+      </a>
+
+      {% if is_individual_student %}
+      <a href="{% url 'change_package' %}"
+         class="group flex flex-col items-center gap-2 bg-white border border-slate-200 rounded-2xl p-4 shadow-sm
+                hover:shadow-md hover:border-emerald-300 hover:-translate-y-0.5 transition-all">
+        <span class="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-orange-100 text-2xl
+                     group-hover:scale-110 transition-transform">&#128179;</span>
+        <span class="text-xs font-bold text-gray-600 text-center leading-tight">Billing</span>
+      </a>
+      {% endif %}
+
+      <a href="{% url 'profile' %}"
+         class="group flex flex-col items-center gap-2 bg-white border border-slate-200 rounded-2xl p-4 shadow-sm
+                hover:shadow-md hover:border-emerald-300 hover:-translate-y-0.5 transition-all">
+        <span class="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-purple-100 text-2xl
+                     group-hover:scale-110 transition-transform">&#128100;</span>
+        <span class="text-xs font-bold text-gray-600 text-center leading-tight">Profile</span>
+      </a>
+
+    </div>
+  </section>
+
+  <!-- ── Your Subjects ────────────────────────────────────────── -->
+  <section class="mb-10">
+    <h2 class="text-xs uppercase tracking-wider text-gray-400 font-bold mb-3">Your Subjects</h2>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+      {% for subject in subjects %}
+        {% include "partials/subject_card.html" with subject=subject %}
+      {% empty %}
+        <div class="col-span-full text-center py-12">
+          <p class="text-gray-400 text-lg">No subjects available yet. Check back soon!</p>
         </div>
-      </div>
-    {% endif %}
+      {% endfor %}
+    </div>
+  </section>
 
-    <!-- Global Classes grouped by Subject (Open Practice mode or individual students) -->
-    {% if subject_classes %}
-      <div class="mb-10">
-        <h2 class="text-xl font-bold text-gray-800 mb-6">Available Classes</h2>
-        <div class="space-y-3">
-          {% for group in subject_classes %}
-            <details open class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden group">
-              <summary class="flex items-center justify-between px-6 py-4 cursor-pointer select-none hover:bg-gray-50 transition">
-                <div class="flex items-center gap-3">
-                  <span class="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 font-bold text-sm">
-                    {{ group.subject.name|make_list|first }}
-                  </span>
-                  <div>
-                    <h3 class="font-bold text-gray-800">{{ group.subject.name }}</h3>
-                    <p class="text-xs text-gray-400">{{ group.classes|length }} class{{ group.classes|length|pluralize:"es" }}</p>
-                  </div>
-                </div>
-                <svg class="w-5 h-5 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
-                </svg>
-              </summary>
-              <div class="px-6 pb-5 pt-2">
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                  {% for classroom in group.classes %}
-                    {% include "partials/global_class_card.html" with classroom=classroom enrolled_class_ids=enrolled_class_ids pending_class_ids=pending_class_ids %}
-                  {% endfor %}
-                </div>
+  <!-- ── School Classes grouped by Department (school mode) ───── -->
+  {% if department_classes %}
+  <section class="mb-10">
+    <h2 class="text-xs uppercase tracking-wider text-gray-400 font-bold mb-3">Classes to Enrol</h2>
+    <div class="space-y-3">
+      {% for group in department_classes %}
+        <details class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden group">
+          <summary class="flex items-center justify-between px-6 py-4 cursor-pointer select-none hover:bg-gray-50 transition">
+            <div class="flex items-center gap-3">
+              <span class="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 font-bold text-sm">
+                {{ group.department.name|make_list|first }}
+              </span>
+              <div>
+                <h3 class="font-bold text-gray-800">{{ group.department.name }}</h3>
+                <p class="text-xs text-gray-400">{{ group.classes|length }} class{{ group.classes|length|pluralize:"es" }}</p>
               </div>
-            </details>
-          {% endfor %}
-        </div>
-      </div>
-    {% endif %}
+            </div>
+            <svg class="w-5 h-5 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
+            </svg>
+          </summary>
+          <div class="px-6 pb-5 pt-2">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {% for classroom in group.classes %}
+                {% include "partials/global_class_card.html" with classroom=classroom enrolled_class_ids=enrolled_class_ids pending_class_ids=pending_class_ids %}
+              {% endfor %}
+            </div>
+          </div>
+        </details>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
 
-  </div>
-</section>
+  <!-- ── Global Classes grouped by Subject (Open Practice) ────── -->
+  {% if subject_classes %}
+  <section class="mb-10">
+    <h2 class="text-xs uppercase tracking-wider text-gray-400 font-bold mb-3">Available Classes</h2>
+    <div class="space-y-3">
+      {% for group in subject_classes %}
+        <details open class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden group">
+          <summary class="flex items-center justify-between px-6 py-4 cursor-pointer select-none hover:bg-gray-50 transition">
+            <div class="flex items-center gap-3">
+              <span class="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 font-bold text-sm">
+                {{ group.subject.name|make_list|first }}
+              </span>
+              <div>
+                <h3 class="font-bold text-gray-800">{{ group.subject.name }}</h3>
+                <p class="text-xs text-gray-400">{{ group.classes|length }} class{{ group.classes|length|pluralize:"es" }}</p>
+              </div>
+            </div>
+            <svg class="w-5 h-5 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
+            </svg>
+          </summary>
+          <div class="px-6 pb-5 pt-2">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {% for classroom in group.classes %}
+                {% include "partials/global_class_card.html" with classroom=classroom enrolled_class_ids=enrolled_class_ids pending_class_ids=pending_class_ids %}
+              {% endfor %}
+            </div>
+          </div>
+        </details>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+</div>
 {% endblock %}

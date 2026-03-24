@@ -57,7 +57,8 @@
 
   <div class="flex h-[calc(100vh-4rem)] pt-16">
 
-    <!-- ── Sidebar (desktop) ──────────────────────────────────── -->
+    <!-- ── Sidebar (desktop) — hidden when hide_sidebar is set ── -->
+    {% if not hide_sidebar %}
     <aside id="sidebar"
            class="hidden md:flex flex-col w-64 {% if is_student or is_individual_student %}bg-gradient-to-b from-emerald-600 via-green-600 to-teal-700{% else %}bg-primary{% endif %} fixed top-16 bottom-0 left-0 z-30 overflow-y-auto">
       {% block sidebar %}
@@ -80,9 +81,10 @@
         {% endif %}
       {% endblock %}
     </aside>
+    {% endif %}
 
     <!-- ── Main content ───────────────────────────────────────── -->
-    <main class="flex-1 md:ml-64 overflow-y-auto px-4 py-6 md:px-8 pb-24 md:pb-6">
+    <main class="flex-1 {% if not hide_sidebar %}md:ml-64{% endif %} overflow-y-auto px-4 py-6 md:px-8 pb-24 md:pb-6">
       <!-- Toast messages -->
       {% include "partials/toast.html" %}
 

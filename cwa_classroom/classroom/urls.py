@@ -35,6 +35,7 @@ urlpatterns = [
     # CSV student import
     path('import-students/', views.StudentCSVUploadView.as_view(), name='student_csv_upload'),
     path('import-students/preview/', views.StudentCSVPreviewView.as_view(), name='student_csv_preview'),
+    path('import-students/map-structure/', views.StudentCSVStructureMappingView.as_view(), name='student_csv_structure_mapping'),
     path('import-students/confirm/', views.StudentCSVConfirmView.as_view(), name='student_csv_confirm'),
     path('import-students/credentials/', views.StudentCSVCredentialsView.as_view(), name='student_csv_credentials'),
 

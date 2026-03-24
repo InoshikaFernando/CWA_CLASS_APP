@@ -1,0 +1,302 @@
+{% extends "base.html" %}
+{% block title %}Map Structure — Import Students{% endblock %}
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+  <div>
+    <h1 class="font-display text-3xl text-primary">Map to Department</h1>
+    <p class="text-gray-400 text-sm mt-1">
+      Select a department and map CSV subjects, levels and classes to your existing system structure.
+    </p>
+  </div>
+
+  {# ── Quick summary ── #}
+  <div class="grid grid-cols-3 gap-4">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 text-center">
+      <p class="font-display text-2xl text-primary">{{ preview_summary.students_new }}</p>
+      <p class="text-xs text-gray-400 font-semibold">New Students</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 text-center">
+      <p class="font-display text-2xl text-accent">{{ preview_summary.students_existing }}</p>
+      <p class="text-xs text-gray-400 font-semibold">Existing</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 text-center">
+      <p class="font-display text-2xl text-primary">{{ preview_summary.guardians_new }}</p>
+      <p class="text-xs text-gray-400 font-semibold">New Guardians</p>
+    </div>
+  </div>
+
+  {# ── Step 1: Select department ── #}
+  {% if not mapping_context %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+    <h2 class="font-bold text-gray-800 mb-4">Select Target Department</h2>
+    <p class="text-sm text-gray-500 mb-4">
+      All imported students will be assigned to this department.
+      Subjects, levels and classes from the CSV will be mapped to this department's structure.
+    </p>
+    <form method="post" action="{% url 'student_csv_structure_mapping' %}">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="load_mapping" />
+      <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5">
+        {% for dept in departments %}
+        <label class="relative flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition
+                      border-gray-200 hover:border-primary/50 dept-card"
+               data-dept-id="{{ dept.id }}">
+          <input type="radio" name="department_id" value="{{ dept.id }}"
+                 class="sr-only" onchange="selectDept(this)" {% if departments|length == 1 %}checked{% endif %} />
+          <div>
+            <p class="text-sm font-semibold text-gray-800">{{ dept.name }}</p>
+            <p class="text-xs text-gray-400">{{ dept.subjects.count }} subjects</p>
+          </div>
+        </label>
+        {% endfor %}
+      </div>
+      <button type="submit" class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition">
+        Load Mapping
+      </button>
+    </form>
+  </div>
+
+  {% else %}
+  {# ── Step 2: Mapping UI — shown after department is selected ── #}
+  <form method="post" action="{% url 'student_csv_structure_mapping' %}">
+    {% csrf_token %}
+    <input type="hidden" name="department_id" value="{{ selected_department.id }}" />
+
+    <div class="bg-green-50 rounded-2xl border border-green-200 p-4 flex items-center gap-3 mb-4">
+      <svg class="w-5 h-5 text-green-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      <p class="text-sm text-green-800">
+        Department: <strong>{{ selected_department.name }}</strong>
+        <a href="{% url 'student_csv_structure_mapping' %}" class="ml-2 text-green-600 underline text-xs"
+           onclick="event.preventDefault(); document.getElementById('change-dept-form').submit();">Change</a>
+      </p>
+    </div>
+
+    {# ── Subject mapping ── #}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-4">
+      <h2 class="font-bold text-gray-800 mb-3">
+        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary text-white text-xs font-bold mr-2">1</span>
+        Map Subjects
+      </h2>
+
+      {% if mapping_context.subject_scenario == 'both' %}
+      <p class="text-sm text-gray-500 mb-4">
+        Your department has existing subjects and the CSV also contains subjects.
+        Map each CSV subject to an existing system subject, or choose "Create new".
+      </p>
+      <div class="space-y-3">
+        {% for csv_subj in mapping_context.csv_subjects %}
+        <div class="flex items-center gap-4 p-3 bg-gray-50 rounded-xl">
+          <span class="text-sm font-semibold text-gray-700 w-40 flex-shrink-0">{{ csv_subj }}</span>
+          <svg class="w-5 h-5 text-gray-300 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
+          </svg>
+          <select name="subject_map_{{ csv_subj }}"
+                  class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:border-transparent">
+            <option value="create">➕ Create new "{{ csv_subj }}"</option>
+            {% for sys_subj in mapping_context.system_subjects %}
+            <option value="{{ sys_subj.id }}">{{ sys_subj.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endfor %}
+      </div>
+
+      {% elif mapping_context.subject_scenario == 'csv_only' %}
+      <p class="text-sm text-gray-500 mb-3">
+        The department has no subjects yet. The following subjects from the CSV will be created automatically.
+      </p>
+      <div class="flex flex-wrap gap-2">
+        {% for csv_subj in mapping_context.csv_subjects %}
+        <input type="hidden" name="subject_map_{{ csv_subj }}" value="create" />
+        <span class="text-xs bg-green-100 text-green-700 font-semibold rounded-full px-3 py-1">
+          ➕ {{ csv_subj }}
+        </span>
+        {% endfor %}
+      </div>
+
+      {% elif mapping_context.subject_scenario == 'system_only' %}
+      <p class="text-sm text-gray-500 mb-3">
+        No subjects found in CSV. Students will be added to the department's existing subjects.
+      </p>
+      <div class="flex flex-wrap gap-2">
+        {% for sys_subj in mapping_context.system_subjects %}
+        <span class="text-xs bg-blue-100 text-blue-700 font-semibold rounded-full px-3 py-1">{{ sys_subj.name }}</span>
+        {% endfor %}
+      </div>
+
+      {% else %}
+      <div class="bg-amber-50 rounded-xl border border-amber-200 p-3">
+        <p class="text-sm text-amber-700">
+          No subjects in CSV or department. A <strong>"{{ selected_department.name }} General"</strong> subject will be created automatically.
+        </p>
+      </div>
+      {% endif %}
+    </div>
+
+    {# ── Level mapping ── #}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-4">
+      <h2 class="font-bold text-gray-800 mb-3">
+        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary text-white text-xs font-bold mr-2">2</span>
+        Map Levels
+      </h2>
+
+      {% if mapping_context.level_scenario == 'both' %}
+      <p class="text-sm text-gray-500 mb-4">
+        Map CSV levels to existing system levels, or create new ones.
+      </p>
+      <div class="space-y-3">
+        {% for csv_lvl in mapping_context.csv_levels %}
+        <div class="flex items-center gap-4 p-3 bg-gray-50 rounded-xl">
+          <span class="text-sm font-semibold text-gray-700 w-40 flex-shrink-0">{{ csv_lvl }}</span>
+          <svg class="w-5 h-5 text-gray-300 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
+          </svg>
+          <select name="level_map_{{ csv_lvl }}"
+                  class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:border-transparent">
+            <option value="create">➕ Create new "{{ csv_lvl }}"</option>
+            {% for sys_lvl in mapping_context.system_levels %}
+            <option value="{{ sys_lvl.id }}"
+              {% if csv_lvl|lower == sys_lvl.display_name|lower %}selected{% endif %}
+            >{{ sys_lvl.display_name }}{% if sys_lvl.subject_name %} ({{ sys_lvl.subject_name }}){% endif %}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endfor %}
+      </div>
+
+      {% elif mapping_context.level_scenario == 'csv_only' %}
+      <p class="text-sm text-gray-500 mb-3">
+        The department has no levels yet. The following levels from the CSV will be created.
+      </p>
+      <div class="flex flex-wrap gap-2">
+        {% for csv_lvl in mapping_context.csv_levels %}
+        <input type="hidden" name="level_map_{{ csv_lvl }}" value="create" />
+        <span class="text-xs bg-green-100 text-green-700 font-semibold rounded-full px-3 py-1">
+          ➕ {{ csv_lvl }}
+        </span>
+        {% endfor %}
+      </div>
+
+      {% elif mapping_context.level_scenario == 'system_only' %}
+      <p class="text-sm text-gray-500 mb-3">
+        No levels found in CSV. The department's existing levels are available.
+      </p>
+      <div class="flex flex-wrap gap-2">
+        {% for sys_lvl in mapping_context.system_levels %}
+        <span class="text-xs bg-blue-100 text-blue-700 font-semibold rounded-full px-3 py-1">{{ sys_lvl.display_name }}</span>
+        {% endfor %}
+      </div>
+
+      {% else %}
+      <div class="bg-amber-50 rounded-xl border border-amber-200 p-3">
+        <p class="text-sm text-amber-700">
+          No levels in CSV or department. A <strong>"{{ selected_department.name }} General"</strong> level will be created automatically.
+        </p>
+      </div>
+      {% endif %}
+    </div>
+
+    {# ── Class mapping ── #}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-4">
+      <h2 class="font-bold text-gray-800 mb-3">
+        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary text-white text-xs font-bold mr-2">3</span>
+        Map Classes
+      </h2>
+
+      {% if mapping_context.class_scenario == 'both' %}
+      <p class="text-sm text-gray-500 mb-4">
+        Map CSV class names to existing classes, or create new ones.
+      </p>
+      <div class="space-y-3">
+        {% for csv_cls in mapping_context.csv_classes %}
+        <div class="flex items-center gap-4 p-3 bg-gray-50 rounded-xl">
+          <span class="text-sm font-semibold text-gray-700 w-40 flex-shrink-0">{{ csv_cls }}</span>
+          <svg class="w-5 h-5 text-gray-300 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
+          </svg>
+          <select name="class_map_{{ csv_cls }}"
+                  class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:border-transparent">
+            <option value="create">➕ Create new "{{ csv_cls }}"</option>
+            {% for sys_cls in mapping_context.system_classes %}
+            <option value="{{ sys_cls.id }}"
+              {% if csv_cls|lower == sys_cls.name|lower %}selected{% endif %}
+            >{{ sys_cls.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endfor %}
+      </div>
+
+      {% elif mapping_context.class_scenario == 'csv_only' %}
+      <p class="text-sm text-gray-500 mb-3">
+        No existing classes in this department. The following will be created.
+      </p>
+      <div class="flex flex-wrap gap-2">
+        {% for csv_cls in mapping_context.csv_classes %}
+        <input type="hidden" name="class_map_{{ csv_cls }}" value="create" />
+        <span class="text-xs bg-green-100 text-green-700 font-semibold rounded-full px-3 py-1">
+          ➕ {{ csv_cls }}
+        </span>
+        {% endfor %}
+      </div>
+
+      {% elif mapping_context.class_scenario == 'system_only' %}
+      <p class="text-sm text-gray-500 mb-3">
+        No class names found in CSV. Students won't be assigned to classes automatically.
+      </p>
+
+      {% else %}
+      <div class="bg-amber-50 rounded-xl border border-amber-200 p-3">
+        <p class="text-sm text-amber-700">
+          No classes in CSV or department. A <strong>"{{ selected_department.name }} General"</strong> class will be created and all students added to it.
+        </p>
+      </div>
+      {% endif %}
+    </div>
+
+    {# ── Submit ── #}
+    <div class="flex gap-3">
+      <button type="submit" class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-8 py-3 transition">
+        Continue to Preview
+      </button>
+      <a href="{% url 'student_csv_upload' %}"
+         class="bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl px-6 py-3 hover:bg-gray-50 transition">
+        Cancel
+      </a>
+    </div>
+  </form>
+
+  {# Hidden form for "Change department" link #}
+  <form id="change-dept-form" method="post" action="{% url 'student_csv_preview' %}" class="hidden">
+    {% csrf_token %}
+    {% for field, idx in column_mapping.items %}
+    <input type="hidden" name="col_{{ field }}" value="{{ idx }}" />
+    {% endfor %}
+  </form>
+  {% endif %}
+</div>
+
+{% block extra_js %}
+<script>
+function selectDept(radio) {
+  document.querySelectorAll('.dept-card').forEach(el => {
+    el.classList.remove('border-primary', 'bg-primary/5', 'ring-2', 'ring-primary/20');
+    el.classList.add('border-gray-200');
+  });
+  const card = radio.closest('.dept-card');
+  if (card) {
+    card.classList.remove('border-gray-200');
+    card.classList.add('border-primary', 'bg-primary/5', 'ring-2', 'ring-primary/20');
+  }
+}
+
+// Auto-select if only one department
+document.addEventListener('DOMContentLoaded', function() {
+  const checked = document.querySelector('.dept-card input:checked');
+  if (checked) selectDept(checked);
+});
+</script>
+{% endblock %}
+{% endblock %}

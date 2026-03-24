@@ -1073,8 +1073,17 @@ class StudentCSVUploadView(RoleRequiredMixin, View):
 
 
 class StudentCSVPreviewView(RoleRequiredMixin, View):
-    """Step 2: Preview what will be created."""
+    """Step 2: Validate columns, then redirect to structure mapping or preview."""
     required_roles = IMPORT_ROLES
+
+    def _get_school(self, request):
+        school_id = SchoolTeacher.objects.filter(
+            teacher=request.user, is_active=True,
+        ).values_list('school_id', flat=True).first()
+        if not school_id and request.user.is_superuser:
+            school_id = School.objects.first()
+            school_id = school_id.id if school_id else None
+        return School.objects.get(id=school_id) if school_id else None
 
     def post(self, request):
         from . import import_services as isvc
@@ -1083,16 +1092,10 @@ class StudentCSVPreviewView(RoleRequiredMixin, View):
             messages.error(request, 'No CSV data. Please upload again.')
             return redirect('student_csv_upload')
 
-        school_id = SchoolTeacher.objects.filter(
-            teacher=request.user, is_active=True,
-        ).values_list('school_id', flat=True).first()
-        if not school_id and request.user.is_superuser:
-            school_id = School.objects.first()
-            school_id = school_id.id if school_id else None
-        if not school_id:
+        school = self._get_school(request)
+        if not school:
             messages.error(request, 'No school found.')
             return redirect('student_csv_upload')
-        school = School.objects.get(id=school_id)
 
         column_mapping = isvc._build_column_mapping(request.POST)
         preview = isvc.validate_and_preview(data_rows, column_mapping, school)
@@ -1102,9 +1105,144 @@ class StudentCSVPreviewView(RoleRequiredMixin, View):
                 messages.error(request, err)
             return redirect('student_csv_upload')
 
-        # Store mapping and school for confirm step
+        # Store for subsequent steps
         request.session['csv_student_mapping'] = column_mapping
         request.session['csv_student_school_id'] = school.id
+
+        # Check if school has departments — if so, show structure mapping step
+        departments = Department.objects.filter(school=school, is_active=True)
+        if departments.exists():
+            # Extract what the CSV contains for subjects/levels/classes
+            csv_structure = isvc.extract_csv_structure(data_rows, column_mapping)
+            request.session['csv_student_structure'] = csv_structure
+            return render(request, 'admin/csv_student_structure_mapping.html', {
+                'departments': departments,
+                'csv_structure': csv_structure,
+                'preview_summary': {
+                    'students_new': len(preview['students_new']),
+                    'students_existing': len(preview['students_existing']),
+                    'guardians_new': len(preview['guardians_new']),
+                },
+                'school': school,
+            })
+
+        # No departments — go straight to preview
+        request.session['csv_student_preview'] = {
+            'students_new_count': len(preview['students_new']),
+            'students_existing_count': len(preview['students_existing']),
+            'departments_new': preview['departments_new'],
+            'subjects_new': preview['subjects_new'],
+            'classes_new_count': len(preview['classes_new']),
+            'classes_existing_count': len(preview['classes_existing']),
+            'guardians_new_count': len(preview['guardians_new']),
+            'guardians_existing_count': len(preview['guardians_existing']),
+        }
+        return render(request, 'admin/csv_student_preview.html', {
+            'preview': preview,
+            'school': school,
+        })
+
+
+class StudentCSVStructureMappingView(RoleRequiredMixin, View):
+    """Step 2b: Smart mapping of subjects/levels/classes to a department.
+
+    GET: Load mapping context for the selected department (AJAX-like reload).
+    POST: Process mapping choices and proceed to final preview.
+    """
+    required_roles = IMPORT_ROLES
+
+    def post(self, request):
+        from . import import_services as isvc
+
+        data_rows = request.session.get('csv_student_data')
+        column_mapping = request.session.get('csv_student_mapping')
+        school_id = request.session.get('csv_student_school_id')
+        csv_structure = request.session.get('csv_student_structure')
+
+        if not data_rows or not column_mapping or not school_id:
+            messages.error(request, 'Session expired. Please upload again.')
+            return redirect('student_csv_upload')
+
+        school = School.objects.get(id=school_id)
+        department_id = request.POST.get('department_id')
+
+        # If action is "load_mapping" — user selected a department, show mapping UI
+        if request.POST.get('action') == 'load_mapping' and department_id:
+            department = Department.objects.get(id=department_id, school=school)
+            mapping_context = isvc.build_smart_mapping_context(csv_structure, department)
+            departments = Department.objects.filter(school=school, is_active=True)
+
+            preview = isvc.validate_and_preview(data_rows, column_mapping, school)
+
+            return render(request, 'admin/csv_student_structure_mapping.html', {
+                'departments': departments,
+                'selected_department': department,
+                'csv_structure': csv_structure,
+                'mapping_context': mapping_context,
+                'preview_summary': {
+                    'students_new': len(preview.get('students_new', [])),
+                    'students_existing': len(preview.get('students_existing', [])),
+                    'guardians_new': len(preview.get('guardians_new', [])),
+                },
+                'school': school,
+            })
+
+        # Otherwise — user submitted final mapping choices
+        if not department_id:
+            messages.error(request, 'Please select a department.')
+            return redirect('student_csv_upload')
+
+        department = Department.objects.get(id=department_id, school=school)
+
+        # Build structure_mapping from POST data
+        structure_mapping = {
+            'department_id': department.id,
+            'subject_map': {},
+            'level_map': {},
+            'class_map': {},
+            'dummy_subject': False,
+            'dummy_level': False,
+            'dummy_class': False,
+        }
+
+        # Parse subject mappings
+        if csv_structure and csv_structure['csv_subjects']:
+            for csv_subj in csv_structure['csv_subjects']:
+                val = request.POST.get(f'subject_map_{csv_subj}', 'create')
+                structure_mapping['subject_map'][csv_subj] = val
+        elif not csv_structure or not csv_structure['csv_subjects']:
+            # No CSV subjects — check if system has subjects
+            mapping_ctx = isvc.build_smart_mapping_context(csv_structure or {'csv_subjects': [], 'csv_levels': [], 'csv_classes': []}, department)
+            if mapping_ctx['subject_scenario'] == 'neither':
+                structure_mapping['dummy_subject'] = True
+
+        # Parse level mappings
+        if csv_structure and csv_structure['csv_levels']:
+            for csv_lvl in csv_structure['csv_levels']:
+                val = request.POST.get(f'level_map_{csv_lvl}', 'create')
+                structure_mapping['level_map'][csv_lvl] = val
+        elif not csv_structure or not csv_structure['csv_levels']:
+            mapping_ctx = isvc.build_smart_mapping_context(csv_structure or {'csv_subjects': [], 'csv_levels': [], 'csv_classes': []}, department)
+            if mapping_ctx['level_scenario'] == 'neither':
+                structure_mapping['dummy_level'] = True
+
+        # Parse class mappings
+        if csv_structure and csv_structure['csv_classes']:
+            for csv_cls in csv_structure['csv_classes']:
+                val = request.POST.get(f'class_map_{csv_cls}', 'create')
+                structure_mapping['class_map'][csv_cls] = val
+        elif not csv_structure or not csv_structure['csv_classes']:
+            mapping_ctx = isvc.build_smart_mapping_context(csv_structure or {'csv_subjects': [], 'csv_levels': [], 'csv_classes': []}, department)
+            if mapping_ctx['class_scenario'] == 'neither':
+                structure_mapping['dummy_class'] = True
+
+        # Store structure mapping in session
+        request.session['csv_student_structure_mapping'] = structure_mapping
+
+        # Generate final preview
+        preview = isvc.validate_and_preview(data_rows, column_mapping, school)
+        isvc.apply_structure_mapping(preview, structure_mapping, department)
+
         request.session['csv_student_preview'] = {
             'students_new_count': len(preview['students_new']),
             'students_existing_count': len(preview['students_existing']),
@@ -1119,6 +1257,8 @@ class StudentCSVPreviewView(RoleRequiredMixin, View):
         return render(request, 'admin/csv_student_preview.html', {
             'preview': preview,
             'school': school,
+            'target_department': department,
+            'structure_mapping': structure_mapping,
         })
 
 
@@ -1143,6 +1283,12 @@ class StudentCSVConfirmView(RoleRequiredMixin, View):
                 messages.error(request, err)
             return redirect('student_csv_upload')
 
+        # Apply structure mapping if present
+        structure_mapping = request.session.get('csv_student_structure_mapping')
+        if structure_mapping:
+            department = Department.objects.get(id=structure_mapping['department_id'])
+            isvc.apply_structure_mapping(preview, structure_mapping, department)
+
         try:
             results = isvc.execute_import(preview, school, request.user)
         except Exception as e:
@@ -1155,7 +1301,8 @@ class StudentCSVConfirmView(RoleRequiredMixin, View):
 
         # Clear CSV data from session
         for key in ('csv_student_data', 'csv_student_headers', 'csv_student_mapping',
-                     'csv_student_school_id', 'csv_student_preview'):
+                     'csv_student_school_id', 'csv_student_preview',
+                     'csv_student_structure', 'csv_student_structure_mapping'):
             request.session.pop(key, None)
 
         return render(request, 'admin/csv_student_results.html', {
@@ -2854,9 +3001,9 @@ class SubjectsHubView(LoginRequiredMixin, View):
 
         # ----- Student / Individual Student -----
 
-        # SubjectApp cards (always shown)
-        subjects = SubjectApp.objects.exclude(
-            is_active=False, is_coming_soon=False,
+        # SubjectApp cards (only active subjects — hide "coming soon")
+        subjects = SubjectApp.objects.filter(
+            is_active=True,
         ).order_by('order')
 
         # Determine if user is a school student
@@ -2927,6 +3074,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
         )
 
         return render(request, 'hub/home.html', {
+            'hide_sidebar': True,
             'subjects': subjects,
             'schools': schools,
             'is_school_student': is_school_student,

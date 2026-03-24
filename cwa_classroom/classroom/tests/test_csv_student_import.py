@@ -462,3 +462,157 @@ class ParseUploadFileTests(CSVImportTestBase):
         with self.assertRaises(ValueError) as ctx:
             parse_upload_file(b'fake', 'students.xlsx')
         self.assertIn('XLSX', str(ctx.exception))
+
+
+# ─────────────────────────────────────────────────────────────
+# Smart structure mapping tests
+# ─────────────────────────────────────────────────────────────
+
+class ExtractCSVStructureTests(CSVImportTestBase):
+
+    def test_extracts_unique_subjects_levels_classes(self):
+        from classroom.import_services import extract_csv_structure
+        csv = (
+            b'first_name,last_name,email,subject,level,class_name\n'
+            b'John,Smith,john@test.com,Maths,Year 7,7A-Mon\n'
+            b'Jane,Doe,jane@test.com,Maths,Year 8,8A-Mon\n'
+            b'Bob,Lee,bob@test.com,Science,Year 7,7B-Mon\n'
+        )
+        headers, rows = parse_csv_file(csv)
+        mapping = {'subject': 3, 'level': 4, 'class_name': 5}
+        result = extract_csv_structure(rows, mapping)
+        self.assertEqual(result['csv_subjects'], ['Maths', 'Science'])
+        self.assertEqual(result['csv_levels'], ['Year 7', 'Year 8'])
+        self.assertEqual(result['csv_classes'], ['7A-Mon', '7B-Mon', '8A-Mon'])
+
+    def test_empty_csv_returns_empty_lists(self):
+        from classroom.import_services import extract_csv_structure
+        csv = b'first_name,last_name,email\nJohn,Smith,john@test.com\n'
+        headers, rows = parse_csv_file(csv)
+        result = extract_csv_structure(rows, {'first_name': 0})
+        self.assertEqual(result['csv_subjects'], [])
+        self.assertEqual(result['csv_levels'], [])
+        self.assertEqual(result['csv_classes'], [])
+
+
+class SmartMappingContextTests(CSVImportTestBase):
+
+    def setUp(self):
+        self.dept = Department.objects.create(
+            school=self.school, name='Science', slug='science',
+        )
+
+    def test_neither_scenario(self):
+        from classroom.import_services import build_smart_mapping_context
+        ctx = build_smart_mapping_context(
+            {'csv_subjects': [], 'csv_levels': [], 'csv_classes': []},
+            self.dept,
+        )
+        self.assertEqual(ctx['subject_scenario'], 'neither')
+        self.assertEqual(ctx['level_scenario'], 'neither')
+        self.assertEqual(ctx['class_scenario'], 'neither')
+
+    def test_csv_only_scenario(self):
+        from classroom.import_services import build_smart_mapping_context
+        ctx = build_smart_mapping_context(
+            {'csv_subjects': ['Physics'], 'csv_levels': ['Year 9'], 'csv_classes': ['9A']},
+            self.dept,
+        )
+        self.assertEqual(ctx['subject_scenario'], 'csv_only')
+        self.assertEqual(ctx['level_scenario'], 'csv_only')
+        self.assertEqual(ctx['class_scenario'], 'csv_only')
+
+    def test_both_scenario(self):
+        from classroom.import_services import build_smart_mapping_context
+        subj = Subject.objects.create(
+            name='Physics', slug='physics', school=self.school,
+        )
+        DepartmentSubject.objects.create(department=self.dept, subject=subj)
+
+        ctx = build_smart_mapping_context(
+            {'csv_subjects': ['Phys'], 'csv_levels': [], 'csv_classes': []},
+            self.dept,
+        )
+        self.assertEqual(ctx['subject_scenario'], 'both')
+        self.assertEqual(len(ctx['system_subjects']), 1)
+        self.assertEqual(ctx['system_subjects'][0]['name'], 'Physics')
+
+
+class StructureMappedImportTests(CSVImportTestBase):
+
+    def test_import_with_subject_mapping(self):
+        """Subjects from CSV mapped to existing system subject."""
+        from classroom.import_services import apply_structure_mapping
+
+        dept = Department.objects.create(
+            school=self.school, name='Maths Dept', slug='maths-dept',
+        )
+        subj = Subject.objects.create(
+            name='Mathematics', slug='maths-local', school=self.school,
+        )
+        DepartmentSubject.objects.create(department=dept, subject=subj)
+
+        headers, rows = parse_csv_file(self.SIMPLE_CSV)
+        mapping = _build_column_mapping({
+            'col_first_name': '0', 'col_last_name': '1', 'col_email': '2',
+            'col_department': '3', 'col_subject': '4', 'col_level': '5',
+            'col_class_name': '6', 'col_class_day': '7',
+        })
+        preview = validate_and_preview(rows, mapping, self.school)
+
+        structure_mapping = {
+            'department_id': dept.id,
+            'subject_map': {'Mathematics': str(subj.id)},
+            'level_map': {'Year 7': str(self.level7.id)},
+            'class_map': {'Year 7 Mon': 'create'},
+            'dummy_subject': False,
+            'dummy_level': False,
+            'dummy_class': False,
+        }
+        apply_structure_mapping(preview, structure_mapping, dept)
+        result = execute_import(preview, self.school, self.superuser)
+
+        self.assertGreater(result['counts']['students_created'], 0)
+        self.assertEqual(result['counts']['classes_created'], 1)
+        # The class should be linked to the target department
+        cr = ClassRoom.objects.get(name='Year 7 Mon', school=self.school)
+        self.assertEqual(cr.department, dept)
+
+    def test_import_with_dummy_entities(self):
+        """When neither CSV nor system has structure, dummies are created."""
+        from classroom.import_services import apply_structure_mapping
+
+        dept = Department.objects.create(
+            school=self.school, name='Empty Dept', slug='empty-dept',
+        )
+
+        # CSV with no subject/level/class columns
+        csv = b'first_name,last_name,email\nAlice,Wong,alice@test.com\n'
+        headers, rows = parse_csv_file(csv)
+        mapping = _build_column_mapping({
+            'col_first_name': '0', 'col_last_name': '1', 'col_email': '2',
+        })
+        preview = validate_and_preview(rows, mapping, self.school)
+
+        structure_mapping = {
+            'department_id': dept.id,
+            'subject_map': {},
+            'level_map': {},
+            'class_map': {},
+            'dummy_subject': True,
+            'dummy_level': True,
+            'dummy_class': True,
+        }
+        apply_structure_mapping(preview, structure_mapping, dept)
+        result = execute_import(preview, self.school, self.superuser)
+
+        self.assertEqual(result['counts']['students_created'], 1)
+        self.assertEqual(result['counts']['classes_created'], 1)
+        self.assertEqual(result['counts']['subjects_created'], 1)
+        self.assertEqual(result['counts']['levels_created'], 1)
+
+        # Student should be enrolled in the dummy class
+        alice = CustomUser.objects.get(email='alice@test.com')
+        self.assertTrue(ClassStudent.objects.filter(student=alice).exists())
+        dummy_class = ClassStudent.objects.get(student=alice).classroom
+        self.assertEqual(dummy_class.department, dept)

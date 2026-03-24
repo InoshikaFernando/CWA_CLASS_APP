@@ -1,0 +1,76 @@
+{% comment %}
+Hub sidebar — common navigation only (no subject-specific items like Basic Facts, Times Tables).
+Subject-specific nav lives inside each subject's own pages.
+{% endcomment %}
+{% load static %}
+<nav class="flex flex-col h-full p-4 gap-1.5">
+
+  <!-- Home (active on hub) -->
+  <a href="/hub/"
+     class="flex items-center gap-3 px-4 py-3 rounded-2xl text-white font-bold transition
+            {% if request.path == '/hub/' %}bg-white/25 shadow-lg shadow-white/10 scale-[1.02]{% else %}hover:bg-white/15 hover:scale-[1.01]{% endif %}">
+    <span class="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-white/20 text-lg">&#127968;</span>
+    <span>Home</span>
+  </a>
+
+  <!-- My Classes -->
+  <a href="{% url 'student_my_classes' %}"
+     class="flex items-center gap-3 px-4 py-3 rounded-2xl text-white font-bold transition
+            {% if 'my-classes' in request.path %}bg-white/25 shadow-lg shadow-white/10 scale-[1.02]{% else %}hover:bg-white/15 hover:scale-[1.01]{% endif %}">
+    <span class="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-white/20 text-lg">&#127979;</span>
+    <span>My Classes</span>
+  </a>
+
+  <!-- Join Class -->
+  <a href="{% url 'student_join_class' %}"
+     class="flex items-center gap-3 px-4 py-3 rounded-2xl text-white font-bold transition
+            {% if 'join' in request.path %}bg-white/25 shadow-lg shadow-white/10 scale-[1.02]{% else %}hover:bg-white/15 hover:scale-[1.01]{% endif %}">
+    <span class="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-white/20 text-lg">&#10133;</span>
+    <span>Join Class</span>
+  </a>
+
+  <!-- My Progress -->
+  <a href="{% url 'student_dashboard' %}"
+     class="flex items-center gap-3 px-4 py-3 rounded-2xl text-white font-bold transition
+            {% if 'dashboard' in request.path %}bg-white/25 shadow-lg shadow-white/10 scale-[1.02]{% else %}hover:bg-white/15 hover:scale-[1.01]{% endif %}">
+    <span class="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-white/20 text-lg">&#128202;</span>
+    <span>My Progress</span>
+  </a>
+
+  <!-- Attendance -->
+  <a href="{% url 'student_attendance_history' %}"
+     class="flex items-center gap-3 px-4 py-3 rounded-2xl text-white font-bold transition
+            {% if 'attendance' in request.path %}bg-white/25 shadow-lg shadow-white/10 scale-[1.02]{% else %}hover:bg-white/15 hover:scale-[1.01]{% endif %}">
+    <span class="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-white/20 text-lg">&#9989;</span>
+    <span>Attendance</span>
+  </a>
+
+  <!-- Spacer -->
+  <div class="flex-1"></div>
+
+  <!-- Trial banner (IndividualStudent only) -->
+  {% if is_individual_student and request.user.subscription.status == 'trialing' %}
+    <div class="mx-1 mb-2 px-3 py-2.5 bg-yellow-400/20 border border-yellow-300/30 rounded-2xl text-center">
+      <p class="text-xs font-bold text-yellow-100">
+        &#9203; Trial ends in {{ request.user.subscription.trial_days_remaining }} day{{ request.user.subscription.trial_days_remaining|pluralize }}
+      </p>
+    </div>
+  {% endif %}
+
+  <!-- Billing (IndividualStudent only) -->
+  {% if is_individual_student %}
+  <a href="{% url 'change_package' %}"
+     class="flex items-center gap-3 px-4 py-3 rounded-2xl text-white font-bold transition hover:bg-white/15 hover:scale-[1.01]">
+    <span class="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-white/20 text-lg">&#128179;</span>
+    <span>Billing</span>
+  </a>
+  {% endif %}
+
+  <!-- Profile -->
+  <a href="{% url 'profile' %}"
+     class="flex items-center gap-3 px-4 py-3 rounded-2xl text-white/90 font-bold transition hover:bg-white/15 hover:scale-[1.01]">
+    <span class="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-white/20 text-lg">&#128100;</span>
+    <span>Profile</span>
+  </a>
+
+</nav>

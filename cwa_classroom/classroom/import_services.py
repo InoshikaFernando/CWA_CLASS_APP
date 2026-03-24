@@ -526,12 +526,144 @@ def validate_and_preview(data_rows, column_mapping, school):
     }
 
 
+def extract_csv_structure(data_rows, column_mapping):
+    """Scan CSV data and return unique subjects, levels, and class names found.
+
+    Returns dict with:
+        csv_subjects: sorted list of unique subject names
+        csv_levels: sorted list of unique level names
+        csv_classes: sorted list of unique class names
+    """
+    children_mode = 'children' in column_mapping
+
+    # Expand children if needed (only to get correct row count; we just read structure cols)
+    if children_mode:
+        original_col_count = len(data_rows[0]) if data_rows else 0
+        data_rows = _expand_children_rows(data_rows, column_mapping)
+
+    subjects = set()
+    levels = set()
+    classes = set()
+
+    for row in data_rows:
+        s = _get_cell(row, column_mapping.get('subject'))
+        if s:
+            subjects.add(s)
+        lv = _get_cell(row, column_mapping.get('level'))
+        if lv:
+            levels.add(lv)
+        cn = _get_cell(row, column_mapping.get('class_name'))
+        if cn:
+            classes.add(cn)
+
+    return {
+        'csv_subjects': sorted(subjects),
+        'csv_levels': sorted(levels),
+        'csv_classes': sorted(classes),
+    }
+
+
+def build_smart_mapping_context(csv_structure, department):
+    """Compare CSV structure against a department's existing subjects/levels/classes.
+
+    Returns a context dict for the mapping wizard template with:
+        - subject_scenario: 'both' | 'csv_only' | 'system_only' | 'neither'
+        - level_scenario: same
+        - class_scenario: same
+        - system_subjects: list of {id, name}
+        - system_levels: list of {id, display_name, subject_name}
+        - system_classes: list of {id, name}
+        - csv_subjects, csv_levels, csv_classes: from csv_structure
+    """
+    from .models import DepartmentSubject, DepartmentLevel
+
+    csv_subjects = csv_structure['csv_subjects']
+    csv_levels = csv_structure['csv_levels']
+    csv_classes = csv_structure['csv_classes']
+
+    # System subjects linked to this department
+    dept_subjects_qs = DepartmentSubject.objects.filter(
+        department=department
+    ).select_related('subject').order_by('order')
+    system_subjects = [
+        {'id': ds.subject_id, 'name': ds.subject.name}
+        for ds in dept_subjects_qs if ds.subject.is_active
+    ]
+
+    # System levels linked to this department
+    dept_levels_qs = DepartmentLevel.objects.filter(
+        department=department
+    ).select_related('level', 'level__subject').order_by('level__level_number')
+    system_levels = [
+        {
+            'id': dl.level_id,
+            'display_name': dl.local_display_name or dl.level.display_name,
+            'subject_name': dl.level.subject.name if dl.level.subject else '',
+        }
+        for dl in dept_levels_qs
+    ]
+
+    # System classes in this department
+    system_classes_qs = ClassRoom.objects.filter(
+        department=department, is_active=True
+    ).order_by('name')
+    system_classes = [
+        {'id': cr.id, 'name': cr.name}
+        for cr in system_classes_qs
+    ]
+
+    def scenario(csv_list, system_list):
+        has_csv = len(csv_list) > 0
+        has_system = len(system_list) > 0
+        if has_csv and has_system:
+            return 'both'
+        if has_csv and not has_system:
+            return 'csv_only'
+        if not has_csv and has_system:
+            return 'system_only'
+        return 'neither'
+
+    return {
+        'subject_scenario': scenario(csv_subjects, system_subjects),
+        'level_scenario': scenario(csv_levels, system_levels),
+        'class_scenario': scenario(csv_classes, system_classes),
+        'system_subjects': system_subjects,
+        'system_levels': system_levels,
+        'system_classes': system_classes,
+        'csv_subjects': csv_subjects,
+        'csv_levels': csv_levels,
+        'csv_classes': csv_classes,
+    }
+
+
+def apply_structure_mapping(preview_data, structure_mapping, department):
+    """Apply user's mapping choices to preview_data before execution.
+
+    structure_mapping is a dict with:
+        department_id: int
+        subject_map: {csv_subject_name: system_subject_id or 'create'}
+        level_map: {csv_level_name: system_level_id or 'create'}
+        class_map: {csv_class_name: system_class_id or 'create'}
+        dummy_subject: True if we need to create a dummy subject
+        dummy_level: True if we need to create a dummy level
+        dummy_class: True if we need to create a dummy class
+    """
+    preview_data['structure_mapping'] = structure_mapping
+    preview_data['target_department_id'] = department.id
+    preview_data['target_department_name'] = department.name
+    return preview_data
+
+
 def execute_import(preview_data, school, uploaded_by):
     """
     Execute the import in a single transaction.
     Returns dict with counts and credentials list.
+
+    If preview_data contains 'structure_mapping', the department-scoped
+    smart mapping is used instead of the generic CSV-driven creation.
     """
     from django.db import models as db_models
+    from .models import DepartmentLevel
 
     credentials = []
     counts = {
@@ -540,6 +672,7 @@ def execute_import(preview_data, school, uploaded_by):
         'classes_created': 0,
         'departments_created': 0,
         'subjects_created': 0,
+        'levels_created': 0,
         'guardians_created': 0,
         'errors': [],
     }
@@ -548,79 +681,226 @@ def execute_import(preview_data, school, uploaded_by):
         name=Role.STUDENT, defaults={'display_name': 'Student'},
     )
 
+    structure_mapping = preview_data.get('structure_mapping')
+
     with transaction.atomic():
-        # 1. Create departments
-        dept_cache = {}
-        for dept_name in preview_data['departments_new']:
-            dept, created = Department.objects.get_or_create(
-                school=school, slug=slugify(dept_name),
-                defaults={'name': dept_name},
-            )
-            dept_cache[dept_name] = dept
-            if created:
-                counts['departments_created'] += 1
-        # Also cache existing departments
-        for dept in Department.objects.filter(school=school):
-            dept_cache[dept.name] = dept
+        if structure_mapping:
+            # ── Department-scoped smart import ──
+            target_dept = Department.objects.get(id=structure_mapping['department_id'])
+            dept_cache = {target_dept.name: target_dept}
+            # Also cache all school departments
+            for dept in Department.objects.filter(school=school):
+                dept_cache[dept.name] = dept
 
-        # 2. Create subjects
-        subject_cache = {}
-        for subj_name in preview_data['subjects_new']:
-            subj, created = Subject.objects.get_or_create(
-                school=school, slug=slugify(subj_name),
-                defaults={'name': subj_name, 'is_active': True},
-            )
-            subject_cache[subj_name] = subj
-            if created:
-                counts['subjects_created'] += 1
-        # Cache existing subjects (school + global)
-        for subj in Subject.objects.filter(
-            db_models.Q(school=school) | db_models.Q(school__isnull=True)
-        ):
-            subject_cache[subj.name] = subj
+            # Resolve subject mapping
+            subject_map = structure_mapping.get('subject_map', {})
+            subject_cache = {}
+            # Cache all existing subjects by id for lookups
+            existing_subjects_by_id = {s.id: s for s in Subject.objects.filter(
+                db_models.Q(school=school) | db_models.Q(school__isnull=True)
+            )}
+            for csv_name, target in subject_map.items():
+                if target == 'create':
+                    subj, created = Subject.objects.get_or_create(
+                        school=school, slug=slugify(csv_name),
+                        defaults={'name': csv_name, 'is_active': True},
+                    )
+                    if created:
+                        counts['subjects_created'] += 1
+                    DepartmentSubject.objects.get_or_create(
+                        department=target_dept, subject=subj,
+                    )
+                    subject_cache[csv_name] = subj
+                else:
+                    # target is a system subject id
+                    subj = existing_subjects_by_id.get(int(target))
+                    if subj:
+                        subject_cache[csv_name] = subj
+                        DepartmentSubject.objects.get_or_create(
+                            department=target_dept, subject=subj,
+                        )
 
-        # Link new subjects to departments via DepartmentSubject
-        for cls_data in preview_data['classes_new'] + preview_data['classes_existing']:
-            dept_name = cls_data.get('department', '')
-            subj_name = cls_data.get('subject', '')
-            if dept_name and subj_name and dept_name in dept_cache and subj_name in subject_cache:
-                DepartmentSubject.objects.get_or_create(
-                    department=dept_cache[dept_name],
-                    subject=subject_cache[subj_name],
+            # Handle dummy subject
+            if structure_mapping.get('dummy_subject'):
+                dummy_subj, created = Subject.objects.get_or_create(
+                    school=school, slug=slugify(f'{target_dept.name}-general'),
+                    defaults={'name': f'{target_dept.name} General', 'is_active': True},
                 )
+                if created:
+                    counts['subjects_created'] += 1
+                DepartmentSubject.objects.get_or_create(
+                    department=target_dept, subject=dummy_subj,
+                )
+                subject_cache['__dummy__'] = dummy_subj
 
-        # 3. Resolve levels (match by display_name or level_number)
-        level_cache = {}
-        for lvl in Level.objects.all():
-            level_cache[lvl.display_name.lower()] = lvl
-            level_cache[str(lvl.level_number)] = lvl
-            if lvl.display_name:
+            # Resolve level mapping
+            level_map = structure_mapping.get('level_map', {})
+            level_cache = {}
+            existing_levels_by_id = {l.id: l for l in Level.objects.all()}
+            next_level_num = (Level.objects.aggregate(
+                m=models.Max('level_number'))['m'] or 0) + 1
+
+            for csv_name, target in level_map.items():
+                if target == 'create':
+                    lvl, created = Level.objects.get_or_create(
+                        display_name=csv_name,
+                        defaults={
+                            'level_number': next_level_num,
+                            'subject': subject_cache.get('__dummy__') or next(iter(subject_cache.values()), None),
+                            'school': school,
+                        },
+                    )
+                    if created:
+                        next_level_num += 1
+                        counts['levels_created'] += 1
+                    DepartmentLevel.objects.get_or_create(
+                        department=target_dept, level=lvl,
+                    )
+                    level_cache[csv_name.lower()] = lvl
+                else:
+                    lvl = existing_levels_by_id.get(int(target))
+                    if lvl:
+                        level_cache[csv_name.lower()] = lvl
+                        DepartmentLevel.objects.get_or_create(
+                            department=target_dept, level=lvl,
+                        )
+
+            # Handle dummy level
+            if structure_mapping.get('dummy_level'):
+                base_subj = subject_cache.get('__dummy__') or next(iter(subject_cache.values()), None)
+                dummy_lvl, created = Level.objects.get_or_create(
+                    display_name=f'{target_dept.name} General',
+                    defaults={
+                        'level_number': next_level_num,
+                        'subject': base_subj,
+                        'school': school,
+                    },
+                )
+                if created:
+                    counts['levels_created'] += 1
+                DepartmentLevel.objects.get_or_create(
+                    department=target_dept, level=dummy_lvl,
+                )
+                level_cache['__dummy__'] = dummy_lvl
+
+            # Resolve class mapping
+            class_map = structure_mapping.get('class_map', {})
+            class_cache = {}
+            existing_classes_by_id = {
+                cr.id: cr for cr in ClassRoom.objects.filter(school=school)
+            }
+
+            for csv_name, target in class_map.items():
+                if target == 'create':
+                    # Determine subject/level for the new class
+                    first_subj = next(iter(subject_cache.values()), None)
+                    classroom = ClassRoom.objects.create(
+                        name=csv_name,
+                        school=school,
+                        department=target_dept,
+                        subject=first_subj,
+                        created_by=uploaded_by,
+                    )
+                    # Link first available level
+                    first_lvl = next(iter(level_cache.values()), None)
+                    if first_lvl:
+                        classroom.levels.add(first_lvl)
+                    class_cache[csv_name] = classroom
+                    counts['classes_created'] += 1
+                else:
+                    cr = existing_classes_by_id.get(int(target))
+                    if cr:
+                        class_cache[csv_name] = cr
+
+            # Handle dummy class
+            if structure_mapping.get('dummy_class'):
+                first_subj = next(iter(subject_cache.values()), None)
+                dummy_cr = ClassRoom.objects.create(
+                    name=f'{target_dept.name} General',
+                    school=school,
+                    department=target_dept,
+                    subject=first_subj,
+                    created_by=uploaded_by,
+                )
+                first_lvl = next(iter(level_cache.values()), None)
+                if first_lvl:
+                    dummy_cr.levels.add(first_lvl)
+                class_cache['__dummy__'] = dummy_cr
+                counts['classes_created'] += 1
+
+            # Also cache existing classes by name
+            for cr in ClassRoom.objects.filter(school=school):
+                if cr.name not in class_cache:
+                    class_cache[cr.name] = cr
+
+        else:
+            # ── Original generic import (no structure mapping) ──
+            # 1. Create departments
+            dept_cache = {}
+            for dept_name in preview_data['departments_new']:
+                dept, created = Department.objects.get_or_create(
+                    school=school, slug=slugify(dept_name),
+                    defaults={'name': dept_name},
+                )
+                dept_cache[dept_name] = dept
+                if created:
+                    counts['departments_created'] += 1
+            for dept in Department.objects.filter(school=school):
+                dept_cache[dept.name] = dept
+
+            # 2. Create subjects
+            subject_cache = {}
+            for subj_name in preview_data['subjects_new']:
+                subj, created = Subject.objects.get_or_create(
+                    school=school, slug=slugify(subj_name),
+                    defaults={'name': subj_name, 'is_active': True},
+                )
+                subject_cache[subj_name] = subj
+                if created:
+                    counts['subjects_created'] += 1
+            for subj in Subject.objects.filter(
+                db_models.Q(school=school) | db_models.Q(school__isnull=True)
+            ):
+                subject_cache[subj.name] = subj
+
+            # Link subjects to departments
+            for cls_data in preview_data['classes_new'] + preview_data['classes_existing']:
+                dept_name = cls_data.get('department', '')
+                subj_name = cls_data.get('subject', '')
+                if dept_name and subj_name and dept_name in dept_cache and subj_name in subject_cache:
+                    DepartmentSubject.objects.get_or_create(
+                        department=dept_cache[dept_name],
+                        subject=subject_cache[subj_name],
+                    )
+
+            # 3. Resolve levels
+            level_cache = {}
+            for lvl in Level.objects.all():
                 level_cache[lvl.display_name.lower()] = lvl
+                level_cache[str(lvl.level_number)] = lvl
 
-        # 4. Create classes
-        class_cache = {}
-        for cls_data in preview_data['classes_new']:
-            dept = dept_cache.get(cls_data.get('department', ''))
-            subj = subject_cache.get(cls_data.get('subject', ''))
-            classroom = ClassRoom.objects.create(
-                name=cls_data['class_name'],
-                school=school,
-                department=dept,
-                subject=subj,
-                day=cls_data.get('day', ''),
-                start_time=cls_data.get('start_time'),
-                end_time=cls_data.get('end_time'),
-                created_by=uploaded_by,
-            )
-            # Link level if present
-            level_key = cls_data.get('level', '').lower()
-            if level_key and level_key in level_cache:
-                classroom.levels.add(level_cache[level_key])
-            class_cache[cls_data['class_name']] = classroom
-            counts['classes_created'] += 1
-        # Cache existing classes
-        for cr in ClassRoom.objects.filter(school=school):
-            class_cache[cr.name] = cr
+            # 4. Create classes
+            class_cache = {}
+            for cls_data in preview_data['classes_new']:
+                dept = dept_cache.get(cls_data.get('department', ''))
+                subj = subject_cache.get(cls_data.get('subject', ''))
+                classroom = ClassRoom.objects.create(
+                    name=cls_data['class_name'],
+                    school=school,
+                    department=dept,
+                    subject=subj,
+                    day=cls_data.get('day', ''),
+                    start_time=cls_data.get('start_time'),
+                    end_time=cls_data.get('end_time'),
+                    created_by=uploaded_by,
+                )
+                level_key = cls_data.get('level', '').lower()
+                if level_key and level_key in level_cache:
+                    classroom.levels.add(level_cache[level_key])
+                class_cache[cls_data['class_name']] = classroom
+                counts['classes_created'] += 1
+            for cr in ClassRoom.objects.filter(school=school):
+                class_cache[cr.name] = cr
 
         # 5. Create guardians
         guardian_cache = {}
@@ -694,6 +974,7 @@ def execute_import(preview_data, school, uploaded_by):
             )
 
             # ClassStudent enrollments
+            enrolled = False
             for c in sdata.get('classes', []):
                 classroom = class_cache.get(c['class_name'])
                 if classroom:
@@ -701,6 +982,14 @@ def execute_import(preview_data, school, uploaded_by):
                         classroom=classroom, student=user,
                     )
                     counts['students_enrolled'] += 1
+                    enrolled = True
+
+            # If no class enrollment and we have a dummy class, enroll there
+            if not enrolled and '__dummy__' in class_cache:
+                ClassStudent.objects.get_or_create(
+                    classroom=class_cache['__dummy__'], student=user,
+                )
+                counts['students_enrolled'] += 1
 
             # Guardian links
             for g in sdata.get('guardians', []):
