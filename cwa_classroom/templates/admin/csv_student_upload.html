@@ -109,7 +109,7 @@
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">
             {{ label }}
-            {% if field == 'first_name' or field == 'last_name' or field == 'email' %}
+            {% if field == 'first_name' or field == 'last_name' %}
             <span class="text-red-500 required-star" data-field="{{ field }}">*</span>
             {% endif %}
             {% if field == 'full_name' %}
@@ -163,22 +163,10 @@ function updatePresetSelection(radio) {
     if (select) select.value = String(idx);
   }
 
-  // If 'children' is mapped, first_name/last_name/email are not required
-  if ('children' in presetMapping) {
+  // If 'children' or 'full_name' is mapped, first_name/last_name are not required
+  if ('children' in presetMapping || 'full_name' in presetMapping) {
     document.querySelectorAll('.required-star').forEach(star => {
-      const field = star.dataset.field;
-      if (field === 'first_name' || field === 'last_name' || field === 'email') {
-        star.style.display = 'none';
-      }
-    });
-  }
-  // If 'full_name' is mapped, first_name/last_name are not required
-  if ('full_name' in presetMapping) {
-    document.querySelectorAll('.required-star').forEach(star => {
-      const field = star.dataset.field;
-      if (field === 'first_name' || field === 'last_name') {
-        star.style.display = 'none';
-      }
+      star.style.display = 'none';
     });
   }
 })();

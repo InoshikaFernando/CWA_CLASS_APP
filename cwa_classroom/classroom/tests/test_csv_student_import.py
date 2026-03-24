@@ -185,12 +185,15 @@ class ValidateAndPreviewTests(CSVImportTestBase):
         self.assertEqual(len(result['guardians_new']), 1)
         self.assertEqual(result['guardians_new'][0]['email'], 'mary@parent.com')
 
-    def test_missing_email_row_error(self):
-        csv = b'first_name,last_name,email\nJohn,Smith,\n'
+    def test_missing_email_auto_generates(self):
+        """When email is missing, it's auto-generated from student name."""
+        csv = b'first_name,last_name\nJohn,Smith\n'
         headers, rows = parse_csv_file(csv)
         mapping = self._mapping(headers)
         result = validate_and_preview(rows, mapping, self.school)
-        self.assertTrue(any('Missing email' in e for e in result['errors']))
+        self.assertEqual(len(result['errors']), 0)
+        self.assertEqual(len(result['students_new']), 1)
+        self.assertIn('@student.local', result['students_new'][0]['email'])
 
 
 # ─────────────────────────────────────────────────────────────

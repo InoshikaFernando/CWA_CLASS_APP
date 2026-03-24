@@ -66,9 +66,9 @@ COLUMN_FIELDS = {
     'parent2_country': 'Parent 2 Country',
 }
 
-REQUIRED_FIELDS = {'first_name', 'last_name', 'email'}
+REQUIRED_FIELDS = {'first_name', 'last_name'}
 # When 'children' or 'full_name' is mapped, first_name/last_name are not required
-CHILDREN_MODE_REPLACES = {'first_name', 'last_name', 'email'}
+CHILDREN_MODE_REPLACES = {'first_name', 'last_name'}
 FULL_NAME_MODE_REPLACES = {'first_name', 'last_name'}
 
 # ── Source system presets ────────────────────────────────────
@@ -305,12 +305,8 @@ def validate_and_preview(data_rows, column_mapping, school):
     full_name_mode = 'full_name' in column_mapping and not children_mode
 
     # Check required fields are mapped
-    if children_mode:
-        required = REQUIRED_FIELDS - CHILDREN_MODE_REPLACES
-        if 'parent1_email' not in column_mapping:
-            errors.append('When using "Children" column, "Parent 1 Email" must be mapped.')
-    elif full_name_mode:
-        required = REQUIRED_FIELDS - FULL_NAME_MODE_REPLACES
+    if children_mode or full_name_mode:
+        required = set()  # children/full_name handle names themselves
     else:
         required = REQUIRED_FIELDS
     for f in required:
@@ -372,12 +368,13 @@ def validate_and_preview(data_rows, column_mapping, school):
                 domain = parent_email.split('@')[1] if '@' in parent_email else 'local'
                 child_slug = slugify(f'{first_name}-{last_name}') if last_name else slugify(first_name)
                 email = f'{child_slug}.{prefix}@{domain}'.lower()
-                warnings.append(
-                    f'Row {row_idx}: No student email — generated "{email}" from parent email.'
-                )
             else:
-                errors.append(f'Row {row_idx}: Missing email for {first_name} {last_name}.')
-                continue
+                # Generate a placeholder email from student name
+                child_slug = slugify(f'{first_name}-{last_name}') if last_name else slugify(first_name)
+                email = f'{child_slug}@student.local'.lower()
+            warnings.append(
+                f'Row {row_idx}: No student email — generated "{email}".'
+            )
 
         if not last_name:
             # Use parent's last name as fallback
