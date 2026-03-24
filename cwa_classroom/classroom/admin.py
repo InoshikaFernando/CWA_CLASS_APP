@@ -227,7 +227,7 @@ class NotificationAdmin(admin.ModelAdmin):
 
 @admin.register(SubjectApp)
 class SubjectAppAdmin(admin.ModelAdmin):
-    list_display = ('name', 'slug', 'is_active', 'is_coming_soon', 'order', 'external_url')
+    list_display = ('name', 'slug', 'subject', 'is_active', 'is_coming_soon', 'order', 'external_url')
     list_filter = ('is_active', 'is_coming_soon')
     list_editable = ('order', 'is_active', 'is_coming_soon')
     prepopulated_fields = {'slug': ('name',)}

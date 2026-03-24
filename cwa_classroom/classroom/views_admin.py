@@ -948,10 +948,14 @@ class SchoolSubjectManageView(RoleRequiredMixin, View):
         school = get_object_or_404(School, id=school_id, admin=request.user)
         global_subjects = Subject.objects.filter(school__isnull=True, is_active=True).order_by('order', 'name')
         school_subjects = Subject.objects.filter(school=school, is_active=True).order_by('order', 'name')
+        # Global SubjectApps for linking
+        from classroom.models import SubjectApp
+        subject_apps = SubjectApp.objects.filter(is_active=True).order_by('order', 'name')
         return render(request, 'admin_dashboard/school_subjects.html', {
             'school': school,
             'global_subjects': global_subjects,
             'school_subjects': school_subjects,
+            'subject_apps': subject_apps,
         })
 
     def post(self, request, school_id):
@@ -969,7 +973,14 @@ class SchoolSubjectManageView(RoleRequiredMixin, View):
             while Subject.objects.filter(school=school, slug=slug).exists():
                 slug = f'{base_slug}-{cnt}'
                 cnt += 1
-            Subject.objects.create(name=name, slug=slug, school=school, is_active=True)
+            global_subject_id = request.POST.get('global_subject_id', '').strip()
+            global_subject = None
+            if global_subject_id:
+                global_subject = Subject.objects.filter(id=global_subject_id, school__isnull=True).first()
+            Subject.objects.create(
+                name=name, slug=slug, school=school, is_active=True,
+                global_subject=global_subject,
+            )
             messages.success(request, f'Subject "{name}" created.')
 
         elif action == 'edit':
@@ -979,6 +990,14 @@ class SchoolSubjectManageView(RoleRequiredMixin, View):
             if subject and name:
                 subject.name = name
                 subject.slug = slugify(name)
+                # Update global subject link
+                global_subject_id = request.POST.get('global_subject_id', '').strip()
+                if global_subject_id:
+                    subject.global_subject = Subject.objects.filter(
+                        id=global_subject_id, school__isnull=True,
+                    ).first()
+                else:
+                    subject.global_subject = None
                 subject.save()
                 messages.success(request, f'Subject updated to "{name}".')
 
