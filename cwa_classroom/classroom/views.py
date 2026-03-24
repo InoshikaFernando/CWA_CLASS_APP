@@ -2781,10 +2781,25 @@ class SubjectsHubView(LoginRequiredMixin, View):
                 global_apps = SubjectApp.objects.filter(
                     is_active=True, is_coming_soon=False,
                 ).order_by('order')
+                # Also collect covered subject names for fuzzy matching
+                covered_subject_names = set()
+                for section in school_sections:
+                    for card in section['subjects']:
+                        covered_subject_names.add(card['name'].lower())
+
                 global_subjects = []
                 for app in global_apps:
                     app_subject_id = app.subject_id
+                    # Skip if explicitly covered by subject ID
                     if app_subject_id and app_subject_id in covered_subject_ids:
+                        continue
+                    # Skip if covered by name match (e.g. "Mathematics" covers "Maths")
+                    app_name_lower = app.name.lower()
+                    name_covered = any(
+                        app_name_lower in cname or cname in app_name_lower
+                        for cname in covered_subject_names
+                    )
+                    if name_covered:
                         continue
                     global_subjects.append(app)
 
