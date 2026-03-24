@@ -2684,6 +2684,10 @@ class SubjectsHubView(LoginRequiredMixin, View):
 
         # ----- Student / Individual Student -----
 
+        # School students go directly to their dashboard (enrolled classes view)
+        if user.has_role(Role.STUDENT) and not user.has_role(Role.INDIVIDUAL_STUDENT):
+            return redirect('student_dashboard')
+
         # SubjectApp cards (always shown)
         subjects = SubjectApp.objects.exclude(
             is_active=False, is_coming_soon=False,
