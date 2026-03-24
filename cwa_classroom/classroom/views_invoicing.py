@@ -20,7 +20,7 @@ from .models import (
     School, Department, ClassRoom, SchoolStudent, SchoolTeacher,
     DepartmentFee, StudentFeeOverride, Invoice, InvoiceLineItem,
     CSVColumnTemplate, CSVImport, PaymentReferenceMapping,
-    InvoicePayment, CreditTransaction,
+    InvoicePayment, CreditTransaction, Term,
 )
 from .views import RoleRequiredMixin
 from . import invoicing_services as svc
@@ -261,9 +261,11 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
             return redirect('subjects_hub')
 
         departments = Department.objects.filter(school=school, is_active=True)
+        terms = Term.objects.filter(school=school).select_related('academic_year')
         return render(request, 'invoicing/generate_invoices.html', {
             'school': school,
             'departments': departments,
+            'terms': terms,
         })
 
     def post(self, request):
@@ -293,9 +295,11 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
         unmarked = svc.validate_attendance_complete(school, start, end, department)
         if unmarked:
             departments = Department.objects.filter(school=school, is_active=True)
+            terms = Term.objects.filter(school=school).select_related('academic_year')
             return render(request, 'invoicing/generate_invoices.html', {
                 'school': school,
                 'departments': departments,
+                'terms': terms,
                 'unmarked_sessions': unmarked,
                 'form_data': {
                     'billing_period_start': str(start),

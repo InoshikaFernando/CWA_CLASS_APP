@@ -3,6 +3,7 @@ import logging
 from django.conf import settings
 from django.core.cache import cache
 from django.core.mail import send_mail
+from django.core.paginator import Paginator
 from django.http import Http404
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
@@ -1323,7 +1324,7 @@ class HoDOverviewView(RoleRequiredMixin, View):
             my_school_ids = list(departments.values_list('school_id', flat=True).distinct())
             teachers = CustomUser.objects.filter(
                 Q(department_memberships__department_id__in=all_dept_ids)
-                | Q(class_teachers__classroom_id__in=teaching_class_ids),
+                | Q(class_teacher_entries__classroom_id__in=teaching_class_ids),
             ).distinct()
             teacher_attendance_qs = TeacherAttendance.objects.filter(
                 Q(session__classroom__department_id__in=headed_dept_ids)
@@ -1774,8 +1775,12 @@ class HoDManageClassesView(RoleRequiredMixin, View):
         for st in SchoolTeacher.objects.filter(school_id__in=school_ids, is_active=True):
             specialty_map[st.teacher_id] = st.specialty
 
+        paginator = Paginator(classes, 25)
+        page = paginator.get_page(request.GET.get('page'))
+
         return render(request, 'hod/manage_classes.html', {
             'classes': classes,
+            'page': page,
             'teachers': teachers,
             'is_hod_only': is_hod_only,
             'departments': departments,
@@ -1807,7 +1812,7 @@ class HoDWorkloadView(RoleRequiredMixin, View):
             teacher_ids = list(
                 CustomUser.objects.filter(
                     Q(department_memberships__department_id__in=headed_dept_ids)
-                    | Q(class_teachers__classroom_id__in=teaching_class_ids),
+                    | Q(class_teacher_entries__classroom_id__in=teaching_class_ids),
                 ).values_list('id', flat=True).distinct()
             )
             memberships = SchoolTeacher.objects.filter(

@@ -148,7 +148,7 @@
 
         <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
           <div class="divide-y divide-slate-100">
-            {% for ss in school_students %}
+            {% for ss in page %}
               <div class="transition-all duration-200"
                    :class="modifiedIds.has({{ ss.student.id }}) ? 'bg-accent/5 border-l-4 border-l-accent' : ''"
                    x-show="search === '' || '{{ ss.student.get_full_name|default:ss.student.username|escapejs }}'.toLowerCase().includes(search.toLowerCase())">
@@ -245,6 +245,7 @@
           </div>
         </div>
       </form>
+      {% include "partials/pagination.html" with page=page %}
     </div>
   {% else %}
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">

@@ -351,6 +351,26 @@ class AcademicYear(models.Model):
         super().save(*args, **kwargs)
 
 
+class Term(models.Model):
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='terms')
+    academic_year = models.ForeignKey(
+        AcademicYear, on_delete=models.CASCADE, related_name='terms',
+        null=True, blank=True,
+    )
+    name = models.CharField(max_length=50)  # "Term 1", "Term 2", etc.
+    start_date = models.DateField()
+    end_date = models.DateField()
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['order', 'start_date']
+        unique_together = ('school', 'name', 'academic_year')
+
+    def __str__(self):
+        yr = f' ({self.academic_year.year})' if self.academic_year else ''
+        return f'{self.name}{yr} — {self.school.name}'
+
+
 # ---------------------------------------------------------------------------
 # Curriculum extensions: TopicLevel & SubTopic
 # ---------------------------------------------------------------------------

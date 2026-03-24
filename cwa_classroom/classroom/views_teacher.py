@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from django.core.paginator import Paginator
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -305,10 +306,13 @@ class EnrollmentRequestsView(RoleRequiredMixin, View):
             .select_related('classroom', 'student')
             .order_by('-requested_at')
         )
+        paginator = Paginator(pending_enrollments, 25)
+        page = paginator.get_page(request.GET.get('page'))
 
         return render(request, 'teacher/enrollment_requests.html', {
             'current_school': current_school,
-            'pending_enrollments': pending_enrollments,
+            'pending_enrollments': page,
+            'page': page,
         })
 
 

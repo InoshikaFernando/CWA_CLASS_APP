@@ -48,6 +48,8 @@ urlpatterns = [
     path('admin-dashboard/manage-students/', views_admin.ManageStudentsRedirectView.as_view(), name='admin_manage_students'),
     path('admin-dashboard/manage-departments/', views_admin.ManageDepartmentsRedirectView.as_view(), name='admin_manage_departments'),
     path('admin-dashboard/manage-subjects/', views_admin.ManageSubjectsRedirectView.as_view(), name='admin_manage_subjects'),
+    path('admin-dashboard/manage-terms/', views_admin.ManageTermsRedirectView.as_view(), name='admin_manage_terms'),
+    path('admin-dashboard/manage-parent-invites/', views_admin.ManageParentInvitesRedirectView.as_view(), name='admin_manage_parent_invites'),
     path('admin-dashboard/schools/<int:school_id>/subjects/', views_admin.SchoolSubjectManageView.as_view(), name='admin_school_subjects'),
     path('admin-dashboard/schools/<int:school_id>/', views_admin.SchoolDetailView.as_view(), name='admin_school_detail'),
     path('admin-dashboard/schools/<int:school_id>/edit/', views_admin.SchoolEditView.as_view(), name='admin_school_edit'),
@@ -58,6 +60,7 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/teachers/<int:teacher_id>/remove/', views_admin.SchoolTeacherRemoveView.as_view(), name='admin_school_teacher_remove'),
     path('admin-dashboard/schools/<int:school_id>/teachers/batch-update/', views_admin.SchoolTeacherBatchUpdateView.as_view(), name='admin_school_teacher_batch_update'),
     path('admin-dashboard/schools/<int:school_id>/academic-year/create/', views_admin.AcademicYearCreateView.as_view(), name='admin_academic_year_create'),
+    path('admin-dashboard/schools/<int:school_id>/terms/', views_admin.TermManageView.as_view(), name='admin_school_terms'),
 
     # Account blocking & school suspension
     path('admin-dashboard/block-user/', views_admin.BlockUserView.as_view(), name='admin_block_user'),

@@ -7,13 +7,14 @@ from django.db import transaction
 from django.utils.text import slugify
 from django.utils import timezone
 
+from django.core.paginator import Paginator
 from django.db.models import Count, Q
 
 from accounts.models import CustomUser, Role, UserRole
 from accounts.views import _validate_username, _generate_username_suggestion
 from .models import (
     School, SchoolTeacher, AcademicYear, ClassRoom, ClassSession, Department,
-    DepartmentTeacher, SchoolStudent, Level, Subject,
+    DepartmentTeacher, SchoolStudent, Level, Subject, Term,
 )
 from .views import RoleRequiredMixin
 from .email_utils import send_staff_welcome_email
@@ -268,9 +269,12 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
     def get(self, request, school_id):
         school = get_object_or_404(School, id=school_id, admin=request.user)
         school_teachers = SchoolTeacher.objects.filter(school=school, is_active=True).select_related('teacher')
+        paginator = Paginator(school_teachers, 25)
+        page = paginator.get_page(request.GET.get('page'))
         return render(request, 'admin_dashboard/school_teachers.html', {
             'school': school,
-            'school_teachers': school_teachers,
+            'school_teachers': page,
+            'page': page,
             'role_choices': self._get_role_choices(request.user),
         })
 
@@ -314,9 +318,12 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
             for err in errors:
                 messages.error(request, err)
             school_teachers = SchoolTeacher.objects.filter(school=school, is_active=True).select_related('teacher')
+            paginator = Paginator(school_teachers, 25)
+            page = paginator.get_page(request.GET.get('page'))
             return render(request, 'admin_dashboard/school_teachers.html', {
                 'school': school,
-                'school_teachers': school_teachers,
+                'school_teachers': page,
+                'page': page,
                 'role_choices': allowed_choices,
                 'form_data': {
                     'first_name': first_name,
@@ -623,9 +630,12 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
                 )
             )
         )
+        paginator = Paginator(school_students, 25)
+        page = paginator.get_page(request.GET.get('page'))
         return render(request, 'admin_dashboard/school_students.html', {
             'school': school,
-            'school_students': school_students,
+            'school_students': page,
+            'page': page,
         })
 
     def post(self, request, school_id):
@@ -1134,3 +1144,117 @@ class UnsuspendSchoolView(RoleRequiredMixin, View):
 
         messages.success(request, f'School "{school.name}" has been unsuspended.')
         return redirect(request.META.get('HTTP_REFERER', 'subjects_hub'))
+
+
+class ManageTermsRedirectView(RoleRequiredMixin, View):
+    """Shortcut: redirects to the first school's terms page."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request):
+        school = School.objects.filter(admin=request.user).first()
+        if school:
+            return redirect('admin_school_terms', school_id=school.id)
+        messages.info(request, 'Create a school first.')
+        return redirect('admin_school_create')
+
+
+class ManageParentInvitesRedirectView(RoleRequiredMixin, View):
+    """Shortcut: redirects to the first school's parent invites page."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+                      Role.HEAD_OF_DEPARTMENT]
+
+    def get(self, request):
+        school = School.objects.filter(admin=request.user).first()
+        if not school:
+            from .models import Department
+            dept = Department.objects.filter(head=request.user, is_active=True).first()
+            if dept:
+                school = dept.school
+        if school:
+            return redirect('parent_invite_list', school_id=school.id)
+        messages.info(request, 'Create a school first.')
+        return redirect('admin_school_create')
+
+
+class TermManageView(RoleRequiredMixin, View):
+    """Manage terms for a school: list, create, edit, delete."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request, school_id):
+        school = get_object_or_404(School, id=school_id, admin=request.user)
+        terms = Term.objects.filter(school=school).select_related('academic_year')
+        academic_years = AcademicYear.objects.filter(school=school)
+        return render(request, 'admin_dashboard/school_terms.html', {
+            'school': school,
+            'terms': terms,
+            'academic_years': academic_years,
+        })
+
+    def post(self, request, school_id):
+        school = get_object_or_404(School, id=school_id, admin=request.user)
+        action = request.POST.get('action')
+
+        if action == 'create':
+            name = request.POST.get('name', '').strip()
+            academic_year_id = request.POST.get('academic_year') or None
+            start_date = request.POST.get('start_date')
+            end_date = request.POST.get('end_date')
+            order = request.POST.get('order', 0)
+
+            if not name or not start_date or not end_date:
+                messages.error(request, 'Name, start date and end date are required.')
+                return redirect('admin_school_terms', school_id=school.id)
+
+            academic_year = None
+            if academic_year_id:
+                academic_year = AcademicYear.objects.filter(
+                    id=academic_year_id, school=school
+                ).first()
+
+            try:
+                Term.objects.create(
+                    school=school,
+                    academic_year=academic_year,
+                    name=name,
+                    start_date=start_date,
+                    end_date=end_date,
+                    order=int(order) if order else 0,
+                )
+                messages.success(request, f'Term "{name}" created.')
+            except Exception as e:
+                messages.error(request, f'Could not create term: {e}')
+
+        elif action == 'edit':
+            term_id = request.POST.get('term_id')
+            term = get_object_or_404(Term, id=term_id, school=school)
+            term.name = request.POST.get('name', '').strip() or term.name
+            start_date = request.POST.get('start_date')
+            end_date = request.POST.get('end_date')
+            if start_date:
+                term.start_date = start_date
+            if end_date:
+                term.end_date = end_date
+            academic_year_id = request.POST.get('academic_year')
+            if academic_year_id:
+                term.academic_year = AcademicYear.objects.filter(
+                    id=academic_year_id, school=school
+                ).first()
+            else:
+                term.academic_year = None
+            order = request.POST.get('order')
+            if order is not None and order != '':
+                term.order = int(order)
+            try:
+                term.save()
+                messages.success(request, f'Term "{term.name}" updated.')
+            except Exception as e:
+                messages.error(request, f'Could not update term: {e}')
+
+        elif action == 'delete':
+            term_id = request.POST.get('term_id')
+            term = get_object_or_404(Term, id=term_id, school=school)
+            term_name = term.name
+            term.delete()
+            messages.success(request, f'Term "{term_name}" deleted.')
+
+        return redirect('admin_school_terms', school_id=school.id)

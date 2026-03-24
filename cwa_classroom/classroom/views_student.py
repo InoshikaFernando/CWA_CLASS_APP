@@ -1,3 +1,4 @@
+from django.core.paginator import Paginator
 from django.http import Http404
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
@@ -168,8 +169,12 @@ class MyClassesView(LoginRequiredMixin, View):
             .order_by('-requested_at')
         )
 
+        paginator = Paginator(enrolled_entries, 25)
+        page = paginator.get_page(request.GET.get('page'))
+
         return render(request, 'student/my_classes.html', {
-            'enrolled_entries': enrolled_entries,
+            'enrolled_entries': page,
+            'page': page,
             'pending_enrollments': pending_enrollments,
         })
 
@@ -313,8 +318,12 @@ class StudentAttendanceHistoryView(LoginRequiredMixin, ModuleRequiredMixin, View
             else None
         )
 
+        paginator = Paginator(attendance_records, 25)
+        page = paginator.get_page(request.GET.get('page'))
+
         return render(request, 'student/attendance_history.html', {
-            'attendance_records': attendance_records,
+            'attendance_records': page,
+            'page': page,
             'class_summaries': class_summaries,
             'total_present': total_present,
             'total_late': total_late,
