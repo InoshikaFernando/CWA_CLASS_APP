@@ -360,7 +360,14 @@
       "Bash(./venv/Scripts/python.exe manage.py backfill_department_levels --dry-run)",
       "Bash(./venv/Scripts/python.exe manage.py backfill_department_levels)",
       "Bash(python manage.py test classroom.tests.test_school_hierarchy -v2)",
-      "Bash(where gh)"
+      "Bash(where gh)",
+      "Bash(git stash:*)",
+      "Bash(DB_PASSWORD=root python manage.py runserver 8001)",
+      "Bash(git fetch:*)",
+      "Bash(git merge:*)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8001/)",
+      "Bash(DB_PASSWORD=root python manage.py shell -c \":*)",
+      "Bash(git add:*)"
     ]
   }
 }

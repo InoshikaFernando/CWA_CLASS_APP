@@ -200,31 +200,55 @@ class SchoolEditView(RoleRequiredMixin, View):
         # Handle HoI change
         new_hoi_id = request.POST.get('new_hoi', '')
         old_hoi_role = request.POST.get('old_hoi_role', 'teacher')
-        if new_hoi_id and int(new_hoi_id) != school.admin_id:
-            old_admin_id = school.admin_id
-            school.admin_id = int(new_hoi_id)
-            # school.save() will auto-promote new HoI via _ensure_admin_is_hoi
+        hoi_changed = new_hoi_id and int(new_hoi_id) != school.admin_id
+        old_admin_id = school.admin_id
 
-            # Handle old HoI's new role
-            if old_admin_id and old_hoi_role == 'remove':
+        if hoi_changed:
+            school.admin_id = int(new_hoi_id)
+
+        school.save()
+        # school.save() auto-promotes new admin to HoI via _ensure_admin_is_hoi
+
+        if hoi_changed and old_admin_id:
+            from accounts.models import UserRole
+
+            if old_hoi_role == 'remove':
+                # Remove old HoI from this school entirely
                 SchoolTeacher.objects.filter(
                     school=school, teacher_id=old_admin_id,
                 ).delete()
-                # Clean up UserRole if not HoI elsewhere
-                from accounts.models import UserRole
-                still_hoi = SchoolTeacher.objects.filter(
-                    teacher_id=old_admin_id, role='head_of_institute',
-                ).exists()
-                if not still_hoi:
-                    hoi_role = Role.objects.filter(name=Role.HEAD_OF_INSTITUTE).first()
-                    if hoi_role:
-                        UserRole.objects.filter(user_id=old_admin_id, role=hoi_role).delete()
-            elif old_admin_id:
+            else:
+                # Demote old HoI to the chosen role
                 SchoolTeacher.objects.filter(
                     school=school, teacher_id=old_admin_id,
                 ).update(role=old_hoi_role)
 
-        school.save()
+            # Clean up HoI UserRole if not HoI at any other school
+            still_hoi = SchoolTeacher.objects.filter(
+                teacher_id=old_admin_id, role='head_of_institute',
+            ).exists()
+            if not still_hoi:
+                hoi_role = Role.objects.filter(name=Role.HEAD_OF_INSTITUTE).first()
+                if hoi_role:
+                    UserRole.objects.filter(user_id=old_admin_id, role=hoi_role).delete()
+
+            # If old HoI has no other schools, deactivate their account
+            old_user = CustomUser.objects.filter(id=old_admin_id).first()
+            if old_user:
+                has_other_schools = (
+                    SchoolTeacher.objects.filter(teacher_id=old_admin_id, is_active=True).exists()
+                    or School.objects.filter(admin_id=old_admin_id, is_active=True).exists()
+                )
+                if not has_other_schools:
+                    old_user.is_active = False
+                    old_user.save(update_fields=['is_active'])
+
+            # If the current user was the old HoI, log them out
+            if request.user.id == old_admin_id:
+                from django.contrib.auth import logout
+                logout(request)
+                return redirect('login')
+
         messages.success(request, f'School "{name}" updated successfully.')
         return redirect('admin_school_detail', school_id=school.id)
 
