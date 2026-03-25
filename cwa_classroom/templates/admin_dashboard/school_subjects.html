@@ -12,17 +12,29 @@
   <!-- Add New Subject -->
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-8">
     <h2 class="text-lg font-semibold text-gray-900 mb-5">Add New Subject</h2>
-    <form method="post" class="flex flex-col sm:flex-row gap-4">
+    <form method="post" class="flex flex-col gap-4">
       {% csrf_token %}
       <input type="hidden" name="action" value="create">
-      <div class="flex-1">
-        <input type="text" name="name" required placeholder="e.g. Scratch, Python, Web Design"
-               class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+      <div class="flex flex-col sm:flex-row gap-4">
+        <div class="flex-1">
+          <input type="text" name="name" required placeholder="e.g. Scratch, Python, Web Design"
+                 class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+        </div>
+        <div class="sm:w-64">
+          <select name="global_subject_id"
+                  class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent transition">
+            <option value="">— Link to Global Subject (optional)</option>
+            {% for gs in global_subjects %}
+              <option value="{{ gs.id }}">{{ gs.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button type="submit"
+                class="px-6 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-blue-600 transition shadow-sm whitespace-nowrap">
+          Add Subject
+        </button>
       </div>
-      <button type="submit"
-              class="px-6 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-blue-600 transition shadow-sm whitespace-nowrap">
-        Add Subject
-      </button>
+      <p class="text-xs text-gray-400 -mt-2">Link to a global subject to share its content (e.g. link "Mathematics" to global "Mathematics" for shared quizzes).</p>
     </form>
   </div>
 
@@ -38,17 +50,27 @@
           <div class="flex flex-col sm:flex-row sm:items-center justify-between px-6 py-4 gap-3">
             <div class="min-w-0">
               <p class="font-medium text-gray-900">{{ subject.name }}</p>
+              {% if subject.global_subject %}
+                <p class="text-xs text-blue-600">🔗 Linked to: {{ subject.global_subject.name }}</p>
+              {% endif %}
               {% if subject.description %}
                 <p class="text-sm text-gray-500">{{ subject.description }}</p>
               {% endif %}
             </div>
             <div class="flex items-center gap-2 flex-shrink-0">
-              <form method="post" class="flex items-center gap-2">
+              <form method="post" class="flex items-center gap-2 flex-wrap">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="edit">
                 <input type="hidden" name="subject_id" value="{{ subject.id }}">
                 <input type="text" name="name" value="{{ subject.name }}" placeholder="Name"
-                       class="px-3 py-1.5 border border-slate-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent transition w-48">
+                       class="px-3 py-1.5 border border-slate-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent transition w-40">
+                <select name="global_subject_id"
+                        class="px-3 py-1.5 border border-slate-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent transition w-44">
+                  <option value="">— No global link</option>
+                  {% for gs in global_subjects %}
+                    <option value="{{ gs.id }}" {% if subject.global_subject_id == gs.id %}selected{% endif %}>{{ gs.name }}</option>
+                  {% endfor %}
+                </select>
                 <button type="submit"
                         class="px-3 py-1.5 bg-accent text-white text-sm font-medium rounded-lg hover:bg-blue-600 transition">
                   Save

@@ -1,3 +1,5 @@
+from django.core.paginator import Paginator
+from django.http import Http404
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -5,6 +7,8 @@ from django.contrib import messages
 from django.utils import timezone
 
 from accounts.models import Role
+from billing.mixins import ModuleRequiredMixin
+from billing.models import ModuleSubscription
 from .views import RoleRequiredMixin
 from .notifications import create_notification
 from .models import (
@@ -165,8 +169,12 @@ class MyClassesView(LoginRequiredMixin, View):
             .order_by('-requested_at')
         )
 
+        paginator = Paginator(enrolled_entries, 25)
+        page = paginator.get_page(request.GET.get('page'))
+
         return render(request, 'student/my_classes.html', {
-            'enrolled_entries': enrolled_entries,
+            'enrolled_entries': page,
+            'page': page,
             'pending_enrollments': pending_enrollments,
         })
 
@@ -238,8 +246,9 @@ class StudentClassDetailView(LoginRequiredMixin, View):
         })
 
 
-class StudentAttendanceHistoryView(LoginRequiredMixin, View):
+class StudentAttendanceHistoryView(LoginRequiredMixin, ModuleRequiredMixin, View):
     """Show the student's own attendance records across all enrolled classes."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
 
     def get(self, request):
         # Get all classes the student belongs to
@@ -309,8 +318,12 @@ class StudentAttendanceHistoryView(LoginRequiredMixin, View):
             else None
         )
 
+        paginator = Paginator(attendance_records, 25)
+        page = paginator.get_page(request.GET.get('page'))
+
         return render(request, 'student/attendance_history.html', {
-            'attendance_records': attendance_records,
+            'attendance_records': page,
+            'page': page,
             'class_summaries': class_summaries,
             'total_present': total_present,
             'total_late': total_late,
@@ -320,8 +333,9 @@ class StudentAttendanceHistoryView(LoginRequiredMixin, View):
         })
 
 
-class StudentSelfMarkAttendanceView(LoginRequiredMixin, View):
+class StudentSelfMarkAttendanceView(LoginRequiredMixin, ModuleRequiredMixin, View):
     """Allow a student to self-report attendance for a session (requires teacher approval)."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
 
     def post(self, request, session_id):
         session = get_object_or_404(
@@ -382,9 +396,21 @@ class EnrollGlobalClassView(RoleRequiredMixin, View):
     required_roles = [Role.STUDENT, Role.INDIVIDUAL_STUDENT]
 
     def post(self, request, class_id):
-        classroom = get_object_or_404(
-            ClassRoom, id=class_id, school__isnull=True, is_active=True,
-        )
+        # Try global class first, then school class if student belongs to that school
+        classroom = ClassRoom.objects.filter(
+            id=class_id, school__isnull=True, is_active=True,
+        ).first()
+        if not classroom:
+            # School student enrolling in their school's class
+            from .models import SchoolStudent
+            student_school_ids = list(SchoolStudent.objects.filter(
+                student=request.user, is_active=True,
+            ).values_list('school_id', flat=True))
+            classroom = ClassRoom.objects.filter(
+                id=class_id, school_id__in=student_school_ids, is_active=True,
+            ).first()
+        if not classroom:
+            raise Http404
 
         # Already enrolled?
         if ClassStudent.objects.filter(

@@ -1,3 +1,4 @@
+from django.core.paginator import Paginator
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
 from django.contrib import messages
@@ -5,6 +6,8 @@ from django.utils import timezone
 from django.db.models import Count, Max, Q
 
 from accounts.models import Role
+from billing.mixins import ModuleRequiredMixin
+from billing.models import ModuleSubscription
 from .views import RoleRequiredMixin
 from .notifications import create_notification
 from .models import (
@@ -77,9 +80,10 @@ def _build_hierarchical_criteria(criteria_qs):
 # Criteria CRUD
 # ---------------------------------------------------------------------------
 
-class ProgressCriteriaListView(RoleRequiredMixin, View):
+class ProgressCriteriaListView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """List progress criteria for the current school, with optional filters.
     Also handles inline create/edit via POST actions."""
+    required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
@@ -217,8 +221,9 @@ class ProgressCriteriaListView(RoleRequiredMixin, View):
         return redirect('progress_criteria_list')
 
 
-class ProgressCriteriaCreateView(RoleRequiredMixin, View):
+class ProgressCriteriaCreateView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Create a new ProgressCriteria in draft status."""
+    required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
@@ -357,8 +362,9 @@ class ProgressCriteriaCreateView(RoleRequiredMixin, View):
 # Submit / Approve / Reject workflow
 # ---------------------------------------------------------------------------
 
-class ProgressCriteriaSubmitView(RoleRequiredMixin, View):
+class ProgressCriteriaSubmitView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Submit a draft criteria for senior-teacher approval."""
+    required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
@@ -399,8 +405,9 @@ class ProgressCriteriaSubmitView(RoleRequiredMixin, View):
         return redirect('progress_criteria_list')
 
 
-class ProgressCriteriaApprovalListView(RoleRequiredMixin, View):
+class ProgressCriteriaApprovalListView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """List criteria pending approval for the current school."""
+    required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
     required_roles = [
         Role.SENIOR_TEACHER, Role.HEAD_OF_DEPARTMENT,
         Role.HEAD_OF_INSTITUTE, Role.INSTITUTE_OWNER,
@@ -417,15 +424,19 @@ class ProgressCriteriaApprovalListView(RoleRequiredMixin, View):
             .filter(school=school, status='pending_approval')
             .select_related('subject', 'level', 'created_by', 'parent')
         )
+        paginator = Paginator(criteria, 25)
+        page = paginator.get_page(request.GET.get('page'))
 
         return render(request, 'progress/criteria_approval.html', {
             'school': school,
-            'criteria': criteria,
+            'criteria': page,
+            'page': page,
         })
 
 
-class ProgressCriteriaApproveView(RoleRequiredMixin, View):
+class ProgressCriteriaApproveView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Approve a pending criteria."""
+    required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
     required_roles = [
         Role.SENIOR_TEACHER, Role.HEAD_OF_DEPARTMENT,
         Role.HEAD_OF_INSTITUTE, Role.INSTITUTE_OWNER,
@@ -436,7 +447,7 @@ class ProgressCriteriaApproveView(RoleRequiredMixin, View):
 
         if criteria.status != 'pending_approval':
             messages.error(request, 'Only pending criteria can be approved.')
-            return redirect('progress_criteria_approval_list')
+            return redirect('progress_criteria_approvals')
 
         criteria.status = 'approved'
         criteria.approved_by = request.user
@@ -457,11 +468,12 @@ class ProgressCriteriaApproveView(RoleRequiredMixin, View):
             )
 
         messages.success(request, f'Criteria "{criteria.name}" approved.')
-        return redirect('progress_criteria_approval_list')
+        return redirect('progress_criteria_approvals')
 
 
-class ProgressCriteriaRejectView(RoleRequiredMixin, View):
+class ProgressCriteriaRejectView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Reject a pending criteria."""
+    required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
     required_roles = [
         Role.SENIOR_TEACHER, Role.HEAD_OF_DEPARTMENT,
         Role.HEAD_OF_INSTITUTE, Role.INSTITUTE_OWNER,
@@ -472,7 +484,7 @@ class ProgressCriteriaRejectView(RoleRequiredMixin, View):
 
         if criteria.status != 'pending_approval':
             messages.error(request, 'Only pending criteria can be rejected.')
-            return redirect('progress_criteria_approval_list')
+            return redirect('progress_criteria_approvals')
 
         criteria.status = 'rejected'
         criteria.save()
@@ -492,15 +504,16 @@ class ProgressCriteriaRejectView(RoleRequiredMixin, View):
             )
 
         messages.success(request, f'Criteria "{criteria.name}" rejected.')
-        return redirect('progress_criteria_approval_list')
+        return redirect('progress_criteria_approvals')
 
 
 # ---------------------------------------------------------------------------
 # Record progress (standalone page)
 # ---------------------------------------------------------------------------
 
-class RecordProgressView(RoleRequiredMixin, View):
+class RecordProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Record (create/update) progress for students in a specific class."""
+    required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
@@ -629,8 +642,9 @@ class RecordProgressView(RoleRequiredMixin, View):
 # Student progress view
 # ---------------------------------------------------------------------------
 
-class StudentProgressView(RoleRequiredMixin, View):
+class StudentProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Show a student's progress records grouped by subject + level."""
+    required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
     required_roles = [
         Role.STUDENT,
         Role.INDIVIDUAL_STUDENT,
@@ -710,7 +724,7 @@ class StudentProgressView(RoleRequiredMixin, View):
 # Student Progress Report (overview across all students)
 # ---------------------------------------------------------------------------
 
-class StudentProgressReportView(RoleRequiredMixin, View):
+class StudentProgressReportView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Show a filterable list of students with their progress summary.
 
     Role-based access:
@@ -718,6 +732,7 @@ class StudentProgressReportView(RoleRequiredMixin, View):
     - HoD: students in their department classes + classes they teach
     - Teachers: students in classes they teach
     """
+    required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,

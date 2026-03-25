@@ -9,6 +9,8 @@ from . import views_progress
 from . import views_hierarchy
 from . import views_invoicing
 from . import views_salaries
+from . import views_parent
+from . import views_parent_admin
 
 urlpatterns = [
     # NOTE: The old HomeView at '/' has been replaced by PublicHomeView + SubjectsHubView
@@ -58,6 +60,8 @@ urlpatterns = [
     path('admin-dashboard/manage-students/', views_admin.ManageStudentsRedirectView.as_view(), name='admin_manage_students'),
     path('admin-dashboard/manage-departments/', views_admin.ManageDepartmentsRedirectView.as_view(), name='admin_manage_departments'),
     path('admin-dashboard/manage-subjects/', views_admin.ManageSubjectsRedirectView.as_view(), name='admin_manage_subjects'),
+    path('admin-dashboard/manage-terms/', views_admin.ManageTermsRedirectView.as_view(), name='admin_manage_terms'),
+    path('admin-dashboard/manage-parent-invites/', views_admin.ManageParentInvitesRedirectView.as_view(), name='admin_manage_parent_invites'),
     path('admin-dashboard/schools/<int:school_id>/subjects/', views_admin.SchoolSubjectManageView.as_view(), name='admin_school_subjects'),
     path('admin-dashboard/schools/<int:school_id>/', views_admin.SchoolDetailView.as_view(), name='admin_school_detail'),
     path('admin-dashboard/schools/<int:school_id>/edit/', views_admin.SchoolEditView.as_view(), name='admin_school_edit'),
@@ -68,12 +72,26 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/teachers/<int:teacher_id>/remove/', views_admin.SchoolTeacherRemoveView.as_view(), name='admin_school_teacher_remove'),
     path('admin-dashboard/schools/<int:school_id>/teachers/batch-update/', views_admin.SchoolTeacherBatchUpdateView.as_view(), name='admin_school_teacher_batch_update'),
     path('admin-dashboard/schools/<int:school_id>/academic-year/create/', views_admin.AcademicYearCreateView.as_view(), name='admin_academic_year_create'),
+    path('admin-dashboard/schools/<int:school_id>/terms/', views_admin.TermManageView.as_view(), name='admin_school_terms'),
+
+    # Account blocking & school suspension
+    path('admin-dashboard/block-user/', views_admin.BlockUserView.as_view(), name='admin_block_user'),
+    path('admin-dashboard/unblock-user/', views_admin.UnblockUserView.as_view(), name='admin_unblock_user'),
+    path('admin-dashboard/suspend-school/', views_admin.SuspendSchoolView.as_view(), name='admin_suspend_school'),
+    path('admin-dashboard/unsuspend-school/', views_admin.UnsuspendSchoolView.as_view(), name='admin_unsuspend_school'),
 
     # Student management (school-level)
     path('admin-dashboard/schools/<int:school_id>/students/', views_admin.SchoolStudentManageView.as_view(), name='admin_school_students'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/edit/', views_admin.SchoolStudentEditView.as_view(), name='admin_school_student_edit'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/remove/', views_admin.SchoolStudentRemoveView.as_view(), name='admin_school_student_remove'),
     path('admin-dashboard/schools/<int:school_id>/students/batch-update/', views_admin.SchoolStudentBatchUpdateView.as_view(), name='admin_school_student_batch_update'),
+
+    # Parent management (school-level)
+    path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/invite-parent/', views_parent_admin.ParentInviteCreateView.as_view(), name='invite_parent'),
+    path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/parents/', views_parent_admin.StudentParentLinksView.as_view(), name='student_parent_links'),
+    path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/parents/<int:link_id>/remove/', views_parent_admin.ParentStudentUnlinkView.as_view(), name='unlink_parent_student'),
+    path('admin-dashboard/schools/<int:school_id>/parent-invites/', views_parent_admin.ParentInviteListView.as_view(), name='parent_invite_list'),
+    path('admin-dashboard/schools/<int:school_id>/parent-invites/<int:invite_id>/revoke/', views_parent_admin.ParentInviteRevokeView.as_view(), name='revoke_parent_invite'),
 
     # Department management (within a school)
     path('admin-dashboard/schools/<int:school_id>/departments/', views_department.DepartmentListView.as_view(), name='admin_school_departments'),
@@ -114,6 +132,16 @@ urlpatterns = [
     path('teacher/class/<int:class_id>/create-session/', views_teacher.CreateSessionView.as_view(), name='create_session'),
     path('teacher/session/<int:session_id>/complete/', views_teacher.CompleteSessionView.as_view(), name='complete_session'),
     path('teacher/session/<int:session_id>/cancel/', views_teacher.CancelSessionView.as_view(), name='cancel_session'),
+    path('teacher/session/<int:session_id>/delete/', views_teacher.DeleteSessionView.as_view(), name='delete_session'),
+
+    # Parent portal
+    path('parent/', views_parent.ParentDashboardView.as_view(), name='parent_dashboard'),
+    path('parent/switch-child/<int:student_id>/', views_parent.ParentSwitchChildView.as_view(), name='parent_switch_child'),
+    path('parent/invoices/', views_parent.ParentInvoicesView.as_view(), name='parent_invoices'),
+    path('parent/invoices/<int:invoice_id>/', views_parent.ParentInvoiceDetailView.as_view(), name='parent_invoice_detail'),
+    path('parent/payments/', views_parent.ParentPaymentHistoryView.as_view(), name='parent_payment_history'),
+    path('parent/attendance/', views_parent.ParentAttendanceView.as_view(), name='parent_attendance'),
+    path('parent/progress/', views_parent.ParentProgressView.as_view(), name='parent_progress'),
 
     # Student enrollment & classes
     path('student/join/', views_student.JoinClassByCodeView.as_view(), name='student_join_class'),

@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Invite Parent — {{ student.first_name }} {{ student.last_name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+
+  <div class="flex items-center gap-3">
+    <a href="{% url 'admin_school_students' school.id %}" class="text-primary hover:text-primary-dark transition">
+      <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/>
+      </svg>
+    </a>
+    <div>
+      <h1 class="font-display text-2xl text-gray-800">Invite Parent</h1>
+      <p class="text-sm text-gray-400">{{ student.first_name }} {{ student.last_name }} &middot; {{ school.name }}</p>
+    </div>
+  </div>
+
+  <!-- Current links -->
+  {% if existing_links %}
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <h2 class="font-semibold text-gray-700 mb-3">Linked Parents ({{ existing_links.count }}/2)</h2>
+      <div class="space-y-2">
+        {% for link in existing_links %}
+          <div class="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg">
+            <div>
+              <p class="text-sm font-medium text-gray-700">{{ link.parent.first_name }} {{ link.parent.last_name }}</p>
+              <p class="text-xs text-gray-400">{{ link.parent.email }} &middot; {{ link.get_relationship_display|default:"—" }}</p>
+            </div>
+            <a href="{% url 'student_parent_links' school.id student.id %}" class="text-xs text-primary hover:text-primary-dark">Manage</a>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
+  <!-- Pending invites -->
+  {% if pending_invites %}
+    <div class="bg-amber-50 rounded-2xl border border-amber-100 p-6">
+      <h2 class="font-semibold text-amber-700 mb-3">Pending Invites</h2>
+      {% for inv in pending_invites %}
+        <div class="flex items-center justify-between py-2">
+          <div>
+            <p class="text-sm text-gray-700">{{ inv.parent_email }}</p>
+            <p class="text-xs text-gray-400">Sent {{ inv.created_at|date:"d M Y" }} &middot; Expires {{ inv.expires_at|date:"d M Y" }}</p>
+          </div>
+          <form method="post" action="{% url 'revoke_parent_invite' school.id inv.id %}">
+            {% csrf_token %}
+            <button type="submit" class="text-xs text-red-500 hover:text-red-600 font-medium">Revoke</button>
+          </form>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <!-- Invite form -->
+  {% if can_invite %}
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <h2 class="font-semibold text-gray-700 mb-4">Send New Invite</h2>
+      <form method="post" class="space-y-4">
+        {% csrf_token %}
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Parent Email</label>
+          <input type="email" name="parent_email" required
+                 placeholder="parent@example.com"
+                 class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Relationship</label>
+          <select name="relationship"
+                  class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition">
+            <option value="">Select...</option>
+            <option value="mother">Mother</option>
+            <option value="father">Father</option>
+            <option value="guardian">Guardian</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <button type="submit"
+                class="w-full bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-5 py-3 transition">
+          Send Invite
+        </button>
+      </form>
+    </div>
+  {% else %}
+    <div class="bg-red-50 rounded-2xl border border-red-100 p-6 text-center">
+      <p class="text-red-600 font-medium">This student already has 2 parent accounts linked (maximum).</p>
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}

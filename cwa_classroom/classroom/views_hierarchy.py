@@ -94,10 +94,12 @@ class SchoolHierarchyView(RoleRequiredMixin, View):
                 ).values_list('id', flat=True)
             )
         elif user.has_role(Role.HEAD_OF_DEPARTMENT):
-            # HoD can view classes in departments they head
+            # HoD can view classes in departments they head + classes they teach
+            from django.db.models import Q
             accessible_class_ids = set(
                 ClassRoom.objects.filter(
-                    department__head=user, is_active=True,
+                    Q(department__head=user) | Q(class_teachers__teacher=user),
+                    is_active=True,
                 ).values_list('id', flat=True)
             )
         else:

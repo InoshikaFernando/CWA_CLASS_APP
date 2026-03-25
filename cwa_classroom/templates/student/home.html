@@ -18,15 +18,15 @@
 
   <!-- ── Quick Stats ───────────────────────────────────── -->
   <div class="grid grid-cols-3 gap-3">
-    <div class="bg-gradient-to-br from-emerald-500 to-green-600 rounded-2xl shadow-lg shadow-emerald-200 p-4 text-center">
+    <div class="bg-emerald-500 rounded-2xl shadow-sm p-4 text-center">
       <p class="text-xs text-white/80 font-bold uppercase tracking-wide mb-1">Today</p>
       <p class="font-display text-2xl text-white">{{ time_daily|default:"0m" }}</p>
     </div>
-    <div class="bg-gradient-to-br from-teal-500 to-cyan-500 rounded-2xl shadow-lg shadow-teal-200 p-4 text-center">
+    <div class="bg-teal-500 rounded-2xl shadow-sm p-4 text-center">
       <p class="text-xs text-white/80 font-bold uppercase tracking-wide mb-1">This Week</p>
       <p class="font-display text-2xl text-white">{{ time_weekly|default:"0m" }}</p>
     </div>
-    <div class="bg-gradient-to-br from-lime-500 to-green-500 rounded-2xl shadow-lg shadow-lime-200 p-4 text-center">
+    <div class="bg-lime-500 rounded-2xl shadow-sm p-4 text-center">
       <p class="text-xs text-white/80 font-bold uppercase tracking-wide mb-1">Best Score</p>
       <p class="font-display text-2xl text-white">{{ best_score|default:"—" }}</p>
     </div>
@@ -46,7 +46,7 @@
                 onclick="toggleYear('year-{{ item.level.level_number }}')">
           <div class="flex items-center gap-3">
             <span class="inline-flex items-center justify-center w-9 h-9 rounded-xl
-                         {% if item.accessible %}bg-gradient-to-br from-emerald-500 to-green-600 text-white shadow-sm{% else %}bg-gray-200 text-gray-400{% endif %}
+                         {% if item.accessible %}bg-emerald-500 text-white{% else %}bg-gray-200 text-gray-400{% endif %}
                          font-display text-lg">
               {{ item.level.level_number }}
             </span>
@@ -103,7 +103,7 @@
           {% if item.accessible %}
           <div class="mt-4">
             <a href="{% url 'mixed_quiz' level_number=item.level.level_number %}"
-               class="block rounded-xl bg-gradient-to-r from-emerald-500 to-green-500 p-3 hover:from-emerald-600 hover:to-green-600 hover:shadow-md transition text-sm font-bold text-white text-center shadow-sm">
+               class="block rounded-xl bg-emerald-500 p-3 hover:bg-emerald-600 hover:shadow-md transition text-sm font-bold text-white text-center shadow-sm">
               🎲 Take Mixed Quiz
             </a>
           </div>

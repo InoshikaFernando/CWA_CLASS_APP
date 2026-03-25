@@ -11,7 +11,7 @@
       <p class="text-emerald-500 mt-1 font-semibold">Classes you are enrolled in</p>
     </div>
     <a href="{% url 'student_join_class' %}"
-       class="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-500 to-green-600 text-white font-semibold rounded-xl hover:from-emerald-600 hover:to-green-700 transition text-sm shadow-md shadow-emerald-200">
+       class="inline-flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white font-semibold rounded-xl hover:bg-emerald-600 transition text-sm shadow-sm">
       <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
       </svg>
@@ -65,5 +65,6 @@
     {% endif %}
   {% endif %}
 
+  {% include "partials/pagination.html" %}
 </div>
 {% endblock %}

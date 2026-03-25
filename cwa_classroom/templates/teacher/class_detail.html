@@ -246,10 +246,12 @@
               {% endif %}
             </td>
             <td class="px-6 py-3 text-right">
-              {% if session.status == 'scheduled' %}
-                <div class="flex items-center justify-end gap-2">
+              <div class="flex items-center justify-end gap-2">
+                {% if session.status != 'cancelled' %}
                   <a href="{% url 'session_attendance' session.id %}"
                      class="text-xs text-accent font-semibold hover:underline">Attendance</a>
+                {% endif %}
+                {% if session.status == 'scheduled' %}
                   <form method="post" action="{% url 'complete_session' session_id=session.id %}" class="inline">
                     {% csrf_token %}
                     <button type="submit" class="text-xs text-emerald-600 font-semibold hover:underline">Complete</button>
@@ -258,8 +260,13 @@
                     {% csrf_token %}
                     <button type="submit" class="text-xs text-red-500 font-semibold hover:underline">Cancel</button>
                   </form>
-                </div>
-              {% endif %}
+                {% endif %}
+                <form method="post" action="{% url 'delete_session' session_id=session.id %}" class="inline"
+                      onsubmit="return confirm('Delete this session and all its attendance/progress records? This cannot be undone.')">
+                  {% csrf_token %}
+                  <button type="submit" class="text-xs text-gray-400 hover:text-red-600 font-semibold">Delete</button>
+                </form>
+              </div>
             </td>
           </tr>
           {% endfor %}

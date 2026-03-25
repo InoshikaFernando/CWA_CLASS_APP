@@ -16,7 +16,7 @@
     </div>
 
     <!-- Registration Cards -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-10">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-10">
 
       <!-- Teacher / Center Card -->
       <div class="rounded-2xl bg-white border border-slate-200 shadow-sm hover:shadow-md transition p-8 flex flex-col">
@@ -153,6 +153,52 @@
         <a href="{% url 'register_individual_student' %}"
            class="block text-center border-2 border-primary text-primary hover:bg-primary hover:text-white rounded-xl px-5 py-3 font-semibold transition">
           Register as Student
+        </a>
+      </div>
+
+      <!-- Parent Card -->
+      <div class="rounded-2xl bg-white border border-slate-200 shadow-sm hover:shadow-md transition p-8 flex flex-col">
+        <div class="inline-flex items-center justify-center w-14 h-14 bg-violet-100 rounded-2xl mb-6">
+          <svg class="w-7 h-7 text-violet-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+          </svg>
+        </div>
+
+        <h2 class="text-xl font-bold text-gray-800 mb-2">Register as Parent</h2>
+        <p class="text-gray-500 text-sm mb-6">
+          Link to your child's school account using their Student ID.
+        </p>
+
+        <ul class="space-y-2 mb-8 flex-1">
+          <li class="flex items-center gap-2 text-sm text-gray-600">
+            <svg class="w-5 h-5 text-violet-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
+            View your child's progress
+          </li>
+          <li class="flex items-center gap-2 text-sm text-gray-600">
+            <svg class="w-5 h-5 text-violet-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
+            Track attendance &amp; grades
+          </li>
+          <li class="flex items-center gap-2 text-sm text-gray-600">
+            <svg class="w-5 h-5 text-violet-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
+            Link multiple children
+          </li>
+          <li class="flex items-center gap-2 text-sm text-gray-600">
+            <svg class="w-5 h-5 text-violet-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
+            No subscription required
+          </li>
+        </ul>
+
+        <a href="{% url 'register_parent_join' %}"
+           class="block text-center bg-violet-600 text-white hover:bg-violet-700 rounded-xl px-5 py-3 font-semibold transition">
+          Join as Parent
         </a>
       </div>
 

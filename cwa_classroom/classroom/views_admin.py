@@ -7,13 +7,14 @@ from django.db import transaction
 from django.utils.text import slugify
 from django.utils import timezone
 
+from django.core.paginator import Paginator
 from django.db.models import Count, Q
 
 from accounts.models import CustomUser, Role, UserRole
 from accounts.views import _validate_username, _generate_username_suggestion
 from .models import (
     School, SchoolTeacher, AcademicYear, ClassRoom, ClassSession, Department,
-    SchoolStudent, Level, Subject,
+    DepartmentTeacher, SchoolStudent, Level, Subject, Term,
 )
 from .views import RoleRequiredMixin
 from .email_utils import send_staff_welcome_email
@@ -24,7 +25,7 @@ class AdminDashboardView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request):
-        schools = School.objects.filter(admin=request.user).annotate(
+        schools = School.objects.filter(admin=request.user, is_active=True).annotate(
             teacher_count=Count(
                 'school_teachers',
                 filter=Q(school_teachers__is_active=True),
@@ -147,6 +148,9 @@ class SchoolToggleActiveView(RoleRequiredMixin, View):
     """Toggle the is_active status of a school."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
+    def get(self, request, school_id):
+        return redirect('admin_school_detail', school_id=school_id)
+
     def post(self, request, school_id):
         school = get_object_or_404(School, id=school_id, admin=request.user)
         school.is_active = not school.is_active
@@ -205,10 +209,20 @@ class ManageTeachersRedirectView(RoleRequiredMixin, View):
 
 class ManageStudentsRedirectView(RoleRequiredMixin, View):
     """Shortcut: redirects to the first school's student management page."""
-    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+                      Role.HEAD_OF_DEPARTMENT, Role.TEACHER]
 
     def get(self, request):
         school = School.objects.filter(admin=request.user).first()
+        if not school:
+            # HoD/teacher: find school via department or teaching assignment
+            dept = Department.objects.filter(head=request.user, is_active=True).first()
+            if dept:
+                school = dept.school
+            else:
+                st = SchoolTeacher.objects.filter(teacher=request.user, is_active=True).first()
+                if st:
+                    school = st.school
         if school:
             return redirect('admin_school_students', school_id=school.id)
         messages.info(request, 'Create a school first before managing students.')
@@ -255,9 +269,12 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
     def get(self, request, school_id):
         school = get_object_or_404(School, id=school_id, admin=request.user)
         school_teachers = SchoolTeacher.objects.filter(school=school, is_active=True).select_related('teacher')
+        paginator = Paginator(school_teachers, 25)
+        page = paginator.get_page(request.GET.get('page'))
         return render(request, 'admin_dashboard/school_teachers.html', {
             'school': school,
-            'school_teachers': school_teachers,
+            'school_teachers': page,
+            'page': page,
             'role_choices': self._get_role_choices(request.user),
         })
 
@@ -301,9 +318,12 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
             for err in errors:
                 messages.error(request, err)
             school_teachers = SchoolTeacher.objects.filter(school=school, is_active=True).select_related('teacher')
+            paginator = Paginator(school_teachers, 25)
+            page = paginator.get_page(request.GET.get('page'))
             return render(request, 'admin_dashboard/school_teachers.html', {
                 'school': school,
-                'school_teachers': school_teachers,
+                'school_teachers': page,
+                'page': page,
                 'role_choices': allowed_choices,
                 'form_data': {
                     'first_name': first_name,
@@ -325,6 +345,9 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
                     first_name=first_name,
                     last_name=last_name,
                 )
+                user.must_change_password = True
+                user.profile_completed = False
+                user.save(update_fields=['must_change_password', 'profile_completed'])
                 # Assign system-wide role based on school role
                 if role == 'head_of_institute':
                     system_role, _ = Role.objects.get_or_create(
@@ -607,13 +630,27 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
                 )
             )
         )
+        paginator = Paginator(school_students, 25)
+        page = paginator.get_page(request.GET.get('page'))
         return render(request, 'admin_dashboard/school_students.html', {
             'school': school,
-            'school_students': school_students,
+            'school_students': page,
+            'page': page,
         })
 
     def post(self, request, school_id):
         school = self._get_school(request, school_id)
+
+        # Check student limit before adding
+        from billing.entitlements import check_student_limit
+        allowed, current, limit = check_student_limit(school)
+        if not allowed:
+            messages.error(
+                request,
+                f'Your plan allows {limit} students. '
+                f'You currently have {current}. Please upgrade your plan.',
+            )
+            return redirect('admin_school_students', school_id=school.id)
 
         first_name = request.POST.get('first_name', '').strip()
         last_name = request.POST.get('last_name', '').strip()
@@ -661,11 +698,23 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
                     username=username, email=email, password=password,
                     first_name=first_name, last_name=last_name,
                 )
+                user.must_change_password = True
+                user.profile_completed = False
+                user.save(update_fields=['must_change_password', 'profile_completed'])
                 student_role, _ = Role.objects.get_or_create(
                     name=Role.STUDENT, defaults={'display_name': 'Student'}
                 )
                 UserRole.objects.create(user=user, role=student_role, assigned_by=request.user)
                 SchoolStudent.objects.create(school=school, student=user)
+
+            # Send welcome email with login credentials
+            from classroom.email_utils import send_staff_welcome_email
+            send_staff_welcome_email(
+                user=user,
+                plain_password=password,
+                role_display='Student',
+                school=school,
+            )
             messages.success(request, f'{first_name} {last_name} added as student. Login username: {username}')
         except Exception as e:
             messages.error(request, f'Error creating student: {e}')
@@ -899,10 +948,14 @@ class SchoolSubjectManageView(RoleRequiredMixin, View):
         school = get_object_or_404(School, id=school_id, admin=request.user)
         global_subjects = Subject.objects.filter(school__isnull=True, is_active=True).order_by('order', 'name')
         school_subjects = Subject.objects.filter(school=school, is_active=True).order_by('order', 'name')
+        # Global SubjectApps for linking
+        from classroom.models import SubjectApp
+        subject_apps = SubjectApp.objects.filter(is_active=True).order_by('order', 'name')
         return render(request, 'admin_dashboard/school_subjects.html', {
             'school': school,
             'global_subjects': global_subjects,
             'school_subjects': school_subjects,
+            'subject_apps': subject_apps,
         })
 
     def post(self, request, school_id):
@@ -920,7 +973,14 @@ class SchoolSubjectManageView(RoleRequiredMixin, View):
             while Subject.objects.filter(school=school, slug=slug).exists():
                 slug = f'{base_slug}-{cnt}'
                 cnt += 1
-            Subject.objects.create(name=name, slug=slug, school=school, is_active=True)
+            global_subject_id = request.POST.get('global_subject_id', '').strip()
+            global_subject = None
+            if global_subject_id:
+                global_subject = Subject.objects.filter(id=global_subject_id, school__isnull=True).first()
+            Subject.objects.create(
+                name=name, slug=slug, school=school, is_active=True,
+                global_subject=global_subject,
+            )
             messages.success(request, f'Subject "{name}" created.')
 
         elif action == 'edit':
@@ -930,6 +990,14 @@ class SchoolSubjectManageView(RoleRequiredMixin, View):
             if subject and name:
                 subject.name = name
                 subject.slug = slugify(name)
+                # Update global subject link
+                global_subject_id = request.POST.get('global_subject_id', '').strip()
+                if global_subject_id:
+                    subject.global_subject = Subject.objects.filter(
+                        id=global_subject_id, school__isnull=True,
+                    ).first()
+                else:
+                    subject.global_subject = None
                 subject.save()
                 messages.success(request, f'Subject updated to "{name}".')
 
@@ -943,3 +1011,269 @@ class SchoolSubjectManageView(RoleRequiredMixin, View):
                 messages.success(request, f'Subject "{name}" removed.')
 
         return redirect('admin_school_subjects', school_id=school.id)
+
+
+# ---------------------------------------------------------------------------
+# Account Blocking & School Suspension (Admin only)
+# ---------------------------------------------------------------------------
+
+def _invalidate_user_sessions(user):
+    """Delete all database sessions belonging to a specific user."""
+    from django.contrib.sessions.models import Session
+    from django.utils import timezone as tz
+    for session in Session.objects.filter(expire_date__gte=tz.now()):
+        data = session.get_decoded()
+        if str(data.get('_auth_user_id')) == str(user.pk):
+            session.delete()
+
+
+class BlockUserView(RoleRequiredMixin, View):
+    """Block a user account. Admin/HoI only."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def post(self, request):
+        user_id = request.POST.get('user_id')
+        reason = request.POST.get('reason', '').strip()
+        block_type = request.POST.get('block_type', 'permanent')
+        expires_at = request.POST.get('expires_at', '').strip()
+
+        user = get_object_or_404(CustomUser, id=user_id)
+
+        # Don't allow blocking yourself or other admins
+        if user == request.user:
+            messages.error(request, 'You cannot block your own account.')
+            return redirect(request.META.get('HTTP_REFERER', 'subjects_hub'))
+        if user.is_admin_user and not request.user.is_admin_user:
+            messages.error(request, 'Only system admins can block other admins.')
+            return redirect(request.META.get('HTTP_REFERER', 'subjects_hub'))
+
+        user.is_blocked = True
+        user.blocked_at = timezone.now()
+        user.blocked_reason = reason
+        user.blocked_by = request.user
+        user.block_type = block_type
+        if block_type == 'temporary' and expires_at:
+            from django.utils.dateparse import parse_datetime
+            user.block_expires_at = parse_datetime(expires_at)
+        else:
+            user.block_expires_at = None
+        user.save(update_fields=[
+            'is_blocked', 'blocked_at', 'blocked_reason',
+            'blocked_by', 'block_type', 'block_expires_at',
+        ])
+
+        # Force logout all sessions
+        _invalidate_user_sessions(user)
+
+        from audit.services import log_event
+        log_event(
+            user=request.user, category='admin_action', action='user_blocked',
+            detail={'target_user': user.username, 'reason': reason, 'block_type': block_type},
+            request=request,
+        )
+
+        messages.success(request, f'Account "{user.username}" has been blocked.')
+        return redirect(request.META.get('HTTP_REFERER', 'subjects_hub'))
+
+
+class UnblockUserView(RoleRequiredMixin, View):
+    """Unblock a user account. Admin/HoI only."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def post(self, request):
+        user_id = request.POST.get('user_id')
+        user = get_object_or_404(CustomUser, id=user_id)
+
+        user.is_blocked = False
+        user.block_type = ''
+        user.save(update_fields=['is_blocked', 'block_type'])
+
+        messages.success(request, f'Account "{user.username}" has been unblocked.')
+        return redirect(request.META.get('HTTP_REFERER', 'subjects_hub'))
+
+
+class SuspendSchoolView(RoleRequiredMixin, View):
+    """Suspend a school. System admin only."""
+    required_roles = [Role.ADMIN]
+
+    def post(self, request):
+        school_id = request.POST.get('school_id')
+        reason = request.POST.get('reason', '').strip()
+        school = get_object_or_404(School, id=school_id)
+
+        school.is_suspended = True
+        school.suspended_at = timezone.now()
+        school.suspended_reason = reason
+        school.suspended_by = request.user
+        school.save(update_fields=[
+            'is_suspended', 'suspended_at', 'suspended_reason', 'suspended_by',
+        ])
+
+        # Set subscription status to suspended
+        from billing.entitlements import get_school_subscription
+        from billing.models import SchoolSubscription
+        sub = get_school_subscription(school)
+        if sub:
+            sub.status = SchoolSubscription.STATUS_SUSPENDED
+            sub.save(update_fields=['status', 'updated_at'])
+
+        # Force logout all users in this school
+        from .models import SchoolTeacher as ST, SchoolStudent as SS
+        user_ids = set()
+        user_ids.update(
+            ST.objects.filter(school=school, is_active=True)
+            .values_list('teacher_id', flat=True)
+        )
+        user_ids.update(
+            SS.objects.filter(school=school, is_active=True)
+            .values_list('student_id', flat=True)
+        )
+        if school.admin_id:
+            user_ids.add(school.admin_id)
+
+        for uid in user_ids:
+            try:
+                u = CustomUser.objects.get(id=uid)
+                _invalidate_user_sessions(u)
+            except CustomUser.DoesNotExist:
+                pass
+
+        messages.success(request, f'School "{school.name}" has been suspended.')
+        return redirect(request.META.get('HTTP_REFERER', 'subjects_hub'))
+
+
+class UnsuspendSchoolView(RoleRequiredMixin, View):
+    """Unsuspend a school. System admin only."""
+    required_roles = [Role.ADMIN]
+
+    def post(self, request):
+        school_id = request.POST.get('school_id')
+        school = get_object_or_404(School, id=school_id)
+
+        school.is_suspended = False
+        school.save(update_fields=['is_suspended'])
+
+        # Restore subscription to active
+        from billing.entitlements import get_school_subscription
+        from billing.models import SchoolSubscription
+        sub = get_school_subscription(school)
+        if sub and sub.status == SchoolSubscription.STATUS_SUSPENDED:
+            sub.status = SchoolSubscription.STATUS_ACTIVE
+            sub.save(update_fields=['status', 'updated_at'])
+
+        messages.success(request, f'School "{school.name}" has been unsuspended.')
+        return redirect(request.META.get('HTTP_REFERER', 'subjects_hub'))
+
+
+class ManageTermsRedirectView(RoleRequiredMixin, View):
+    """Shortcut: redirects to the first school's terms page."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request):
+        school = School.objects.filter(admin=request.user).first()
+        if school:
+            return redirect('admin_school_terms', school_id=school.id)
+        messages.info(request, 'Create a school first.')
+        return redirect('admin_school_create')
+
+
+class ManageParentInvitesRedirectView(RoleRequiredMixin, View):
+    """Shortcut: redirects to the first school's parent invites page."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+                      Role.HEAD_OF_DEPARTMENT]
+
+    def get(self, request):
+        school = School.objects.filter(admin=request.user).first()
+        if not school:
+            from .models import Department
+            dept = Department.objects.filter(head=request.user, is_active=True).first()
+            if dept:
+                school = dept.school
+        if school:
+            return redirect('parent_invite_list', school_id=school.id)
+        messages.info(request, 'Create a school first.')
+        return redirect('admin_school_create')
+
+
+class TermManageView(RoleRequiredMixin, View):
+    """Manage terms for a school: list, create, edit, delete."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request, school_id):
+        school = get_object_or_404(School, id=school_id, admin=request.user)
+        terms = Term.objects.filter(school=school).select_related('academic_year')
+        academic_years = AcademicYear.objects.filter(school=school)
+        return render(request, 'admin_dashboard/school_terms.html', {
+            'school': school,
+            'terms': terms,
+            'academic_years': academic_years,
+        })
+
+    def post(self, request, school_id):
+        school = get_object_or_404(School, id=school_id, admin=request.user)
+        action = request.POST.get('action')
+
+        if action == 'create':
+            name = request.POST.get('name', '').strip()
+            academic_year_id = request.POST.get('academic_year') or None
+            start_date = request.POST.get('start_date')
+            end_date = request.POST.get('end_date')
+            order = request.POST.get('order', 0)
+
+            if not name or not start_date or not end_date:
+                messages.error(request, 'Name, start date and end date are required.')
+                return redirect('admin_school_terms', school_id=school.id)
+
+            academic_year = None
+            if academic_year_id:
+                academic_year = AcademicYear.objects.filter(
+                    id=academic_year_id, school=school
+                ).first()
+
+            try:
+                Term.objects.create(
+                    school=school,
+                    academic_year=academic_year,
+                    name=name,
+                    start_date=start_date,
+                    end_date=end_date,
+                    order=int(order) if order else 0,
+                )
+                messages.success(request, f'Term "{name}" created.')
+            except Exception as e:
+                messages.error(request, f'Could not create term: {e}')
+
+        elif action == 'edit':
+            term_id = request.POST.get('term_id')
+            term = get_object_or_404(Term, id=term_id, school=school)
+            term.name = request.POST.get('name', '').strip() or term.name
+            start_date = request.POST.get('start_date')
+            end_date = request.POST.get('end_date')
+            if start_date:
+                term.start_date = start_date
+            if end_date:
+                term.end_date = end_date
+            academic_year_id = request.POST.get('academic_year')
+            if academic_year_id:
+                term.academic_year = AcademicYear.objects.filter(
+                    id=academic_year_id, school=school
+                ).first()
+            else:
+                term.academic_year = None
+            order = request.POST.get('order')
+            if order is not None and order != '':
+                term.order = int(order)
+            try:
+                term.save()
+                messages.success(request, f'Term "{term.name}" updated.')
+            except Exception as e:
+                messages.error(request, f'Could not update term: {e}')
+
+        elif action == 'delete':
+            term_id = request.POST.get('term_id')
+            term = get_object_or_404(Term, id=term_id, school=school)
+            term_name = term.name
+            term.delete()
+            messages.success(request, f'Term "{term_name}" deleted.')
+
+        return redirect('admin_school_terms', school_id=school.id)

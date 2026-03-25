@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Institute Plans{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto">
+  <h1 class="font-display text-2xl text-primary mb-2">Choose Your Plan</h1>
+  <p class="text-gray-500 text-sm mb-6">
+    {% if school %}Plan for <strong>{{ school.name }}</strong>.{% endif %}
+    {% if current_plan %}Currently on <strong>{{ current_plan.name }}</strong>.{% endif %}
+  </p>
+
+  {% if messages %}
+  <div class="mb-4">
+    {% for message in messages %}
+    <div class="p-3 rounded-lg text-sm {% if message.tags == 'error' %}bg-red-50 text-red-700{% elif message.tags == 'warning' %}bg-yellow-50 text-yellow-700{% else %}bg-green-50 text-green-700{% endif %}">
+      {{ message }}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    {% for plan in plans %}
+    <div class="border rounded-xl p-5 {% if current_plan and current_plan.id == plan.id %}border-primary-dark bg-primary-light ring-2 ring-primary{% elif plan.slug == 'silver' %}border-primary{% else %}border-gray-200{% endif %}">
+      {% if plan.slug == 'silver' %}
+        <span class="inline-block bg-primary text-white text-xs font-semibold px-2 py-0.5 rounded-full mb-2">Popular</span>
+      {% endif %}
+      {% if current_plan and current_plan.id == plan.id %}
+        <span class="inline-block bg-primary-dark text-white text-xs font-semibold px-2 py-0.5 rounded-full mb-2">Current Plan</span>
+      {% endif %}
+
+      <h3 class="font-bold text-lg text-gray-800">{{ plan.name }}</h3>
+      <p class="text-2xl font-bold text-gray-900 mt-2">
+        ${{ plan.price }}<span class="text-sm font-normal text-gray-500">/mo</span>
+      </p>
+
+      <ul class="mt-4 space-y-2 text-sm text-gray-600">
+        <li class="flex items-start gap-2">
+          <span class="text-primary mt-0.5">&#10003;</span>
+          <span>{{ plan.class_limit }} classes
+            {% if current_classes > plan.class_limit %}<span class="text-red-500 text-xs">(you have {{ current_classes }})</span>{% endif %}
+          </span>
+        </li>
+        <li class="flex items-start gap-2">
+          <span class="text-primary mt-0.5">&#10003;</span>
+          <span>{{ plan.student_limit }} students
+            {% if current_students > plan.student_limit %}<span class="text-red-500 text-xs">(you have {{ current_students }})</span>{% endif %}
+          </span>
+        </li>
+        <li class="flex items-start gap-2">
+          <span class="text-primary mt-0.5">&#10003;</span>
+          <span>{{ plan.invoice_limit_yearly }} invoices/yr</span>
+        </li>
+        <li class="flex items-start gap-2">
+          <span class="text-gray-400 mt-0.5">+</span>
+          <span>${{ plan.extra_invoice_rate }}/extra invoice</span>
+        </li>
+      </ul>
+
+      <div class="mt-5">
+        {% if current_plan and current_plan.id == plan.id %}
+          <span class="block text-center text-sm text-gray-500 py-2">Active</span>
+        {% elif subscription and subscription.stripe_subscription_id %}
+          <form method="post" action="{% url 'institute_change_plan' %}">
+            {% csrf_token %}
+            <input type="hidden" name="plan" value="{{ plan.slug }}">
+            <button type="submit"
+                    class="w-full bg-primary hover:bg-primary-dark text-white text-sm font-semibold rounded-lg px-4 py-2 transition">
+              {% if current_plan and plan.price > current_plan.price %}Upgrade{% else %}Switch{% endif %}
+            </button>
+          </form>
+        {% else %}
+          <form method="post" action="{% url 'institute_checkout' %}">
+            {% csrf_token %}
+            <input type="hidden" name="plan" value="{{ plan.slug }}">
+            <button type="submit"
+                    class="w-full bg-primary hover:bg-primary-dark text-white text-sm font-semibold rounded-lg px-4 py-2 transition">
+              Subscribe
+            </button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="bg-gray-50 rounded-xl p-4 text-sm text-gray-600">
+    <h3 class="font-semibold text-gray-800 mb-2">Add-on Modules ($10/mo each)</h3>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+      <div class="flex items-center gap-2">
+        <span class="text-primary">&#10003;</span> Teachers Attendance
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-primary">&#10003;</span> Students Attendance
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-primary">&#10003;</span> Student Progress Reports
+      </div>
+    </div>
+    <p class="text-xs text-gray-400 mt-2">Modules can be added after selecting a plan.</p>
+  </div>
+</div>
+{% endblock %}

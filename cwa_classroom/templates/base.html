@@ -50,7 +50,7 @@
   {% block extra_head %}{% endblock %}
 </head>
 
-<body class="{% if is_student or is_individual_student %}bg-gradient-to-br from-emerald-50 via-white to-teal-50{% else %}bg-slate-50{% endif %} font-body text-gray-700 antialiased">
+<body class="{% if is_parent %}bg-violet-50{% elif is_student or is_individual_student %}bg-emerald-50{% else %}bg-slate-50{% endif %} font-body text-gray-700 antialiased">
 
   <!-- ── Topbar ─────────────────────────────────────────────── -->
   {% include "partials/topbar.html" %}
@@ -60,7 +60,7 @@
     <!-- ── Sidebar (desktop) — hidden when hide_sidebar is set ── -->
     {% if not hide_sidebar %}
     <aside id="sidebar"
-           class="hidden md:flex flex-col w-64 {% if is_student or is_individual_student %}bg-gradient-to-b from-emerald-600 via-green-600 to-teal-700{% else %}bg-primary{% endif %} fixed top-16 bottom-0 left-0 z-30 overflow-y-auto">
+           class="hidden md:flex flex-col w-64 {% if is_parent %}bg-violet-700{% elif is_student or is_individual_student %}bg-emerald-700{% else %}bg-primary{% endif %} fixed top-16 bottom-0 left-0 z-30 overflow-y-auto">
       {% block sidebar %}
         {% if is_admin_user %}
           {% include "partials/sidebar_admin.html" %}
@@ -74,6 +74,8 @@
           {% include "partials/sidebar_senior_teacher.html" %}
         {% elif is_teacher or is_junior_teacher %}
           {% include "partials/sidebar_teacher.html" %}
+        {% elif is_parent %}
+          {% include "partials/sidebar_parent.html" %}
         {% elif is_student or is_individual_student %}
           {% include "partials/sidebar_student.html" %}
         {% elif is_parent %}

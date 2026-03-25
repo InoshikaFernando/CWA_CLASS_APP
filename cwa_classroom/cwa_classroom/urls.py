@@ -59,6 +59,9 @@ urlpatterns = [
     # --- Billing ---
     path('', include('billing.urls')),
 
+    # --- Audit ---
+    path('', include('audit.urls')),
+
     # --- Subject apps ---
     path('maths/', include('maths.urls', namespace='maths')),
     path('coding/', include('coding.urls', namespace='coding')),

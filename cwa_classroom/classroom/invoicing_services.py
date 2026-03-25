@@ -319,6 +319,11 @@ def create_draft_invoices(school, student_data, attendance_mode,
 
             invoices.append(invoice)
 
+    # Track invoice usage for subscription billing
+    if invoices:
+        from billing.entitlements import record_invoice_usage
+        record_invoice_usage(school, len(invoices))
+
     return invoices
 
 

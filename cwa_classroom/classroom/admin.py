@@ -11,6 +11,7 @@ from .models import (
     PaymentReferenceMapping, InvoicePayment, CreditTransaction,
     TeacherHourlyRate, TeacherRateOverride, SalaryNumberSequence,
     SalarySlip, SalarySlipLineItem, SalaryPayment,
+    ParentStudent, ParentInvite, Term,
 )
 
 
@@ -81,6 +82,13 @@ class SchoolStudentAdmin(admin.ModelAdmin):
 class AcademicYearAdmin(admin.ModelAdmin):
     list_display = ('school', 'year', 'start_date', 'end_date', 'is_current')
     list_filter = ('school', 'is_current')
+
+
+@admin.register(Term)
+class TermAdmin(admin.ModelAdmin):
+    list_display = ('name', 'school', 'academic_year', 'start_date', 'end_date', 'order')
+    list_filter = ('school', 'academic_year')
+    ordering = ('school', 'order', 'start_date')
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +227,7 @@ class NotificationAdmin(admin.ModelAdmin):
 
 @admin.register(SubjectApp)
 class SubjectAppAdmin(admin.ModelAdmin):
-    list_display = ('name', 'slug', 'is_active', 'is_coming_soon', 'order', 'external_url')
+    list_display = ('name', 'slug', 'subject', 'is_active', 'is_coming_soon', 'order', 'external_url')
     list_filter = ('is_active', 'is_coming_soon')
     list_editable = ('order', 'is_active', 'is_coming_soon')
     prepopulated_fields = {'slug': ('name',)}
@@ -414,3 +422,23 @@ class SalaryPaymentAdmin(admin.ModelAdmin):
     list_filter = ('status', 'payment_method', 'school')
     search_fields = ('teacher__username', 'reference_name')
     readonly_fields = ('created_at',)
+
+
+# ---------------------------------------------------------------------------
+# Parent / Family Account
+# ---------------------------------------------------------------------------
+
+@admin.register(ParentStudent)
+class ParentStudentAdmin(admin.ModelAdmin):
+    list_display = ('parent', 'student', 'school', 'relationship', 'is_active', 'created_at')
+    list_filter = ('is_active', 'relationship', 'school')
+    search_fields = ('parent__username', 'parent__email', 'student__username', 'student__email')
+    readonly_fields = ('created_at',)
+
+
+@admin.register(ParentInvite)
+class ParentInviteAdmin(admin.ModelAdmin):
+    list_display = ('parent_email', 'student', 'school', 'status', 'created_at', 'expires_at')
+    list_filter = ('status', 'school')
+    search_fields = ('parent_email', 'student__username')
+    readonly_fields = ('token', 'created_at', 'accepted_at')

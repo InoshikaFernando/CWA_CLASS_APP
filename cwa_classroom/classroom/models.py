@@ -132,6 +132,25 @@ class School(models.Model):
         default=30,
         help_text='Number of days after issue date before payment is due.',
     )
+    # Company / structured address
+    abn = models.CharField('ABN / Tax ID', max_length=50, blank=True)
+    street_address = models.CharField(max_length=255, blank=True)
+    city = models.CharField(max_length=100, blank=True)
+    state_region = models.CharField(max_length=100, blank=True)
+    postal_code = models.CharField(max_length=20, blank=True)
+    country = models.CharField(max_length=100, blank=True)
+
+    # Suspension
+    is_suspended = models.BooleanField(default=False)
+    suspended_at = models.DateTimeField(null=True, blank=True)
+    suspended_reason = models.TextField(blank=True)
+    suspended_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='+',
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -332,6 +351,26 @@ class AcademicYear(models.Model):
         super().save(*args, **kwargs)
 
 
+class Term(models.Model):
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='terms')
+    academic_year = models.ForeignKey(
+        AcademicYear, on_delete=models.CASCADE, related_name='terms',
+        null=True, blank=True,
+    )
+    name = models.CharField(max_length=50)  # "Term 1", "Term 2", etc.
+    start_date = models.DateField()
+    end_date = models.DateField()
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['order', 'start_date']
+        unique_together = ('school', 'name', 'academic_year')
+
+    def __str__(self):
+        yr = f' ({self.academic_year.year})' if self.academic_year else ''
+        return f'{self.name}{yr} — {self.school.name}'
+
+
 # ---------------------------------------------------------------------------
 # Curriculum extensions: TopicLevel & SubTopic
 # ---------------------------------------------------------------------------
@@ -499,6 +538,10 @@ class SchoolStudent(models.Model):
         on_delete=models.CASCADE,
         related_name='school_student_entries',
     )
+    student_id_code = models.CharField(
+        max_length=20, blank=True, db_index=True,
+        help_text='Auto-generated student ID (e.g. STU-001-0042). Used for parent linking.',
+    )
     is_active = models.BooleanField(default=True)
     joined_at = models.DateTimeField(auto_now_add=True)
     opening_balance = models.DecimalField(
@@ -509,6 +552,27 @@ class SchoolStudent(models.Model):
     class Meta:
         unique_together = ('school', 'student')
         ordering = ['student__first_name', 'student__last_name']
+
+    def save(self, *args, **kwargs):
+        if not self.student_id_code:
+            self.student_id_code = self._generate_student_id()
+        super().save(*args, **kwargs)
+
+    def _generate_student_id(self):
+        """Generate a unique student ID like STU-001-0042."""
+        school_part = f'{self.school_id:03d}'
+        last = SchoolStudent.objects.filter(
+            school=self.school,
+            student_id_code__startswith=f'STU-{school_part}-',
+        ).order_by('-student_id_code').values_list('student_id_code', flat=True).first()
+        if last:
+            try:
+                seq = int(last.split('-')[-1]) + 1
+            except (ValueError, IndexError):
+                seq = 1
+        else:
+            seq = 1
+        return f'STU-{school_part}-{seq:04d}'
 
     def __str__(self):
         return f'{self.student.username} @ {self.school.name}'
@@ -845,6 +909,108 @@ class Notification(models.Model):
 
     def __str__(self):
         return f'{self.user.username} — {self.notification_type} ({self.created_at:%Y-%m-%d})'
+
+
+# ---------------------------------------------------------------------------
+# Parent / Family Account models
+# ---------------------------------------------------------------------------
+
+class ParentStudent(models.Model):
+    """Links a parent user to a student user within a school context."""
+    RELATIONSHIP_CHOICES = [
+        ('mother', 'Mother'),
+        ('father', 'Father'),
+        ('guardian', 'Guardian'),
+        ('other', 'Other'),
+    ]
+
+    parent = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='parent_student_links',
+    )
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='student_parent_links',
+    )
+    school = models.ForeignKey(
+        'School', on_delete=models.CASCADE,
+        related_name='parent_student_links',
+    )
+    relationship = models.CharField(
+        max_length=30, choices=RELATIONSHIP_CHOICES, blank=True,
+    )
+    is_primary_contact = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, related_name='+',
+    )
+
+    class Meta:
+        unique_together = ('parent', 'student', 'school')
+        ordering = ['student__first_name', 'student__last_name']
+
+    def __str__(self):
+        return f'{self.parent.username} → {self.student.username} @ {self.school.name}'
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        existing = ParentStudent.objects.filter(
+            student=self.student, school=self.school, is_active=True,
+        ).exclude(pk=self.pk).count()
+        if existing >= 2:
+            raise ValidationError(
+                f'{self.student.username} already has 2 active parent links '
+                f'in {self.school.name}.'
+            )
+
+
+class ParentInvite(models.Model):
+    """Invite token for a parent to register or link to a student."""
+    import uuid
+
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('accepted', 'Accepted'),
+        ('expired', 'Expired'),
+        ('revoked', 'Revoked'),
+    ]
+
+    token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    school = models.ForeignKey(
+        'School', on_delete=models.CASCADE,
+        related_name='parent_invites',
+    )
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='parent_invites',
+    )
+    parent_email = models.EmailField()
+    relationship = models.CharField(max_length=30, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    invited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, related_name='+',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    accepted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+    )
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Invite {self.parent_email} → {self.student.username} ({self.status})'
+
+    @property
+    def is_valid(self):
+        from django.utils import timezone
+        return self.status == 'pending' and self.expires_at > timezone.now()
 
 
 # ---------------------------------------------------------------------------

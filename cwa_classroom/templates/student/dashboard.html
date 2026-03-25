@@ -40,11 +40,11 @@
 
   <!-- Time stats -->
   <div class="grid grid-cols-2 gap-4">
-    <div class="bg-gradient-to-br from-emerald-500 to-green-600 rounded-2xl shadow-lg shadow-emerald-200 p-5 text-center">
+    <div class="bg-emerald-500 rounded-2xl shadow-sm p-5 text-center">
       <p class="font-display text-3xl text-white">{{ time_daily }}</p>
       <p class="text-xs text-white/80 font-bold uppercase tracking-wide mt-1">Today</p>
     </div>
-    <div class="bg-gradient-to-br from-teal-500 to-cyan-500 rounded-2xl shadow-lg shadow-teal-200 p-5 text-center">
+    <div class="bg-emerald-600 rounded-2xl shadow-sm p-5 text-center">
       <p class="font-display text-3xl text-white">{{ time_weekly }}</p>
       <p class="text-xs text-white/80 font-bold uppercase tracking-wide mt-1">This Week</p>
     </div>
@@ -52,7 +52,7 @@
 
   <!-- ── Year Level Progress (accordion) ─────────────────────────────────── -->
   {% if progress_grid %}
-  <details class="group bg-white rounded-2xl border border-emerald-100 shadow-sm overflow-hidden" open>
+  <details class="group bg-white rounded-2xl border border-emerald-100 shadow-sm overflow-hidden">
     <summary class="flex items-center justify-between px-5 py-4 cursor-pointer select-none bg-emerald-50 hover:bg-emerald-100/50 transition">
       <h2 class="font-bold text-lg text-emerald-700">📚 Year Level Progress</h2>
       <svg class="w-5 h-5 text-emerald-500 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -117,7 +117,7 @@
 
   <!-- ── Basic Facts Progress (accordion) ────────────────────────────────── -->
   {% if bf_grid %}
-  <details class="group bg-white rounded-2xl border border-teal-100 shadow-sm overflow-hidden" open>
+  <details class="group bg-white rounded-2xl border border-teal-100 shadow-sm overflow-hidden">
     <summary class="flex items-center justify-between px-5 py-4 cursor-pointer select-none bg-teal-50 hover:bg-teal-100/50 transition">
       <h2 class="font-bold text-lg text-teal-600">⚡ Basic Facts Progress</h2>
       <svg class="w-5 h-5 text-teal-500 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -189,7 +189,7 @@
 
   <!-- ── Times Tables Progress (accordion) ───────────────────────────────── -->
   {% if tt_results %}
-  <details class="group bg-white rounded-2xl border border-cyan-100 shadow-sm overflow-hidden" open>
+  <details class="group bg-white rounded-2xl border border-cyan-100 shadow-sm overflow-hidden">
     <summary class="flex items-center justify-between px-5 py-4 cursor-pointer select-none bg-cyan-50 hover:bg-cyan-100/50 transition">
       <h2 class="font-bold text-lg text-cyan-700">✕ Times Tables Progress</h2>
       <svg class="w-5 h-5 text-cyan-500 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">

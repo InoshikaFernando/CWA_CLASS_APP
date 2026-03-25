@@ -1,0 +1,9 @@
+Hi {{ name }},
+
+Your subscription{% if school %} for {{ school.name }}{% endif %} has been cancelled.
+
+You will retain access until the end of your current billing period. After that, features will be restricted until you resubscribe.
+
+If this was a mistake, you can resubscribe at any time by logging in.
+
+— The {{ site_name }} Team

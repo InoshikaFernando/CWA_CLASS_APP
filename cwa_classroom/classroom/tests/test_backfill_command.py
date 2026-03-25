@@ -5,7 +5,7 @@ from django.test import TestCase
 
 from accounts.models import CustomUser
 from classroom.models import (
-    School, Department, Subject, Level, DepartmentLevel,
+    School, Department, DepartmentSubject, Subject, Level, DepartmentLevel,
 )
 
 
@@ -44,8 +44,8 @@ class BackfillDepartmentLevelsTest(TestCase):
         # Department WITHOUT existing DepartmentLevel rows
         cls.dept = Department.objects.create(
             school=cls.school, name='Mathematics', slug='maths',
-            subject=cls.maths,
         )
+        DepartmentSubject.objects.create(department=cls.dept, subject=cls.maths)
 
     def test_backfill_creates_rows(self):
         """Running backfill should create DepartmentLevel rows for Year 1-9."""

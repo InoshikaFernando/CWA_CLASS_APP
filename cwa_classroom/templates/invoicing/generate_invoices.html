@@ -48,16 +48,33 @@
     <form method="post" action="{% url 'generate_invoices' %}" class="p-6 space-y-6">
       {% csrf_token %}
 
+      {% if terms %}
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Term (optional — auto-fills dates)</label>
+        <select id="term-select"
+          class="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+          <option value="">— Select a term —</option>
+          {% for term in terms %}
+            <option value="{{ term.id }}"
+                    data-start="{{ term.start_date|date:'Y-m-d' }}"
+                    data-end="{{ term.end_date|date:'Y-m-d' }}">
+              {{ term.name }}{% if term.academic_year %} ({{ term.academic_year.year }}){% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Billing Period Start</label>
-          <input type="date" name="billing_period_start"
+          <input type="date" name="billing_period_start" id="billing_period_start"
             value="{{ form_data.billing_period_start|default:'' }}"
             class="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required>
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Billing Period End</label>
-          <input type="date" name="billing_period_end"
+          <input type="date" name="billing_period_end" id="billing_period_end"
             value="{{ form_data.billing_period_end|default:'' }}"
             class="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required>
         </div>
@@ -108,4 +125,22 @@
   </div>
 
 </div>
+
+{% if terms %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  var termSelect = document.getElementById('term-select');
+  if (!termSelect) return;
+  termSelect.addEventListener('change', function() {
+    var option = this.options[this.selectedIndex];
+    var startDate = option.getAttribute('data-start');
+    var endDate = option.getAttribute('data-end');
+    if (startDate && endDate) {
+      document.getElementById('billing_period_start').value = startDate;
+      document.getElementById('billing_period_end').value = endDate;
+    }
+  });
+});
+</script>
+{% endif %}
 {% endblock %}
