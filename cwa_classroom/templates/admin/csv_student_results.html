@@ -92,10 +92,45 @@
   {% endif %}
 
   <div class="flex gap-3">
-    <a href="{% url 'student_csv_upload' %}"
+    <a href="{% url 'hod_overview' %}" id="dashboard-btn"
        class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition">
+      Go to Dashboard <span id="countdown" class="ml-1 opacity-60">(10)</span>
+    </a>
+    <a href="{% url 'student_csv_upload' %}"
+       class="bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl px-6 py-3 hover:bg-gray-50 transition">
       Import More Students
     </a>
   </div>
 </div>
+
+{% block extra_js %}
+<script>
+// Auto-redirect to dashboard after 10 seconds (cancel if user interacts)
+(function() {
+  let seconds = 10;
+  const countdownEl = document.getElementById('countdown');
+  const dashboardBtn = document.getElementById('dashboard-btn');
+  let cancelled = false;
+
+  const timer = setInterval(function() {
+    if (cancelled) return;
+    seconds--;
+    if (countdownEl) countdownEl.textContent = '(' + seconds + ')';
+    if (seconds <= 0) {
+      clearInterval(timer);
+      window.location.href = dashboardBtn.href;
+    }
+  }, 1000);
+
+  // Cancel auto-redirect if user clicks anything
+  document.addEventListener('click', function(e) {
+    if (!cancelled) {
+      cancelled = true;
+      clearInterval(timer);
+      if (countdownEl) countdownEl.style.display = 'none';
+    }
+  });
+})();
+</script>
+{% endblock %}
 {% endblock %}

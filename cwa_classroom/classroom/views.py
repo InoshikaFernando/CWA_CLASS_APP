@@ -1318,6 +1318,14 @@ class StudentCSVConfirmView(RoleRequiredMixin, View):
         # Store credentials for download
         request.session['csv_student_credentials'] = results['credentials']
 
+        # Success message for dashboard
+        c = results['counts']
+        messages.success(
+            request,
+            f"Import complete: {c['students_created']} students created, "
+            f"{c['classes_created']} classes, {c['students_enrolled']} enrollments."
+        )
+
         # Clear CSV data from session
         for key in ('csv_student_data', 'csv_student_headers', 'csv_student_mapping',
                      'csv_student_school_id', 'csv_student_preview',
