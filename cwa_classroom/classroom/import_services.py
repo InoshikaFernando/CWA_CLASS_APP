@@ -1238,7 +1238,6 @@ def validate_balance_preview(data_rows, column_mapping, school):
 
     matched = []
     unmatched = []
-    skipped_zero = []
 
     for row_idx, row in enumerate(data_rows, start=2):
         first_name = _get_cell(row, column_mapping.get('first_name')).strip()
@@ -1253,14 +1252,6 @@ def validate_balance_preview(data_rows, column_mapping, school):
             balance = Decimal(str(balance_str).replace(',', ''))
         except (InvalidOperation, ValueError):
             warnings.append(f'Row {row_idx}: Invalid balance "{balance_str}", skipped.')
-            continue
-
-        if balance == 0:
-            skipped_zero.append({
-                'row': row_idx,
-                'parent_name': f'{first_name} {last_name}',
-                'balance': balance,
-            })
             continue
 
         # Try to match guardian
@@ -1320,7 +1311,6 @@ def validate_balance_preview(data_rows, column_mapping, school):
     return {
         'matched': matched,
         'unmatched': unmatched,
-        'skipped_zero': skipped_zero,
         'errors': errors,
         'warnings': warnings,
         'total_balance': sum(m['balance'] for m in matched),

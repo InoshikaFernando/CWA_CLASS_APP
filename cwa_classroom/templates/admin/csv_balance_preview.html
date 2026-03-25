@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% load humanize %}
 {% block title %}Preview Balance Import{% endblock %}
 {% block content %}
 <div class="max-w-4xl mx-auto space-y-6">
@@ -31,7 +30,7 @@
   {% endif %}
 
   {# ── Summary cards ── #}
-  <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+  <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
       <p class="font-display text-3xl text-primary">{{ preview.total_rows }}</p>
       <p class="text-xs text-gray-400 font-semibold">Total Rows</p>
@@ -43,10 +42,6 @@
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
       <p class="font-display text-3xl text-red-500">{{ preview.unmatched|length }}</p>
       <p class="text-xs text-gray-400 font-semibold">Unmatched</p>
-    </div>
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
-      <p class="font-display text-3xl text-gray-400">{{ preview.skipped_zero|length }}</p>
-      <p class="text-xs text-gray-400 font-semibold">Skipped (Zero Balance)</p>
     </div>
   </div>
 
@@ -86,28 +81,35 @@
   </div>
   {% endif %}
 
-  {# ── Unmatched table ── #}
+  {# ── Unmatched warning banner with required checkbox ── #}
   {% if preview.unmatched %}
-  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-    <h2 class="font-bold text-red-700 mb-3">Unmatched Records ({{ preview.unmatched|length }})</h2>
-    <p class="text-xs text-gray-500 mb-3">These parents could not be matched to guardians in the system. Their balances will not be imported.</p>
-    <div class="overflow-x-auto max-h-48 overflow-y-auto">
+  <div class="bg-amber-50 rounded-2xl border border-amber-200 p-5">
+    <div class="flex items-start gap-3 mb-3">
+      <svg class="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+      </svg>
+      <div>
+        <h2 class="font-bold text-amber-800">{{ preview.unmatched|length }} Record{{ preview.unmatched|length|pluralize }} Not Found</h2>
+        <p class="text-sm text-amber-700 mt-1">The following parents could not be matched to any guardian in the system. Their balances will <strong>not</strong> be imported.</p>
+      </div>
+    </div>
+    <div class="overflow-x-auto max-h-48 overflow-y-auto mb-4">
       <table class="text-sm w-full">
-        <thead class="bg-gray-50 sticky top-0">
+        <thead class="bg-amber-100/50 sticky top-0">
           <tr>
-            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Row</th>
-            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Parent Name</th>
-            <th class="px-3 py-2 text-right text-gray-600 font-semibold">Balance</th>
-            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Reason</th>
+            <th class="px-3 py-2 text-left text-amber-800 font-semibold">Row</th>
+            <th class="px-3 py-2 text-left text-amber-800 font-semibold">Parent Name</th>
+            <th class="px-3 py-2 text-right text-amber-800 font-semibold">Balance</th>
+            <th class="px-3 py-2 text-left text-amber-800 font-semibold">Reason</th>
           </tr>
         </thead>
         <tbody>
           {% for u in preview.unmatched %}
-          <tr class="border-t border-gray-100">
-            <td class="px-3 py-2 text-gray-400">{{ u.row }}</td>
-            <td class="px-3 py-2 text-gray-800">{{ u.parent_name }}</td>
-            <td class="px-3 py-2 text-right font-mono text-gray-500">${{ u.balance }}</td>
-            <td class="px-3 py-2 text-gray-500 text-xs">{{ u.reason|default:"No matching guardian found" }}</td>
+          <tr class="border-t border-amber-200/50">
+            <td class="px-3 py-2 text-amber-700">{{ u.row }}</td>
+            <td class="px-3 py-2 text-amber-900">{{ u.parent_name }}</td>
+            <td class="px-3 py-2 text-right font-mono text-amber-700">${{ u.balance }}</td>
+            <td class="px-3 py-2 text-amber-600 text-xs">{{ u.reason|default:"No matching guardian found" }}</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -116,44 +118,39 @@
   </div>
   {% endif %}
 
-  {# ── Skipped zero balance ── #}
-  {% if preview.skipped_zero %}
-  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-    <h2 class="font-bold text-gray-500 mb-3">Skipped - Zero Balance ({{ preview.skipped_zero|length }})</h2>
-    <p class="text-xs text-gray-400 mb-3">These records have a zero balance and were automatically skipped.</p>
-    <div class="overflow-x-auto max-h-32 overflow-y-auto">
-      <table class="text-sm w-full">
-        <thead class="bg-gray-50 sticky top-0">
-          <tr>
-            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Parent Name</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for s in preview.skipped_zero %}
-          <tr class="border-t border-gray-100">
-            <td class="px-3 py-2 text-gray-500">{{ s.parent_name }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-  {% endif %}
-
-  {# ── Confirm button ── #}
+  {# ── Confirm section ── #}
   {% if preview.matched %}
-  <div class="flex gap-3" id="confirm-actions">
+  <div id="confirm-section">
     <form method="post" action="{% url 'balance_csv_confirm' %}" id="import-form">
       {% csrf_token %}
-      <button type="submit" id="confirm-btn"
-              class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-8 py-3 transition">
-        Confirm & Import {{ preview.matched|length }} Balance{{ preview.matched|length|pluralize:"s" }}
-      </button>
+
+      {# Checkbox required if there are unmatched records #}
+      {% if preview.unmatched %}
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 mb-4">
+        <label class="flex items-start gap-3 cursor-pointer select-none">
+          <input type="checkbox" id="ack-checkbox" class="mt-1 w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary">
+          <span class="text-sm text-gray-700">
+            I understand that <strong class="text-red-600">{{ preview.unmatched|length }}</strong> record{{ preview.unmatched|length|pluralize }}
+            will be skipped because no matching parent was found. Only <strong class="text-green-600">{{ preview.matched|length }}</strong>
+            matched record{{ preview.matched|length|pluralize }} will be imported.
+          </span>
+        </label>
+      </div>
+      {% endif %}
+
+      <div class="flex gap-3" id="confirm-actions">
+        <button type="submit" id="confirm-btn"
+                {% if preview.unmatched %}disabled{% endif %}
+                class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-8 py-3 transition
+                       disabled:opacity-40 disabled:cursor-not-allowed">
+          Confirm & Import {{ preview.matched|length }} Balance{{ preview.matched|length|pluralize:"s" }}
+        </button>
+        <a href="{% url 'balance_csv_upload' %}" id="cancel-btn"
+           class="bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl px-6 py-3 hover:bg-gray-50 transition">
+          Cancel
+        </a>
+      </div>
     </form>
-    <a href="{% url 'balance_csv_upload' %}" id="cancel-btn"
-       class="bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl px-6 py-3 hover:bg-gray-50 transition">
-      Cancel
-    </a>
   </div>
 
   {# ── Loading overlay (hidden by default) ── #}
@@ -185,12 +182,23 @@
 
 {% block extra_js %}
 <script>
+// Checkbox enables confirm button
+var ackBox = document.getElementById('ack-checkbox');
+var confirmBtn = document.getElementById('confirm-btn');
+if (ackBox && confirmBtn) {
+  ackBox.addEventListener('change', function() {
+    confirmBtn.disabled = !this.checked;
+  });
+}
+
+// Loading spinner on submit
 var importForm = document.getElementById('import-form');
 if (importForm) {
   importForm.addEventListener('submit', function() {
-    document.getElementById('confirm-actions').classList.add('hidden');
-    document.getElementById('import-loading').classList.remove('hidden');
-    document.getElementById('confirm-btn').disabled = true;
+    var section = document.getElementById('confirm-section');
+    var loading = document.getElementById('import-loading');
+    if (section) section.classList.add('hidden');
+    if (loading) loading.classList.remove('hidden');
   });
 }
 </script>

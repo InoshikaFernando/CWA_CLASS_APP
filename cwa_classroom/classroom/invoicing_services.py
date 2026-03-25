@@ -672,6 +672,9 @@ def parse_csv_file(file_content):
     except UnicodeDecodeError:
         content = file_content.decode('latin-1')
 
+    # Normalise line endings to avoid csv reader errors
+    content = content.replace('\r\n', '\n').replace('\r', '\n')
+
     reader = csv.reader(io.StringIO(content))
     rows = list(reader)
 
@@ -684,6 +687,54 @@ def parse_csv_file(file_content):
     headers = rows[0]
     data_rows = rows[1:]
     return headers, data_rows
+
+
+def parse_xls_file_invoicing(file_content):
+    """Parse .xls file for invoicing. Returns (headers, data_rows)."""
+    try:
+        import xlrd
+    except ImportError:
+        raise ValueError('XLS support requires the xlrd package. Install with: pip install xlrd')
+
+    wb = xlrd.open_workbook(file_contents=file_content)
+    sh = wb.sheet_by_index(0)
+    if sh.nrows < 2:
+        raise ValueError('XLS file must have at least a header row and one data row.')
+    if sh.nrows - 1 > MAX_CSV_ROWS:
+        raise ValueError(f'XLS exceeds maximum of {MAX_CSV_ROWS} rows.')
+
+    headers = [str(sh.cell_value(0, c)).strip() for c in range(sh.ncols)]
+    data_rows = []
+    for r in range(1, sh.nrows):
+        row = []
+        for c in range(sh.ncols):
+            cell = sh.cell(r, c)
+            if cell.ctype == xlrd.XL_CELL_DATE:
+                try:
+                    dt = xlrd.xldate_as_datetime(cell.value, wb.datemode)
+                    row.append(dt.strftime('%Y-%m-%d'))
+                except Exception:
+                    row.append(str(cell.value))
+            elif cell.ctype == xlrd.XL_CELL_NUMBER:
+                if cell.value == int(cell.value):
+                    row.append(str(int(cell.value)))
+                else:
+                    row.append(str(cell.value))
+            else:
+                row.append(str(cell.value).strip())
+        data_rows.append(row)
+    return headers, data_rows
+
+
+def parse_upload_file_invoicing(file_content, filename):
+    """Route to correct parser based on file extension."""
+    ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else 'csv'
+    if ext == 'xls':
+        return parse_xls_file_invoicing(file_content)
+    elif ext == 'xlsx':
+        raise ValueError('XLSX format is not supported. Please save as .xls or export as .csv.')
+    else:
+        return parse_csv_file(file_content)
 
 
 def process_csv_rows(data_rows, column_mapping, school):
