@@ -47,6 +47,19 @@ class CustomUser(AbstractUser):
         blank=True,
     )
 
+    # Account blocking (e.g. unpaid fees, policy violation)
+    BLOCK_PAYMENT = 'payment'
+    BLOCK_MANUAL = 'manual'
+    BLOCK_POLICY = 'policy'
+    BLOCK_TYPE_CHOICES = [
+        ('', 'Not blocked'),
+        (BLOCK_PAYMENT, 'Payment overdue'),
+        (BLOCK_MANUAL, 'Manual block'),
+        (BLOCK_POLICY, 'Policy violation'),
+    ]
+    is_blocked = models.BooleanField(default=False)
+    block_type = models.CharField(max_length=20, blank=True, default='', choices=BLOCK_TYPE_CHOICES)
+
     # Role priority order for dashboard redirect
     ROLE_PRIORITY = [
         Role.ADMIN,
