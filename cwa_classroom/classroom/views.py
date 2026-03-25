@@ -1219,6 +1219,7 @@ class StudentCSVStructureMappingView(RoleRequiredMixin, View):
             'subject_map': {},
             'level_map': {},
             'class_map': {},
+            'teacher_map': {},
             'dummy_subject': False,
             'dummy_level': False,
             'dummy_class': False,
@@ -1231,7 +1232,7 @@ class StudentCSVStructureMappingView(RoleRequiredMixin, View):
                 structure_mapping['subject_map'][csv_subj] = val
         elif not csv_structure or not csv_structure['csv_subjects']:
             # No CSV subjects — check if system has subjects
-            mapping_ctx = isvc.build_smart_mapping_context(csv_structure or {'csv_subjects': [], 'csv_levels': [], 'csv_classes': []}, department)
+            mapping_ctx = isvc.build_smart_mapping_context(csv_structure or {'csv_subjects': [], 'csv_levels': [], 'csv_classes': [], 'csv_teachers': []}, department)
             if mapping_ctx['subject_scenario'] == 'neither':
                 structure_mapping['dummy_subject'] = True
 
@@ -1241,7 +1242,7 @@ class StudentCSVStructureMappingView(RoleRequiredMixin, View):
                 val = request.POST.get(f'level_map_{csv_lvl}', 'create')
                 structure_mapping['level_map'][csv_lvl] = val
         elif not csv_structure or not csv_structure['csv_levels']:
-            mapping_ctx = isvc.build_smart_mapping_context(csv_structure or {'csv_subjects': [], 'csv_levels': [], 'csv_classes': []}, department)
+            mapping_ctx = isvc.build_smart_mapping_context(csv_structure or {'csv_subjects': [], 'csv_levels': [], 'csv_classes': [], 'csv_teachers': []}, department)
             if mapping_ctx['level_scenario'] == 'neither':
                 structure_mapping['dummy_level'] = True
 
@@ -1251,9 +1252,15 @@ class StudentCSVStructureMappingView(RoleRequiredMixin, View):
                 val = request.POST.get(f'class_map_{csv_cls}', 'create')
                 structure_mapping['class_map'][csv_cls] = val
         elif not csv_structure or not csv_structure['csv_classes']:
-            mapping_ctx = isvc.build_smart_mapping_context(csv_structure or {'csv_subjects': [], 'csv_levels': [], 'csv_classes': []}, department)
+            mapping_ctx = isvc.build_smart_mapping_context(csv_structure or {'csv_subjects': [], 'csv_levels': [], 'csv_classes': [], 'csv_teachers': []}, department)
             if mapping_ctx['class_scenario'] == 'neither':
                 structure_mapping['dummy_class'] = True
+
+        # Parse teacher mappings
+        if csv_structure and csv_structure.get('csv_teachers'):
+            for csv_teacher in csv_structure['csv_teachers']:
+                val = request.POST.get(f'teacher_map_{csv_teacher}', 'create')
+                structure_mapping['teacher_map'][csv_teacher] = val
 
         # Store structure mapping in session
         request.session['csv_student_structure_mapping'] = structure_mapping

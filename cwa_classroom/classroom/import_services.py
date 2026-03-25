@@ -13,8 +13,8 @@ from django.utils.text import slugify
 
 from accounts.models import CustomUser, Role, UserRole
 from .models import (
-    School, SchoolStudent, Department, DepartmentSubject,
-    Subject, Level, ClassRoom, ClassStudent,
+    School, SchoolStudent, SchoolTeacher, Department, DepartmentSubject,
+    Subject, Level, ClassRoom, ClassStudent, ClassTeacher,
     Guardian, StudentGuardian,
 )
 
@@ -46,6 +46,7 @@ COLUMN_FIELDS = {
     'class_day': 'Class Day',
     'class_start_time': 'Class Start Time',
     'class_end_time': 'Class End Time',
+    'teacher': 'Teacher',
     # Optional — parent 1
     'parent1_first_name': 'Parent 1 First Name',
     'parent1_last_name': 'Parent 1 Last Name',
@@ -85,6 +86,7 @@ SOURCE_PRESETS = {
             'date_of_birth': 'Birth Date',
             'level': 'Subjects',       # Teachworks "Subjects" = our Level (Year 6, VCE Methods, etc.)
             'class_name': 'Default Service',
+            'teacher': 'Teachers',
             'parent1_first_name': 'Family First',
             'parent1_last_name': 'Family Last',
             'parent1_email': 'Family Email',
@@ -430,6 +432,7 @@ def validate_and_preview(data_rows, column_mapping, school):
                 'department': _get_cell(row, column_mapping.get('department')),
                 'subject': _get_cell(row, column_mapping.get('subject')),
                 'level': _get_cell(row, column_mapping.get('level')),
+                'teacher': _get_cell(row, column_mapping.get('teacher')),
                 'day': DAY_MAP.get(day_raw, ''),
                 'start_time': _parse_time(_get_cell(row, column_mapping.get('class_start_time'))),
                 'end_time': _parse_time(_get_cell(row, column_mapping.get('class_end_time'))),
@@ -548,6 +551,7 @@ def extract_csv_structure(data_rows, column_mapping):
     subjects = set()
     levels = set()
     classes = set()
+    teachers = set()
 
     for row in data_rows:
         s = _get_cell(row, column_mapping.get('subject'))
@@ -559,11 +563,15 @@ def extract_csv_structure(data_rows, column_mapping):
         cn = _get_cell(row, column_mapping.get('class_name'))
         if cn:
             classes.add(cn)
+        t = _get_cell(row, column_mapping.get('teacher'))
+        if t:
+            teachers.add(t)
 
     return {
         'csv_subjects': sorted(subjects),
         'csv_levels': sorted(levels),
         'csv_classes': sorted(classes),
+        'csv_teachers': sorted(teachers),
     }
 
 
@@ -579,11 +587,12 @@ def build_smart_mapping_context(csv_structure, department):
         - system_classes: list of {id, name}
         - csv_subjects, csv_levels, csv_classes: from csv_structure
     """
-    from .models import DepartmentSubject, DepartmentLevel
+    from .models import DepartmentSubject, DepartmentLevel, SchoolTeacher
 
     csv_subjects = csv_structure['csv_subjects']
     csv_levels = csv_structure['csv_levels']
     csv_classes = csv_structure['csv_classes']
+    csv_teachers = csv_structure.get('csv_teachers', [])
 
     # System subjects linked to this department
     dept_subjects_qs = DepartmentSubject.objects.filter(
@@ -627,6 +636,20 @@ def build_smart_mapping_context(csv_structure, department):
             return 'system_only'
         return 'neither'
 
+    # System teachers in this school (including HoD)
+    system_teachers_qs = SchoolTeacher.objects.filter(
+        school=department.school, is_active=True,
+    ).select_related('teacher').order_by('teacher__first_name')
+    system_teachers = [
+        {
+            'id': st.teacher_id,
+            'name': f'{st.teacher.first_name} {st.teacher.last_name}'.strip(),
+            'role': st.role,
+            'username': st.teacher.username,
+        }
+        for st in system_teachers_qs
+    ]
+
     # Auto-map: match CSV values to system values by normalized name
     def _auto_match(csv_list, system_list, name_key='name'):
         """Return {csv_value: system_id} for exact or fuzzy matches."""
@@ -655,20 +678,25 @@ def build_smart_mapping_context(csv_structure, department):
     auto_map_subjects = _auto_match(csv_subjects, system_subjects, 'name')
     auto_map_levels = _auto_match(csv_levels, system_levels, 'display_name')
     auto_map_classes = _auto_match(csv_classes, system_classes, 'name')
+    auto_map_teachers = _auto_match(csv_teachers, system_teachers, 'name')
 
     return {
         'subject_scenario': scenario(csv_subjects, system_subjects),
         'level_scenario': scenario(csv_levels, system_levels),
         'class_scenario': scenario(csv_classes, system_classes),
+        'teacher_scenario': scenario(csv_teachers, system_teachers),
         'system_subjects': system_subjects,
         'system_levels': system_levels,
         'system_classes': system_classes,
+        'system_teachers': system_teachers,
         'csv_subjects': csv_subjects,
         'csv_levels': csv_levels,
         'csv_classes': csv_classes,
+        'csv_teachers': csv_teachers,
         'auto_map_subjects': auto_map_subjects,
         'auto_map_levels': auto_map_levels,
         'auto_map_classes': auto_map_classes,
+        'auto_map_teachers': auto_map_teachers,
     }
 
 
@@ -680,6 +708,7 @@ def apply_structure_mapping(preview_data, structure_mapping, department):
         subject_map: {csv_subject_name: system_subject_id or 'create'}
         level_map: {csv_level_name: system_level_id or 'create'}
         class_map: {csv_class_name: system_class_id or 'create'}
+        teacher_map: {csv_teacher_name: system_user_id or 'create'}
         dummy_subject: True if we need to create a dummy subject
         dummy_level: True if we need to create a dummy level
         dummy_class: True if we need to create a dummy class
@@ -868,6 +897,79 @@ def execute_import(preview_data, school, uploaded_by):
             for cr in ClassRoom.objects.filter(school=school):
                 if cr.name not in class_cache:
                     class_cache[cr.name] = cr
+
+            # Resolve teacher mapping
+            teacher_map = structure_mapping.get('teacher_map', {})
+            teacher_cache = {}  # csv_teacher_name -> user object
+            existing_users_by_id = {u.id: u for u in CustomUser.objects.all()}
+            role_teacher, _ = Role.objects.get_or_create(
+                name=Role.TEACHER, defaults={'display_name': 'Teacher'},
+            )
+
+            # Default teacher (HoD) for unmapped classes
+            hod_user = target_dept.head
+
+            for csv_name, target in teacher_map.items():
+                if target == 'create':
+                    # Create new teacher user from full name
+                    first_name, last_name = _split_child_name(csv_name)
+                    t_slug = slugify(f'{first_name}-{last_name}') if last_name else slugify(first_name)
+                    t_email = f'{t_slug}@teacher.local'
+                    t_username = t_slug.replace('-', '_')
+                    suffix = 1
+                    while CustomUser.objects.filter(username=t_username).exists():
+                        t_username = f'{t_slug.replace("-", "_")}{suffix}'
+                        suffix += 1
+                    t_password = get_random_string(10)
+                    teacher_user = CustomUser.objects.create_user(
+                        username=t_username, email=t_email,
+                        password=t_password,
+                        first_name=first_name, last_name=last_name,
+                    )
+                    UserRole.objects.get_or_create(user=teacher_user, role=role_teacher)
+                    SchoolTeacher.objects.get_or_create(
+                        school=school, teacher=teacher_user,
+                        defaults={'role': 'teacher', 'is_active': True},
+                    )
+                    teacher_cache[csv_name] = teacher_user
+                    counts['teachers_created'] = counts.get('teachers_created', 0) + 1
+                else:
+                    user = existing_users_by_id.get(int(target))
+                    if user:
+                        teacher_cache[csv_name] = user
+
+            # Link teachers to classes via ClassTeacher
+            # Build a map: class_name -> set of teacher names from the CSV data
+            class_teacher_names = {}
+            all_students = preview_data.get('students_new', []) + preview_data.get('students_existing', [])
+            for sdata in all_students:
+                for c in sdata.get('classes', []):
+                    t_name = c.get('teacher', '')
+                    if t_name and c['class_name'] in class_cache:
+                        class_teacher_names.setdefault(c['class_name'], set()).add(t_name)
+
+            for class_name, t_names in class_teacher_names.items():
+                classroom = class_cache.get(class_name)
+                if not classroom:
+                    continue
+                for t_name in t_names:
+                    teacher_user = teacher_cache.get(t_name)
+                    if teacher_user:
+                        ClassTeacher.objects.get_or_create(
+                            classroom=classroom, teacher=teacher_user,
+                        )
+
+            # Classes with no teacher mapped — assign HoD
+            if hod_user:
+                for class_name, classroom in class_cache.items():
+                    if class_name == '__dummy__':
+                        ClassTeacher.objects.get_or_create(
+                            classroom=classroom, teacher=hod_user,
+                        )
+                    elif class_name not in class_teacher_names:
+                        ClassTeacher.objects.get_or_create(
+                            classroom=classroom, teacher=hod_user,
+                        )
 
         else:
             # ── Original generic import (no structure mapping) ──

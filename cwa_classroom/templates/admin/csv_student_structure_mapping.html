@@ -256,6 +256,71 @@
       {% endif %}
     </div>
 
+    {# ── Teacher mapping ── #}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-4">
+      <h2 class="font-bold text-gray-800 mb-3">
+        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary text-white text-xs font-bold mr-2">4</span>
+        Map Teachers
+      </h2>
+
+      {% if mapping_context.teacher_scenario == 'both' %}
+      <p class="text-sm text-gray-500 mb-4">
+        Map CSV teachers to existing system teachers, or create new teacher accounts.
+      </p>
+      <div class="space-y-3">
+        {% for csv_teacher in mapping_context.csv_teachers %}
+        <div class="flex items-center gap-4 p-3 bg-gray-50 rounded-xl">
+          <span class="text-sm font-semibold text-gray-700 w-40 flex-shrink-0">{{ csv_teacher }}</span>
+          <svg class="w-5 h-5 text-gray-300 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
+          </svg>
+          <select name="teacher_map_{{ csv_teacher }}"
+                  class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:border-transparent">
+            <option value="create">➕ Create new teacher "{{ csv_teacher }}"</option>
+            {% for sys_teacher in mapping_context.system_teachers %}
+            <option value="{{ sys_teacher.id }}"
+              {% if csv_teacher|lower == sys_teacher.name|lower %}selected{% endif %}
+            >{{ sys_teacher.name }} ({{ sys_teacher.role }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endfor %}
+      </div>
+
+      {% elif mapping_context.teacher_scenario == 'csv_only' %}
+      <p class="text-sm text-gray-500 mb-3">
+        No existing teachers in the system. New teacher accounts will be created.
+      </p>
+      <div class="flex flex-wrap gap-2">
+        {% for csv_teacher in mapping_context.csv_teachers %}
+        <input type="hidden" name="teacher_map_{{ csv_teacher }}" value="create" />
+        <span class="text-xs bg-green-100 text-green-700 font-semibold rounded-full px-3 py-1">
+          ➕ {{ csv_teacher }}
+        </span>
+        {% endfor %}
+      </div>
+
+      {% elif mapping_context.teacher_scenario == 'system_only' %}
+      <p class="text-sm text-gray-500 mb-3">
+        No teachers found in CSV. All classes will be assigned to the department head.
+      </p>
+      <div class="flex flex-wrap gap-2">
+        {% for sys_teacher in mapping_context.system_teachers %}
+        <span class="text-xs bg-blue-100 text-blue-700 font-semibold rounded-full px-3 py-1">
+          {{ sys_teacher.name }} ({{ sys_teacher.role }})
+        </span>
+        {% endfor %}
+      </div>
+
+      {% else %}
+      <div class="bg-amber-50 rounded-xl border border-amber-200 p-3">
+        <p class="text-sm text-amber-700">
+          No teachers in CSV or system. All classes will be assigned to the department head.
+        </p>
+      </div>
+      {% endif %}
+    </div>
+
     {# ── Submit ── #}
     <div class="flex gap-3">
       <button type="submit" class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-8 py-3 transition">
@@ -303,6 +368,7 @@ document.addEventListener('DOMContentLoaded', function() {
     'subject_map_': { {% for csv_val, sys_id in mapping_context.auto_map_subjects.items %}"{{ csv_val }}": "{{ sys_id }}",{% endfor %} },
     'level_map_': { {% for csv_val, sys_id in mapping_context.auto_map_levels.items %}"{{ csv_val }}": "{{ sys_id }}",{% endfor %} },
     'class_map_': { {% for csv_val, sys_id in mapping_context.auto_map_classes.items %}"{{ csv_val }}": "{{ sys_id }}",{% endfor %} },
+    'teacher_map_': { {% for csv_val, sys_id in mapping_context.auto_map_teachers.items %}"{{ csv_val }}": "{{ sys_id }}",{% endfor %} },
   };
   let autoCount = 0;
   for (const [prefix, map] of Object.entries(autoMaps)) {
