@@ -1367,6 +1367,144 @@ class StudentCSVCredentialsView(RoleRequiredMixin, View):
         return response
 
 
+class BalanceCSVUploadView(RoleRequiredMixin, View):
+    """Step 1: Upload CSV/XLS and map columns for balance import."""
+    required_roles = IMPORT_ROLES
+
+    def get(self, request):
+        from . import import_services as isvc
+        return render(request, 'admin/csv_balance_upload.html', {
+            'source_presets': isvc.BALANCE_PRESETS,
+        })
+
+    def post(self, request):
+        from . import import_services as isvc
+        csv_file = request.FILES.get('csv_file')
+        if not csv_file:
+            messages.error(request, 'Please select a file.')
+            return redirect('balance_csv_upload')
+        if csv_file.size > isvc.MAX_CSV_SIZE:
+            messages.error(request, 'File exceeds 10 MB limit.')
+            return redirect('balance_csv_upload')
+        try:
+            headers, data_rows = isvc.parse_upload_file(csv_file.read(), csv_file.name)
+        except ValueError as e:
+            messages.error(request, str(e))
+            return redirect('balance_csv_upload')
+
+        request.session['csv_balance_headers'] = headers
+        request.session['csv_balance_data'] = data_rows
+
+        # Auto-apply preset if selected
+        source_preset = request.POST.get('source_preset', '')
+        preset_mapping = {}
+        if source_preset and source_preset in isvc.BALANCE_PRESETS:
+            preset_mapping = isvc.apply_balance_preset(source_preset, headers)
+
+        return render(request, 'admin/csv_balance_upload.html', {
+            'headers': headers,
+            'preview_rows': data_rows[:5],
+            'column_fields': isvc.BALANCE_COLUMN_FIELDS,
+            'source_presets': isvc.BALANCE_PRESETS,
+            'selected_preset': source_preset,
+            'preset_mapping': preset_mapping,
+            'show_mapping': True,
+        })
+
+
+class BalanceCSVPreviewView(RoleRequiredMixin, View):
+    """Step 2: Validate columns and show balance preview."""
+    required_roles = IMPORT_ROLES
+
+    def _get_school(self, request):
+        school_id = SchoolTeacher.objects.filter(
+            teacher=request.user, is_active=True,
+        ).values_list('school_id', flat=True).first()
+        if not school_id and request.user.is_superuser:
+            school_id = School.objects.first()
+            school_id = school_id.id if school_id else None
+        return School.objects.get(id=school_id) if school_id else None
+
+    def post(self, request):
+        from . import import_services as isvc
+        data_rows = request.session.get('csv_balance_data')
+        if not data_rows:
+            messages.error(request, 'No CSV data. Please upload again.')
+            return redirect('balance_csv_upload')
+
+        school = self._get_school(request)
+        if not school:
+            messages.error(request, 'No school found.')
+            return redirect('balance_csv_upload')
+
+        column_mapping = isvc._build_balance_column_mapping(request.POST)
+        preview = isvc.validate_balance_preview(data_rows, column_mapping, school)
+
+        if preview['errors']:
+            for err in preview['errors']:
+                messages.error(request, err)
+            return redirect('balance_csv_upload')
+
+        # Store for confirm step — serialize Decimal values
+        serializable_matched = []
+        for m in preview.get('matched', []):
+            item = dict(m)
+            item['balance'] = str(item['balance'])
+            item['current_balance'] = str(item['current_balance'])
+            serializable_matched.append(item)
+
+        request.session['csv_balance_matched'] = serializable_matched
+        request.session['csv_balance_school_id'] = school.id
+
+        return render(request, 'admin/csv_balance_preview.html', {
+            'preview': preview,
+            'school': school,
+        })
+
+
+class BalanceCSVConfirmView(RoleRequiredMixin, View):
+    """Step 3: Execute balance import and show results."""
+    required_roles = IMPORT_ROLES
+
+    def post(self, request):
+        from . import import_services as isvc
+        from decimal import Decimal
+
+        matched_items = request.session.get('csv_balance_matched')
+        school_id = request.session.get('csv_balance_school_id')
+        if not matched_items or not school_id:
+            messages.error(request, 'Session expired. Please upload again.')
+            return redirect('balance_csv_upload')
+
+        school = School.objects.get(id=school_id)
+
+        # Deserialize Decimal values
+        for item in matched_items:
+            item['balance'] = Decimal(item['balance'])
+
+        try:
+            results = isvc.execute_balance_import(matched_items, school)
+        except Exception as e:
+            logger.exception('Balance import failed')
+            messages.error(request, f'Import failed: {e}')
+            return redirect('balance_csv_upload')
+
+        messages.success(
+            request,
+            f"Balance import complete: {results['updated']} balances updated."
+        )
+
+        # Clear session data
+        for key in ('csv_balance_data', 'csv_balance_headers', 'csv_balance_matched',
+                     'csv_balance_school_id'):
+            request.session.pop(key, None)
+
+        return render(request, 'admin/csv_balance_results.html', {
+            'results': results,
+            'school': school,
+        })
+
+
 class UploadQuestionsView(RoleRequiredMixin, View):
     required_roles = [
         Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,

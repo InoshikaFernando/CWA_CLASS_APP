@@ -59,6 +59,7 @@ class CustomUser(AbstractUser):
     ]
     is_blocked = models.BooleanField(default=False)
     block_type = models.CharField(max_length=20, blank=True, default='', choices=BLOCK_TYPE_CHOICES)
+    must_change_password = models.BooleanField(default=False)
 
     # Role priority order for dashboard redirect
     ROLE_PRIORITY = [

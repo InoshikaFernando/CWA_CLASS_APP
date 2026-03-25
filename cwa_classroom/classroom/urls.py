@@ -39,6 +39,11 @@ urlpatterns = [
     path('import-students/confirm/', views.StudentCSVConfirmView.as_view(), name='student_csv_confirm'),
     path('import-students/credentials/', views.StudentCSVCredentialsView.as_view(), name='student_csv_credentials'),
 
+    # CSV balance import
+    path('import-balances/', views.BalanceCSVUploadView.as_view(), name='balance_csv_upload'),
+    path('import-balances/preview/', views.BalanceCSVPreviewView.as_view(), name='balance_csv_preview'),
+    path('import-balances/confirm/', views.BalanceCSVConfirmView.as_view(), name='balance_csv_confirm'),
+
     # Question management
     path('upload-questions/', views.UploadQuestionsView.as_view(), name='upload_questions'),
     path('level/<int:level_number>/questions/', views.QuestionListView.as_view(), name='question_list'),

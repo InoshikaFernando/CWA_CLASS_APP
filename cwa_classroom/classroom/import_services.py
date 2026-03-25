@@ -394,7 +394,12 @@ def validate_and_preview(data_rows, column_mapping, school):
         if email not in students_by_key:
             username = _get_cell(row, column_mapping.get('username'))
             if not username:
-                username = email.split('@')[0]
+                # Generate firstName.lastName username
+                username = slugify(
+                    f'{first_name}.{last_name}'
+                ).replace('-', '.')
+                if not username:
+                    username = email.split('@')[0]
             dob_str = _get_cell(row, column_mapping.get('date_of_birth'))
             dob = _parse_date(dob_str) if dob_str else None
             if dob_str and not dob:
@@ -1070,8 +1075,12 @@ def execute_import(preview_data, school, uploaded_by):
 
             if is_new:
                 password = get_random_string(10)
-                # Ensure unique username
-                base_username = sdata['username']
+                # Generate username as firstName.lastName
+                base_username = slugify(
+                    f"{sdata['first_name']}.{sdata['last_name']}"
+                ).replace('-', '.')
+                if not base_username:
+                    base_username = sdata.get('username', email.split('@')[0])
                 username = base_username
                 suffix = 1
                 while CustomUser.objects.filter(username=username).exists():
@@ -1085,6 +1094,7 @@ def execute_import(preview_data, school, uploaded_by):
                     first_name=sdata['first_name'],
                     last_name=sdata['last_name'],
                 )
+                user.must_change_password = True
                 if sdata.get('date_of_birth'):
                     user.date_of_birth = sdata['date_of_birth']
                 if sdata.get('country'):
@@ -1142,3 +1152,209 @@ def execute_import(preview_data, school, uploaded_by):
         'counts': counts,
         'credentials': credentials,
     }
+
+
+# ── Balance Import ──────────────────────────────────────────
+
+BALANCE_COLUMN_FIELDS = {
+    'first_name': 'Parent First Name',
+    'last_name': 'Parent Last Name',
+    'balance': 'Balance',
+    'net_invoices': 'Net Invoices',
+    'net_payments': 'Net Payments',
+    'external_id': 'Customer ID',
+    'status': 'Customer Status',
+}
+
+BALANCE_REQUIRED_FIELDS = {'first_name', 'last_name', 'balance'}
+
+BALANCE_PRESETS = {
+    'teachworks': {
+        'name': 'Teachworks',
+        'description': 'Import from Teachworks Customer Balances export (.xls).',
+        'mapping': {
+            'external_id': 'Customer ID',
+            'first_name': 'First Name',
+            'last_name': 'Last Name',
+            'balance': 'Balance',
+            'net_invoices': 'Net Invoices',
+            'net_payments': 'Net Payments',
+            'status': 'Customer Status',
+        },
+    },
+}
+
+
+def apply_balance_preset(preset_key, headers):
+    """Apply a balance preset to map column headers. Returns {field: col_index}."""
+    preset = BALANCE_PRESETS.get(preset_key.lower())
+    if not preset:
+        return {}
+    header_lower = {h.lower(): i for i, h in enumerate(headers)}
+    mapping = {}
+    for system_field, csv_header in preset['mapping'].items():
+        idx = header_lower.get(csv_header.lower())
+        if idx is not None:
+            mapping[system_field] = idx
+    return mapping
+
+
+def _build_balance_column_mapping(post_data):
+    """Build column_mapping dict from POST data for balance import."""
+    mapping = {}
+    for field in BALANCE_COLUMN_FIELDS:
+        val = post_data.get(f'col_{field}', '')
+        if val != '' and val != '-1':
+            mapping[field] = int(val)
+    return mapping
+
+
+def validate_balance_preview(data_rows, column_mapping, school):
+    """
+    Match balance rows to guardians by name, resolve to students.
+    Returns preview dict.
+    """
+    from classroom.models import Guardian, StudentGuardian, SchoolStudent
+
+    errors = []
+    warnings = []
+
+    # Check required fields
+    for f in BALANCE_REQUIRED_FIELDS:
+        if f not in column_mapping:
+            errors.append(f'Required column "{BALANCE_COLUMN_FIELDS[f]}" is not mapped.')
+    if errors:
+        return {'errors': errors, 'warnings': warnings}
+
+    # Build guardian lookup by (first_name_lower, last_name_lower)
+    guardians = Guardian.objects.filter(school=school).prefetch_related(
+        'students__student', 'students__student__school_students'
+    )
+    guardian_lookup = {}
+    for g in guardians:
+        key = (g.first_name.lower().strip(), g.last_name.lower().strip())
+        if key not in guardian_lookup:
+            guardian_lookup[key] = g
+
+    matched = []
+    unmatched = []
+    skipped_zero = []
+
+    for row_idx, row in enumerate(data_rows, start=2):
+        first_name = _get_cell(row, column_mapping.get('first_name')).strip()
+        last_name = _get_cell(row, column_mapping.get('last_name')).strip()
+        balance_str = _get_cell(row, column_mapping.get('balance'))
+
+        if not first_name or not last_name:
+            warnings.append(f'Row {row_idx}: Missing name, skipped.')
+            continue
+
+        try:
+            balance = Decimal(str(balance_str).replace(',', ''))
+        except (InvalidOperation, ValueError):
+            warnings.append(f'Row {row_idx}: Invalid balance "{balance_str}", skipped.')
+            continue
+
+        if balance == 0:
+            skipped_zero.append({
+                'row': row_idx,
+                'parent_name': f'{first_name} {last_name}',
+                'balance': balance,
+            })
+            continue
+
+        # Try to match guardian
+        key = (first_name.lower(), last_name.lower())
+        guardian = guardian_lookup.get(key)
+
+        if not guardian:
+            unmatched.append({
+                'row': row_idx,
+                'parent_name': f'{first_name} {last_name}',
+                'balance': balance,
+                'external_id': _get_cell(row, column_mapping.get('external_id')),
+            })
+            continue
+
+        # Get the first student linked to this guardian
+        student_guardian = StudentGuardian.objects.filter(
+            guardian=guardian
+        ).select_related('student').order_by('id').first()
+
+        if not student_guardian:
+            unmatched.append({
+                'row': row_idx,
+                'parent_name': f'{first_name} {last_name}',
+                'balance': balance,
+                'external_id': _get_cell(row, column_mapping.get('external_id')),
+                'reason': 'Guardian found but no linked students',
+            })
+            continue
+
+        student = student_guardian.student
+        school_student = SchoolStudent.objects.filter(
+            school=school, student=student
+        ).first()
+
+        if not school_student:
+            unmatched.append({
+                'row': row_idx,
+                'parent_name': f'{first_name} {last_name}',
+                'balance': balance,
+                'reason': f'Student {student.first_name} {student.last_name} not enrolled in this school',
+            })
+            continue
+
+        matched.append({
+            'row': row_idx,
+            'parent_name': f'{first_name} {last_name}',
+            'balance': balance,
+            'student_name': f'{student.first_name} {student.last_name}',
+            'student_email': student.email,
+            'student_id': student.id,
+            'school_student_id': school_student.id,
+            'current_balance': school_student.opening_balance,
+            'external_id': _get_cell(row, column_mapping.get('external_id')),
+        })
+
+    return {
+        'matched': matched,
+        'unmatched': unmatched,
+        'skipped_zero': skipped_zero,
+        'errors': errors,
+        'warnings': warnings,
+        'total_balance': sum(m['balance'] for m in matched),
+        'total_rows': len(data_rows),
+    }
+
+
+def execute_balance_import(matched_items, school):
+    """Apply opening balances to matched students."""
+    from classroom.models import SchoolStudent
+    from classroom.invoicing_services import set_opening_balance
+
+    results = {
+        'updated': 0,
+        'skipped': 0,
+        'errors': [],
+        'details': [],
+    }
+
+    for item in matched_items:
+        try:
+            school_student = SchoolStudent.objects.get(id=item['school_student_id'])
+            set_opening_balance(school_student, item['balance'])
+            results['updated'] += 1
+            results['details'].append({
+                'student_name': item['student_name'],
+                'parent_name': item['parent_name'],
+                'balance': item['balance'],
+                'status': 'updated',
+            })
+        except SchoolStudent.DoesNotExist:
+            results['errors'].append(f'Student record {item["school_student_id"]} not found.')
+        except Exception as e:
+            results['errors'].append(f'{item["student_name"]}: {str(e)}')
+            results['skipped'] += 1
+
+    return results

@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+{% load humanize %}
+{% block title %}Preview Balance Import{% endblock %}
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+  <div>
+    <h1 class="font-display text-3xl text-primary">Preview Balance Import</h1>
+    <p class="text-gray-400 text-sm mt-1">Review matched and unmatched records before confirming.</p>
+  </div>
+
+  {% if preview.errors %}
+  <div class="bg-red-50 rounded-2xl border border-red-200 p-5">
+    <h2 class="font-bold text-red-700 mb-2">Validation Errors</h2>
+    <div class="space-y-1 max-h-48 overflow-y-auto">
+      {% for err in preview.errors %}
+      <p class="text-sm text-red-600 font-mono">{{ err }}</p>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if preview.warnings %}
+  <div class="bg-amber-50 rounded-2xl border border-amber-200 p-5">
+    <h2 class="font-bold text-amber-700 mb-2">Warnings</h2>
+    <div class="space-y-1 max-h-32 overflow-y-auto">
+      {% for w in preview.warnings %}
+      <p class="text-sm text-amber-600">{{ w }}</p>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Summary cards ── #}
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+      <p class="font-display text-3xl text-primary">{{ preview.total_rows }}</p>
+      <p class="text-xs text-gray-400 font-semibold">Total Rows</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+      <p class="font-display text-3xl text-green-600">{{ preview.matched|length }}</p>
+      <p class="text-xs text-gray-400 font-semibold">Matched</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+      <p class="font-display text-3xl text-red-500">{{ preview.unmatched|length }}</p>
+      <p class="text-xs text-gray-400 font-semibold">Unmatched</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+      <p class="font-display text-3xl text-gray-400">{{ preview.skipped_zero|length }}</p>
+      <p class="text-xs text-gray-400 font-semibold">Skipped (Zero Balance)</p>
+    </div>
+  </div>
+
+  {# ── Matched table ── #}
+  {% if preview.matched %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+    <h2 class="font-bold text-gray-800 mb-3">Matched Records ({{ preview.matched|length }})</h2>
+    <div class="overflow-x-auto max-h-64 overflow-y-auto">
+      <table class="text-sm w-full">
+        <thead class="bg-gray-50 sticky top-0">
+          <tr>
+            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Parent Name</th>
+            <th class="px-3 py-2 text-right text-gray-600 font-semibold">Balance</th>
+            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Assigned To</th>
+            <th class="px-3 py-2 text-right text-gray-600 font-semibold">Current Balance</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in preview.matched %}
+          <tr class="border-t border-gray-100">
+            <td class="px-3 py-2 text-gray-800">{{ m.parent_name }}</td>
+            <td class="px-3 py-2 text-right font-mono {% if m.balance < 0 %}text-red-600{% else %}text-green-600{% endif %}">${{ m.balance }}</td>
+            <td class="px-3 py-2 text-gray-500">{{ m.student_name }}</td>
+            <td class="px-3 py-2 text-right font-mono text-gray-400">${{ m.current_balance }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot class="bg-gray-50">
+          <tr>
+            <td class="px-3 py-2 font-bold text-gray-700">Total</td>
+            <td class="px-3 py-2 text-right font-mono font-bold text-gray-700">${{ preview.total_balance }}</td>
+            <td colspan="2"></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Unmatched table ── #}
+  {% if preview.unmatched %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+    <h2 class="font-bold text-red-700 mb-3">Unmatched Records ({{ preview.unmatched|length }})</h2>
+    <p class="text-xs text-gray-500 mb-3">These parents could not be matched to guardians in the system. Their balances will not be imported.</p>
+    <div class="overflow-x-auto max-h-48 overflow-y-auto">
+      <table class="text-sm w-full">
+        <thead class="bg-gray-50 sticky top-0">
+          <tr>
+            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Row</th>
+            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Parent Name</th>
+            <th class="px-3 py-2 text-right text-gray-600 font-semibold">Balance</th>
+            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in preview.unmatched %}
+          <tr class="border-t border-gray-100">
+            <td class="px-3 py-2 text-gray-400">{{ u.row }}</td>
+            <td class="px-3 py-2 text-gray-800">{{ u.parent_name }}</td>
+            <td class="px-3 py-2 text-right font-mono text-gray-500">${{ u.balance }}</td>
+            <td class="px-3 py-2 text-gray-500 text-xs">{{ u.reason|default:"No matching guardian found" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Skipped zero balance ── #}
+  {% if preview.skipped_zero %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+    <h2 class="font-bold text-gray-500 mb-3">Skipped - Zero Balance ({{ preview.skipped_zero|length }})</h2>
+    <p class="text-xs text-gray-400 mb-3">These records have a zero balance and were automatically skipped.</p>
+    <div class="overflow-x-auto max-h-32 overflow-y-auto">
+      <table class="text-sm w-full">
+        <thead class="bg-gray-50 sticky top-0">
+          <tr>
+            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Parent Name</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in preview.skipped_zero %}
+          <tr class="border-t border-gray-100">
+            <td class="px-3 py-2 text-gray-500">{{ s.parent_name }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Confirm button ── #}
+  {% if preview.matched %}
+  <div class="flex gap-3" id="confirm-actions">
+    <form method="post" action="{% url 'balance_csv_confirm' %}" id="import-form">
+      {% csrf_token %}
+      <button type="submit" id="confirm-btn"
+              class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-8 py-3 transition">
+        Confirm & Import {{ preview.matched|length }} Balance{{ preview.matched|length|pluralize:"s" }}
+      </button>
+    </form>
+    <a href="{% url 'balance_csv_upload' %}" id="cancel-btn"
+       class="bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl px-6 py-3 hover:bg-gray-50 transition">
+      Cancel
+    </a>
+  </div>
+
+  {# ── Loading overlay (hidden by default) ── #}
+  <div id="import-loading" class="hidden">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-lg p-8 text-center max-w-md mx-auto">
+      <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
+        <svg class="w-8 h-8 text-primary animate-spin" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+      </div>
+      <h3 class="font-display text-xl text-gray-800 mb-2">Importing Balances...</h3>
+      <p class="text-sm text-gray-500 mb-4">Updating opening balances for matched students. This may take a moment.</p>
+      <div class="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+        <div class="bg-primary h-1.5 rounded-full animate-pulse" style="width: 100%"></div>
+      </div>
+      <p class="text-xs text-gray-400 mt-3">Please don't close this page.</p>
+    </div>
+  </div>
+  {% else %}
+  <div class="flex gap-3">
+    <a href="{% url 'balance_csv_upload' %}"
+       class="bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl px-6 py-3 hover:bg-gray-50 transition">
+      Back to Upload
+    </a>
+  </div>
+  {% endif %}
+</div>
+
+{% block extra_js %}
+<script>
+var importForm = document.getElementById('import-form');
+if (importForm) {
+  importForm.addEventListener('submit', function() {
+    document.getElementById('confirm-actions').classList.add('hidden');
+    document.getElementById('import-loading').classList.remove('hidden');
+    document.getElementById('confirm-btn').disabled = true;
+  });
+}
+</script>
+{% endblock %}
+{% endblock %}
