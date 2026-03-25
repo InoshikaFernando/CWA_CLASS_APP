@@ -20,12 +20,62 @@ from .views import RoleRequiredMixin
 from .email_utils import send_staff_welcome_email
 
 
+def _get_user_school(user, school_id=None):
+    """Get a school the user has access to (as admin or HoI via SchoolTeacher).
+
+    If school_id is given, returns that specific school or None.
+    If school_id is None, returns the user's first accessible school or None.
+    """
+    # Superusers can access any school
+    if user.is_superuser:
+        if school_id:
+            return School.objects.filter(id=school_id).first()
+        return School.objects.first()
+
+    # Schools where user is admin
+    admin_schools = School.objects.filter(admin=user, is_active=True)
+
+    # Schools where user is HoI via SchoolTeacher
+    hoi_school_ids = SchoolTeacher.objects.filter(
+        teacher=user, role='head_of_institute', is_active=True,
+    ).values_list('school_id', flat=True)
+    hoi_schools = School.objects.filter(id__in=hoi_school_ids, is_active=True)
+
+    all_schools = (admin_schools | hoi_schools).distinct()
+
+    if school_id:
+        return all_schools.filter(id=school_id).first()
+    return all_schools.first()
+
+
+def _get_user_schools(user):
+    """Get all schools the user can manage."""
+    if user.is_superuser:
+        return School.objects.filter(is_active=True)
+
+    admin_schools = School.objects.filter(admin=user, is_active=True)
+    hoi_school_ids = SchoolTeacher.objects.filter(
+        teacher=user, role='head_of_institute', is_active=True,
+    ).values_list('school_id', flat=True)
+    hoi_schools = School.objects.filter(id__in=hoi_school_ids, is_active=True)
+    return (admin_schools | hoi_schools).distinct()
+
+
+def _get_user_school_or_404(user, school_id):
+    """Like get_object_or_404 but checks both admin and SchoolTeacher."""
+    from django.http import Http404
+    school = _get_user_school(user, school_id)
+    if not school:
+        raise Http404('No School matches the given query.')
+    return school
+
+
 class AdminDashboardView(RoleRequiredMixin, View):
     """Admin dashboard showing all schools belonging to the current admin/HoD/Institute Owner."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request):
-        schools = School.objects.filter(admin=request.user, is_active=True).annotate(
+        schools = _get_user_schools(request.user).annotate(
             teacher_count=Count(
                 'school_teachers',
                 filter=Q(school_teachers__is_active=True),
@@ -100,20 +150,28 @@ class SchoolEditView(RoleRequiredMixin, View):
     """Edit an existing school's details."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
-    def get(self, request, school_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
-        return render(request, 'admin_dashboard/school_form.html', {
+    def _get_context(self, school, form_data):
+        teachers = SchoolTeacher.objects.filter(
+            school=school, is_active=True,
+        ).select_related('teacher').order_by('role', 'teacher__first_name')
+        return {
             'school': school,
-            'form_data': {
-                'name': school.name,
-                'address': school.address,
-                'phone': school.phone,
-                'email': school.email,
-            },
-        })
+            'form_data': form_data,
+            'teachers': teachers,
+            'current_hoi_id': school.admin_id,
+        }
+
+    def get(self, request, school_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        return render(request, 'admin_dashboard/school_form.html', self._get_context(school, {
+            'name': school.name,
+            'address': school.address,
+            'phone': school.phone,
+            'email': school.email,
+        }))
 
     def post(self, request, school_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         name = request.POST.get('name', '').strip()
         address = request.POST.get('address', '').strip()
         phone = request.POST.get('phone', '').strip()
@@ -121,10 +179,9 @@ class SchoolEditView(RoleRequiredMixin, View):
 
         if not name:
             messages.error(request, 'School name is required.')
-            return render(request, 'admin_dashboard/school_form.html', {
-                'school': school,
-                'form_data': {'name': name, 'address': address, 'phone': phone, 'email': email},
-            })
+            return render(request, 'admin_dashboard/school_form.html', self._get_context(
+                school, {'name': name, 'address': address, 'phone': phone, 'email': email},
+            ))
 
         if name != school.name:
             slug = slugify(name)
@@ -139,6 +196,34 @@ class SchoolEditView(RoleRequiredMixin, View):
         school.address = address
         school.phone = phone
         school.email = email
+
+        # Handle HoI change
+        new_hoi_id = request.POST.get('new_hoi', '')
+        old_hoi_role = request.POST.get('old_hoi_role', 'teacher')
+        if new_hoi_id and int(new_hoi_id) != school.admin_id:
+            old_admin_id = school.admin_id
+            school.admin_id = int(new_hoi_id)
+            # school.save() will auto-promote new HoI via _ensure_admin_is_hoi
+
+            # Handle old HoI's new role
+            if old_admin_id and old_hoi_role == 'remove':
+                SchoolTeacher.objects.filter(
+                    school=school, teacher_id=old_admin_id,
+                ).delete()
+                # Clean up UserRole if not HoI elsewhere
+                from accounts.models import UserRole
+                still_hoi = SchoolTeacher.objects.filter(
+                    teacher_id=old_admin_id, role='head_of_institute',
+                ).exists()
+                if not still_hoi:
+                    hoi_role = Role.objects.filter(name=Role.HEAD_OF_INSTITUTE).first()
+                    if hoi_role:
+                        UserRole.objects.filter(user_id=old_admin_id, role=hoi_role).delete()
+            elif old_admin_id:
+                SchoolTeacher.objects.filter(
+                    school=school, teacher_id=old_admin_id,
+                ).update(role=old_hoi_role)
+
         school.save()
         messages.success(request, f'School "{name}" updated successfully.')
         return redirect('admin_school_detail', school_id=school.id)
@@ -152,7 +237,7 @@ class SchoolToggleActiveView(RoleRequiredMixin, View):
         return redirect('admin_school_detail', school_id=school_id)
 
     def post(self, request, school_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         school.is_active = not school.is_active
         school.save(update_fields=['is_active'])
         status = 'activated' if school.is_active else 'deactivated'
@@ -174,7 +259,7 @@ class SchoolDetailView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request, school_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         teachers = SchoolTeacher.objects.filter(school=school, is_active=True).select_related('teacher')
         classes = ClassRoom.objects.filter(school=school, is_active=True).prefetch_related(
             'teachers', 'students', 'levels'
@@ -200,7 +285,7 @@ class ManageTeachersRedirectView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request):
-        school = School.objects.filter(admin=request.user).first()
+        school = _get_user_school(request.user)
         if school:
             return redirect('admin_school_teachers', school_id=school.id)
         messages.info(request, 'Create a school first before managing teachers.')
@@ -213,7 +298,7 @@ class ManageStudentsRedirectView(RoleRequiredMixin, View):
                       Role.HEAD_OF_DEPARTMENT, Role.TEACHER]
 
     def get(self, request):
-        school = School.objects.filter(admin=request.user).first()
+        school = _get_user_school(request.user)
         if not school:
             # HoD/teacher: find school via department or teaching assignment
             dept = Department.objects.filter(head=request.user, is_active=True).first()
@@ -234,7 +319,7 @@ class ManageDepartmentsRedirectView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request):
-        school = School.objects.filter(admin=request.user).first()
+        school = _get_user_school(request.user)
         if school:
             return redirect('admin_school_departments', school_id=school.id)
         messages.info(request, 'Create a school first.')
@@ -246,7 +331,7 @@ class ManageSubjectsRedirectView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request):
-        school = School.objects.filter(admin=request.user).first()
+        school = _get_user_school(request.user)
         if school:
             dept = Department.objects.filter(school=school, is_active=True).first()
             if dept:
@@ -267,7 +352,7 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
         return [c for c in SchoolTeacher.ROLE_CHOICES if c[0] != 'head_of_institute']
 
     def get(self, request, school_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         school_teachers = SchoolTeacher.objects.filter(school=school, is_active=True).select_related('teacher')
         paginator = Paginator(school_teachers, 25)
         page = paginator.get_page(request.GET.get('page'))
@@ -280,7 +365,7 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
 
     def post(self, request, school_id):
         """Create a new teacher account and assign to this school."""
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
 
         first_name = request.POST.get('first_name', '').strip()
         last_name = request.POST.get('last_name', '').strip()
@@ -390,7 +475,7 @@ class SchoolTeacherEditView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def post(self, request, school_id, teacher_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         school_teacher = get_object_or_404(
             SchoolTeacher, school=school, teacher_id=teacher_id
         )
@@ -440,7 +525,7 @@ class SchoolTeacherBatchUpdateView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def post(self, request, school_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         teacher_ids_str = request.POST.get('teacher_ids', '')
         if not teacher_ids_str:
             return redirect('admin_school_teachers', school_id=school.id)
@@ -505,7 +590,7 @@ class SchoolTeacherRemoveView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def post(self, request, school_id, teacher_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         school_teacher = SchoolTeacher.objects.filter(
             school=school, teacher_id=teacher_id, is_active=True
         ).select_related('teacher').first()
@@ -537,13 +622,13 @@ class AcademicYearCreateView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request, school_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         return render(request, 'admin_dashboard/academic_year_form.html', {
             'school': school,
         })
 
     def post(self, request, school_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         year = request.POST.get('year', '').strip()
         start_date = request.POST.get('start_date', '').strip()
         end_date = request.POST.get('end_date', '').strip()
@@ -945,7 +1030,7 @@ class SchoolSubjectManageView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request, school_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         global_subjects = Subject.objects.filter(school__isnull=True, is_active=True).order_by('order', 'name')
         school_subjects = Subject.objects.filter(school=school, is_active=True).order_by('order', 'name')
         # Global SubjectApps for linking
@@ -959,7 +1044,7 @@ class SchoolSubjectManageView(RoleRequiredMixin, View):
         })
 
     def post(self, request, school_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         action = request.POST.get('action', 'create')
 
         if action == 'create':
@@ -1170,7 +1255,7 @@ class ManageTermsRedirectView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request):
-        school = School.objects.filter(admin=request.user).first()
+        school = _get_user_school(request.user)
         if school:
             return redirect('admin_school_terms', school_id=school.id)
         messages.info(request, 'Create a school first.')
@@ -1183,7 +1268,7 @@ class ManageParentInvitesRedirectView(RoleRequiredMixin, View):
                       Role.HEAD_OF_DEPARTMENT]
 
     def get(self, request):
-        school = School.objects.filter(admin=request.user).first()
+        school = _get_user_school(request.user)
         if not school:
             from .models import Department
             dept = Department.objects.filter(head=request.user, is_active=True).first()
@@ -1200,7 +1285,7 @@ class TermManageView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request, school_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         terms = Term.objects.filter(school=school).select_related('academic_year')
         academic_years = AcademicYear.objects.filter(school=school)
         return render(request, 'admin_dashboard/school_terms.html', {
@@ -1210,7 +1295,7 @@ class TermManageView(RoleRequiredMixin, View):
         })
 
     def post(self, request, school_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         action = request.POST.get('action')
 
         if action == 'create':

@@ -3470,6 +3470,13 @@ class SubjectsHubView(LoginRequiredMixin, View):
         }
 
         is_school_student = user.has_role(Role.STUDENT)
+        schools = []
+        active_source = 'global'
+        active_school = None
+        subject_classes = {}
+        department_classes = {}
+        enrolled_class_ids = set()
+        pending_class_ids = set()
 
         # ── SCHOOL STUDENT path ──
         if is_school_student:
@@ -3576,6 +3583,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
                 is_active=True, is_coming_soon=False,
             ).order_by('order')
         )
+        subjects = global_subjects
 
         return render(request, 'hub/home.html', {
             'hide_sidebar': True,

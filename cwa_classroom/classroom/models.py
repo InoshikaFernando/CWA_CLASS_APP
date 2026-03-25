@@ -160,6 +160,33 @@ class School(models.Model):
     def __str__(self):
         return self.name
 
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        # Auto-create SchoolTeacher + UserRole for the admin user
+        if self.admin_id:
+            self._ensure_admin_is_hoi()
+
+    def _ensure_admin_is_hoi(self):
+        """Ensure the admin user has SchoolTeacher(head_of_institute) and UserRole.
+
+        Only promotes the new admin — demotion of the old HoI is handled
+        explicitly by the view (SchoolEditView) so the user can choose
+        what role the old HoI should get.
+        """
+        from accounts.models import Role, UserRole
+
+        # Promote new admin
+        SchoolTeacher.objects.update_or_create(
+            school=self,
+            teacher_id=self.admin_id,
+            defaults={'role': 'head_of_institute', 'is_active': True},
+        )
+        hoi_role, _ = Role.objects.get_or_create(
+            name=Role.HEAD_OF_INSTITUTE,
+            defaults={'display_name': 'Head of Institute'},
+        )
+        UserRole.objects.get_or_create(user_id=self.admin_id, role=hoi_role)
+
 
 class SchoolTeacher(models.Model):
     """Through table: links a teacher to a school with a seniority role."""
