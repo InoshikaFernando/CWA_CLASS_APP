@@ -2700,7 +2700,9 @@ class SubjectsHubView(LoginRequiredMixin, View):
         # Time-of-day greeting
         from django.utils import timezone as tz
         from django.utils.timezone import localtime
-        local_hour = localtime(tz.now()).hour
+        now = tz.now()
+        local_now = localtime(now)
+        local_hour = local_now.hour
         if local_hour < 12:
             greeting_tod = 'Good morning'
         elif local_hour < 17:
@@ -2713,6 +2715,84 @@ class SubjectsHubView(LoginRequiredMixin, View):
         time_log = get_or_create_time_log(user)
         time_daily = _format_seconds(time_log.daily_seconds)
         time_weekly = _format_seconds(time_log.weekly_seconds)
+
+        # ── Upcoming classes (next 5 scheduled sessions) ──
+        enrolled_class_ids = list(
+            ClassStudent.objects.filter(
+                student=user, is_active=True,
+            ).values_list('classroom_id', flat=True)
+        )
+        upcoming_classes = list(
+            ClassSession.objects.filter(
+                classroom_id__in=enrolled_class_ids,
+                status='scheduled',
+                date__gte=now.date(),
+            ).select_related('classroom')
+            .order_by('date', 'start_time')[:5]
+        )
+
+        # ── Attendance per class ──
+        class_attendance = []
+        enrolled_entries = (
+            ClassStudent.objects.filter(student=user, is_active=True)
+            .select_related('classroom')
+            .order_by('classroom__name')
+        )
+        for entry in enrolled_entries:
+            cls = entry.classroom
+            completed_count = ClassSession.objects.filter(
+                classroom=cls, status='completed',
+            ).count()
+            if completed_count == 0:
+                continue
+            present_late = StudentAttendance.objects.filter(
+                student=user,
+                session__classroom=cls,
+                session__status='completed',
+                status__in=['present', 'late'],
+            ).count()
+            pct = round(present_late / completed_count * 100)
+            class_attendance.append({
+                'classroom': cls,
+                'percentage': pct,
+                'completed_sessions': completed_count,
+            })
+
+        # ── Billing summary ──
+        billing_summary = None
+        try:
+            sub = user.subscription
+            if sub:
+                billing_summary = {
+                    'plan_name': sub.package.name if sub.package else 'Free',
+                    'status': sub.get_status_display() if hasattr(sub, 'get_status_display') else sub.status,
+                    'is_active': sub.is_active_or_trialing,
+                    'trial_days': sub.trial_days_remaining if hasattr(sub, 'trial_days_remaining') else None,
+                }
+        except Exception:
+            pass
+        # School-level billing fallback
+        if not billing_summary:
+            from billing.entitlements import get_school_subscription
+            for ss in SchoolStudent.objects.filter(
+                student=user, is_active=True,
+            ).select_related('school'):
+                school_sub = get_school_subscription(ss.school)
+                if school_sub:
+                    billing_summary = {
+                        'plan_name': school_sub.plan.name if school_sub.plan else 'School Plan',
+                        'status': school_sub.get_status_display() if hasattr(school_sub, 'get_status_display') else school_sub.status,
+                        'is_active': school_sub.is_active_or_trialing,
+                        'trial_days': school_sub.trial_days_remaining if hasattr(school_sub, 'trial_days_remaining') else None,
+                    }
+                    break
+
+        # Common hub context
+        hub_extra = {
+            'upcoming_classes': upcoming_classes,
+            'class_attendance': class_attendance,
+            'billing_summary': billing_summary,
+        }
 
         is_school_student = user.has_role(Role.STUDENT)
 
@@ -2812,6 +2892,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
                     'school_sections': school_sections,
                     'global_subjects': global_subjects,
                     'is_school_student': True,
+                    **hub_extra,
                 })
 
         # ── INDIVIDUAL STUDENT path (or school student with no schools) ──
@@ -2828,6 +2909,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
             'school_sections': [],
             'global_subjects': global_subjects,
             'is_school_student': False,
+            **hub_extra,
         })
 
 
