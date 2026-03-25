@@ -2103,49 +2103,49 @@ class HoDOverviewView(RoleRequiredMixin, View):
             group_label = 'Department'
         classes_grouped = dict(sorted(classes_grouped.items()))
 
-        # ── Next classes: upcoming sessions or schedule fallback ──
-        if next_classes_scope is None:
-            next_classes_scope = classes
-
-        upcoming_sessions = list(ClassSession.objects.filter(
-            classroom__in=next_classes_scope,
-            date__gte=today,
-            date__lte=week_ahead,
-            status='scheduled',
-        ).select_related(
-            'classroom', 'classroom__department', 'classroom__subject',
-        ).prefetch_related(
-            'classroom__teachers', 'classroom__students',
-        ).order_by('date', 'start_time')[:4])
-
-        # Fallback: derive from ClassRoom.day if no sessions exist
+        # ── Next classes: only show if user teaches classes ──
+        # "My Classes" section only appears for users who are assigned as teachers
+        upcoming_sessions = []
         next_classes_from_schedule = []
-        if not upcoming_sessions:
-            DAY_MAP = {
-                'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
-                'friday': 4, 'saturday': 5, 'sunday': 6,
-            }
-            today_idx = today.weekday()
-            now_time = timezone.localtime().time()
 
-            def _days_until(day_str, start_time=None):
-                target = DAY_MAP.get(day_str, 7)
-                diff = (target - today_idx) % 7
-                if diff == 0:
-                    if start_time and start_time > now_time:
-                        return 0
-                    return 7
-                return diff
+        if is_teacher_too:
+            upcoming_sessions = list(ClassSession.objects.filter(
+                classroom__in=next_classes_scope,
+                date__gte=today,
+                date__lte=week_ahead,
+                status='scheduled',
+            ).select_related(
+                'classroom', 'classroom__department', 'classroom__subject',
+            ).prefetch_related(
+                'classroom__teachers', 'classroom__students',
+            ).order_by('date', 'start_time')[:5])
 
-            scheduled = sorted(
-                [c for c in (next_classes_scope if is_teacher_too else classes_list) if c.day],
-                key=lambda c: (_days_until(c.day, c.start_time), c.start_time or timezone.datetime.min.time()),
-            )
-            # Attach computed next_date for template display
-            for c in scheduled[:4]:
-                du = _days_until(c.day, c.start_time)
-                c.next_date = today + timedelta(days=du)
-            next_classes_from_schedule = scheduled[:4]
+            # Fallback: derive from ClassRoom.day if no sessions exist
+            if not upcoming_sessions:
+                DAY_MAP = {
+                    'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
+                    'friday': 4, 'saturday': 5, 'sunday': 6,
+                }
+                today_idx = today.weekday()
+                now_time = timezone.localtime().time()
+
+                def _days_until(day_str, start_time=None):
+                    target = DAY_MAP.get(day_str, 7)
+                    diff = (target - today_idx) % 7
+                    if diff == 0:
+                        if start_time and start_time > now_time:
+                            return 0
+                        return 7
+                    return diff
+
+                scheduled = sorted(
+                    [c for c in next_classes_scope if c.day],
+                    key=lambda c: (_days_until(c.day, c.start_time), c.start_time or timezone.datetime.min.time()),
+                )
+                for c in scheduled[:5]:
+                    du = _days_until(c.day, c.start_time)
+                    c.next_date = today + timedelta(days=du)
+                next_classes_from_schedule = scheduled[:5]
 
         # ── Report widgets data ────────────────────────────────────
         import json
