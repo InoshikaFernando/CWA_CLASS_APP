@@ -2452,6 +2452,13 @@ class HoDManageClassesView(RoleRequiredMixin, View):
         paginator = Paginator(classes, 25)
         page = paginator.get_page(request.GET.get('page'))
 
+        # Deleted classes (HoI only can see and restore)
+        deleted_classes = []
+        if not is_hod_only:
+            deleted_classes = ClassRoom.objects.filter(
+                school_id__in=school_ids, is_active=False,
+            ).select_related('department').order_by('name')
+
         return render(request, 'hod/manage_classes.html', {
             'classes': classes,
             'page': page,
@@ -2461,7 +2468,32 @@ class HoDManageClassesView(RoleRequiredMixin, View):
             'selected_dept_id': selected_dept_id,
             'unassigned_classes': unassigned_classes,
             'specialty_map': specialty_map,
+            'deleted_classes': deleted_classes,
         })
+
+
+class HoDDeleteClassView(RoleRequiredMixin, View):
+    """Soft-delete a class (set is_active=False)."""
+    required_roles = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.HEAD_OF_DEPARTMENT]
+
+    def post(self, request, class_id):
+        classroom = get_object_or_404(ClassRoom, id=class_id)
+        classroom.is_active = False
+        classroom.save(update_fields=['is_active'])
+        messages.success(request, f'Class "{classroom.name}" has been deleted.')
+        return redirect('hod_manage_classes')
+
+
+class HoDRestoreClassView(RoleRequiredMixin, View):
+    """Restore a soft-deleted class (HoI only)."""
+    required_roles = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def post(self, request, class_id):
+        classroom = get_object_or_404(ClassRoom, id=class_id, is_active=False)
+        classroom.is_active = True
+        classroom.save(update_fields=['is_active'])
+        messages.success(request, f'Class "{classroom.name}" has been restored.')
+        return redirect('hod_manage_classes')
 
 
 class HoDWorkloadView(RoleRequiredMixin, View):

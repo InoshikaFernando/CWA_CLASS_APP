@@ -176,6 +176,8 @@ urlpatterns = [
     # HoD / Dashboard
     path('dashboard/', views.HoDOverviewView.as_view(), name='hod_overview'),
     path('department/manage-classes/', views.HoDManageClassesView.as_view(), name='hod_manage_classes'),
+    path('department/class/<int:class_id>/delete/', views.HoDDeleteClassView.as_view(), name='hod_delete_class'),
+    path('department/class/<int:class_id>/restore/', views.HoDRestoreClassView.as_view(), name='hod_restore_class'),
     path('department/create-class/', views.HoDCreateClassView.as_view(), name='hod_create_class'),
     path('department/assign-class/', views.HoDAssignClassView.as_view(), name='hod_assign_class'),
     path('department/workload/', views.HoDWorkloadView.as_view(), name='hod_workload'),
