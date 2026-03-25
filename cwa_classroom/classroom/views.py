@@ -14,6 +14,17 @@ from django.db import transaction
 
 from accounts.models import CustomUser, Role, UserRole
 from billing.mixins import ModuleRequiredMixin
+
+def _get_user_school_ids(user):
+    """Get school IDs the user can manage (as admin or HoI via SchoolTeacher)."""
+    from .models import School, SchoolTeacher
+    if user.is_superuser:
+        return list(School.objects.filter(is_active=True).values_list('id', flat=True))
+    admin_ids = set(School.objects.filter(admin=user, is_active=True).values_list('id', flat=True))
+    hoi_ids = set(SchoolTeacher.objects.filter(
+        teacher=user, role='head_of_institute', is_active=True,
+    ).values_list('school_id', flat=True))
+    return list(admin_ids | hoi_ids)
 from billing.models import ModuleSubscription
 from .models import (
     ClassRoom, Subject, Topic, Level, ClassTeacher, ClassStudent,
@@ -2017,7 +2028,7 @@ class HoDOverviewView(RoleRequiredMixin, View):
         else:
             # HoI/Owner: scope to their schools
             departments = None
-            my_schools = School.objects.filter(admin=request.user)
+            my_schools = School.objects.filter(id__in=_get_user_school_ids(request.user))
             my_school_ids = list(my_schools.values_list('id', flat=True))
             school_data = []
             for s in my_schools:
@@ -2392,7 +2403,7 @@ class HoDManageClassesView(RoleRequiredMixin, View):
             dept_ids = list(all_dept_ids)
             school_ids = list(departments.values_list('school_id', flat=True).distinct())
         else:
-            school_ids = list(School.objects.filter(admin=request.user).values_list('id', flat=True))
+            school_ids = _get_user_school_ids(request.user)
             departments = Department.objects.filter(school_id__in=school_ids, is_active=True)
             dept_ids = list(departments.values_list('id', flat=True))
 
@@ -2526,7 +2537,7 @@ class HoDWorkloadView(RoleRequiredMixin, View):
             ).select_related('teacher')
             teachers = CustomUser.objects.filter(id__in=teacher_ids)
         else:
-            my_school_ids = list(School.objects.filter(admin=request.user).values_list('id', flat=True))
+            my_school_ids = _get_user_school_ids(request.user)
             memberships = SchoolTeacher.objects.filter(
                 school_id__in=my_school_ids, is_active=True,
             ).select_related('teacher')
@@ -2599,7 +2610,7 @@ class HoDAttendanceReportView(RoleRequiredMixin, ModuleRequiredMixin, View):
             teacher_att_qs = TeacherAttendance.objects.filter(class_filter)
             student_att_qs = StudentAttendance.objects.filter(class_filter)
         else:
-            my_school_ids = list(School.objects.filter(admin=request.user).values_list('id', flat=True))
+            my_school_ids = _get_user_school_ids(request.user)
             teacher_att_qs = TeacherAttendance.objects.filter(
                 session__classroom__school_id__in=my_school_ids,
             )
@@ -2670,7 +2681,7 @@ class AttendanceDetailView(RoleRequiredMixin, ModuleRequiredMixin, View):
             scope_filter = Q(session__classroom__department_id__in=headed_dept_ids) | Q(session__classroom_id__in=teaching_class_ids)
         else:
             school_ids = list(
-                School.objects.filter(admin=request.user).values_list('id', flat=True)
+                _get_user_school_ids(request.user)
             )
             scope_filter = Q(session__classroom__school_id__in=school_ids)
 
@@ -2711,7 +2722,7 @@ class HoDSubjectLevelsView(RoleRequiredMixin, View):
         if is_hod_only:
             return Department.objects.filter(head=user, is_active=True)
         else:
-            school_ids = School.objects.filter(admin=user).values_list('id', flat=True)
+            school_ids = _get_user_school_ids(user)
             return Department.objects.filter(school_id__in=school_ids, is_active=True)
 
     def _get_department(self, user, dept_id=None):
@@ -3032,7 +3043,7 @@ class HoDSubjectLevelRemoveView(RoleRequiredMixin, View):
         if is_hod_only:
             department = Department.objects.filter(head=request.user, id=dept_id, is_active=True).first()
         else:
-            school_ids = School.objects.filter(admin=request.user).values_list('id', flat=True)
+            school_ids = _get_user_school_ids(request.user)
             department = Department.objects.filter(school_id__in=school_ids, id=dept_id, is_active=True).first()
 
         if department:
@@ -3137,7 +3148,7 @@ class HoDCreateClassView(RoleRequiredMixin, View):
         if is_hod_only:
             return Department.objects.filter(head=user, is_active=True).select_related('school')
         else:
-            school_ids = School.objects.filter(admin=user).values_list('id', flat=True)
+            school_ids = _get_user_school_ids(user)
             return Department.objects.filter(school_id__in=school_ids, is_active=True).select_related('school')
 
     def get(self, request):
@@ -3237,7 +3248,7 @@ class HoDAssignClassView(RoleRequiredMixin, View):
                 Department, id=dept_id, head=request.user, is_active=True
             )
         else:
-            school_ids = School.objects.filter(admin=request.user).values_list('id', flat=True)
+            school_ids = _get_user_school_ids(request.user)
             department = get_object_or_404(
                 Department, id=dept_id, school_id__in=school_ids, is_active=True
             )
