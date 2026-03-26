@@ -867,6 +867,19 @@ class AssignStudentsView(RoleRequiredMixin, View):
     def post(self, request, class_id):
         classroom = self._get_classroom(request, class_id)
         student_ids = request.POST.getlist('students')
+
+        # Check student limit before adding
+        if classroom.school:
+            from billing.entitlements import check_student_limit
+            allowed, current, limit = check_student_limit(classroom.school)
+            if not allowed:
+                messages.error(
+                    request,
+                    f'Your plan allows {limit} students. You currently have {current}. '
+                    f'Please upgrade your plan to add more students.'
+                )
+                return redirect('assign_students', class_id=class_id)
+
         added = 0
         for sid in student_ids:
             student = get_object_or_404(CustomUser, id=sid)
@@ -1361,6 +1374,32 @@ class StudentCSVConfirmView(RoleRequiredMixin, View):
             for err in preview['errors']:
                 messages.error(request, err)
             return redirect('student_csv_upload')
+
+        # Check student limit before importing
+        from billing.entitlements import check_student_limit, check_class_limit
+        new_student_count = len(preview.get('students_new', []))
+        if new_student_count > 0:
+            allowed, current, limit = check_student_limit(school)
+            if limit > 0 and (current + new_student_count) > limit:
+                messages.error(
+                    request,
+                    f'Your plan allows {limit} students. You currently have {current} '
+                    f'and are trying to import {new_student_count} new students. '
+                    f'Please upgrade your plan or reduce the import size.'
+                )
+                return redirect('student_csv_upload')
+
+        new_class_count = len(preview.get('classes_new', []))
+        if new_class_count > 0:
+            allowed, current, limit = check_class_limit(school)
+            if limit > 0 and (current + new_class_count) > limit:
+                messages.error(
+                    request,
+                    f'Your plan allows {limit} classes. You currently have {current} '
+                    f'and the import would create {new_class_count} new classes. '
+                    f'Please upgrade your plan or reduce the import size.'
+                )
+                return redirect('student_csv_upload')
 
         # Apply structure mapping if present
         structure_mapping = request.session.get('csv_student_structure_mapping')
