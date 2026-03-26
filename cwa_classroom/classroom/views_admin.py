@@ -1119,8 +1119,13 @@ class SchoolSubjectManageView(RoleRequiredMixin, View):
 
     def get(self, request, school_id):
         school = _get_user_school_or_404(request.user, school_id)
+        show_inactive = request.GET.get('show_inactive') == '1'
         global_subjects = Subject.objects.filter(school__isnull=True, is_active=True).order_by('order', 'name')
-        school_subjects = Subject.objects.filter(school=school, is_active=True).order_by('order', 'name')
+        if show_inactive:
+            school_subjects = Subject.objects.filter(school=school).order_by('order', 'name')
+        else:
+            school_subjects = Subject.objects.filter(school=school, is_active=True).order_by('order', 'name')
+        archived_count = Subject.objects.filter(school=school, is_active=False).count()
         # Global SubjectApps for linking
         from classroom.models import SubjectApp
         subject_apps = SubjectApp.objects.filter(is_active=True).order_by('order', 'name')
@@ -1129,6 +1134,8 @@ class SchoolSubjectManageView(RoleRequiredMixin, View):
             'global_subjects': global_subjects,
             'school_subjects': school_subjects,
             'subject_apps': subject_apps,
+            'show_inactive': show_inactive,
+            'archived_count': archived_count,
         })
 
     def post(self, request, school_id):
@@ -1181,7 +1188,15 @@ class SchoolSubjectManageView(RoleRequiredMixin, View):
                 name = subject.name
                 subject.is_active = False
                 subject.save()
-                messages.success(request, f'Subject "{name}" removed.')
+                messages.success(request, f'Subject "{name}" archived.')
+
+        elif action == 'restore':
+            subject_id = request.POST.get('subject_id')
+            subject = Subject.objects.filter(id=subject_id, school=school, is_active=False).first()
+            if subject:
+                subject.is_active = True
+                subject.save()
+                messages.success(request, f'Subject "{subject.name}" restored.')
 
         return redirect('admin_school_subjects', school_id=school.id)
 
