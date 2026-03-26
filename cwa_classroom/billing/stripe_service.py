@@ -382,3 +382,116 @@ def create_billing_portal_session(customer_id, return_url):
         return_url=return_url,
     )
     return session
+
+
+# ---------------------------------------------------------------------------
+# Admin Sync Helpers
+# ---------------------------------------------------------------------------
+
+def _stripe_configured():
+    """Return True if STRIPE_SECRET_KEY is set and non-empty."""
+    return bool(getattr(settings, 'STRIPE_SECRET_KEY', ''))
+
+
+def sync_plan_to_stripe(plan):
+    """
+    Create or update a Stripe Product + Price for an InstitutePlan.
+    Returns the new stripe_price_id.
+    """
+    if not _stripe_configured():
+        raise ValueError('Stripe is not configured.')
+
+    product_id = f'institute_plan_{plan.slug}'
+
+    # Create or update product
+    try:
+        product = stripe.Product.retrieve(product_id)
+        stripe.Product.modify(product_id, name=plan.name, active=plan.is_active)
+    except stripe.error.InvalidRequestError:
+        product = stripe.Product.create(
+            id=product_id,
+            name=plan.name,
+            active=plan.is_active,
+            metadata={'plan_id': plan.id, 'type': 'institute_plan'},
+        )
+
+    # Always create a new price (Stripe prices are immutable)
+    price = stripe.Price.create(
+        product=product.id,
+        unit_amount=int(plan.price * 100),
+        currency='nzd',
+        recurring={'interval': 'month'},
+    )
+
+    # Archive old price if different
+    if plan.stripe_price_id and plan.stripe_price_id != price.id:
+        try:
+            stripe.Price.modify(plan.stripe_price_id, active=False)
+        except stripe.error.InvalidRequestError:
+            pass
+
+    plan.stripe_price_id = price.id
+    plan.save(update_fields=['stripe_price_id'])
+    return price.id
+
+
+def sync_module_to_stripe(module_product):
+    """
+    Create or update a Stripe Product + Price for a ModuleProduct.
+    Returns the new stripe_price_id.
+    """
+    if not _stripe_configured():
+        raise ValueError('Stripe is not configured.')
+
+    product_id = f'module_{module_product.module}'
+
+    try:
+        product = stripe.Product.retrieve(product_id)
+        stripe.Product.modify(product_id, name=module_product.name, active=module_product.is_active)
+    except stripe.error.InvalidRequestError:
+        product = stripe.Product.create(
+            id=product_id,
+            name=module_product.name,
+            active=module_product.is_active,
+            metadata={'module': module_product.module, 'type': 'module'},
+        )
+
+    price = stripe.Price.create(
+        product=product.id,
+        unit_amount=int(module_product.price * 100),
+        currency='nzd',
+        recurring={'interval': 'month'},
+    )
+
+    if module_product.stripe_price_id and module_product.stripe_price_id != price.id:
+        try:
+            stripe.Price.modify(module_product.stripe_price_id, active=False)
+        except stripe.error.InvalidRequestError:
+            pass
+
+    module_product.stripe_price_id = price.id
+    module_product.save(update_fields=['stripe_price_id'])
+    return price.id
+
+
+def sync_discount_to_stripe(discount_code):
+    """
+    Create a Stripe Coupon for an InstituteDiscountCode.
+    Skips if discount is 100% (fully free). Returns coupon_id.
+    """
+    if not _stripe_configured():
+        raise ValueError('Stripe is not configured.')
+
+    if discount_code.is_fully_free:
+        return ''
+
+    coupon = stripe.Coupon.create(
+        percent_off=float(discount_code.discount_percent),
+        duration='forever',
+        name=f'{discount_code.code} ({discount_code.discount_percent}% off)',
+        metadata={'discount_code_id': discount_code.id, 'code': discount_code.code},
+    )
+
+    discount_code.stripe_coupon_id = coupon.id
+    discount_code.save(update_fields=['stripe_coupon_id'])
+    return coupon.id

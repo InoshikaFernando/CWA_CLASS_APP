@@ -1,5 +1,6 @@
 from django.urls import path
 from . import views
+from . import views_admin
 
 urlpatterns = [
     # Individual student billing
@@ -25,4 +26,37 @@ urlpatterns = [
     path('billing/portal/', views.StripeBillingPortalView.as_view(), name='stripe_billing_portal'),
     path('billing/institute/module/toggle/', views.ModuleToggleView.as_view(), name='module_toggle'),
     path('billing/history/', views.BillingHistoryView.as_view(), name='billing_history'),
+
+    # Super Admin Billing Management
+    path('admin-dashboard/billing/', views_admin.BillingAdminDashboardView.as_view(), name='billing_admin_dashboard'),
+
+    # Plans
+    path('admin-dashboard/billing/plans/', views_admin.PlanListView.as_view(), name='billing_admin_plan_list'),
+    path('admin-dashboard/billing/plans/create/', views_admin.PlanCreateView.as_view(), name='billing_admin_plan_create'),
+    path('admin-dashboard/billing/plans/<int:pk>/edit/', views_admin.PlanEditView.as_view(), name='billing_admin_plan_edit'),
+    path('admin-dashboard/billing/plans/<int:pk>/toggle/', views_admin.PlanToggleActiveView.as_view(), name='billing_admin_plan_toggle'),
+    path('admin-dashboard/billing/plans/<int:pk>/sync-stripe/', views_admin.PlanSyncStripeView.as_view(), name='billing_admin_plan_sync'),
+
+    # Discount Codes
+    path('admin-dashboard/billing/discount-codes/', views_admin.DiscountCodeListView.as_view(), name='billing_admin_discount_list'),
+    path('admin-dashboard/billing/discount-codes/create/', views_admin.DiscountCodeCreateView.as_view(), name='billing_admin_discount_create'),
+    path('admin-dashboard/billing/discount-codes/<int:pk>/edit/', views_admin.DiscountCodeEditView.as_view(), name='billing_admin_discount_edit'),
+    path('admin-dashboard/billing/discount-codes/<int:pk>/toggle/', views_admin.DiscountCodeToggleActiveView.as_view(), name='billing_admin_discount_toggle'),
+
+    # Module Products
+    path('admin-dashboard/billing/modules/', views_admin.ModuleProductListView.as_view(), name='billing_admin_module_list'),
+    path('admin-dashboard/billing/modules/<int:pk>/edit/', views_admin.ModuleProductEditView.as_view(), name='billing_admin_module_edit'),
+    path('admin-dashboard/billing/modules/<int:pk>/toggle/', views_admin.ModuleProductToggleActiveView.as_view(), name='billing_admin_module_toggle'),
+    path('admin-dashboard/billing/modules/<int:pk>/sync-stripe/', views_admin.ModuleProductSyncStripeView.as_view(), name='billing_admin_module_sync'),
+
+    # Subscriptions
+    path('admin-dashboard/billing/subscriptions/', views_admin.SubscriptionListView.as_view(), name='billing_admin_subscription_list'),
+    path('admin-dashboard/billing/subscriptions/<int:pk>/', views_admin.SubscriptionDetailView.as_view(), name='billing_admin_subscription_detail'),
+    path('admin-dashboard/billing/subscriptions/<int:pk>/override/', views_admin.SubscriptionOverrideView.as_view(), name='billing_admin_subscription_override'),
+
+    # Promo Codes
+    path('admin-dashboard/billing/promo-codes/', views_admin.PromoCodeListView.as_view(), name='billing_admin_promo_list'),
+    path('admin-dashboard/billing/promo-codes/create/', views_admin.PromoCodeCreateView.as_view(), name='billing_admin_promo_create'),
+    path('admin-dashboard/billing/promo-codes/<int:pk>/edit/', views_admin.PromoCodeEditView.as_view(), name='billing_admin_promo_edit'),
+    path('admin-dashboard/billing/promo-codes/<int:pk>/toggle/', views_admin.PromoCodeToggleActiveView.as_view(), name='billing_admin_promo_toggle'),
 ]
