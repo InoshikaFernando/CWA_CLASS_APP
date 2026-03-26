@@ -1999,7 +1999,7 @@ class HoDOverviewView(RoleRequiredMixin, View):
     def get(self, request):
         is_hod_only = self._is_hod_only(request.user)
 
-        from django.db.models import Count
+        from django.db.models import Count, Q
         from django.utils import timezone
         from datetime import timedelta
         from collections import defaultdict
@@ -2012,7 +2012,7 @@ class HoDOverviewView(RoleRequiredMixin, View):
             class_teachers__teacher=request.user,
             is_active=True,
         ).select_related('department', 'subject').prefetch_related('students', 'teachers').annotate(
-            student_count=Count('students', distinct=True),
+            student_count=Count('class_students', filter=Q(class_students__is_active=True), distinct=True),
             teacher_count=Count('teachers', distinct=True),
         )
 
@@ -2042,7 +2042,7 @@ class HoDOverviewView(RoleRequiredMixin, View):
                 Q(department_id__in=headed_dept_ids) | Q(id__in=teaching_class_ids),
                 is_active=True,
             ).distinct().select_related('department', 'subject').prefetch_related('teachers', 'students').annotate(
-                student_count=Count('students', distinct=True),
+                student_count=Count('class_students', filter=Q(class_students__is_active=True), distinct=True),
                 teacher_count=Count('teachers', distinct=True),
             )
             my_school_ids = list(departments.values_list('school_id', flat=True).distinct())
@@ -2087,7 +2087,7 @@ class HoDOverviewView(RoleRequiredMixin, View):
             classes = ClassRoom.objects.filter(
                 school_id__in=my_school_ids, is_active=True
             ).select_related('department', 'subject').prefetch_related('teachers', 'students').annotate(
-                student_count=Count('students', distinct=True),
+                student_count=Count('class_students', filter=Q(class_students__is_active=True), distinct=True),
                 teacher_count=Count('teachers', distinct=True),
             )
             teachers = CustomUser.objects.filter(
@@ -2100,7 +2100,11 @@ class HoDOverviewView(RoleRequiredMixin, View):
 
         total_sessions = teacher_attendance_qs.count()
         present_count = teacher_attendance_qs.filter(status='present').count()
-        total_students = classes.values_list('students', flat=True).distinct().count()
+        total_students = ClassStudent.objects.filter(
+            classroom__school_id__in=my_school_ids,
+            classroom__is_active=True,
+            is_active=True,
+        ).values('student').distinct().count()
 
         # For HoD dashboard stats: count across ALL classes they teach + head
         if is_hod_only and my_teaching_classes.exists():
