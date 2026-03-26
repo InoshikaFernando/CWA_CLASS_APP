@@ -381,7 +381,7 @@ class ManageTeachersRedirectView(RoleRequiredMixin, View):
         school = _get_user_school(request.user)
         if school:
             return redirect('admin_school_teachers', school_id=school.id)
-        messages.info(request, 'Create a school first before managing teachers.')
+        messages.info(request, 'Create a school first before managing staff.')
         return redirect('admin_school_create')
 
 
@@ -540,11 +540,24 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
                     system_role, _ = Role.objects.get_or_create(
                         name=Role.HEAD_OF_DEPARTMENT, defaults={'display_name': 'Head of Department'}
                     )
+                elif role == 'accountant':
+                    system_role, _ = Role.objects.get_or_create(
+                        name=Role.ACCOUNTANT, defaults={'display_name': 'Accountant'}
+                    )
                 else:
                     system_role, _ = Role.objects.get_or_create(
                         name=Role.TEACHER, defaults={'display_name': 'Teacher'}
                     )
                 UserRole.objects.create(user=user, role=system_role)
+
+                # Assign additional roles (multi-role support)
+                additional_roles = request.POST.getlist('additional_roles')
+                for extra_role_name in additional_roles:
+                    if extra_role_name == 'accountant' and role != 'accountant':
+                        extra_role, _ = Role.objects.get_or_create(
+                            name=Role.ACCOUNTANT, defaults={'display_name': 'Accountant'}
+                        )
+                        UserRole.objects.get_or_create(user=user, role=extra_role)
                 # Link to school with chosen seniority role
                 SchoolTeacher.objects.create(
                     school=school, teacher=user, role=role,
@@ -563,7 +576,7 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
                 school=school,
             )
         except Exception as e:
-            messages.error(request, f'Error creating teacher: {e}')
+            messages.error(request, f'Error creating staff member: {e}')
 
         return redirect('admin_school_teachers', school_id=school.id)
 
@@ -671,13 +684,27 @@ class SchoolTeacherBatchUpdateView(RoleRequiredMixin, View):
                 teacher.save()
 
                 if role in valid_roles:
+                    old_role = st.role
                     st.role = role
+                    # Update system role if role changed
+                    if role != old_role:
+                        if role == 'accountant':
+                            new_sys_role, _ = Role.objects.get_or_create(
+                                name=Role.ACCOUNTANT, defaults={'display_name': 'Accountant'}
+                            )
+                            UserRole.objects.get_or_create(user=teacher, role=new_sys_role)
+                        elif role in ('head_of_institute', 'head_of_department'):
+                            role_name = Role.HEAD_OF_INSTITUTE if role == 'head_of_institute' else Role.HEAD_OF_DEPARTMENT
+                            new_sys_role, _ = Role.objects.get_or_create(
+                                name=role_name, defaults={'display_name': dict(SchoolTeacher.ROLE_CHOICES).get(role)}
+                            )
+                            UserRole.objects.get_or_create(user=teacher, role=new_sys_role)
                 st.specialty = specialty
                 st.save()
                 updated += 1
 
         if updated:
-            messages.success(request, f'{updated} teacher{"s" if updated != 1 else ""} updated.')
+            messages.success(request, f'{updated} staff member{"s" if updated != 1 else ""} updated.')
         for err in errors:
             messages.error(request, err)
         return redirect('admin_school_teachers', school_id=school.id)

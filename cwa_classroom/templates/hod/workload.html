@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Teacher Workload{% endblock %}
+{% block title %}Staff Workload{% endblock %}
 {% block content %}
 <div class="max-w-7xl mx-auto">
 
   <!-- Header -->
   <div class="mb-8">
     <h1 class="text-2xl font-display font-bold text-gray-900">
-      {% if is_hod_only %}Department {% endif %}Teacher Workload
+      {% if is_hod_only %}Department {% endif %}Staff Workload
     </h1>
     <p class="text-gray-500 mt-1">Overview of teaching assignments and class distribution</p>
   </div>
@@ -22,7 +22,7 @@
         </div>
         <div>
           <p class="text-2xl font-bold text-gray-900">{{ teachers|length }}</p>
-          <p class="text-sm text-gray-500">Total Teachers</p>
+          <p class="text-sm text-gray-500">Total Staff</p>
         </div>
       </div>
     </div>
@@ -105,8 +105,8 @@
       <svg class="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/>
       </svg>
-      <h3 class="text-lg font-semibold text-gray-700 mb-2">No teachers found</h3>
-      <p class="text-gray-500">Add teachers to see workload data.</p>
+      <h3 class="text-lg font-semibold text-gray-700 mb-2">No staff found</h3>
+      <p class="text-gray-500">Add staff to see workload data.</p>
     </div>
   {% endif %}
 

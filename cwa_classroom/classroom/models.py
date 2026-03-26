@@ -231,6 +231,7 @@ class SchoolTeacher(models.Model):
         ('senior_teacher', 'Senior Teacher'),
         ('teacher', 'Teacher'),
         ('junior_teacher', 'Junior Teacher'),
+        ('accountant', 'Accountant'),
     ]
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='school_teachers')
     teacher = models.ForeignKey(

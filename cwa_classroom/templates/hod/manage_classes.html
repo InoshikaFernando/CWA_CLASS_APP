@@ -11,7 +11,7 @@
         <h1 class="text-2xl font-display font-bold text-gray-900">
           {% if is_hod_only %}Department {% endif %}Classes
         </h1>
-        <p class="text-gray-500 mt-1">Manage classes, assign teachers, and track students</p>
+        <p class="text-gray-500 mt-1">Manage classes, assign staff, and track students</p>
       </div>
       {% if departments|length > 1 %}
       <div class="mr-auto ml-6">
@@ -67,7 +67,7 @@
         </div>
         <div>
           <p class="text-2xl font-bold text-gray-900">{{ teachers|length }}</p>
-          <p class="text-sm text-gray-500">Teachers</p>
+          <p class="text-sm text-gray-500">Staff</p>
         </div>
       </div>
     </div>
@@ -133,7 +133,7 @@
                   <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z"/>
                   </svg>
-                  Assign Teacher
+                  Assign Staff
                 </a>
                 <form method="post" action="{% url 'hod_delete_class' class_id=classroom.id %}"
                       onsubmit="return confirm('Are you sure you want to delete {{ classroom.name|escapejs }}? It can be restored later.')">
@@ -159,7 +159,7 @@
                   {% endwith %}
                 </span>
               {% empty %}
-                <span class="text-sm text-gray-400 italic">No teachers assigned</span>
+                <span class="text-sm text-gray-400 italic">No staff assigned</span>
               {% endfor %}
             </div>
           </div>
@@ -198,7 +198,7 @@
                     {{ t.get_full_name|default:t.username }}
                   </span>
                 {% empty %}
-                  <span class="text-xs text-gray-400">No teachers</span>
+                  <span class="text-xs text-gray-400">No staff</span>
                 {% endfor %}
               </div>
             </div>
