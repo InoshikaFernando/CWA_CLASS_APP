@@ -10,6 +10,7 @@ from accounts.views import _validate_username, _generate_username_suggestion
 from .models import School, SchoolTeacher, Department, DepartmentTeacher, DepartmentLevel, DepartmentSubject, ClassRoom, Subject, Level
 from .views import RoleRequiredMixin
 from .email_utils import send_staff_welcome_email
+from audit.services import log_event
 
 
 class DepartmentListView(RoleRequiredMixin, View):
@@ -143,6 +144,7 @@ class DepartmentCreateView(RoleRequiredMixin, View):
             messages.success(request, f'Department "{name}" created with subjects: {names}.')
         else:
             messages.success(request, f'Department "{name}" created.')
+        log_event(user=request.user, school=school, category='data_change', action='department_created', detail={'dept_name': name, 'school_id': school.id}, request=request)
         return redirect('admin_school_departments', school_id=school.id)
 
 
@@ -332,6 +334,7 @@ class DepartmentEditView(RoleRequiredMixin, View):
         department.description = description
         department.save()
         messages.success(request, f'Department "{name}" updated successfully.')
+        log_event(user=request.user, school=school, category='data_change', action='department_edited', detail={'dept_id': department.id, 'dept_name': name}, request=request)
         return redirect('admin_department_detail', school_id=school.id, dept_id=department.id)
 
 
@@ -391,6 +394,7 @@ class DepartmentAssignHoDView(RoleRequiredMixin, View):
                 request,
                 f'{teacher.get_full_name() or teacher.username} assigned as Head of {department.name}.'
             )
+            log_event(user=request.user, school=school, category='data_change', action='department_hod_assigned', detail={'dept_id': department.id, 'hod_username': teacher.username}, request=request)
             return redirect('admin_department_detail', school_id=school.id, dept_id=department.id)
 
         elif action == 'create_new':
@@ -467,6 +471,7 @@ class DepartmentAssignHoDView(RoleRequiredMixin, View):
                     request,
                     f'{first_name} {last_name} created and assigned as Head of {department.name}. Login username: {username}'
                 )
+                log_event(user=request.user, school=school, category='data_change', action='department_hod_assigned', detail={'dept_id': department.id, 'hod_username': username}, request=request)
                 # Send welcome email with login credentials
                 send_staff_welcome_email(
                     user=user,
@@ -556,6 +561,7 @@ class DepartmentManageTeachersView(RoleRequiredMixin, View):
             if removed:
                 parts.append(f'{removed} removed')
             messages.success(request, f'Department teachers updated: {", ".join(parts)}.')
+            log_event(user=request.user, school=school, category='data_change', action='department_teachers_updated', detail={'dept_id': department.id}, request=request)
         else:
             messages.info(request, 'No changes made.')
 
@@ -610,6 +616,7 @@ class DepartmentAssignClassesView(RoleRequiredMixin, View):
             ).exclude(id__in=valid_class_ids).update(department=None)
 
         messages.success(request, f'Classes assigned to {department.name} updated.')
+        log_event(user=request.user, school=school, category='data_change', action='department_classes_assigned', detail={'dept_id': department.id}, request=request)
         return redirect('admin_department_detail', school_id=school.id, dept_id=department.id)
 
 
@@ -1071,6 +1078,7 @@ class DepartmentToggleActiveView(RoleRequiredMixin, View):
         department.save(update_fields=['is_active'])
         status = 'activated' if department.is_active else 'deactivated'
         messages.success(request, f'Department "{department.name}" has been {status}.')
+        log_event(user=request.user, school=school, category='data_change', action='department_toggled_active', detail={'dept_id': department.id, 'is_active': department.is_active}, request=request)
         return redirect('admin_department_detail', school_id=school.id, dept_id=department.id)
 
 
@@ -1101,6 +1109,7 @@ class DepartmentDeleteView(RoleRequiredMixin, View):
         department.is_active = False
         department.save(update_fields=['is_active'])
         messages.success(request, f'Department "{department.name}" has been deactivated.')
+        log_event(user=request.user, school=school, category='data_change', action='department_deleted', detail={'dept_id': department.id, 'dept_name': department.name}, request=request)
         return redirect('admin_school_departments', school_id=school.id)
 
 
@@ -1186,4 +1195,5 @@ class DepartmentSettingsView(RoleRequiredMixin, View):
 
         department.save()
         messages.success(request, f'Settings for "{department.name}" saved successfully.')
+        log_event(user=request.user, school=school, category='data_change', action='department_settings_updated', detail={'dept_id': department.id}, request=request)
         return redirect('admin_department_settings', school_id=school.id, dept_id=department.id)

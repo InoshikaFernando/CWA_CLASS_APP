@@ -24,6 +24,7 @@ from .models import (
 )
 from .views import RoleRequiredMixin
 from . import invoicing_services as svc
+from audit.services import log_event
 from .fee_utils import get_effective_fee_for_class, _get_class_fee_source
 
 
@@ -348,6 +349,7 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
 
         invoice_ids = [inv.id for inv in invoices]
         request.session['draft_invoice_ids'] = invoice_ids
+        log_event(user=request.user, school=school, category='data_change', action='invoice_generated', detail={'count': len(invoices), 'school_id': school.id}, request=request)
 
         return redirect('invoice_preview')
 
@@ -390,6 +392,7 @@ class InvoicePreviewView(RoleRequiredMixin, View):
         invoice.notes = notes
         invoice.save(update_fields=['amount', 'notes', 'updated_at'])
         messages.success(request, f'Invoice {invoice.invoice_number} updated.')
+        log_event(user=request.user, school=invoice.school, category='data_change', action='invoice_edited', detail={'invoice_id': invoice.id}, request=request)
         return redirect('invoice_preview')
 
 
@@ -423,6 +426,7 @@ class IssueInvoicesView(RoleRequiredMixin, View):
         request.session.pop('draft_invoice_ids', None)
 
         messages.success(request, f'{len(issued)} invoice(s) issued successfully.')
+        log_event(user=request.user, school=school, category='data_change', action='invoice_issued', detail={'count': len(issued)}, request=request)
         return redirect('invoice_list')
 
 
@@ -434,6 +438,9 @@ class DeleteDraftInvoicesView(RoleRequiredMixin, View):
         count = Invoice.objects.filter(id__in=invoice_ids, status='draft').delete()[0]
         request.session.pop('draft_invoice_ids', None)
         messages.success(request, f'{count} draft invoice(s) deleted.')
+        school = _get_single_school(request.user)
+        if school:
+            log_event(user=request.user, school=school, category='data_change', action='invoice_deleted', detail={'count': count}, request=request)
         return redirect('generate_invoices')
 
 
@@ -625,6 +632,7 @@ class InvoiceEditView(RoleRequiredMixin, View):
             ])
 
         messages.success(request, f'Invoice {invoice.invoice_number} updated.')
+        log_event(user=request.user, school=invoice.school, category='data_change', action='invoice_edited', detail={'invoice_id': invoice.id}, request=request)
         return redirect('invoice_detail', invoice_id=invoice.id)
 
     @staticmethod
@@ -649,8 +657,10 @@ class CancelInvoiceView(RoleRequiredMixin, View):
             return redirect('invoice_detail', invoice_id=invoice.id)
 
         if invoice.status == 'draft':
+            inv_id = invoice.id
             invoice.delete()
             messages.success(request, 'Draft invoice deleted.')
+            log_event(user=request.user, school=school, category='data_change', action='invoice_deleted', detail={'invoice_id': inv_id}, request=request)
             return redirect('invoice_list')
 
         reason = request.POST.get('cancellation_reason', '').strip()
@@ -660,6 +670,7 @@ class CancelInvoiceView(RoleRequiredMixin, View):
 
         svc.cancel_invoice(invoice, reason, request.user)
         messages.success(request, f'Invoice {invoice.invoice_number} cancelled.')
+        log_event(user=request.user, school=school, category='data_change', action='invoice_voided', detail={'invoice_id': invoice.id}, request=request)
         return redirect('invoice_detail', invoice_id=invoice.id)
 
 
@@ -701,6 +712,7 @@ class RecordManualPaymentView(RoleRequiredMixin, View):
             created_by=request.user,
         )
         messages.success(request, f'Payment of ${amount} recorded.')
+        log_event(user=request.user, school=school, category='data_change', action='payment_recorded', detail={'invoice_id': invoice.id, 'amount': str(amount)}, request=request)
         return redirect('invoice_detail', invoice_id=invoice.id)
 
 
@@ -1015,6 +1027,7 @@ class ConfirmCSVPaymentsView(RoleRequiredMixin, View):
         request.session.pop('csv_import_id', None)
 
         messages.success(request, f'{confirmed} payment(s) confirmed, {ignored} ignored.')
+        log_event(user=request.user, school=school, category='data_change', action='payments_imported', detail={'count': confirmed}, request=request)
         return redirect('invoice_list')
 
 

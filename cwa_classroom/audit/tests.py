@@ -1,10 +1,19 @@
 """Tests for the audit logging system."""
-from django.test import TestCase, RequestFactory
+from django.test import TestCase, RequestFactory, Client
+from django.urls import reverse
 
-from accounts.models import CustomUser
+from accounts.models import CustomUser, Role, UserRole
 from audit.models import AuditLog
 from audit.services import log_event, get_client_ip
 from audit.risk import get_risk_summary
+
+
+def _create_role(name, display_name=None):
+    role, _ = Role.objects.get_or_create(
+        name=name,
+        defaults={'display_name': display_name or name.replace('_', ' ').title()},
+    )
+    return role
 
 
 class AuditLogModelTest(TestCase):
@@ -109,3 +118,137 @@ class RiskSummaryTest(TestCase):
         summary = get_risk_summary()
         self.assertEqual(summary['login_failures_24h'], 2)
         self.assertEqual(summary['payment_failures_7d'], 1)
+
+
+class EventsViewTest(TestCase):
+    """Test the Events page view (superuser and HoI access)."""
+
+    def setUp(self):
+        from classroom.models import School, SchoolTeacher
+
+        self.client = Client()
+
+        # Superuser
+        self.superuser = CustomUser.objects.create_superuser(
+            username='superadmin', password='pass12345', email='super@test.com',
+        )
+        _create_role(Role.ADMIN)
+
+        # HoI user
+        self.hoi = CustomUser.objects.create_user(
+            username='hoi_user', password='pass12345', email='hoi@test.com',
+        )
+        hoi_role = _create_role(Role.HEAD_OF_INSTITUTE)
+        UserRole.objects.create(user=self.hoi, role=hoi_role)
+
+        # Regular teacher (should not have access)
+        self.teacher = CustomUser.objects.create_user(
+            username='teacher_user', password='pass12345', email='teacher@test.com',
+        )
+        teacher_role = _create_role(Role.TEACHER)
+        UserRole.objects.create(user=self.teacher, role=teacher_role)
+
+        # Schools
+        self.school_a = School.objects.create(
+            name='School A', slug='school-a', admin=self.hoi,
+        )
+        self.school_b = School.objects.create(
+            name='School B', slug='school-b', admin=self.superuser,
+        )
+
+        # Link HoI to school_a via SchoolTeacher
+        SchoolTeacher.objects.get_or_create(
+            school=self.school_a, teacher=self.hoi,
+            defaults={'role': 'head_of_institute'},
+        )
+
+        # Create audit events
+        log_event(user=self.hoi, school=self.school_a, category='data_change',
+                  action='student_added', detail={'student': 'alice'})
+        log_event(user=self.superuser, school=self.school_b, category='admin_action',
+                  action='school_suspended', detail={'reason': 'test'})
+        log_event(user=self.hoi, school=self.school_a, category='auth',
+                  action='login_success')
+
+    def test_superuser_sees_all_events(self):
+        self.client.login(username='superadmin', password='pass12345')
+        resp = self.client.get(reverse('audit_events'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context['page'].paginator.count, 3)
+
+    def test_hoi_sees_only_own_school_events(self):
+        self.client.login(username='hoi_user', password='pass12345')
+        resp = self.client.get(reverse('audit_events'))
+        self.assertEqual(resp.status_code, 200)
+        # HoI should see only school_a events (2 events)
+        self.assertEqual(resp.context['page'].paginator.count, 2)
+
+    def test_teacher_denied_access(self):
+        self.client.login(username='teacher_user', password='pass12345')
+        resp = self.client.get(reverse('audit_events'))
+        # RoleRequiredMixin should redirect (302) or forbid (403)
+        self.assertIn(resp.status_code, [302, 403])
+
+    def test_superuser_filter_by_school(self):
+        self.client.login(username='superadmin', password='pass12345')
+        resp = self.client.get(reverse('audit_events'), {'schools': [self.school_b.id]})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context['page'].paginator.count, 1)
+
+    def test_filter_by_category(self):
+        self.client.login(username='superadmin', password='pass12345')
+        resp = self.client.get(reverse('audit_events'), {'category': 'data_change'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context['page'].paginator.count, 1)
+
+    def test_filter_by_action(self):
+        self.client.login(username='superadmin', password='pass12345')
+        resp = self.client.get(reverse('audit_events'), {'action': 'student'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context['page'].paginator.count, 1)
+
+    def test_filter_by_result(self):
+        self.client.login(username='superadmin', password='pass12345')
+        resp = self.client.get(reverse('audit_events'), {'result': 'blocked'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context['page'].paginator.count, 0)
+
+    def test_filter_by_date_range(self):
+        from django.utils import timezone
+        today = timezone.now().date().isoformat()
+        self.client.login(username='superadmin', password='pass12345')
+        resp = self.client.get(reverse('audit_events'), {
+            'date_from': today, 'date_to': today,
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context['page'].paginator.count, 3)
+
+    def test_filter_by_role(self):
+        self.client.login(username='superadmin', password='pass12345')
+        resp = self.client.get(reverse('audit_events'), {'role': Role.TEACHER})
+        self.assertEqual(resp.status_code, 200)
+        # Teacher has no events
+        self.assertEqual(resp.context['page'].paginator.count, 0)
+
+    def test_hoi_does_not_see_school_filter(self):
+        self.client.login(username='hoi_user', password='pass12345')
+        resp = self.client.get(reverse('audit_events'))
+        self.assertFalse(resp.context['is_superuser'])
+        self.assertEqual(list(resp.context['selected_schools']), [])
+
+    def test_pagination(self):
+        # Create enough events to trigger pagination
+        for i in range(55):
+            log_event(user=self.superuser, school=self.school_b,
+                      category='data_change', action=f'bulk_action_{i}')
+        self.client.login(username='superadmin', password='pass12345')
+        resp = self.client.get(reverse('audit_events'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.context['page']), 50)  # PAGE_SIZE
+        # Page 2
+        resp2 = self.client.get(reverse('audit_events'), {'page': 2})
+        self.assertTrue(len(resp2.context['page']) > 0)
+
+    def test_anonymous_redirected(self):
+        resp = self.client.get(reverse('audit_events'))
+        self.assertEqual(resp.status_code, 302)

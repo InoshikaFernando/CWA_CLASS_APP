@@ -20,6 +20,7 @@ from .models import (
     ProgressCriteria, ProgressRecord,
 )
 from .views_progress import _build_hierarchical_criteria
+from audit.services import log_event
 
 
 # ---------------------------------------------------------------------------
@@ -378,6 +379,15 @@ class EnrollmentApproveView(RoleRequiredMixin, View):
             notification_type='enrollment_approved',
         )
 
+        log_event(
+            user=request.user, school=enrollment.classroom.school,
+            category='data_change', action='enrollment_approved',
+            detail={
+                'student': enrollment.student.username,
+                'class_name': enrollment.classroom.name,
+            },
+            request=request,
+        )
         messages.success(
             request,
             f'{enrollment.student.username} has been approved for {enrollment.classroom.name}.',
@@ -422,6 +432,15 @@ class EnrollmentRejectView(RoleRequiredMixin, View):
             notification_type='enrollment_rejected',
         )
 
+        log_event(
+            user=request.user, school=enrollment.classroom.school,
+            category='data_change', action='enrollment_rejected',
+            detail={
+                'student': enrollment.student.username,
+                'class_name': enrollment.classroom.name,
+            },
+            request=request,
+        )
         messages.success(
             request,
             f'{enrollment.student.username} has been rejected from {enrollment.classroom.name}.',

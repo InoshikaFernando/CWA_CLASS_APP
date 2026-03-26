@@ -13,6 +13,7 @@ from django.views import View
 from accounts.models import Role, UserRole
 from .models import School, ParentStudent, ParentInvite
 from .views import RoleRequiredMixin
+from audit.services import log_event
 
 
 class ParentInviteCreateView(RoleRequiredMixin, View):
@@ -131,6 +132,12 @@ class ParentInviteCreateView(RoleRequiredMixin, View):
             except Exception:
                 pass
 
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='parent_invited',
+                detail={'parent_email': parent_email, 'school_id': school.id},
+                request=request,
+            )
             messages.success(
                 request,
                 f'{parent_email} already has an account and has been linked to '
@@ -168,6 +175,12 @@ class ParentInviteCreateView(RoleRequiredMixin, View):
         except Exception:
             pass  # Email failure shouldn't block invite creation
 
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='parent_invited',
+            detail={'parent_email': parent_email, 'school_id': school.id},
+            request=request,
+        )
         messages.success(
             request,
             f'Invite sent to {parent_email} for {student.first_name} {student.last_name}.',
@@ -204,6 +217,12 @@ class ParentInviteRevokeView(RoleRequiredMixin, View):
         )
         invite.status = 'revoked'
         invite.save(update_fields=['status'])
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='parent_invite_revoked',
+            detail={'invite_id': invite.id},
+            request=request,
+        )
         messages.success(request, f'Invite to {invite.parent_email} has been revoked.')
         return redirect('parent_invite_list', school_id=school.id)
 
@@ -239,6 +258,15 @@ class ParentStudentUnlinkView(RoleRequiredMixin, View):
         )
         link.is_active = False
         link.save(update_fields=['is_active'])
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='parent_student_unlinked',
+            detail={
+                'parent': f'{link.parent.first_name} {link.parent.last_name}',
+                'student': f'{link.student.first_name} {link.student.last_name}',
+            },
+            request=request,
+        )
         messages.success(
             request,
             f'Unlinked {link.parent.first_name} {link.parent.last_name} from '

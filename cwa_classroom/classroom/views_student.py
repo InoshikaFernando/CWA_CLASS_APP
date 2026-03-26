@@ -11,6 +11,7 @@ from billing.mixins import ModuleRequiredMixin
 from billing.models import ModuleSubscription
 from .views import RoleRequiredMixin
 from .notifications import create_notification
+from audit.services import log_event
 from .models import (
     ClassRoom, ClassStudent, Enrollment, ClassSession,
     StudentAttendance, Notification, Department,
@@ -92,6 +93,15 @@ class JoinClassByCodeView(RoleRequiredMixin, View):
         # Notify the class teacher(s) about the new enrollment request
         _notify_class_teachers(classroom, request.user)
 
+        log_event(
+            user=request.user, school=classroom.school,
+            category='data_change', action='enrollment_requested',
+            detail={
+                'student': request.user.username,
+                'class_code': code,
+            },
+            request=request,
+        )
         messages.success(
             request,
             f'Your enrollment request for "{classroom.name}" has been submitted. '
