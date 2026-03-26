@@ -165,6 +165,15 @@
 
       <!-- Issue Draft -->
       {% if invoice.status == 'draft' %}
+        <div class="bg-white rounded-2xl border border-indigo-200 shadow-sm p-6">
+          <h3 class="text-base font-semibold text-gray-900 mb-2">Edit Draft</h3>
+          <p class="text-xs text-gray-500 mb-4">Modify line items, amounts, dates and notes on this draft invoice.</p>
+          <a href="{% url 'invoice_edit' invoice_id=invoice.id %}"
+            class="block w-full px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition font-medium text-center">
+            Edit Invoice
+          </a>
+        </div>
+
         <div class="bg-white rounded-2xl border border-emerald-200 shadow-sm p-6">
           <h3 class="text-base font-semibold text-gray-900 mb-2">Issue Invoice</h3>
           <p class="text-xs text-gray-500 mb-4">Change status from draft to issued. This will assign an invoice number and make it billable.</p>

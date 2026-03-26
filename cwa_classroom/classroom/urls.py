@@ -209,6 +209,7 @@ urlpatterns = [
     path('invoicing/issue/', views_invoicing.IssueInvoicesView.as_view(), name='issue_invoices'),
     path('invoicing/drafts/delete/', views_invoicing.DeleteDraftInvoicesView.as_view(), name='delete_draft_invoices'),
     path('invoicing/<int:invoice_id>/', views_invoicing.InvoiceDetailView.as_view(), name='invoice_detail'),
+    path('invoicing/<int:invoice_id>/edit/', views_invoicing.InvoiceEditView.as_view(), name='invoice_edit'),
     path('invoicing/<int:invoice_id>/cancel/', views_invoicing.CancelInvoiceView.as_view(), name='cancel_invoice'),
     path('invoicing/<int:invoice_id>/pay/', views_invoicing.RecordManualPaymentView.as_view(), name='record_manual_payment'),
     path('invoicing/csv/upload/', views_invoicing.CSVUploadView.as_view(), name='csv_upload'),

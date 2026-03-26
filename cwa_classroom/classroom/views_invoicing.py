@@ -507,6 +507,135 @@ class InvoiceDetailView(RoleRequiredMixin, View):
         })
 
 
+class InvoiceEditView(RoleRequiredMixin, View):
+    """Edit a draft invoice: line items, dates, notes."""
+    required_roles = INVOICING_ROLES
+
+    def _get_invoice(self, request, invoice_id):
+        school = _get_single_school(request.user)
+        return get_object_or_404(Invoice, id=invoice_id, school=school)
+
+    def get(self, request, invoice_id):
+        invoice = self._get_invoice(request, invoice_id)
+        if invoice.status != 'draft':
+            messages.error(request, 'Only draft invoices can be edited.')
+            return redirect('invoice_detail', invoice_id=invoice.id)
+
+        line_items = invoice.line_items.select_related('classroom', 'department')
+        return render(request, 'invoicing/invoice_edit.html', {
+            'invoice': invoice,
+            'line_items': line_items,
+        })
+
+    def post(self, request, invoice_id):
+        invoice = self._get_invoice(request, invoice_id)
+        if invoice.status != 'draft':
+            messages.error(request, 'Only draft invoices can be edited.')
+            return redirect('invoice_detail', invoice_id=invoice.id)
+
+        action = request.POST.get('action', 'save')
+
+        # --- Handle add line item ---
+        if action == 'add_line':
+            description = request.POST.get('new_description', '').strip()
+            amount_str = request.POST.get('new_amount', '').strip()
+            if not description or not amount_str:
+                messages.error(request, 'Description and amount are required for new line items.')
+                return redirect('invoice_edit', invoice_id=invoice.id)
+            try:
+                amount = Decimal(amount_str)
+            except (InvalidOperation, ValueError):
+                messages.error(request, 'Invalid amount for new line item.')
+                return redirect('invoice_edit', invoice_id=invoice.id)
+
+            InvoiceLineItem.objects.create(
+                invoice=invoice,
+                classroom=None,
+                department=None,
+                daily_rate=amount,
+                rate_source='opening_balance',
+                sessions_held=0,
+                sessions_attended=0,
+                sessions_charged=0,
+                line_amount=amount,
+            )
+            # Recalculate totals
+            self._recalculate_totals(invoice)
+            invoice.notes = (invoice.notes or '').rstrip()
+            note_line = f'Manual line added: {description} (${amount})'
+            if invoice.notes:
+                invoice.notes += '\n' + note_line
+            else:
+                invoice.notes = note_line
+            invoice.save(update_fields=['amount', 'calculated_amount', 'notes', 'updated_at'])
+            messages.success(request, 'Line item added.')
+            return redirect('invoice_edit', invoice_id=invoice.id)
+
+        # --- Handle remove line item ---
+        if action == 'remove_line':
+            line_id = request.POST.get('line_id')
+            if line_id:
+                deleted, _ = InvoiceLineItem.objects.filter(
+                    id=line_id, invoice=invoice,
+                ).delete()
+                if deleted:
+                    self._recalculate_totals(invoice)
+                    invoice.save(update_fields=['amount', 'calculated_amount', 'updated_at'])
+                    messages.success(request, 'Line item removed.')
+                else:
+                    messages.error(request, 'Line item not found.')
+            return redirect('invoice_edit', invoice_id=invoice.id)
+
+        # --- Handle save (update line amounts, dates, notes) ---
+        with transaction.atomic():
+            # Update existing line items
+            for line in invoice.line_items.all():
+                amount_key = f'line_amount_{line.id}'
+                amount_str = request.POST.get(amount_key, '').strip()
+                if amount_str:
+                    try:
+                        new_amount = Decimal(amount_str)
+                        if new_amount != line.line_amount:
+                            line.line_amount = new_amount
+                            line.save(update_fields=['line_amount'])
+                    except (InvalidOperation, ValueError):
+                        pass  # skip invalid amounts
+
+            # Update invoice-level fields
+            due_date_str = request.POST.get('due_date', '').strip()
+            notes = request.POST.get('notes', '')
+
+            if due_date_str:
+                parsed_date = _parse_date(due_date_str)
+                if parsed_date:
+                    invoice.due_date = parsed_date
+                else:
+                    messages.error(request, 'Invalid due date format.')
+                    return redirect('invoice_edit', invoice_id=invoice.id)
+            else:
+                invoice.due_date = None
+
+            invoice.notes = notes
+
+            # Recalculate totals from line items
+            self._recalculate_totals(invoice)
+            invoice.save(update_fields=[
+                'due_date', 'notes', 'amount', 'calculated_amount', 'updated_at',
+            ])
+
+        messages.success(request, f'Invoice {invoice.invoice_number} updated.')
+        return redirect('invoice_detail', invoice_id=invoice.id)
+
+    @staticmethod
+    def _recalculate_totals(invoice):
+        """Recalculate calculated_amount and amount from line items."""
+        total = invoice.line_items.aggregate(
+            total=models.Sum('line_amount'),
+        )['total'] or Decimal('0.00')
+        invoice.calculated_amount = total
+        invoice.amount = total
+
+
 class CancelInvoiceView(RoleRequiredMixin, View):
     required_roles = INVOICING_ROLES
 

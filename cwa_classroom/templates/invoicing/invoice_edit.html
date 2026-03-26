@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Invoice {{ invoice.invoice_number }}{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-8">
+    <div>
+      <a href="{% url 'invoice_detail' invoice_id=invoice.id %}" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back to Invoice</a>
+      <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Edit {{ invoice.invoice_number }}</h1>
+      <p class="text-gray-500 mt-1">{{ invoice.student.first_name }} {{ invoice.student.last_name }} &mdash; {{ invoice.billing_period_start|date:"M d" }} to {{ invoice.billing_period_end|date:"M d, Y" }}</p>
+    </div>
+    <span class="text-sm font-medium px-3 py-1.5 rounded-full bg-gray-100 text-gray-600">Draft</span>
+  </div>
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="mb-4 p-4 rounded-xl text-sm font-medium
+        {% if message.tags == 'success' %}bg-emerald-50 text-emerald-700 border border-emerald-200
+        {% elif message.tags == 'error' %}bg-red-50 text-red-700 border border-red-200
+        {% else %}bg-blue-50 text-blue-700 border border-blue-200{% endif %}">
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  <!-- Main Edit Form -->
+  <form method="post" action="{% url 'invoice_edit' invoice_id=invoice.id %}">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="save">
+
+    <!-- Line Items -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-6">
+      <div class="px-6 py-4 border-b border-slate-200">
+        <h2 class="text-lg font-semibold text-gray-900">Line Items</h2>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full min-w-[600px]">
+          <thead>
+            <tr class="border-b border-slate-100">
+              <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Class / Description</th>
+              <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Rate</th>
+              <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Charged</th>
+              <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Amount</th>
+              <th class="px-6 py-3 text-center text-xs font-semibold text-gray-500 uppercase">Remove</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for line in line_items %}
+              <tr class="border-b border-slate-50">
+                <td class="px-6 py-3 text-sm text-gray-900">
+                  {% if line.rate_source == 'opening_balance' %}
+                    Opening Balance / Manual
+                  {% else %}
+                    {{ line.classroom.name }}
+                    {% if line.department %}<span class="text-gray-400 text-xs ml-1">({{ line.department.name }})</span>{% endif %}
+                  {% endif %}
+                </td>
+                <td class="px-6 py-3 text-sm text-gray-600 text-right">
+                  {% if line.rate_source != 'opening_balance' %}${{ line.daily_rate }}{% else %}&mdash;{% endif %}
+                </td>
+                <td class="px-6 py-3 text-sm text-gray-600 text-right">
+                  {% if line.rate_source != 'opening_balance' %}{{ line.sessions_charged }}{% else %}&mdash;{% endif %}
+                </td>
+                <td class="px-6 py-3">
+                  <input type="number" name="line_amount_{{ line.id }}" value="{{ line.line_amount }}"
+                    step="0.01" min="0"
+                    class="w-28 ml-auto block text-right px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                </td>
+                <td class="px-6 py-3 text-center">
+                  <button type="submit" form="remove-line-{{ line.id }}"
+                    class="text-red-500 hover:text-red-700 text-xs font-medium"
+                    onclick="return confirm('Remove this line item?')">
+                    Remove
+                  </button>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Invoice Fields -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-6">
+      <h2 class="text-lg font-semibold text-gray-900 mb-4">Invoice Details</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Due Date</label>
+          <input type="date" name="due_date" value="{% if invoice.due_date %}{{ invoice.due_date|date:'Y-m-d' }}{% endif %}"
+            class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+        </div>
+      </div>
+      <div class="mt-4">
+        <label class="block text-xs font-medium text-gray-600 mb-1">Notes / Memo</label>
+        <textarea name="notes" rows="3" placeholder="Additional notes..."
+          class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">{{ invoice.notes }}</textarea>
+      </div>
+    </div>
+
+    <!-- Save Button -->
+    <div class="flex items-center justify-end gap-3 mb-8">
+      <a href="{% url 'invoice_detail' invoice_id=invoice.id %}"
+        class="px-4 py-2 text-sm border border-slate-300 text-gray-700 rounded-lg hover:bg-slate-50 transition font-medium">
+        Cancel
+      </a>
+      <button type="submit"
+        class="px-6 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition font-medium">
+        Save Changes
+      </button>
+    </div>
+  </form>
+
+  <!-- Remove line item forms (separate forms so they don't conflict with the main save form) -->
+  {% for line in line_items %}
+    <form id="remove-line-{{ line.id }}" method="post" action="{% url 'invoice_edit' invoice_id=invoice.id %}" class="hidden">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="remove_line">
+      <input type="hidden" name="line_id" value="{{ line.id }}">
+    </form>
+  {% endfor %}
+
+  <!-- Add Line Item -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-8">
+    <h2 class="text-lg font-semibold text-gray-900 mb-4">Add Line Item</h2>
+    <form method="post" action="{% url 'invoice_edit' invoice_id=invoice.id %}" class="flex flex-wrap items-end gap-3">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="add_line">
+      <div class="flex-1 min-w-[200px]">
+        <label class="block text-xs font-medium text-gray-600 mb-1">Description</label>
+        <input type="text" name="new_description" placeholder="e.g. Additional materials fee"
+          class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required>
+      </div>
+      <div class="w-36">
+        <label class="block text-xs font-medium text-gray-600 mb-1">Amount ($)</label>
+        <input type="number" name="new_amount" step="0.01" min="0" placeholder="0.00"
+          class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required>
+      </div>
+      <button type="submit"
+        class="px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium">
+        Add Line
+      </button>
+    </form>
+  </div>
+
+</div>
+{% endblock %}
