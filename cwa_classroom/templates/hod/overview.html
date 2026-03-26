@@ -319,6 +319,7 @@
         </div>
       </div>
 
+      {% if is_hoi or request.user.is_superuser %}
       <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm">
         <div class="flex items-center gap-3">
           <div class="w-10 h-10 bg-violet-50 rounded-xl flex items-center justify-center flex-shrink-0">
@@ -332,6 +333,7 @@
           </div>
         </div>
       </div>
+      {% endif %}
 
       <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm">
         <div class="flex items-center gap-3">
@@ -361,6 +363,7 @@
         </div>
       </div>
 
+      {% if is_hoi or request.user.is_superuser %}
       <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm">
         <div class="flex items-center gap-3">
           <div class="w-10 h-10 bg-green-50 rounded-xl flex items-center justify-center flex-shrink-0">
@@ -374,10 +377,12 @@
           </div>
         </div>
       </div>
+      {% endif %}
     </div>
   </div>
 
-  <!-- ── Revenue by Service + Lesson Profit Snapshot (2-col) ── -->
+  <!-- ── Revenue by Service + Lesson Profit Snapshot (2-col) — HoI only ── -->
+  {% if is_hoi or request.user.is_superuser %}
   <div class="grid lg:grid-cols-2 gap-6">
 
     <!-- Revenue by Service -->
@@ -456,6 +461,7 @@
     </div>
 
   </div>
+  {% endif %}
 
   <!-- ── Upcoming Birthdays (2-col) ───────────────────────────── -->
   {% if student_birthdays or teacher_birthdays %}
