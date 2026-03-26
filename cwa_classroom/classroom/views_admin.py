@@ -306,7 +306,7 @@ class SchoolDetailView(RoleRequiredMixin, View):
 
 class SchoolSettingsView(RoleRequiredMixin, View):
     """Manage institute settings: company details, banking, invoice config."""
-    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.ACCOUNTANT]
 
     SETTINGS_FIELDS = [
         # Company details
@@ -363,7 +363,7 @@ class SchoolSettingsView(RoleRequiredMixin, View):
 
 class ManageSettingsRedirectView(RoleRequiredMixin, View):
     """Shortcut: redirects to the first school's settings page."""
-    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.ACCOUNTANT]
 
     def get(self, request):
         school = _get_user_school(request.user)

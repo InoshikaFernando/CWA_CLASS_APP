@@ -1106,7 +1106,7 @@ class DepartmentDeleteView(RoleRequiredMixin, View):
 
 class DepartmentSettingsView(RoleRequiredMixin, View):
     """Manage department-level settings overrides (banking, company, invoice)."""
-    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.ACCOUNTANT]
 
     OVERRIDE_FIELDS = [
         'bank_name', 'bank_bsb', 'bank_account_number', 'bank_account_name',
