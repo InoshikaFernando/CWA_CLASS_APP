@@ -1,0 +1,55 @@
+{% extends "email/base_email.html" %}
+
+{% block email_title %}Welcome to {{ school_name }}{% endblock %}
+
+{% block email_content %}
+<div style="background-color:#eff6ff;border-left:4px solid #2563eb;padding:16px;border-radius:4px;margin-bottom:24px;">
+  <p style="margin:0;color:#2563eb;font-weight:700;font-size:16px;">You've been added to {{ school_name }}</p>
+</div>
+
+{% if recipient_name %}
+<p style="margin:0 0 16px;color:#334155;font-size:15px;">Hi {{ recipient_name }},</p>
+{% endif %}
+
+<p style="margin:0 0 16px;color:#334155;font-size:15px;">
+  You have been added to <strong>{{ school_name }}</strong> as a <strong>{{ role_display }}</strong>.
+</p>
+
+{% if credentials_username or credentials_password %}
+<div style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:20px;margin-bottom:24px;">
+  <p style="margin:0 0 12px;color:#1e293b;font-weight:700;font-size:14px;">Your Login Credentials</p>
+  <table style="width:100%;border-collapse:collapse;">
+    {% if credentials_username %}
+    <tr>
+      <td style="padding:4px 0;color:#64748b;font-size:14px;width:100px;">Username:</td>
+      <td style="padding:4px 0;color:#1e293b;font-size:14px;font-weight:600;">{{ credentials_username }}</td>
+    </tr>
+    {% endif %}
+    {% if credentials_email %}
+    <tr>
+      <td style="padding:4px 0;color:#64748b;font-size:14px;">Email:</td>
+      <td style="padding:4px 0;color:#1e293b;font-size:14px;font-weight:600;">{{ credentials_email }}</td>
+    </tr>
+    {% endif %}
+    {% if credentials_password %}
+    <tr>
+      <td style="padding:4px 0;color:#64748b;font-size:14px;">Password:</td>
+      <td style="padding:4px 0;color:#1e293b;font-size:14px;font-family:monospace;font-weight:600;">{{ credentials_password }}</td>
+    </tr>
+    {% endif %}
+  </table>
+  <p style="margin:12px 0 0;color:#ef4444;font-size:12px;">Please change your password after your first login.</p>
+</div>
+{% endif %}
+
+<p style="margin:0 0 24px;color:#334155;font-size:15px;">
+  You can now log in to access your dashboard and get started.
+</p>
+
+<p style="margin:0;text-align:center;">
+  <a href="{{ site_url }}/login/"
+     style="display:inline-block;background-color:#2563eb;color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px;">
+    Log In Now
+  </a>
+</p>
+{% endblock %}

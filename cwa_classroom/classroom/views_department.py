@@ -7,10 +7,10 @@ from django.utils.text import slugify
 
 from accounts.models import CustomUser, Role, UserRole
 from accounts.views import _validate_username, _generate_username_suggestion
+from audit.services import log_event
 from .models import School, SchoolTeacher, Department, DepartmentTeacher, DepartmentLevel, DepartmentSubject, ClassRoom, Subject, Level
 from .views import RoleRequiredMixin
 from .email_utils import send_staff_welcome_email
-from audit.services import log_event
 
 
 class DepartmentListView(RoleRequiredMixin, View):
@@ -144,7 +144,13 @@ class DepartmentCreateView(RoleRequiredMixin, View):
             messages.success(request, f'Department "{name}" created with subjects: {names}.')
         else:
             messages.success(request, f'Department "{name}" created.')
-        log_event(user=request.user, school=school, category='data_change', action='department_created', detail={'dept_name': name, 'school_id': school.id}, request=request)
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='department_created',
+            detail={'department_id': dept.id, 'name': name,
+                    'subjects': [s.name for s in resolved_subjects]},
+            request=request,
+        )
         return redirect('admin_school_departments', school_id=school.id)
 
 
@@ -333,8 +339,13 @@ class DepartmentEditView(RoleRequiredMixin, View):
         department.name = name
         department.description = description
         department.save()
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='department_edited',
+            detail={'department_id': department.id, 'name': name},
+            request=request,
+        )
         messages.success(request, f'Department "{name}" updated successfully.')
-        log_event(user=request.user, school=school, category='data_change', action='department_edited', detail={'dept_id': department.id, 'dept_name': name}, request=request)
         return redirect('admin_department_detail', school_id=school.id, dept_id=department.id)
 
 
@@ -390,11 +401,17 @@ class DepartmentAssignHoDView(RoleRequiredMixin, View):
                     department=department, teacher=teacher
                 )
 
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='department_hod_assigned',
+                detail={'department_id': department.id, 'department': department.name,
+                        'hod_id': teacher.id, 'hod': teacher.get_full_name() or teacher.username},
+                request=request,
+            )
             messages.success(
                 request,
                 f'{teacher.get_full_name() or teacher.username} assigned as Head of {department.name}.'
             )
-            log_event(user=request.user, school=school, category='data_change', action='department_hod_assigned', detail={'dept_id': department.id, 'hod_username': teacher.username}, request=request)
             return redirect('admin_department_detail', school_id=school.id, dept_id=department.id)
 
         elif action == 'create_new':
@@ -467,11 +484,18 @@ class DepartmentAssignHoDView(RoleRequiredMixin, View):
                         department=department, teacher=user
                     )
 
+                log_event(
+                    user=request.user, school=school, category='data_change',
+                    action='department_hod_assigned',
+                    detail={'department_id': department.id, 'department': department.name,
+                            'hod_id': user.id, 'hod': f'{first_name} {last_name}',
+                            'new_account': True},
+                    request=request,
+                )
                 messages.success(
                     request,
                     f'{first_name} {last_name} created and assigned as Head of {department.name}. Login username: {username}'
                 )
-                log_event(user=request.user, school=school, category='data_change', action='department_hod_assigned', detail={'dept_id': department.id, 'hod_username': username}, request=request)
                 # Send welcome email with login credentials
                 send_staff_welcome_email(
                     user=user,
@@ -560,8 +584,14 @@ class DepartmentManageTeachersView(RoleRequiredMixin, View):
                 parts.append(f'{added} added')
             if removed:
                 parts.append(f'{removed} removed')
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='department_teachers_updated',
+                detail={'department_id': department.id, 'department': department.name,
+                        'added': added, 'removed': removed},
+                request=request,
+            )
             messages.success(request, f'Department teachers updated: {", ".join(parts)}.')
-            log_event(user=request.user, school=school, category='data_change', action='department_teachers_updated', detail={'dept_id': department.id}, request=request)
         else:
             messages.info(request, 'No changes made.')
 
@@ -615,8 +645,14 @@ class DepartmentAssignClassesView(RoleRequiredMixin, View):
                 department=department, school=school
             ).exclude(id__in=valid_class_ids).update(department=None)
 
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='department_classes_assigned',
+            detail={'department_id': department.id, 'department': department.name,
+                    'class_ids': list(valid_class_ids)},
+            request=request,
+        )
         messages.success(request, f'Classes assigned to {department.name} updated.')
-        log_event(user=request.user, school=school, category='data_change', action='department_classes_assigned', detail={'dept_id': department.id}, request=request)
         return redirect('admin_department_detail', school_id=school.id, dept_id=department.id)
 
 
@@ -1077,8 +1113,14 @@ class DepartmentToggleActiveView(RoleRequiredMixin, View):
         department.is_active = not department.is_active
         department.save(update_fields=['is_active'])
         status = 'activated' if department.is_active else 'deactivated'
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='department_toggled_active',
+            detail={'department_id': department.id, 'name': department.name,
+                    'is_active': department.is_active},
+            request=request,
+        )
         messages.success(request, f'Department "{department.name}" has been {status}.')
-        log_event(user=request.user, school=school, category='data_change', action='department_toggled_active', detail={'dept_id': department.id, 'is_active': department.is_active}, request=request)
         return redirect('admin_department_detail', school_id=school.id, dept_id=department.id)
 
 
@@ -1106,10 +1148,16 @@ class DepartmentDeleteView(RoleRequiredMixin, View):
             )
             return redirect('admin_department_detail', school_id=school.id, dept_id=department.id)
 
+        dept_name = department.name
         department.is_active = False
         department.save(update_fields=['is_active'])
-        messages.success(request, f'Department "{department.name}" has been deactivated.')
-        log_event(user=request.user, school=school, category='data_change', action='department_deleted', detail={'dept_id': department.id, 'dept_name': department.name}, request=request)
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='department_deleted',
+            detail={'department_id': department.id, 'name': dept_name},
+            request=request,
+        )
+        messages.success(request, f'Department "{dept_name}" has been deactivated.')
         return redirect('admin_school_departments', school_id=school.id)
 
 
@@ -1194,6 +1242,11 @@ class DepartmentSettingsView(RoleRequiredMixin, View):
             department.logo = ''
 
         department.save()
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='department_settings_updated',
+            detail={'department_id': department.id, 'department': department.name},
+            request=request,
+        )
         messages.success(request, f'Settings for "{department.name}" saved successfully.')
-        log_event(user=request.user, school=school, category='data_change', action='department_settings_updated', detail={'dept_id': department.id}, request=request)
         return redirect('admin_department_settings', school_id=school.id, dept_id=department.id)

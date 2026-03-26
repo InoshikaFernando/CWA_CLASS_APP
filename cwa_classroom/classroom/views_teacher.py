@@ -9,6 +9,7 @@ from django.utils import timezone
 from django.db.models import Count, Q
 
 from accounts.models import Role
+from audit.services import log_event
 from billing.mixins import ModuleRequiredMixin
 from billing.models import ModuleSubscription
 from .views import RoleRequiredMixin
@@ -20,7 +21,6 @@ from .models import (
     ProgressCriteria, ProgressRecord,
 )
 from .views_progress import _build_hierarchical_criteria
-from audit.services import log_event
 
 
 # ---------------------------------------------------------------------------
@@ -380,12 +380,15 @@ class EnrollmentApproveView(RoleRequiredMixin, View):
         )
 
         log_event(
-            user=request.user, school=enrollment.classroom.school,
-            category='data_change', action='enrollment_approved',
-            detail={
-                'student': enrollment.student.username,
-                'class_name': enrollment.classroom.name,
-            },
+            user=request.user,
+            school=enrollment.classroom.school if enrollment.classroom.school_id else None,
+            category='data_change',
+            action='enrollment_approved',
+            detail={'enrollment_id': enrollment.id,
+                    'student_id': enrollment.student_id,
+                    'student': enrollment.student.username,
+                    'classroom_id': enrollment.classroom_id,
+                    'classroom': enrollment.classroom.name},
             request=request,
         )
         messages.success(
@@ -433,12 +436,16 @@ class EnrollmentRejectView(RoleRequiredMixin, View):
         )
 
         log_event(
-            user=request.user, school=enrollment.classroom.school,
-            category='data_change', action='enrollment_rejected',
-            detail={
-                'student': enrollment.student.username,
-                'class_name': enrollment.classroom.name,
-            },
+            user=request.user,
+            school=enrollment.classroom.school if enrollment.classroom.school_id else None,
+            category='data_change',
+            action='enrollment_rejected',
+            detail={'enrollment_id': enrollment.id,
+                    'student_id': enrollment.student_id,
+                    'student': enrollment.student.username,
+                    'classroom_id': enrollment.classroom_id,
+                    'classroom': enrollment.classroom.name,
+                    'reason': reason},
             request=request,
         )
         messages.success(

@@ -11,9 +11,9 @@ from django.utils import timezone
 from django.views import View
 
 from accounts.models import Role, UserRole
+from audit.services import log_event
 from .models import School, ParentStudent, ParentInvite
 from .views import RoleRequiredMixin
-from audit.services import log_event
 
 
 class ParentInviteCreateView(RoleRequiredMixin, View):
@@ -135,7 +135,9 @@ class ParentInviteCreateView(RoleRequiredMixin, View):
             log_event(
                 user=request.user, school=school, category='data_change',
                 action='parent_invited',
-                detail={'parent_email': parent_email, 'school_id': school.id},
+                detail={'parent_email': parent_email, 'student_id': student.id,
+                        'student': f'{student.first_name} {student.last_name}',
+                        'auto_linked': True},
                 request=request,
             )
             messages.success(
@@ -178,7 +180,9 @@ class ParentInviteCreateView(RoleRequiredMixin, View):
         log_event(
             user=request.user, school=school, category='data_change',
             action='parent_invited',
-            detail={'parent_email': parent_email, 'school_id': school.id},
+            detail={'invite_id': invite.id, 'parent_email': parent_email,
+                    'student_id': student.id,
+                    'student': f'{student.first_name} {student.last_name}'},
             request=request,
         )
         messages.success(
@@ -220,7 +224,7 @@ class ParentInviteRevokeView(RoleRequiredMixin, View):
         log_event(
             user=request.user, school=school, category='data_change',
             action='parent_invite_revoked',
-            detail={'invite_id': invite.id},
+            detail={'invite_id': invite.id, 'parent_email': invite.parent_email},
             request=request,
         )
         messages.success(request, f'Invite to {invite.parent_email} has been revoked.')
@@ -261,10 +265,11 @@ class ParentStudentUnlinkView(RoleRequiredMixin, View):
         log_event(
             user=request.user, school=school, category='data_change',
             action='parent_student_unlinked',
-            detail={
-                'parent': f'{link.parent.first_name} {link.parent.last_name}',
-                'student': f'{link.student.first_name} {link.student.last_name}',
-            },
+            detail={'link_id': link.id,
+                    'parent_id': link.parent_id,
+                    'parent': f'{link.parent.first_name} {link.parent.last_name}',
+                    'student_id': link.student_id,
+                    'student': f'{link.student.first_name} {link.student.last_name}'},
             request=request,
         )
         messages.success(

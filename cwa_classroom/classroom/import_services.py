@@ -1117,10 +1117,14 @@ def execute_import(preview_data, school, uploaded_by):
                 password = None
 
             # SchoolStudent
-            SchoolStudent.objects.get_or_create(
+            ss, ss_created = SchoolStudent.objects.get_or_create(
                 school=school, student=user,
                 defaults={'opening_balance': sdata.get('opening_balance', Decimal('0'))},
             )
+            # Store pending password for publish email (new users only)
+            if is_new and password and ss_created:
+                ss.pending_password = password
+                ss.save(update_fields=['pending_password'])
 
             # ClassStudent enrollments
             enrolled = False
@@ -1349,3 +1353,275 @@ def execute_balance_import(matched_items, school):
             results['skipped'] += 1
 
     return results
+
+
+# ── Teacher Import ──────────────────────────────────────────
+
+TEACHER_COLUMN_FIELDS = {
+    'first_name': 'First Name',
+    'last_name': 'Last Name',
+    'email': 'Email',
+    'phone': 'Mobile Phone',
+    'position': 'Position / Role',
+    'specialty': 'Subjects / Specialty',
+    'status': 'Status',
+    'type': 'Type (Teacher / Staff)',
+}
+
+TEACHER_REQUIRED_FIELDS = {'first_name', 'last_name', 'email'}
+
+# Map Teachworks Position values → SchoolTeacher role
+POSITION_ROLE_MAP = {
+    'principal teacher': 'head_of_institute',
+    'principal': 'head_of_institute',
+    'admin': 'accountant',
+    'head admin': 'accountant',
+    'senior teacher': 'senior_teacher',
+    'junior teacher': 'junior_teacher',
+}
+
+TEACHER_PRESETS = {
+    'teachworks': {
+        'name': 'Teachworks',
+        'description': 'Import from Teachworks Employees export (.xls).',
+        'mapping': {
+            'first_name': 'First Name',
+            'last_name': 'Last Name',
+            'email': 'Email',
+            'phone': 'Mobile Phone',
+            'position': 'Position',
+            'specialty': 'Subjects',
+            'status': 'Status',
+            'type': 'Type',
+        },
+    },
+}
+
+
+def apply_teacher_preset(preset_key, headers):
+    """Apply a teacher preset to map column headers. Returns {field: col_index}."""
+    preset = TEACHER_PRESETS.get(preset_key.lower())
+    if not preset:
+        return {}
+    header_lower = {h.strip().lower(): i for i, h in enumerate(headers)}
+    mapping = {}
+    for system_field, csv_header in preset['mapping'].items():
+        idx = header_lower.get(csv_header.lower())
+        if idx is not None:
+            mapping[system_field] = idx
+    return mapping
+
+
+def _build_teacher_column_mapping(post_data):
+    """Build column_mapping dict from POST data for teacher import."""
+    mapping = {}
+    for field in TEACHER_COLUMN_FIELDS:
+        val = post_data.get(f'col_{field}', '')
+        if val != '' and val != '-1':
+            mapping[field] = int(val)
+    return mapping
+
+
+def _map_position_to_role(position_str):
+    """Map a Teachworks Position string to a SchoolTeacher role."""
+    if not position_str:
+        return 'teacher'
+    return POSITION_ROLE_MAP.get(position_str.strip().lower(), 'teacher')
+
+
+def _role_to_system_role(school_role):
+    """Map a SchoolTeacher role to the corresponding system Role name."""
+    if school_role == 'head_of_institute':
+        return Role.HEAD_OF_INSTITUTE
+    elif school_role == 'head_of_department':
+        return Role.HEAD_OF_DEPARTMENT
+    elif school_role == 'accountant':
+        return Role.ACCOUNTANT
+    return Role.TEACHER
+
+
+def validate_teacher_preview(data_rows, column_mapping, school):
+    """
+    Validate teacher import data and categorize as new/existing.
+    Returns preview dict with teachers_new, teachers_existing, errors, warnings.
+    """
+    errors = []
+    warnings = []
+    teachers_new = []
+    teachers_existing = []
+
+    # Validate required fields are mapped
+    mapped_fields = set(column_mapping.keys())
+    missing = TEACHER_REQUIRED_FIELDS - mapped_fields
+    if missing:
+        labels = [TEACHER_COLUMN_FIELDS.get(f, f) for f in missing]
+        errors.append(f'Required columns not mapped: {", ".join(labels)}')
+        return {'teachers_new': [], 'teachers_existing': [], 'errors': errors, 'warnings': warnings}
+
+    seen_emails = set()
+    for row_idx, row in enumerate(data_rows, start=2):  # row 1 = header
+        def _cell(field):
+            idx = column_mapping.get(field)
+            if idx is None or idx >= len(row):
+                return ''
+            return str(row[idx]).strip()
+
+        first_name = _cell('first_name')
+        last_name = _cell('last_name')
+        email = _cell('email')
+        phone = _cell('phone')
+        position = _cell('position')
+        specialty = _cell('specialty')
+        status = _cell('status')
+        emp_type = _cell('type')
+
+        # Skip inactive
+        if status and status.lower() not in ('active', ''):
+            warnings.append(f'Row {row_idx}: {first_name} {last_name} skipped (status: {status})')
+            continue
+
+        if not first_name or not last_name:
+            errors.append(f'Row {row_idx}: Missing first or last name')
+            continue
+        if not email:
+            errors.append(f'Row {row_idx}: {first_name} {last_name} — missing email')
+            continue
+
+        email = email.lower()
+        if email in seen_emails:
+            warnings.append(f'Row {row_idx}: Duplicate email {email} in file — skipped')
+            continue
+        seen_emails.add(email)
+
+        role = _map_position_to_role(position)
+
+        teacher_data = {
+            'first_name': first_name,
+            'last_name': last_name,
+            'email': email,
+            'phone': phone,
+            'role': role,
+            'role_display': dict(SchoolTeacher.ROLE_CHOICES).get(role, role),
+            'specialty': specialty,
+            'position_raw': position,
+            'type': emp_type,
+            'row': row_idx,
+        }
+
+        # Check if user already exists
+        if CustomUser.objects.filter(email=email).exists():
+            # Check if already linked to this school
+            user = CustomUser.objects.get(email=email)
+            already_linked = SchoolTeacher.objects.filter(school=school, teacher=user).exists()
+            teacher_data['already_linked'] = already_linked
+            if already_linked:
+                warnings.append(
+                    f'Row {row_idx}: {first_name} {last_name} ({email}) already in this school — will be skipped'
+                )
+            teachers_existing.append(teacher_data)
+        else:
+            teachers_new.append(teacher_data)
+
+    return {
+        'teachers_new': teachers_new,
+        'teachers_existing': teachers_existing,
+        'errors': errors,
+        'warnings': warnings,
+    }
+
+
+@transaction.atomic
+def execute_teacher_import(preview_data, school, imported_by):
+    """
+    Create teacher accounts and link them to the school.
+    Returns dict with counts and credentials for new teachers.
+    """
+    credentials = []
+    counts = {
+        'teachers_created': 0,
+        'teachers_linked': 0,
+        'teachers_skipped': 0,
+    }
+
+    all_teachers = preview_data['teachers_new'] + preview_data['teachers_existing']
+
+    for tdata in all_teachers:
+        email = tdata['email']
+        is_new = not CustomUser.objects.filter(email=email).exists()
+
+        if is_new:
+            password = get_random_string(10)
+            base_username = slugify(
+                f"{tdata['first_name']}.{tdata['last_name']}"
+            ).replace('-', '.')
+            if not base_username:
+                base_username = email.split('@')[0]
+            username = base_username
+            suffix = 1
+            while CustomUser.objects.filter(username=username).exists():
+                username = f'{base_username}{suffix}'
+                suffix += 1
+
+            user = CustomUser.objects.create_user(
+                username=username,
+                email=email,
+                password=password,
+                first_name=tdata['first_name'],
+                last_name=tdata['last_name'],
+            )
+            user.must_change_password = True
+            if tdata.get('phone'):
+                user.phone = tdata['phone']
+            user.save()
+
+            # Assign system role
+            system_role_name = _role_to_system_role(tdata['role'])
+            role_obj, _ = Role.objects.get_or_create(
+                name=system_role_name,
+                defaults={'display_name': system_role_name.replace('_', ' ').title()},
+            )
+            UserRole.objects.get_or_create(user=user, role=role_obj)
+
+            credentials.append({
+                'username': username,
+                'email': email,
+                'password': password,
+                'first_name': tdata['first_name'],
+                'last_name': tdata['last_name'],
+                'role': tdata['role_display'],
+            })
+            counts['teachers_created'] += 1
+        else:
+            user = CustomUser.objects.get(email=email)
+            password = None
+
+        # Link to school (skip if already linked)
+        st, created = SchoolTeacher.objects.get_or_create(
+            school=school, teacher=user,
+            defaults={
+                'role': tdata['role'],
+                'specialty': tdata.get('specialty', ''),
+                'is_active': True,
+            },
+        )
+        # Store pending password for publish email (new users only)
+        if is_new and password and created:
+            st.pending_password = password
+            st.save(update_fields=['pending_password'])
+        if created:
+            counts['teachers_linked'] += 1
+            # Ensure user has teacher system role
+            if is_new is False:
+                system_role_name = _role_to_system_role(tdata['role'])
+                role_obj, _ = Role.objects.get_or_create(
+                    name=system_role_name,
+                    defaults={'display_name': system_role_name.replace('_', ' ').title()},
+                )
+                UserRole.objects.get_or_create(user=user, role=role_obj)
+        else:
+            counts['teachers_skipped'] += 1
+
+    return {
+        'counts': counts,
+        'credentials': credentials,
+    }

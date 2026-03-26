@@ -7,11 +7,11 @@ from django.contrib import messages
 from django.utils import timezone
 
 from accounts.models import Role
+from audit.services import log_event
 from billing.mixins import ModuleRequiredMixin
 from billing.models import ModuleSubscription
 from .views import RoleRequiredMixin
 from .notifications import create_notification
-from audit.services import log_event
 from .models import (
     ClassRoom, ClassStudent, Enrollment, ClassSession,
     StudentAttendance, Notification, Department,
@@ -76,6 +76,16 @@ class JoinClassByCodeView(RoleRequiredMixin, View):
                 )
                 # Notify teachers about the re-request
                 _notify_class_teachers(classroom, request.user, is_re_request=True)
+                log_event(
+                    user=request.user,
+                    school=classroom.school if classroom.school_id else None,
+                    category='data_change',
+                    action='enrollment_requested',
+                    detail={'enrollment_id': existing_enrollment.id,
+                            'classroom_id': classroom.id, 'classroom': classroom.name,
+                            'code': code, 're_request': True},
+                    request=request,
+                )
                 messages.success(
                     request,
                     f'Your enrollment request for "{classroom.name}" has been '
@@ -84,7 +94,7 @@ class JoinClassByCodeView(RoleRequiredMixin, View):
             return render(request, 'student/join_class.html', {'code': code})
 
         # Create a new pending enrollment request
-        Enrollment.objects.create(
+        enrollment = Enrollment.objects.create(
             classroom=classroom,
             student=request.user,
             status='pending',
@@ -94,12 +104,13 @@ class JoinClassByCodeView(RoleRequiredMixin, View):
         _notify_class_teachers(classroom, request.user)
 
         log_event(
-            user=request.user, school=classroom.school,
-            category='data_change', action='enrollment_requested',
-            detail={
-                'student': request.user.username,
-                'class_code': code,
-            },
+            user=request.user,
+            school=classroom.school if classroom.school_id else None,
+            category='data_change',
+            action='enrollment_requested',
+            detail={'enrollment_id': enrollment.id,
+                    'classroom_id': classroom.id, 'classroom': classroom.name,
+                    'code': code},
             request=request,
         )
         messages.success(
