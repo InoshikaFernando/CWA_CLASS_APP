@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Manage Teachers — {{ school.name }}{% endblock %}
+{% block title %}Manage Staff — {{ school.name }}{% endblock %}
 
 {% block content %}
 <div class="max-w-7xl mx-auto" :class="hasChanges ? 'pb-24' : ''"
@@ -19,16 +19,25 @@
     <a href="{% url 'admin_school_detail' school.id %}" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back to {{ school.name }}</a>
     <div class="flex items-center justify-between mt-2">
       <div>
-        <h1 class="text-2xl font-display font-bold text-gray-900">Manage Teachers</h1>
+        <h1 class="text-2xl font-display font-bold text-gray-900">Manage Staff</h1>
         <p class="text-gray-500 mt-1">{{ school.name }}</p>
       </div>
-      <button @click="showAddModal = true" type="button"
-              class="inline-flex items-center gap-2 px-5 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm">
-        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-        </svg>
-        Add Teacher
-      </button>
+      <div class="flex items-center gap-2">
+        <a href="{% url 'teacher_csv_upload' %}"
+           class="inline-flex items-center gap-2 px-5 py-2.5 bg-white text-gray-700 font-semibold rounded-xl border border-slate-200 hover:bg-gray-50 transition shadow-sm">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+          </svg>
+          Import from CSV/XLS
+        </a>
+        <button @click="showAddModal = true" type="button"
+                class="inline-flex items-center gap-2 px-5 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+          </svg>
+          Add Staff
+        </button>
+      </div>
     </div>
   </div>
 
@@ -43,7 +52,7 @@
         </div>
         <div>
           <p class="text-2xl font-bold text-gray-900">{{ school_teachers|length }}</p>
-          <p class="text-sm text-gray-500">Total Teachers</p>
+          <p class="text-sm text-gray-500">Total Staff</p>
         </div>
       </div>
     </div>
@@ -62,21 +71,21 @@
     </div>
   </div>
 
-  <!-- Add Teacher Modal -->
+  <!-- Add Staff Modal -->
   <div x-show="showAddModal" x-cloak
        class="fixed inset-0 z-50 flex items-center justify-center"
        @keydown.escape.window="showAddModal = false">
     <div class="fixed inset-0 bg-black/50 backdrop-blur-sm" @click="showAddModal = false"></div>
     <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6" @click.stop>
       <div class="flex items-center justify-between mb-5">
-        <h2 class="text-lg font-semibold text-gray-900">Add New Teacher</h2>
+        <h2 class="text-lg font-semibold text-gray-900">Add New Staff Member</h2>
         <button @click="showAddModal = false" type="button" class="text-gray-400 hover:text-gray-600 transition">
           <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
           </svg>
         </button>
       </div>
-      <form method="post">
+      <form method="post" x-data="{ selectedRole: '{{ form_data.role|default:'teacher' }}' }">
         {% csrf_token %}
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
@@ -116,13 +125,22 @@
           </div>
           <div>
             <label for="role" class="block text-sm font-medium text-gray-700 mb-1">Role</label>
-            <select name="role" id="role"
+            <select name="role" id="role" x-model="selectedRole"
                     class="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent focus:border-accent transition">
               {% for value, label in role_choices %}
                 <option value="{{ value }}" {% if form_data.role == value %}selected{% endif %}>{{ label }}</option>
               {% endfor %}
             </select>
           </div>
+        </div>
+        <!-- Additional Roles -->
+        <div class="mt-4" x-show="selectedRole !== 'accountant'" x-transition>
+          <label class="block text-sm font-medium text-gray-700 mb-2">Additional Roles</label>
+          <label class="inline-flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+            <input type="checkbox" name="additional_roles" value="accountant"
+                   class="rounded border-slate-300 text-accent focus:ring-accent">
+            Also assign as Accountant
+          </label>
         </div>
         <div class="mt-4">
           <label for="specialty" class="block text-sm font-medium text-gray-700 mb-1">Specialty / Notes</label>
@@ -136,7 +154,7 @@
                   class="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 transition">Cancel</button>
           <button type="submit"
                   class="px-6 py-2 bg-accent text-white text-sm font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm">
-            Add Teacher
+            Add Staff
           </button>
         </div>
       </form>
@@ -145,7 +163,7 @@
 
   <!-- Section heading + Show Inactive toggle -->
   <div class="flex items-center justify-between mb-4">
-    <h2 class="text-lg font-semibold text-gray-900">All Teachers</h2>
+    <h2 class="text-lg font-semibold text-gray-900">All Staff</h2>
     <a href="{% url 'admin_school_teachers' school.id %}{% if not show_inactive %}?show_inactive=1{% endif %}"
        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition
          {% if show_inactive %}bg-amber-100 text-amber-700 hover:bg-amber-200{% else %}text-gray-500 hover:text-gray-700 hover:bg-gray-100{% endif %}">
@@ -164,7 +182,7 @@
           <svg class="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
           </svg>
-          <input type="text" x-model="search" placeholder="Search teachers..."
+          <input type="text" x-model="search" placeholder="Search staff..."
                  class="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
         </div>
         <select x-model="roleFilter"
@@ -175,6 +193,7 @@
           <option value="senior_teacher">Senior Teacher</option>
           <option value="teacher">Teacher</option>
           <option value="junior_teacher">Junior Teacher</option>
+          <option value="accountant">Accountant</option>
         </select>
       </div>
 
@@ -206,6 +225,7 @@
                       {% elif st.role == 'head_of_department' %}bg-emerald-100 text-emerald-700
                       {% elif st.role == 'senior_teacher' %}bg-indigo-100 text-indigo-700
                       {% elif st.role == 'teacher' %}bg-blue-100 text-blue-700
+                      {% elif st.role == 'accountant' %}bg-violet-100 text-violet-700
                       {% else %}bg-sky-100 text-sky-700{% endif %}">
                       {{ st.get_role_display }}
                     </span>
@@ -304,7 +324,7 @@
             <div class="flex items-center gap-3">
               <div class="w-2 h-2 rounded-full bg-accent animate-pulse"></div>
               <p class="text-sm font-medium text-gray-700">
-                <span x-text="modifiedIds.size"></span> teacher<span x-show="modifiedIds.size !== 1">s</span> modified
+                <span x-text="modifiedIds.size"></span> staff member<span x-show="modifiedIds.size !== 1">s</span> modified
               </p>
             </div>
             <div class="flex items-center gap-3">
@@ -327,8 +347,8 @@
       <svg class="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 4.5 0Z"/>
       </svg>
-      <h3 class="text-lg font-semibold text-gray-700 mb-2">No teachers yet</h3>
-      <p class="text-gray-500 mb-4">Use the form above to add your first teacher.</p>
+      <h3 class="text-lg font-semibold text-gray-700 mb-2">No staff yet</h3>
+      <p class="text-gray-500 mb-4">Use the button above to add your first staff member.</p>
     </div>
   {% endif %}
 

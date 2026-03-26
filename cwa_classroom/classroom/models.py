@@ -133,12 +133,19 @@ class School(models.Model):
         help_text='Number of days after issue date before payment is due.',
     )
     # Company / structured address
-    abn = models.CharField('ABN / Tax ID', max_length=50, blank=True)
+    abn = models.CharField('Business Registration Number', max_length=50, blank=True)
+    gst_number = models.CharField('GST / VAT Number', max_length=50, blank=True)
     street_address = models.CharField(max_length=255, blank=True)
     city = models.CharField(max_length=100, blank=True)
     state_region = models.CharField(max_length=100, blank=True)
     postal_code = models.CharField(max_length=20, blank=True)
     country = models.CharField(max_length=100, blank=True)
+    # Branding & email
+    logo = models.ImageField(upload_to='school_logos/', blank=True)
+    outgoing_email = models.EmailField(
+        blank=True,
+        help_text='Outgoing email address used for invoices and communications.',
+    )
 
     # Suspension
     is_suspended = models.BooleanField(default=False)
@@ -150,6 +157,13 @@ class School(models.Model):
         on_delete=models.SET_NULL,
         related_name='+',
     )
+
+    # Publish workflow
+    is_published = models.BooleanField(
+        default=False,
+        help_text='Whether the school has been published. Unpublished schools are in setup mode.',
+    )
+    published_at = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -187,6 +201,34 @@ class School(models.Model):
         )
         UserRole.objects.get_or_create(user_id=self.admin_id, role=hoi_role)
 
+    # Settings fields that can be overridden at department level
+    SETTINGS_FIELDS = [
+        'bank_name', 'bank_bsb', 'bank_account_number', 'bank_account_name',
+        'invoice_terms', 'invoice_due_days',
+        'outgoing_email',
+        'abn', 'gst_number',
+        'street_address', 'city', 'state_region', 'postal_code', 'country',
+        'logo',
+    ]
+
+    def get_effective_settings(self, department=None):
+        """Return settings dict, applying department overrides where non-null/non-blank."""
+        result = {}
+        for field in self.SETTINGS_FIELDS:
+            result[field] = getattr(self, field)
+        if department:
+            for field in self.SETTINGS_FIELDS:
+                dept_val = getattr(department, field, None)
+                if dept_val is None:
+                    continue
+                # For FileField/ImageField, check truthiness (empty FieldFile is falsy)
+                if hasattr(dept_val, 'name'):
+                    if dept_val:
+                        result[field] = dept_val
+                elif dept_val != '':
+                    result[field] = dept_val
+        return result
+
 
 class SchoolTeacher(models.Model):
     """Through table: links a teacher to a school with a seniority role."""
@@ -196,6 +238,7 @@ class SchoolTeacher(models.Model):
         ('senior_teacher', 'Senior Teacher'),
         ('teacher', 'Teacher'),
         ('junior_teacher', 'Junior Teacher'),
+        ('accountant', 'Accountant'),
     ]
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='school_teachers')
     teacher = models.ForeignKey(
@@ -207,6 +250,14 @@ class SchoolTeacher(models.Model):
     specialty = models.CharField(max_length=200, blank=True)
     is_active = models.BooleanField(default=True)
     joined_at = models.DateTimeField(auto_now_add=True)
+    notified_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text='When the teacher was notified about being added to this school.',
+    )
+    pending_password = models.CharField(
+        max_length=50, blank=True,
+        help_text='Temporary plain-text password stored until publish email is sent, then cleared.',
+    )
 
     class Meta:
         unique_together = ('school', 'teacher')
@@ -243,6 +294,23 @@ class Department(models.Model):
         null=True, blank=True,
         help_text='Default fee (NZD) for all subjects/levels/classes in this department.',
     )
+    # ── Settings overrides (blank = use school default) ──
+    bank_name = models.CharField(max_length=100, blank=True)
+    bank_bsb = models.CharField('BSB', max_length=20, blank=True)
+    bank_account_number = models.CharField(max_length=30, blank=True)
+    bank_account_name = models.CharField(max_length=200, blank=True)
+    invoice_terms = models.TextField(blank=True)
+    invoice_due_days = models.PositiveIntegerField(null=True, blank=True)
+    outgoing_email = models.EmailField(blank=True)
+    abn = models.CharField('Business Registration Number', max_length=50, blank=True)
+    gst_number = models.CharField('GST / VAT Number', max_length=50, blank=True)
+    street_address = models.CharField(max_length=255, blank=True)
+    city = models.CharField(max_length=100, blank=True)
+    state_region = models.CharField(max_length=100, blank=True)
+    postal_code = models.CharField(max_length=20, blank=True)
+    country = models.CharField(max_length=100, blank=True)
+    logo = models.ImageField(upload_to='department_logos/', blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -574,6 +642,14 @@ class SchoolStudent(models.Model):
     opening_balance = models.DecimalField(
         max_digits=10, decimal_places=2, default=0,
         help_text='Outstanding amount from before the system. Consumed on first invoice.',
+    )
+    notified_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text='When the student was notified about being added to this school.',
+    )
+    pending_password = models.CharField(
+        max_length=50, blank=True,
+        help_text='Temporary plain-text password stored until publish email is sent, then cleared.',
     )
 
     class Meta:

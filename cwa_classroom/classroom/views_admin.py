@@ -278,6 +278,41 @@ class SchoolDeleteView(RoleRequiredMixin, View):
         return redirect('admin_school_toggle_active', school_id=school_id)
 
 
+class SchoolPublishView(RoleRequiredMixin, View):
+    """Publish a school — sends notification emails to all students and teachers."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def post(self, request, school_id):
+        from .email_service import send_school_publish_notifications
+
+        school = _get_user_school_or_404(request.user, school_id)
+
+        if school.is_published:
+            messages.info(request, f'"{school.name}" is already published.')
+            return redirect('admin_school_detail', school_id=school.id)
+
+        # Publish the school
+        school.is_published = True
+        school.published_at = timezone.now()
+        school.save(update_fields=['is_published', 'published_at'])
+
+        # Send notifications to all students and teachers
+        result = send_school_publish_notifications(school)
+
+        messages.success(
+            request,
+            f'School "{school.name}" has been published! '
+            f'{result["sent"]} notification(s) sent.'
+        )
+        if result['failed']:
+            messages.warning(
+                request,
+                f'{result["failed"]} notification(s) failed to send.'
+            )
+
+        return redirect('admin_school_detail', school_id=school.id)
+
+
 class SchoolDetailView(RoleRequiredMixin, View):
     """Show detailed information about a school the admin/HoD owns."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
@@ -304,6 +339,75 @@ class SchoolDetailView(RoleRequiredMixin, View):
         })
 
 
+class SchoolSettingsView(RoleRequiredMixin, View):
+    """Manage institute settings: company details, banking, invoice config."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.ACCOUNTANT]
+
+    SETTINGS_FIELDS = [
+        # Company details
+        'abn', 'gst_number', 'street_address', 'city', 'state_region',
+        'postal_code', 'country',
+        # Contact & email
+        'outgoing_email',
+        # Banking & invoice
+        'bank_name', 'bank_bsb', 'bank_account_number', 'bank_account_name',
+        'invoice_terms', 'invoice_due_days',
+    ]
+
+    def _build_form_data(self, school):
+        data = {}
+        for field in self.SETTINGS_FIELDS:
+            data[field] = getattr(school, field, '')
+        return data
+
+    def get(self, request, school_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        tab = request.GET.get('tab', 'company')
+        return render(request, 'admin_dashboard/school_settings.html', {
+            'school': school,
+            'form_data': self._build_form_data(school),
+            'active_tab': tab,
+        })
+
+    def post(self, request, school_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        tab = request.POST.get('active_tab', 'company')
+
+        # Save text fields
+        for field in self.SETTINGS_FIELDS:
+            if field == 'invoice_due_days':
+                val = request.POST.get(field, '').strip()
+                if val:
+                    try:
+                        setattr(school, field, int(val))
+                    except ValueError:
+                        pass
+            else:
+                setattr(school, field, request.POST.get(field, '').strip())
+
+        # Handle logo upload
+        if 'logo' in request.FILES:
+            school.logo = request.FILES['logo']
+        if request.POST.get('remove_logo') == '1':
+            school.logo = ''
+
+        school.save()
+        messages.success(request, 'Settings saved successfully.')
+        return redirect(f"{reverse('admin_school_settings', kwargs={'school_id': school.id})}?tab={tab}")
+
+
+class ManageSettingsRedirectView(RoleRequiredMixin, View):
+    """Shortcut: redirects to the first school's settings page."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.ACCOUNTANT]
+
+    def get(self, request):
+        school = _get_user_school(request.user)
+        if school:
+            return redirect('admin_school_settings', school_id=school.id)
+        messages.info(request, 'Create a school first.')
+        return redirect('admin_school_create')
+
+
 class ManageTeachersRedirectView(RoleRequiredMixin, View):
     """Shortcut: redirects to the first school's teacher management page."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
@@ -312,7 +416,7 @@ class ManageTeachersRedirectView(RoleRequiredMixin, View):
         school = _get_user_school(request.user)
         if school:
             return redirect('admin_school_teachers', school_id=school.id)
-        messages.info(request, 'Create a school first before managing teachers.')
+        messages.info(request, 'Create a school first before managing staff.')
         return redirect('admin_school_create')
 
 
@@ -471,11 +575,24 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
                     system_role, _ = Role.objects.get_or_create(
                         name=Role.HEAD_OF_DEPARTMENT, defaults={'display_name': 'Head of Department'}
                     )
+                elif role == 'accountant':
+                    system_role, _ = Role.objects.get_or_create(
+                        name=Role.ACCOUNTANT, defaults={'display_name': 'Accountant'}
+                    )
                 else:
                     system_role, _ = Role.objects.get_or_create(
                         name=Role.TEACHER, defaults={'display_name': 'Teacher'}
                     )
                 UserRole.objects.create(user=user, role=system_role)
+
+                # Assign additional roles (multi-role support)
+                additional_roles = request.POST.getlist('additional_roles')
+                for extra_role_name in additional_roles:
+                    if extra_role_name == 'accountant' and role != 'accountant':
+                        extra_role, _ = Role.objects.get_or_create(
+                            name=Role.ACCOUNTANT, defaults={'display_name': 'Accountant'}
+                        )
+                        UserRole.objects.get_or_create(user=user, role=extra_role)
                 # Link to school with chosen seniority role
                 SchoolTeacher.objects.create(
                     school=school, teacher=user, role=role,
@@ -494,7 +611,7 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
                 school=school,
             )
         except Exception as e:
-            messages.error(request, f'Error creating teacher: {e}')
+            messages.error(request, f'Error creating staff member: {e}')
 
         return redirect('admin_school_teachers', school_id=school.id)
 
@@ -602,13 +719,27 @@ class SchoolTeacherBatchUpdateView(RoleRequiredMixin, View):
                 teacher.save()
 
                 if role in valid_roles:
+                    old_role = st.role
                     st.role = role
+                    # Update system role if role changed
+                    if role != old_role:
+                        if role == 'accountant':
+                            new_sys_role, _ = Role.objects.get_or_create(
+                                name=Role.ACCOUNTANT, defaults={'display_name': 'Accountant'}
+                            )
+                            UserRole.objects.get_or_create(user=teacher, role=new_sys_role)
+                        elif role in ('head_of_institute', 'head_of_department'):
+                            role_name = Role.HEAD_OF_INSTITUTE if role == 'head_of_institute' else Role.HEAD_OF_DEPARTMENT
+                            new_sys_role, _ = Role.objects.get_or_create(
+                                name=role_name, defaults={'display_name': dict(SchoolTeacher.ROLE_CHOICES).get(role)}
+                            )
+                            UserRole.objects.get_or_create(user=teacher, role=new_sys_role)
                 st.specialty = specialty
                 st.save()
                 updated += 1
 
         if updated:
-            messages.success(request, f'{updated} teacher{"s" if updated != 1 else ""} updated.')
+            messages.success(request, f'{updated} staff member{"s" if updated != 1 else ""} updated.')
         for err in errors:
             messages.error(request, err)
         return redirect('admin_school_teachers', school_id=school.id)
