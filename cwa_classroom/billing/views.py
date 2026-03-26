@@ -519,28 +519,41 @@ class ModuleToggleView(LoginRequiredMixin, View):
             return redirect('subjects_hub')
 
         sub = get_school_subscription(school)
-        if not sub or not sub.stripe_subscription_id:
+        if not sub:
             messages.error(request, 'Please subscribe to a plan first.')
             return redirect('institute_plan_select')
 
         from billing.models import ModuleProduct
         module_product = ModuleProduct.objects.filter(module=module_slug, is_active=True).first()
         stripe_price_id = module_product.stripe_price_id if module_product else ''
+        module_name = dict(ModuleSubscription.MODULE_CHOICES).get(module_slug, module_slug)
 
         try:
             if action == 'add':
-                if not stripe_price_id:
-                    messages.error(request, 'Module pricing not configured. Please contact support.')
-                    return redirect('institute_subscription_dashboard')
-                from billing.stripe_service import add_module_to_subscription
-                add_module_to_subscription(sub, module_slug, stripe_price_id)
-                module_name = dict(ModuleSubscription.MODULE_CHOICES).get(module_slug, module_slug)
+                if sub.stripe_subscription_id and stripe_price_id:
+                    # Production: add via Stripe
+                    from billing.stripe_service import add_module_to_subscription
+                    add_module_to_subscription(sub, module_slug, stripe_price_id)
+                else:
+                    # No Stripe subscription — activate locally (trial/test)
+                    ModuleSubscription.objects.update_or_create(
+                        school_subscription=sub,
+                        module=module_slug,
+                        defaults={'is_active': True, 'deactivated_at': None},
+                    )
                 messages.success(request, f'{module_name} module activated.')
             elif action == 'remove':
-                from billing.stripe_service import remove_module_from_subscription
-                removed = remove_module_from_subscription(sub, module_slug)
+                if sub.stripe_subscription_id:
+                    from billing.stripe_service import remove_module_from_subscription
+                    removed = remove_module_from_subscription(sub, module_slug)
+                else:
+                    # Local deactivation
+                    from django.utils import timezone as tz
+                    updated = ModuleSubscription.objects.filter(
+                        school_subscription=sub, module=module_slug, is_active=True,
+                    ).update(is_active=False, deactivated_at=tz.now())
+                    removed = updated > 0
                 if removed:
-                    module_name = dict(ModuleSubscription.MODULE_CHOICES).get(module_slug, module_slug)
                     messages.success(request, f'{module_name} module deactivated.')
                 else:
                     messages.info(request, 'Module was not active.')
