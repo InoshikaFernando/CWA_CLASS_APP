@@ -46,6 +46,12 @@ urlpatterns = [
     path('import-balances/preview/', views.BalanceCSVPreviewView.as_view(), name='balance_csv_preview'),
     path('import-balances/confirm/', views.BalanceCSVConfirmView.as_view(), name='balance_csv_confirm'),
 
+    # CSV teacher import
+    path('import-teachers/', views.TeacherCSVUploadView.as_view(), name='teacher_csv_upload'),
+    path('import-teachers/preview/', views.TeacherCSVPreviewView.as_view(), name='teacher_csv_preview'),
+    path('import-teachers/confirm/', views.TeacherCSVConfirmView.as_view(), name='teacher_csv_confirm'),
+    path('import-teachers/credentials/', views.TeacherCSVCredentialsView.as_view(), name='teacher_csv_credentials'),
+
     # Question management
     path('upload-questions/', views.UploadQuestionsView.as_view(), name='upload_questions'),
     path('level/<int:level_number>/questions/', views.QuestionListView.as_view(), name='question_list'),
@@ -69,6 +75,7 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/settings/', views_admin.SchoolSettingsView.as_view(), name='admin_school_settings'),
     path('admin-dashboard/schools/<int:school_id>/toggle-active/', views_admin.SchoolToggleActiveView.as_view(), name='admin_school_toggle_active'),
     path('admin-dashboard/schools/<int:school_id>/delete/', views_admin.SchoolDeleteView.as_view(), name='admin_school_delete'),
+    path('admin-dashboard/schools/<int:school_id>/publish/', views_admin.SchoolPublishView.as_view(), name='admin_school_publish'),
     path('admin-dashboard/schools/<int:school_id>/teachers/', views_admin.SchoolTeacherManageView.as_view(), name='admin_school_teachers'),
     path('admin-dashboard/schools/<int:school_id>/teachers/<int:teacher_id>/edit/', views_admin.SchoolTeacherEditView.as_view(), name='admin_school_teacher_edit'),
     path('admin-dashboard/schools/<int:school_id>/teachers/<int:teacher_id>/remove/', views_admin.SchoolTeacherRemoveView.as_view(), name='admin_school_teacher_remove'),

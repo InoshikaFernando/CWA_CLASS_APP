@@ -278,6 +278,41 @@ class SchoolDeleteView(RoleRequiredMixin, View):
         return redirect('admin_school_toggle_active', school_id=school_id)
 
 
+class SchoolPublishView(RoleRequiredMixin, View):
+    """Publish a school — sends notification emails to all students and teachers."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def post(self, request, school_id):
+        from .email_service import send_school_publish_notifications
+
+        school = _get_user_school_or_404(request.user, school_id)
+
+        if school.is_published:
+            messages.info(request, f'"{school.name}" is already published.')
+            return redirect('admin_school_detail', school_id=school.id)
+
+        # Publish the school
+        school.is_published = True
+        school.published_at = timezone.now()
+        school.save(update_fields=['is_published', 'published_at'])
+
+        # Send notifications to all students and teachers
+        result = send_school_publish_notifications(school)
+
+        messages.success(
+            request,
+            f'School "{school.name}" has been published! '
+            f'{result["sent"]} notification(s) sent.'
+        )
+        if result['failed']:
+            messages.warning(
+                request,
+                f'{result["failed"]} notification(s) failed to send.'
+            )
+
+        return redirect('admin_school_detail', school_id=school.id)
+
+
 class SchoolDetailView(RoleRequiredMixin, View):
     """Show detailed information about a school the admin/HoD owns."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]

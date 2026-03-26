@@ -1597,6 +1597,152 @@ class BalanceCSVConfirmView(RoleRequiredMixin, View):
         })
 
 
+# ── Teacher CSV/XLS Import ──────────────────────────────────
+
+class TeacherCSVUploadView(RoleRequiredMixin, View):
+    """Step 1: Upload CSV/XLS and map columns for teacher import."""
+    required_roles = IMPORT_ROLES
+
+    def get(self, request):
+        from . import import_services as isvc
+        return render(request, 'admin/csv_teacher_upload.html', {
+            'source_presets': isvc.TEACHER_PRESETS,
+        })
+
+    def post(self, request):
+        from . import import_services as isvc
+        csv_file = request.FILES.get('csv_file')
+        if not csv_file:
+            messages.error(request, 'Please select a file.')
+            return redirect('teacher_csv_upload')
+        if csv_file.size > isvc.MAX_CSV_SIZE:
+            messages.error(request, 'File exceeds 10 MB limit.')
+            return redirect('teacher_csv_upload')
+        try:
+            headers, data_rows = isvc.parse_upload_file(csv_file.read(), csv_file.name)
+        except ValueError as e:
+            messages.error(request, str(e))
+            return redirect('teacher_csv_upload')
+
+        request.session['csv_teacher_headers'] = headers
+        request.session['csv_teacher_data'] = data_rows
+
+        # Auto-apply preset if selected
+        source_preset = request.POST.get('source_preset', '')
+        preset_mapping = {}
+        if source_preset and source_preset in isvc.TEACHER_PRESETS:
+            preset_mapping = isvc.apply_teacher_preset(source_preset, headers)
+
+        return render(request, 'admin/csv_teacher_upload.html', {
+            'headers': headers,
+            'preview_rows': data_rows[:5],
+            'column_fields': isvc.TEACHER_COLUMN_FIELDS,
+            'source_presets': isvc.TEACHER_PRESETS,
+            'selected_preset': source_preset,
+            'preset_mapping': preset_mapping,
+            'show_mapping': True,
+        })
+
+
+class TeacherCSVPreviewView(RoleRequiredMixin, View):
+    """Step 2: Validate columns and show teacher preview."""
+    required_roles = IMPORT_ROLES
+
+    def _get_school(self, request):
+        school_id = SchoolTeacher.objects.filter(
+            teacher=request.user, is_active=True,
+        ).values_list('school_id', flat=True).first()
+        if not school_id and request.user.is_superuser:
+            school_id = School.objects.first()
+            school_id = school_id.id if school_id else None
+        return School.objects.get(id=school_id) if school_id else None
+
+    def post(self, request):
+        from . import import_services as isvc
+        data_rows = request.session.get('csv_teacher_data')
+        if not data_rows:
+            messages.error(request, 'No CSV data. Please upload again.')
+            return redirect('teacher_csv_upload')
+
+        school = self._get_school(request)
+        if not school:
+            messages.error(request, 'No school found.')
+            return redirect('teacher_csv_upload')
+
+        column_mapping = isvc._build_teacher_column_mapping(request.POST)
+        preview = isvc.validate_teacher_preview(data_rows, column_mapping, school)
+
+        if preview['errors']:
+            for err in preview['errors']:
+                messages.error(request, err)
+            return redirect('teacher_csv_upload')
+
+        request.session['csv_teacher_preview'] = preview
+        request.session['csv_teacher_school_id'] = school.id
+
+        return render(request, 'admin/csv_teacher_preview.html', {
+            'preview': preview,
+            'school': school,
+        })
+
+
+class TeacherCSVConfirmView(RoleRequiredMixin, View):
+    """Step 3: Execute teacher import and show results."""
+    required_roles = IMPORT_ROLES
+
+    def post(self, request):
+        from . import import_services as isvc
+        preview = request.session.get('csv_teacher_preview')
+        school_id = request.session.get('csv_teacher_school_id')
+        if not preview or not school_id:
+            messages.error(request, 'Session expired. Please upload again.')
+            return redirect('teacher_csv_upload')
+
+        school = School.objects.get(id=school_id)
+
+        try:
+            results = isvc.execute_teacher_import(preview, school, request.user)
+        except Exception as e:
+            logger.exception('Teacher import failed')
+            messages.error(request, f'Import failed: {e}')
+            return redirect('teacher_csv_upload')
+
+        # Store credentials for download
+        request.session['csv_teacher_credentials'] = results['credentials']
+
+        # Clear session data
+        for key in ('csv_teacher_data', 'csv_teacher_headers', 'csv_teacher_preview',
+                     'csv_teacher_school_id'):
+            request.session.pop(key, None)
+
+        return render(request, 'admin/csv_teacher_results.html', {
+            'results': results,
+            'school': school,
+        })
+
+
+class TeacherCSVCredentialsView(RoleRequiredMixin, View):
+    """Download generated teacher credentials as CSV."""
+    required_roles = IMPORT_ROLES
+
+    def get(self, request):
+        import csv as csv_mod
+        from django.http import HttpResponse
+        credentials = request.session.get('csv_teacher_credentials', [])
+        if not credentials:
+            messages.error(request, 'No credentials available.')
+            return redirect('teacher_csv_upload')
+
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="teacher_credentials.csv"'
+        writer = csv_mod.writer(response)
+        writer.writerow(['Username', 'Email', 'Password', 'First Name', 'Last Name', 'Role'])
+        for c in credentials:
+            writer.writerow([c['username'], c['email'], c['password'],
+                           c['first_name'], c['last_name'], c['role']])
+        return response
+
+
 class UploadQuestionsView(RoleRequiredMixin, View):
     required_roles = [
         Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,

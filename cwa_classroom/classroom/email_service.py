@@ -210,3 +210,100 @@ def _resolve_campaign_recipients(campaign):
         CustomUser.objects.filter(id__in=user_ids, is_active=True)
         .exclude(email='')
     )
+
+
+def send_school_publish_notifications(school):
+    """Send notification emails to all students and teachers when a school is published.
+
+    Updates notified_at on SchoolStudent and SchoolTeacher records.
+    Returns dict with sent/failed counts.
+    """
+    from .models import SchoolStudent, SchoolTeacher
+
+    now = timezone.now()
+    sent = 0
+    failed = 0
+
+    # Notify students (who haven't been notified yet)
+    school_students = SchoolStudent.objects.filter(
+        school=school, is_active=True, notified_at__isnull=True,
+    ).select_related('student')
+
+    for i, ss in enumerate(school_students):
+        user = ss.student
+        if not user.email:
+            failed += 1
+            continue
+
+        ctx = {
+            'school_name': school.name,
+            'role_display': 'Student',
+        }
+        # Include credentials if available (new user created during import)
+        if ss.pending_password:
+            ctx['credentials_username'] = user.username
+            ctx['credentials_email'] = user.email
+            ctx['credentials_password'] = ss.pending_password
+
+        success = send_templated_email(
+            recipient_email=user.email,
+            subject=f'Welcome to {school.name}',
+            template_name='email/transactional/school_published.html',
+            context=ctx,
+            recipient_user=user,
+            notification_type='school_published',
+        )
+
+        if success:
+            ss.notified_at = now
+            ss.pending_password = ''  # Clear after sending
+            ss.save(update_fields=['notified_at', 'pending_password'])
+            sent += 1
+        else:
+            failed += 1
+
+        if (i + 1) % BATCH_SIZE == 0:
+            time.sleep(BATCH_PAUSE_SECONDS)
+
+    # Notify teachers (who haven't been notified yet)
+    school_teachers = SchoolTeacher.objects.filter(
+        school=school, is_active=True, notified_at__isnull=True,
+    ).select_related('teacher')
+
+    for i, st in enumerate(school_teachers):
+        user = st.teacher
+        if not user.email:
+            failed += 1
+            continue
+
+        ctx = {
+            'school_name': school.name,
+            'role_display': st.get_role_display(),
+        }
+        # Include credentials if available (new user created during import)
+        if st.pending_password:
+            ctx['credentials_username'] = user.username
+            ctx['credentials_email'] = user.email
+            ctx['credentials_password'] = st.pending_password
+
+        success = send_templated_email(
+            recipient_email=user.email,
+            subject=f'Welcome to {school.name}',
+            template_name='email/transactional/school_published.html',
+            context=ctx,
+            recipient_user=user,
+            notification_type='school_published',
+        )
+
+        if success:
+            st.notified_at = now
+            st.pending_password = ''  # Clear after sending
+            st.save(update_fields=['notified_at', 'pending_password'])
+            sent += 1
+        else:
+            failed += 1
+
+        if (i + 1) % BATCH_SIZE == 0:
+            time.sleep(BATCH_PAUSE_SECONDS)
+
+    return {'sent': sent, 'failed': failed}

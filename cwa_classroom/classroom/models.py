@@ -158,6 +158,13 @@ class School(models.Model):
         related_name='+',
     )
 
+    # Publish workflow
+    is_published = models.BooleanField(
+        default=False,
+        help_text='Whether the school has been published. Unpublished schools are in setup mode.',
+    )
+    published_at = models.DateTimeField(null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -243,6 +250,14 @@ class SchoolTeacher(models.Model):
     specialty = models.CharField(max_length=200, blank=True)
     is_active = models.BooleanField(default=True)
     joined_at = models.DateTimeField(auto_now_add=True)
+    notified_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text='When the teacher was notified about being added to this school.',
+    )
+    pending_password = models.CharField(
+        max_length=50, blank=True,
+        help_text='Temporary plain-text password stored until publish email is sent, then cleared.',
+    )
 
     class Meta:
         unique_together = ('school', 'teacher')
@@ -627,6 +642,14 @@ class SchoolStudent(models.Model):
     opening_balance = models.DecimalField(
         max_digits=10, decimal_places=2, default=0,
         help_text='Outstanding amount from before the system. Consumed on first invoice.',
+    )
+    notified_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text='When the student was notified about being added to this school.',
+    )
+    pending_password = models.CharField(
+        max_length=50, blank=True,
+        help_text='Temporary plain-text password stored until publish email is sent, then cleared.',
     )
 
     class Meta:
