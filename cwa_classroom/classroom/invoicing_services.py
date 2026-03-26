@@ -347,7 +347,13 @@ def issue_invoices(invoice_ids, user):
         for invoice in invoices:
             invoice.status = 'issued'
             invoice.issued_at = now
-            due_days = invoice.school.invoice_due_days or 30
+            # Get department for effective settings
+            first_li = invoice.line_items.select_related(
+                'classroom__department'
+            ).filter(classroom__department__isnull=False).first()
+            dept = first_li.classroom.department if first_li else None
+            eff = invoice.school.get_effective_settings(dept)
+            due_days = eff.get('invoice_due_days') or 30
             invoice.due_date = now.date() + timedelta(days=due_days)
             invoice.save(update_fields=[
                 'status', 'issued_at', 'due_date', 'updated_at',
@@ -375,7 +381,18 @@ def _send_invoice_email(invoice):
         return
 
     school = invoice.school
-    line_items = invoice.line_items.select_related('classroom').all()
+    line_items = invoice.line_items.select_related('classroom', 'classroom__department').all()
+
+    # Determine the primary department for settings overrides
+    # (use the first line item's department if available)
+    primary_dept = None
+    for li in line_items:
+        if li.classroom and li.classroom.department:
+            primary_dept = li.classroom.department
+            break
+
+    # Get effective settings (department overrides applied if present)
+    eff = school.get_effective_settings(primary_dept)
 
     # Format dates
     invoice_date = ''
@@ -430,13 +447,13 @@ def _send_invoice_email(invoice):
             for li in line_items
         ],
         'total': invoice.calculated_amount,
-        # Bank details
-        'bank_account_name': school.bank_account_name or '',
-        'bank_bsb': school.bank_bsb or '',
-        'bank_account_number': school.bank_account_number or '',
-        'bank_name': school.bank_name or '',
-        # Terms & Notes
-        'invoice_terms': school.invoice_terms or '',
+        # Bank details (with department overrides applied)
+        'bank_account_name': eff.get('bank_account_name', ''),
+        'bank_bsb': eff.get('bank_bsb', ''),
+        'bank_account_number': eff.get('bank_account_number', ''),
+        'bank_name': eff.get('bank_name', ''),
+        # Terms & Notes (with department overrides applied)
+        'invoice_terms': eff.get('invoice_terms', ''),
         'notes': invoice.notes or '',
     }
 

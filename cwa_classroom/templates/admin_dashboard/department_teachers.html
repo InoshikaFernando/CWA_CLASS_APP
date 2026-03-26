@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Manage Teachers — {{ department.name }}{% endblock %}
+{% block title %}Manage Staff — {{ department.name }}{% endblock %}
 
 {% block content %}
 <div class="max-w-3xl mx-auto">
@@ -8,13 +8,13 @@
   <!-- Header -->
   <div class="mb-8">
     <a href="{% url 'admin_department_detail' school.id department.id %}" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back to {{ department.name }}</a>
-    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Manage Department Teachers</h1>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Manage Department Staff</h1>
     <p class="text-gray-500 mt-1">{{ department.name }} — {{ school.name }}</p>
   </div>
 
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
     <div class="p-6 border-b border-slate-100">
-      <p class="text-sm text-gray-500">Select teachers from {{ school.name }} to add to this department. Teachers already in the department are pre-checked.</p>
+      <p class="text-sm text-gray-500">Select staff from {{ school.name }} to add to this department. Staff already in the department are pre-checked.</p>
     </div>
     <div class="p-6">
       {% if school_teachers %}
@@ -50,7 +50,7 @@
           </button>
         </form>
       {% else %}
-        <p class="text-sm text-gray-400 text-center py-6">No teachers at this school yet. Add teachers to the school first.</p>
+        <p class="text-sm text-gray-400 text-center py-6">No staff at this school yet. Add staff to the school first.</p>
       {% endif %}
     </div>
   </div>

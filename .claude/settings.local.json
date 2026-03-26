@@ -401,7 +401,13 @@
       "Bash(DB_ENGINE=sqlite python manage.py test classroom.tests.test_soft_delete --verbosity=2)",
       "Bash(DB_ENGINE=sqlite python manage.py test classroom.tests.test_invoice_edit --verbosity=2)",
       "mcp__5ef70484-069b-4230-bf47-89324f7b64fc__createJiraIssue",
-      "Bash(DB_ENGINE=sqlite python manage.py test billing.tests_admin classroom.tests.test_csv_student_import classroom.tests.test_invoice_edit --verbosity=1)"
+      "Bash(ls -la /c/Source/CWA_SCHOOL_APP_2/cwa_classroom/classroom/views*.py)",
+      "Bash(ls -la /c/Source/CWA_SCHOOL_APP_2/cwa_classroom/billing/views*.py)",
+      "Bash(ls /c/Source/CWA_SCHOOL_APP_2/cwa_classroom/classroom/migrations/*.py)",
+      "Bash(find /c/Source/CWA_SCHOOL_APP_2/cwa_classroom/templates -name *school* -o -name *admin*setting*)",
+      "Bash(python manage.py makemigrations classroom --name institute_settings)",
+      "Bash(python manage.py test --verbosity=1)",
+      "Bash(DJANGO_SETTINGS_MODULE=cwa_classroom.settings python -c \":*)"
     ]
   }
 }

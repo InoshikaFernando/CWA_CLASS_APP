@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% load classroom_extras %}
-{% block title %}Manage Teachers{% endblock %}
+{% block title %}Manage Staff{% endblock %}
 {% block content %}
 <div class="max-w-4xl mx-auto space-y-6">
-  <h1 class="font-display text-3xl text-primary">Manage Teachers</h1>
+  <h1 class="font-display text-3xl text-primary">Manage Staff</h1>
   {% if classes %}
   <div class="space-y-4">
     {% for classroom in classes %}
@@ -12,7 +12,7 @@
         <h3 class="font-bold text-gray-800">{{ classroom.name }}</h3>
         <a href="{% url 'assign_teachers' class_id=classroom.id %}"
            class="text-sm bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-4 py-2 transition">
-          + Assign Teacher
+          + Assign Staff
         </a>
       </div>
       <div class="flex flex-wrap gap-2">
@@ -26,7 +26,7 @@
           {% endwith %}
         </span>
         {% empty %}
-          <span class="text-sm text-gray-400">No teachers assigned.</span>
+          <span class="text-sm text-gray-400">No staff assigned.</span>
         {% endfor %}
       </div>
     </div>

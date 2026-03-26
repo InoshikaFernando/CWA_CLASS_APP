@@ -1102,3 +1102,88 @@ class DepartmentDeleteView(RoleRequiredMixin, View):
         department.save(update_fields=['is_active'])
         messages.success(request, f'Department "{department.name}" has been deactivated.')
         return redirect('admin_school_departments', school_id=school.id)
+
+
+class DepartmentSettingsView(RoleRequiredMixin, View):
+    """Manage department-level settings overrides (banking, company, invoice)."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.ACCOUNTANT]
+
+    OVERRIDE_FIELDS = [
+        'bank_name', 'bank_bsb', 'bank_account_number', 'bank_account_name',
+        'invoice_terms', 'invoice_due_days',
+        'outgoing_email',
+        'abn', 'gst_number',
+        'street_address', 'city', 'state_region', 'postal_code', 'country',
+    ]
+
+    @staticmethod
+    def _is_field_set(value):
+        """Check if a field value is meaningfully set (not None/empty)."""
+        if value is None:
+            return False
+        if hasattr(value, 'name'):  # FileField/ImageField
+            return bool(value)
+        if isinstance(value, str) and value == '':
+            return False
+        return True
+
+    def _build_form_data(self, department, school):
+        """Build form data with department overrides and school defaults."""
+        data = {}
+        for field in self.OVERRIDE_FIELDS:
+            dept_val = getattr(department, field, None)
+            school_val = getattr(school, field, '')
+            is_set = self._is_field_set(dept_val)
+            data[field] = {
+                'value': dept_val if is_set else '',
+                'school_default': school_val,
+                'is_overridden': is_set,
+            }
+        return data
+
+    def _get_school(self, user, school_id):
+        from .views_admin import _get_user_school_or_404
+        return _get_user_school_or_404(user, school_id)
+
+    def get(self, request, school_id, dept_id):
+        school = self._get_school(request.user, school_id)
+        department = get_object_or_404(Department, id=dept_id, school=school)
+        return render(request, 'admin_dashboard/department_settings.html', {
+            'school': school,
+            'department': department,
+            'form_data': self._build_form_data(department, school),
+        })
+
+    def post(self, request, school_id, dept_id):
+        school = self._get_school(request.user, school_id)
+        department = get_object_or_404(Department, id=dept_id, school=school)
+
+        for field in self.OVERRIDE_FIELDS:
+            override_key = f'override_{field}'
+            is_overridden = request.POST.get(override_key) == '1'
+
+            if is_overridden:
+                val = request.POST.get(field, '').strip()
+                if field == 'invoice_due_days':
+                    try:
+                        setattr(department, field, int(val) if val else None)
+                    except ValueError:
+                        setattr(department, field, None)
+                else:
+                    setattr(department, field, val)
+            else:
+                # Clear override — revert to school default
+                if field == 'invoice_due_days':
+                    setattr(department, field, None)
+                else:
+                    setattr(department, field, '')
+
+        # Handle logo upload
+        if request.POST.get('override_logo') == '1' and 'logo' in request.FILES:
+            department.logo = request.FILES['logo']
+        if request.POST.get('remove_logo') == '1':
+            department.logo = ''
+
+        department.save()
+        messages.success(request, f'Settings for "{department.name}" saved successfully.')
+        return redirect('admin_department_settings', school_id=school.id, dept_id=department.id)

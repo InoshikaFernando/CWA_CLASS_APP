@@ -111,14 +111,14 @@
     </div>
   {% endif %}
 
-  <!-- School bank details -->
-  {% if invoice.amount_due > 0 and active_school.bank_name %}
+  <!-- School/department bank details (effective settings with dept overrides) -->
+  {% if invoice.amount_due > 0 and effective_settings.bank_name %}
     <div class="bg-violet-50 rounded-2xl border border-violet-100 p-6">
       <h3 class="font-semibold text-violet-700 mb-3">Payment Details</h3>
       <div class="grid grid-cols-2 gap-2 text-sm">
-        {% if active_school.bank_name %}<p class="text-gray-500">Bank</p><p class="text-gray-700 font-medium">{{ active_school.bank_name }}</p>{% endif %}
-        {% if active_school.bank_account_name %}<p class="text-gray-500">Account Name</p><p class="text-gray-700 font-medium">{{ active_school.bank_account_name }}</p>{% endif %}
-        {% if active_school.bank_account_number %}<p class="text-gray-500">Account Number</p><p class="text-gray-700 font-medium">{{ active_school.bank_account_number }}</p>{% endif %}
+        {% if effective_settings.bank_name %}<p class="text-gray-500">Bank</p><p class="text-gray-700 font-medium">{{ effective_settings.bank_name }}</p>{% endif %}
+        {% if effective_settings.bank_account_name %}<p class="text-gray-500">Account Name</p><p class="text-gray-700 font-medium">{{ effective_settings.bank_account_name }}</p>{% endif %}
+        {% if effective_settings.bank_account_number %}<p class="text-gray-500">Account Number</p><p class="text-gray-700 font-medium">{{ effective_settings.bank_account_number }}</p>{% endif %}
       </div>
       <p class="text-xs text-violet-500 mt-3">Please use invoice number <strong>{{ invoice.invoice_number }}</strong> as the payment reference.</p>
     </div>
