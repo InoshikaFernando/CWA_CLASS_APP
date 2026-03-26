@@ -9,6 +9,7 @@ from django.utils import timezone
 from django.db.models import Count, Q
 
 from accounts.models import Role
+from audit.services import log_event
 from billing.mixins import ModuleRequiredMixin
 from billing.models import ModuleSubscription
 from .views import RoleRequiredMixin
@@ -378,6 +379,18 @@ class EnrollmentApproveView(RoleRequiredMixin, View):
             notification_type='enrollment_approved',
         )
 
+        log_event(
+            user=request.user,
+            school=enrollment.classroom.school if enrollment.classroom.school_id else None,
+            category='data_change',
+            action='enrollment_approved',
+            detail={'enrollment_id': enrollment.id,
+                    'student_id': enrollment.student_id,
+                    'student': enrollment.student.username,
+                    'classroom_id': enrollment.classroom_id,
+                    'classroom': enrollment.classroom.name},
+            request=request,
+        )
         messages.success(
             request,
             f'{enrollment.student.username} has been approved for {enrollment.classroom.name}.',
@@ -422,6 +435,19 @@ class EnrollmentRejectView(RoleRequiredMixin, View):
             notification_type='enrollment_rejected',
         )
 
+        log_event(
+            user=request.user,
+            school=enrollment.classroom.school if enrollment.classroom.school_id else None,
+            category='data_change',
+            action='enrollment_rejected',
+            detail={'enrollment_id': enrollment.id,
+                    'student_id': enrollment.student_id,
+                    'student': enrollment.student.username,
+                    'classroom_id': enrollment.classroom_id,
+                    'classroom': enrollment.classroom.name,
+                    'reason': reason},
+            request=request,
+        )
         messages.success(
             request,
             f'{enrollment.student.username} has been rejected from {enrollment.classroom.name}.',

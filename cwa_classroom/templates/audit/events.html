@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block title %}Events{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="font-display text-2xl text-primary">Events</h1>
+    {% if is_superuser %}
+    <a href="{% url 'audit_dashboard' %}" class="text-blue-600 hover:underline text-sm">&larr; Audit Dashboard</a>
+    {% endif %}
+  </div>
+
+  <!-- Filters -->
+  <form method="get" class="bg-white rounded-2xl border border-slate-200 p-5 mb-6">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+
+      {% if is_superuser %}
+      <!-- School multi-select -->
+      <div x-data="{ open: false }" class="relative">
+        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Schools</label>
+        <button type="button" @click="open = !open" @click.outside="open = false"
+                class="w-full flex items-center justify-between px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg hover:border-gray-400 transition">
+          <span class="truncate">
+            {% if selected_schools %}{{ selected_schools|length }} selected{% else %}All Schools{% endif %}
+          </span>
+          <svg class="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
+          </svg>
+        </button>
+        <div x-show="open" x-transition x-cloak
+             class="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
+          {% for school in schools_list %}
+          <label class="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm">
+            <input type="checkbox" name="schools" value="{{ school.id }}"
+                   {% if school.id|stringformat:"d" in selected_schools %}checked{% endif %}
+                   class="rounded border-gray-300 text-accent focus:ring-accent">
+            <span class="truncate">{{ school.name }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Category -->
+      <div>
+        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Category</label>
+        <select name="category" class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:border-accent focus:ring-accent">
+          <option value="">All Categories</option>
+          {% for value, label in categories %}
+          <option value="{{ value }}" {% if value == category %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Action search -->
+      <div>
+        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Action</label>
+        <input type="text" name="action" value="{{ action }}" placeholder="e.g. student_added"
+               class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:border-accent focus:ring-accent">
+      </div>
+
+      <!-- Result -->
+      <div>
+        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Result</label>
+        <select name="result" class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:border-accent focus:ring-accent">
+          <option value="">All Results</option>
+          <option value="allowed" {% if result == 'allowed' %}selected{% endif %}>Allowed</option>
+          <option value="blocked" {% if result == 'blocked' %}selected{% endif %}>Blocked</option>
+        </select>
+      </div>
+
+      <!-- Date from -->
+      <div>
+        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">From Date</label>
+        <input type="date" name="date_from" value="{{ date_from }}"
+               class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:border-accent focus:ring-accent">
+      </div>
+
+      <!-- Date to -->
+      <div>
+        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">To Date</label>
+        <input type="date" name="date_to" value="{{ date_to }}"
+               class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:border-accent focus:ring-accent">
+      </div>
+
+      <!-- Role -->
+      <div>
+        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Role</label>
+        <select name="role" class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:border-accent focus:ring-accent">
+          <option value="">All Roles</option>
+          {% for r in roles_list %}
+          <option value="{{ r.name }}" {% if r.name == role %}selected{% endif %}>{{ r.display_name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Buttons -->
+      <div class="flex items-end gap-2">
+        <button type="submit"
+                class="px-5 py-2 text-sm font-semibold text-white bg-accent rounded-lg hover:bg-accent/90 transition">
+          Filter
+        </button>
+        <a href="{% url 'audit_events' %}"
+           class="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition">
+          Clear
+        </a>
+      </div>
+    </div>
+  </form>
+
+  <!-- Results count -->
+  <p class="text-sm text-gray-500 mb-3">
+    {{ page.paginator.count }} event{{ page.paginator.count|pluralize }} found
+  </p>
+
+  <!-- Events table -->
+  <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wide">
+            <th class="px-4 py-3">Time</th>
+            <th class="px-4 py-3">User</th>
+            <th class="px-4 py-3">School</th>
+            <th class="px-4 py-3">Category</th>
+            <th class="px-4 py-3">Action</th>
+            <th class="px-4 py-3">Result</th>
+            <th class="px-4 py-3 w-10"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for event in page %}
+          <tr x-data="{ open: false }" class="border-t border-slate-100 hover:bg-slate-50/50 transition{% if event.result == 'blocked' %} bg-red-50/50{% endif %}">
+            <td class="px-4 py-3 whitespace-nowrap text-gray-600">{{ event.created_at|date:"Y-m-d H:i:s" }}</td>
+            <td class="px-4 py-3">
+              <div>{{ event.user.get_full_name|default:event.user.username|default:"-" }}</div>
+              {% if event.user %}
+              <div class="text-xs text-gray-400">
+                {% for ur in event.user.user_roles.all %}{{ ur.role.display_name }}{% if not forloop.last %}, {% endif %}{% endfor %}
+              </div>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3">{{ event.school.name|default:"-" }}</td>
+            <td class="px-4 py-3">
+              <span class="inline-block px-2 py-0.5 rounded-md text-xs font-medium bg-slate-100 text-slate-600">
+                {{ event.get_category_display }}
+              </span>
+            </td>
+            <td class="px-4 py-3 font-mono text-xs text-gray-700">{{ event.action }}</td>
+            <td class="px-4 py-3">
+              <span class="inline-block px-2 py-0.5 rounded-md text-xs font-medium
+                {% if event.result == 'allowed' %}bg-green-100 text-green-800{% else %}bg-red-100 text-red-800{% endif %}">
+                {{ event.result }}
+              </span>
+            </td>
+            <td class="px-4 py-3">
+              {% if event.detail and event.detail != '{}' %}
+              <button @click="open = !open" class="text-gray-400 hover:text-gray-600 transition">
+                <svg :class="open ? 'rotate-180' : ''" class="w-4 h-4 transition-transform" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
+                </svg>
+              </button>
+              {% endif %}
+            </td>
+          </tr>
+          {% if event.detail and event.detail != '{}' %}
+          <tr x-show="open" x-transition x-cloak>
+            <td colspan="7" class="px-4 py-3 bg-slate-50 border-t border-slate-100">
+              <div class="flex flex-wrap gap-3 text-xs">
+                {% for key, val in event.detail.items %}
+                <div class="bg-white rounded-lg border border-slate-200 px-3 py-2">
+                  <span class="font-semibold text-gray-500">{{ key }}:</span>
+                  <span class="text-gray-700 ml-1">{{ val }}</span>
+                </div>
+                {% endfor %}
+              </div>
+              <div class="mt-2 text-xs text-gray-400">
+                IP: {{ event.ip_address|default:"-" }} &middot; {{ event.endpoint|default:"-" }}
+              </div>
+            </td>
+          </tr>
+          {% endif %}
+          {% empty %}
+          <tr>
+            <td colspan="7" class="px-4 py-12 text-center text-gray-400">
+              <svg class="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+              No events found matching your filters.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Pagination -->
+  {% include "partials/pagination.html" %}
+</div>
+{% endblock %}

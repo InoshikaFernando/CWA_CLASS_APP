@@ -319,6 +319,16 @@
 
   </div>
 
+  <!-- Events -->
+  <a href="{% url 'audit_events' %}"
+     class="flex items-center gap-2.5 px-3 py-2 mt-3 rounded-lg text-sm text-white/90 font-medium transition
+            {% if 'audit/events' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
+    <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    <span>Events</span>
+  </a>
+
   <div class="flex-1"></div>
 
   <a href="{% url 'profile' %}"

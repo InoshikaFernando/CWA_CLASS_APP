@@ -16,6 +16,7 @@ from django.utils import timezone
 from django.views import View
 
 from accounts.models import Role
+from audit.services import log_event
 from .models import (
     School, Department, ClassRoom, SchoolStudent, SchoolTeacher,
     DepartmentFee, StudentFeeOverride, Invoice, InvoiceLineItem,
@@ -349,6 +350,14 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
         invoice_ids = [inv.id for inv in invoices]
         request.session['draft_invoice_ids'] = invoice_ids
 
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='invoice_generated',
+            detail={'count': len(invoices), 'invoice_ids': invoice_ids,
+                    'period_start': str(start), 'period_end': str(end),
+                    'mode': mode},
+            request=request,
+        )
         return redirect('invoice_preview')
 
 
@@ -389,6 +398,12 @@ class InvoicePreviewView(RoleRequiredMixin, View):
 
         invoice.notes = notes
         invoice.save(update_fields=['amount', 'notes', 'updated_at'])
+        log_event(
+            user=request.user, school=invoice.school, category='data_change',
+            action='invoice_edited',
+            detail={'invoice_id': invoice.id, 'invoice_number': invoice.invoice_number},
+            request=request,
+        )
         messages.success(request, f'Invoice {invoice.invoice_number} updated.')
         return redirect('invoice_preview')
 
@@ -422,6 +437,13 @@ class IssueInvoicesView(RoleRequiredMixin, View):
         issued = svc.issue_invoices(invoice_ids, request.user)
         request.session.pop('draft_invoice_ids', None)
 
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='invoice_issued',
+            detail={'count': len(issued),
+                    'invoice_ids': [inv.id for inv in issued]},
+            request=request,
+        )
         messages.success(request, f'{len(issued)} invoice(s) issued successfully.')
         return redirect('invoice_list')
 
@@ -433,6 +455,13 @@ class DeleteDraftInvoicesView(RoleRequiredMixin, View):
         invoice_ids = request.session.get('draft_invoice_ids', [])
         count = Invoice.objects.filter(id__in=invoice_ids, status='draft').delete()[0]
         request.session.pop('draft_invoice_ids', None)
+        school = _get_single_school(request.user)
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='invoice_deleted',
+            detail={'count': count, 'invoice_ids': invoice_ids, 'status': 'draft'},
+            request=request,
+        )
         messages.success(request, f'{count} draft invoice(s) deleted.')
         return redirect('generate_invoices')
 
@@ -624,6 +653,13 @@ class InvoiceEditView(RoleRequiredMixin, View):
                 'due_date', 'notes', 'amount', 'calculated_amount', 'updated_at',
             ])
 
+        log_event(
+            user=request.user, school=invoice.school, category='data_change',
+            action='invoice_edited',
+            detail={'invoice_id': invoice.id, 'invoice_number': invoice.invoice_number,
+                    'action': action},
+            request=request,
+        )
         messages.success(request, f'Invoice {invoice.invoice_number} updated.')
         return redirect('invoice_detail', invoice_id=invoice.id)
 
@@ -649,7 +685,16 @@ class CancelInvoiceView(RoleRequiredMixin, View):
             return redirect('invoice_detail', invoice_id=invoice.id)
 
         if invoice.status == 'draft':
+            inv_id = invoice.id
+            inv_number = invoice.invoice_number
             invoice.delete()
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='invoice_deleted',
+                detail={'invoice_id': inv_id, 'invoice_number': inv_number,
+                        'status': 'draft'},
+                request=request,
+            )
             messages.success(request, 'Draft invoice deleted.')
             return redirect('invoice_list')
 
@@ -659,6 +704,13 @@ class CancelInvoiceView(RoleRequiredMixin, View):
             return redirect('invoice_detail', invoice_id=invoice.id)
 
         svc.cancel_invoice(invoice, reason, request.user)
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='invoice_voided',
+            detail={'invoice_id': invoice.id, 'invoice_number': invoice.invoice_number,
+                    'reason': reason},
+            request=request,
+        )
         messages.success(request, f'Invoice {invoice.invoice_number} cancelled.')
         return redirect('invoice_detail', invoice_id=invoice.id)
 
@@ -699,6 +751,14 @@ class RecordManualPaymentView(RoleRequiredMixin, View):
             payment_method=method,
             notes=notes,
             created_by=request.user,
+        )
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='payment_recorded',
+            detail={'invoice_id': invoice.id, 'invoice_number': invoice.invoice_number,
+                    'amount': str(amount), 'method': method,
+                    'payment_date': str(payment_date)},
+            request=request,
         )
         messages.success(request, f'Payment of ${amount} recorded.')
         return redirect('invoice_detail', invoice_id=invoice.id)
@@ -1014,6 +1074,13 @@ class ConfirmCSVPaymentsView(RoleRequiredMixin, View):
         request.session.pop('csv_preview', None)
         request.session.pop('csv_import_id', None)
 
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='payment_recorded',
+            detail={'source': 'csv_import', 'csv_import_id': csv_import.id,
+                    'confirmed': confirmed, 'ignored': ignored},
+            request=request,
+        )
         messages.success(request, f'{confirmed} payment(s) confirmed, {ignored} ignored.')
         return redirect('invoice_list')
 
