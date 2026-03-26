@@ -1,4 +1,5 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.paginator import Paginator
 from django.shortcuts import render, redirect
 from django.views import View
 
@@ -60,4 +61,90 @@ class AuditLogListView(RoleRequiredMixin, View):
             'page': page,
             'has_next': has_next,
             'categories': AuditLog.CATEGORY_CHOICES,
+        })
+
+
+class EventsView(RoleRequiredMixin, View):
+    """Events page accessible to superusers (all schools) and HoI (own school)."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    PAGE_SIZE = 50
+
+    def get(self, request):
+        from .models import AuditLog
+        from classroom.models import School, SchoolTeacher
+
+        qs = AuditLog.objects.select_related('user', 'school').prefetch_related(
+            'user__user_roles__role',
+        ).order_by('-created_at')
+
+        is_superuser = request.user.is_superuser
+
+        # School scoping
+        if is_superuser:
+            schools_list = School.objects.filter(is_active=True).order_by('name')
+            selected_schools = request.GET.getlist('schools')
+            if selected_schools:
+                qs = qs.filter(school_id__in=selected_schools)
+        else:
+            # HoI: restrict to their school(s)
+            admin_school_ids = set(
+                School.objects.filter(admin=request.user, is_active=True)
+                .values_list('id', flat=True)
+            )
+            hoi_school_ids = set(
+                SchoolTeacher.objects.filter(
+                    teacher=request.user, role='head_of_institute', is_active=True,
+                ).values_list('school_id', flat=True)
+            )
+            user_school_ids = admin_school_ids | hoi_school_ids
+            qs = qs.filter(school_id__in=user_school_ids)
+            schools_list = School.objects.filter(id__in=user_school_ids).order_by('name')
+            selected_schools = []
+
+        # Filters
+        category = request.GET.get('category', '')
+        action = request.GET.get('action', '')
+        result = request.GET.get('result', '')
+        date_from = request.GET.get('date_from', '')
+        date_to = request.GET.get('date_to', '')
+        role = request.GET.get('role', '')
+
+        if category:
+            qs = qs.filter(category=category)
+        if action:
+            qs = qs.filter(action__icontains=action)
+        if result:
+            qs = qs.filter(result=result)
+        if date_from:
+            qs = qs.filter(created_at__date__gte=date_from)
+        if date_to:
+            qs = qs.filter(created_at__date__lte=date_to)
+        if role:
+            qs = qs.filter(user__user_roles__role__name=role)
+
+        # Roles for dropdown
+        roles_list = Role.objects.filter(is_active=True).order_by('display_name')
+
+        # Pagination
+        paginator = Paginator(qs, self.PAGE_SIZE)
+        page_number = request.GET.get('page', 1)
+        try:
+            page = paginator.page(page_number)
+        except Exception:
+            page = paginator.page(1)
+
+        return render(request, 'audit/events.html', {
+            'page': page,
+            'is_superuser': is_superuser,
+            'schools_list': schools_list,
+            'selected_schools': selected_schools,
+            'categories': AuditLog.CATEGORY_CHOICES,
+            'roles_list': roles_list,
+            'category': category,
+            'action': action,
+            'result': result,
+            'date_from': date_from,
+            'date_to': date_to,
+            'role': role,
         })
