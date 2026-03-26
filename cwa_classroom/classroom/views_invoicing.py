@@ -31,12 +31,13 @@ INVOICING_ROLES = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.ACCOUNTANT
 
 
 def _get_invoicing_schools(user):
-    """Get schools accessible for invoicing."""
+    """Get schools accessible for invoicing (admin OR HoI via SchoolTeacher)."""
     if user.has_role(Role.ACCOUNTANT):
         return School.objects.filter(
             school_teachers__teacher=user, school_teachers__is_active=True,
         ).distinct()
-    return School.objects.filter(admin=user, is_active=True)
+    from .views import _get_user_school_ids
+    return School.objects.filter(id__in=_get_user_school_ids(user), is_active=True)
 
 
 def _get_single_school(user):

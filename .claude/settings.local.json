@@ -400,7 +400,8 @@
       "mcp__5ef70484-069b-4230-bf47-89324f7b64fc__transitionJiraIssue",
       "Bash(DB_ENGINE=sqlite python manage.py test classroom.tests.test_soft_delete --verbosity=2)",
       "Bash(DB_ENGINE=sqlite python manage.py test classroom.tests.test_invoice_edit --verbosity=2)",
-      "mcp__5ef70484-069b-4230-bf47-89324f7b64fc__createJiraIssue"
+      "mcp__5ef70484-069b-4230-bf47-89324f7b64fc__createJiraIssue",
+      "Bash(DB_ENGINE=sqlite python manage.py test billing.tests_admin classroom.tests.test_csv_student_import classroom.tests.test_invoice_edit --verbosity=1)"
     ]
   }
 }

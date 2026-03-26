@@ -906,7 +906,8 @@ def execute_import(preview_data, school, uploaded_by):
             # Resolve teacher mapping
             teacher_map = structure_mapping.get('teacher_map', {})
             teacher_cache = {}  # csv_teacher_name -> user object
-            existing_users_by_id = {u.id: u for u in CustomUser.objects.all()}
+            teacher_user_ids = [int(v) for v in teacher_map.values() if v and v != 'create']
+            existing_users_by_id = {u.id: u for u in CustomUser.objects.filter(id__in=teacher_user_ids)}
             role_teacher, _ = Role.objects.get_or_create(
                 name=Role.TEACHER, defaults={'display_name': 'Teacher'},
             )

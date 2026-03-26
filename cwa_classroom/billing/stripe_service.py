@@ -10,8 +10,13 @@ import stripe
 from django.conf import settings
 from django.urls import reverse
 
-stripe.api_key = settings.STRIPE_SECRET_KEY
 logger = logging.getLogger(__name__)
+
+
+def _ensure_stripe_key():
+    """Set Stripe API key lazily from settings (safe for tests and late config)."""
+    if not stripe.api_key:
+        stripe.api_key = getattr(settings, 'STRIPE_SECRET_KEY', '')
 
 
 # ---------------------------------------------------------------------------
@@ -24,6 +29,7 @@ def get_or_create_customer(user=None, school=None):
     For individual students: keyed on user.
     For institutes: keyed on school (via SchoolSubscription).
     """
+    _ensure_stripe_key()
     if school:
         from billing.models import SchoolSubscription
         try:
@@ -88,6 +94,7 @@ def create_institute_checkout_session(school, plan, request, trial_period_days=N
     charge until the trial ends. After the trial, billing starts automatically.
     If stripe_coupon_id is set, applies the discount coupon to the subscription.
     """
+    _ensure_stripe_key()
     customer_id = get_or_create_customer(school=school)
 
     line_items = [{'price': plan.stripe_price_id, 'quantity': 1}]
@@ -134,6 +141,7 @@ def create_individual_checkout_session(user, package, request, stripe_coupon_id=
     Create a Stripe Checkout Session for an individual student subscription.
     Returns the Checkout Session object.
     """
+    _ensure_stripe_key()
     customer_id = get_or_create_customer(user=user)
 
     session_kwargs = dict(
@@ -174,6 +182,7 @@ def create_student_checkout_session(user, package, request, stripe_coupon_id=Non
     Create a Stripe Checkout Session for a school student subscription.
     School students are invited by HoI and need their own $19.90/mo subscription.
     """
+    _ensure_stripe_key()
     customer_id = get_or_create_customer(user=user)
 
     session_kwargs = dict(
@@ -218,6 +227,7 @@ def change_institute_plan(school_subscription, new_plan):
     Change an institute's subscription to a different plan.
     Prorates the change.
     """
+    _ensure_stripe_key()
     if not school_subscription.stripe_subscription_id:
         raise ValueError('No active Stripe subscription to modify')
 
@@ -260,6 +270,7 @@ def change_institute_plan(school_subscription, new_plan):
 
 def add_module_to_subscription(school_subscription, module_slug, stripe_price_id):
     """Add a module as a subscription item ($10/mo add-on)."""
+    _ensure_stripe_key()
     if not school_subscription.stripe_subscription_id:
         raise ValueError('No active Stripe subscription')
 
@@ -289,6 +300,7 @@ def add_module_to_subscription(school_subscription, module_slug, stripe_price_id
 
 def remove_module_from_subscription(school_subscription, module_slug):
     """Remove a module subscription item."""
+    _ensure_stripe_key()
     from billing.models import ModuleSubscription
     from django.utils import timezone
 
@@ -319,6 +331,7 @@ def remove_module_from_subscription(school_subscription, module_slug):
 
 def cancel_subscription(stripe_subscription_id, at_period_end=True):
     """Cancel a subscription, optionally at end of current period."""
+    _ensure_stripe_key()
     if at_period_end:
         stripe.Subscription.modify(
             stripe_subscription_id,
@@ -334,6 +347,7 @@ def cancel_subscription(stripe_subscription_id, at_period_end=True):
 
 def report_invoice_overage(school_subscription, overage_count):
     """Report usage-based metered billing for extra invoices."""
+    _ensure_stripe_key()
     if not school_subscription.plan or not school_subscription.plan.stripe_overage_price_id:
         logger.warning(
             'No overage price configured for plan %s',
@@ -377,6 +391,7 @@ def report_invoice_overage(school_subscription, overage_count):
 
 def create_billing_portal_session(customer_id, return_url):
     """Create a Stripe Billing Portal session for payment method management."""
+    _ensure_stripe_key()
     session = stripe.billing_portal.Session.create(
         customer=customer_id,
         return_url=return_url,
@@ -398,6 +413,7 @@ def sync_plan_to_stripe(plan):
     Create or update a Stripe Product + Price for an InstitutePlan.
     Returns the new stripe_price_id.
     """
+    _ensure_stripe_key()
     if not _stripe_configured():
         raise ValueError('Stripe is not configured.')
 
@@ -407,7 +423,7 @@ def sync_plan_to_stripe(plan):
     try:
         product = stripe.Product.retrieve(product_id)
         stripe.Product.modify(product_id, name=plan.name, active=plan.is_active)
-    except stripe.error.InvalidRequestError:
+    except stripe.error.InvalidRequestError:  # Product does not exist — create it
         product = stripe.Product.create(
             id=product_id,
             name=plan.name,
@@ -427,8 +443,8 @@ def sync_plan_to_stripe(plan):
     if plan.stripe_price_id and plan.stripe_price_id != price.id:
         try:
             stripe.Price.modify(plan.stripe_price_id, active=False)
-        except stripe.error.InvalidRequestError:
-            pass
+        except stripe.error.StripeError as e:
+            logger.warning('Stripe cleanup failed: %s', e)
 
     plan.stripe_price_id = price.id
     plan.save(update_fields=['stripe_price_id'])
@@ -440,6 +456,7 @@ def sync_module_to_stripe(module_product):
     Create or update a Stripe Product + Price for a ModuleProduct.
     Returns the new stripe_price_id.
     """
+    _ensure_stripe_key()
     if not _stripe_configured():
         raise ValueError('Stripe is not configured.')
 
@@ -448,7 +465,7 @@ def sync_module_to_stripe(module_product):
     try:
         product = stripe.Product.retrieve(product_id)
         stripe.Product.modify(product_id, name=module_product.name, active=module_product.is_active)
-    except stripe.error.InvalidRequestError:
+    except stripe.error.InvalidRequestError:  # Product does not exist — create it
         product = stripe.Product.create(
             id=product_id,
             name=module_product.name,
@@ -466,8 +483,8 @@ def sync_module_to_stripe(module_product):
     if module_product.stripe_price_id and module_product.stripe_price_id != price.id:
         try:
             stripe.Price.modify(module_product.stripe_price_id, active=False)
-        except stripe.error.InvalidRequestError:
-            pass
+        except stripe.error.StripeError as e:
+            logger.warning('Stripe cleanup failed: %s', e)
 
     module_product.stripe_price_id = price.id
     module_product.save(update_fields=['stripe_price_id'])
@@ -479,6 +496,7 @@ def sync_discount_to_stripe(discount_code):
     Create a Stripe Coupon for an InstituteDiscountCode.
     Skips if discount is 100% (fully free). Returns coupon_id.
     """
+    _ensure_stripe_key()
     if not _stripe_configured():
         raise ValueError('Stripe is not configured.')
 
