@@ -18,7 +18,10 @@ class DepartmentListView(RoleRequiredMixin, View):
 
     def get(self, request, school_id):
         school = get_object_or_404(School, id=school_id, admin=request.user)
+        show_inactive = request.GET.get('show_inactive') == '1'
         departments = Department.objects.filter(school=school).select_related('head')
+        if not show_inactive:
+            departments = departments.filter(is_active=True)
         dept_data = []
         total_teachers = 0
         total_classes = 0
@@ -41,6 +44,7 @@ class DepartmentListView(RoleRequiredMixin, View):
             'total_departments': len(dept_data),
             'total_teachers': total_teachers,
             'total_classes': total_classes,
+            'show_inactive': show_inactive,
         })
 
 

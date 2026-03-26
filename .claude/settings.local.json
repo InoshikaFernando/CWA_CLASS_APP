@@ -393,7 +393,12 @@
       "Bash(DB_ENGINE=sqlite python manage.py test billing.tests_admin --verbosity=2)",
       "Bash(DB_ENGINE=sqlite python manage.py test billing.tests_admin.ModuleEditTests.test_module_list --verbosity=2)",
       "Bash(powershell \"Remove-Item ''C:\\\\Source\\\\CWA_SCHOOL_APP_2\\\\.git\\\\worktrees\\\\agitated-lederberg\\\\index.lock'' -Force\")",
-      "Bash(powershell \"Get-ChildItem ''C:\\\\Source\\\\CWA_SCHOOL_APP_2\\\\.git\\\\worktrees\\\\agitated-lederberg\\\\'' -Filter ''index.lock'' -Force\")"
+      "Bash(powershell \"Get-ChildItem ''C:\\\\Source\\\\CWA_SCHOOL_APP_2\\\\.git\\\\worktrees\\\\agitated-lederberg\\\\'' -Filter ''index.lock'' -Force\")",
+      "mcp__5ef70484-069b-4230-bf47-89324f7b64fc__getJiraIssue",
+      "mcp__5ef70484-069b-4230-bf47-89324f7b64fc__getTransitionsForJiraIssue",
+      "mcp__5ef70484-069b-4230-bf47-89324f7b64fc__addCommentToJiraIssue",
+      "mcp__5ef70484-069b-4230-bf47-89324f7b64fc__transitionJiraIssue",
+      "Bash(DB_ENGINE=sqlite python manage.py test classroom.tests.test_soft_delete --verbosity=2)"
     ]
   }
 }

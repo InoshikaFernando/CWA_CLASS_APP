@@ -14,7 +14,7 @@ from accounts.models import CustomUser, Role, UserRole
 from accounts.views import _validate_username, _generate_username_suggestion
 from .models import (
     School, SchoolTeacher, AcademicYear, ClassRoom, ClassSession, Department,
-    DepartmentTeacher, SchoolStudent, Level, Subject, Term,
+    DepartmentTeacher, SchoolStudent, Level, Subject, Term, ClassStudent,
 )
 from .views import RoleRequiredMixin
 from .email_utils import send_staff_welcome_email
@@ -377,7 +377,11 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
 
     def get(self, request, school_id):
         school = _get_user_school_or_404(request.user, school_id)
-        school_teachers = SchoolTeacher.objects.filter(school=school, is_active=True).select_related('teacher')
+        show_inactive = request.GET.get('show_inactive') == '1'
+        if show_inactive:
+            school_teachers = SchoolTeacher.objects.filter(school=school).select_related('teacher')
+        else:
+            school_teachers = SchoolTeacher.objects.filter(school=school, is_active=True).select_related('teacher')
         paginator = Paginator(school_teachers, 25)
         page = paginator.get_page(request.GET.get('page'))
         return render(request, 'admin_dashboard/school_teachers.html', {
@@ -385,6 +389,7 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
             'school_teachers': page,
             'page': page,
             'role_choices': self._get_role_choices(request.user),
+            'show_inactive': show_inactive,
         })
 
     def post(self, request, school_id):
@@ -641,6 +646,27 @@ class SchoolTeacherRemoveView(RoleRequiredMixin, View):
         return redirect('admin_school_teachers', school_id=school.id)
 
 
+class SchoolTeacherRestoreView(RoleRequiredMixin, View):
+    """Restore a soft-removed teacher (reactivate SchoolTeacher link)."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def post(self, request, school_id, teacher_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        school_teacher = SchoolTeacher.objects.filter(
+            school=school, teacher_id=teacher_id, is_active=False
+        ).select_related('teacher').first()
+
+        if school_teacher:
+            teacher_user = school_teacher.teacher
+            teacher_name = teacher_user.get_full_name() or teacher_user.username
+            school_teacher.is_active = True
+            school_teacher.save(update_fields=['is_active'])
+            messages.success(request, f'{teacher_name} has been restored to {school.name}.')
+        else:
+            messages.warning(request, 'Inactive teacher was not found at this school.')
+        return redirect('admin_school_teachers', school_id=school.id)
+
+
 class AcademicYearCreateView(RoleRequiredMixin, View):
     """Create a new academic year for a school."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
@@ -729,9 +755,12 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
     def get(self, request, school_id):
         school = self._get_school(request, school_id)
         from django.db.models import Count, Q
+        show_inactive = request.GET.get('show_inactive') == '1'
+        qs = SchoolStudent.objects.filter(school=school)
+        if not show_inactive:
+            qs = qs.filter(is_active=True)
         school_students = (
-            SchoolStudent.objects.filter(school=school, is_active=True)
-            .select_related('student')
+            qs.select_related('student')
             .annotate(
                 class_count=Count(
                     'student__class_student_entries',
@@ -745,6 +774,7 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
             'school': school,
             'school_students': page,
             'page': page,
+            'show_inactive': show_inactive,
         })
 
     def post(self, request, school_id):
@@ -945,12 +975,46 @@ class SchoolStudentRemoveView(RoleRequiredMixin, View):
         if school_student:
             student_user = school_student.student
             name = student_user.get_full_name() or student_user.username
-            # Deactivate the link (keep user account + ClassStudent history intact)
-            school_student.is_active = False
-            school_student.save(update_fields=['is_active'])
+            with transaction.atomic():
+                # Deactivate the SchoolStudent link
+                school_student.is_active = False
+                school_student.save(update_fields=['is_active'])
+                # Cascade: deactivate all ClassStudent entries at this school
+                ClassStudent.objects.filter(
+                    classroom__school=school, student=student_user, is_active=True
+                ).update(is_active=False)
             messages.success(request, f'{name} has been removed from {school.name}.')
         else:
             messages.warning(request, 'Student was not found at this school.')
+        return redirect('admin_school_students', school_id=school.id)
+
+
+class SchoolStudentRestoreView(RoleRequiredMixin, View):
+    """Restore a soft-removed student (reactivate SchoolStudent link and ClassStudent entries)."""
+    required_roles = [
+        Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT, Role.TEACHER,
+    ]
+
+    def post(self, request, school_id, student_id):
+        school = SchoolStudentManageView._get_school(self, request, school_id)
+        school_student = SchoolStudent.objects.filter(
+            school=school, student_id=student_id, is_active=False
+        ).select_related('student').first()
+
+        if school_student:
+            student_user = school_student.student
+            name = student_user.get_full_name() or student_user.username
+            with transaction.atomic():
+                school_student.is_active = True
+                school_student.save(update_fields=['is_active'])
+                # Restore ClassStudent entries at this school
+                ClassStudent.objects.filter(
+                    classroom__school=school, student=student_user, is_active=False
+                ).update(is_active=True)
+            messages.success(request, f'{name} has been restored to {school.name}.')
+        else:
+            messages.warning(request, 'Inactive student was not found at this school.')
         return redirect('admin_school_students', school_id=school.id)
 
 
