@@ -304,6 +304,75 @@ class SchoolDetailView(RoleRequiredMixin, View):
         })
 
 
+class SchoolSettingsView(RoleRequiredMixin, View):
+    """Manage institute settings: company details, banking, invoice config."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    SETTINGS_FIELDS = [
+        # Company details
+        'abn', 'gst_number', 'street_address', 'city', 'state_region',
+        'postal_code', 'country',
+        # Contact & email
+        'outgoing_email',
+        # Banking & invoice
+        'bank_name', 'bank_bsb', 'bank_account_number', 'bank_account_name',
+        'invoice_terms', 'invoice_due_days',
+    ]
+
+    def _build_form_data(self, school):
+        data = {}
+        for field in self.SETTINGS_FIELDS:
+            data[field] = getattr(school, field, '')
+        return data
+
+    def get(self, request, school_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        tab = request.GET.get('tab', 'company')
+        return render(request, 'admin_dashboard/school_settings.html', {
+            'school': school,
+            'form_data': self._build_form_data(school),
+            'active_tab': tab,
+        })
+
+    def post(self, request, school_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        tab = request.POST.get('active_tab', 'company')
+
+        # Save text fields
+        for field in self.SETTINGS_FIELDS:
+            if field == 'invoice_due_days':
+                val = request.POST.get(field, '').strip()
+                if val:
+                    try:
+                        setattr(school, field, int(val))
+                    except ValueError:
+                        pass
+            else:
+                setattr(school, field, request.POST.get(field, '').strip())
+
+        # Handle logo upload
+        if 'logo' in request.FILES:
+            school.logo = request.FILES['logo']
+        if request.POST.get('remove_logo') == '1':
+            school.logo = ''
+
+        school.save()
+        messages.success(request, 'Settings saved successfully.')
+        return redirect(f"{reverse('admin_school_settings', kwargs={'school_id': school.id})}?tab={tab}")
+
+
+class ManageSettingsRedirectView(RoleRequiredMixin, View):
+    """Shortcut: redirects to the first school's settings page."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request):
+        school = _get_user_school(request.user)
+        if school:
+            return redirect('admin_school_settings', school_id=school.id)
+        messages.info(request, 'Create a school first.')
+        return redirect('admin_school_create')
+
+
 class ManageTeachersRedirectView(RoleRequiredMixin, View):
     """Shortcut: redirects to the first school's teacher management page."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]

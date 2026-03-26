@@ -159,8 +159,16 @@ class ParentInvoiceDetailView(RoleRequiredMixin, View):
             Invoice, id=invoice_id, student=child, school=school,
             status__in=['issued', 'partially_paid', 'paid'],
         )
-        line_items = invoice.line_items.select_related('classroom')
+        line_items = invoice.line_items.select_related('classroom', 'classroom__department')
         payments = invoice.payments.order_by('-created_at')
+
+        # Get effective settings (with department overrides if applicable)
+        primary_dept = None
+        for li in line_items:
+            if li.classroom and li.classroom.department:
+                primary_dept = li.classroom.department
+                break
+        effective_settings = school.get_effective_settings(primary_dept)
 
         return render(request, 'parent/invoice_detail.html', {
             'invoice': invoice,
@@ -168,6 +176,7 @@ class ParentInvoiceDetailView(RoleRequiredMixin, View):
             'payments': payments,
             'active_child': child,
             'active_school': school,
+            'effective_settings': effective_settings,
             'children': _get_parent_children(request.user),
         })
 
