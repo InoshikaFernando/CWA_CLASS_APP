@@ -2,7 +2,7 @@
 {% block title %}Subscription Dashboard{% endblock %}
 
 {% block content %}
-<div class="max-w-4xl mx-auto">
+<div class="max-w-4xl mx-auto" x-data="confirmModal()" x-ref="modal">
   <div class="flex justify-between items-center mb-6">
     <div>
       <h1 class="font-display text-2xl text-primary">Subscription</h1>
@@ -117,7 +117,7 @@
               {% csrf_token %}
               <input type="hidden" name="module_slug" value="{{ module_key }}">
               <input type="hidden" name="action" value="remove">
-              <button type="button" @click="$refs.modal.show({ title: 'Remove Module', message: 'Remove {{ module_name }}?{% if subscription.stripe_subscription_id %} $10/mo will be removed from your next invoice.{% endif %}', confirmText: 'Remove', variant: 'danger', formId: 'remove-{{ module_key }}' })"
+              <button type="button" @click="show({ title: 'Remove Module', message: 'Remove {{ module_name }}?{% if subscription.stripe_subscription_id %} $10/mo will be removed from your next invoice.{% endif %}', confirmText: 'Remove', variant: 'danger', formId: 'remove-{{ module_key }}' })"
                       class="text-xs text-red-500 hover:text-red-700 font-medium">Remove</button>
             </form>
           {% else %}
@@ -125,7 +125,7 @@
               {% csrf_token %}
               <input type="hidden" name="module_slug" value="{{ module_key }}">
               <input type="hidden" name="action" value="add">
-              <button type="button" @click="$refs.modal.show({ title: 'Add Module', message: 'Add {{ module_name }}{% if subscription.stripe_subscription_id %} for $10/month{% endif %}?', confirmText: 'Add Module', variant: 'default', formId: 'add-{{ module_key }}' })"
+              <button type="button" @click="show({ title: 'Add Module', message: 'Add {{ module_name }}{% if subscription.stripe_subscription_id %} for $10/month{% endif %}?', confirmText: 'Add Module', variant: 'default', formId: 'add-{{ module_key }}' })"
                       class="text-xs bg-primary hover:bg-primary-dark text-white font-semibold rounded-lg px-3 py-1 transition">Add</button>
             </form>
           {% endif %}
@@ -146,7 +146,7 @@
     <form id="cancel-subscription" method="post" action="{% url 'institute_cancel_subscription' %}">
       {% csrf_token %}
       <button type="button"
-              @click="$refs.modal.show({ title: 'Cancel Subscription', message: 'Are you sure? Your subscription will remain active until the end of the billing period.', confirmText: 'Cancel Subscription', variant: 'danger', formId: 'cancel-subscription' })"
+              @click="show({ title: 'Cancel Subscription', message: 'Are you sure? Your subscription will remain active until the end of the billing period.', confirmText: 'Cancel Subscription', variant: 'danger', formId: 'cancel-subscription' })"
               class="text-sm text-red-600 hover:text-red-800 font-medium transition">
         Cancel Subscription
       </button>
@@ -155,7 +155,7 @@
   {% endif %}
 
   <!-- Confirm Modal -->
-  <div x-data="confirmModal()" x-ref="modal" x-cloak>
+  <div x-cloak>
     <div x-show="open" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
          x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
          class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" @click="cancel()"></div>
