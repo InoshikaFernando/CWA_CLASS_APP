@@ -202,9 +202,10 @@ class ApplyPromoCodeView(LoginRequiredMixin, View):
                     defaults={'package': package},
                 )
                 sub.package = package
-                sub.status = Subscription.STATUS_TRIALING
+                sub.status = Subscription.STATUS_ACTIVE
                 sub.trial_end = timezone.now() + timedelta(days=grant_days)
-                sub.save(update_fields=['package', 'status', 'trial_end', 'updated_at'])
+                sub.promo_code_used = promo.code
+                sub.save(update_fields=['package', 'status', 'trial_end', 'promo_code_used', 'updated_at'])
 
                 request.user.package = package
                 request.user.save(update_fields=['package'])

@@ -403,6 +403,10 @@ class Subscription(models.Model):
     trial_end = models.DateTimeField(null=True, blank=True)
     current_period_start = models.DateTimeField(null=True, blank=True)
     current_period_end = models.DateTimeField(null=True, blank=True)
+    promo_code_used = models.CharField(
+        max_length=50, blank=True,
+        help_text='Promo code used to activate this subscription.',
+    )
     cancelled_at = models.DateTimeField(null=True, blank=True)
     cancel_at_period_end = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -415,8 +419,24 @@ class Subscription(models.Model):
         return f'{self.user.username} — {self.package} — {self.status}'
 
     @property
+    def is_promo_activated(self):
+        """True if this subscription was activated via a promo code."""
+        return bool(self.promo_code_used)
+
+    @property
     def is_active_or_trialing(self):
         return self.status in (self.STATUS_ACTIVE, self.STATUS_TRIALING)
+
+    @property
+    def access_days_remaining(self):
+        """Days remaining for promo-activated subscriptions."""
+        if not self.trial_end:
+            return 0
+        delta = self.trial_end - timezone.now()
+        total_seconds = delta.total_seconds()
+        if total_seconds <= 0:
+            return 0
+        return max(1, int(total_seconds / 86400) + (1 if total_seconds % 86400 > 0 else 0))
 
     @property
     def trial_days_remaining(self):

@@ -48,8 +48,14 @@ Subject-specific nav lives inside each subject's own pages.
   <!-- Spacer -->
   <div class="flex-1"></div>
 
-  <!-- Trial banner (IndividualStudent only) -->
-  {% if is_individual_student and request.user.subscription.status == 'trialing' %}
+  <!-- Trial / Promo banner (IndividualStudent only) -->
+  {% if is_individual_student and request.user.subscription.is_promo_activated %}
+    <div class="mx-1 mb-2 px-3 py-2.5 bg-emerald-400/20 border border-emerald-300/30 rounded-2xl text-center">
+      <p class="text-xs font-bold text-emerald-100">
+        🎟️ Promotion ends in {{ request.user.subscription.access_days_remaining }} day{{ request.user.subscription.access_days_remaining|pluralize }}
+      </p>
+    </div>
+  {% elif is_individual_student and request.user.subscription.status == 'trialing' %}
     <div class="mx-1 mb-2 px-3 py-2.5 bg-yellow-400/20 border border-yellow-300/30 rounded-2xl text-center">
       <p class="text-xs font-bold text-yellow-100">
         &#9203; Trial ends in {{ request.user.subscription.trial_days_remaining }} day{{ request.user.subscription.trial_days_remaining|pluralize }}

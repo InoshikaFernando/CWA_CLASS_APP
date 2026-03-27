@@ -74,14 +74,20 @@ def user_role(request):
         ctx['user_schools'] = all_schools
         ctx['current_school'] = school
 
-    # Trial info for all students (sidebar trial banner)
-    trial_info = {'is_trialing': False, 'days_remaining': 0}
+    # Trial / promo info for all students (sidebar banner)
+    trial_info = {'is_trialing': False, 'is_promo': False, 'days_remaining': 0}
     if active_role in (Role.STUDENT, Role.INDIVIDUAL_STUDENT):
         if active_role == Role.INDIVIDUAL_STUDENT:
             try:
                 ind_sub = user.subscription
-                if ind_sub and ind_sub.status == 'trialing':
-                    trial_info = {'is_trialing': True, 'days_remaining': ind_sub.trial_days_remaining}
+                if ind_sub and ind_sub.is_promo_activated and ind_sub.trial_end:
+                    trial_info = {
+                        'is_trialing': False,
+                        'is_promo': True,
+                        'days_remaining': ind_sub.access_days_remaining,
+                    }
+                elif ind_sub and ind_sub.status == 'trialing':
+                    trial_info = {'is_trialing': True, 'is_promo': False, 'days_remaining': ind_sub.trial_days_remaining}
             except Exception:
                 pass
         else:
@@ -91,7 +97,7 @@ def user_role(request):
             if ss:
                 school_sub = get_school_subscription(ss.school)
                 if school_sub and school_sub.status == 'trialing':
-                    trial_info = {'is_trialing': True, 'days_remaining': school_sub.trial_days_remaining}
+                    trial_info = {'is_trialing': True, 'is_promo': False, 'days_remaining': school_sub.trial_days_remaining}
     ctx['trial_info'] = trial_info
 
     return ctx
