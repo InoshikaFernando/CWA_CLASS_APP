@@ -567,6 +567,7 @@ class IndividualStudentRegisterView(View):
                     session = create_individual_checkout_session(
                         user, package, request,
                         stripe_coupon_id=stripe_coupon if stripe_coupon else None,
+                        trial_period_days=package.trial_days if package.trial_days else None,
                     )
                     return redirect(session.url)
                 except Exception:
@@ -582,9 +583,27 @@ class IndividualStudentRegisterView(View):
 
 class TrialExpiredView(View):
     def get(self, request):
-        from billing.models import Package
+        from billing.models import Package, Subscription
         packages = Package.objects.filter(is_active=True, price__gt=0).order_by('price')
-        return render(request, 'accounts/trial_expired.html', {'packages': packages})
+
+        # Determine reason for blocking: payment failed vs trial/promo expired
+        reason = 'expired'  # default
+        sub = None
+        if request.user.is_authenticated:
+            try:
+                sub = request.user.subscription
+                if sub and sub.status == Subscription.STATUS_PAST_DUE:
+                    reason = 'payment_failed'
+                elif sub and sub.is_promo_activated:
+                    reason = 'promo_ended'
+            except Subscription.DoesNotExist:
+                pass
+
+        return render(request, 'accounts/trial_expired.html', {
+            'packages': packages,
+            'reason': reason,
+            'subscription': sub,
+        })
 
 
 class AccountBlockedView(View):

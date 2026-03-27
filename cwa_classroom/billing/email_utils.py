@@ -96,3 +96,34 @@ def notify_trial_expiring(school, days_remaining):
         )
     except Exception:
         logger.exception('Failed to send trial expiry email for school %s', school.name)
+
+
+def notify_individual_trial_expiring(user, days_remaining, is_promo=False):
+    """Send trial/promo expiry warning email to an individual student."""
+    if not user.email:
+        return
+
+    label = 'promotion' if is_promo else 'trial'
+    context = {
+        'site_name': SITE_NAME,
+        'name': user.get_full_name() or user.username,
+        'days_remaining': days_remaining,
+        'is_promo': is_promo,
+        'label': label,
+    }
+
+    try:
+        send_mail(
+            subject=f'[{SITE_NAME}] Your {label} expires in {days_remaining} day{"s" if days_remaining != 1 else ""}',
+            message=(
+                f'Hi {context["name"]},\n\n'
+                f'Your {label} access to {SITE_NAME} expires in {days_remaining} day{"s" if days_remaining != 1 else ""}.\n\n'
+                f'Subscribe to a plan to continue using the platform.\n\n'
+                f'Thanks,\n{SITE_NAME} Team'
+            ),
+            from_email=DEFAULT_FROM,
+            recipient_list=[user.email],
+            fail_silently=True,
+        )
+    except Exception:
+        logger.exception('Failed to send %s expiry email for user %s', label, user.username)

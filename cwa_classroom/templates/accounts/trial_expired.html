@@ -1,35 +1,84 @@
 {% extends "base_auth.html" %}
 
-{% block title %}Trial Expired{% endblock %}
+{% block title %}
+  {% if reason == 'payment_failed' %}Payment Failed{% elif reason == 'promo_ended' %}Promotion Ended{% else %}Trial Expired{% endif %}
+{% endblock %}
 
 {% block card_content %}
-  <div class="text-center mb-6">
-    <span class="text-5xl">&#9203;</span>
-  </div>
+  {% if reason == 'payment_failed' %}
+    <!-- Payment Failed -->
+    <div class="text-center mb-6">
+      <span class="text-5xl">&#128179;</span>
+    </div>
+    <h1 class="font-display text-2xl text-red-600 text-center mb-2">Payment Failed</h1>
+    <p class="text-center text-gray-500 text-sm mb-6">
+      We couldn't process your payment. Please update your card details to continue using Classroom.
+    </p>
+    <a href="{% url 'stripe_billing_portal' %}"
+       class="block w-full text-center bg-primary text-white font-semibold py-3 rounded-xl hover:bg-primary-dark transition mb-3">
+      Update Payment Method
+    </a>
+    <p class="text-center text-gray-400 text-xs">
+      You'll be redirected to our secure payment portal to update your card.
+    </p>
 
-  <h1 class="font-display text-2xl text-primary text-center mb-2">Your trial has ended</h1>
-  <p class="text-center text-gray-500 text-sm mb-6">
-    Subscribe to a plan to continue using Classroom.
-  </p>
-
-  {% if packages %}
-  <div class="space-y-3 mb-6">
-    {% for pkg in packages %}
-      <a href="{% url 'billing_checkout' package_id=pkg.id %}"
-         class="block w-full border border-gray-200 rounded-xl px-4 py-3 hover:border-primary
-                hover:bg-blue-50/50 transition text-left">
-        <div class="flex items-center justify-between">
-          <div>
-            <span class="font-bold text-gray-800">{{ pkg.name }}</span>
-            <span class="text-xs text-gray-400 ml-1">
-              {% if pkg.is_unlimited %}Unlimited classes{% else %}{{ pkg.class_limit }} class{{ pkg.class_limit|pluralize:"es" }}{% endif %}
-            </span>
+  {% elif reason == 'promo_ended' %}
+    <!-- Promo Ended -->
+    <div class="text-center mb-6">
+      <span class="text-5xl">&#127903;</span>
+    </div>
+    <h1 class="font-display text-2xl text-primary text-center mb-2">Your promotion has ended</h1>
+    <p class="text-center text-gray-500 text-sm mb-6">
+      Subscribe to a plan to continue using Classroom.
+    </p>
+    {% if packages %}
+    <div class="space-y-3 mb-6">
+      {% for pkg in packages %}
+        <a href="{% url 'billing_checkout' package_id=pkg.id %}"
+           class="block w-full border border-gray-200 rounded-xl px-4 py-3 hover:border-primary
+                  hover:bg-blue-50/50 transition text-left">
+          <div class="flex items-center justify-between">
+            <div>
+              <span class="font-bold text-gray-800">{{ pkg.name }}</span>
+              <span class="text-xs text-gray-400 ml-1">
+                {% if pkg.is_unlimited %}Unlimited classes{% else %}{{ pkg.class_limit }} class{{ pkg.class_limit|pluralize:"es" }}{% endif %}
+              </span>
+            </div>
+            <span class="font-bold text-primary">${{ pkg.price }}/mo</span>
           </div>
-          <span class="font-bold text-primary">${{ pkg.price }}/mo</span>
-        </div>
-      </a>
-    {% endfor %}
-  </div>
+        </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+  {% else %}
+    <!-- Trial Expired (default) -->
+    <div class="text-center mb-6">
+      <span class="text-5xl">&#9203;</span>
+    </div>
+    <h1 class="font-display text-2xl text-primary text-center mb-2">Your trial has ended</h1>
+    <p class="text-center text-gray-500 text-sm mb-6">
+      Subscribe to a plan to continue using Classroom.
+    </p>
+    {% if packages %}
+    <div class="space-y-3 mb-6">
+      {% for pkg in packages %}
+        <a href="{% url 'billing_checkout' package_id=pkg.id %}"
+           class="block w-full border border-gray-200 rounded-xl px-4 py-3 hover:border-primary
+                  hover:bg-blue-50/50 transition text-left">
+          <div class="flex items-center justify-between">
+            <div>
+              <span class="font-bold text-gray-800">{{ pkg.name }}</span>
+              <span class="text-xs text-gray-400 ml-1">
+                {% if pkg.is_unlimited %}Unlimited classes{% else %}{{ pkg.class_limit }} class{{ pkg.class_limit|pluralize:"es" }}{% endif %}
+              </span>
+            </div>
+            <span class="font-bold text-primary">${{ pkg.price }}/mo</span>
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+    {% endif %}
   {% endif %}
 {% endblock %}
 

@@ -97,16 +97,43 @@ def _activate_individual_from_checkout(metadata, stripe_subscription_id):
     from billing.models import Package
     package = Package.objects.filter(id=package_id).first() if package_id else sub.package
 
-    sub.status = Subscription.STATUS_ACTIVE
     sub.stripe_subscription_id = stripe_subscription_id or sub.stripe_subscription_id
-    sub.trial_end = None
-    sub.current_period_start = timezone.now()
     if package:
         sub.package = package
         user.package = package
         user.save(update_fields=['package'])
-    sub.save()
-    logger.info('Individual subscription activated: user=%s package=%s', user_id, package)
+
+    # Check actual Stripe subscription status to respect trial period
+    stripe_status = None
+    if stripe_subscription_id:
+        try:
+            import stripe
+            stripe_sub = stripe.Subscription.retrieve(stripe_subscription_id)
+            stripe_status = stripe_sub.status
+        except Exception:
+            pass
+
+    if stripe_status == 'trialing':
+        sub.status = Subscription.STATUS_TRIALING
+        # Get trial_end from Stripe subscription
+        try:
+            from datetime import datetime
+            if stripe_sub.trial_end:
+                sub.trial_end = timezone.make_aware(
+                    datetime.fromtimestamp(stripe_sub.trial_end),
+                    timezone.utc,
+                )
+        except Exception:
+            pass
+        sub.current_period_start = timezone.now()
+        sub.save()
+        logger.info('Individual subscription trialing: user=%s package=%s trial_end=%s', user_id, package, sub.trial_end)
+    else:
+        sub.status = Subscription.STATUS_ACTIVE
+        sub.trial_end = None
+        sub.current_period_start = timezone.now()
+        sub.save()
+        logger.info('Individual subscription activated: user=%s package=%s', user_id, package)
 
 
 # ---------------------------------------------------------------------------

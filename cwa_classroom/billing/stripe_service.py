@@ -136,13 +136,26 @@ def create_institute_checkout_session(school, plan, request, trial_period_days=N
     return session
 
 
-def create_individual_checkout_session(user, package, request, stripe_coupon_id=None):
+def create_individual_checkout_session(user, package, request, stripe_coupon_id=None, trial_period_days=None):
     """
     Create a Stripe Checkout Session for an individual student subscription.
     Returns the Checkout Session object.
+
+    If trial_period_days is set, Stripe collects card details but does not
+    charge until the trial ends. After the trial, billing starts automatically.
     """
     _ensure_stripe_key()
     customer_id = get_or_create_customer(user=user)
+
+    sub_data = {
+        'metadata': {
+            'user_id': user.id,
+            'package_id': package.id,
+            'type': 'individual',
+        },
+    }
+    if trial_period_days:
+        sub_data['trial_period_days'] = trial_period_days
 
     session_kwargs = dict(
         customer=customer_id,
@@ -159,13 +172,7 @@ def create_individual_checkout_session(user, package, request, stripe_coupon_id=
             'package_id': package.id,
             'type': 'individual',
         },
-        subscription_data={
-            'metadata': {
-                'user_id': user.id,
-                'package_id': package.id,
-                'type': 'individual',
-            },
-        },
+        subscription_data=sub_data,
         billing_address_collection='required',
         payment_method_types=['card'],
     )
