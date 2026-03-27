@@ -804,6 +804,8 @@ class PromoCodeCreateView(SuperuserRequiredMixin, View):
 
         code = data.get('code', '').strip().upper().replace(' ', '')
         description = data.get('description', '').strip()
+        discount_percent = data.get('discount_percent', '100').strip()
+        grant_days = data.get('grant_days', '').strip()
         class_limit = data.get('class_limit', '0').strip()
         max_uses = data.get('max_uses', '').strip()
         expires_at = data.get('expires_at', '').strip()
@@ -812,6 +814,23 @@ class PromoCodeCreateView(SuperuserRequiredMixin, View):
             errors['code'] = 'Code is required.'
         elif PromoCode.objects.filter(code=code).exists():
             errors['code'] = 'This code already exists.'
+
+        try:
+            discount_percent_val = int(discount_percent)
+            if discount_percent_val < 0 or discount_percent_val > 100:
+                errors['discount_percent'] = 'Must be 0-100.'
+        except ValueError:
+            errors['discount_percent'] = 'Enter a valid number.'
+            discount_percent_val = 100
+
+        grant_days_val = None
+        if grant_days:
+            try:
+                grant_days_val = int(grant_days)
+                if grant_days_val < 1:
+                    errors['grant_days'] = 'Must be at least 1.'
+            except ValueError:
+                errors['grant_days'] = 'Enter a valid number.'
 
         try:
             class_limit_val = int(class_limit)
@@ -853,6 +872,8 @@ class PromoCodeCreateView(SuperuserRequiredMixin, View):
         promo = PromoCode.objects.create(
             code=code,
             description=description,
+            discount_percent=discount_percent_val,
+            grant_days=grant_days_val,
             class_limit=class_limit_val,
             max_uses=max_uses_val,
             expires_at=expires_at_val,
@@ -876,6 +897,8 @@ class PromoCodeEditView(SuperuserRequiredMixin, View):
             'form_data': {
                 'code': promo.code,
                 'description': promo.description,
+                'discount_percent': str(promo.discount_percent),
+                'grant_days': str(promo.grant_days) if promo.grant_days else '',
                 'class_limit': str(promo.class_limit),
                 'max_uses': str(promo.max_uses) if promo.max_uses else '',
                 'expires_at': promo.expires_at.strftime('%Y-%m-%dT%H:%M') if promo.expires_at else '',
@@ -888,9 +911,28 @@ class PromoCodeEditView(SuperuserRequiredMixin, View):
         errors = {}
 
         description = data.get('description', '').strip()
+        discount_percent = data.get('discount_percent', '100').strip()
+        grant_days = data.get('grant_days', '').strip()
         class_limit = data.get('class_limit', '0').strip()
         max_uses = data.get('max_uses', '').strip()
         expires_at = data.get('expires_at', '').strip()
+
+        try:
+            discount_percent_val = int(discount_percent)
+            if discount_percent_val < 0 or discount_percent_val > 100:
+                errors['discount_percent'] = 'Must be 0-100.'
+        except ValueError:
+            errors['discount_percent'] = 'Enter a valid number.'
+            discount_percent_val = promo.discount_percent
+
+        grant_days_val = None
+        if grant_days:
+            try:
+                grant_days_val = int(grant_days)
+                if grant_days_val < 1:
+                    errors['grant_days'] = 'Must be at least 1.'
+            except ValueError:
+                errors['grant_days'] = 'Enter a valid number.'
 
         try:
             class_limit_val = int(class_limit)
@@ -931,6 +973,8 @@ class PromoCodeEditView(SuperuserRequiredMixin, View):
             })
 
         promo.description = description
+        promo.discount_percent = discount_percent_val
+        promo.grant_days = grant_days_val
         promo.class_limit = class_limit_val
         promo.max_uses = max_uses_val
         promo.expires_at = expires_at_val

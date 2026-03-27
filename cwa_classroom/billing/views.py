@@ -181,7 +181,7 @@ class ApplyPromoCodeView(LoginRequiredMixin, View):
             except PromoCode.DoesNotExist:
                 return JsonResponse({'error': 'Invalid promotion code.'}, status=400)
 
-        # Handle PromoCode (always 100% free access)
+        # Handle PromoCode
         if promo:
             if not promo.is_valid():
                 return JsonResponse({'error': 'This promotion code has expired or reached its usage limit.'}, status=400)
@@ -189,38 +189,65 @@ class ApplyPromoCodeView(LoginRequiredMixin, View):
             if promo.redeemed_by.filter(id=request.user.id).exists():
                 return JsonResponse({'error': 'You have already used this promotion code.'}, status=400)
 
-            grant_days = promo.grant_days or package.trial_days or 30
+            if promo.is_fully_free:
+                # 100% off — activate subscription immediately
+                grant_days = promo.grant_days or package.trial_days or 30
 
+                promo.uses += 1
+                promo.save(update_fields=['uses'])
+                promo.redeemed_by.add(request.user)
+
+                sub, _ = Subscription.objects.get_or_create(
+                    user=request.user,
+                    defaults={'package': package},
+                )
+                sub.package = package
+                sub.status = Subscription.STATUS_TRIALING
+                sub.trial_end = timezone.now() + timedelta(days=grant_days)
+                sub.save(update_fields=['package', 'status', 'trial_end', 'updated_at'])
+
+                request.user.package = package
+                request.user.save(update_fields=['package'])
+
+                log_event(
+                    user=request.user, school=None, category='billing',
+                    action='promo_code_redeemed',
+                    detail={
+                        'code': promo.code, 'type': 'promo', 'discount_percent': 100,
+                        'grant_days': grant_days, 'package': package.name,
+                    },
+                    request=request,
+                )
+
+                return JsonResponse({
+                    'fully_free': True,
+                    'redirect_url': '/billing/success/',
+                    'grant_days': grant_days,
+                })
+
+            # Partial discount from PromoCode
             promo.uses += 1
             promo.save(update_fields=['uses'])
             promo.redeemed_by.add(request.user)
 
-            sub, _ = Subscription.objects.get_or_create(
-                user=request.user,
-                defaults={'package': package},
-            )
-            sub.package = package
-            sub.status = Subscription.STATUS_TRIALING
-            sub.trial_end = timezone.now() + timedelta(days=grant_days)
-            sub.save(update_fields=['package', 'status', 'trial_end', 'updated_at'])
-
-            request.user.package = package
-            request.user.save(update_fields=['package'])
+            discounted_price = round(float(package.price) * (1 - promo.discount_percent / 100), 2)
 
             log_event(
                 user=request.user, school=None, category='billing',
-                action='promo_code_redeemed',
+                action='promo_code_applied',
                 detail={
                     'code': promo.code, 'type': 'promo',
-                    'grant_days': grant_days, 'package': package.name,
+                    'discount_percent': promo.discount_percent,
+                    'original_price': str(package.price), 'discounted_price': str(discounted_price),
                 },
                 request=request,
             )
 
             return JsonResponse({
-                'fully_free': True,
-                'redirect_url': '/billing/success/',
-                'grant_days': grant_days,
+                'fully_free': False,
+                'discount_percent': promo.discount_percent,
+                'discounted_price': discounted_price,
+                'stripe_coupon_id': '',
             })
 
         # Handle DiscountCode

@@ -40,6 +40,27 @@
                  placeholder="Internal description">
         </div>
 
+        <!-- Discount Percent -->
+        <div>
+          <label for="discount_percent" class="block text-sm font-semibold text-gray-700 mb-1.5">Discount %</label>
+          <input type="number" min="0" max="100" name="discount_percent" id="discount_percent"
+                 value="{{ form_data.discount_percent|default:'100' }}"
+                 class="w-full px-4 py-2.5 border {% if errors.discount_percent %}border-red-400{% else %}border-slate-300{% endif %} rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+          <p class="text-xs text-gray-400 mt-1">100 = fully free (no payment needed). Less than 100 = partial discount on subscription price.</p>
+          {% if errors.discount_percent %}<p class="text-red-500 text-xs mt-1">{{ errors.discount_percent }}</p>{% endif %}
+        </div>
+
+        <!-- Grant Days -->
+        <div>
+          <label for="grant_days" class="block text-sm font-semibold text-gray-700 mb-1.5">Access Duration (days)</label>
+          <input type="number" min="1" name="grant_days" id="grant_days"
+                 value="{{ form_data.grant_days|default:'' }}"
+                 class="w-full px-4 py-2.5 border {% if errors.grant_days %}border-red-400{% else %}border-slate-300{% endif %} rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition"
+                 placeholder="e.g. 30, 60, 365">
+          <p class="text-xs text-gray-400 mt-1">How many days the student gets access. Leave blank to use the package default.</p>
+          {% if errors.grant_days %}<p class="text-red-500 text-xs mt-1">{{ errors.grant_days }}</p>{% endif %}
+        </div>
+
         <!-- Class Limit -->
         <div>
           <label for="class_limit" class="block text-sm font-semibold text-gray-700 mb-1.5">Class Access Limit</label>

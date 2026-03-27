@@ -123,13 +123,17 @@ class Payment(models.Model):
 class PromoCode(models.Model):
     code = models.CharField(max_length=50, unique=True)
     description = models.CharField(max_length=200, blank=True)
+    discount_percent = models.PositiveSmallIntegerField(
+        default=100,
+        help_text='100 = fully free (no payment). Less than 100 = partial discount.',
+    )
     class_limit = models.PositiveIntegerField(
         default=0,
         help_text='Class access granted. 0 = unlimited.',
     )
     grant_days = models.PositiveIntegerField(
         null=True, blank=True,
-        help_text='Days of access granted. Leave blank for unlimited.',
+        help_text='Days of access granted. Leave blank to use package default.',
     )
     max_uses = models.PositiveIntegerField(
         null=True, blank=True,
@@ -160,6 +164,10 @@ class PromoCode(models.Model):
         if self.max_uses is not None and self.uses >= self.max_uses:
             return False
         return True
+
+    @property
+    def is_fully_free(self):
+        return self.discount_percent == 100
 
 
 class InstituteDiscountCode(models.Model):
