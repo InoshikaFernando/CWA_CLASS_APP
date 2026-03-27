@@ -15,6 +15,8 @@ from classroom.views import (
     SubjectsListView,
     ContactView,
     JoinClassView,
+    PrivacyPolicyView,
+    TermsConditionsView,
 )
 from classroom.views_email import UnsubscribeView
 
@@ -39,6 +41,8 @@ urlpatterns = [
     path('subjects/', SubjectsListView.as_view(), name='subjects_list'),
     path('contact/', ContactView.as_view(), name='contact'),
     path('join/', JoinClassView.as_view(), name='join_class'),
+    path('privacy/', PrivacyPolicyView.as_view(), name='privacy_policy'),
+    path('terms/', TermsConditionsView.as_view(), name='terms_conditions'),
 
     # --- Email unsubscribe (public, no login required) ---
     path('email/unsubscribe/<uuid:token>/', UnsubscribeView.as_view(), name='email_unsubscribe'),
