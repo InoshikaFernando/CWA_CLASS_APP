@@ -7,7 +7,7 @@
 
   <!-- Header -->
   <div class="mb-8">
-    <a href="{% url 'billing_admin_module_list' %}" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back to Modules</a>
+    <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
     <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Edit Module: {{ module.name }}</h1>
     <p class="text-gray-500 mt-1">Module slug: <span class="font-mono">{{ module.module }}</span></p>
   </div>

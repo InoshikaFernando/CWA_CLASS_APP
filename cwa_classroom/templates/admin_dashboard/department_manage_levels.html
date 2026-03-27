@@ -7,7 +7,7 @@
 
   <!-- Header -->
   <div class="mb-8">
-    <a href="{% url 'admin_department_detail' school.id department.id %}" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back to {{ department.name }}</a>
+    <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
     <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Manage Curriculum Levels</h1>
     <p class="text-gray-500 mt-1">{{ department.name }} — {{ school.name }}</p>
     {% for ds in department.department_subjects.all %}

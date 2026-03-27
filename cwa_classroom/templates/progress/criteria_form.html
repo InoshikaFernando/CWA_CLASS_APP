@@ -6,7 +6,7 @@
 <div class="max-w-2xl mx-auto">
 
   <div class="mb-8">
-    <a href="{% url 'progress_criteria_list' %}" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back to Criteria</a>
+    <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
     <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">
       {% if parent_criteria %}Create Sub-Criteria{% else %}Create Progress Criteria{% endif %}
     </h1>

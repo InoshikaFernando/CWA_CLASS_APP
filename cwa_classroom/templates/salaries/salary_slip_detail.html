@@ -8,7 +8,7 @@
   <!-- Header -->
   <div class="flex items-center justify-between mb-8">
     <div>
-      <a href="{% url 'salary_slip_list' %}" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back to Salary Slips</a>
+      <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
       <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">{{ slip.slip_number }}</h1>
       <p class="text-gray-500 mt-1">{{ slip.teacher.first_name }} {{ slip.teacher.last_name }} &mdash; {{ slip.billing_period_start|date:"M d" }} to {{ slip.billing_period_end|date:"M d, Y" }}</p>
     </div>

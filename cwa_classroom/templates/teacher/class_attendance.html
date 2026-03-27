@@ -9,7 +9,7 @@
       <h1 class="font-display text-3xl text-primary">{{ classroom.name }} — Attendance</h1>
       <p class="text-gray-400 text-sm mt-1">{{ student_data|length }} student{{ student_data|length|pluralize }} · {{ sessions|length }} session{{ sessions|length|pluralize }}</p>
     </div>
-    <a href="{% url 'class_detail' class_id=classroom.id %}" class="text-sm text-gray-500 hover:text-primary transition">&larr; Back to Class</a>
+    <a href="javascript:history.back()" class="text-sm text-gray-500 hover:text-primary transition">&larr; Back</a>
   </div>
 
   <!-- Colour key -->

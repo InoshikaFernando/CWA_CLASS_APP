@@ -3,7 +3,7 @@
 {% block content %}
 <div class="max-w-2xl mx-auto space-y-6">
   <div>
-    <a href="{% url 'class_detail' class_id=classroom.id %}" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back to {{ classroom.name }}</a>
+    <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
     <h1 class="font-display text-2xl font-bold text-gray-900 mt-2">Create Session</h1>
     <p class="text-gray-500 text-sm mt-1">Schedule a session for {{ classroom.name }}.</p>
   </div>
