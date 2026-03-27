@@ -222,7 +222,7 @@ class ApplyPromoCodeView(LoginRequiredMixin, View):
 
                 return JsonResponse({
                     'fully_free': True,
-                    'redirect_url': '/billing/success/',
+                    'redirect_url': '/hub/',
                     'grant_days': grant_days,
                 })
 
@@ -286,7 +286,7 @@ class ApplyPromoCodeView(LoginRequiredMixin, View):
 
             return JsonResponse({
                 'fully_free': True,
-                'redirect_url': '/billing/success/',
+                'redirect_url': '/hub/',
                 'grant_days': grant_days,
             })
 
