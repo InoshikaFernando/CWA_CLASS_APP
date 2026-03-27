@@ -48,6 +48,10 @@
         <p class="font-bold text-gray-800 text-xl font-mono">{{ time_display }}</p>
         <p class="text-gray-400 text-xs">Time taken</p>
       </div>
+      <div class="text-center">
+        <p class="font-bold text-gray-800 text-xl font-mono">{{ session_accuracy }}%</p>
+        <p class="text-gray-400 text-xs">Accuracy</p>
+      </div>
       {% if progress and progress.total_sessions > 1 %}
       <div class="text-center">
         <p class="font-bold text-primary text-xl font-mono">{{ progress.best_score }}/10</p>
@@ -55,7 +59,7 @@
       </div>
       <div class="text-center">
         <p class="font-bold text-gray-500 text-xl font-mono">{{ progress.accuracy }}%</p>
-        <p class="text-gray-400 text-xs">Accuracy</p>
+        <p class="text-gray-400 text-xs">Overall accuracy</p>
       </div>
       {% endif %}
     </div>

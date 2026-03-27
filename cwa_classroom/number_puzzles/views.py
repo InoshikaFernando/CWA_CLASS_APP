@@ -234,6 +234,8 @@ class NumberPuzzlesResultsView(LoginRequiredMixin, View):
         time_mins = session.duration_seconds // 60 if session.duration_seconds else 0
         time_secs = session.duration_seconds % 60 if session.duration_seconds else 0
 
+        session_accuracy = round((session.score / session.total_questions) * 100) if session.total_questions else 0
+
         return render(request, 'number_puzzles/results.html', {
             'session': session,
             'level': level,
@@ -242,6 +244,7 @@ class NumberPuzzlesResultsView(LoginRequiredMixin, View):
             'next_level': next_level if next_level_unlocked else None,
             'time_display': f"{time_mins}:{time_secs:02d}",
             'progress': progress,
+            'session_accuracy': session_accuracy,
             'back_url': '/basic-facts/number-puzzles/',
         })
 
