@@ -166,7 +166,7 @@
     </div>
 
     <!-- Teachers section -->
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm" x-data="{ page: 1, perPage: 10, total: {{ teachers|length }} }">
       <div class="flex items-center justify-between p-6 border-b border-slate-100">
         <h2 class="text-lg font-semibold text-gray-900">Staff</h2>
         <a href="{% url 'admin_school_teachers' school.id %}"
@@ -177,7 +177,8 @@
           <div class="space-y-3">
             {% for st in teachers %}
               <a href="{% url 'admin_school_teacher_edit' school.id st.teacher.id %}"
-                 class="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 transition">
+                 class="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 transition"
+                 x-show="{{ forloop.counter }} > (page - 1) * perPage && {{ forloop.counter }} <= page * perPage">
                 <div class="flex items-center gap-3">
                   <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-accent text-white text-xs font-bold">
                     {{ st.teacher.username|slice:":2"|upper }}
@@ -196,6 +197,7 @@
               </a>
             {% endfor %}
           </div>
+          {% include "partials/alpine_pagination.html" %}
         {% else %}
           <p class="text-sm text-gray-400 text-center py-4">No staff assigned yet.</p>
         {% endif %}
@@ -203,7 +205,7 @@
     </div>
 
     <!-- Students section -->
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm" x-data="{ page: 1, perPage: 10, total: {{ school_students|length }} }">
       <div class="flex items-center justify-between p-6 border-b border-slate-100">
         <h2 class="text-lg font-semibold text-gray-900">Students</h2>
         <a href="{% url 'admin_school_students' school.id %}"
@@ -214,7 +216,8 @@
           <div class="space-y-3">
             {% for ss in school_students %}
               <a href="{% url 'admin_school_student_edit' school.id ss.student.id %}"
-                 class="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 transition">
+                 class="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 transition"
+                 x-show="{{ forloop.counter }} > (page - 1) * perPage && {{ forloop.counter }} <= page * perPage">
                 <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-emerald-500 text-white text-xs font-bold">
                   {{ ss.student.first_name|slice:":1"|upper }}{{ ss.student.last_name|slice:":1"|upper }}
                 </span>
@@ -225,6 +228,7 @@
               </a>
             {% endfor %}
           </div>
+          {% include "partials/alpine_pagination.html" %}
         {% else %}
           <p class="text-sm text-gray-400 text-center py-4">No students enrolled yet.</p>
         {% endif %}
@@ -232,7 +236,7 @@
     </div>
 
     <!-- Classes section -->
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm" x-data="{ page: 1, perPage: 10, total: {{ classes|length }} }">
       <div class="flex items-center justify-between p-6 border-b border-slate-100">
         <h2 class="text-lg font-semibold text-gray-900">Classes</h2>
       </div>
@@ -240,7 +244,8 @@
         {% if classes %}
           <div class="space-y-3">
             {% for cls in classes %}
-              <div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl hover:bg-slate-100 transition">
+              <div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl hover:bg-slate-100 transition"
+                   x-show="{{ forloop.counter }} > (page - 1) * perPage && {{ forloop.counter }} <= page * perPage">
                 <a href="{% url 'class_detail' cls.id %}" class="flex-1 min-w-0">
                   <p class="text-sm font-medium text-gray-900">{{ cls.name }}</p>
                   <p class="text-xs text-gray-500">Code: {{ cls.code }} &middot; {{ cls.students.count }} students</p>
@@ -260,6 +265,7 @@
               </div>
             {% endfor %}
           </div>
+          {% include "partials/alpine_pagination.html" %}
         {% else %}
           <p class="text-sm text-gray-400 text-center py-4">No classes created yet.</p>
         {% endif %}

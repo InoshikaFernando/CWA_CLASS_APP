@@ -750,7 +750,7 @@
     </div>
 
     {% for group_name, group_classes in classes_grouped.items %}
-    <div class="mb-4" x-data="{ open: true }">
+    <div class="mb-4" x-data="{ open: true, page: 1, perPage: 10, total: {{ group_classes|length }} }">
       <!-- Group header -->
       <button @click="open = !open"
               class="flex items-center justify-between w-full px-5 py-3 bg-slate-100 hover:bg-slate-200 transition text-left"
@@ -766,38 +766,45 @@
 
       <!-- Group body -->
       <div x-show="open" x-transition.duration.200ms
-           class="bg-white border border-t-0 border-slate-200 rounded-b-xl overflow-hidden divide-y divide-slate-100">
-        {% for classroom in group_classes %}
-        <div class="flex items-center justify-between px-5 py-3 hover:bg-slate-50 transition"
-             x-show="search === '' || '{{ classroom.name|lower|escapejs }}'.includes(search.toLowerCase())">
-          <a href="{% url 'class_detail' class_id=classroom.id %}" class="min-w-0 flex-1 mr-4">
-            <div class="flex items-center gap-2 flex-wrap">
-              <p class="font-semibold text-gray-800 hover:text-accent transition">{{ classroom.name }}</p>
-              {% if classroom.student_count == 0 %}
-                <span class="inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700">No students</span>
-              {% endif %}
-              {% if classroom.teacher_count == 0 %}
-                <span class="inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-700">No staff</span>
-              {% endif %}
+           class="bg-white border border-t-0 border-slate-200 rounded-b-xl overflow-hidden">
+        <div class="divide-y divide-slate-100">
+          {% for classroom in group_classes %}
+          <div class="flex items-center justify-between px-5 py-3 hover:bg-slate-50 transition"
+               x-show="(search === '' || '{{ classroom.name|lower|escapejs }}'.includes(search.toLowerCase())) && (search !== '' || ({{ forloop.counter }} > (page - 1) * perPage && {{ forloop.counter }} <= page * perPage))">
+            <a href="{% url 'class_detail' class_id=classroom.id %}" class="min-w-0 flex-1 mr-4">
+              <div class="flex items-center gap-2 flex-wrap">
+                <p class="font-semibold text-gray-800 hover:text-accent transition">{{ classroom.name }}</p>
+                {% if classroom.student_count == 0 %}
+                  <span class="inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700">No students</span>
+                {% endif %}
+                {% if classroom.teacher_count == 0 %}
+                  <span class="inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-700">No staff</span>
+                {% endif %}
+              </div>
+              <div class="flex flex-wrap items-center gap-x-2 text-xs text-gray-500 mt-0.5">
+                <span>{{ classroom.student_count }} student{{ classroom.student_count|pluralize }}</span>
+                {% if classroom.teacher_count > 0 %}
+                  <span class="text-gray-300">&middot;</span>
+                  <span>{% for t in classroom.teachers.all %}{{ t.get_full_name|default:t.username }}{% if not forloop.last %}, {% endif %}{% endfor %}</span>
+                {% endif %}
+                {% if classroom.day %}
+                  <span class="text-gray-300">&middot;</span>
+                  <span>{{ classroom.get_day_display }}{% if classroom.start_time %} {{ classroom.start_time|time:"g:iA" }}{% endif %}</span>
+                {% endif %}
+              </div>
+            </a>
+            <div class="flex items-center gap-3 flex-shrink-0">
+              <a href="{% url 'class_attendance' class_id=classroom.id %}" class="text-xs text-accent font-semibold hover:underline">Attendance</a>
+              <a href="{% url 'class_detail' class_id=classroom.id %}" class="text-xs text-gray-400 hover:text-gray-600 font-medium">Details</a>
             </div>
-            <div class="flex flex-wrap items-center gap-x-2 text-xs text-gray-500 mt-0.5">
-              <span>{{ classroom.student_count }} student{{ classroom.student_count|pluralize }}</span>
-              {% if classroom.teacher_count > 0 %}
-                <span class="text-gray-300">&middot;</span>
-                <span>{% for t in classroom.teachers.all %}{{ t.get_full_name|default:t.username }}{% if not forloop.last %}, {% endif %}{% endfor %}</span>
-              {% endif %}
-              {% if classroom.day %}
-                <span class="text-gray-300">&middot;</span>
-                <span>{{ classroom.get_day_display }}{% if classroom.start_time %} {{ classroom.start_time|time:"g:iA" }}{% endif %}</span>
-              {% endif %}
-            </div>
-          </a>
-          <div class="flex items-center gap-3 flex-shrink-0">
-            <a href="{% url 'class_attendance' class_id=classroom.id %}" class="text-xs text-accent font-semibold hover:underline">Attendance</a>
-            <a href="{% url 'class_detail' class_id=classroom.id %}" class="text-xs text-gray-400 hover:text-gray-600 font-medium">Details</a>
           </div>
+          {% endfor %}
         </div>
-        {% endfor %}
+        <template x-if="search === ''">
+          <div class="px-5 pb-3">
+            {% include "partials/alpine_pagination.html" %}
+          </div>
+        </template>
       </div>
     </div>
     {% empty %}
