@@ -134,7 +134,7 @@
 
     <!-- Step 3: Package Selection -->
     <div id="step-3" class="step-panel hidden space-y-4">
-      <p class="text-sm text-gray-500 text-center">All plans include a <strong class="text-primary">14-day free trial</strong>.</p>
+      <p class="text-sm text-gray-500 text-center">All plans include a <strong class="text-primary">free trial</strong>.</p>
 
       <div class="grid grid-cols-2 gap-3">
         {% for package in packages %}
@@ -148,12 +148,12 @@
             {% if package.class_limit == 0 %}Unlimited classes{% else %}{{ package.class_limit }} class{{ package.class_limit|pluralize }}{% endif %}
           </div>
           {% if package.price == 0 %}
-            <div class="text-lg font-bold text-green-600">Free</div>
+            <div class="text-lg font-bold text-green-600">Free Trial</div>
           {% else %}
             <div class="text-lg font-bold text-gray-800">${{ package.price }}<span class="text-xs font-normal text-gray-400">/mo</span></div>
           {% endif %}
           <div class="mt-2 inline-block bg-accent-light text-yellow-800 text-xs font-semibold px-2 py-0.5 rounded-full">
-            14 days free
+            {{ package.trial_days }} days free
           </div>
         </label>
         {% empty %}

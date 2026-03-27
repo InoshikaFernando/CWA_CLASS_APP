@@ -216,7 +216,7 @@ class IndividualStudentRegistrationTest(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.free_pkg = Package.objects.create(
-            name='Free', class_limit=1, price=0, trial_days=0, order=1,
+            name='Free', class_limit=1, price=0, trial_days=7, order=1,
         )
         cls.basic_pkg = Package.objects.create(
             name='Basic', class_limit=3, price=9.99, trial_days=14, order=2,
@@ -247,7 +247,8 @@ class IndividualStudentRegistrationTest(TestCase):
         user = CustomUser.objects.get(username='freestudent')
         sub = Subscription.objects.get(user=user)
         self.assertEqual(sub.package, self.free_pkg)
-        self.assertEqual(sub.status, Subscription.STATUS_ACTIVE)
+        self.assertEqual(sub.status, Subscription.STATUS_TRIALING)
+        self.assertIsNotNone(sub.trial_end)
 
     def test_register_with_paid_package_starts_trial(self):
         resp = self.client.post(self.url, {

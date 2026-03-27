@@ -25,7 +25,7 @@ SUBJECTS = [
 ]
 
 PACKAGES = [
-    {'name': 'Free',    'price': 0,    'class_limit': 0,  'trial_days': 0,  'billing_type': 'recurring', 'order': 1},
+    {'name': 'Free',    'price': 0,    'class_limit': 0,  'trial_days': 7,  'billing_type': 'recurring', 'order': 1},
     {'name': 'Basic',   'price': 9,    'class_limit': 1,  'trial_days': 14, 'billing_type': 'recurring', 'order': 2},
     {'name': 'Premium', 'price': 19,   'class_limit': 0,  'trial_days': 14, 'billing_type': 'recurring', 'order': 3},
 ]

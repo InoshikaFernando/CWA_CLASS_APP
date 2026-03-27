@@ -526,19 +526,13 @@ class IndividualStudentRegisterView(View):
                 )
                 UserRole.objects.create(user=user, role=role)
 
-                # Create subscription record
-                if package.is_free:
-                    Subscription.objects.create(
-                        user=user, package=package,
-                        status=Subscription.STATUS_ACTIVE,
-                    )
-                else:
-                    trial_end = timezone.now() + timedelta(days=package.trial_days)
-                    Subscription.objects.create(
-                        user=user, package=package,
-                        status=Subscription.STATUS_TRIALING,
-                        trial_end=trial_end,
-                    )
+                # Create subscription record – all packages start as a trial
+                trial_end = timezone.now() + timedelta(days=package.trial_days)
+                Subscription.objects.create(
+                    user=user, package=package,
+                    status=Subscription.STATUS_TRIALING,
+                    trial_end=trial_end,
+                )
 
                 # Handle discount code
                 if discount:
