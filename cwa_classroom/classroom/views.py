@@ -2625,7 +2625,93 @@ class HoDOverviewView(RoleRequiredMixin, View):
                         'overage_rate': overage_rate,
                     }
 
+        is_hoi = not is_hod_only
+
+        # ── My Earnings (for teachers / HoDs) ──────────────────────
+        my_earnings = None
+        user_slips = SalarySlip.objects.filter(
+            teacher=request.user,
+            school_id__in=my_school_ids,
+        ).exclude(status='cancelled')
+
+        if user_slips.exists():
+            # Current month slip
+            current_slip = user_slips.filter(
+                billing_period_start__lt=next_month_start,
+                billing_period_end__gte=current_month_start,
+            ).first()
+
+            current_month_earned = Decimal('0.00')
+            current_month_sessions = 0
+            current_month_hours = Decimal('0.00')
+            current_month_status = None
+            current_month_paid = Decimal('0.00')
+            current_month_due = Decimal('0.00')
+
+            if current_slip:
+                current_month_earned = current_slip.amount or Decimal('0.00')
+                agg = current_slip.line_items.aggregate(
+                    sessions=Coalesce(Sum('sessions_taught'), 0),
+                    hours=Coalesce(Sum('total_hours'), Decimal('0.00')),
+                )
+                current_month_sessions = agg['sessions']
+                current_month_hours = agg['hours']
+                current_month_status = current_slip.get_status_display()
+                current_month_paid = current_slip.amount_paid
+                current_month_due = current_slip.amount_due
+
+            # YTD total
+            year_start = today.replace(month=1, day=1)
+            ytd_earned = user_slips.filter(
+                billing_period_start__gte=year_start,
+            ).aggregate(total=Coalesce(Sum('amount'), Decimal('0.00')))['total']
+
+            # Monthly trend (Jan → current month)
+            earnings_trend = []
+            for m in range(1, today.month + 1):
+                m_start = today.replace(month=m, day=1)
+                if m == 12:
+                    m_end = today.replace(year=today.year + 1, month=1, day=1)
+                else:
+                    m_end = today.replace(month=m + 1, day=1)
+                m_slip = user_slips.filter(
+                    billing_period_start__lt=m_end,
+                    billing_period_end__gte=m_start,
+                ).first()
+                if m_slip:
+                    m_agg = m_slip.line_items.aggregate(
+                        sessions=Coalesce(Sum('sessions_taught'), 0),
+                        hours=Coalesce(Sum('total_hours'), Decimal('0.00')),
+                    )
+                    earnings_trend.append({
+                        'month': m_start.strftime('%b'),
+                        'earned': m_slip.amount or Decimal('0.00'),
+                        'sessions': m_agg['sessions'],
+                        'hours': m_agg['hours'],
+                        'status': m_slip.get_status_display(),
+                    })
+                else:
+                    earnings_trend.append({
+                        'month': m_start.strftime('%b'),
+                        'earned': Decimal('0.00'),
+                        'sessions': 0,
+                        'hours': Decimal('0.00'),
+                        'status': '-',
+                    })
+
+            my_earnings = {
+                'current_month_earned': current_month_earned,
+                'current_month_sessions': current_month_sessions,
+                'current_month_hours': current_month_hours,
+                'current_month_status': current_month_status,
+                'current_month_paid': current_month_paid,
+                'current_month_due': current_month_due,
+                'ytd_earned': ytd_earned,
+                'trend': earnings_trend,
+            }
+
         return render(request, 'hod/overview.html', {
+            'is_hoi': is_hoi,
             'school_data': school_data,
             'classes': classes_list,
             'teachers': teachers,
@@ -2662,6 +2748,7 @@ class HoDOverviewView(RoleRequiredMixin, View):
             'teacher_birthdays': teacher_birthdays,
             'current_month_name': now.strftime('%B %Y'),
             'subscription_usage': subscription_usage,
+            'my_earnings': my_earnings,
         })
 
 
