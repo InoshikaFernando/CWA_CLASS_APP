@@ -8,11 +8,12 @@
        modifiedIds: new Set(),
        expanded: {},
        showAddModal: false,
+       submitting: false,
        get hasChanges() { return this.modifiedIds.size > 0 },
        markModified(id) { this.modifiedIds.add(id); document.getElementById('teacher_ids').value = [...this.modifiedIds].join(',') },
        toggle(id) { this.expanded[id] = !this.expanded[id] }
      }"
-     x-init="window.addEventListener('beforeunload', (e) => { if (hasChanges) e.preventDefault() })">
+     x-init="window.addEventListener('beforeunload', (e) => { if (hasChanges && !submitting) e.preventDefault() })">
 
   <!-- Header -->
   <div class="mb-8">
@@ -199,7 +200,7 @@
 
       <!-- Batch edit form -->
       <form method="post" action="{% url 'admin_school_teacher_batch_update' school.id %}"
-            @submit="window.onbeforeunload = null">
+            @submit="submitting = true">
         {% csrf_token %}
         <input type="hidden" name="teacher_ids" id="teacher_ids" value="">
 
