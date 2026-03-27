@@ -130,6 +130,7 @@
 
   let stripe, elements, cardElement, clientSecret;
   let appliedCouponId = null;
+  let appliedDiscountCode = null;
 
   // Init Stripe Elements
   if (stripeKey) {
@@ -183,6 +184,7 @@
         // Partial discount
         const discounted = data.discounted_price;
         appliedCouponId = data.stripe_coupon_id;
+        appliedDiscountCode = code;
         promoSuccess.textContent = `${data.discount_percent}% off applied! New price: $${discounted.toFixed(2)}/month`;
         promoSuccess.classList.remove('hidden');
         promoInput.disabled = true;
@@ -223,6 +225,7 @@
           'Content-Type': 'application/json',
           'X-CSRFToken': csrfToken,
         },
+        body: JSON.stringify({ discount_code: appliedDiscountCode || '' }),
       });
       const data = await res.json();
 

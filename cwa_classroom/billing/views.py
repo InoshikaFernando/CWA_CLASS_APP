@@ -38,7 +38,27 @@ class CreatePaymentIntentView(LoginRequiredMixin, View):
         if package.is_free:
             return JsonResponse({'error': 'Cannot checkout a free package.'}, status=400)
 
-        amount = int(package.price * 100)  # Stripe uses cents
+        # Check for applied discount code (validated server-side earlier)
+        body = json.loads(request.body) if request.body else {}
+        discount_code_str = (body.get('discount_code') or '').strip().upper()
+
+        discount_percent = 0
+        if discount_code_str:
+            try:
+                dc = DiscountCode.objects.get(code=discount_code_str)
+                if dc.is_valid() and not dc.is_fully_free:
+                    discount_percent = dc.discount_percent
+            except DiscountCode.DoesNotExist:
+                pass
+
+        original_amount = int(package.price * 100)  # Stripe uses cents
+        if discount_percent:
+            amount = int(original_amount * (1 - discount_percent / 100))
+        else:
+            amount = original_amount
+
+        if amount < 50:  # Stripe minimum is 50 cents
+            amount = 50
 
         try:
             # Get or create Stripe customer
@@ -62,17 +82,23 @@ class CreatePaymentIntentView(LoginRequiredMixin, View):
                 metadata={
                     'user_id': request.user.id,
                     'package_id': package.id,
+                    'discount_code': discount_code_str or '',
+                    'discount_percent': str(discount_percent),
                 },
             )
 
             log_event(
                 user=request.user, school=None, category='billing',
                 action='payment_intent_created',
-                detail={'package_id': package.id, 'package_name': package.name, 'amount': amount},
+                detail={
+                    'package_id': package.id, 'package_name': package.name,
+                    'original_amount': original_amount, 'amount': amount,
+                    'discount_code': discount_code_str or None, 'discount_percent': discount_percent,
+                },
                 request=request,
             )
 
-            return JsonResponse({'client_secret': intent.client_secret})
+            return JsonResponse({'client_secret': intent.client_secret, 'amount': amount})
 
         except stripe.error.StripeError as e:
             return JsonResponse({'error': str(e)}, status=400)
