@@ -63,6 +63,30 @@
 
       <form id="payment-form">
         <div class="mb-4">
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Name on Card</label>
+          <input id="card-name" type="text" required placeholder="Full name"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+        </div>
+
+        <div class="mb-4">
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Phone Number</label>
+          <input id="card-phone" type="tel" required placeholder="+64 21 123 4567"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+        </div>
+
+        <div class="mb-4">
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Billing Address</label>
+          <input id="card-address" type="text" required placeholder="Street address"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+          <div class="grid grid-cols-2 gap-2">
+            <input id="card-city" type="text" required placeholder="City"
+                   class="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+            <input id="card-postal" type="text" required placeholder="Postal code"
+                   class="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+          </div>
+        </div>
+
+        <div class="mb-4">
           <label class="block text-sm font-semibold text-gray-700 mb-1.5">Card Information</label>
           <div id="card-element"></div>
           <div id="card-errors" class="text-red-600 text-xs mt-1.5" role="alert"></div>
@@ -242,7 +266,18 @@
     errorEl.textContent = '';
 
     const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
-      payment_method: { card: cardElement },
+      payment_method: {
+        card: cardElement,
+        billing_details: {
+          name: document.getElementById('card-name').value,
+          phone: document.getElementById('card-phone').value,
+          address: {
+            line1: document.getElementById('card-address').value,
+            city: document.getElementById('card-city').value,
+            postal_code: document.getElementById('card-postal').value,
+          },
+        },
+      },
     });
 
     if (error) {
