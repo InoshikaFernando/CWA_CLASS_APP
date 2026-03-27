@@ -57,6 +57,10 @@ class DiscountCode(models.Model):
         max_length=100, blank=True,
         help_text='Stripe Coupon ID. Applied to checkout when discount is not 100%.',
     )
+    grant_days = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text='Days of access granted when code is redeemed. For 100% codes this sets the subscription period.',
+    )
     is_active = models.BooleanField(default=True)
     expires_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

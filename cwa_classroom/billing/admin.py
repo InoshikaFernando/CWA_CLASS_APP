@@ -16,8 +16,8 @@ class PackageAdmin(admin.ModelAdmin):
 
 @admin.register(DiscountCode)
 class DiscountCodeAdmin(admin.ModelAdmin):
-    list_display = ('code', 'discount_percent', 'uses', 'max_uses', 'is_active', 'expires_at')
-    list_filter = ('is_active',)
+    list_display = ('code', 'discount_percent', 'grant_days', 'uses', 'max_uses', 'is_active', 'expires_at')
+    list_filter = ('is_active', 'discount_percent')
     search_fields = ('code',)
 
 
