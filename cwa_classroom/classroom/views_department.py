@@ -762,6 +762,13 @@ class DepartmentManageLevelsView(RoleRequiredMixin, View):
                 parts.append(f'{added} added')
             if removed:
                 parts.append(f'{removed} removed')
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='department_levels_updated',
+                detail={'department_id': department.id, 'department': department.name,
+                        'added': added, 'removed': removed},
+                request=request,
+            )
             messages.success(request, f'Level mappings updated: {", ".join(parts)}.')
         else:
             messages.info(request, 'Level mappings saved.')
@@ -880,6 +887,13 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
                                 department=department, level=lv,
                                 defaults={'order': lv.level_number},
                             )
+                        log_event(
+                            user=request.user, school=school, category='data_change',
+                            action='department_subject_added',
+                            detail={'department_id': department.id, 'department': department.name,
+                                    'subject_id': subj.id, 'subject': subj.name},
+                            request=request,
+                        )
                         messages.success(request, f'Subject "{subj.name}" added to {department.name}.')
                     else:
                         messages.info(request, f'Subject "{subj.name}" is already assigned.')
@@ -896,6 +910,14 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
                 DepartmentSubject.objects.create(
                     department=department, subject=subj,
                     order=DepartmentSubject.objects.filter(department=department).count(),
+                )
+                log_event(
+                    user=request.user, school=school, category='data_change',
+                    action='department_subject_added',
+                    detail={'department_id': department.id, 'department': department.name,
+                            'subject_id': subj.id, 'subject': new_subject_name,
+                            'new_subject': True},
+                    request=request,
                 )
                 messages.success(request, f'Subject "{new_subject_name}" created and added.')
             else:
@@ -919,6 +941,14 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
                 else:
                     ds.fee_override = None
                 ds.save(update_fields=['fee_override'])
+                log_event(
+                    user=request.user, school=school, category='data_change',
+                    action='department_subject_fee_updated',
+                    detail={'department_id': department.id, 'department': department.name,
+                            'subject_id': ds.subject_id, 'subject': ds.subject.name,
+                            'fee_override': str(ds.fee_override) if ds.fee_override is not None else None},
+                    request=request,
+                )
                 messages.success(request, f'Fee for {ds.subject.name} updated.')
             return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
 
@@ -972,12 +1002,27 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
                             is_active=True,
                         ).update(department=new_dept)
 
+                        log_event(
+                            user=request.user, school=school, category='data_change',
+                            action='department_subject_moved',
+                            detail={'department_id': department.id, 'department': department.name,
+                                    'subject_id': subject.id, 'subject': subject.name,
+                                    'new_department_id': new_dept.id, 'new_department': new_dept.name},
+                            request=request,
+                        )
                         messages.success(request, f'Subject "{subject.name}" moved to {new_dept.name}.')
                         return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
                 else:
                     messages.error(request, 'Target department not found.')
                     return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
 
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='department_subject_edited',
+                detail={'department_id': department.id, 'department': department.name,
+                        'subject_id': subject.id, 'subject': subject.name},
+                request=request,
+            )
             messages.success(request, f'Subject "{subject.name}" updated.')
             return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
 
@@ -1004,6 +1049,13 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
                     else:
                         dl.fee_override = None
                     dl.save(update_fields=['fee_override'])
+                    log_event(
+                        user=request.user, school=school, category='data_change',
+                        action='department_level_edited',
+                        detail={'department_id': department.id, 'department': department.name,
+                                'level_id': level.id, 'display_name': display_name},
+                        request=request,
+                    )
                     messages.success(request, f'Level "{display_name}" updated.')
                 else:
                     messages.error(request, 'Level not found in this department.')
@@ -1060,6 +1112,14 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
                 defaults={'order': level_number},
             )
 
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='department_level_created',
+            detail={'department_id': department.id, 'department': department.name,
+                    'level_id': level.id, 'level_name': level_name,
+                    'subject_id': subject.id, 'subject': subject.name},
+            request=request,
+        )
         messages.success(request, f'Level "{level_name}" created under {subject.name}.')
         return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
 
@@ -1082,6 +1142,13 @@ class DepartmentUpdateFeeView(RoleRequiredMixin, View):
         else:
             department.default_fee = None
         department.save(update_fields=['default_fee'])
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='department_fee_updated',
+            detail={'department_id': department.id, 'department': department.name,
+                    'default_fee': str(department.default_fee) if department.default_fee is not None else None},
+            request=request,
+        )
         messages.success(request, 'Department fee updated.')
         return redirect('admin_department_detail', school_id=school.id, dept_id=department.id)
 
@@ -1097,6 +1164,13 @@ class DepartmentSubjectLevelRemoveView(RoleRequiredMixin, View):
             department=department, level_id=level_id,
         ).delete()
         if deleted:
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='department_level_removed',
+                detail={'department_id': department.id, 'department': department.name,
+                        'level_id': level_id},
+                request=request,
+            )
             messages.success(request, 'Level removed from department.')
         else:
             messages.info(request, 'Level was not mapped to this department.')
@@ -1242,5 +1316,11 @@ class DepartmentSettingsView(RoleRequiredMixin, View):
             department.logo = ''
 
         department.save()
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='department_settings_updated',
+            detail={'department_id': department.id, 'department': department.name},
+            request=request,
+        )
         messages.success(request, f'Settings for "{department.name}" saved successfully.')
         return redirect('admin_department_settings', school_id=school.id, dept_id=department.id)

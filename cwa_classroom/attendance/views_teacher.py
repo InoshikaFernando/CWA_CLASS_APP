@@ -22,6 +22,7 @@ from classroom.models import (
 from classroom.views import RoleRequiredMixin
 from classroom.notifications import create_notification
 from classroom.views_progress import _build_hierarchical_criteria
+from audit.services import log_event
 from .models import ClassSession, StudentAttendance, TeacherAttendance
 
 
@@ -317,12 +318,28 @@ class SessionAttendanceView(RoleRequiredMixin, View):
                 msg += f' Progress saved for {progress_saved} record(s).'
             msg += ' Session marked as completed.'
             messages.success(request, msg)
+            log_event(
+                user=request.user, school=session.classroom.school,
+                category='data_change', action='attendance_marked',
+                detail={'session_id': session.id, 'classroom': session.classroom.name,
+                        'students_saved': saved_count, 'progress_saved': progress_saved,
+                        'session_completed': True},
+                request=request,
+            )
             return redirect('class_detail', class_id=session.classroom_id)
 
         msg = f'Attendance saved for {saved_count} student(s).'
         if progress_saved:
             msg += f' Progress saved for {progress_saved} record(s).'
         messages.success(request, msg)
+        log_event(
+            user=request.user, school=session.classroom.school,
+            category='data_change', action='attendance_marked',
+            detail={'session_id': session.id, 'classroom': session.classroom.name,
+                    'students_saved': saved_count, 'progress_saved': progress_saved,
+                    'session_completed': False},
+            request=request,
+        )
         return redirect('session_attendance', session_id=session_id)
 
 
@@ -335,7 +352,7 @@ class TeacherSelfAttendanceView(RoleRequiredMixin, View):
 
     def post(self, request, session_id):
         session = get_object_or_404(
-            ClassSession.objects.select_related('classroom'),
+            ClassSession.objects.select_related('classroom', 'classroom__school'),
             id=session_id,
         )
 
@@ -359,6 +376,14 @@ class TeacherSelfAttendanceView(RoleRequiredMixin, View):
                 'status': status,
                 'self_reported': True,
             },
+        )
+
+        log_event(
+            user=request.user, school=session.classroom.school,
+            category='data_change', action='teacher_self_attendance_recorded',
+            detail={'session_id': session.id, 'classroom': session.classroom.name,
+                    'status': status},
+            request=request,
         )
 
         messages.success(request, f'Your attendance for {session} has been recorded.')
@@ -442,6 +467,15 @@ class StudentAttendanceApproveView(RoleRequiredMixin, View):
         record.approved_at = timezone.now()
         record.save(update_fields=['approved_by', 'approved_at'])
 
+        log_event(
+            user=request.user, school=record.session.classroom.school,
+            category='data_change', action='student_attendance_approved',
+            detail={'attendance_id': record.id, 'student': record.student.username,
+                    'session_id': record.session_id,
+                    'classroom': record.session.classroom.name},
+            request=request,
+        )
+
         messages.success(
             request,
             f'Approved attendance for {record.student.get_full_name() or record.student.username}.'
@@ -469,7 +503,18 @@ class StudentAttendanceRejectView(RoleRequiredMixin, View):
             return redirect('attendance_approvals')
 
         student_name = record.student.get_full_name() or record.student.username
+        school = record.session.classroom.school
+        detail = {'attendance_id': record.id, 'student': record.student.username,
+                  'session_id': record.session_id,
+                  'classroom': record.session.classroom.name}
         record.delete()
+
+        log_event(
+            user=request.user, school=school,
+            category='data_change', action='student_attendance_rejected',
+            detail=detail,
+            request=request,
+        )
 
         messages.success(request, f'Rejected attendance for {student_name}.')
         return redirect('attendance_approvals')
@@ -504,6 +549,14 @@ class StudentAttendanceBulkApproveView(RoleRequiredMixin, View):
         ).update(
             approved_by=request.user,
             approved_at=timezone.now(),
+        )
+
+        log_event(
+            user=request.user, school=session.classroom.school,
+            category='data_change', action='student_attendance_bulk_approved',
+            detail={'session_id': session.id, 'classroom': session.classroom.name,
+                    'approved_count': count},
+            request=request,
         )
 
         messages.success(request, f'Approved {count} attendance record(s) for {session}.')
@@ -557,6 +610,14 @@ class StartSessionView(RoleRequiredMixin, View):
             defaults={'status': 'present', 'self_reported': False},
         )
 
+        log_event(
+            user=request.user, school=classroom.school,
+            category='data_change', action='attendance_session_created',
+            detail={'session_id': session.id, 'classroom': classroom.name,
+                    'date': str(today), 'method': 'quick_start'},
+            request=request,
+        )
+
         messages.success(request, f'Session started for {classroom.name}.')
         return redirect('session_attendance', session_id=session.id)
 
@@ -583,13 +644,23 @@ class DeleteSessionView(RoleRequiredMixin, View):
             return redirect('teacher_dashboard')
 
         class_id = session.classroom_id
+        school = session.classroom.school
         session_label = f'{session.date.strftime("%d %b %Y")} ({session.start_time.strftime("%H:%M")}\u2013{session.end_time.strftime("%H:%M")})'
+        session_detail = {'session_id': session.id, 'classroom': session.classroom.name,
+                          'date': str(session.date), 'session_label': session_label}
 
         # Delete related records explicitly, then the session itself
         StudentAttendance.objects.filter(session=session).delete()
         TeacherAttendance.objects.filter(session=session).delete()
         ProgressRecord.objects.filter(session=session).delete()
         session.delete()
+
+        log_event(
+            user=request.user, school=school,
+            category='data_change', action='attendance_session_deleted',
+            detail=session_detail,
+            request=request,
+        )
 
         messages.success(request, f'Session on {session_label} and all related records deleted.')
         return redirect('class_detail', class_id=class_id)
@@ -668,6 +739,14 @@ class CreateSessionView(RoleRequiredMixin, View):
             created_by=request.user,
         )
 
+        log_event(
+            user=request.user, school=classroom.school,
+            category='data_change', action='attendance_session_created',
+            detail={'session_id': session.id, 'classroom': classroom.name,
+                    'date': str(session_date), 'method': 'manual_create'},
+            request=request,
+        )
+
         messages.success(request, f'Session created for {session_date.strftime("%d %b %Y")}.')
 
         if go_to_attendance:
@@ -701,6 +780,13 @@ class CompleteSessionView(RoleRequiredMixin, View):
         else:
             session.status = 'completed'
             session.save(update_fields=['status'])
+            log_event(
+                user=request.user, school=session.classroom.school,
+                category='data_change', action='session_completed',
+                detail={'session_id': session.id, 'classroom': session.classroom.name,
+                        'date': str(session.date)},
+                request=request,
+            )
             messages.success(request, 'Session marked as completed.')
 
         return redirect('class_detail', class_id=session.classroom_id)
@@ -733,6 +819,14 @@ class CancelSessionView(RoleRequiredMixin, View):
             session.status = 'cancelled'
             session.cancellation_reason = request.POST.get('reason', '').strip()
             session.save(update_fields=['status', 'cancellation_reason'])
+            log_event(
+                user=request.user, school=session.classroom.school,
+                category='data_change', action='session_cancelled',
+                detail={'session_id': session.id, 'classroom': session.classroom.name,
+                        'date': str(session.date),
+                        'reason': session.cancellation_reason},
+                request=request,
+            )
             messages.success(request, 'Session cancelled.')
 
         return redirect('class_detail', class_id=session.classroom_id)

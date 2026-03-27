@@ -14,6 +14,7 @@ from django.utils import timezone
 from django.views import View
 
 from accounts.models import Role
+from audit.services import log_event
 from .models import (
     School, Department, ClassRoom, SchoolTeacher,
     TeacherHourlyRate, TeacherRateOverride,
@@ -98,6 +99,12 @@ class SetSchoolDefaultRateView(RoleRequiredMixin, View):
             effective_from=effective_from,
             created_by=request.user,
         )
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='salary_config_created',
+            detail={'hourly_rate': str(hourly_rate), 'effective_from': str(effective_from)},
+            request=request,
+        )
         messages.success(request, f'Default hourly rate set: ${hourly_rate}/hr.')
         return redirect('salary_rate_configuration')
 
@@ -145,6 +152,14 @@ class AddTeacherRateOverrideView(RoleRequiredMixin, View):
             created_by=request.user,
         )
         name = f'{st.teacher.first_name} {st.teacher.last_name}'.strip() or st.teacher.username
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='teacher_rate_override_created',
+            detail={'teacher_id': st.teacher.id, 'teacher_name': name,
+                    'hourly_rate': str(hourly_rate), 'reason': reason,
+                    'effective_from': str(effective_from)},
+            request=request,
+        )
         messages.success(request, f'Rate override set for {name}: ${hourly_rate}/hr.')
         return redirect('salary_rate_configuration')
 
@@ -194,6 +209,12 @@ class BatchTeacherRateView(RoleRequiredMixin, View):
                 updated += 1
 
         if updated:
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='batch_teacher_rates_updated',
+                detail={'teachers_updated': updated, 'effective_from': str(effective_from)},
+                request=request,
+            )
             messages.success(request, f'{updated} teacher rate{"s" if updated != 1 else ""} updated.')
         return redirect('salary_rate_configuration')
 
@@ -300,6 +321,15 @@ class GenerateSalarySlipsView(RoleRequiredMixin, View):
         slip_ids = [s.id for s in slips]
         request.session['draft_salary_slip_ids'] = slip_ids
 
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='salary_slips_generated',
+            detail={'slip_count': len(slips), 'period_start': str(start),
+                    'period_end': str(end),
+                    'department': department.name if department else 'All'},
+            request=request,
+        )
+
         return redirect('salary_slip_preview')
 
 
@@ -342,6 +372,13 @@ class SalarySlipPreviewView(RoleRequiredMixin, View):
 
         slip.notes = notes
         slip.save(update_fields=['amount', 'notes', 'updated_at'])
+        log_event(
+            user=request.user, school=slip.school, category='data_change',
+            action='salary_slip_edited',
+            detail={'slip_id': slip.id, 'slip_number': slip.slip_number,
+                    'amount': str(slip.amount)},
+            request=request,
+        )
         messages.success(request, f'Salary slip {slip.slip_number} updated.')
         return redirect('salary_slip_preview')
 
@@ -373,6 +410,13 @@ class IssueSalarySlipsView(RoleRequiredMixin, View):
         issued = svc.issue_salary_slips(slip_ids, request.user)
         request.session.pop('draft_salary_slip_ids', None)
 
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='salary_slips_issued',
+            detail={'slip_count': len(issued),
+                    'slip_ids': [s.id for s in issued]},
+            request=request,
+        )
         messages.success(request, f'{len(issued)} salary slip(s) issued successfully.')
         return redirect('salary_slip_list')
 
@@ -381,9 +425,17 @@ class DeleteDraftSalarySlipsView(RoleRequiredMixin, View):
     required_roles = SALARY_ROLES
 
     def post(self, request):
+        school = _get_single_school(request.user)
         slip_ids = request.session.get('draft_salary_slip_ids', [])
         count = SalarySlip.objects.filter(id__in=slip_ids, status='draft').delete()[0]
         request.session.pop('draft_salary_slip_ids', None)
+        if school:
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='draft_salary_slips_deleted',
+                detail={'deleted_count': count, 'slip_ids': slip_ids},
+                request=request,
+            )
         messages.success(request, f'{count} draft salary slip(s) deleted.')
         return redirect('generate_salary_slips')
 
@@ -469,7 +521,16 @@ class CancelSalarySlipView(RoleRequiredMixin, View):
             return redirect('salary_slip_detail', slip_id=slip.id)
 
         if slip.status == 'draft':
+            slip_number = slip.slip_number
+            slip_id_val = slip.id
             slip.delete()
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='salary_slip_deleted',
+                detail={'slip_id': slip_id_val, 'slip_number': slip_number,
+                        'status': 'draft'},
+                request=request,
+            )
             messages.success(request, 'Draft salary slip deleted.')
             return redirect('salary_slip_list')
 
@@ -479,6 +540,13 @@ class CancelSalarySlipView(RoleRequiredMixin, View):
             return redirect('salary_slip_detail', slip_id=slip.id)
 
         svc.cancel_salary_slip(slip, reason, request.user)
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='salary_slip_cancelled',
+            detail={'slip_id': slip.id, 'slip_number': slip.slip_number,
+                    'reason': reason},
+            request=request,
+        )
         messages.success(request, f'Salary slip {slip.slip_number} cancelled.')
         return redirect('salary_slip_detail', slip_id=slip.id)
 
@@ -519,6 +587,15 @@ class RecordSalaryPaymentView(RoleRequiredMixin, View):
             payment_method=method,
             notes=notes,
             created_by=request.user,
+        )
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='salary_paid',
+            detail={'slip_id': slip.id, 'slip_number': slip.slip_number,
+                    'amount': str(amount), 'payment_method': method,
+                    'payment_date': str(payment_date),
+                    'teacher_id': slip.teacher_id},
+            request=request,
         )
         messages.success(request, f'Payment of ${amount} recorded.')
         return redirect('salary_slip_detail', slip_id=slip.id)

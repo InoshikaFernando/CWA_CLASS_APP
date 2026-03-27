@@ -11,6 +11,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views import View
 
 from classroom.models import ClassStudent
+from audit.services import log_event
 from .models import ClassSession, StudentAttendance
 
 
@@ -102,7 +103,7 @@ class StudentSelfMarkAttendanceView(LoginRequiredMixin, View):
 
     def post(self, request, session_id):
         session = get_object_or_404(
-            ClassSession.objects.select_related('classroom'),
+            ClassSession.objects.select_related('classroom', 'classroom__school'),
             id=session_id,
         )
 
@@ -141,6 +142,14 @@ class StudentSelfMarkAttendanceView(LoginRequiredMixin, View):
                 'approved_by': None,
                 'approved_at': None,
             },
+        )
+
+        log_event(
+            user=request.user, school=session.classroom.school,
+            category='data_change', action='student_attendance_submitted',
+            detail={'session_id': session.id, 'classroom': session.classroom.name,
+                    'status': status},
+            request=request,
         )
 
         messages.success(

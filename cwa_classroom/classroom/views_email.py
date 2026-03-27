@@ -88,11 +88,30 @@ class EmailComposeView(RoleRequiredMixin, View):
 
         action = request.POST.get('action', 'send')
         if action == 'draft':
+            from audit.services import log_event
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='email_campaign_drafted',
+                detail={'campaign_id': campaign.id, 'campaign_name': name},
+                request=request,
+            )
             messages.success(request, f'Campaign "{name}" saved as draft.')
             return redirect('email_campaign_list')
 
         # Send immediately
         send_bulk_emails(campaign)
+
+        from audit.services import log_event
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='email_sent',
+            detail={
+                'campaign_id': campaign.id, 'campaign_name': name,
+                'sent_count': campaign.sent_count, 'failed_count': campaign.failed_count,
+            },
+            request=request,
+        )
+
         messages.success(
             request,
             f'Campaign "{name}" sent to {campaign.sent_count} recipients '

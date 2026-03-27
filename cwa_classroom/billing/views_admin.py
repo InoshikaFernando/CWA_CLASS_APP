@@ -18,6 +18,7 @@ from .models import (
     InstitutePlan, InstituteDiscountCode, ModuleProduct,
     SchoolSubscription, ModuleSubscription, PromoCode,
 )
+from audit.services import log_event
 
 logger = logging.getLogger(__name__)
 
@@ -169,6 +170,12 @@ class PlanCreateView(SuperuserRequiredMixin, View):
             order=order_val,
         )
 
+        log_event(
+            user=request.user, school=None, category='data_change',
+            action='billing_plan_created',
+            detail={'plan_id': plan.id, 'plan_name': plan.name, 'plan_slug': slug, 'price': str(price_val)},
+            request=request,
+        )
         messages.success(request, f'Plan "{plan.name}" created.')
         return redirect('billing_admin_plan_list')
 
@@ -268,6 +275,12 @@ class PlanEditView(SuperuserRequiredMixin, View):
         plan.order = order_val
         plan.save()
 
+        log_event(
+            user=request.user, school=None, category='data_change',
+            action='billing_plan_edited',
+            detail={'plan_id': plan.id, 'plan_name': plan.name, 'price': str(price_val)},
+            request=request,
+        )
         messages.success(request, f'Plan "{plan.name}" updated.')
         return redirect('billing_admin_plan_list')
 
@@ -294,6 +307,12 @@ class PlanToggleActiveView(SuperuserRequiredMixin, View):
             messages.success(request, f'Plan "{plan.name}" activated.')
 
         plan.save(update_fields=['is_active'])
+        log_event(
+            user=request.user, school=None, category='data_change',
+            action='billing_plan_toggled',
+            detail={'plan_id': plan.id, 'plan_name': plan.name, 'is_active': plan.is_active},
+            request=request,
+        )
         return redirect('billing_admin_plan_list')
 
 
@@ -303,6 +322,12 @@ class PlanSyncStripeView(SuperuserRequiredMixin, View):
         try:
             from .stripe_service import sync_plan_to_stripe
             price_id = sync_plan_to_stripe(plan)
+            log_event(
+                user=request.user, school=None, category='data_change',
+                action='billing_plan_stripe_synced',
+                detail={'plan_id': plan.id, 'plan_name': plan.name, 'stripe_price_id': price_id},
+                request=request,
+            )
             messages.success(request, f'Plan "{plan.name}" synced to Stripe. Price ID: {price_id}')
         except Exception as e:
             messages.error(request, f'Stripe sync failed: {e}')
@@ -418,6 +443,12 @@ class DiscountCodeCreateView(SuperuserRequiredMixin, View):
             except Exception as e:
                 logger.warning('Stripe discount sync failed: %s', e)
 
+        log_event(
+            user=request.user, school=None, category='data_change',
+            action='discount_code_created',
+            detail={'discount_id': dc.id, 'code': dc.code, 'discount_percent': percent_val},
+            request=request,
+        )
         messages.success(request, f'Discount code "{dc.code}" created.')
         return redirect('billing_admin_discount_list')
 
@@ -505,6 +536,12 @@ class DiscountCodeEditView(SuperuserRequiredMixin, View):
         dc.expires_at = expires_at_val
         dc.save()
 
+        log_event(
+            user=request.user, school=None, category='data_change',
+            action='discount_code_edited',
+            detail={'discount_id': dc.id, 'code': dc.code},
+            request=request,
+        )
         messages.success(request, f'Discount code "{dc.code}" updated.')
         return redirect('billing_admin_discount_list')
 
@@ -515,6 +552,12 @@ class DiscountCodeToggleActiveView(SuperuserRequiredMixin, View):
         dc.is_active = not dc.is_active
         dc.save(update_fields=['is_active'])
         state = 'activated' if dc.is_active else 'deactivated'
+        log_event(
+            user=request.user, school=None, category='data_change',
+            action='discount_code_toggled',
+            detail={'discount_id': dc.id, 'code': dc.code, 'is_active': dc.is_active},
+            request=request,
+        )
         messages.success(request, f'Discount code "{dc.code}" {state}.')
         return redirect('billing_admin_discount_list')
 
@@ -571,6 +614,12 @@ class ModuleProductEditView(SuperuserRequiredMixin, View):
         module.price = price_val
         module.save()
 
+        log_event(
+            user=request.user, school=None, category='data_change',
+            action='module_product_edited',
+            detail={'module_id': module.id, 'module_name': module.name, 'price': str(price_val)},
+            request=request,
+        )
         messages.success(request, f'Module "{module.name}" updated.')
         return redirect('billing_admin_module_list')
 
@@ -581,6 +630,12 @@ class ModuleProductToggleActiveView(SuperuserRequiredMixin, View):
         module.is_active = not module.is_active
         module.save(update_fields=['is_active'])
         state = 'activated' if module.is_active else 'deactivated'
+        log_event(
+            user=request.user, school=None, category='data_change',
+            action='module_product_toggled',
+            detail={'module_id': module.id, 'module_name': module.name, 'is_active': module.is_active},
+            request=request,
+        )
         messages.success(request, f'Module "{module.name}" {state}.')
         return redirect('billing_admin_module_list')
 
@@ -591,6 +646,12 @@ class ModuleProductSyncStripeView(SuperuserRequiredMixin, View):
         try:
             from .stripe_service import sync_module_to_stripe
             price_id = sync_module_to_stripe(module)
+            log_event(
+                user=request.user, school=None, category='data_change',
+                action='module_product_stripe_synced',
+                detail={'module_id': module.id, 'module_name': module.name, 'stripe_price_id': price_id},
+                request=request,
+            )
             messages.success(request, f'Module "{module.name}" synced to Stripe. Price ID: {price_id}')
         except Exception as e:
             messages.error(request, f'Stripe sync failed: {e}')
@@ -664,6 +725,12 @@ class SubscriptionOverrideView(SuperuserRequiredMixin, View):
                 if plan:
                     sub.plan = plan
                     sub.save(update_fields=['plan', 'updated_at'])
+                    log_event(
+                        user=request.user, school=sub.school, category='data_change',
+                        action='subscription_plan_overridden',
+                        detail={'subscription_id': sub.id, 'plan_id': plan.id, 'plan_name': plan.name, 'school_name': str(sub.school)},
+                        request=request,
+                    )
                     messages.success(request, f'Plan changed to "{plan.name}".')
 
         elif action == 'extend_trial':
@@ -673,6 +740,12 @@ class SubscriptionOverrideView(SuperuserRequiredMixin, View):
                 sub.trial_end = timezone.now() + timezone.timedelta(days=days_val)
                 sub.status = SchoolSubscription.STATUS_TRIALING
                 sub.save(update_fields=['trial_end', 'status', 'updated_at'])
+                log_event(
+                    user=request.user, school=sub.school, category='data_change',
+                    action='subscription_trial_extended',
+                    detail={'subscription_id': sub.id, 'days': days_val, 'school_name': str(sub.school)},
+                    request=request,
+                )
                 messages.success(request, f'Trial extended by {days_val} days.')
             except (ValueError, TypeError):
                 messages.error(request, 'Invalid number of days.')
@@ -680,6 +753,12 @@ class SubscriptionOverrideView(SuperuserRequiredMixin, View):
         elif action == 'reset_invoices':
             sub.invoices_used_this_year = 0
             sub.save(update_fields=['invoices_used_this_year', 'updated_at'])
+            log_event(
+                user=request.user, school=sub.school, category='data_change',
+                action='subscription_invoices_reset',
+                detail={'subscription_id': sub.id, 'school_name': str(sub.school)},
+                request=request,
+            )
             messages.success(request, 'Invoice counter reset to 0.')
 
         elif action == 'change_status':
@@ -688,6 +767,12 @@ class SubscriptionOverrideView(SuperuserRequiredMixin, View):
             if new_status in valid:
                 sub.status = new_status
                 sub.save(update_fields=['status', 'updated_at'])
+                log_event(
+                    user=request.user, school=sub.school, category='data_change',
+                    action='subscription_status_changed',
+                    detail={'subscription_id': sub.id, 'new_status': new_status, 'school_name': str(sub.school)},
+                    request=request,
+                )
                 messages.success(request, f'Status changed to "{valid[new_status]}".')
             else:
                 messages.error(request, 'Invalid status.')
@@ -765,7 +850,7 @@ class PromoCodeCreateView(SuperuserRequiredMixin, View):
                 'errors': errors,
             })
 
-        PromoCode.objects.create(
+        promo = PromoCode.objects.create(
             code=code,
             description=description,
             class_limit=class_limit_val,
@@ -773,6 +858,12 @@ class PromoCodeCreateView(SuperuserRequiredMixin, View):
             expires_at=expires_at_val,
         )
 
+        log_event(
+            user=request.user, school=None, category='data_change',
+            action='promo_code_created',
+            detail={'promo_id': promo.id, 'code': code, 'class_limit': class_limit_val},
+            request=request,
+        )
         messages.success(request, f'Promo code "{code}" created.')
         return redirect('billing_admin_promo_list')
 
@@ -845,6 +936,12 @@ class PromoCodeEditView(SuperuserRequiredMixin, View):
         promo.expires_at = expires_at_val
         promo.save()
 
+        log_event(
+            user=request.user, school=None, category='data_change',
+            action='promo_code_edited',
+            detail={'promo_id': promo.id, 'code': promo.code},
+            request=request,
+        )
         messages.success(request, f'Promo code "{promo.code}" updated.')
         return redirect('billing_admin_promo_list')
 
@@ -855,5 +952,11 @@ class PromoCodeToggleActiveView(SuperuserRequiredMixin, View):
         promo.is_active = not promo.is_active
         promo.save(update_fields=['is_active'])
         state = 'activated' if promo.is_active else 'deactivated'
+        log_event(
+            user=request.user, school=None, category='data_change',
+            action='promo_code_toggled',
+            detail={'promo_id': promo.id, 'code': promo.code, 'is_active': promo.is_active},
+            request=request,
+        )
         messages.success(request, f'Promo code "{promo.code}" {state}.')
         return redirect('billing_admin_promo_list')

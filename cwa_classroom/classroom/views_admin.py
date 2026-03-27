@@ -18,6 +18,7 @@ from .models import (
 )
 from .views import RoleRequiredMixin
 from .email_utils import send_staff_welcome_email
+from audit.services import log_event
 
 
 def _get_user_school(user, school_id=None):
@@ -142,6 +143,11 @@ class SchoolCreateView(RoleRequiredMixin, View):
             email=email,
             admin=request.user,
         )
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='school_created', detail={'school_name': name},
+            request=request,
+        )
         messages.success(request, f'School "{name}" created successfully.')
         return redirect('admin_school_detail', school_id=school.id)
 
@@ -246,9 +252,19 @@ class SchoolEditView(RoleRequiredMixin, View):
             # If the current user was the old HoI, log them out
             if request.user.id == old_admin_id:
                 from django.contrib.auth import logout
+                log_event(
+                    user=request.user, school=school, category='data_change',
+                    action='school_edited', detail={'school_name': name, 'hoi_changed': True},
+                    request=request,
+                )
                 logout(request)
                 return redirect('login')
 
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='school_edited', detail={'school_name': name, 'hoi_changed': hoi_changed},
+            request=request,
+        )
         messages.success(request, f'School "{name}" updated successfully.')
         return redirect('admin_school_detail', school_id=school.id)
 
@@ -265,6 +281,11 @@ class SchoolToggleActiveView(RoleRequiredMixin, View):
         school.is_active = not school.is_active
         school.save(update_fields=['is_active'])
         status = 'activated' if school.is_active else 'deactivated'
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='school_toggled_active', detail={'school_name': school.name, 'is_active': school.is_active},
+            request=request,
+        )
         messages.success(request, f'School "{school.name}" has been {status}.')
         return redirect('admin_school_detail', school_id=school.id)
 
@@ -274,6 +295,12 @@ class SchoolDeleteView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def post(self, request, school_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='school_deleted', detail={'school_name': school.name},
+            request=request,
+        )
         # Redirect to toggle-active — we never hard-delete schools
         return redirect('admin_school_toggle_active', school_id=school_id)
 
@@ -392,6 +419,11 @@ class SchoolSettingsView(RoleRequiredMixin, View):
             school.logo = ''
 
         school.save()
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='school_settings_updated', detail={'tab': tab},
+            request=request,
+        )
         messages.success(request, 'Settings saved successfully.')
         return redirect(f"{reverse('admin_school_settings', kwargs={'school_id': school.id})}?tab={tab}")
 
@@ -599,6 +631,14 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
                     specialty=specialty,
                 )
 
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='teacher_added', detail={
+                    'teacher_username': username, 'teacher_name': f'{first_name} {last_name}',
+                    'role': role,
+                },
+                request=request,
+            )
             messages.success(
                 request,
                 f'{first_name} {last_name} added as {dict(SchoolTeacher.ROLE_CHOICES).get(role, role)}. Login username: {username}'
@@ -659,6 +699,14 @@ class SchoolTeacherEditView(RoleRequiredMixin, View):
         school_teacher.role = new_role
         school_teacher.specialty = specialty
         school_teacher.save()
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='teacher_edited', detail={
+                'teacher_id': teacher_id, 'teacher_name': teacher.get_full_name(),
+                'role': new_role,
+            },
+            request=request,
+        )
         messages.success(
             request,
             f'{teacher.get_full_name()} updated.'
@@ -739,6 +787,13 @@ class SchoolTeacherBatchUpdateView(RoleRequiredMixin, View):
                 updated += 1
 
         if updated:
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='teacher_batch_updated', detail={
+                    'teacher_ids': teacher_ids, 'updated_count': updated,
+                },
+                request=request,
+            )
             messages.success(request, f'{updated} staff member{"s" if updated != 1 else ""} updated.')
         for err in errors:
             messages.error(request, err)
@@ -771,6 +826,13 @@ class SchoolTeacherRemoveView(RoleRequiredMixin, View):
                 ClassTeacher.objects.filter(
                     classroom__school=school, teacher=teacher_user
                 ).delete()
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='teacher_removed', detail={
+                    'teacher_id': teacher_id, 'teacher_name': teacher_name,
+                },
+                request=request,
+            )
             messages.success(request, f'{teacher_name} has been removed from {school.name}.')
         else:
             messages.warning(request, 'Teacher was not found at this school.')
@@ -792,6 +854,13 @@ class SchoolTeacherRestoreView(RoleRequiredMixin, View):
             teacher_name = teacher_user.get_full_name() or teacher_user.username
             school_teacher.is_active = True
             school_teacher.save(update_fields=['is_active'])
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='teacher_restored', detail={
+                    'teacher_id': teacher_id, 'teacher_name': teacher_name,
+                },
+                request=request,
+            )
             messages.success(request, f'{teacher_name} has been restored to {school.name}.')
         else:
             messages.warning(request, 'Inactive teacher was not found at this school.')
@@ -849,11 +918,16 @@ class AcademicYearCreateView(RoleRequiredMixin, View):
                 },
             })
 
-        AcademicYear.objects.create(
+        academic_year = AcademicYear.objects.create(
             school=school,
             year=year,
             start_date=start_date,
             end_date=end_date,
+        )
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='academic_year_created', detail={'year': year, 'academic_year_id': academic_year.id},
+            request=request,
         )
         messages.success(request, f'Academic year {year} created successfully.')
         return redirect('admin_school_detail', school_id=school.id)
@@ -977,6 +1051,13 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
                 UserRole.objects.create(user=user, role=student_role, assigned_by=request.user)
                 SchoolStudent.objects.create(school=school, student=user)
 
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='student_added', detail={
+                    'student_username': username, 'student_name': f'{first_name} {last_name}',
+                },
+                request=request,
+            )
             # Send welcome email with login credentials
             from classroom.email_utils import send_staff_welcome_email
             send_staff_welcome_email(
@@ -1027,6 +1108,13 @@ class SchoolStudentEditView(RoleRequiredMixin, View):
             if not CustomUser.objects.filter(email=email).exclude(id=student.id).exists():
                 student.email = email
         student.save()
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='student_edited', detail={
+                'student_id': student_id, 'student_name': student.get_full_name(),
+            },
+            request=request,
+        )
         messages.success(request, f'{student.get_full_name()} updated.')
         return redirect('admin_school_students', school_id=school.id)
 
@@ -1084,6 +1172,13 @@ class SchoolStudentBatchUpdateView(RoleRequiredMixin, View):
                 updated += 1
 
         if updated:
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='student_batch_updated', detail={
+                    'student_ids': student_ids, 'updated_count': updated,
+                },
+                request=request,
+            )
             messages.success(request, f'{updated} student{"s" if updated != 1 else ""} updated.')
         for err in errors:
             messages.error(request, err)
@@ -1114,6 +1209,13 @@ class SchoolStudentRemoveView(RoleRequiredMixin, View):
                 ClassStudent.objects.filter(
                     classroom__school=school, student=student_user, is_active=True
                 ).update(is_active=False)
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='student_removed', detail={
+                    'student_id': student_id, 'student_name': name,
+                },
+                request=request,
+            )
             messages.success(request, f'{name} has been removed from {school.name}.')
         else:
             messages.warning(request, 'Student was not found at this school.')
@@ -1143,6 +1245,13 @@ class SchoolStudentRestoreView(RoleRequiredMixin, View):
                 ClassStudent.objects.filter(
                     classroom__school=school, student=student_user, is_active=False
                 ).update(is_active=True)
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='student_restored', detail={
+                    'student_id': student_id, 'student_name': name,
+                },
+                request=request,
+            )
             messages.success(request, f'{name} has been restored to {school.name}.')
         else:
             messages.warning(request, 'Inactive student was not found at this school.')
@@ -1193,11 +1302,18 @@ class SchoolLevelManageView(RoleRequiredMixin, View):
         )['m']
         next_num = (max_num or 199) + 1
 
-        Level.objects.create(
+        level = Level.objects.create(
             level_number=next_num,
             display_name=display_name,
             description=description,
             school=school,
+        )
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='level_created', detail={
+                'level_id': level.id, 'display_name': display_name,
+            },
+            request=request,
         )
         messages.success(request, f'Level "{display_name}" created.')
         return redirect('admin_school_levels', school_id=school.id)
@@ -1220,6 +1336,13 @@ class SchoolLevelEditView(RoleRequiredMixin, View):
             level.display_name = display_name
         level.description = description
         level.save()
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='level_edited', detail={
+                'level_id': level_id, 'display_name': level.display_name,
+            },
+            request=request,
+        )
         messages.success(request, f'Level "{level.display_name}" updated.')
         return redirect('admin_school_levels', school_id=school.id)
 
@@ -1238,6 +1361,13 @@ class SchoolLevelRemoveView(RoleRequiredMixin, View):
         if level:
             name = level.display_name
             level.delete()
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='level_removed', detail={
+                    'level_id': level_id, 'display_name': name,
+                },
+                request=request,
+            )
             messages.success(request, f'Level "{name}" deleted.')
         else:
             messages.warning(request, 'Level not found.')
@@ -1288,9 +1418,16 @@ class SchoolSubjectManageView(RoleRequiredMixin, View):
             global_subject = None
             if global_subject_id:
                 global_subject = Subject.objects.filter(id=global_subject_id, school__isnull=True).first()
-            Subject.objects.create(
+            subject = Subject.objects.create(
                 name=name, slug=slug, school=school, is_active=True,
                 global_subject=global_subject,
+            )
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='subject_created', detail={
+                    'subject_id': subject.id, 'subject_name': name,
+                },
+                request=request,
             )
             messages.success(request, f'Subject "{name}" created.')
 
@@ -1310,6 +1447,13 @@ class SchoolSubjectManageView(RoleRequiredMixin, View):
                 else:
                     subject.global_subject = None
                 subject.save()
+                log_event(
+                    user=request.user, school=school, category='data_change',
+                    action='subject_edited', detail={
+                        'subject_id': subject_id, 'subject_name': name,
+                    },
+                    request=request,
+                )
                 messages.success(request, f'Subject updated to "{name}".')
 
         elif action == 'delete':
@@ -1319,6 +1463,13 @@ class SchoolSubjectManageView(RoleRequiredMixin, View):
                 name = subject.name
                 subject.is_active = False
                 subject.save()
+                log_event(
+                    user=request.user, school=school, category='data_change',
+                    action='subject_archived', detail={
+                        'subject_id': subject_id, 'subject_name': name,
+                    },
+                    request=request,
+                )
                 messages.success(request, f'Subject "{name}" archived.')
 
         elif action == 'restore':
@@ -1327,6 +1478,13 @@ class SchoolSubjectManageView(RoleRequiredMixin, View):
             if subject:
                 subject.is_active = True
                 subject.save()
+                log_event(
+                    user=request.user, school=school, category='data_change',
+                    action='subject_restored', detail={
+                        'subject_id': subject_id, 'subject_name': subject.name,
+                    },
+                    request=request,
+                )
                 messages.success(request, f'Subject "{subject.name}" restored.')
 
         return redirect('admin_school_subjects', school_id=school.id)
@@ -1384,7 +1542,6 @@ class BlockUserView(RoleRequiredMixin, View):
         # Force logout all sessions
         _invalidate_user_sessions(user)
 
-        from audit.services import log_event
         log_event(
             user=request.user, category='admin_action', action='user_blocked',
             detail={'target_user': user.username, 'reason': reason, 'block_type': block_type},
@@ -1407,6 +1564,11 @@ class UnblockUserView(RoleRequiredMixin, View):
         user.block_type = ''
         user.save(update_fields=['is_blocked', 'block_type'])
 
+        log_event(
+            user=request.user, category='admin_action',
+            action='user_unblocked', detail={'target_user': user.username},
+            request=request,
+        )
         messages.success(request, f'Account "{user.username}" has been unblocked.')
         return redirect(request.META.get('HTTP_REFERER', 'subjects_hub'))
 
@@ -1457,6 +1619,11 @@ class SuspendSchoolView(RoleRequiredMixin, View):
             except CustomUser.DoesNotExist:
                 pass
 
+        log_event(
+            user=request.user, school=school, category='admin_action',
+            action='school_suspended', detail={'school_name': school.name, 'reason': reason},
+            request=request,
+        )
         messages.success(request, f'School "{school.name}" has been suspended.')
         return redirect(request.META.get('HTTP_REFERER', 'subjects_hub'))
 
@@ -1480,6 +1647,11 @@ class UnsuspendSchoolView(RoleRequiredMixin, View):
             sub.status = SchoolSubscription.STATUS_ACTIVE
             sub.save(update_fields=['status', 'updated_at'])
 
+        log_event(
+            user=request.user, school=school, category='admin_action',
+            action='school_unsuspended', detail={'school_name': school.name},
+            request=request,
+        )
         messages.success(request, f'School "{school.name}" has been unsuspended.')
         return redirect(request.META.get('HTTP_REFERER', 'subjects_hub'))
 
@@ -1550,13 +1722,18 @@ class TermManageView(RoleRequiredMixin, View):
                 ).first()
 
             try:
-                Term.objects.create(
+                term = Term.objects.create(
                     school=school,
                     academic_year=academic_year,
                     name=name,
                     start_date=start_date,
                     end_date=end_date,
                     order=int(order) if order else 0,
+                )
+                log_event(
+                    user=request.user, school=school, category='data_change',
+                    action='term_created', detail={'term_id': term.id, 'term_name': name},
+                    request=request,
                 )
                 messages.success(request, f'Term "{name}" created.')
             except Exception as e:
@@ -1584,6 +1761,11 @@ class TermManageView(RoleRequiredMixin, View):
                 term.order = int(order)
             try:
                 term.save()
+                log_event(
+                    user=request.user, school=school, category='data_change',
+                    action='term_edited', detail={'term_id': term_id, 'term_name': term.name},
+                    request=request,
+                )
                 messages.success(request, f'Term "{term.name}" updated.')
             except Exception as e:
                 messages.error(request, f'Could not update term: {e}')
@@ -1593,6 +1775,11 @@ class TermManageView(RoleRequiredMixin, View):
             term = get_object_or_404(Term, id=term_id, school=school)
             term_name = term.name
             term.delete()
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='term_deleted', detail={'term_id': term_id, 'term_name': term_name},
+                request=request,
+            )
             messages.success(request, f'Term "{term_name}" deleted.')
 
         return redirect('admin_school_terms', school_id=school.id)

@@ -61,6 +61,13 @@ class ParentSwitchChildView(RoleRequiredMixin, View):
         link = _verify_parent_access(request.user, student_id)
         if link:
             request.session['active_child_id'] = student_id
+            from audit.services import log_event
+            log_event(
+                user=request.user, school=link.school, category='data_change',
+                action='parent_switched_child',
+                detail={'student_id': student_id, 'student_name': f'{link.student.first_name} {link.student.last_name}'},
+                request=request,
+            )
         return redirect(request.POST.get('next', 'parent_dashboard'))
 
 

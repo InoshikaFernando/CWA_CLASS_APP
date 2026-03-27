@@ -89,6 +89,12 @@ class SwitchRoleView(LoginRequiredMixin, View):
 
         request.session['active_role'] = role
 
+        from audit.services import log_event
+        log_event(
+            user=request.user, category='auth', action='role_switched',
+            detail={'role': role}, request=request,
+        )
+
         # Redirect to the appropriate dashboard for the new role
         dashboard_map = {
             Role.PARENT: 'parent_dashboard',
@@ -137,6 +143,12 @@ class DiagnosticPasswordResetView(PasswordResetView):
         try:
             response = super().form_valid(form)
             logger.info('Password reset email sent successfully for %s', email)
+            from audit.services import log_event
+            log_event(
+                category='auth', action='password_reset_requested',
+                detail={'email': email, 'users_found': len(users)},
+                request=self.request,
+            )
             return response
         except Exception:
             logger.exception('Failed to send password reset email for %s', email)
@@ -293,6 +305,17 @@ class TeacherCenterRegisterView(View):
 
             login(request, user)
 
+            from audit.services import log_event
+            log_event(
+                user=user, school=school, category='auth',
+                action='hoi_registered',
+                detail={
+                    'center_name': center_name, 'plan': plan.name if plan else None,
+                    'discount_code': discount_code_str or None,
+                },
+                request=request,
+            )
+
             # If plan has a Stripe price and not fully free → redirect to Stripe Checkout
             if plan and plan.stripe_price_id and not is_free:
                 try:
@@ -391,6 +414,15 @@ class SchoolStudentRegisterView(View):
                 UserRole.objects.create(user=user, role=student_role)
 
             login(request, user)
+
+            from audit.services import log_event
+            log_event(
+                user=user, school=None, category='auth',
+                action='school_student_registered',
+                detail={'username': username, 'email': email},
+                request=request,
+            )
+
             messages.success(request, f'Welcome, {first_name}! You can now join a class using a class code.')
             return redirect('student_join_class')
 
@@ -520,6 +552,18 @@ class IndividualStudentRegisterView(View):
                         sub.save(update_fields=['status', 'trial_end'])
 
             login(request, user, backend='accounts.backends.EmailOrUsernameBackend')
+
+            from audit.services import log_event
+            log_event(
+                user=user, school=None, category='auth',
+                action='individual_student_registered',
+                detail={
+                    'username': username, 'email': email,
+                    'package': package.name if package else None,
+                    'discount_code': discount_code_str or None,
+                },
+                request=request,
+            )
 
             # Paid package with Stripe price → redirect to Stripe Checkout
             if not package.is_free and package.stripe_price_id and not (discount and discount.is_fully_free):
@@ -660,6 +704,19 @@ class ParentRegisterView(View):
                 invite.save(update_fields=['status', 'accepted_at', 'accepted_by'])
 
             login(request, user)
+
+            from audit.services import log_event
+            log_event(
+                user=user, school=invite.school, category='auth',
+                action='parent_registered',
+                detail={
+                    'invite_token': str(token),
+                    'student': f'{invite.student.first_name} {invite.student.last_name}',
+                    'relationship': invite.relationship,
+                },
+                request=request,
+            )
+
             messages.success(
                 request,
                 f'Welcome, {first_name}! You are now linked to '
@@ -722,6 +779,18 @@ class ParentAcceptInviteView(LoginRequiredMixin, View):
                 invite.accepted_at = timezone.now()
                 invite.accepted_by = request.user
                 invite.save(update_fields=['status', 'accepted_at', 'accepted_by'])
+
+            from audit.services import log_event
+            log_event(
+                user=request.user, school=invite.school, category='auth',
+                action='parent_invite_accepted',
+                detail={
+                    'invite_token': str(token),
+                    'student': f'{invite.student.first_name} {invite.student.last_name}',
+                    'relationship': invite.relationship,
+                },
+                request=request,
+            )
 
             messages.success(
                 request,
@@ -826,6 +895,14 @@ class CompleteProfileView(LoginRequiredMixin, View):
         user.save()
         update_session_auth_hash(request, user)
 
+        from audit.services import log_event
+        log_event(
+            user=user, school=None, category='auth',
+            action='profile_completed',
+            detail={'first_name': first_name, 'last_name': last_name},
+            request=request,
+        )
+
         # Increment discount code usage
         if discount_obj:
             discount_obj.uses += 1
@@ -923,6 +1000,13 @@ class ProfileView(LoginRequiredMixin, View):
             request.user.country = request.POST.get('country', '').strip()
             request.user.region = request.POST.get('region', '').strip()
             request.user.save()
+            from audit.services import log_event
+            log_event(
+                user=request.user, school=None, category='data_change',
+                action='profile_updated',
+                detail={'first_name': request.user.first_name, 'last_name': request.user.last_name},
+                request=request,
+            )
             messages.success(request, 'Profile updated.')
 
         elif action == 'change_password':
@@ -940,6 +1024,12 @@ class ProfileView(LoginRequiredMixin, View):
                 request.user.set_password(new_pw)
                 request.user.save()
                 update_session_auth_hash(request, request.user)
+                from audit.services import log_event
+                log_event(
+                    user=request.user, school=None, category='auth',
+                    action='password_changed',
+                    detail={}, request=request,
+                )
                 messages.success(request, 'Password changed successfully.')
 
         return redirect('profile')
@@ -1049,12 +1139,26 @@ class SelectClassesView(LoginRequiredMixin, View):
                 return redirect('select_classes')
 
             ClassStudent.objects.create(classroom=classroom, student=request.user)
+            from audit.services import log_event
+            log_event(
+                user=request.user, school=None, category='data_change',
+                action='class_joined',
+                detail={'classroom_id': classroom.id, 'classroom_name': classroom.name},
+                request=request,
+            )
             messages.success(request, f'Joined "{classroom.name}" successfully!')
 
         elif action == 'leave':
             classroom_id = request.POST.get('classroom_id')
             classroom = get_object_or_404(ClassRoom, id=classroom_id)
             ClassStudent.objects.filter(classroom=classroom, student=request.user).delete()
+            from audit.services import log_event
+            log_event(
+                user=request.user, school=None, category='data_change',
+                action='class_left',
+                detail={'classroom_id': classroom.id, 'classroom_name': classroom.name},
+                request=request,
+            )
             messages.success(request, f'Left "{classroom.name}".')
 
         elif action == 'redeem':
@@ -1080,6 +1184,14 @@ class SelectClassesView(LoginRequiredMixin, View):
             promo.redeemed_by.add(request.user)
             promo.uses += 1
             promo.save(update_fields=['uses'])
+
+            from audit.services import log_event
+            log_event(
+                user=request.user, school=None, category='data_change',
+                action='promo_code_redeemed',
+                detail={'code': code, 'class_limit': promo.class_limit},
+                request=request,
+            )
 
             limit_text = 'unlimited class access' if promo.class_limit == 0 else f'access to {promo.class_limit} class{"es" if promo.class_limit != 1 else ""}'
             messages.success(request, f'Promo code applied! You now have {limit_text}.')

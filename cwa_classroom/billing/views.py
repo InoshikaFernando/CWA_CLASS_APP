@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from .models import Package, Subscription, Payment, InstitutePlan, SchoolSubscription, ModuleSubscription
 from .entitlements import get_school_for_user, get_school_subscription, check_class_limit, check_student_limit, check_invoice_limit
+from audit.services import log_event
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
@@ -61,6 +62,13 @@ class CreatePaymentIntentView(LoginRequiredMixin, View):
                     'user_id': request.user.id,
                     'package_id': package.id,
                 },
+            )
+
+            log_event(
+                user=request.user, school=None, category='billing',
+                action='payment_intent_created',
+                detail={'package_id': package.id, 'package_name': package.name, 'amount': amount},
+                request=request,
             )
 
             return JsonResponse({'client_secret': intent.client_secret})
@@ -113,6 +121,13 @@ class ConfirmPaymentView(LoginRequiredMixin, View):
         # Update user package
         request.user.package = package
         request.user.save(update_fields=['package'])
+
+        log_event(
+            user=request.user, school=None, category='billing',
+            action='payment_confirmed',
+            detail={'package_id': package.id, 'package_name': package.name, 'amount': str(package.price), 'stripe_payment_intent_id': payment_intent_id},
+            request=request,
+        )
 
         return JsonResponse({'success': True, 'redirect_url': '/billing/success/'})
 
@@ -196,6 +211,12 @@ class StripeWebhookView(View):
                 event_id=event_id,
                 event_type=event_type,
                 payload=event.get('data', {}),
+            )
+            log_event(
+                user=None, school=None, category='billing',
+                action='stripe_webhook_processed',
+                detail={'event_id': event_id, 'event_type': event_type},
+                request=request,
             )
         else:
             # Return 500 so Stripe retries the event
@@ -394,6 +415,12 @@ class InstituteCheckoutView(LoginRequiredMixin, View):
             session = create_institute_checkout_session(
                 school, plan, request, trial_period_days=trial_days,
             )
+            log_event(
+                user=request.user, school=school, category='billing',
+                action='checkout_session_created',
+                detail={'plan_id': plan.id, 'plan_name': plan.name, 'plan_slug': plan_slug, 'trial_days': trial_days},
+                request=request,
+            )
             return redirect(session.url)
         except stripe.error.StripeError as e:
             messages.error(request, f'Payment error: {e.user_message or str(e)}')
@@ -435,6 +462,12 @@ class InstituteChangePlanView(LoginRequiredMixin, View):
         try:
             from billing.stripe_service import change_institute_plan
             change_institute_plan(sub, plan)
+            log_event(
+                user=request.user, school=school, category='billing',
+                action='subscription_plan_changed',
+                detail={'plan_id': plan.id, 'plan_name': plan.name, 'plan_slug': plan_slug, 'subscription_id': sub.id},
+                request=request,
+            )
             messages.success(request, f'Plan changed to {plan.name}.')
         except (stripe.error.StripeError, ValueError) as e:
             messages.error(request, f'Could not change plan: {e}')
@@ -458,6 +491,12 @@ class InstituteCancelSubscriptionView(LoginRequiredMixin, View):
         try:
             from billing.stripe_service import cancel_subscription
             cancel_subscription(sub.stripe_subscription_id, at_period_end=True)
+            log_event(
+                user=request.user, school=school, category='billing',
+                action='subscription_cancelled',
+                detail={'subscription_id': sub.id, 'stripe_subscription_id': sub.stripe_subscription_id},
+                request=request,
+            )
             messages.success(
                 request,
                 'Your subscription will be cancelled at the end of the current billing period.',
@@ -541,6 +580,12 @@ class ModuleToggleView(LoginRequiredMixin, View):
                         module=module_slug,
                         defaults={'is_active': True, 'deactivated_at': None},
                     )
+                log_event(
+                    user=request.user, school=school, category='billing',
+                    action='module_activated',
+                    detail={'module_slug': module_slug, 'module_name': module_name, 'subscription_id': sub.id},
+                    request=request,
+                )
                 messages.success(request, f'{module_name} module activated.')
             elif action == 'remove':
                 if sub.stripe_subscription_id:
@@ -554,6 +599,12 @@ class ModuleToggleView(LoginRequiredMixin, View):
                     ).update(is_active=False, deactivated_at=tz.now())
                     removed = updated > 0
                 if removed:
+                    log_event(
+                        user=request.user, school=school, category='billing',
+                        action='module_deactivated',
+                        detail={'module_slug': module_slug, 'module_name': module_name, 'subscription_id': sub.id},
+                        request=request,
+                    )
                     messages.success(request, f'{module_name} module deactivated.')
                 else:
                     messages.info(request, 'Module was not active.')
