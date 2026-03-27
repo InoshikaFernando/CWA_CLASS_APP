@@ -134,11 +134,13 @@
           <tr x-data="{ open: false }" class="border-t border-slate-100 hover:bg-slate-50/50 transition{% if event.result == 'blocked' %} bg-red-50/50{% endif %}">
             <td class="px-4 py-3 whitespace-nowrap text-gray-600">{{ event.created_at|date:"Y-m-d H:i:s" }}</td>
             <td class="px-4 py-3">
-              <div>{{ event.user.get_full_name|default:event.user.username|default:"-" }}</div>
               {% if event.user %}
+              <div>{{ event.user.get_full_name|default:event.user.username }}</div>
               <div class="text-xs text-gray-400">
                 {% for ur in event.user.user_roles.all %}{{ ur.role.display_name }}{% if not forloop.last %}, {% endif %}{% endfor %}
               </div>
+              {% else %}
+              <div>-</div>
               {% endif %}
             </td>
             <td class="px-4 py-3">{{ event.school.name|default:"-" }}</td>
