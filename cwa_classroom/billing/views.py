@@ -12,7 +12,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 
 from datetime import timedelta
-from .models import Package, Subscription, Payment, DiscountCode, InstitutePlan, SchoolSubscription, ModuleSubscription
+from .models import Package, Subscription, Payment, DiscountCode, PromoCode, InstitutePlan, SchoolSubscription, ModuleSubscription
 from .entitlements import get_school_for_user, get_school_subscription, check_class_limit, check_student_limit, check_invoice_limit
 from audit.services import log_event
 
@@ -144,11 +144,60 @@ class ApplyPromoCodeView(LoginRequiredMixin, View):
         if not code_str:
             return JsonResponse({'error': 'Please enter a promotion code.'}, status=400)
 
+        # Check DiscountCode first (billing discounts), then PromoCode (class access)
+        discount = None
+        promo = None
         try:
             discount = DiscountCode.objects.get(code=code_str)
         except DiscountCode.DoesNotExist:
-            return JsonResponse({'error': 'Invalid promotion code.'}, status=400)
+            try:
+                promo = PromoCode.objects.get(code=code_str)
+            except PromoCode.DoesNotExist:
+                return JsonResponse({'error': 'Invalid promotion code.'}, status=400)
 
+        # Handle PromoCode (always 100% free access)
+        if promo:
+            if not promo.is_valid():
+                return JsonResponse({'error': 'This promotion code has expired or reached its usage limit.'}, status=400)
+
+            if promo.redeemed_by.filter(id=request.user.id).exists():
+                return JsonResponse({'error': 'You have already used this promotion code.'}, status=400)
+
+            grant_days = promo.grant_days or package.trial_days or 30
+
+            promo.uses += 1
+            promo.save(update_fields=['uses'])
+            promo.redeemed_by.add(request.user)
+
+            sub, _ = Subscription.objects.get_or_create(
+                user=request.user,
+                defaults={'package': package},
+            )
+            sub.package = package
+            sub.status = Subscription.STATUS_TRIALING
+            sub.trial_end = timezone.now() + timedelta(days=grant_days)
+            sub.save(update_fields=['package', 'status', 'trial_end', 'updated_at'])
+
+            request.user.package = package
+            request.user.save(update_fields=['package'])
+
+            log_event(
+                user=request.user, school=None, category='billing',
+                action='promo_code_redeemed',
+                detail={
+                    'code': promo.code, 'type': 'promo',
+                    'grant_days': grant_days, 'package': package.name,
+                },
+                request=request,
+            )
+
+            return JsonResponse({
+                'fully_free': True,
+                'redirect_url': '/billing/success/',
+                'grant_days': grant_days,
+            })
+
+        # Handle DiscountCode
         if not discount.is_valid():
             return JsonResponse({'error': 'This promotion code has expired or reached its usage limit.'}, status=400)
 
@@ -175,7 +224,7 @@ class ApplyPromoCodeView(LoginRequiredMixin, View):
                 user=request.user, school=None, category='billing',
                 action='promo_code_redeemed',
                 detail={
-                    'code': discount.code, 'discount_percent': 100,
+                    'code': discount.code, 'type': 'discount', 'discount_percent': 100,
                     'grant_days': grant_days, 'package': package.name,
                 },
                 request=request,

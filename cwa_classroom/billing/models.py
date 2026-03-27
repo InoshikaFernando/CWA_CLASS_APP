@@ -127,6 +127,10 @@ class PromoCode(models.Model):
         default=0,
         help_text='Class access granted. 0 = unlimited.',
     )
+    grant_days = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text='Days of access granted. Leave blank for unlimited.',
+    )
     max_uses = models.PositiveIntegerField(
         null=True, blank=True,
         help_text='Leave blank for unlimited uses.',
