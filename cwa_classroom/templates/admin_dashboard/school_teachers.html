@@ -12,7 +12,7 @@
        markModified(id) { this.modifiedIds.add(id); document.getElementById('teacher_ids').value = [...this.modifiedIds].join(',') },
        toggle(id) { this.expanded[id] = !this.expanded[id] }
      }"
-     x-init="window.addEventListener('beforeunload', (e) => { if (hasChanges) e.preventDefault() })"
+     x-init="window.addEventListener('beforeunload', (e) => { if (hasChanges) e.preventDefault() })">
 
   <!-- Header -->
   <div class="mb-8">
@@ -287,28 +287,23 @@
                   </div>
                   <div class="mt-3 ml-13">
                     {% if st.is_active %}
-                    <form method="post" action="{% url 'admin_school_teacher_remove' school.id st.teacher.id %}" class="inline">
-                      {% csrf_token %}
-                      <button type="submit"
+                      <button type="button"
                               class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 rounded-lg transition"
-                              onclick="return confirm('Are you sure you want to remove {{ st.teacher.get_full_name|default:st.teacher.username|escapejs }} from {{ school.name|escapejs }}?')">
+                              onclick="if(confirm('Are you sure you want to remove {{ st.teacher.get_full_name|default:st.teacher.username|escapejs }} from {{ school.name|escapejs }}?')){var f=document.createElement('form');f.method='post';f.action='{% url "admin_school_teacher_remove" school.id st.teacher.id %}';var c=document.createElement('input');c.type='hidden';c.name='csrfmiddlewaretoken';c.value='{{ csrf_token }}';f.appendChild(c);document.body.appendChild(f);f.submit();}">
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                           <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/>
                         </svg>
                         Remove from School
                       </button>
-                    </form>
                     {% else %}
-                    <form method="post" action="{% url 'admin_school_teacher_restore' school.id st.teacher.id %}" class="inline">
-                      {% csrf_token %}
-                      <button type="submit"
-                              class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-green-600 hover:bg-green-50 rounded-lg transition">
+                      <button type="button"
+                              class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-green-600 hover:bg-green-50 rounded-lg transition"
+                              onclick="var f=document.createElement('form');f.method='post';f.action='{% url "admin_school_teacher_restore" school.id st.teacher.id %}';var c=document.createElement('input');c.type='hidden';c.name='csrfmiddlewaretoken';c.value='{{ csrf_token }}';f.appendChild(c);document.body.appendChild(f);f.submit();">
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                           <path stroke-linecap="round" stroke-linejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3"/>
                         </svg>
                         Restore to School
                       </button>
-                    </form>
                     {% endif %}
                   </div>
                 </div>
