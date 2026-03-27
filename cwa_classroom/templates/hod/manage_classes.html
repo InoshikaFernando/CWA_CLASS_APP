@@ -90,7 +90,7 @@
   <h2 class="text-lg font-semibold text-gray-900 mb-4">All Classes</h2>
 
   {% if classes %}
-    <div x-data="{ search: '' }">
+    <div x-data="{ search: '', page: 1, perPage: 10, total: {{ classes|length }} }" x-effect="if (search !== '') page = 1">
       <div class="mb-6">
         <div class="relative">
           <svg class="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -104,7 +104,7 @@
       <div class="space-y-4">
         {% for classroom in classes %}
           <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 cursor-pointer hover:border-accent/40 hover:shadow-md transition"
-               x-show="search === '' || '{{ classroom.name|escapejs }}'.toLowerCase().includes(search.toLowerCase())"
+               x-show="(search !== '' && '{{ classroom.name|escapejs }}'.toLowerCase().includes(search.toLowerCase())) || (search === '' && {{ forloop.counter }} > (page - 1) * perPage && {{ forloop.counter }} <= page * perPage)"
                onclick="if(!event.target.closest('a,button')){window.location='{% url 'class_detail' class_id=classroom.id %}'}">
             <div class="flex items-center justify-between mb-3">
               <div>
@@ -165,6 +165,11 @@
           </div>
         {% endfor %}
       </div>
+      <template x-if="search === ''">
+        <div>
+          {% include "partials/alpine_pagination.html" %}
+        </div>
+      </template>
     </div>
   {% else %}
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">

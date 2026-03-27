@@ -154,7 +154,7 @@
     </div>
 
     <!-- Teachers section -->
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm" x-data="{ page: 1, perPage: 10, total: {{ dept_teachers|length }} }">
       <div class="flex items-center justify-between p-6 border-b border-slate-100">
         <h2 class="text-lg font-semibold text-gray-900">Staff</h2>
         <a href="{% url 'admin_department_teachers' school.id department.id %}"
@@ -164,7 +164,8 @@
         {% if dept_teachers %}
           <div class="space-y-3">
             {% for dt in dept_teachers %}
-              <div class="flex items-center gap-3">
+              <div class="flex items-center gap-3"
+                   x-show="{{ forloop.counter }} > (page - 1) * perPage && {{ forloop.counter }} <= page * perPage">
                 <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-accent text-white text-xs font-bold">
                   {{ dt.teacher.username|slice:":2"|upper }}
                 </span>
@@ -178,6 +179,7 @@
               </div>
             {% endfor %}
           </div>
+          {% include "partials/alpine_pagination.html" %}
         {% else %}
           <p class="text-sm text-gray-400 text-center py-4">No staff assigned yet.</p>
         {% endif %}
@@ -297,24 +299,28 @@
             {% endfor %}
           </div>
         {% elif classes %}
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {% for cls in classes %}
-              <a href="{% url 'edit_class' cls.id %}?next={% url 'admin_department_detail' school.id department.id %}"
-                 class="flex items-center justify-between p-3 bg-slate-50 rounded-xl hover:bg-slate-100 transition cursor-pointer group">
-                <div>
-                  <p class="text-sm font-medium text-gray-900 group-hover:text-accent">{{ cls.name }}</p>
-                  <p class="text-xs text-gray-500">Code: {{ cls.code }} &middot; {{ cls.students.count }} students</p>
-                </div>
-                <div class="flex items-center gap-2">
-                  {% if cls.subject %}
-                    <span class="text-xs font-medium px-2 py-1 rounded-full bg-slate-200 text-slate-700">{{ cls.subject.name }}</span>
-                  {% endif %}
-                  <svg class="w-4 h-4 text-gray-400 group-hover:text-accent" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/>
-                  </svg>
-                </div>
-              </a>
-            {% endfor %}
+          <div x-data="{ page: 1, perPage: 10, total: {{ classes|length }} }">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {% for cls in classes %}
+                <a href="{% url 'edit_class' cls.id %}?next={% url 'admin_department_detail' school.id department.id %}"
+                   class="flex items-center justify-between p-3 bg-slate-50 rounded-xl hover:bg-slate-100 transition cursor-pointer group"
+                   x-show="{{ forloop.counter }} > (page - 1) * perPage && {{ forloop.counter }} <= page * perPage">
+                  <div>
+                    <p class="text-sm font-medium text-gray-900 group-hover:text-accent">{{ cls.name }}</p>
+                    <p class="text-xs text-gray-500">Code: {{ cls.code }} &middot; {{ cls.students.count }} students</p>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    {% if cls.subject %}
+                      <span class="text-xs font-medium px-2 py-1 rounded-full bg-slate-200 text-slate-700">{{ cls.subject.name }}</span>
+                    {% endif %}
+                    <svg class="w-4 h-4 text-gray-400 group-hover:text-accent" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/>
+                    </svg>
+                  </div>
+                </a>
+              {% endfor %}
+            </div>
+            {% include "partials/alpine_pagination.html" %}
           </div>
         {% else %}
           <p class="text-sm text-gray-400 text-center py-4">No classes assigned to this department yet.</p>

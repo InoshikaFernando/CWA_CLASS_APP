@@ -57,7 +57,7 @@
   <div class="space-y-8">
 
   <!-- Teacher Attendance -->
-  <div>
+  <div x-data="{ page: 1, perPage: 10, total: {{ teacher_summary|length }} }">
     <h2 class="font-semibold text-lg text-gray-900 mb-3">Teacher Attendance</h2>
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
       <table class="w-full text-left">
@@ -72,7 +72,8 @@
         </thead>
         <tbody class="divide-y divide-slate-100">
         {% for row in teacher_summary %}
-          <tr class="hover:bg-slate-50 transition">
+          <tr class="hover:bg-slate-50 transition"
+              x-show="{{ forloop.counter }} > (page - 1) * perPage && {{ forloop.counter }} <= page * perPage">
             <td class="px-6 py-4">
               <p class="font-semibold text-gray-800">
                 {% if row.teacher__first_name %}{{ row.teacher__first_name }} {{ row.teacher__last_name }}{% else %}{{ row.teacher__username }}{% endif %}
@@ -103,7 +104,8 @@
               {% endif %}
             </td>
           </tr>
-          <tr id="detail-teacher-{{ row.teacher__id }}" class="hidden"></tr>
+          <tr id="detail-teacher-{{ row.teacher__id }}" class="hidden"
+              x-show="{{ forloop.counter }} > (page - 1) * perPage && {{ forloop.counter }} <= page * perPage"></tr>
         {% empty %}
           <tr>
             <td colspan="5" class="px-6 py-12 text-center text-gray-500">No teacher attendance data yet.</td>
@@ -111,11 +113,14 @@
         {% endfor %}
         </tbody>
       </table>
+      <div class="px-6 pb-4">
+        {% include "partials/alpine_pagination.html" %}
+      </div>
     </div>
   </div>
 
   <!-- Student Attendance -->
-  <div>
+  <div x-data="{ page: 1, perPage: 10, total: {{ student_summary|length }} }">
     <h2 class="font-semibold text-lg text-gray-900 mb-3">Student Attendance</h2>
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
       <table class="w-full text-left">
@@ -131,7 +136,8 @@
         </thead>
         <tbody class="divide-y divide-slate-100">
         {% for row in student_summary %}
-          <tr class="hover:bg-slate-50 transition">
+          <tr class="hover:bg-slate-50 transition"
+              x-show="{{ forloop.counter }} > (page - 1) * perPage && {{ forloop.counter }} <= page * perPage">
             <td class="px-6 py-4">
               <p class="font-semibold text-gray-800">
                 {% if row.student__first_name %}{{ row.student__first_name }} {{ row.student__last_name }}{% else %}{{ row.student__username }}{% endif %}
@@ -165,7 +171,8 @@
               {% endif %}
             </td>
           </tr>
-          <tr id="detail-student-{{ row.student__id }}" class="hidden"></tr>
+          <tr id="detail-student-{{ row.student__id }}" class="hidden"
+              x-show="{{ forloop.counter }} > (page - 1) * perPage && {{ forloop.counter }} <= page * perPage"></tr>
         {% empty %}
           <tr>
             <td colspan="6" class="px-6 py-12 text-center text-gray-500">No student attendance data yet.</td>
@@ -173,6 +180,9 @@
         {% endfor %}
         </tbody>
       </table>
+      <div class="px-6 pb-4">
+        {% include "partials/alpine_pagination.html" %}
+      </div>
     </div>
   </div>
 
