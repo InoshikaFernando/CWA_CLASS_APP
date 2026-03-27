@@ -131,14 +131,20 @@ class TrialExpiryMiddleware:
         if not request.user.is_authenticated:
             return self.get_response(request)
 
-        # Individual student trial expiry (existing logic)
+        # Individual student trial/subscription expiry
         if request.user.is_individual_student:
             try:
                 sub = request.user.subscription
             except Exception:
                 sub = None
 
-            if sub and self._is_trial_expired(sub):
+            # No subscription at all → treat as expired
+            if not sub:
+                if not self._is_allowed_path(request.path):
+                    return redirect('trial_expired')
+                return self.get_response(request)
+
+            if self._is_trial_expired(sub):
                 if sub.status != sub.STATUS_EXPIRED:
                     sub.status = sub.STATUS_EXPIRED
                     sub.save(update_fields=['status'])
