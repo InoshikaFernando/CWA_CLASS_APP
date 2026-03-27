@@ -4218,6 +4218,20 @@ class ContactView(View):
         return redirect('/contact/?sent=1')
 
 
+class PrivacyPolicyView(View):
+    """Public Privacy Policy page."""
+
+    def get(self, request):
+        return render(request, 'public/privacy.html')
+
+
+class TermsConditionsView(View):
+    """Public Terms and Conditions page."""
+
+    def get(self, request):
+        return render(request, 'public/terms.html')
+
+
 class JoinClassView(View):
     """Public page showing registration options (Teacher / Individual Student)."""
 
