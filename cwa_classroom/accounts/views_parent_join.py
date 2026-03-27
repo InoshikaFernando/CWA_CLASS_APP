@@ -215,6 +215,19 @@ class ParentSelfJoinView(View):
 
             # Log user in
             login(request, user)
+
+            from audit.services import log_event
+            linked_students = [
+                {'student_id': ss.student_id_code, 'school': ss.school.name, 'relationship': rel}
+                for ss, rel in valid_school_students
+            ]
+            log_event(
+                user=user, school=valid_school_students[0][0].school if valid_school_students else None,
+                category='auth', action='parent_joined',
+                detail={'username': username, 'email': email, 'linked_students': linked_students},
+                request=request,
+            )
+
             messages.success(request, 'Your parent account has been created successfully!')
             return redirect('parent_dashboard')
 

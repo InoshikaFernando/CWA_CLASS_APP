@@ -13,6 +13,7 @@ from django.contrib import messages
 from django.db import transaction
 
 from accounts.models import CustomUser, Role, UserRole
+from audit.services import log_event
 from billing.mixins import ModuleRequiredMixin
 
 def _get_user_school_ids(user):
@@ -585,6 +586,12 @@ class CreateClassView(RoleRequiredMixin, View):
             if valid_levels.exists():
                 classroom.levels.set(valid_levels)
             ClassTeacher.objects.create(classroom=classroom, teacher=request.user)
+        log_event(
+            user=request.user, school=department.school, category='data_change',
+            action='class_created',
+            detail={'class_id': classroom.id, 'class_name': name, 'department': department.name, 'code': classroom.code},
+            request=request,
+        )
         messages.success(request, f'Class "{name}" created in {department.name}. Code: {classroom.code}')
         return redirect('subjects_hub')
 
@@ -815,6 +822,12 @@ class EditClassView(RoleRequiredMixin, View):
         classroom.save()
         classroom.levels.set(selected_levels)
 
+        log_event(
+            user=request.user, school=classroom.school, category='data_change',
+            action='class_edited',
+            detail={'class_id': classroom.id, 'class_name': name},
+            request=request,
+        )
         messages.success(request, f'Class "{name}" updated.')
         if next_url:
             return redirect(next_url)
@@ -890,6 +903,12 @@ class AssignStudentsView(RoleRequiredMixin, View):
                 added += 1
             elif created:
                 added += 1
+        log_event(
+            user=request.user, school=classroom.school, category='data_change',
+            action='student_enrolled',
+            detail={'class_id': classroom.id, 'class_name': classroom.name, 'students_added': added},
+            request=request,
+        )
         messages.success(request, f'{added} student(s) added.')
         return redirect('class_detail', class_id=class_id)
 
@@ -937,6 +956,12 @@ class AssignTeachersView(LoginRequiredMixin, View):
             CustomUser.objects.filter(
                 id__in=ClassTeacher.objects.filter(classroom=classroom).values_list('teacher_id', flat=True)
             )
+        )
+        log_event(
+            user=request.user, school=classroom.school, category='data_change',
+            action='teachers_updated',
+            detail={'class_id': classroom.id, 'class_name': classroom.name, 'added': added, 'removed': removed},
+            request=request,
         )
         messages.success(request, f'{added} teacher(s) added, {removed} removed.')
         return redirect('class_detail', class_id=class_id)
@@ -1086,6 +1111,12 @@ class BulkStudentRegistrationView(RoleRequiredMixin, View):
             except Exception as e:
                 results['errors'].append(f'Line {i} ({username}): {e}')
         if results['created']:
+            log_event(
+                user=request.user, school=None, category='data_change',
+                action='bulk_students_registered',
+                detail={'students_created': results['created'], 'errors': len(results['errors'])},
+                request=request,
+            )
             messages.success(request, f"{results['created']} student(s) registered.")
         return render(request, 'teacher/bulk_register.html', {'results': results})
 
@@ -1414,6 +1445,17 @@ class StudentCSVConfirmView(RoleRequiredMixin, View):
             messages.error(request, f'Import failed: {e}')
             return redirect('student_csv_upload')
 
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='student_csv_imported',
+            detail={
+                'students_created': results['counts']['students_created'],
+                'classes_created': results['counts']['classes_created'],
+                'students_enrolled': results['counts']['students_enrolled'],
+            },
+            request=request,
+        )
+
         # Store credentials for download
         request.session['csv_student_credentials'] = results['credentials']
 
@@ -1581,6 +1623,13 @@ class BalanceCSVConfirmView(RoleRequiredMixin, View):
             messages.error(request, f'Import failed: {e}')
             return redirect('balance_csv_upload')
 
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='balance_csv_imported',
+            detail={'balances_updated': results['updated']},
+            request=request,
+        )
+
         messages.success(
             request,
             f"Balance import complete: {results['updated']} balances updated."
@@ -1706,6 +1755,16 @@ class TeacherCSVConfirmView(RoleRequiredMixin, View):
             logger.exception('Teacher import failed')
             messages.error(request, f'Import failed: {e}')
             return redirect('teacher_csv_upload')
+
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='teacher_csv_imported',
+            detail={
+                'teachers_created': results.get('counts', {}).get('teachers_created', 0),
+                'credentials_generated': len(results.get('credentials', [])),
+            },
+            request=request,
+        )
 
         # Store credentials for download
         request.session['csv_teacher_credentials'] = results['credentials']
@@ -1841,6 +1900,15 @@ class UploadQuestionsView(RoleRequiredMixin, View):
                         )
             except Exception as e:
                 errors.append(f'Q{i}: {e}'); failed += 1
+        if inserted or updated:
+            log_event(
+                user=request.user,
+                school=School.objects.filter(id=school_id).first() if school_id else None,
+                category='data_change',
+                action='questions_uploaded',
+                detail={'inserted': inserted, 'updated': updated, 'failed': failed, 'topic': topic_name, 'year_level': year_level},
+                request=request,
+            )
         return render(request, 'teacher/upload_questions.html', {
             'upload_results': {'inserted': inserted, 'updated': updated, 'failed': failed, 'errors': errors},
             'topics': Topic.objects.filter(is_active=True).select_related('subject'),
@@ -2045,6 +2113,14 @@ class AddQuestionView(RoleRequiredMixin, View):
                         is_correct=request.POST.get(f'answer_correct_{i}') == 'true',
                         order=int(request.POST.get(f'answer_order_{i}', i)),
                     )
+        log_event(
+            user=request.user,
+            school=School.objects.filter(id=school_id).first() if school_id else None,
+            category='data_change',
+            action='question_created',
+            detail={'question_id': question.id, 'level_number': level_number},
+            request=request,
+        )
         messages.success(request, 'Question added.')
         return redirect('question_list', level_number=level_number)
 
@@ -2108,6 +2184,14 @@ class EditQuestionView(RoleRequiredMixin, View):
                         is_correct=request.POST.get(f'answer_correct_{i}') == 'true',
                         order=int(request.POST.get(f'answer_order_{i}', i)),
                     )
+        log_event(
+            user=request.user,
+            school=question.school,
+            category='data_change',
+            action='question_edited',
+            detail={'question_id': question.id, 'level_number': question.level.level_number},
+            request=request,
+        )
         messages.success(request, 'Question updated.')
         return redirect('question_list', level_number=question.level.level_number)
 
@@ -2126,7 +2210,17 @@ class DeleteQuestionView(RoleRequiredMixin, View):
             messages.error(request, 'You do not have permission to delete this question.')
             return redirect('question_list', level_number=question.level.level_number)
         level_number = question.level.level_number
+        q_id = question.id
+        q_school = question.school
         question.delete()
+        log_event(
+            user=request.user,
+            school=q_school,
+            category='data_change',
+            action='question_deleted',
+            detail={'question_id': q_id, 'level_number': level_number},
+            request=request,
+        )
         messages.success(request, 'Question deleted.')
         return redirect('question_list', level_number=level_number)
 
@@ -2680,6 +2774,12 @@ class HoDDeleteClassView(RoleRequiredMixin, View):
         classroom = get_object_or_404(ClassRoom, id=class_id)
         classroom.is_active = False
         classroom.save(update_fields=['is_active'])
+        log_event(
+            user=request.user, school=classroom.school, category='data_change',
+            action='hod_class_deleted',
+            detail={'class_id': classroom.id, 'class_name': classroom.name},
+            request=request,
+        )
         messages.success(request, f'Class "{classroom.name}" has been deleted.')
         return redirect('hod_manage_classes')
 
@@ -2692,6 +2792,12 @@ class HoDRestoreClassView(RoleRequiredMixin, View):
         classroom = get_object_or_404(ClassRoom, id=class_id, is_active=False)
         classroom.is_active = True
         classroom.save(update_fields=['is_active'])
+        log_event(
+            user=request.user, school=classroom.school, category='data_change',
+            action='hod_class_restored',
+            detail={'class_id': classroom.id, 'class_name': classroom.name},
+            request=request,
+        )
         messages.success(request, f'Class "{classroom.name}" has been restored.')
         return redirect('hod_manage_classes')
 
@@ -3035,6 +3141,12 @@ class HoDSubjectLevelsView(RoleRequiredMixin, View):
                                 department=department, level=lv,
                                 defaults={'order': lv.level_number},
                             )
+                        log_event(
+                            user=request.user, school=department.school, category='data_change',
+                            action='subject_added_to_department',
+                            detail={'subject': subj.name, 'department': department.name, 'department_id': department.id},
+                            request=request,
+                        )
                         messages.success(request, f'Subject "{subj.name}" added to {department.name}.')
                     else:
                         messages.info(request, f'Subject "{subj.name}" is already assigned.')
@@ -3052,6 +3164,12 @@ class HoDSubjectLevelsView(RoleRequiredMixin, View):
                 DepartmentSubject.objects.create(
                     department=department, subject=subj,
                     order=DepartmentSubject.objects.filter(department=department).count(),
+                )
+                log_event(
+                    user=request.user, school=department.school, category='data_change',
+                    action='subject_created',
+                    detail={'subject': new_subject_name, 'department': department.name, 'department_id': department.id},
+                    request=request,
                 )
                 messages.success(request, f'Subject "{new_subject_name}" created and added.')
             else:
@@ -3075,6 +3193,12 @@ class HoDSubjectLevelsView(RoleRequiredMixin, View):
                 else:
                     ds.fee_override = None
                 ds.save(update_fields=['fee_override'])
+                log_event(
+                    user=request.user, school=department.school, category='data_change',
+                    action='subject_fee_edited',
+                    detail={'subject': ds.subject.name, 'department': department.name, 'fee_override': str(ds.fee_override)},
+                    request=request,
+                )
                 messages.success(request, f'Fee for {ds.subject.name} updated.')
             return self._redirect_to_dept(department)
 
@@ -3129,12 +3253,24 @@ class HoDSubjectLevelsView(RoleRequiredMixin, View):
                             is_active=True,
                         ).update(department=new_dept)
 
+                        log_event(
+                            user=request.user, school=department.school, category='data_change',
+                            action='subject_moved',
+                            detail={'subject': subject.name, 'from_department': department.name, 'to_department': new_dept.name},
+                            request=request,
+                        )
                         messages.success(request, f'Subject "{subject.name}" moved to {new_dept.name}.')
                         return self._redirect_to_dept(department)
                 else:
                     messages.error(request, 'Target department not found.')
                     return self._redirect_to_dept(department)
 
+            log_event(
+                user=request.user, school=department.school, category='data_change',
+                action='subject_edited',
+                detail={'subject': subject.name, 'subject_id': subject.id, 'department': department.name},
+                request=request,
+            )
             messages.success(request, f'Subject "{subject.name}" updated.')
             return self._redirect_to_dept(department)
 
@@ -3161,6 +3297,12 @@ class HoDSubjectLevelsView(RoleRequiredMixin, View):
                     else:
                         dl.fee_override = None
                     dl.save(update_fields=['fee_override'])
+                    log_event(
+                        user=request.user, school=department.school, category='data_change',
+                        action='level_edited',
+                        detail={'level_id': level.id, 'display_name': display_name, 'department': department.name},
+                        request=request,
+                    )
                     messages.success(request, f'Level "{display_name}" updated.')
                 else:
                     messages.error(request, 'Level not found in this department.')
@@ -3215,6 +3357,12 @@ class HoDSubjectLevelsView(RoleRequiredMixin, View):
                 defaults={'order': level_number},
             )
 
+        log_event(
+            user=request.user, school=department.school, category='data_change',
+            action='level_created',
+            detail={'level_id': level.id, 'level_name': level_name, 'subject': subject.name, 'department': department.name},
+            request=request,
+        )
         messages.success(request, f'Level "{level_name}" created under {subject.name}.')
         return self._redirect_to_dept(department)
 
@@ -3237,6 +3385,12 @@ class HoDSubjectLevelRemoveView(RoleRequiredMixin, View):
 
         if department:
             DepartmentLevel.objects.filter(department=department, level_id=level_id).delete()
+            log_event(
+                user=request.user, school=department.school, category='data_change',
+                action='level_removed',
+                detail={'level_id': level_id, 'department': department.name, 'department_id': department.id},
+                request=request,
+            )
             messages.success(request, 'Level removed from department.')
             return redirect('hod_subject_levels_dept', dept_id=department.id)
         return redirect('hod_subject_levels')
@@ -3279,6 +3433,12 @@ class UpdateStudentFeeView(RoleRequiredMixin, View):
         else:
             cs.fee_override = None
         cs.save(update_fields=['fee_override'])
+        log_event(
+            user=request.user, school=classroom.school, category='data_change',
+            action='student_fee_updated',
+            detail={'class_id': classroom.id, 'student_id': student_id, 'fee_override': str(cs.fee_override)},
+            request=request,
+        )
         messages.success(request, 'Student fee updated.')
         return redirect('class_detail', class_id=class_id)
 
@@ -3318,6 +3478,12 @@ class ClassStudentRemoveView(RoleRequiredMixin, View):
             Enrollment.objects.filter(
                 classroom=classroom, student_id=student_id, status='approved',
             ).update(status='removed')
+            log_event(
+                user=request.user, school=classroom.school, category='data_change',
+                action='class_student_removed',
+                detail={'class_id': classroom.id, 'class_name': classroom.name, 'student_id': student_id, 'student_name': name},
+                request=request,
+            )
             messages.success(request, f'{name} has been removed from {classroom.name}.')
         else:
             messages.warning(request, 'Student not found in this class.')
@@ -3407,6 +3573,12 @@ class HoDCreateClassView(RoleRequiredMixin, View):
             if valid_levels.exists():
                 classroom.levels.set(valid_levels)
 
+        log_event(
+            user=request.user, school=department.school, category='data_change',
+            action='hod_class_created',
+            detail={'class_id': classroom.id, 'class_name': name, 'department': department.name, 'code': classroom.code},
+            request=request,
+        )
         messages.success(
             request,
             f'Class "{name}" created in {department.name}. Code: {classroom.code}'
@@ -3450,6 +3622,12 @@ class HoDAssignClassView(RoleRequiredMixin, View):
         classroom.department = department
         classroom.save(update_fields=['department'])
 
+        log_event(
+            user=request.user, school=department.school, category='data_change',
+            action='hod_class_assigned',
+            detail={'class_id': classroom.id, 'class_name': classroom.name, 'department': department.name},
+            request=request,
+        )
         messages.success(
             request,
             f'"{classroom.name}" assigned to {department.name}.'
@@ -3519,6 +3697,12 @@ class ProcessRefundView(RoleRequiredMixin, View):
         payment = get_object_or_404(Payment, id=payment_id)
         payment.status = Payment.STATUS_REFUNDED
         payment.save()
+        log_event(
+            user=request.user, school=None, category='data_change',
+            action='refund_processed',
+            detail={'payment_id': payment.id, 'username': payment.user.username},
+            request=request,
+        )
         messages.success(request, f'Refund processed for {payment.user.username}.')
         return redirect('accounting_refunds')
 
@@ -3912,6 +4096,13 @@ class ContactView(View):
             subject=subject,
             message=message_text,
             ip_address=ip,
+        )
+        log_event(
+            user=request.user if request.user.is_authenticated else None,
+            school=None, category='data_change',
+            action='contact_message_submitted',
+            detail={'name': name, 'email': email, 'subject': subject},
+            request=request,
         )
 
         # --- Update rate limit counter ---

@@ -6,6 +6,7 @@ from django.utils import timezone
 from django.db.models import Count, Max, Q
 
 from accounts.models import Role
+from audit.services import log_event
 from billing.mixins import ModuleRequiredMixin
 from billing.models import ModuleSubscription
 from .views import RoleRequiredMixin
@@ -196,12 +197,19 @@ class ProgressCriteriaListView(RoleRequiredMixin, ModuleRequiredMixin, View):
             if parent_id:
                 criteria.parent_id = parent_id
             criteria.save()
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='progress_criteria_edited',
+                detail={'criteria_id': criteria.id, 'name': name, 'subject': subject.name,
+                        'level': level.display_name if level else None},
+                request=request,
+            )
             messages.success(request, f'Criteria "{name}" updated.')
         else:
             parent = None
             if parent_id:
                 parent = ProgressCriteria.objects.filter(pk=parent_id, school=school).first()
-            ProgressCriteria.objects.create(
+            new_criteria = ProgressCriteria.objects.create(
                 school=school,
                 subject=subject,
                 level=level,
@@ -212,6 +220,14 @@ class ProgressCriteriaListView(RoleRequiredMixin, ModuleRequiredMixin, View):
                 status='approved' if auto_approve else 'draft',
                 created_by=request.user,
                 approved_by=request.user if auto_approve else None,
+            )
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='progress_criteria_created',
+                detail={'criteria_id': new_criteria.id, 'name': name, 'subject': subject.name,
+                        'level': level.display_name if level else None,
+                        'auto_approved': auto_approve},
+                request=request,
             )
             if auto_approve:
                 messages.success(request, f'Criteria "{name}" created and approved.')
@@ -351,6 +367,16 @@ class ProgressCriteriaCreateView(RoleRequiredMixin, ModuleRequiredMixin, View):
             approved_by=request.user if auto_approve else None,
         )
 
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='progress_criteria_created',
+            detail={'criteria_id': criteria.id, 'name': name, 'subject': subject.name,
+                    'level': level.display_name if level else None,
+                    'parent_id': parent_criteria.id if parent_criteria else None,
+                    'auto_approved': auto_approve},
+            request=request,
+        )
+
         if auto_approve:
             messages.success(request, f'Criteria "{name}" created and approved.')
         else:
@@ -380,6 +406,15 @@ class ProgressCriteriaSubmitView(RoleRequiredMixin, ModuleRequiredMixin, View):
 
         criteria.status = 'pending_approval'
         criteria.save()
+
+        log_event(
+            user=request.user, school=criteria.school, category='data_change',
+            action='progress_criteria_submitted',
+            detail={'criteria_id': criteria.id, 'name': criteria.name,
+                    'subject': criteria.subject.name,
+                    'level': criteria.level.display_name if criteria.level else None},
+            request=request,
+        )
 
         # Notify all senior teachers at the same school
         senior_memberships = SchoolTeacher.objects.filter(
@@ -453,6 +488,16 @@ class ProgressCriteriaApproveView(RoleRequiredMixin, ModuleRequiredMixin, View):
         criteria.approved_by = request.user
         criteria.save()
 
+        log_event(
+            user=request.user, school=criteria.school, category='data_change',
+            action='progress_criteria_approved',
+            detail={'criteria_id': criteria.id, 'name': criteria.name,
+                    'subject': criteria.subject.name,
+                    'level': criteria.level.display_name if criteria.level else None,
+                    'created_by': criteria.created_by.username if criteria.created_by else None},
+            request=request,
+        )
+
         # Notify the creator
         if criteria.created_by:
             create_notification(
@@ -488,6 +533,16 @@ class ProgressCriteriaRejectView(RoleRequiredMixin, ModuleRequiredMixin, View):
 
         criteria.status = 'rejected'
         criteria.save()
+
+        log_event(
+            user=request.user, school=criteria.school, category='data_change',
+            action='progress_criteria_rejected',
+            detail={'criteria_id': criteria.id, 'name': criteria.name,
+                    'subject': criteria.subject.name,
+                    'level': criteria.level.display_name if criteria.level else None,
+                    'created_by': criteria.created_by.username if criteria.created_by else None},
+            request=request,
+        )
 
         # Notify the creator
         if criteria.created_by:
@@ -634,6 +689,13 @@ class RecordProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
 
                 updated += 1
 
+        log_event(
+            user=request.user, school=classroom.school, category='data_change',
+            action='student_progress_recorded',
+            detail={'classroom_id': classroom.id, 'classroom_name': classroom.name,
+                    'records_updated': updated},
+            request=request,
+        )
         messages.success(request, f'Progress updated for {updated} record(s).')
         return redirect('record_progress', class_id=class_id)
 

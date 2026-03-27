@@ -401,6 +401,15 @@ class StudentSelfMarkAttendanceView(LoginRequiredMixin, ModuleRequiredMixin, Vie
             },
         )
 
+        log_event(
+            user=request.user,
+            school=session.classroom.school if session.classroom.school_id else None,
+            category='data_change',
+            action='student_self_marked_attendance',
+            detail={'session_id': session.id, 'classroom_id': session.classroom_id,
+                    'classroom': session.classroom.name, 'status': status},
+            request=request,
+        )
         messages.success(
             request,
             'Your attendance has been submitted and is pending teacher approval.'
@@ -448,5 +457,14 @@ class EnrollGlobalClassView(RoleRequiredMixin, View):
         if not created and not cs.is_active:
             cs.is_active = True
             cs.save(update_fields=['is_active'])
+        log_event(
+            user=request.user,
+            school=classroom.school if classroom.school_id else None,
+            category='data_change',
+            action='student_enrolled_class',
+            detail={'classroom_id': classroom.id, 'classroom': classroom.name,
+                    'auto_enroll': True},
+            request=request,
+        )
         messages.success(request, f'You have been enrolled in "{classroom.name}".')
         return redirect('subjects_hub')

@@ -114,6 +114,12 @@ class SetClassroomFeeView(RoleRequiredMixin, View):
         if not rate_str:
             classroom.fee_override = None
             classroom.save(update_fields=['fee_override'])
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='classroom_fee_cleared',
+                detail={'classroom_id': classroom.id, 'classroom': classroom.name},
+                request=request,
+            )
             messages.success(request, f'Fee cleared for {classroom.name} — will inherit from cascade.')
             return redirect('fee_configuration')
 
@@ -127,6 +133,13 @@ class SetClassroomFeeView(RoleRequiredMixin, View):
 
         classroom.fee_override = fee
         classroom.save(update_fields=['fee_override'])
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='classroom_fee_set',
+            detail={'classroom_id': classroom.id, 'classroom': classroom.name,
+                    'fee_override': str(fee)},
+            request=request,
+        )
         messages.success(request, f'Fee set for {classroom.name}: ${fee}/session.')
         return redirect('fee_configuration')
 
@@ -164,6 +177,13 @@ class BatchClassroomFeeView(RoleRequiredMixin, View):
                 updated += 1
 
         if updated:
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='classroom_fees_batch_updated',
+                detail={'updated_count': updated,
+                        'classroom_ids': classroom_ids},
+                request=request,
+            )
             messages.success(request, f'{updated} class fee{"s" if updated != 1 else ""} updated.')
         return redirect('fee_configuration')
 
@@ -198,6 +218,13 @@ class BatchOpeningBalanceView(RoleRequiredMixin, View):
                 updated += 1
 
         if updated:
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='opening_balances_batch_updated',
+                detail={'updated_count': updated,
+                        'student_ids': student_ids},
+                request=request,
+            )
             messages.success(request, f'{updated} balance{"s" if updated != 1 else ""} updated.')
         return redirect('opening_balances')
 
@@ -245,6 +272,14 @@ class AddStudentFeeOverrideView(RoleRequiredMixin, View):
             created_by=request.user,
         )
         name = f'{ss.student.first_name} {ss.student.last_name}'.strip() or ss.student.username
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='student_fee_override_added',
+            detail={'student_id': ss.student_id, 'student': name,
+                    'daily_rate': str(daily_rate), 'effective_from': str(effective_from),
+                    'reason': reason},
+            request=request,
+        )
         messages.success(request, f'Fee override set for {name}: ${daily_rate}/day.')
         return redirect('fee_configuration')
 
@@ -814,6 +849,15 @@ class CSVUploadView(RoleRequiredMixin, View):
             status='pending',
         )
 
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='csv_uploaded',
+            detail={'csv_import_id': csv_import.id,
+                    'file_name': csv_file.name,
+                    'total_rows': len(data_rows)},
+            request=request,
+        )
+
         request.session['csv_import_id'] = csv_import.id
         request.session['csv_headers'] = headers
         request.session['csv_preview'] = data_rows[:5]
@@ -890,6 +934,15 @@ class CSVColumnMappingView(RoleRequiredMixin, View):
         csv_import.matched_count = len(results['auto_matched'])
         csv_import.unmatched_count = len(results['unmatched']) + len(results['multi_match'])
         csv_import.save()
+
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='csv_column_mapping_applied',
+            detail={'csv_import_id': csv_import.id,
+                    'matched': csv_import.matched_count,
+                    'unmatched': csv_import.unmatched_count},
+            request=request,
+        )
 
         request.session['csv_results'] = {
             'auto_matched': [
@@ -1125,6 +1178,12 @@ class ReferenceMappingsView(RoleRequiredMixin, View):
             PaymentReferenceMapping.objects.filter(
                 id=mapping_id, school=school,
             ).delete()
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='reference_mapping_deleted',
+                detail={'mapping_id': mapping_id},
+                request=request,
+            )
             messages.success(request, 'Mapping deleted.')
         elif action == 'update':
             mapping_id = request.POST.get('mapping_id')
@@ -1141,6 +1200,13 @@ class ReferenceMappingsView(RoleRequiredMixin, View):
                 mapping.student = None
                 mapping.is_ignored = True
             mapping.save()
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='reference_mapping_updated',
+                detail={'mapping_id': mapping_id, 'student_id': student_id,
+                        'is_ignored': mapping.is_ignored},
+                request=request,
+            )
             messages.success(request, 'Mapping updated.')
 
         return redirect('reference_mappings')
@@ -1233,6 +1299,14 @@ class SetOpeningBalanceView(RoleRequiredMixin, View):
 
         name = f'{ss.student.first_name} {ss.student.last_name}'.strip() or ss.student.username
         svc.set_opening_balance(ss, amount)
+
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='opening_balance_set',
+            detail={'student_id': student_id, 'student': name,
+                    'amount': str(amount)},
+            request=request,
+        )
 
         if amount < 0:
             messages.success(request, f'Credit of ${abs(amount)} created for {name}.')
