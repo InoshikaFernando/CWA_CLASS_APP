@@ -10,6 +10,11 @@
     <span>Dashboard</span>
   </a>
 
+  <!-- ── People ── -->
+  <div class="mt-4 mb-1 px-3">
+    <span class="text-[10px] font-semibold uppercase tracking-widest text-white/40">People</span>
+  </div>
+
   <!-- Schools -->
   <a href="/admin-dashboard/schools/"
      class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
@@ -50,6 +55,11 @@
     <span>Import Students</span>
   </a>
 
+  <!-- ── Academic ── -->
+  <div class="mt-4 mb-1 px-3">
+    <span class="text-[10px] font-semibold uppercase tracking-widest text-white/40">Academic</span>
+  </div>
+
   <!-- Academic Years -->
   <a href="/admin-dashboard/academic-years/"
      class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
@@ -80,6 +90,36 @@
     <span>Enrollment Requests</span>
   </a>
 
+  <!-- ── Questions ── -->
+  <div class="mt-4 mb-1 px-3">
+    <span class="text-[10px] font-semibold uppercase tracking-widest text-white/40">Questions</span>
+  </div>
+
+  <!-- Browse Topics -->
+  <a href="{% url 'topics' %}"
+     class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
+            {% if request.path == '/topics/' or 'topic/' in request.path %}bg-white/15{% else %}hover:bg-white/10{% endif %}">
+    <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z"/>
+    </svg>
+    <span>Browse Topics</span>
+  </a>
+
+  <!-- Upload Questions -->
+  <a href="{% url 'upload_questions' %}"
+     class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
+            {% if 'upload-questions' in request.path %}bg-white/15{% else %}hover:bg-white/10{% endif %}">
+    <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+    </svg>
+    <span>Upload Questions</span>
+  </a>
+
+  <!-- ── Communication ── -->
+  <div class="mt-4 mb-1 px-3">
+    <span class="text-[10px] font-semibold uppercase tracking-widest text-white/40">Communication</span>
+  </div>
+
   <!-- Email -->
   <a href="{% url 'email_dashboard' %}"
      class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
@@ -89,6 +129,11 @@
     </svg>
     <span>Email</span>
   </a>
+
+  <!-- ── Finance ── -->
+  <div class="mt-4 mb-1 px-3">
+    <span class="text-[10px] font-semibold uppercase tracking-widest text-white/40">Finance</span>
+  </div>
 
   <!-- Billing & Subscription -->
   <a href="{% url 'institute_subscription_dashboard' %}"
@@ -110,6 +155,11 @@
     <span>Billing Admin</span>
   </a>
   {% endif %}
+
+  <!-- ── System ── -->
+  <div class="mt-4 mb-1 px-3">
+    <span class="text-[10px] font-semibold uppercase tracking-widest text-white/40">System</span>
+  </div>
 
   <!-- Events -->
   <a href="{% url 'audit_events' %}"
