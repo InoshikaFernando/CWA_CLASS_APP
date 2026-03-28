@@ -19,10 +19,10 @@ from datetime import datetime
 import json
 import threading
 from django.utils.text import slugify
-from .models import Level, ClassRoom, Enrollment, Question, Answer, StudentAnswer, BasicFactsResult, TimeLog, TopicLevelStatistics, StudentFinalAnswer
-from classroom.models import Topic, Level as ClassroomLevel, Subject as ClassroomSubject  # classroom replacements
+from .models import Question, Answer, StudentAnswer, BasicFactsResult, TimeLog, TopicLevelStatistics, StudentFinalAnswer
+from classroom.models import Topic, Level as ClassroomLevel, Subject as ClassroomSubject, ClassRoom as ClassroomClassRoom  # classroom models
 from accounts.models import CustomUser, Role, UserRole
-from .forms import CreateClassForm, StudentSignUpForm, TeacherSignUpForm, TeacherCenterRegistrationForm, IndividualStudentRegistrationForm, StudentBulkRegistrationForm, QuestionForm, AnswerFormSet, UserProfileForm, UserPasswordChangeForm
+from .forms import StudentSignUpForm, TeacherSignUpForm, TeacherCenterRegistrationForm, IndividualStudentRegistrationForm, StudentBulkRegistrationForm, QuestionForm, AnswerFormSet, UserProfileForm, UserPasswordChangeForm
 from .constants import YEAR_TOPICS_MAP, TIMES_TABLES_BY_YEAR
 
 BASIC_FACTS_TOPIC_CONFIG = {
@@ -549,35 +549,10 @@ def signup_teacher(request):
         form = TeacherSignUpForm()
     return render(request, "maths/signup.html", {"form": form, "type": "Teacher"})
 
-def student_allowed_levels(user):
-    """
-    Determine which levels a student can access.
-    Returns None if user is a teacher or if individual student should see all levels.
-    Returns a queryset of allowed levels if student is enrolled in classes.
-    """
-    if user.is_teacher:
-        return None
-    
-    # Check if student is enrolled in any classes
-    enrollments = Enrollment.objects.filter(student=user)
-
-    if not enrollments.exists():
-        # Individual student — can access all levels
-        return None
-
-    # Student enrolled in classes — return the set of allowed level_numbers
-    level_numbers = set(
-        Level.objects.filter(classrooms__enrollments__student=user)
-        .values_list('level_number', flat=True)
-        .distinct()
-    )
-    return level_numbers
-
 @login_required
 def dashboard(request):
     if request.user.is_teacher:
-        classes = request.user.classes.all()
-        return render(request, "maths/teacher_dashboard.html", {"classes": classes})
+        return redirect('home')
 
     # ── Time log (read heartbeat-accumulated time) ────────────────────────
     try:
@@ -585,14 +560,10 @@ def dashboard(request):
     except Exception:
         time_log = None
 
-    # ── Accessibility ─────────────────────────────────────────────────────
-    # Use maths.Level enrollment data (level_numbers) to determine access
-    enrolled_level_numbers = set(
-        Level.objects.filter(
-            classrooms__enrollments__student=request.user
-        ).values_list('level_number', flat=True)
-    )
-    is_individual_student = not enrolled_level_numbers
+    # ── All students see all levels; is_individual_student = not in any class ──
+    is_individual_student = not ClassroomClassRoom.objects.filter(
+        students=request.user, is_active=True
+    ).exists()
 
     # ── Best score ────────────────────────────────────────────────────────
     from django.db.models import Max
@@ -614,7 +585,7 @@ def dashboard(request):
 
     year_data = []
     for level in all_year_levels:
-        accessible = is_individual_student or level.level_number in enrolled_level_numbers
+        accessible = True  # all students see all levels
         topics_with_q = topics_with_q_by_level[level.id]  # level.id is classroom.Level.id
 
         # Build hierarchical strand_data via classroom.Topic (level IS a ClassroomLevel)
@@ -676,13 +647,8 @@ def dashboard(request):
 def dashboard_detail(request):
     """Detailed dashboard view showing progress table"""
     if request.user.is_teacher:
-        classes = request.user.classes.all()
-        return render(request, "maths/teacher_dashboard.html", {"classes": classes})
-    allowed = student_allowed_levels(request.user)
-    if allowed is not None:
-        levels = ClassroomLevel.objects.filter(level_number__in=allowed)
-    else:
-        levels = ClassroomLevel.objects.all()
+        return redirect('home')
+    levels = ClassroomLevel.objects.all()
 
     # Separate Basic Facts levels (>= 100) from Year levels (< 100)
     basic_facts_levels = ClassroomLevel.objects.filter(level_number__gte=100)
@@ -1110,7 +1076,7 @@ def dashboard_detail(request):
         "sorted_years": sorted_years,
         "basic_facts_by_subtopic": basic_facts_by_subtopic,
         "basic_facts_progress": basic_facts_progress,
-        "has_class": Enrollment.objects.filter(student=request.user).exists(),
+        "has_class": ClassroomClassRoom.objects.filter(students=request.user, is_active=True).exists(),
         "progress_by_level": progress_by_level,
         "show_progress_table": True,
         "show_all_content": False,
@@ -1120,13 +1086,7 @@ def dashboard_detail(request):
 @login_required
 def measurements_progress(request, level_number):
     """Show detailed measurements progress with attempt history and graph"""
-    level = get_object_or_404(Level, level_number=level_number)
-    
-    # Check if student has access to this level
-    allowed = student_allowed_levels(request.user)
-    if allowed is not None and not allowed.filter(pk=level.pk).exists():
-        messages.error(request, "You don't have access to this level.")
-        return redirect("maths:dashboard")
+    level = get_object_or_404(ClassroomLevel, level_number=level_number)
     
     # Get all student answers for Measurements topic for this level
     student_answers = StudentAnswer.objects.filter(
@@ -1231,43 +1191,17 @@ def topic_list(request):
 @login_required
 def level_list(request, topic_id):
     topic = get_object_or_404(Topic, pk=topic_id)
-    allowed = student_allowed_levels(request.user)
-    if allowed is None:
-        levels = topic.levels.all()
-    else:
-        levels = topic.levels.filter(pk__in=allowed.values_list("pk", flat=True))
+    levels = topic.levels.all()
     return render(request, "maths/levels.html", {"topic": topic, "levels": levels})
 
 @login_required
 def level_detail(request, level_number):
-    level = get_object_or_404(Level, level_number=level_number)
-    allowed = student_allowed_levels(request.user)
-    if allowed is not None and not allowed.filter(pk=level.pk).exists():
-        return render(request, "maths/forbidden.html", status=403)
-    
-    # Get topics for this level
+    level = get_object_or_404(ClassroomLevel, level_number=level_number)
     topics = level.topics.all()
-    
     return render(request, "maths/level_detail.html", {
         "level": level,
         "topics": topics
     })
-
-@login_required
-def create_class(request):
-    if not request.user.is_teacher:
-        return redirect("maths:dashboard")
-    if request.method == "POST":
-        form = CreateClassForm(request.POST)
-        if form.is_valid():
-            classroom = form.save(commit=False)
-            classroom.teacher = request.user
-            classroom.save()
-            form.save_m2m()
-            return redirect("maths:dashboard")
-    else:
-        form = CreateClassForm()
-    return render(request, "maths/create_class.html", {"form": form})
 
 def teacher_center_registration(request):
     """Handle teacher registration for creating a center/school"""
@@ -1331,19 +1265,6 @@ def bulk_student_registration(request):
         form = StudentBulkRegistrationForm()
     
     return render(request, "maths/bulk_student_registration.html", {"form": form})
-
-@login_required
-def join_class(request):
-    if request.method == "POST":
-        code = request.POST.get("code", "").strip()
-        try:
-            classroom = ClassRoom.objects.get(code=code)
-            Enrollment.objects.get_or_create(student=request.user, classroom=classroom)
-            messages.success(request, f"Successfully joined class: {classroom.name}")
-            return redirect("maths:dashboard")
-        except ClassRoom.DoesNotExist:
-            messages.error(request, "Invalid class code")
-    return render(request, "maths/join_class.html")
 
 @login_required
 def user_profile(request):
@@ -1861,15 +1782,7 @@ def take_basic_facts_quiz(request, basic_topic, display_level):
 @login_required
 def take_quiz(request, level_number):
     """Allow students to take a quiz for a specific level"""
-    level = get_object_or_404(Level, level_number=level_number)
-    
-    # Check if student has access to this level
-    # Basic Facts levels (>= 100) are always accessible to all students
-    if level_number < 100:
-        allowed = student_allowed_levels(request.user)
-        if allowed is not None and not allowed.filter(pk=level.pk).exists():
-            messages.error(request, "You don't have access to this level.")
-            return redirect("maths:dashboard")
+    level = get_object_or_404(ClassroomLevel, level_number=level_number)
     
     # For Basic Facts levels, generate questions dynamically
     is_basic_facts = level_number >= 100
@@ -2342,16 +2255,10 @@ def take_quiz(request, level_number):
 @login_required
 def practice_questions(request, level_number):
     """Practice questions with random selection from all topics"""
-    level = get_object_or_404(Level, level_number=level_number)
-    
-    # Check if student has access to this level
-    allowed = student_allowed_levels(request.user)
-    if allowed is not None and not allowed.filter(pk=level.pk).exists():
-        messages.error(request, "You don't have access to this level.")
-        return redirect("maths:dashboard")
-    
+    level = get_object_or_404(ClassroomLevel, level_number=level_number)
+
     # Get all questions for this level
-    all_questions = level.questions.all()
+    all_questions = level.maths_questions_by_level.all()
     
     # Select random questions (limit to 10 for practice)
     if all_questions.count() > 10:
@@ -2383,11 +2290,6 @@ def submit_topic_answer(request):
 
     try:
         question = Question.objects.get(id=question_id)
-
-        # Verify the student has access to this question's level
-        allowed = student_allowed_levels(request.user)
-        if allowed is not None and not allowed.filter(pk=question.level.pk).exists():
-            return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
 
         if answer_id:
             answer = Answer.objects.get(id=answer_id, question=question)
@@ -2443,11 +2345,6 @@ def topic_questions(request, level_number, topic_name):
     All questions are prefetched on initial load and rendered client-side for
     faster question navigation."""
     level = get_object_or_404(ClassroomLevel, level_number=level_number)
-
-    allowed = student_allowed_levels(request.user)
-    if allowed is not None and level.level_number not in allowed:
-        messages.error(request, "You don't have access to this level.")
-        return redirect("maths:dashboard")
 
     topic_obj = Topic.objects.filter(name=topic_name).first()
     if not topic_obj:
@@ -2747,11 +2644,7 @@ def _get_or_create_times_table_questions(level, topic_obj, table_number, operati
 @login_required
 def multiplication_selection(request, level_number):
     """Show times table selection grid for Multiplication."""
-    level = get_object_or_404(Level, level_number=level_number)
-    allowed = student_allowed_levels(request.user)
-    if allowed is not None and not allowed.filter(pk=level.pk).exists():
-        messages.error(request, "You don't have access to this level.")
-        return redirect("maths:dashboard")
+    level = get_object_or_404(ClassroomLevel, level_number=level_number)
 
     tables = TIMES_TABLES_BY_YEAR.get(level_number, [])
     return render(request, "maths/times_table_selection.html", {
@@ -2767,11 +2660,7 @@ def multiplication_selection(request, level_number):
 @login_required
 def division_selection(request, level_number):
     """Show times table selection grid for Division."""
-    level = get_object_or_404(Level, level_number=level_number)
-    allowed = student_allowed_levels(request.user)
-    if allowed is not None and not allowed.filter(pk=level.pk).exists():
-        messages.error(request, "You don't have access to this level.")
-        return redirect("maths:dashboard")
+    level = get_object_or_404(ClassroomLevel, level_number=level_number)
 
     tables = TIMES_TABLES_BY_YEAR.get(level_number, [])
     return render(request, "maths/times_table_selection.html", {
@@ -2790,11 +2679,6 @@ def times_table_quiz(request, level_number, table_number, operation):
     the standard topic_questions flow so scoring, progress tracking, and the
     submit_topic_answer endpoint all work identically to other topics."""
     level = get_object_or_404(ClassroomLevel, level_number=level_number)
-    allowed = student_allowed_levels(request.user)
-    if allowed is not None and level_number not in allowed:
-        messages.error(request, "You don't have access to this level.")
-        return redirect("maths:dashboard")
-
     tables = TIMES_TABLES_BY_YEAR.get(level_number, [])
     if table_number not in tables:
         messages.error(request, f"{table_number} times table is not available for Year {level_number}.")

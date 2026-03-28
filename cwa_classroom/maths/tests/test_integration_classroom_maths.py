@@ -8,11 +8,9 @@ TopicLevelStatistics and BasicFactsResult.
 
 Coverage areas
 ──────────────
-1.  Topic name parity      – classroom.Topic.name is the canonical name used
-                             by both apps; maths.Topic still exists but is
-                             not referenced by any FK field.
-2.  Level number parity    – maths.Level.level_number == classroom.Level.level_number
-3.  Question upload view   – JSON and ZIP uploads create questions linked to
+1.  classroom.Topic        – canonical topic model for all maths FK fields;
+                             maths.Topic and maths.Level have been removed.
+2.  Question upload view   – JSON and ZIP uploads create questions linked to
                              the correct classroom.Topic / classroom.Level
 4.  Strand-aware upload    – "strand" field in JSON is accepted without error
 5.  Question scoping       – school / department / classroom FKs on
@@ -37,9 +35,7 @@ from classroom.models import (
 )
 from maths.models import (
     Answer as MathsAnswer,
-    Level as MathsLevel,
     Question as MathsQuestion,
-    Topic as MathsTopic,
 )
 
 
@@ -53,10 +49,9 @@ class IntegrationBase(TestCase):
     classroom Topic/Level entries.  All tests that need cross-app fixtures
     inherit from this class.
 
-    After the refactoring:
-      - MathsQuestion.topic  → classroom.Topic
-      - MathsQuestion.level  → classroom.Level
-      - maths.Level.topics   → classroom.Topic (M2M)
+    MathsQuestion.topic → classroom.Topic
+    MathsQuestion.level → classroom.Level
+    maths.Topic and maths.Level have been removed; classroom models are canonical.
     The global Mathematics classroom.Subject (slug='mathematics') is the anchor
     for all maths topics created by the upload view.
     """
@@ -148,12 +143,6 @@ class IntegrationBase(TestCase):
             defaults={'display_name': 'Year 7'},
         )
 
-        # ── maths.Level (still exists; used for enrollment lookups) ─
-        cls.maths_level, _ = MathsLevel.objects.get_or_create(
-            level_number=7,
-            defaults={'title': 'Year 7'},
-        )
-
         # ── classroom.Topic strand hierarchy under Mathematics ─
         # Use unique names/slugs to avoid conflicts with seed data
         cls.strand, _ = ClassroomTopic.objects.get_or_create(
@@ -167,12 +156,6 @@ class IntegrationBase(TestCase):
             defaults={'name': 'IntTestIntegers', 'is_active': True, 'parent': cls.strand},
         )
         cls.classroom_topic.levels.add(cls.classroom_level)
-
-        # maths.Level.topics M2M now points to classroom.Topic
-        cls.maths_level.topics.add(cls.classroom_topic)
-
-        # ── maths.Topic (legacy — no longer used as FK target) ─
-        cls.maths_topic, _ = MathsTopic.objects.get_or_create(name='IntTestIntegers')
 
         # ── ClassRoom ─────────────────────────────────────────
         cls.classroom = ClassRoom.objects.create(
@@ -252,35 +235,13 @@ class IntegrationBase(TestCase):
 
 class TopicLevelParityTests(IntegrationBase):
     """
-    After the refactoring classroom.Topic is the canonical topic model.
-    maths.Level.topics M2M now points to classroom.Topic.
+    classroom.Topic is the canonical topic model for all maths FK fields.
     """
 
-    def test_classroom_topic_name_matches_maths_topic_name(self):
-        """Legacy maths.Topic and classroom.Topic have the same name."""
-        self.assertEqual(self.maths_topic.name, self.classroom_topic.name)
-
-    def test_maths_level_number_matches_classroom_level_number(self):
-        self.assertEqual(self.maths_level.level_number, self.classroom_level.level_number)
-
     def test_classroom_topic_has_parent_strand(self):
-        """classroom.Topic has the strand (parent) relationship; maths.Topic does not."""
+        """classroom.Topic has the strand (parent) relationship."""
         self.assertIsNotNone(self.classroom_topic.parent)
         self.assertEqual(self.classroom_topic.parent.name, 'IntTestAlgebra')
-
-    def test_maths_topic_has_no_parent_field(self):
-        """maths.Topic is the legacy flat model — no parent field."""
-        self.assertFalse(hasattr(self.maths_topic, 'parent'))
-
-    def test_classroom_level_and_maths_level_share_level_number(self):
-        """Both apps can be queried consistently by level_number."""
-        cl = ClassroomLevel.objects.get(level_number=7)
-        ml = MathsLevel.objects.get(level_number=7)
-        self.assertEqual(cl.level_number, ml.level_number)
-
-    def test_maths_level_topics_contains_classroom_topic(self):
-        """maths.Level.topics M2M now references classroom.Topic instances."""
-        self.assertIn(self.classroom_topic, self.maths_level.topics.all())
 
     def test_question_topic_fk_is_classroom_topic(self):
         """MathsQuestion.topic FK now references classroom.Topic."""

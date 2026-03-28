@@ -5,6 +5,7 @@ import uuid
 
 
 def generate_class_code():
+    """Retained for historical migration compatibility — not used by any model."""
     return uuid.uuid4().hex[:8]
 
 
@@ -23,55 +24,6 @@ def calculate_points(score, total_questions, time_taken_seconds, k=30):
     percentage = score / total_questions
     time_per_q = time_taken_seconds / total_questions
     return round(percentage * 100 * (k / (k + time_per_q)), 2)
-
-
-class Topic(models.Model):
-    name = models.CharField(max_length=120)
-
-    def __str__(self):
-        return self.name
-
-
-class Level(models.Model):
-    topics = models.ManyToManyField('classroom.Topic', related_name="maths_levels", blank=True)
-    level_number = models.PositiveIntegerField(unique=True)
-    title = models.CharField(max_length=200, blank=True)
-
-    class Meta:
-        ordering = ("level_number",)
-
-    def __str__(self):
-        return f"Year {self.level_number}"
-
-    @property
-    def display_name(self):
-        return self.title or f"Year {self.level_number}"
-
-    @property
-    def topic_names(self):
-        return ", ".join([topic.name for topic in self.topics.all()])
-
-
-class ClassRoom(models.Model):
-    name = models.CharField(max_length=150)
-    teacher = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="maths_classes")
-    code = models.CharField(max_length=8, unique=True, default=generate_class_code)
-    levels = models.ManyToManyField(Level, blank=True, related_name="classrooms")
-
-    def __str__(self):
-        return f"{self.name} ({self.code})"
-
-
-class Enrollment(models.Model):
-    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="maths_enrollments")
-    classroom = models.ForeignKey(ClassRoom, on_delete=models.CASCADE, related_name="enrollments")
-    date_enrolled = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        unique_together = ("student", "classroom")
-
-    def __str__(self):
-        return f"{self.student} → {self.classroom}"
 
 
 class Question(models.Model):

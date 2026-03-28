@@ -2,7 +2,7 @@ from django import forms
 from django.contrib.auth.forms import UserCreationForm, PasswordChangeForm
 from django.contrib.auth import update_session_auth_hash
 from accounts.models import CustomUser
-from .models import ClassRoom, Question, Answer
+from .models import Question, Answer
 
 
 class TeacherSignUpForm(UserCreationForm):
@@ -15,12 +15,6 @@ class StudentSignUpForm(UserCreationForm):
     class Meta:
         model = CustomUser
         fields = ("username", "email", "password1", "password2")
-
-
-class CreateClassForm(forms.ModelForm):
-    class Meta:
-        model = ClassRoom
-        fields = ("name", "levels")
 
 
 class TeacherCenterRegistrationForm(UserCreationForm):
