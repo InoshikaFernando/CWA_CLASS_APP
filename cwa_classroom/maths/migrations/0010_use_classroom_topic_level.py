@@ -144,6 +144,21 @@ def migrate_to_classroom_models(apps, schema_editor):
             tls.classroom_level_id = cl_pk
             tls.save(update_fields=['classroom_level_id'])
 
+    # ── 7b. Deduplicate TopicLevelStatistics on (classroom_level, classroom_topic)
+    # If two old maths (level, topic) rows map to the same classroom pair,
+    # keep the one with the highest student_count and delete the rest.
+    # This prevents a unique-constraint violation in step 6.
+    seen_pairs = {}
+    for tls in TopicLevelStatistics.objects.filter(
+        classroom_level_id__isnull=False,
+        classroom_topic_id__isnull=False,
+    ).order_by('-student_count', 'pk'):
+        key = (tls.classroom_level_id, tls.classroom_topic_id)
+        if key in seen_pairs:
+            tls.delete()
+        else:
+            seen_pairs[key] = True
+
     # ── 8. Populate shadow fields on BasicFactsResult ─────────────────────
     for bfr in BasicFactsResult.objects.filter(level_id__isnull=False):
         cl_pk = level_map.get(bfr.level_id)
@@ -251,7 +266,15 @@ class Migration(migrations.Migration):
         # ── Step 2: populate shadow fields via data migration ─────────────
         migrations.RunPython(migrate_to_classroom_models, reverse_migration),
 
-        # ── Step 3: remove old FK fields ──────────────────────────────────
+        # ── Step 3: explicitly drop unique_together on TopicLevelStatistics
+        # before removing the old fields — MySQL may reject the DROP COLUMN
+        # if the unique constraint is still present during the ALTER TABLE.
+        migrations.AlterUniqueTogether(
+            name='topicLevelStatistics',
+            unique_together=set(),
+        ),
+
+        # ── Step 3b: remove old FK fields ─────────────────────────────────
         migrations.RemoveField(model_name='question', name='topic'),
         migrations.RemoveField(model_name='question', name='level'),
         migrations.RemoveField(model_name='studentfinalanswer', name='topic'),
