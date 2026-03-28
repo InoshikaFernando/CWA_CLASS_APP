@@ -173,10 +173,10 @@ def reverse_migration(apps, schema_editor):
 
 def cleanup_partial_shadow_columns(apps, schema_editor):
     """
-    Drop any shadow columns that were added by a previous failed run of this
-    migration.  If the migration is being applied fresh these columns won't
-    exist and nothing happens; if it was partially applied they are removed so
-    the AddField operations below can succeed.
+    Drop any shadow columns (and their FK constraints) that were added by a
+    previous failed run of this migration.  If the migration is being applied
+    fresh these columns won't exist and nothing happens; if it was partially
+    applied they are removed so the AddField operations below can succeed.
     """
     shadow_columns = [
         ('maths_question',              'classroom_topic_id'),
@@ -190,13 +190,29 @@ def cleanup_partial_shadow_columns(apps, schema_editor):
     db_name = schema_editor.connection.settings_dict['NAME']
     with schema_editor.connection.cursor() as cursor:
         for table, column in shadow_columns:
+            # Check if column exists
             cursor.execute(
                 "SELECT COUNT(*) FROM information_schema.columns "
                 "WHERE table_schema = %s AND table_name = %s AND column_name = %s",
                 [db_name, table, column],
             )
-            if cursor.fetchone()[0] > 0:
-                cursor.execute(f"ALTER TABLE `{table}` DROP COLUMN `{column}`")
+            if cursor.fetchone()[0] == 0:
+                continue  # Column doesn't exist — nothing to do
+
+            # Drop any FK constraints referencing this column first
+            cursor.execute(
+                "SELECT constraint_name FROM information_schema.key_column_usage "
+                "WHERE table_schema = %s AND table_name = %s AND column_name = %s "
+                "AND referenced_table_name IS NOT NULL",
+                [db_name, table, column],
+            )
+            for (fk_name,) in cursor.fetchall():
+                cursor.execute(
+                    f"ALTER TABLE `{table}` DROP FOREIGN KEY `{fk_name}`"
+                )
+
+            # Now drop the column
+            cursor.execute(f"ALTER TABLE `{table}` DROP COLUMN `{column}`")
 
 
 # ---------------------------------------------------------------------------
