@@ -1,10 +1,13 @@
 {% comment %}
 Global SubjectApp card partial.
-Context: `subject` - a SubjectApp instance
+Context: `subject` — a SubjectApp instance annotated with `has_questions` bool.
+
+subject.has_questions True  → clickable <a>
+subject.has_questions False → identical <div> (no link, same appearance)
 {% endcomment %}
 
-<a href="{{ subject.external_url }}"
-   class="rounded-2xl bg-white border border-slate-200 shadow-sm hover:shadow-lg transition p-5 flex flex-col items-start group">
+{% if subject.has_questions and subject.external_url %}<a href="{{ subject.external_url }}" class="rounded-2xl bg-white border border-slate-200 shadow-sm hover:shadow-lg transition p-5 flex flex-col items-start group">{% else %}<div class="rounded-2xl bg-white border border-slate-200 shadow-sm p-5 flex flex-col items-start">{% endif %}
+
   <!-- Icon -->
   <div class="mb-3">
     {% if subject.icon_name == 'calculator' %}
@@ -37,7 +40,8 @@ Context: `subject` - a SubjectApp instance
     <p class="text-gray-500 text-xs mb-3 line-clamp-2 flex-1">{{ subject.description }}</p>
   {% endif %}
 
-  <!-- CTA -->
+  <!-- CTA — only shown when clickable -->
+  {% if subject.has_questions and subject.external_url %}
   <div class="mt-auto pt-2">
     <span class="inline-flex items-center gap-1 text-xs font-semibold group-hover:text-gray-700 transition"
           style="color: {{ subject.color }}">
@@ -47,4 +51,6 @@ Context: `subject` - a SubjectApp instance
       </svg>
     </span>
   </div>
-</a>
+  {% endif %}
+
+{% if subject.has_questions and subject.external_url %}</a>{% else %}</div>{% endif %}
