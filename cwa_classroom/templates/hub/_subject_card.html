@@ -1,19 +1,10 @@
 {% comment %}
 School subject card partial.
 Context: `card` dict with keys: name, description, icon_name, color, link, is_enrolled
-
-When card.link is set the card is rendered as a clickable <a>.
-When card.link is empty/None the card is rendered as a non-clickable <div>
-with a "Coming Soon" badge — the subject exists but has no questions yet.
 {% endcomment %}
 
-{% if card.link %}
 <a href="{{ card.link }}"
    class="rounded-2xl bg-white border border-slate-200 shadow-sm hover:shadow-lg transition p-5 flex flex-col items-start group">
-{% else %}
-<div class="rounded-2xl bg-white border border-slate-200 shadow-sm p-5 flex flex-col items-start opacity-70 cursor-not-allowed">
-{% endif %}
-
   <!-- Icon -->
   <div class="mb-3">
     {% if card.icon_name == 'calculator' %}
@@ -46,13 +37,9 @@ with a "Coming Soon" badge — the subject exists but has no questions yet.
     <p class="text-gray-500 text-xs mb-3 line-clamp-2 flex-1">{{ card.description }}</p>
   {% endif %}
 
-  <!-- Enrolled badge / arrow / coming soon -->
+  <!-- Enrolled badge or arrow -->
   <div class="mt-auto pt-2">
-    {% if not card.link %}
-      <span class="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full bg-slate-100 text-slate-500">
-        Coming Soon
-      </span>
-    {% elif card.is_enrolled %}
+    {% if card.is_enrolled %}
       <span class="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">
         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
@@ -68,9 +55,4 @@ with a "Coming Soon" badge — the subject exists but has no questions yet.
       </span>
     {% endif %}
   </div>
-
-{% if card.link %}
 </a>
-{% else %}
-</div>
-{% endif %}
