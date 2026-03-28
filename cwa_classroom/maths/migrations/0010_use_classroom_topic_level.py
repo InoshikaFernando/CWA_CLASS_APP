@@ -200,6 +200,51 @@ def reverse_migration(apps, schema_editor):
     pass  # Non-destructive — shadow fields removed on reverse schema rollback
 
 
+def drop_old_fk_columns_if_exist(apps, schema_editor):
+    """
+    Drop the old maths FK columns (topic_id / level_id pointing at maths.Topic
+    / maths.Level) using raw SQL guarded by information_schema checks.
+
+    A prior partial run may have already removed some of these columns.
+    Django's RemoveField would fail with 1091 ("Can't DROP; check column/key
+    exists") in that case — this function skips any column that is already gone.
+
+    Used via SeparateDatabaseAndState so that the migration *state* is still
+    updated by the corresponding RemoveField operations in state_operations.
+    """
+    old_columns = [
+        ('maths_question',             'topic_id'),
+        ('maths_question',             'level_id'),
+        ('maths_studentfinalanswer',   'topic_id'),
+        ('maths_studentfinalanswer',   'level_id'),
+        ('maths_topiclevelstatistics', 'topic_id'),
+        ('maths_topiclevelstatistics', 'level_id'),
+        ('maths_basicfactsresult',     'level_id'),
+    ]
+    db_name = schema_editor.connection.settings_dict['NAME']
+    with schema_editor.connection.cursor() as cursor:
+        for table, column in old_columns:
+            cursor.execute(
+                "SELECT COUNT(*) FROM information_schema.columns "
+                "WHERE table_schema = %s AND table_name = %s AND column_name = %s",
+                [db_name, table, column],
+            )
+            if cursor.fetchone()[0] == 0:
+                continue  # Already removed by a prior partial run — skip
+
+            # Must drop FK constraints before dropping the column (MySQL InnoDB)
+            cursor.execute(
+                "SELECT constraint_name FROM information_schema.key_column_usage "
+                "WHERE table_schema = %s AND table_name = %s AND column_name = %s "
+                "AND referenced_table_name IS NOT NULL",
+                [db_name, table, column],
+            )
+            for (fk_name,) in cursor.fetchall():
+                cursor.execute(f"ALTER TABLE `{table}` DROP FOREIGN KEY `{fk_name}`")
+
+            cursor.execute(f"ALTER TABLE `{table}` DROP COLUMN `{column}`")
+
+
 def cleanup_partial_shadow_columns(apps, schema_editor):
     """
     Drop any shadow columns (and their FK constraints) that were added by a
@@ -351,13 +396,27 @@ class Migration(migrations.Migration):
         ),
 
         # ── Step 3b: remove old FK fields ─────────────────────────────────
-        migrations.RemoveField(model_name='question', name='topic'),
-        migrations.RemoveField(model_name='question', name='level'),
-        migrations.RemoveField(model_name='studentfinalanswer', name='topic'),
-        migrations.RemoveField(model_name='studentfinalanswer', name='level'),
-        migrations.RemoveField(model_name='topicLevelStatistics', name='topic'),
-        migrations.RemoveField(model_name='topicLevelStatistics', name='level'),
-        migrations.RemoveField(model_name='basicfactsresult', name='level'),
+        # SeparateDatabaseAndState lets the database side use guarded raw SQL
+        # (skips columns already removed by a prior partial run) while the
+        # state side uses normal RemoveField so Django's model state stays
+        # accurate for the RenameField operations that follow.
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunPython(
+                    drop_old_fk_columns_if_exist,
+                    migrations.RunPython.noop,
+                ),
+            ],
+            state_operations=[
+                migrations.RemoveField(model_name='question', name='topic'),
+                migrations.RemoveField(model_name='question', name='level'),
+                migrations.RemoveField(model_name='studentfinalanswer', name='topic'),
+                migrations.RemoveField(model_name='studentfinalanswer', name='level'),
+                migrations.RemoveField(model_name='topicLevelStatistics', name='topic'),
+                migrations.RemoveField(model_name='topicLevelStatistics', name='level'),
+                migrations.RemoveField(model_name='basicfactsresult', name='level'),
+            ],
+        ),
 
         # ── Step 4: rename shadow fields to their canonical names ─────────
         migrations.RenameField(
