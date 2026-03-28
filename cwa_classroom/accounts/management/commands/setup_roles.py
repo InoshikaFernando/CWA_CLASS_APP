@@ -27,11 +27,15 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         for name, display_name, description in ROLES:
-            role, created = Role.objects.get_or_create(
+            role, created = Role.objects.update_or_create(
                 name=name,
-                defaults={'display_name': display_name, 'description': description},
+                defaults={
+                    'display_name': display_name,
+                    'description': description,
+                    'is_active': True,  # Always ensure active, even on existing records
+                },
             )
-            status = 'created' if created else 'already exists'
+            status = 'created' if created else 'updated'
             self.stdout.write(f'  Role "{name}" — {status}')
 
         admin_role = Role.objects.get(name=Role.ADMIN)
