@@ -352,8 +352,8 @@ class StudentFinalAnswer(models.Model):
     class Meta:
         ordering = ['-completed_at']
         indexes = [
-            models.Index(fields=['student', 'topic', 'level'], name='maths_sfa_student_topic_level_idx'),
-            models.Index(fields=['student', 'topic', 'level', 'attempt_number'], name='maths_sfa_student_topic_level_attempt_idx'),
+            models.Index(fields=['student', 'topic', 'level'], name='maths_sfa_topic_level_idx'),
+            models.Index(fields=['student', 'topic', 'level', 'attempt_number'], name='maths_sfa_topic_level_att_idx'),
         ]
 
     def __str__(self):
