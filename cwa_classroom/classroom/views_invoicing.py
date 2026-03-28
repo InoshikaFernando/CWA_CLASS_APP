@@ -314,6 +314,7 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
         start = _parse_date(request.POST.get('billing_period_start'))
         end = _parse_date(request.POST.get('billing_period_end'))
         mode = request.POST.get('attendance_mode', 'all_class_days')
+        billing_type = request.POST.get('billing_type', 'post_term')
         dept_id = request.POST.get('department_id')
 
         if not start or not end:
@@ -328,23 +329,25 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
         if dept_id:
             department = Department.objects.filter(id=dept_id, school=school).first()
 
-        # Validate attendance completeness
-        unmarked = svc.validate_attendance_complete(school, start, end, department)
-        if unmarked:
-            departments = Department.objects.filter(school=school, is_active=True)
-            terms = Term.objects.filter(school=school).select_related('academic_year')
-            return render(request, 'invoicing/generate_invoices.html', {
-                'school': school,
-                'departments': departments,
-                'terms': terms,
-                'unmarked_sessions': unmarked,
-                'form_data': {
-                    'billing_period_start': str(start),
-                    'billing_period_end': str(end),
-                    'attendance_mode': mode,
-                    'department_id': dept_id,
-                },
-            })
+        # Validate attendance completeness (skip for upfront billing)
+        if billing_type != 'upfront':
+            unmarked = svc.validate_attendance_complete(school, start, end, department)
+            if unmarked:
+                departments = Department.objects.filter(school=school, is_active=True)
+                terms = Term.objects.filter(school=school).select_related('academic_year')
+                return render(request, 'invoicing/generate_invoices.html', {
+                    'school': school,
+                    'departments': departments,
+                    'terms': terms,
+                    'unmarked_sessions': unmarked,
+                    'form_data': {
+                        'billing_period_start': str(start),
+                        'billing_period_end': str(end),
+                        'attendance_mode': mode,
+                        'billing_type': billing_type,
+                        'department_id': dept_id,
+                    },
+                })
 
         # Get students in scope
         students_qs = SchoolStudent.objects.filter(
@@ -362,7 +365,7 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
                 continue
 
             lines, warnings = svc.calculate_invoice_lines(
-                student, school, start, end, mode
+                student, school, start, end, mode, billing_type=billing_type
             )
             all_warnings.extend(warnings)
 
@@ -379,7 +382,8 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
         # Create drafts
         with transaction.atomic():
             invoices = svc.create_draft_invoices(
-                school, student_data, mode, start, end, request.user
+                school, student_data, mode, start, end, request.user,
+                billing_type=billing_type,
             )
 
         invoice_ids = [inv.id for inv in invoices]
@@ -390,7 +394,7 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
             action='invoice_generated',
             detail={'count': len(invoices), 'invoice_ids': invoice_ids,
                     'period_start': str(start), 'period_end': str(end),
-                    'mode': mode},
+                    'mode': mode, 'billing_type': billing_type},
             request=request,
         )
         return redirect('invoice_preview')

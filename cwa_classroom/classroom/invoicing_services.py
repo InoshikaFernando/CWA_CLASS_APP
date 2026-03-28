@@ -122,11 +122,16 @@ def check_overlapping_invoices(student, school, billing_period_start, billing_pe
 # ---------------------------------------------------------------------------
 
 def calculate_invoice_lines(student, school, billing_period_start, billing_period_end,
-                             attendance_mode):
+                             attendance_mode, billing_type='post_term'):
     """
     Returns (lines, warnings) where:
     - lines: list of dicts with per-class breakdown
     - warnings: list of dicts for classes with no fee configured
+
+    billing_type:
+    - 'post_term': charges based on completed sessions and attendance
+    - 'upfront': charges based on all scheduled (non-cancelled) sessions,
+      ignoring attendance (for invoicing at term start)
     """
     enrollments = ClassStudent.objects.filter(
         classroom__school=school,
@@ -150,25 +155,31 @@ def calculate_invoice_lines(student, school, billing_period_start, billing_perio
             date__range=(billing_period_start, billing_period_end),
         ).exclude(status='cancelled')
 
-        # Completed sessions = officially held
-        sessions_held = all_sessions.filter(status='completed').count()
+        if billing_type == 'upfront':
+            # Upfront: count all scheduled (non-cancelled) sessions
+            sessions_held = all_sessions.count()
+            sessions_attended = 0
+            sessions_charged = sessions_held
+        else:
+            # Post-term: only completed sessions count as held
+            sessions_held = all_sessions.filter(status='completed').count()
 
-        # Count attendance from ALL non-cancelled sessions (not just completed).
-        # This also handles sessions where attendance was marked but status
-        # is still 'scheduled'.
-        sessions_attended = StudentAttendance.objects.filter(
-            session__in=all_sessions,
-            student=student,
-            status__in=['present', 'late'],
-        ).count()
+            # Count attendance from ALL non-cancelled sessions (not just completed).
+            # This also handles sessions where attendance was marked but status
+            # is still 'scheduled'.
+            sessions_attended = StudentAttendance.objects.filter(
+                session__in=all_sessions,
+                student=student,
+                status__in=['present', 'late'],
+            ).count()
+
+            if attendance_mode == 'all_class_days':
+                sessions_charged = sessions_held
+            else:
+                sessions_charged = sessions_attended
 
         if sessions_held == 0 and sessions_attended == 0:
             continue
-
-        if attendance_mode == 'all_class_days':
-            sessions_charged = sessions_held
-        else:
-            sessions_charged = sessions_attended
 
         daily_rate, rate_source = resolve_daily_rate(
             student, classroom, billing_period_end
@@ -248,7 +259,8 @@ def set_opening_balance(school_student, amount):
 # ---------------------------------------------------------------------------
 
 def create_draft_invoices(school, student_data, attendance_mode,
-                           billing_period_start, billing_period_end, created_by):
+                           billing_period_start, billing_period_end, created_by,
+                           billing_type='post_term'):
     """
     Creates draft Invoice + InvoiceLineItem records.
     student_data: list of {student, lines, custom_amount (optional), notes (optional)}
@@ -273,6 +285,7 @@ def create_draft_invoices(school, student_data, attendance_mode,
                 billing_period_start=billing_period_start,
                 billing_period_end=billing_period_end,
                 attendance_mode=attendance_mode,
+                billing_type=billing_type,
                 calculated_amount=calculated_amount,
                 amount=amount,
                 status='draft',

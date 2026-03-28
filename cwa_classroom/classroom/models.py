@@ -1344,6 +1344,10 @@ class Invoice(models.Model):
         ('all_class_days', 'All Class Days'),
         ('attended_days_only', 'Attended Days Only'),
     ]
+    BILLING_TYPE_CHOICES = [
+        ('post_term', 'Post-Term'),
+        ('upfront', 'Upfront'),
+    ]
     STATUS_CHOICES = [
         ('draft', 'Draft'),
         ('issued', 'Issued'),
@@ -1360,6 +1364,8 @@ class Invoice(models.Model):
     billing_period_start = models.DateField()
     billing_period_end = models.DateField()
     attendance_mode = models.CharField(max_length=20, choices=ATTENDANCE_MODE_CHOICES)
+    billing_type = models.CharField(max_length=20, choices=BILLING_TYPE_CHOICES,
+                                     default='post_term')
     calculated_amount = models.DecimalField(max_digits=10, decimal_places=2,
                                              help_text='System-calculated sum of line items')
     amount = models.DecimalField(max_digits=10, decimal_places=2,
