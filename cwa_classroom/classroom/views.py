@@ -2801,6 +2801,28 @@ class HoDOverviewView(RoleRequiredMixin, View):
                 'trend': earnings_trend,
             }
 
+        # ── Next Term Alert ───────────────────────────────────────────
+        next_term_alert = False
+        current_term = None
+        school = None  # for the alert link — use first accessible school
+        if not is_hod_only and my_school_ids:
+            from .models import Term
+            school = School.objects.filter(id__in=my_school_ids).first()
+            current_term = Term.objects.filter(
+                school_id__in=my_school_ids,
+                start_date__lte=today,
+                end_date__gte=today,
+            ).order_by('order').first()
+            if current_term:
+                days_left = (current_term.end_date - today).days
+                if days_left <= 30:
+                    has_next = Term.objects.filter(
+                        school_id__in=my_school_ids,
+                        start_date__gt=current_term.end_date,
+                    ).exists()
+                    if not has_next:
+                        next_term_alert = True
+
         return render(request, 'hod/overview.html', {
             'is_hoi': is_hoi,
             'school_data': school_data,
@@ -2816,6 +2838,9 @@ class HoDOverviewView(RoleRequiredMixin, View):
             'pending_enrollment_count': pending_enrollment_count,
             'classes_no_students': classes_no_students,
             'classes_no_teachers': classes_no_teachers,
+            'next_term_alert': next_term_alert,
+            'current_term': current_term,
+            'school': school,
             'classes_grouped': classes_grouped,
             'group_label': group_label,
             'upcoming_sessions': upcoming_sessions,

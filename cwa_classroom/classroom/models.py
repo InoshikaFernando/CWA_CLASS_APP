@@ -428,6 +428,7 @@ class AcademicYear(models.Model):
     start_date = models.DateField()
     end_date = models.DateField()
     is_current = models.BooleanField(default=False)
+    number_of_terms = models.PositiveIntegerField(null=True, blank=True, help_text='Number of terms in this academic year (1–6)')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -464,6 +465,42 @@ class Term(models.Model):
     def __str__(self):
         yr = f' ({self.academic_year.year})' if self.academic_year else ''
         return f'{self.name}{yr} — {self.school.name}'
+
+
+class SchoolHoliday(models.Model):
+    """A holiday period specific to a school (e.g. half-term, inset days)."""
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='school_holidays')
+    academic_year = models.ForeignKey(
+        AcademicYear, on_delete=models.CASCADE, null=True, blank=True, related_name='school_holidays'
+    )
+    term = models.ForeignKey(
+        Term, on_delete=models.SET_NULL, null=True, blank=True, related_name='school_holidays'
+    )
+    name = models.CharField(max_length=100)
+    start_date = models.DateField()
+    end_date = models.DateField()
+
+    class Meta:
+        ordering = ['start_date']
+
+    def __str__(self):
+        return f'{self.name} ({self.start_date} – {self.end_date}) — {self.school.name}'
+
+
+class PublicHoliday(models.Model):
+    """A public/national holiday on which the school does not hold classes."""
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='public_holidays')
+    academic_year = models.ForeignKey(
+        AcademicYear, on_delete=models.CASCADE, null=True, blank=True, related_name='public_holidays'
+    )
+    name = models.CharField(max_length=100)
+    date = models.DateField()
+
+    class Meta:
+        ordering = ['date']
+
+    def __str__(self):
+        return f'{self.name} ({self.date}) — {self.school.name}'
 
 
 # ---------------------------------------------------------------------------

@@ -425,7 +425,10 @@
       "Bash(\"C:/Source/CWA_SCHOOL_APP_2/.claude/worktrees/sharp-shockley/cwa_classroom/classroom/views_admin.py\")",
       "Bash(python -c \"import py_compile; py_compile.compile\\(''classroom/views_admin.py'', doraise=True\\)\")",
       "Bash(python -c \"import py_compile; py_compile.compile\\(''classroom/views_parent_admin.py'', doraise=True\\); py_compile.compile\\(''classroom/views_teacher.py'', doraise=True\\); py_compile.compile\\(''classroom/views_student.py'', doraise=True\\); print\\(''All files compile OK''\\)\")",
-      "Bash(DB_ENGINE=sqlite DJANGO_SETTINGS_MODULE=cwa_classroom.settings python -c \"import django; django.setup\\(\\); from classroom import views_admin, views_department, views_invoicing, views_teacher, views_student, views_parent_admin; print\\(''All imports OK''\\)\")"
+      "Bash(DB_ENGINE=sqlite DJANGO_SETTINGS_MODULE=cwa_classroom.settings python -c \"import django; django.setup\\(\\); from classroom import views_admin, views_department, views_invoicing, views_teacher, views_student, views_parent_admin; print\\(''All imports OK''\\)\")",
+      "Bash(python manage.py makemigrations attendance --name absencetoken_and_makeup)",
+      "Bash(python manage.py makemigrations classroom --name absencetoken_and_makeup)",
+      "Bash(python -c \"from attendance.models import AbsenceToken, ClassSession, StudentAttendance, TeacherAttendance; print\\(''All imports OK''\\)\")"
     ]
   }
 }

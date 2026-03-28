@@ -11,6 +11,7 @@ from . import views_invoicing
 from . import views_salaries
 from . import views_parent
 from . import views_parent_admin
+from attendance import views_student as attendance_views_student
 
 urlpatterns = [
     # NOTE: The old HomeView at '/' has been replaced by PublicHomeView + SubjectsHubView
@@ -83,6 +84,9 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/teachers/batch-update/', views_admin.SchoolTeacherBatchUpdateView.as_view(), name='admin_school_teacher_batch_update'),
     path('admin-dashboard/schools/<int:school_id>/academic-year/create/', views_admin.AcademicYearCreateView.as_view(), name='admin_academic_year_create'),
     path('admin-dashboard/schools/<int:school_id>/academic-year/<int:academic_year_id>/edit/', views_admin.AcademicYearEditView.as_view(), name='admin_academic_year_edit'),
+    path('admin-dashboard/schools/<int:school_id>/academic-year/<int:academic_year_id>/term-setup/', views_admin.AcademicYearTermSetupView.as_view(), name='admin_academic_year_term_setup'),
+    path('admin-dashboard/schools/<int:school_id>/holidays/', views_admin.SchoolHolidayManageView.as_view(), name='admin_school_holidays'),
+    path('admin-dashboard/schools/<int:school_id>/public-holidays/', views_admin.PublicHolidayManageView.as_view(), name='admin_public_holidays'),
     path('admin-dashboard/schools/<int:school_id>/terms/', views_admin.TermManageView.as_view(), name='admin_school_terms'),
 
     # Account blocking & school suspension
@@ -163,6 +167,12 @@ urlpatterns = [
     path('student/attendance/', views_student.StudentAttendanceHistoryView.as_view(), name='student_attendance_history'),
     path('student/session/<int:session_id>/mark-attendance/', views_student.StudentSelfMarkAttendanceView.as_view(), name='student_mark_attendance'),
     path('student/enroll-global/<int:class_id>/', views_student.EnrollGlobalClassView.as_view(), name='student_enroll_global_class'),
+
+    # Absence token (makeup class) routes
+    path('student/absence-tokens/', attendance_views_student.MyAbsenceTokensView.as_view(), name='student_absence_tokens'),
+    path('student/absence-tokens/request/', attendance_views_student.RequestAbsenceTokenView.as_view(), name='student_request_absence_token'),
+    path('student/absence-tokens/<int:token_id>/available-sessions/', attendance_views_student.AvailableMakeupSessionsView.as_view(), name='student_available_makeup_sessions'),
+    path('student/absence-tokens/<int:token_id>/redeem/', attendance_views_student.RedeemAbsenceTokenView.as_view(), name='student_redeem_absence_token'),
 
     # Progress criteria & tracking
     path('progress/criteria/', views_progress.ProgressCriteriaListView.as_view(), name='progress_criteria_list'),
