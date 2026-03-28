@@ -868,6 +868,30 @@ class SchoolTeacherRestoreView(RoleRequiredMixin, View):
         return redirect('admin_school_teachers', school_id=school.id)
 
 
+def _save_inline_terms(request, school, academic_year, number_of_terms, replace=False):
+    """Read term_start_N / term_end_N from POST and create/replace Term objects.
+    Returns the number of terms successfully saved. Skips slots with missing dates."""
+    if not number_of_terms:
+        return 0
+    if replace:
+        Term.objects.filter(academic_year=academic_year).delete()
+    count = 0
+    for i in range(1, number_of_terms + 1):
+        start = request.POST.get(f'term_start_{i}', '').strip()
+        end = request.POST.get(f'term_end_{i}', '').strip()
+        if start and end:
+            Term.objects.create(
+                school=school,
+                academic_year=academic_year,
+                name=f'Term {i}',
+                start_date=start,
+                end_date=end,
+                order=i,
+            )
+            count += 1
+    return count
+
+
 class AcademicYearCreateView(RoleRequiredMixin, View):
     """Create a new academic year for a school."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
@@ -930,23 +954,26 @@ class AcademicYearCreateView(RoleRequiredMixin, View):
                 'form_data': form_data,
             })
 
-        academic_year = AcademicYear.objects.create(
-            school=school,
-            year=year,
-            start_date=start_date,
-            end_date=end_date,
-            is_current=is_current,
-            number_of_terms=number_of_terms,
-        )
+        with transaction.atomic():
+            academic_year = AcademicYear.objects.create(
+                school=school,
+                year=year,
+                start_date=start_date,
+                end_date=end_date,
+                is_current=is_current,
+                number_of_terms=number_of_terms,
+            )
+            # Create inline term dates if provided
+            terms_created = _save_inline_terms(request, school, academic_year, number_of_terms)
+
         log_event(
             user=request.user, school=school, category='data_change',
             action='academic_year_created',
-            detail={'year': year, 'academic_year_id': academic_year.id, 'number_of_terms': number_of_terms},
+            detail={'year': year, 'academic_year_id': academic_year.id,
+                    'number_of_terms': number_of_terms, 'terms_created': terms_created},
             request=request,
         )
         messages.success(request, f'Academic year {year} created successfully.')
-        if number_of_terms:
-            return redirect('admin_academic_year_term_setup', school_id=school.id, academic_year_id=academic_year.id)
         return redirect('admin_school_detail', school_id=school.id)
 
 
@@ -1025,18 +1052,21 @@ class AcademicYearEditView(RoleRequiredMixin, View):
                 'terms': Term.objects.filter(academic_year=academic_year).order_by('order'),
             })
 
-        academic_year.year = year
-        academic_year.start_date = start_date
-        academic_year.end_date = end_date
-        academic_year.is_current = is_current
-        academic_year.number_of_terms = number_of_terms
-        academic_year.save()
+        with transaction.atomic():
+            academic_year.year = year
+            academic_year.start_date = start_date
+            academic_year.end_date = end_date
+            academic_year.is_current = is_current
+            academic_year.number_of_terms = number_of_terms
+            academic_year.save()
+            # Replace inline term dates if any were submitted
+            terms_updated = _save_inline_terms(request, school, academic_year, number_of_terms, replace=True)
 
         log_event(
             user=request.user, school=school, category='data_change',
             action='academic_year_updated',
             detail={'year': year, 'academic_year_id': academic_year.id, 'is_current': is_current,
-                    'number_of_terms': number_of_terms},
+                    'number_of_terms': number_of_terms, 'terms_updated': terms_updated},
             request=request,
         )
         messages.success(request, f'Academic year {year} updated successfully.')

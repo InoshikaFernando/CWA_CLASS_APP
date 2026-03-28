@@ -15,11 +15,16 @@
   </div>
 
   <!-- Form card -->
-  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8">
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8"
+       x-data="academicYearForm({
+         numTerms: {{ form_data.number_of_terms|default:0 }},
+         existing: [{% for t in terms %}{ start: '{{ t.start_date|date:"Y-m-d" }}', end: '{{ t.end_date|date:"Y-m-d" }}' }{% if not forloop.last %},{% endif %}{% endfor %}]
+       })">
     <form method="post">
       {% csrf_token %}
 
       <div class="space-y-6">
+
         <!-- Year -->
         <div>
           <label for="year" class="block text-sm font-semibold text-gray-700 mb-1.5">Year *</label>
@@ -49,11 +54,44 @@
         <div>
           <label for="number_of_terms" class="block text-sm font-semibold text-gray-700 mb-1.5">Number of Terms</label>
           <input type="number" name="number_of_terms" id="number_of_terms" min="1" max="6"
-                 value="{{ form_data.number_of_terms|default:'' }}"
+                 x-model.number="numTerms"
                  class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition"
-                 placeholder="e.g. 3">
-          <p class="text-xs text-gray-400 mt-1">Optional. If set, you'll be prompted to enter start/end dates for each term.</p>
+                 placeholder="e.g. 4">
+          <p class="text-xs text-gray-400 mt-1">Enter 1–6 to set term start and end dates below.</p>
         </div>
+
+        <!-- Inline term date slots — appear as soon as a number is entered -->
+        <template x-if="slots.length > 0">
+          <div class="space-y-3 pt-2">
+            <div class="flex items-center gap-2">
+              <div class="h-px flex-1 bg-slate-100"></div>
+              <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Term Dates</p>
+              <div class="h-px flex-1 bg-slate-100"></div>
+            </div>
+
+            <template x-for="slot in slots" :key="slot.i">
+              <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <p class="text-xs font-semibold text-gray-600 mb-2" x-text="'Term ' + slot.i"></p>
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-[11px] font-medium text-gray-500 mb-1">Start Date</label>
+                    <input type="date" :name="'term_start_' + slot.i"
+                           :value="slot.start"
+                           @change="updateTerm(slot.i, 'start', $event.target.value)"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition bg-white">
+                  </div>
+                  <div>
+                    <label class="block text-[11px] font-medium text-gray-500 mb-1">End Date</label>
+                    <input type="date" :name="'term_end_' + slot.i"
+                           :value="slot.end"
+                           @change="updateTerm(slot.i, 'end', $event.target.value)"
+                           class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition bg-white">
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </template>
 
         <!-- Is Current -->
         <div class="flex items-center gap-3">
@@ -62,36 +100,8 @@
                  class="w-4 h-4 text-accent focus:ring-accent border-slate-300 rounded">
           <label for="is_current" class="text-sm font-medium text-gray-700">Set as current academic year</label>
         </div>
-      </div>
 
-      {% if academic_year and terms %}
-      <!-- Existing Terms -->
-      <div class="mt-6 pt-6 border-t border-slate-100">
-        <div class="flex items-center justify-between mb-3">
-          <h3 class="text-sm font-semibold text-gray-700">Terms</h3>
-          <a href="{% url 'admin_academic_year_term_setup' school.id academic_year.id %}"
-             class="text-xs text-accent hover:text-accent-dark font-medium transition">Edit Term Dates →</a>
-        </div>
-        <div class="space-y-2">
-          {% for term in terms %}
-          <div class="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-lg">
-            <span class="text-sm font-medium text-gray-700">{{ term.name }}</span>
-            <span class="text-xs text-gray-500">{{ term.start_date|date:"d M Y" }} – {{ term.end_date|date:"d M Y" }}</span>
-          </div>
-          {% endfor %}
-        </div>
       </div>
-      {% elif academic_year and academic_year.number_of_terms %}
-      <div class="mt-6 pt-6 border-t border-slate-100">
-        <a href="{% url 'admin_academic_year_term_setup' school.id academic_year.id %}"
-           class="inline-flex items-center gap-2 text-sm text-accent hover:text-accent-dark font-medium transition">
-          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
-          </svg>
-          Set up {{ academic_year.number_of_terms }} term dates →
-        </a>
-      </div>
-      {% endif %}
 
       <!-- Actions -->
       <div class="flex items-center justify-end gap-3 mt-8 pt-6 border-t border-slate-100">
@@ -106,4 +116,28 @@
   </div>
 
 </div>
+
+<script>
+function academicYearForm({ numTerms, existing }) {
+  return {
+    numTerms: parseInt(numTerms) || 0,
+    termData: existing.length ? existing.map(t => ({ start: t.start, end: t.end })) : [],
+
+    get slots() {
+      const n = Math.min(Math.max(parseInt(this.numTerms) || 0, 0), 6);
+      return Array.from({ length: n }, (_, i) => ({
+        i: i + 1,
+        start: this.termData[i]?.start || '',
+        end:   this.termData[i]?.end   || '',
+      }));
+    },
+
+    updateTerm(index, field, value) {
+      const idx = index - 1;
+      if (!this.termData[idx]) this.termData[idx] = { start: '', end: '' };
+      this.termData[idx][field] = value;
+    },
+  };
+}
+</script>
 {% endblock %}
