@@ -817,9 +817,9 @@ def dashboard_detail(request):
                     if sa_with_time:
                         session_time = sa_with_time
                     attempts_data.append({
-                        'points': float(fa.points_earned),
-                        'time_seconds': session_time,
-                        'date': fa.last_updated_time
+                        'points': float(fa.points) or float(fa.points_earned),
+                        'time_seconds': fa.time_taken_seconds or session_time,
+                        'date': fa.completed_at
                     })
                     completed_session_ids.append(fa.session_id)
             else:
@@ -899,7 +899,7 @@ def dashboard_detail(request):
                                 level=level_obj
                             )
                             if best_result:
-                                best_score = float(best_result.points_earned)
+                                best_score = float(best_result.points) or float(best_result.points_earned)
                     else:
                         # Basic Facts: use age-based level and formatted topic
                         age = calculate_age_from_dob(request.user.date_of_birth)
@@ -913,7 +913,7 @@ def dashboard_detail(request):
                                     level=age_level
                                 )
                                 if best_result:
-                                    best_score = float(best_result.points_earned)
+                                    best_score = float(best_result.points) or float(best_result.points_earned)
             except Exception:
                 pass  # Fallback to calculated best_score if StudentFinalAnswer lookup fails
             
@@ -966,6 +966,49 @@ def dashboard_detail(request):
                 'color_class': color_class
             })
     
+    # ── Fallback: SFA records with NULL topic (legacy/imported data) ─────────
+    # These are typically imported from the old system before the topic FK was set.
+    # Exclude any level+topic combinations we've already added above.
+    already_added = {(p['level_number'], p['topic_name']) for p in progress_by_level}
+    null_topic_sfas = StudentFinalAnswer.objects.filter(
+        student=request.user,
+        topic__isnull=True,
+        points__gt=0,
+    ).order_by('-points')
+    if null_topic_sfas.exists():
+        from collections import defaultdict as _dd
+        by_level = _dd(list)
+        sfa_by_level_obj = {}
+        for sfa in null_topic_sfas:
+            lvl_num = sfa.level.level_number if sfa.level_id else None
+            by_level[lvl_num].append(float(sfa.points))
+            if lvl_num not in sfa_by_level_obj:
+                sfa_by_level_obj[lvl_num] = sfa
+        for lvl_num, pts in by_level.items():
+            topic_label = 'Various'
+            if (lvl_num, topic_label) in already_added:
+                continue
+            if lvl_num is None:
+                lvl_name = 'Unknown Level'
+            elif lvl_num < 100:
+                lvl_name = f'Year {lvl_num}'
+            else:
+                lvl_name = f'Level {lvl_num}'
+            first_sfa = sfa_by_level_obj[lvl_num]
+            progress_by_level.append({
+                'level_number': lvl_num if lvl_num is not None else 0,
+                'level_name': lvl_name,
+                'topic_name': topic_label,
+                'total_attempts': len(pts),
+                'best_points': round(max(pts), 1),
+                'best_time_seconds': first_sfa.time_taken_seconds,
+                'best_date': first_sfa.completed_at,
+                'min_points': round(min(pts), 1),
+                'max_points': round(max(pts), 1),
+                'avg_points': round(sum(pts) / len(pts), 1),
+                'color_class': 'light-green',
+            })
+
     # Sort by level number
     progress_by_level.sort(key=lambda x: x['level_number'])
     
