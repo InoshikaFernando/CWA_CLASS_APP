@@ -3927,6 +3927,62 @@ class PublicHomeView(View):
         return render(request, 'public/home.html')
 
 
+# ---------------------------------------------------------------------------
+# Hub helpers — question availability checks
+# ---------------------------------------------------------------------------
+
+def _subject_has_questions(subj, school=None):
+    """
+    Return True if maths questions exist for *subj* that students can access.
+
+    For school students: checks both school-local (school=school) and global
+    (school=None) questions — if either exists the card is clickable.
+    For individual / global students: checks global questions only.
+
+    Imported lazily to avoid circular import with the maths app.
+    """
+    from maths.models import Question
+    from django.db.models import Q as DQ
+
+    subject_ids = [subj.id]
+    if subj.global_subject_id:
+        subject_ids.append(subj.global_subject_id)
+
+    qs = Question.objects.filter(level__subject_id__in=subject_ids)
+    if school is not None:
+        return qs.filter(DQ(school__isnull=True) | DQ(school=school)).exists()
+    return qs.filter(school__isnull=True).exists()
+
+
+def _annotate_apps_with_questions(apps):
+    """
+    Annotate each SubjectApp in *apps* with a ``has_questions`` bool.
+
+    Checks for global questions (school=None) only — these are the questions
+    visible to individual (non-school) students via global subject cards.
+    Uses a single DB query for all apps to avoid N+1.
+    """
+    from maths.models import Question
+
+    app_list = list(apps)
+    subject_ids = {app.subject_id for app in app_list if app.subject_id}
+
+    if subject_ids:
+        has_q_ids = set(
+            Question.objects
+            .filter(level__subject_id__in=subject_ids, school__isnull=True)
+            .values_list('level__subject_id', flat=True)
+            .distinct()
+        )
+    else:
+        has_q_ids = set()
+
+    for app in app_list:
+        app.has_questions = bool(app.subject_id and app.subject_id in has_q_ids)
+
+    return app_list
+
+
 class SubjectsHubView(LoginRequiredMixin, View):
     """
     Authenticated home -- shows greeting + subject cards.
@@ -4116,11 +4172,14 @@ class SubjectsHubView(LoginRequiredMixin, View):
                                     subject_id=subj.global_subject_id, is_active=True,
                                 ).first()
 
-                            # Determine link: SubjectApp external_url > enrolled class
+                            # Determine link: app external_url, but only if questions exist.
+                            # Local-only schools (no global questions) still get a link so
+                            # long as at least one question (local OR global) is available.
                             if matching_app and matching_app.external_url:
-                                link = matching_app.external_url
+                                has_q = _subject_has_questions(subj, school)
+                                link = matching_app.external_url if has_q else None
                             else:
-                                link = reverse('student_class_detail', args=[enrolled_cr.id])
+                                link = None
 
                             subject_cards.append({
                                 'name': subj.name,
@@ -4147,7 +4206,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
                     for card in section['subjects']:
                         covered_subject_names.add(card['name'].lower())
 
-                global_subjects = []
+                uncovered_apps = []
                 for app in global_apps:
                     app_subject_id = app.subject_id
                     # Skip if explicitly covered by subject ID
@@ -4161,7 +4220,10 @@ class SubjectsHubView(LoginRequiredMixin, View):
                     )
                     if name_covered:
                         continue
-                    global_subjects.append(app)
+                    uncovered_apps.append(app)
+
+                # Annotate with question availability (single DB query)
+                global_subjects = _annotate_apps_with_questions(uncovered_apps)
 
                 return render(request, 'hub/home.html', {
                     'greeting_tod': greeting_tod,
@@ -4174,7 +4236,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
                 })
 
         # ── INDIVIDUAL STUDENT path (or school student with no schools) ──
-        global_subjects = list(
+        global_subjects = _annotate_apps_with_questions(
             SubjectApp.objects.filter(
                 is_active=True, is_coming_soon=False,
             ).order_by('order')

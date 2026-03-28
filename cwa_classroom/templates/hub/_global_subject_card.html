@@ -1,10 +1,19 @@
 {% comment %}
 Global SubjectApp card partial.
-Context: `subject` - a SubjectApp instance
+Context: `subject` — a SubjectApp instance annotated with `has_questions` bool.
+
+When subject.has_questions is True (and subject.external_url is set) the card
+is rendered as a clickable <a>.  Otherwise it is a non-clickable <div> with a
+"Coming Soon" badge.
 {% endcomment %}
 
+{% if subject.has_questions and subject.external_url %}
 <a href="{{ subject.external_url }}"
    class="rounded-2xl bg-white border border-slate-200 shadow-sm hover:shadow-lg transition p-5 flex flex-col items-start group">
+{% else %}
+<div class="rounded-2xl bg-white border border-slate-200 shadow-sm p-5 flex flex-col items-start opacity-70 cursor-not-allowed">
+{% endif %}
+
   <!-- Icon -->
   <div class="mb-3">
     {% if subject.icon_name == 'calculator' %}
@@ -37,14 +46,25 @@ Context: `subject` - a SubjectApp instance
     <p class="text-gray-500 text-xs mb-3 line-clamp-2 flex-1">{{ subject.description }}</p>
   {% endif %}
 
-  <!-- CTA -->
+  <!-- CTA / Coming Soon -->
   <div class="mt-auto pt-2">
-    <span class="inline-flex items-center gap-1 text-xs font-semibold group-hover:text-gray-700 transition"
-          style="color: {{ subject.color }}">
-      Go to {{ subject.name }}
-      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
-      </svg>
-    </span>
+    {% if subject.has_questions and subject.external_url %}
+      <span class="inline-flex items-center gap-1 text-xs font-semibold group-hover:text-gray-700 transition"
+            style="color: {{ subject.color }}">
+        Go to {{ subject.name }}
+        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
+        </svg>
+      </span>
+    {% else %}
+      <span class="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full bg-slate-100 text-slate-500">
+        Coming Soon
+      </span>
+    {% endif %}
   </div>
+
+{% if subject.has_questions and subject.external_url %}
 </a>
+{% else %}
+</div>
+{% endif %}
