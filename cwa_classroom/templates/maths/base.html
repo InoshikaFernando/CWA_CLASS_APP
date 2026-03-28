@@ -22,21 +22,10 @@
   </a>
 
   {% if user.is_teacher %}
-    <a href="{% url 'maths:create_class' %}"
-       class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm
-              {% if request.resolver_match.url_name == 'create_class' %}bg-white/20{% else %}hover:bg-white/10{% endif %}">
-      ➕ Create Class
-    </a>
     <a href="{% url 'maths:bulk_student_registration' %}"
        class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm
               {% if request.resolver_match.url_name == 'bulk_student_registration' %}bg-white/20{% else %}hover:bg-white/10{% endif %}">
       👥 Bulk Registration
-    </a>
-  {% else %}
-    <a href="{% url 'maths:join_class' %}"
-       class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm
-              {% if request.resolver_match.url_name == 'join_class' %}bg-white/20{% else %}hover:bg-white/10{% endif %}">
-      🎓 Join Class
     </a>
   {% endif %}
 
