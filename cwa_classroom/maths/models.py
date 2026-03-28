@@ -235,7 +235,7 @@ class TopicLevelStatistics(models.Model):
         unique_together = ("level", "topic")
         ordering = ['level__level_number', 'topic__name']
         indexes = [
-            models.Index(fields=['level', 'topic']),
+            models.Index(fields=['level', 'topic'], name='maths_tls_level_topic_idx'),
         ]
 
     def __str__(self):
@@ -352,8 +352,8 @@ class StudentFinalAnswer(models.Model):
     class Meta:
         ordering = ['-completed_at']
         indexes = [
-            models.Index(fields=['student', 'topic', 'level']),
-            models.Index(fields=['student', 'topic', 'level', 'attempt_number']),
+            models.Index(fields=['student', 'topic', 'level'], name='maths_sfa_student_topic_level_idx'),
+            models.Index(fields=['student', 'topic', 'level', 'attempt_number'], name='maths_sfa_student_topic_level_attempt_idx'),
         ]
 
     def __str__(self):
