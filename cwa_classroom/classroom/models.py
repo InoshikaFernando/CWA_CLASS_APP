@@ -456,10 +456,32 @@ class Term(models.Model):
     start_date = models.DateField()
     end_date = models.DateField()
     order = models.PositiveIntegerField(default=0)
+    is_confirmed = models.BooleanField(default=False)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ['order', 'start_date']
         unique_together = ('school', 'name', 'academic_year')
+
+    def __str__(self):
+        yr = f' ({self.academic_year.year})' if self.academic_year else ''
+        return f'{self.name}{yr} — {self.school.name}'
+
+
+class Holiday(models.Model):
+    """A holiday or break within a school's academic calendar."""
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='holidays')
+    academic_year = models.ForeignKey(
+        AcademicYear, on_delete=models.CASCADE, related_name='holidays',
+        null=True, blank=True,
+    )
+    name = models.CharField(max_length=100)
+    start_date = models.DateField()
+    end_date = models.DateField()
+
+    class Meta:
+        ordering = ['start_date']
+        unique_together = ('school', 'name', 'start_date')
 
     def __str__(self):
         yr = f' ({self.academic_year.year})' if self.academic_year else ''
