@@ -4120,7 +4120,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
                             if matching_app and matching_app.external_url:
                                 link = matching_app.external_url
                             else:
-                                link = reverse('class_detail', args=[enrolled_cr.id])
+                                link = reverse('student_class_detail', args=[enrolled_cr.id])
 
                             subject_cards.append({
                                 'name': subj.name,
