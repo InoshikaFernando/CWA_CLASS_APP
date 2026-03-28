@@ -1636,14 +1636,33 @@ PARENT_COLUMN_FIELDS = {
     'phone': 'Phone',
     'relationship': 'Relationship',
     'student_email': 'Student Email',
+    'children': 'Children (names)',
+    'status': 'Status',
     'address': 'Address',
     'city': 'City',
     'country': 'Country',
 }
 
-PARENT_REQUIRED_FIELDS = {'first_name', 'last_name', 'email', 'student_email'}
+# student_email OR children must be mapped (checked in validate)
+PARENT_REQUIRED_FIELDS = {'first_name', 'last_name', 'email'}
 
-PARENT_PRESETS = {}
+PARENT_PRESETS = {
+    'teachworks': {
+        'name': 'Teachworks',
+        'description': 'Import from Teachworks Families export (.xls).',
+        'mapping': {
+            'first_name': 'First Name',
+            'last_name': 'Last Name',
+            'email': 'Email',
+            'phone': 'Mobile Phone',
+            'children': 'Children',
+            'status': 'Status',
+            'address': 'Address',
+            'city': 'City',
+            'country': 'Country',
+        },
+    },
+}
 
 
 def apply_parent_preset(preset_key, headers):
@@ -1678,7 +1697,7 @@ PARENT_RELATIONSHIP_MAP = {
 }
 
 
-def _find_student_at_school(student_email, school):
+def _find_student_at_school_by_email(student_email, school):
     """Returns CustomUser or None if student_email is not a student at school."""
     try:
         user = CustomUser.objects.get(email=student_email)
@@ -1689,10 +1708,33 @@ def _find_student_at_school(student_email, school):
     return None
 
 
+def _build_student_name_lookup(school):
+    """Build a lookup dict of (first_lower, last_lower) -> CustomUser for students at school."""
+    lookup = {}
+    for ss in SchoolStudent.objects.filter(school=school, is_active=True).select_related('student'):
+        u = ss.student
+        key = (u.first_name.lower().strip(), u.last_name.lower().strip())
+        if key not in lookup:
+            lookup[key] = u
+    return lookup
+
+
+def _find_student_by_name(full_name, name_lookup):
+    """Find a student by full name from the pre-built lookup. Returns CustomUser or None."""
+    first, last = _split_child_name(full_name)
+    if not first:
+        return None
+    return name_lookup.get((first.lower().strip(), last.lower().strip()))
+
+
 def validate_parent_preview(data_rows, column_mapping, school):
     """
     Validate parent CSV rows. Groups by parent email since one parent
     may appear on multiple rows (one row per child).
+
+    Supports two modes:
+    - student_email mapped: match students by email
+    - children mapped: match students by name (comma-separated full names)
 
     Returns dict with: parents_new, parents_existing, errors, warnings.
     """
@@ -1703,19 +1745,36 @@ def validate_parent_preview(data_rows, column_mapping, school):
     for f in PARENT_REQUIRED_FIELDS:
         if f not in column_mapping:
             errors.append(f'Required column "{PARENT_COLUMN_FIELDS[f]}" is not mapped.')
+
+    has_student_email = 'student_email' in column_mapping
+    has_children = 'children' in column_mapping
+    if not has_student_email and not has_children:
+        errors.append('Either "Student Email" or "Children (names)" must be mapped.')
+
     if errors:
         return {'parents_new': [], 'parents_existing': [], 'errors': errors, 'warnings': warnings}
+
+    # Pre-build name lookup for children mode
+    name_lookup = _build_student_name_lookup(school) if has_children else {}
+
+    # Filter inactive rows if status column is mapped
+    has_status = 'status' in column_mapping
 
     # First pass: group rows by parent email
     parent_groups = {}  # email -> {parent_data, children: [...]}
 
     for row_idx, row in enumerate(data_rows, start=2):
+        # Skip inactive rows
+        if has_status:
+            status_val = _get_cell(row, column_mapping.get('status')).lower()
+            if status_val and status_val not in ('active', ''):
+                continue
+
         first_name = _get_cell(row, column_mapping.get('first_name'))
         last_name = _get_cell(row, column_mapping.get('last_name'))
         email = _get_cell(row, column_mapping.get('email')).lower()
         phone = _get_cell(row, column_mapping.get('phone'))
         rel_raw = _get_cell(row, column_mapping.get('relationship')).lower()
-        student_email = _get_cell(row, column_mapping.get('student_email')).lower()
         address = _get_cell(row, column_mapping.get('address'))
         city = _get_cell(row, column_mapping.get('city'))
         country = _get_cell(row, column_mapping.get('country'))
@@ -1728,17 +1787,6 @@ def validate_parent_preview(data_rows, column_mapping, school):
             continue
         if not email or '@' not in email:
             errors.append(f'Row {row_idx}: Missing or invalid parent email.')
-            continue
-        if not student_email or '@' not in student_email:
-            errors.append(f'Row {row_idx}: Missing or invalid student email.')
-            continue
-
-        # Validate student exists at school
-        student_user = _find_student_at_school(student_email, school)
-        if not student_user:
-            errors.append(
-                f'Row {row_idx}: Student "{student_email}" not found at this school.'
-            )
             continue
 
         relationship = PARENT_RELATIONSHIP_MAP.get(rel_raw, '')
@@ -1758,29 +1806,70 @@ def validate_parent_preview(data_rows, column_mapping, school):
                 'children': [],
             }
 
-        # Check if already linked
-        already_linked = ParentStudent.objects.filter(
-            parent__email=email, student=student_user, school=school, is_active=True,
-        ).exists()
+        # Resolve student(s) for this row
+        matched_students = []
 
-        # Check max 2 parents
-        active_parent_count = ParentStudent.objects.filter(
-            student=student_user, school=school, is_active=True,
-        ).count()
-        if active_parent_count >= 2 and not already_linked:
-            warnings.append(
-                f'Row {row_idx}: {student_user.get_full_name()} already has 2 parents linked — will be skipped.'
-            )
+        if has_children:
+            children_val = _get_cell(row, column_mapping.get('children'))
+            if children_val:
+                child_names = [c.strip() for c in children_val.split(',') if c.strip()]
+                for child_name in child_names:
+                    student_user = _find_student_by_name(child_name, name_lookup)
+                    if student_user:
+                        matched_students.append((student_user, child_name))
+                    else:
+                        warnings.append(
+                            f'Row {row_idx}: Child "{child_name}" not found at this school — skipping.'
+                        )
 
-        parent_groups[email]['children'].append({
-            'student_email': student_email,
-            'student_name': student_user.get_full_name() or student_email,
-            'student_id': student_user.id,
-            'relationship': relationship,
-            'row': row_idx,
-            'already_linked': already_linked,
-            'at_max_parents': active_parent_count >= 2 and not already_linked,
-        })
+        if has_student_email:
+            student_email = _get_cell(row, column_mapping.get('student_email')).lower()
+            if student_email and '@' in student_email:
+                student_user = _find_student_at_school_by_email(student_email, school)
+                if student_user:
+                    # Avoid duplicates if also matched via children
+                    existing_ids = {s[0].id for s in matched_students}
+                    if student_user.id not in existing_ids:
+                        matched_students.append((student_user, student_email))
+                else:
+                    warnings.append(
+                        f'Row {row_idx}: Student "{student_email}" not found at this school — skipping.'
+                    )
+
+        if not matched_students:
+            warnings.append(f'Row {row_idx}: No matching students found for {first_name} {last_name} — skipping.')
+            continue
+
+        for student_user, student_ref in matched_students:
+            # Check if already linked
+            already_linked = ParentStudent.objects.filter(
+                parent__email=email, student=student_user, school=school, is_active=True,
+            ).exists()
+
+            # Check max 2 parents
+            active_parent_count = ParentStudent.objects.filter(
+                student=student_user, school=school, is_active=True,
+            ).count()
+            if active_parent_count >= 2 and not already_linked:
+                warnings.append(
+                    f'Row {row_idx}: {student_user.get_full_name()} already has 2 parents linked — will be skipped.'
+                )
+
+            # Deduplicate within this parent's children list
+            existing_child_ids = {c['student_id'] for c in parent_groups[email]['children']}
+            if student_user.id not in existing_child_ids:
+                parent_groups[email]['children'].append({
+                    'student_email': student_user.email,
+                    'student_name': student_user.get_full_name() or student_ref,
+                    'student_id': student_user.id,
+                    'relationship': relationship,
+                    'row': row_idx,
+                    'already_linked': already_linked,
+                    'at_max_parents': active_parent_count >= 2 and not already_linked,
+                })
+
+    # Remove parents with no matched children
+    parent_groups = {e: p for e, p in parent_groups.items() if p['children']}
 
     # Categorise as new or existing
     existing_emails = set(
