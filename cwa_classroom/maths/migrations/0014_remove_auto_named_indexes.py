@@ -1,23 +1,33 @@
 """
-Migration 0014: Remove three auto-generated index names from migration state.
+Migration 0014: DB-only cleanup — drop legacy auto-named indexes if present.
 
-When models.py gained explicit ``name=`` on indexes for StudentFinalAnswer
-and TopicLevelStatistics, Django detected that the migration state still
-contained the old auto-generated names:
+Background
+----------
+Migration 0001 placed three auto-named indexes into the DB and the migration
+state:
 
   maths_stude_student_ad30a8_idx  — StudentFinalAnswer (student, topic, level)
   maths_stude_student_2e8b01_idx  — StudentFinalAnswer (student, topic, level, attempt_number)
   maths_topic_level_i_267d9e_idx  — TopicLevelStatistics (level, topic)
 
-Strategy — SeparateDatabaseAndState:
-  • State side : RemoveIndex the three auto-named entries so the graph
-                 matches models.py (which uses explicit short names).
-  • DB side    : guarded DROP INDEX — checks information_schema first so
-                 the operation is idempotent.  On a fresh DB these indexes
-                 never existed (only the explicit-named versions were
-                 created by migration 0010 / renamed by 0013).
+Migration 0010 removed the old maths.topic / maths.level FK columns via
+RemoveField state operations.  Django automatically removes any Meta.indexes
+that reference dropped fields from the migration state at that point — so all
+three auto-named index entries were already cleaned from the state inside 0010.
+Migration 0010 step 6 then restored correct explicitly-named indexes (and
+migration 0013 shortened the SFA ones further).
+
+Result: after migrations 0001–0013 the migration state already matches
+models.py perfectly — no state-side changes are needed here.
+
+DB side only
+------------
+On databases that already ran 0010 the three columns were dropped, and MySQL
+cascades column removal to associated indexes, so this RunPython is a no-op.
+On any edge-case DB where the indexes survived, the guarded DROP INDEX removes
+them safely (checks information_schema first).
 """
-from django.db import migrations, models
+from django.db import migrations
 
 
 # ---------------------------------------------------------------------------
@@ -62,28 +72,11 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.SeparateDatabaseAndState(
-            # DB side: drop only if present
-            database_operations=[
-                migrations.RunPython(
-                    _drop_auto_indexes_if_exist,
-                    migrations.RunPython.noop,
-                ),
-            ],
-            # State side: remove the three auto-named entries
-            state_operations=[
-                migrations.RemoveIndex(
-                    model_name="studentfinalanswer",
-                    name="maths_stude_student_ad30a8_idx",
-                ),
-                migrations.RemoveIndex(
-                    model_name="studentfinalanswer",
-                    name="maths_stude_student_2e8b01_idx",
-                ),
-                migrations.RemoveIndex(
-                    model_name="topiclevelstatistics",
-                    name="maths_topic_level_i_267d9e_idx",
-                ),
-            ],
+        # DB-only: drop any surviving auto-named indexes.
+        # No state operations — the state was already corrected by migration
+        # 0010's RemoveField cascade (auto-removes indexes on dropped fields).
+        migrations.RunPython(
+            _drop_auto_indexes_if_exist,
+            migrations.RunPython.noop,
         ),
     ]
