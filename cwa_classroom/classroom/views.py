@@ -3978,7 +3978,12 @@ def _annotate_apps_with_questions(apps):
         has_q_ids = set()
 
     for app in app_list:
-        app.has_questions = bool(app.subject_id and app.subject_id in has_q_ids)
+        if app.external_url:
+            # Apps with an external URL (e.g. /maths/) are always shown as clickable;
+            # the linked app manages its own "no content yet" state.
+            app.has_questions = True
+        else:
+            app.has_questions = bool(app.subject_id and app.subject_id in has_q_ids)
 
     return app_list
 
@@ -4172,12 +4177,13 @@ class SubjectsHubView(LoginRequiredMixin, View):
                                     subject_id=subj.global_subject_id, is_active=True,
                                 ).first()
 
-                            # Determine link: app external_url only when questions exist;
-                            # no questions → link=None (card renders non-clickable, same style)
+                            # Determine link:
+                            #   • matching app with external_url → link only when questions exist
+                            #   • no external_url (session-based subject) → non-clickable (link=None)
                             if matching_app and matching_app.external_url:
                                 link = matching_app.external_url if _subject_has_questions(subj, school) else None
                             else:
-                                link = reverse('student_class_detail', args=[enrolled_cr.id])
+                                link = None
 
                             subject_cards.append({
                                 'name': subj.name,
