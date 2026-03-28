@@ -1877,17 +1877,14 @@ class UploadQuestionsView(RoleRequiredMixin, View):
         strand_name = data.get('strand', '').strip()
         year_level = data.get('year_level')
         try:
-            topic_qs = MathsTopic.objects.filter(name__iexact=topic_name)
-            if strand_name:
-                topic_qs = topic_qs.filter(parent__name__iexact=strand_name)
-            maths_topic = topic_qs.get()
+            maths_topic = MathsTopic.objects.get(name__iexact=topic_name)
             maths_level = MathsLevel.objects.get(level_number=year_level)
         except MathsTopic.DoesNotExist:
             strand_hint = f' under strand "{strand_name}"' if strand_name else ''
             messages.error(request, f'Topic "{topic_name}"{strand_hint} not found.')
             return redirect('upload_questions')
         except MathsTopic.MultipleObjectsReturned:
-            messages.error(request, f'Multiple topics named "{topic_name}" found — add a "strand" field to disambiguate.')
+            messages.error(request, f'Multiple topics named "{topic_name}" found.')
             return redirect('upload_questions')
         except MathsLevel.DoesNotExist:
             messages.error(request, f'Year level {year_level} not found.')
