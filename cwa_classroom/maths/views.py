@@ -62,14 +62,17 @@ def _get_questions_for_level(user, level):
     """
     Return a Question queryset for *level* scoped to what *user* may see.
 
+    Individual student (no active SchoolStudent membership):
+      → global questions only  (school IS NULL)
+
     School student (active SchoolStudent membership):
-      • local AND global questions exist → return local ∪ global
-      • only local questions exist        → return local only
-      • only global questions exist       → return global only
-    Individual student / no active school → global questions only.
+      • no local questions exist               → global only
+      • local questions exist + global exist   → local ∪ global  (load all)
+      • local questions exist + no global      → local only
+        (subject not mapped to global questions)
 
     "Local"  = Question.school == student's school
-    "Global" = Question.school is NULL
+    "Global" = Question.school IS NULL
     """
     school = None
     membership = SchoolStudent.objects.filter(
