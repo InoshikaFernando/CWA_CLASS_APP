@@ -77,8 +77,8 @@
               <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {% for entry in group.subtopics %}
                 {% if item.accessible %}
-                  {% if entry.has_questions and entry.maths_topic_id %}
-                  <a href="{% url 'topic_quiz' level_number=item.level.level_number topic_id=entry.maths_topic_id %}"
+                  {% if entry.has_questions and entry.topic_id %}
+                  <a href="{% url 'topic_quiz' level_number=item.level.level_number topic_id=entry.topic_id %}"
                      class="rounded-xl border border-emerald-200 p-3 hover:border-emerald-400 hover:bg-emerald-50 hover:shadow-sm transition text-sm font-semibold text-gray-700 hover:text-emerald-700">
                     {{ entry.topic.name }}
                   </a>

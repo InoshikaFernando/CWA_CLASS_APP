@@ -1,17 +1,19 @@
 """
 Integration tests: classroom ↔ maths app boundary.
 
-These tests document and protect the current behaviour at the seam between
-the two apps.  They are the safety net for the planned refactoring that will
-replace maths.Topic / maths.Level / maths.ClassRoom with the richer
-classroom equivalents.
+These tests document and protect the behaviour at the seam between the two apps
+after the refactoring that replaced maths.Topic / maths.Level FK references with
+classroom.Topic / classroom.Level in Question, StudentFinalAnswer,
+TopicLevelStatistics and BasicFactsResult.
 
 Coverage areas
 ──────────────
-1.  Topic name parity      – maths.Topic.name == classroom.Topic.name
+1.  Topic name parity      – classroom.Topic.name is the canonical name used
+                             by both apps; maths.Topic still exists but is
+                             not referenced by any FK field.
 2.  Level number parity    – maths.Level.level_number == classroom.Level.level_number
 3.  Question upload view   – JSON and ZIP uploads create questions linked to
-                             the correct maths.Topic / maths.Level
+                             the correct classroom.Topic / classroom.Level
 4.  Strand-aware upload    – "strand" field in JSON is accepted without error
 5.  Question scoping       – school / department / classroom FKs on
                              maths.Question are populated correctly per role
@@ -48,8 +50,15 @@ from maths.models import (
 class IntegrationBase(TestCase):
     """
     Creates a minimal but complete school hierarchy plus matching
-    maths Topic/Level entries.  All tests that need cross-app fixtures
+    classroom Topic/Level entries.  All tests that need cross-app fixtures
     inherit from this class.
+
+    After the refactoring:
+      - MathsQuestion.topic  → classroom.Topic
+      - MathsQuestion.level  → classroom.Level
+      - maths.Level.topics   → classroom.Topic (M2M)
+    The global Mathematics classroom.Subject (slug='mathematics') is the anchor
+    for all maths topics created by the upload view.
     """
 
     @classmethod
@@ -96,10 +105,11 @@ class IntegrationBase(TestCase):
         )
         cls.student_user.roles.add(cls.role_student)
 
-        # ── Subject ───────────────────────────────────────────
-        cls.subject, _ = Subject.objects.get_or_create(
-            slug='int-mathematics',
-            defaults={'name': 'Int Mathematics', 'is_active': True},
+        # ── Global Mathematics subject (anchor for upload view) ─
+        cls.maths_subject, _ = Subject.objects.get_or_create(
+            slug='mathematics',
+            school=None,
+            defaults={'name': 'Mathematics', 'is_active': True},
         )
 
         # ── School ────────────────────────────────────────────
@@ -129,38 +139,45 @@ class IntegrationBase(TestCase):
             department=cls.dept, teacher=cls.teacher_user,
         )
         DepartmentSubject.objects.create(
-            department=cls.dept, subject=cls.subject,
+            department=cls.dept, subject=cls.maths_subject,
         )
 
-        # ── classroom.Level + maths.Level (same level_number) ─
+        # ── classroom.Level ───────────────────────────────────
         cls.classroom_level, _ = ClassroomLevel.objects.get_or_create(
             level_number=7,
             defaults={'display_name': 'Year 7'},
         )
+
+        # ── maths.Level (still exists; used for enrollment lookups) ─
         cls.maths_level, _ = MathsLevel.objects.get_or_create(
             level_number=7,
             defaults={'title': 'Year 7'},
         )
 
-        # ── classroom.Topic (strand hierarchy) ────────────────
-        cls.strand = ClassroomTopic.objects.create(
-            name='Algebra', subject=cls.subject, is_active=True,
-            slug='int-algebra',
+        # ── classroom.Topic strand hierarchy under Mathematics ─
+        # Use unique names/slugs to avoid conflicts with seed data
+        cls.strand, _ = ClassroomTopic.objects.get_or_create(
+            subject=cls.maths_subject,
+            slug='int-test-algebra-strand',
+            defaults={'name': 'IntTestAlgebra', 'is_active': True},
         )
-        cls.classroom_topic = ClassroomTopic.objects.create(
-            name='Integers', subject=cls.subject, is_active=True,
-            slug='int-integers', parent=cls.strand,
+        cls.classroom_topic, _ = ClassroomTopic.objects.get_or_create(
+            subject=cls.maths_subject,
+            slug='int-test-int-topic',
+            defaults={'name': 'IntTestIntegers', 'is_active': True, 'parent': cls.strand},
         )
         cls.classroom_topic.levels.add(cls.classroom_level)
 
-        # ── maths.Topic (flat — same name as classroom subtopic) ─
-        cls.maths_topic, _ = MathsTopic.objects.get_or_create(name='Integers')
-        cls.maths_topic.levels.add(cls.maths_level)
+        # maths.Level.topics M2M now points to classroom.Topic
+        cls.maths_level.topics.add(cls.classroom_topic)
+
+        # ── maths.Topic (legacy — no longer used as FK target) ─
+        cls.maths_topic, _ = MathsTopic.objects.get_or_create(name='IntTestIntegers')
 
         # ── ClassRoom ─────────────────────────────────────────
         cls.classroom = ClassRoom.objects.create(
             name='Int Year 7 A', school=cls.school,
-            department=cls.dept, subject=cls.subject,
+            department=cls.dept, subject=cls.maths_subject,
         )
         cls.classroom.levels.add(cls.classroom_level)
         ClassTeacher.objects.create(
@@ -177,9 +194,10 @@ class IntegrationBase(TestCase):
 
     def _make_question(self, school=None, department=None, classroom=None,
                        text='Integration test question?'):
+        """Create a MathsQuestion using classroom.Topic and classroom.Level."""
         q = MathsQuestion.objects.create(
-            level=self.maths_level,
-            topic=self.maths_topic,
+            level=self.classroom_level,
+            topic=self.classroom_topic,
             school=school,
             department=department,
             classroom=classroom,
@@ -192,7 +210,7 @@ class IntegrationBase(TestCase):
         MathsAnswer.objects.create(question=q, answer_text='Wrong', is_correct=False, order=2)
         return q
 
-    def _json_upload_payload(self, topic='Integers', year_level=7, strand=None,
+    def _json_upload_payload(self, topic='IntTestIntegers', year_level=7, strand=None,
                              extra_fields=None):
         """Return a minimal valid questions.json payload as bytes."""
         data = {
@@ -229,17 +247,17 @@ class IntegrationBase(TestCase):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. Topic & Level parity between apps
+# 1. Topic & Level model relationships
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TopicLevelParityTests(IntegrationBase):
     """
-    The upload view looks up maths.Topic by name.  After the refactoring it
-    will look up classroom.Topic by name instead.  These tests assert that the
-    names and level numbers are identical so the switch is transparent.
+    After the refactoring classroom.Topic is the canonical topic model.
+    maths.Level.topics M2M now points to classroom.Topic.
     """
 
-    def test_maths_topic_name_matches_classroom_subtopic_name(self):
+    def test_classroom_topic_name_matches_maths_topic_name(self):
+        """Legacy maths.Topic and classroom.Topic have the same name."""
         self.assertEqual(self.maths_topic.name, self.classroom_topic.name)
 
     def test_maths_level_number_matches_classroom_level_number(self):
@@ -248,9 +266,10 @@ class TopicLevelParityTests(IntegrationBase):
     def test_classroom_topic_has_parent_strand(self):
         """classroom.Topic has the strand (parent) relationship; maths.Topic does not."""
         self.assertIsNotNone(self.classroom_topic.parent)
-        self.assertEqual(self.classroom_topic.parent.name, 'Algebra')
+        self.assertEqual(self.classroom_topic.parent.name, 'IntTestAlgebra')
 
     def test_maths_topic_has_no_parent_field(self):
+        """maths.Topic is the legacy flat model — no parent field."""
         self.assertFalse(hasattr(self.maths_topic, 'parent'))
 
     def test_classroom_level_and_maths_level_share_level_number(self):
@@ -259,6 +278,20 @@ class TopicLevelParityTests(IntegrationBase):
         ml = MathsLevel.objects.get(level_number=7)
         self.assertEqual(cl.level_number, ml.level_number)
 
+    def test_maths_level_topics_contains_classroom_topic(self):
+        """maths.Level.topics M2M now references classroom.Topic instances."""
+        self.assertIn(self.classroom_topic, self.maths_level.topics.all())
+
+    def test_question_topic_fk_is_classroom_topic(self):
+        """MathsQuestion.topic FK now references classroom.Topic."""
+        q = self._make_question()
+        self.assertIsInstance(q.topic, ClassroomTopic)
+
+    def test_question_level_fk_is_classroom_level(self):
+        """MathsQuestion.level FK now references classroom.Level."""
+        q = self._make_question()
+        self.assertIsInstance(q.level, ClassroomLevel)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. JSON upload view — topic resolution
@@ -266,13 +299,14 @@ class TopicLevelParityTests(IntegrationBase):
 
 class UploadViewTopicResolutionTests(IntegrationBase):
     """
-    Tests that the /upload-questions/ view correctly resolves maths.Topic
-    from the JSON 'topic' field.
+    Tests that the /upload-questions/ view correctly resolves classroom.Topic
+    from the JSON 'topic' field (now uses classroom.Topic under the global
+    Mathematics subject instead of maths.Topic).
     """
 
     def test_upload_resolves_topic_by_name(self):
         self._login(self.superuser)
-        payload = self._json_upload_payload(topic='Integers', year_level=7)
+        payload = self._json_upload_payload(topic='IntTestIntegers', year_level=7)
         f = io.BytesIO(payload)
         f.name = 'questions.json'
         resp = self.client.post(
@@ -286,9 +320,9 @@ class UploadViewTopicResolutionTests(IntegrationBase):
         self.assertEqual(ctx['upload_results']['failed'], 0)
 
     def test_upload_with_strand_field_does_not_error(self):
-        """strand field is accepted and does not cause a FieldError."""
+        """strand field is accepted and narrows topic lookup to that strand."""
         self._login(self.superuser)
-        payload = self._json_upload_payload(topic='Integers', year_level=7, strand='Algebra')
+        payload = self._json_upload_payload(topic='IntTestIntegers', year_level=7, strand='IntTestAlgebra')
         f = io.BytesIO(payload)
         f.name = 'questions.json'
         resp = self.client.post(
@@ -312,7 +346,7 @@ class UploadViewTopicResolutionTests(IntegrationBase):
 
     def test_upload_unknown_year_level_returns_error_message(self):
         self._login(self.superuser)
-        payload = self._json_upload_payload(topic='Integers', year_level=99)
+        payload = self._json_upload_payload(topic='IntTestIntegers', year_level=99)
         f = io.BytesIO(payload)
         f.name = 'questions.json'
         resp = self.client.post(
@@ -321,24 +355,25 @@ class UploadViewTopicResolutionTests(IntegrationBase):
         )
         self.assertEqual(resp.status_code, 302)
 
-    def test_upload_links_question_to_correct_maths_topic_and_level(self):
+    def test_upload_links_question_to_correct_classroom_topic_and_level(self):
+        """Questions created by the upload view use classroom.Topic and classroom.Level."""
         self._login(self.superuser)
         before = MathsQuestion.objects.filter(
-            topic=self.maths_topic, level=self.maths_level,
+            topic=self.classroom_topic, level=self.classroom_level,
         ).count()
-        payload = self._json_upload_payload(topic='Integers', year_level=7)
+        payload = self._json_upload_payload(topic='IntTestIntegers', year_level=7)
         f = io.BytesIO(payload)
         f.name = 'questions.json'
         self.client.post(reverse('upload_questions'), {'upload_file': f})
         after = MathsQuestion.objects.filter(
-            topic=self.maths_topic, level=self.maths_level,
+            topic=self.classroom_topic, level=self.classroom_level,
         ).count()
         self.assertEqual(after, before + 1)
 
     def test_duplicate_upload_updates_not_duplicates(self):
         """Uploading the same question twice updates it rather than inserting a duplicate."""
         self._login(self.superuser)
-        payload = self._json_upload_payload(topic='Integers', year_level=7)
+        payload = self._json_upload_payload(topic='IntTestIntegers', year_level=7)
 
         for _ in range(2):
             f = io.BytesIO(payload)
@@ -347,7 +382,7 @@ class UploadViewTopicResolutionTests(IntegrationBase):
 
         count = MathsQuestion.objects.filter(
             question_text='What is -3 + 5?',
-            topic=self.maths_topic, level=self.maths_level,
+            topic=self.classroom_topic, level=self.classroom_level,
         ).count()
         self.assertEqual(count, 1)
 
@@ -361,7 +396,7 @@ class UploadViewZipTests(IntegrationBase):
 
     def test_zip_upload_inserts_question(self):
         self._login(self.superuser)
-        payload = self._json_upload_payload(topic='Integers', year_level=7)
+        payload = self._json_upload_payload(topic='IntTestIntegers', year_level=7)
         zf = self._make_zip(payload)
         zf.name = 'upload.zip'
         resp = self.client.post(reverse('upload_questions'), {'upload_file': zf})
@@ -380,7 +415,7 @@ class UploadViewZipTests(IntegrationBase):
 
     def test_zip_with_image_reports_image_count(self):
         self._login(self.superuser)
-        payload = self._json_upload_payload(topic='Integers', year_level=7)
+        payload = self._json_upload_payload(topic='IntTestIntegers', year_level=7)
         fake_png = b'\x89PNG\r\n\x1a\n' + b'\x00' * 20  # minimal PNG-like bytes
         zf = self._make_zip(payload, images={'diagram.png': fake_png})
         zf.name = 'upload.zip'
@@ -388,7 +423,7 @@ class UploadViewZipTests(IntegrationBase):
         self.assertEqual(resp.status_code, 200)
         results = resp.context['upload_results']
         self.assertEqual(results['images_saved'], 1)
-        self.assertIn('questions/year7/integers', results['image_dir'])
+        self.assertIn('questions/year7/inttestintegers', results['image_dir'])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -460,7 +495,7 @@ class QuestionVisibilityTests(IntegrationBase):
     def setUpTestData(cls):
         super().setUpTestData()
         cls.global_q = MathsQuestion.objects.create(
-            level=cls.maths_level, topic=cls.maths_topic,
+            level=cls.classroom_level, topic=cls.classroom_topic,
             school=None, department=None, classroom=None,
             question_text='Global question?',
             question_type='multiple_choice', difficulty=1, points=1,
@@ -469,7 +504,7 @@ class QuestionVisibilityTests(IntegrationBase):
             question=cls.global_q, answer_text='Yes', is_correct=True, order=1,
         )
         cls.school_q = MathsQuestion.objects.create(
-            level=cls.maths_level, topic=cls.maths_topic,
+            level=cls.classroom_level, topic=cls.classroom_topic,
             school=cls.school, department=None, classroom=None,
             question_text='School question?',
             question_type='multiple_choice', difficulty=1, points=1,
@@ -478,7 +513,7 @@ class QuestionVisibilityTests(IntegrationBase):
             question=cls.school_q, answer_text='Yes', is_correct=True, order=1,
         )
         cls.dept_q = MathsQuestion.objects.create(
-            level=cls.maths_level, topic=cls.maths_topic,
+            level=cls.classroom_level, topic=cls.classroom_topic,
             school=cls.school, department=cls.dept, classroom=None,
             question_text='Department question?',
             question_type='multiple_choice', difficulty=1, points=1,
@@ -487,7 +522,7 @@ class QuestionVisibilityTests(IntegrationBase):
             question=cls.dept_q, answer_text='Yes', is_correct=True, order=1,
         )
         cls.class_q = MathsQuestion.objects.create(
-            level=cls.maths_level, topic=cls.maths_topic,
+            level=cls.classroom_level, topic=cls.classroom_topic,
             school=cls.school, department=cls.dept, classroom=cls.classroom,
             question_text='Class question?',
             question_type='multiple_choice', difficulty=1, points=1,
@@ -498,7 +533,7 @@ class QuestionVisibilityTests(IntegrationBase):
 
     def _get_question_list(self, user):
         self._login(user)
-        url = reverse('question_list', args=[self.maths_level.level_number])
+        url = reverse('question_list', args=[self.classroom_level.level_number])
         return self.client.get(url)
 
     def test_superuser_sees_all_questions(self):

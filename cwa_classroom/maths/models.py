@@ -33,7 +33,7 @@ class Topic(models.Model):
 
 
 class Level(models.Model):
-    topics = models.ManyToManyField(Topic, related_name="levels", blank=True)
+    topics = models.ManyToManyField('classroom.Topic', related_name="maths_levels", blank=True)
     level_number = models.PositiveIntegerField(unique=True)
     title = models.CharField(max_length=200, blank=True)
 
@@ -96,8 +96,8 @@ class Question(models.Model):
         (3, 'Hard'),
     ]
 
-    level = models.ForeignKey(Level, on_delete=models.CASCADE, related_name="questions")
-    topic = models.ForeignKey(Topic, on_delete=models.SET_NULL, null=True, blank=True, related_name="questions", help_text="Topic this question belongs to (e.g., BODMAS/PEMDAS, Measurements, Fractions)")
+    level = models.ForeignKey('classroom.Level', on_delete=models.CASCADE, related_name="maths_questions_by_level")
+    topic = models.ForeignKey('classroom.Topic', on_delete=models.SET_NULL, null=True, blank=True, related_name="maths_questions", help_text="Topic this question belongs to (e.g., BODMAS/PEMDAS, Measurements, Fractions)")
     school = models.ForeignKey(
         'classroom.School', on_delete=models.CASCADE,
         null=True, blank=True, related_name='questions',
@@ -166,7 +166,7 @@ class StudentAnswer(models.Model):
 class BasicFactsResult(models.Model):
     """Store Basic Facts quiz attempts in database for persistent tracking"""
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="maths_basic_facts_results")
-    level = models.ForeignKey(Level, on_delete=models.CASCADE, related_name="basic_facts_results", null=True, blank=True)
+    level = models.ForeignKey('classroom.Level', on_delete=models.CASCADE, related_name="maths_basic_facts_results", null=True, blank=True)
     # subtopic + level_number used by the quiz-engine rows (progress app style)
     subtopic = models.CharField(max_length=20, blank=True, default="", help_text="e.g. Addition, Subtraction, Multiplication, Division, PlaceValue")
     level_number = models.PositiveIntegerField(null=True, blank=True, help_text="Numeric level within the subtopic (1-10)")
@@ -272,8 +272,8 @@ class TimeLog(models.Model):
 
 class TopicLevelStatistics(models.Model):
     """Store average and standard deviation (sigma) for each topic-level combination"""
-    level = models.ForeignKey(Level, on_delete=models.CASCADE, related_name="topic_statistics")
-    topic = models.ForeignKey(Topic, on_delete=models.CASCADE, related_name="level_statistics")
+    level = models.ForeignKey('classroom.Level', on_delete=models.CASCADE, related_name="maths_topic_statistics")
+    topic = models.ForeignKey('classroom.Topic', on_delete=models.CASCADE, related_name="maths_level_statistics")
     average_points = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Average points across all students")
     sigma = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Standard deviation (sigma)")
     student_count = models.PositiveIntegerField(default=0, help_text="Number of students who have completed this topic-level")
@@ -382,8 +382,8 @@ class StudentFinalAnswer(models.Model):
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="maths_final_answers")
     # session_id defaults to a fresh UUID for each new attempt (quiz engine does not need to supply it)
     session_id = models.CharField(max_length=100, default=uuid.uuid4, blank=True, help_text="Session identifier for this attempt")
-    topic = models.ForeignKey(Topic, on_delete=models.SET_NULL, null=True, blank=True, related_name="final_answers")
-    level = models.ForeignKey(Level, on_delete=models.SET_NULL, null=True, blank=True, related_name="final_answers")
+    topic = models.ForeignKey('classroom.Topic', on_delete=models.SET_NULL, null=True, blank=True, related_name="maths_final_answers")
+    level = models.ForeignKey('classroom.Level', on_delete=models.SET_NULL, null=True, blank=True, related_name="maths_final_answers")
     quiz_type = models.CharField(max_length=20, choices=QUIZ_TYPE_CHOICES, default='topic', blank=True)
     operation = models.CharField(max_length=20, default='', blank=True, help_text="Operation for times-table quizzes: 'multiplication' or 'division'")
     table_number = models.PositiveSmallIntegerField(null=True, blank=True, help_text="Times-table number (1-12). Only set for quiz_type='times_table'.")
