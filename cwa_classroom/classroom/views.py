@@ -4097,7 +4097,12 @@ class SubjectsHubView(LoginRequiredMixin, View):
                     subject_cards = []
                     for dept in departments:
                         for subj in dept.subjects.filter(is_active=True):
-                            # Track which global subjects are covered
+                            # Only show subjects the student is enrolled in
+                            enrolled_cr = enrolled_classes.get(subj.id)
+                            if enrolled_cr is None:
+                                continue
+
+                            # Track which global subjects are covered by this school
                             if subj.global_subject_id:
                                 covered_subject_ids.add(subj.global_subject_id)
                             covered_subject_ids.add(subj.id)
@@ -4111,14 +4116,11 @@ class SubjectsHubView(LoginRequiredMixin, View):
                                     subject_id=subj.global_subject_id, is_active=True,
                                 ).first()
 
-                            # Determine link: SubjectApp external_url > enrolled class > my classes
-                            enrolled_cr = enrolled_classes.get(subj.id)
+                            # Determine link: SubjectApp external_url > enrolled class
                             if matching_app and matching_app.external_url:
                                 link = matching_app.external_url
-                            elif enrolled_cr:
-                                link = reverse('class_detail', args=[enrolled_cr.id])
                             else:
-                                link = reverse('student_my_classes')
+                                link = reverse('class_detail', args=[enrolled_cr.id])
 
                             subject_cards.append({
                                 'name': subj.name,
@@ -4126,7 +4128,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
                                 'icon_name': matching_app.icon_name if matching_app else '',
                                 'color': matching_app.color if matching_app else '#16a34a',
                                 'link': link,
-                                'is_enrolled': enrolled_cr is not None,
+                                'is_enrolled': True,
                             })
 
                     if subject_cards:
