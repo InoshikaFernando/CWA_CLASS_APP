@@ -820,6 +820,53 @@ class Enrollment(models.Model):
 # Attendance
 # ---------------------------------------------------------------------------
 
+class AbsenceToken(models.Model):
+    """Token issued when a student marks themselves absent, redeemable at another
+    class covering the same level as a makeup session."""
+
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='absence_tokens',
+    )
+    original_session = models.ForeignKey(
+        ClassSession,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='absence_tokens',
+    )
+    original_classroom = models.ForeignKey(
+        ClassRoom,
+        on_delete=models.CASCADE,
+        related_name='absence_tokens',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='absence_tokens_created',
+    )
+    note = models.TextField(blank=True)
+
+    # Redemption fields
+    redeemed = models.BooleanField(default=False)
+    redeemed_session = models.ForeignKey(
+        ClassSession,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='redeemed_tokens',
+    )
+    redeemed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        status = 'Used' if self.redeemed else 'Available'
+        return f'AbsenceToken({self.student.username}, {self.original_classroom.name}, {status})'
+
+
 class StudentAttendance(models.Model):
     """Tracks student attendance for a specific class session."""
     STATUS_CHOICES = [
@@ -849,6 +896,12 @@ class StudentAttendance(models.Model):
         related_name='student_attendance_approvals',
     )
     approved_at = models.DateTimeField(null=True, blank=True)
+    makeup_token = models.ForeignKey(
+        AbsenceToken,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='makeup_attendance',
+    )
 
     class Meta:
         unique_together = ('session', 'student')
