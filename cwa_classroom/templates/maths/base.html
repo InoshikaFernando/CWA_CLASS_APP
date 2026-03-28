@@ -3,58 +3,6 @@
 
 {% block title %}{% block maths_title %}Maths Practice{% endblock %} — Maths Room{% endblock %}
 
-{% block sidebar_bg %}bg-emerald-700{% endblock %}
-
-{% block sidebar %}
-{# Maths uses its own sidebar within the shared shell #}
-<nav class="flex flex-col h-full px-3 py-4 gap-1 text-white">
-
-  <a href="{% url 'maths:dashboard' %}"
-     class="flex items-center gap-3 px-3 py-2 rounded-lg font-semibold text-sm
-            {% if request.resolver_match.url_name == 'dashboard' %}bg-white/20{% else %}hover:bg-white/10{% endif %}">
-    🏠 Home
-  </a>
-
-  <a href="{% url 'maths:dashboard_detail' %}"
-     class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm
-            {% if request.resolver_match.url_name == 'dashboard_detail' %}bg-white/20{% else %}hover:bg-white/10{% endif %}">
-    📊 Dashboard
-  </a>
-
-  {% if user.is_teacher %}
-    <a href="{% url 'maths:bulk_student_registration' %}"
-       class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm
-              {% if request.resolver_match.url_name == 'bulk_student_registration' %}bg-white/20{% else %}hover:bg-white/10{% endif %}">
-      👥 Bulk Registration
-    </a>
-  {% endif %}
-
-  <a href="{% url 'maths:user_profile' %}"
-     class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm
-            {% if request.resolver_match.url_name == 'user_profile' %}bg-white/20{% else %}hover:bg-white/10{% endif %}">
-    👤 Profile
-  </a>
-
-  {% if user.is_authenticated and not user.is_teacher %}
-  <div class="mt-auto pt-4 border-t border-white/20">
-    <div class="text-xs text-white/70 font-semibold uppercase tracking-wide mb-2 px-3">
-      Time Today
-    </div>
-    <div class="px-3 py-2 bg-white/10 rounded-lg text-sm">
-      <div>📅 Today: <span id="dailyTime" class="font-bold">0h 0m</span></div>
-      <div class="mt-1">📊 Week: <span id="weeklyTime" class="font-bold">0h 0m</span></div>
-    </div>
-  </div>
-  {% endif %}
-
-  <div class="mt-2">
-    <a href="{% url 'subjects_hub' %}"
-       class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm hover:bg-white/10 text-white/80">
-      ← Back</a>
-  </div>
-</nav>
-{% endblock %}
-
 {% block extra_head %}
 {{ block.super }}
 {% endblock %}
@@ -66,7 +14,6 @@
   function formatTime(seconds) {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
     return `${hours}h ${minutes}m`;
   }
 

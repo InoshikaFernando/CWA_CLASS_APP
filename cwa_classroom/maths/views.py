@@ -606,8 +606,8 @@ def dashboard(request):
     except Exception:
         time_log = None
 
-    # ── All students see all levels; is_individual_student = not in any class ──
-    is_individual_student = not ClassroomClassRoom.objects.filter(
+    # ── Whether student is enrolled in any class (for "Browse classes" link) ──
+    not_in_any_class = not ClassroomClassRoom.objects.filter(
         students=request.user, is_active=True
     ).exists()
 
@@ -684,7 +684,7 @@ def dashboard(request):
         'year_data': year_data,
         'time_log': time_log,
         'best_score': best_score,
-        'is_individual_student': is_individual_student,
+        'not_in_any_class': not_in_any_class,
         'time_daily': _format_seconds(time_log.daily_total_seconds if time_log else 0),
         'time_weekly': _format_seconds(time_log.weekly_total_seconds if time_log else 0),
     })
@@ -973,6 +973,7 @@ def dashboard_detail(request):
     null_topic_sfas = StudentFinalAnswer.objects.filter(
         student=request.user,
         topic__isnull=True,
+        level__isnull=False,   # skip records with no level — nothing useful to display
         points__gt=0,
     ).order_by('-points')
     if null_topic_sfas.exists():
@@ -1020,9 +1021,10 @@ def dashboard_detail(request):
             level_num = level.level_number
             
             # Get all attempts from database for this level
+            # NOTE: production data stores level_number (int) not level FK
             db_results = BasicFactsResult.objects.filter(
                 student=request.user,
-                level=level
+                level_number=level_num
             ).order_by('-points')
             
             if db_results.exists():
@@ -1126,7 +1128,7 @@ def dashboard_detail(request):
                         # After migration, get from database again
                         db_results = BasicFactsResult.objects.filter(
                             student=request.user,
-                            level=level
+                            level_number=level_num
                         ).order_by('-points')
                         
                         if db_results.exists():

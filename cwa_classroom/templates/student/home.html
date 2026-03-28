@@ -110,7 +110,7 @@
           {% else %}
           <p class="text-xs text-gray-400 mt-4">
             Enrol in a Year {{ item.level.level_number }} class to unlock these quizzes.
-            {% if is_individual_student %}<a href="{% url 'maths:join_class' %}" class="text-emerald-600 font-semibold hover:underline">Browse classes →</a>{% endif %}
+            {% if not_in_any_class %}<a href="{% url 'maths:join_class' %}" class="text-emerald-600 font-semibold hover:underline">Browse classes →</a>{% endif %}
           </p>
           {% endif %}
         </div>
