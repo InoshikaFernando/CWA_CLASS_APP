@@ -96,27 +96,27 @@
 
   <!-- Quick stats -->
   <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+    <a href="{% url 'admin_academic_year_create' school.id %}" class="bg-white rounded-xl p-4 border border-slate-200 hover:border-accent hover:shadow-sm transition">
+      <p class="text-xs text-gray-500">Academic Years</p>
+      <p class="text-base font-bold text-gray-900">{{ academic_years|length }}</p>
+    </a>
     <a href="{% url 'admin_school_teachers' school.id %}" class="bg-white rounded-xl p-4 border border-slate-200 hover:border-accent hover:shadow-sm transition">
-      <p class="text-sm text-gray-500">Staff</p>
-      <p class="text-xl font-bold text-gray-900">{{ teachers|length }}</p>
+      <p class="text-xs text-gray-500">Staff</p>
+      <p class="text-base font-bold text-gray-900">{{ teachers|length }}</p>
     </a>
     <a href="{% url 'admin_school_departments' school.id %}" class="bg-white rounded-xl p-4 border border-slate-200 hover:border-accent hover:shadow-sm transition">
-      <p class="text-sm text-gray-500">Classes</p>
-      <p class="text-xl font-bold text-gray-900">{{ classes|length }}</p>
-    </a>
-    <a href="{% url 'admin_academic_year_create' school.id %}" class="bg-white rounded-xl p-4 border border-slate-200 hover:border-accent hover:shadow-sm transition">
-      <p class="text-sm text-gray-500">Academic Years</p>
-      <p class="text-xl font-bold text-gray-900">{{ academic_years|length }}</p>
+      <p class="text-xs text-gray-500">Classes</p>
+      <p class="text-base font-bold text-gray-900">{{ classes|length }}</p>
     </a>
     {% if school.email %}
     <a href="mailto:{{ school.email }}" class="bg-white rounded-xl p-4 border border-slate-200 hover:border-accent hover:shadow-sm transition">
-      <p class="text-sm text-gray-500">Contact</p>
-      <p class="text-sm font-medium text-gray-700">{{ school.email }}</p>
+      <p class="text-xs text-gray-500">Contact</p>
+      <p class="text-xs font-medium text-gray-700">{{ school.email }}</p>
     </a>
     {% else %}
     <div class="bg-white rounded-xl p-4 border border-slate-200">
-      <p class="text-sm text-gray-500">Contact</p>
-      <p class="text-sm font-medium text-gray-700">—</p>
+      <p class="text-xs text-gray-500">Contact</p>
+      <p class="text-xs font-medium text-gray-700">—</p>
     </div>
     {% endif %}
   </div>
