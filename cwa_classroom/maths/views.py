@@ -20,7 +20,10 @@ import json
 import threading
 from django.utils.text import slugify
 from .models import Question, Answer, StudentAnswer, BasicFactsResult, TimeLog, TopicLevelStatistics, StudentFinalAnswer
-from classroom.models import Topic, Level as ClassroomLevel, Subject as ClassroomSubject, ClassRoom as ClassroomClassRoom  # classroom models
+from classroom.models import (
+    Topic, Level as ClassroomLevel, Subject as ClassroomSubject,
+    ClassRoom as ClassroomClassRoom, SchoolStudent,
+)  # classroom models
 from accounts.models import CustomUser, Role, UserRole
 from .forms import StudentSignUpForm, TeacherSignUpForm, TeacherCenterRegistrationForm, IndividualStudentRegistrationForm, StudentBulkRegistrationForm, QuestionForm, AnswerFormSet, UserProfileForm, UserPasswordChangeForm
 from .constants import YEAR_TOPICS_MAP, TIMES_TABLES_BY_YEAR
@@ -53,6 +56,46 @@ TOPIC_SESSION_SLUGS = {
 for _tt in range(1, 13):
     TOPIC_SESSION_SLUGS[f"Multiplication ({_tt}\u00d7)"] = f"mult_{_tt}"
     TOPIC_SESSION_SLUGS[f"Division ({_tt}\u00d7)"] = f"div_{_tt}"
+
+
+def _get_questions_for_level(user, level):
+    """
+    Return a Question queryset for *level* scoped to what *user* may see.
+
+    School student (active SchoolStudent membership):
+      • local AND global questions exist → return local ∪ global
+      • only local questions exist        → return local only
+      • only global questions exist       → return global only
+    Individual student / no active school → global questions only.
+
+    "Local"  = Question.school == student's school
+    "Global" = Question.school is NULL
+    """
+    school = None
+    membership = SchoolStudent.objects.filter(
+        student=user, is_active=True,
+    ).select_related('school').first()
+    if membership:
+        school = membership.school
+
+    base_qs = Question.objects.filter(level=level)
+
+    if school is None:
+        return base_qs.filter(school__isnull=True)
+
+    local_qs = base_qs.filter(school=school)
+    global_qs = base_qs.filter(school__isnull=True)
+
+    has_local = local_qs.exists()
+    has_global = global_qs.exists()
+
+    if has_local and has_global:
+        # Load everything the student can see (local ∪ global)
+        return base_qs.filter(Q(school=school) | Q(school__isnull=True))
+    elif has_local:
+        return local_qs
+    else:
+        return global_qs
 
 
 def normalize_basic_facts_topic(topic_name):
@@ -1417,8 +1460,8 @@ def add_question(request, level_number):
 def level_questions(request, level_number):
     """Display all questions for a specific level"""
     level = get_object_or_404(Level, level_number=level_number)
-    questions = level.questions.all()
-    
+    questions = _get_questions_for_level(request.user, level)
+
     return render(request, "maths/level_questions.html", {
         "level": level,
         "questions": questions
@@ -1863,9 +1906,11 @@ def take_quiz(request, level_number):
             # Reset timer on every new quiz load
             request.session[timer_session_key] = time.time()
 
-            # Get all questions for this level from database (all topics)
-            # Use prefetch_related to avoid N+1 queries when accessing answers
-            all_questions = list(level.questions.all().prefetch_related('answers'))
+            # Get all questions for this level scoped to the student's school.
+            # Loads local ∪ global if both exist; local-only or global-only otherwise.
+            all_questions = list(
+                _get_questions_for_level(request.user, level).prefetch_related('answers')
+            )
             
             question_limit = YEAR_QUESTION_COUNTS.get(level.level_number, 10)
             
