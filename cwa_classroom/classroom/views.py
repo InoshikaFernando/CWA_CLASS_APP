@@ -1791,6 +1791,159 @@ class TeacherCSVCredentialsView(RoleRequiredMixin, View):
         return response
 
 
+class ParentCSVUploadView(RoleRequiredMixin, View):
+    """Step 1: Upload CSV/XLS and map columns for parent import."""
+    required_roles = IMPORT_ROLES
+
+    def get(self, request):
+        from . import import_services as isvc
+        return render(request, 'admin/csv_parent_upload.html', {
+            'source_presets': isvc.PARENT_PRESETS,
+        })
+
+    def post(self, request):
+        from . import import_services as isvc
+        csv_file = request.FILES.get('csv_file')
+        if not csv_file:
+            messages.error(request, 'Please select a file.')
+            return redirect('parent_csv_upload')
+        if csv_file.size > isvc.MAX_CSV_SIZE:
+            messages.error(request, 'File exceeds 10 MB limit.')
+            return redirect('parent_csv_upload')
+        try:
+            headers, data_rows = isvc.parse_upload_file(csv_file.read(), csv_file.name)
+        except ValueError as e:
+            messages.error(request, str(e))
+            return redirect('parent_csv_upload')
+
+        request.session['csv_parent_headers'] = headers
+        request.session['csv_parent_data'] = data_rows
+
+        # Auto-apply preset if selected
+        source_preset = request.POST.get('source_preset', '')
+        preset_mapping = {}
+        if source_preset and source_preset in isvc.PARENT_PRESETS:
+            preset_mapping = isvc.apply_parent_preset(source_preset, headers)
+
+        return render(request, 'admin/csv_parent_upload.html', {
+            'headers': headers,
+            'preview_rows': data_rows[:5],
+            'column_fields': isvc.PARENT_COLUMN_FIELDS,
+            'source_presets': isvc.PARENT_PRESETS,
+            'selected_preset': source_preset,
+            'preset_mapping': preset_mapping,
+            'show_mapping': True,
+        })
+
+
+class ParentCSVPreviewView(RoleRequiredMixin, View):
+    """Step 2: Validate columns and show parent preview."""
+    required_roles = IMPORT_ROLES
+
+    def _get_school(self, request):
+        school_id = SchoolTeacher.objects.filter(
+            teacher=request.user, is_active=True,
+        ).values_list('school_id', flat=True).first()
+        if not school_id and request.user.is_superuser:
+            school_id = School.objects.first()
+            school_id = school_id.id if school_id else None
+        return School.objects.get(id=school_id) if school_id else None
+
+    def post(self, request):
+        from . import import_services as isvc
+        data_rows = request.session.get('csv_parent_data')
+        if not data_rows:
+            messages.error(request, 'No CSV data. Please upload again.')
+            return redirect('parent_csv_upload')
+
+        school = self._get_school(request)
+        if not school:
+            messages.error(request, 'No school found.')
+            return redirect('parent_csv_upload')
+
+        column_mapping = isvc._build_parent_column_mapping(request.POST)
+        preview = isvc.validate_parent_preview(data_rows, column_mapping, school)
+
+        if preview['errors']:
+            for err in preview['errors']:
+                messages.error(request, err)
+            return redirect('parent_csv_upload')
+
+        request.session['csv_parent_preview'] = preview
+        request.session['csv_parent_school_id'] = school.id
+
+        return render(request, 'admin/csv_parent_preview.html', {
+            'preview': preview,
+            'school': school,
+        })
+
+
+class ParentCSVConfirmView(RoleRequiredMixin, View):
+    """Step 3: Execute parent import and show results."""
+    required_roles = IMPORT_ROLES
+
+    def post(self, request):
+        from . import import_services as isvc
+        preview = request.session.get('csv_parent_preview')
+        school_id = request.session.get('csv_parent_school_id')
+        if not preview or not school_id:
+            messages.error(request, 'Session expired. Please upload again.')
+            return redirect('parent_csv_upload')
+
+        school = School.objects.get(id=school_id)
+
+        try:
+            results = isvc.execute_parent_import(preview, school, request.user)
+        except Exception as e:
+            logger.exception('Parent import failed')
+            messages.error(request, f'Import failed: {e}')
+            return redirect('parent_csv_upload')
+
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='parent_csv_imported',
+            detail={
+                'parents_created': results.get('counts', {}).get('parents_created', 0),
+                'links_created': results.get('counts', {}).get('links_created', 0),
+                'credentials_generated': len(results.get('credentials', [])),
+            },
+            request=request,
+        )
+
+        request.session['csv_parent_credentials'] = results['credentials']
+
+        for key in ('csv_parent_data', 'csv_parent_headers', 'csv_parent_preview',
+                     'csv_parent_school_id'):
+            request.session.pop(key, None)
+
+        return render(request, 'admin/csv_parent_results.html', {
+            'results': results,
+            'school': school,
+        })
+
+
+class ParentCSVCredentialsView(RoleRequiredMixin, View):
+    """Download generated parent credentials as CSV."""
+    required_roles = IMPORT_ROLES
+
+    def get(self, request):
+        import csv as csv_mod
+        from django.http import HttpResponse
+        credentials = request.session.get('csv_parent_credentials', [])
+        if not credentials:
+            messages.error(request, 'No credentials available.')
+            return redirect('parent_csv_upload')
+
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="parent_credentials.csv"'
+        writer = csv_mod.writer(response)
+        writer.writerow(['Username', 'Email', 'Password', 'First Name', 'Last Name', 'Children'])
+        for c in credentials:
+            writer.writerow([c['username'], c['email'], c['password'],
+                           c['first_name'], c['last_name'], c.get('children', '')])
+        return response
+
+
 class UploadQuestionsView(RoleRequiredMixin, View):
     required_roles = [
         Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,

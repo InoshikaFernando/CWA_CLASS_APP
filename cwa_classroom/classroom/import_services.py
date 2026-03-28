@@ -15,7 +15,7 @@ from accounts.models import CustomUser, Role, UserRole
 from .models import (
     School, SchoolStudent, SchoolTeacher, Department, DepartmentSubject,
     Subject, Level, ClassRoom, ClassStudent, ClassTeacher,
-    Guardian, StudentGuardian,
+    Guardian, StudentGuardian, ParentStudent,
 )
 
 logger = logging.getLogger(__name__)
@@ -1620,6 +1620,280 @@ def execute_teacher_import(preview_data, school, imported_by):
                 UserRole.objects.get_or_create(user=user, role=role_obj)
         else:
             counts['teachers_skipped'] += 1
+
+    return {
+        'counts': counts,
+        'credentials': credentials,
+    }
+
+
+# ── Parent Import ───────────────────────────────────────────
+
+PARENT_COLUMN_FIELDS = {
+    'first_name': 'Parent First Name',
+    'last_name': 'Parent Last Name',
+    'email': 'Parent Email',
+    'phone': 'Phone',
+    'relationship': 'Relationship',
+    'student_email': 'Student Email',
+    'address': 'Address',
+    'city': 'City',
+    'country': 'Country',
+}
+
+PARENT_REQUIRED_FIELDS = {'first_name', 'last_name', 'email', 'student_email'}
+
+PARENT_PRESETS = {}
+
+
+def apply_parent_preset(preset_key, headers):
+    """Apply a parent preset to map column headers. Returns {field: col_index}."""
+    preset = PARENT_PRESETS.get(preset_key)
+    if not preset:
+        return {}
+    header_lower = {h.lower().strip(): i for i, h in enumerate(headers)}
+    mapping = {}
+    for system_field, csv_header in preset['mapping'].items():
+        idx = header_lower.get(csv_header.lower())
+        if idx is not None:
+            mapping[system_field] = idx
+    return mapping
+
+
+def _build_parent_column_mapping(post_data):
+    """Build column_mapping dict from POST data for parent import."""
+    mapping = {}
+    for field in PARENT_COLUMN_FIELDS:
+        val = post_data.get(f'col_{field}', '')
+        if val != '' and val != '-1':
+            mapping[field] = int(val)
+    return mapping
+
+
+PARENT_RELATIONSHIP_MAP = {
+    'mother': 'mother', 'mom': 'mother', 'mum': 'mother',
+    'father': 'father', 'dad': 'father',
+    'guardian': 'guardian',
+    'other': 'other',
+}
+
+
+def _find_student_at_school(student_email, school):
+    """Returns CustomUser or None if student_email is not a student at school."""
+    try:
+        user = CustomUser.objects.get(email=student_email)
+        if SchoolStudent.objects.filter(student=user, school=school, is_active=True).exists():
+            return user
+    except CustomUser.DoesNotExist:
+        pass
+    return None
+
+
+def validate_parent_preview(data_rows, column_mapping, school):
+    """
+    Validate parent CSV rows. Groups by parent email since one parent
+    may appear on multiple rows (one row per child).
+
+    Returns dict with: parents_new, parents_existing, errors, warnings.
+    """
+    errors = []
+    warnings = []
+
+    # Check required fields are mapped
+    for f in PARENT_REQUIRED_FIELDS:
+        if f not in column_mapping:
+            errors.append(f'Required column "{PARENT_COLUMN_FIELDS[f]}" is not mapped.')
+    if errors:
+        return {'parents_new': [], 'parents_existing': [], 'errors': errors, 'warnings': warnings}
+
+    # First pass: group rows by parent email
+    parent_groups = {}  # email -> {parent_data, children: [...]}
+
+    for row_idx, row in enumerate(data_rows, start=2):
+        first_name = _get_cell(row, column_mapping.get('first_name'))
+        last_name = _get_cell(row, column_mapping.get('last_name'))
+        email = _get_cell(row, column_mapping.get('email')).lower()
+        phone = _get_cell(row, column_mapping.get('phone'))
+        rel_raw = _get_cell(row, column_mapping.get('relationship')).lower()
+        student_email = _get_cell(row, column_mapping.get('student_email')).lower()
+        address = _get_cell(row, column_mapping.get('address'))
+        city = _get_cell(row, column_mapping.get('city'))
+        country = _get_cell(row, column_mapping.get('country'))
+
+        if not first_name:
+            errors.append(f'Row {row_idx}: Missing parent first name.')
+            continue
+        if not last_name:
+            errors.append(f'Row {row_idx}: Missing parent last name.')
+            continue
+        if not email or '@' not in email:
+            errors.append(f'Row {row_idx}: Missing or invalid parent email.')
+            continue
+        if not student_email or '@' not in student_email:
+            errors.append(f'Row {row_idx}: Missing or invalid student email.')
+            continue
+
+        # Validate student exists at school
+        student_user = _find_student_at_school(student_email, school)
+        if not student_user:
+            errors.append(
+                f'Row {row_idx}: Student "{student_email}" not found at this school.'
+            )
+            continue
+
+        relationship = PARENT_RELATIONSHIP_MAP.get(rel_raw, '')
+        if rel_raw and not relationship:
+            relationship = 'other'
+            warnings.append(f'Row {row_idx}: Unrecognised relationship "{rel_raw}", defaulting to "other".')
+
+        if email not in parent_groups:
+            parent_groups[email] = {
+                'first_name': first_name,
+                'last_name': last_name,
+                'email': email,
+                'phone': phone,
+                'address': address,
+                'city': city,
+                'country': country,
+                'children': [],
+            }
+
+        # Check if already linked
+        already_linked = ParentStudent.objects.filter(
+            parent__email=email, student=student_user, school=school, is_active=True,
+        ).exists()
+
+        # Check max 2 parents
+        active_parent_count = ParentStudent.objects.filter(
+            student=student_user, school=school, is_active=True,
+        ).count()
+        if active_parent_count >= 2 and not already_linked:
+            warnings.append(
+                f'Row {row_idx}: {student_user.get_full_name()} already has 2 parents linked — will be skipped.'
+            )
+
+        parent_groups[email]['children'].append({
+            'student_email': student_email,
+            'student_name': student_user.get_full_name() or student_email,
+            'student_id': student_user.id,
+            'relationship': relationship,
+            'row': row_idx,
+            'already_linked': already_linked,
+            'at_max_parents': active_parent_count >= 2 and not already_linked,
+        })
+
+    # Categorise as new or existing
+    existing_emails = set(
+        CustomUser.objects.filter(
+            email__in=parent_groups.keys()
+        ).values_list('email', flat=True)
+    )
+
+    parents_new = []
+    parents_existing = []
+    for email, pdata in parent_groups.items():
+        if email in existing_emails:
+            parents_existing.append(pdata)
+        else:
+            parents_new.append(pdata)
+
+    return {
+        'parents_new': parents_new,
+        'parents_existing': parents_existing,
+        'errors': errors,
+        'warnings': warnings,
+    }
+
+
+def execute_parent_import(preview_data, school, imported_by):
+    """
+    Create parent user accounts and link them to students.
+    Returns dict with counts and credentials list.
+    """
+    credentials = []
+    counts = {
+        'parents_created': 0,
+        'links_created': 0,
+        'links_skipped': 0,
+        'errors': [],
+    }
+
+    parent_role, _ = Role.objects.get_or_create(
+        name=Role.PARENT, defaults={'display_name': 'Parent'},
+    )
+
+    with transaction.atomic():
+        all_parents = preview_data['parents_new'] + preview_data['parents_existing']
+        for pdata in all_parents:
+            email = pdata['email']
+            is_new = not CustomUser.objects.filter(email=email).exists()
+
+            if is_new:
+                password = get_random_string(10)
+                base_username = slugify(
+                    f"{pdata['first_name']}.{pdata['last_name']}"
+                ).replace('-', '.')
+                if not base_username:
+                    base_username = email.split('@')[0]
+                username = base_username
+                suffix = 1
+                while CustomUser.objects.filter(username=username).exists():
+                    username = f'{base_username}{suffix}'
+                    suffix += 1
+
+                user = CustomUser.objects.create_user(
+                    username=username,
+                    email=email,
+                    password=password,
+                    first_name=pdata['first_name'],
+                    last_name=pdata['last_name'],
+                )
+                user.must_change_password = True
+                if pdata.get('phone'):
+                    user.phone = pdata['phone']
+                if pdata.get('address'):
+                    user.address_line1 = pdata['address']
+                if pdata.get('city'):
+                    user.city = pdata['city']
+                if pdata.get('country'):
+                    user.country = pdata['country']
+                user.save()
+
+                UserRole.objects.get_or_create(user=user, role=parent_role)
+                credentials.append({
+                    'username': username,
+                    'email': email,
+                    'password': password,
+                    'first_name': pdata['first_name'],
+                    'last_name': pdata['last_name'],
+                    'children': ', '.join(c['student_name'] for c in pdata['children']),
+                })
+                counts['parents_created'] += 1
+            else:
+                user = CustomUser.objects.get(email=email)
+                password = None
+                # Ensure parent role assigned
+                UserRole.objects.get_or_create(user=user, role=parent_role)
+
+            # Create ParentStudent links
+            for child in pdata['children']:
+                if child.get('at_max_parents'):
+                    counts['links_skipped'] += 1
+                    continue
+
+                student_user = CustomUser.objects.get(id=child['student_id'])
+                _, created = ParentStudent.objects.get_or_create(
+                    parent=user, student=student_user, school=school,
+                    defaults={
+                        'relationship': child.get('relationship', ''),
+                        'is_active': True,
+                        'created_by': imported_by,
+                    },
+                )
+                if created:
+                    counts['links_created'] += 1
+                else:
+                    counts['links_skipped'] += 1
 
     return {
         'counts': counts,
