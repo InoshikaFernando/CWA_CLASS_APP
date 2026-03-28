@@ -200,6 +200,41 @@ def reverse_migration(apps, schema_editor):
     pass  # Non-destructive — shadow fields removed on reverse schema rollback
 
 
+def drop_tls_unique_if_exists(apps, schema_editor):
+    """
+    Drop the unique constraint on maths_topiclevelstatistics(level_id, topic_id)
+    only if it still exists.  A prior partial run may have already dropped it;
+    Django's AlterUniqueTogether raises ValueError when it finds 0 constraints.
+    """
+    db_name = schema_editor.connection.settings_dict['NAME']
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT constraint_name "
+            "FROM information_schema.table_constraints "
+            "WHERE table_schema = %s "
+            "  AND table_name = 'maths_topiclevelstatistics' "
+            "  AND constraint_type = 'UNIQUE'",
+            [db_name],
+        )
+        unique_constraints = [row[0] for row in cursor.fetchall()]
+        for constraint_name in unique_constraints:
+            # Check that this constraint covers (level_id, topic_id)
+            cursor.execute(
+                "SELECT COUNT(*) FROM information_schema.key_column_usage "
+                "WHERE table_schema = %s "
+                "  AND table_name = 'maths_topiclevelstatistics' "
+                "  AND constraint_name = %s "
+                "  AND column_name IN ('level_id', 'topic_id')",
+                [db_name, constraint_name],
+            )
+            col_count = cursor.fetchone()[0]
+            if col_count == 2:
+                cursor.execute(
+                    f"ALTER TABLE `maths_topiclevelstatistics` DROP INDEX `{constraint_name}`"
+                )
+                break  # Only one such constraint expected
+
+
 def drop_old_fk_columns_if_exist(apps, schema_editor):
     """
     Drop the old maths FK columns (topic_id / level_id pointing at maths.Topic
@@ -390,9 +425,22 @@ class Migration(migrations.Migration):
         # ── Step 3: explicitly drop unique_together on TopicLevelStatistics
         # before removing the old fields — MySQL may reject the DROP COLUMN
         # if the unique constraint is still present during the ALTER TABLE.
-        migrations.AlterUniqueTogether(
-            name='topicLevelStatistics',
-            unique_together=set(),
+        # SeparateDatabaseAndState: database side is guarded (skips if the
+        # constraint was already dropped by a prior partial run); state side
+        # uses the normal AlterUniqueTogether so Django's state stays correct.
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunPython(
+                    drop_tls_unique_if_exists,
+                    migrations.RunPython.noop,
+                ),
+            ],
+            state_operations=[
+                migrations.AlterUniqueTogether(
+                    name='topicLevelStatistics',
+                    unique_together=set(),
+                ),
+            ],
         ),
 
         # ── Step 3b: remove old FK fields ─────────────────────────────────
