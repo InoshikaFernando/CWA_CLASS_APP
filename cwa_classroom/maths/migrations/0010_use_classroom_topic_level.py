@@ -171,6 +171,34 @@ def reverse_migration(apps, schema_editor):
     pass  # Non-destructive — shadow fields removed on reverse schema rollback
 
 
+def cleanup_partial_shadow_columns(apps, schema_editor):
+    """
+    Drop any shadow columns that were added by a previous failed run of this
+    migration.  If the migration is being applied fresh these columns won't
+    exist and nothing happens; if it was partially applied they are removed so
+    the AddField operations below can succeed.
+    """
+    shadow_columns = [
+        ('maths_question',              'classroom_topic_id'),
+        ('maths_question',              'classroom_level_id'),
+        ('maths_studentfinalanswer',    'classroom_topic_id'),
+        ('maths_studentfinalanswer',    'classroom_level_id'),
+        ('maths_topiclevelstatistics',  'classroom_topic_id'),
+        ('maths_topiclevelstatistics',  'classroom_level_id'),
+        ('maths_basicfactsresult',      'classroom_level_id'),
+    ]
+    db_name = schema_editor.connection.settings_dict['NAME']
+    with schema_editor.connection.cursor() as cursor:
+        for table, column in shadow_columns:
+            cursor.execute(
+                "SELECT COUNT(*) FROM information_schema.columns "
+                "WHERE table_schema = %s AND table_name = %s AND column_name = %s",
+                [db_name, table, column],
+            )
+            if cursor.fetchone()[0] > 0:
+                cursor.execute(f"ALTER TABLE `{table}` DROP COLUMN `{column}`")
+
+
 # ---------------------------------------------------------------------------
 # Migration
 # ---------------------------------------------------------------------------
@@ -183,6 +211,9 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        # ── Step 0: clean up shadow columns from any previous partial run ──
+        migrations.RunPython(cleanup_partial_shadow_columns, migrations.RunPython.noop),
+
         # ── Step 1: add nullable shadow fields ────────────────────────────
 
         # maths.Question
