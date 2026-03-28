@@ -4,7 +4,7 @@
 <div class="max-w-3xl mx-auto space-y-6">
   <div>
     <h1 class="font-display text-3xl text-primary">Upload Questions</h1>
-    <p class="text-gray-400 text-sm mt-1">Upload a JSON file to add or update questions for a topic.</p>
+    <p class="text-gray-400 text-sm mt-1">Upload a JSON or ZIP file to add or update questions for a topic.</p>
   </div>
 
   {% if upload_results %}
@@ -16,7 +16,13 @@
       {% if upload_results.failed %}
       <div class="text-center"><p class="font-display text-3xl text-red-500">{{ upload_results.failed }}</p><p class="text-xs text-gray-400 font-semibold">Failed</p></div>
       {% endif %}
+      {% if upload_results.images_saved %}
+      <div class="text-center"><p class="font-display text-3xl text-green-600">{{ upload_results.images_saved }}</p><p class="text-xs text-gray-400 font-semibold">Images</p></div>
+      {% endif %}
     </div>
+    {% if upload_results.image_dir %}
+    <p class="text-xs text-gray-500 mt-1">Images saved to: <code class="font-mono">media/{{ upload_results.image_dir }}/</code></p>
+    {% endif %}
     {% if upload_results.errors %}
     <div class="bg-red-50 rounded-xl p-4 space-y-1 mt-3">
       {% for err in upload_results.errors %}
@@ -46,9 +52,10 @@
       {% endif %}
 
       <div>
-        <label class="block text-sm font-semibold text-gray-700 mb-1.5">JSON File</label>
-        <input type="file" name="json_file" accept=".json" required
+        <label class="block text-sm font-semibold text-gray-700 mb-1.5">File <span class="text-red-500">*</span></label>
+        <input type="file" name="upload_file" accept=".json,.zip" required
                class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:font-semibold file:bg-primary-light file:text-primary hover:file:bg-primary hover:file:text-white file:transition" />
+        <p class="text-xs text-gray-400 mt-1">Upload a <code class="font-mono">.json</code> file, or a <code class="font-mono">.zip</code> file containing <code class="font-mono">questions.json</code> + images.</p>
       </div>
       <button type="submit" class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition">
         Upload →
@@ -56,9 +63,12 @@
     </form>
   </div>
 
-  <div class="bg-gray-50 rounded-2xl border border-slate-200 p-5">
-    <p class="text-sm font-bold text-gray-700 mb-3">📄 Expected JSON format</p>
-    <pre class="font-mono text-xs bg-white rounded-xl p-4 border border-gray-200 overflow-x-auto text-gray-600">{
+  <!-- JSON-only format -->
+  <div class="bg-gray-50 rounded-2xl border border-slate-200 p-5 space-y-4">
+    <div>
+      <p class="text-sm font-bold text-gray-700 mb-3">📄 JSON format (no images)</p>
+      <pre class="font-mono text-xs bg-white rounded-xl p-4 border border-gray-200 overflow-x-auto text-gray-600">{
+  "strand": "Number",
   "topic": "Fractions",
   "year_level": 4,
   "questions": [
@@ -67,6 +77,7 @@
       "question_type": "multiple_choice",
       "difficulty": 1,
       "points": 1,
+      "explanation": "Convert to a common denominator first.",
       "answers": [
         {"text": "3/4", "is_correct": true},
         {"text": "1/2", "is_correct": false},
@@ -76,8 +87,43 @@
     }
   ]
 }</pre>
-    <p class="text-xs text-gray-400 mt-2">Duplicate detection: questions with the same text for the same topic+level are updated, not duplicated.</p>
-    <p class="text-xs text-gray-400 mt-1">question_type options: <code class="font-mono">multiple_choice</code>, <code class="font-mono">true_false</code>, <code class="font-mono">short_answer</code>, <code class="font-mono">fill_blank</code>, <code class="font-mono">calculation</code>, <code class="font-mono">drag_drop</code></p>
+    </div>
+
+    <div>
+      <p class="text-sm font-bold text-gray-700 mb-3">🖼️ ZIP format (with images)</p>
+      <div class="bg-white rounded-xl border border-gray-200 p-4 text-xs font-mono text-gray-500 space-y-0.5 mb-3">
+        <p>my_upload.zip</p>
+        <p class="pl-4">├── questions.json</p>
+        <p class="pl-4">├── image1.png</p>
+        <p class="pl-4">├── image2.png</p>
+        <p class="pl-4">└── ruler.jpg</p>
+      </div>
+      <pre class="font-mono text-xs bg-white rounded-xl p-4 border border-gray-200 overflow-x-auto text-gray-600">{
+  "topic": "Measurements",
+  "year_level": 5,
+  "questions": [
+    {
+      "question_text": "What length does the ruler show?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "image": "ruler.jpg",
+      "answers": [
+        {"text": "12 cm", "is_correct": true},
+        {"text": "10 cm", "is_correct": false}
+      ]
+    }
+  ]
+}</pre>
+      <p class="text-xs text-gray-400 mt-2">Images are saved to <code class="font-mono">media/questions/year&lt;N&gt;/&lt;topic&gt;/</code> automatically.</p>
+      <p class="text-xs text-gray-400 mt-1">Add <code class="font-mono">"strand"</code> to scope the topic lookup (e.g. <code class="font-mono">"strand": "Algebra"</code> + <code class="font-mono">"topic": "Integers"</code>).</p>
+    </div>
+
+    <div class="border-t border-gray-200 pt-3 space-y-1">
+      <p class="text-xs text-gray-400">Duplicate detection: same question_text + topic + level → updated, not duplicated.</p>
+      <p class="text-xs text-gray-400">question_type: <code class="font-mono">multiple_choice</code>, <code class="font-mono">true_false</code>, <code class="font-mono">short_answer</code>, <code class="font-mono">fill_blank</code>, <code class="font-mono">calculation</code></p>
+      <p class="text-xs text-gray-400">difficulty: <code class="font-mono">1</code> Easy &nbsp;·&nbsp; <code class="font-mono">2</code> Medium &nbsp;·&nbsp; <code class="font-mono">3</code> Hard</p>
+    </div>
   </div>
 </div>
 {% endblock %}

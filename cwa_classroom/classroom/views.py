@@ -1828,25 +1828,83 @@ class UploadQuestionsView(RoleRequiredMixin, View):
 
     def post(self, request):
         import json
+        import zipfile
+        import re
         from maths.models import (Question as MathsQuestion, Answer as MathsAnswer,
                                   Topic as MathsTopic, Level as MathsLevel)
-        json_file = request.FILES.get('json_file')
-        if not json_file:
-            messages.error(request, 'Please select a JSON file.')
+
+        uploaded_file = request.FILES.get('upload_file')
+        if not uploaded_file:
+            messages.error(request, 'Please select a file.')
             return redirect('upload_questions')
-        try:
-            data = json.loads(json_file.read().decode('utf-8'))
-        except json.JSONDecodeError as e:
-            messages.error(request, f'Invalid JSON: {e}')
+
+        # Determine if ZIP or plain JSON
+        filename = uploaded_file.name.lower()
+        extracted_images = {}  # filename -> bytes
+
+        if filename.endswith('.zip'):
+            if not zipfile.is_zipfile(uploaded_file):
+                messages.error(request, 'Invalid ZIP file.')
+                return redirect('upload_questions')
+            uploaded_file.seek(0)
+            with zipfile.ZipFile(uploaded_file) as zf:
+                json_bytes = None
+                for name in zf.namelist():
+                    basename = name.split('/')[-1]
+                    if basename == 'questions.json':
+                        json_bytes = zf.read(name)
+                    elif re.search(r'\.(png|jpg|jpeg|gif|webp)$', basename, re.I):
+                        extracted_images[basename] = zf.read(name)
+                if json_bytes is None:
+                    messages.error(request, 'ZIP must contain a file named questions.json at its root.')
+                    return redirect('upload_questions')
+            try:
+                data = json.loads(json_bytes.decode('utf-8'))
+            except json.JSONDecodeError as e:
+                messages.error(request, f'Invalid JSON: {e}')
+                return redirect('upload_questions')
+        elif filename.endswith('.json'):
+            try:
+                data = json.loads(uploaded_file.read().decode('utf-8'))
+            except json.JSONDecodeError as e:
+                messages.error(request, f'Invalid JSON: {e}')
+                return redirect('upload_questions')
+        else:
+            messages.error(request, 'Please upload a .json or .zip file.')
             return redirect('upload_questions')
+
         topic_name = data.get('topic', '').strip()
+        strand_name = data.get('strand', '').strip()
         year_level = data.get('year_level')
         try:
-            maths_topic = MathsTopic.objects.get(name__iexact=topic_name)
+            topic_qs = MathsTopic.objects.filter(name__iexact=topic_name)
+            if strand_name:
+                topic_qs = topic_qs.filter(parent__name__iexact=strand_name)
+            maths_topic = topic_qs.get()
             maths_level = MathsLevel.objects.get(level_number=year_level)
-        except (MathsTopic.DoesNotExist, MathsLevel.DoesNotExist) as e:
-            messages.error(request, str(e))
+        except MathsTopic.DoesNotExist:
+            strand_hint = f' under strand "{strand_name}"' if strand_name else ''
+            messages.error(request, f'Topic "{topic_name}"{strand_hint} not found.')
             return redirect('upload_questions')
+        except MathsTopic.MultipleObjectsReturned:
+            messages.error(request, f'Multiple topics named "{topic_name}" found — add a "strand" field to disambiguate.')
+            return redirect('upload_questions')
+        except MathsLevel.DoesNotExist:
+            messages.error(request, f'Year level {year_level} not found.')
+            return redirect('upload_questions')
+
+        # Build image save directory: questions/year<N>/<topic_slug>/
+        topic_slug = re.sub(r'\s+', '_', topic_name.lower())
+        image_rel_dir = f'questions/year{year_level}/{topic_slug}'
+        if extracted_images:
+            from django.conf import settings
+            import os
+            image_abs_dir = os.path.join(settings.MEDIA_ROOT, image_rel_dir)
+            os.makedirs(image_abs_dir, exist_ok=True)
+            for img_name, img_bytes in extracted_images.items():
+                safe_name = re.sub(r'[^\w.\-]', '_', img_name)
+                with open(os.path.join(image_abs_dir, safe_name), 'wb') as f:
+                    f.write(img_bytes)
 
         school_id, dept_id, classroom_ids = _get_question_scope(request.user)
 
@@ -1872,6 +1930,14 @@ class UploadQuestionsView(RoleRequiredMixin, View):
             if not question_text: errors.append(f'Q{i}: missing question_text'); failed += 1; continue
             if question_type not in dict(MathsQuestion.QUESTION_TYPES): errors.append(f'Q{i}: bad type'); failed += 1; continue
             if not answers_data: errors.append(f'Q{i}: no answers'); failed += 1; continue
+
+            # Resolve image path if specified
+            image_field = ''
+            img_filename = q_data.get('image', '').strip()
+            if img_filename and img_filename in extracted_images:
+                safe_name = re.sub(r'[^\w.\-]', '_', img_filename)
+                image_field = f'{image_rel_dir}/{safe_name}'
+
             try:
                 with transaction.atomic():
                     existing = MathsQuestion.objects.filter(
@@ -1881,6 +1947,8 @@ class UploadQuestionsView(RoleRequiredMixin, View):
                     ).first()
                     fields = {'question_type': question_type, 'difficulty': q_data.get('difficulty', 1),
                               'points': q_data.get('points', 1), 'explanation': q_data.get('explanation', '')}
+                    if image_field:
+                        fields['image'] = image_field
                     if existing:
                         for k, v in fields.items(): setattr(existing, k, v)
                         existing.save(); existing.answers.all().delete(); question = existing; updated += 1
@@ -1910,7 +1978,11 @@ class UploadQuestionsView(RoleRequiredMixin, View):
                 request=request,
             )
         return render(request, 'teacher/upload_questions.html', {
-            'upload_results': {'inserted': inserted, 'updated': updated, 'failed': failed, 'errors': errors},
+            'upload_results': {
+                'inserted': inserted, 'updated': updated, 'failed': failed, 'errors': errors,
+                'images_saved': len(extracted_images),
+                'image_dir': image_rel_dir if extracted_images else '',
+            },
             'topics': Topic.objects.filter(is_active=True).select_related('subject'),
             'levels': Level.objects.filter(level_number__lte=8),
         })
