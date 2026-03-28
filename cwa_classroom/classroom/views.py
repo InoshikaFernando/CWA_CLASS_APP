@@ -121,11 +121,9 @@ class HomeView(LoginRequiredMixin, View):
                     Level.objects.filter(level_number__lte=9).values_list('id', flat=True)
                 )
 
-            # Bridge classroom.Topic → maths.Topic by name for quiz links
-            from maths.models import Topic as MathsTopic, Level as MathsLevel, Question
-            maths_topic_map = {t.name: t for t in MathsTopic.objects.all()}
-
-            # Pre-fetch which maths topics have questions, keyed by (maths_topic_id, maths_level_id)
+            # Pre-fetch which topics have questions, keyed by (topic_id, level_id)
+            # Question.topic and Question.level now reference classroom.Topic/Level directly
+            from maths.models import Question
             from django.db.models import Count
             questions_exist = set()
             for row in (Question.objects
@@ -140,8 +138,6 @@ class HomeView(LoginRequiredMixin, View):
                     level = Level.objects.get(level_number=year)
                 except Level.DoesNotExist:
                     continue
-                # Resolve maths-side level for question lookup
-                maths_level = MathsLevel.objects.filter(level_number=year).first()
 
                 subtopics = (
                     Topic.objects
@@ -154,16 +150,10 @@ class HomeView(LoginRequiredMixin, View):
                     sid = subtopic.parent_id
                     if sid not in strand_dict:
                         strand_dict[sid] = {'strand': subtopic.parent, 'subtopics': []}
-                    # Bridge to maths Topic
-                    mt = maths_topic_map.get(subtopic.name)
-                    has_questions = (
-                        mt is not None
-                        and maths_level is not None
-                        and (mt.id, maths_level.id) in questions_exist
-                    )
+                    has_questions = (subtopic.id, level.id) in questions_exist
                     strand_dict[sid]['subtopics'].append({
                         'topic': subtopic,
-                        'maths_topic_id': mt.id if mt else None,
+                        'topic_id': subtopic.id,
                         'has_questions': has_questions,
                     })
                 year_data.append({
@@ -187,11 +177,10 @@ class StudentDashboardView(LoginRequiredMixin, View):
         if not (request.user.is_student or request.user.is_individual_student):
             return redirect('subjects_hub')
         from maths.models import StudentFinalAnswer, BasicFactsResult, TimeLog
-        from maths.models import Topic as MathsTopic
+        from maths.models import TopicLevelStatistics
 
         # ── Topic quiz progress grid ──────────────────────────────────────────
-        from maths.models import TopicLevelStatistics
-        maths_topic_map = {t.name: t for t in MathsTopic.objects.all()}
+        # StudentFinalAnswer.topic and .level now reference classroom.Topic/Level directly
         topic_results = StudentFinalAnswer.objects.filter(
             student=request.user,
             quiz_type__in=[StudentFinalAnswer.QUIZ_TYPE_TOPIC, StudentFinalAnswer.QUIZ_TYPE_MIXED],
@@ -291,7 +280,7 @@ class StudentDashboardView(LoginRequiredMixin, View):
                     colour = 'bg-gray-100 text-gray-400'
                 strand_dict[key]['subtopics'].append({
                     'topic': topic,
-                    'maths_topic': maths_topic_map.get(topic.name),
+                    'topic_id': topic.id,
                     'best': best,
                     'points': round(best.points, 1) if best else None,
                     'colour': colour,
@@ -1830,8 +1819,8 @@ class UploadQuestionsView(RoleRequiredMixin, View):
         import json
         import zipfile
         import re
-        from maths.models import (Question as MathsQuestion, Answer as MathsAnswer,
-                                  Topic as MathsTopic, Level as MathsLevel)
+        from maths.models import Question as MathsQuestion, Answer as MathsAnswer
+        from classroom.models import Topic as ClassroomTopic, Level as ClassroomLevel, Subject as ClassroomSubject
 
         uploaded_file = request.FILES.get('upload_file')
         if not uploaded_file:
@@ -1876,20 +1865,22 @@ class UploadQuestionsView(RoleRequiredMixin, View):
         topic_name = data.get('topic', '').strip()
         strand_name = data.get('strand', '').strip()
         year_level = data.get('year_level')
+        maths_subject = ClassroomSubject.objects.filter(slug='mathematics', school=None).first()
+        topic_qs = ClassroomTopic.objects.filter(subject=maths_subject, name__iexact=topic_name)
+        if strand_name:
+            topic_qs = topic_qs.filter(parent__name__iexact=strand_name)
         try:
-            topic_qs = MathsTopic.objects.filter(name__iexact=topic_name)
-            if strand_name:
-                topic_qs = topic_qs.filter(parent__name__iexact=strand_name)
             maths_topic = topic_qs.get()
-            maths_level = MathsLevel.objects.get(level_number=year_level)
-        except MathsTopic.DoesNotExist:
+        except ClassroomTopic.DoesNotExist:
             strand_hint = f' under strand "{strand_name}"' if strand_name else ''
             messages.error(request, f'Topic "{topic_name}"{strand_hint} not found.')
             return redirect('upload_questions')
-        except MathsTopic.MultipleObjectsReturned:
-            messages.error(request, f'Multiple topics named "{topic_name}" found — add a "strand" field to disambiguate.')
+        except ClassroomTopic.MultipleObjectsReturned:
+            messages.error(request, f'Multiple topics named "{topic_name}" found.')
             return redirect('upload_questions')
-        except MathsLevel.DoesNotExist:
+        try:
+            maths_level = ClassroomLevel.objects.get(level_number=year_level)
+        except ClassroomLevel.DoesNotExist:
             messages.error(request, f'Year level {year_level} not found.')
             return redirect('upload_questions')
 
@@ -2052,37 +2043,32 @@ def _can_edit_question(user, question):
 class QuestionListView(LoginRequiredMixin, View):
     def get(self, request, level_number):
         from django.db.models import Q
-        from maths.models import Question as MathsQuestion, Level as MathsLevel
+        from maths.models import Question as MathsQuestion
         level = get_object_or_404(Level, level_number=level_number)
-        maths_level = MathsLevel.objects.filter(level_number=level_number).first()
-        if not maths_level:
-            return render(request, 'teacher/question_list.html', {
-                'level': level, 'questions': MathsQuestion.objects.none(),
-            })
 
         school_id, dept_id, classroom_ids = _get_question_scope(request.user)
 
         # Global questions are always visible
-        q_filter = Q(level=maths_level) & Q(school__isnull=True)
+        q_filter = Q(level=level) & Q(school__isnull=True)
 
         if request.user.is_superuser:
             # Superuser sees everything
-            q_filter = Q(level=maths_level)
+            q_filter = Q(level=level)
         elif request.user.has_role(Role.HEAD_OF_INSTITUTE) or request.user.has_role(Role.INSTITUTE_OWNER):
             # HoI sees global + all questions in their school (any scope)
-            q_filter = Q(level=maths_level) & (
+            q_filter = Q(level=level) & (
                 Q(school__isnull=True) | Q(school_id=school_id)
             )
         elif request.user.has_role(Role.HEAD_OF_DEPARTMENT):
             # HoD sees global + school-scoped + their department's questions (not class-scoped)
-            q_filter = Q(level=maths_level) & (
+            q_filter = Q(level=level) & (
                 Q(school__isnull=True)
                 | Q(school_id=school_id, department__isnull=True)
                 | Q(department_id=dept_id, classroom__isnull=True)
             )
         else:
             # Teacher sees global + school-scoped + department-scoped + their class questions
-            q_filter = Q(level=maths_level) & (
+            q_filter = Q(level=level) & (
                 Q(school__isnull=True)
                 | Q(school_id=school_id, department__isnull=True)
                 | Q(department_id=dept_id, classroom__isnull=True)
@@ -2141,12 +2127,9 @@ class AddQuestionView(RoleRequiredMixin, View):
         return render(request, 'teacher/question_form.html', self._build_context(request, level))
 
     def post(self, request, level_number):
-        from maths.models import (Question as MathsQuestion, Answer as MathsAnswer,
-                                  Topic as MathsTopic, Level as MathsLevel)
+        from maths.models import Question as MathsQuestion, Answer as MathsAnswer
         level = get_object_or_404(Level, level_number=level_number)
         classroom_topic = get_object_or_404(Topic, id=request.POST.get('topic'))
-        maths_level = get_object_or_404(MathsLevel, level_number=level_number)
-        maths_topic = MathsTopic.objects.filter(name=classroom_topic.name).first()
 
         school_id, dept_id, classroom_ids = _get_question_scope(request.user)
 
@@ -2166,7 +2149,7 @@ class AddQuestionView(RoleRequiredMixin, View):
 
         with transaction.atomic():
             question = MathsQuestion.objects.create(
-                topic=maths_topic, level=maths_level,
+                topic=classroom_topic, level=level,
                 school_id=school_id,
                 department_id=dept_id,
                 classroom_id=selected_classroom_id,
@@ -2231,14 +2214,13 @@ class EditQuestionView(RoleRequiredMixin, View):
         })
 
     def post(self, request, question_id):
-        from maths.models import (Question as MathsQuestion, Answer as MathsAnswer,
-                                  Topic as MathsTopic)
+        from maths.models import Question as MathsQuestion, Answer as MathsAnswer
         question = get_object_or_404(MathsQuestion, id=question_id)
         if not _can_edit_question(request.user, question):
             messages.error(request, 'You do not have permission to edit this question.')
             return redirect('question_list', level_number=question.level.level_number)
         classroom_topic = get_object_or_404(Topic, id=request.POST.get('topic'))
-        question.topic = MathsTopic.objects.filter(name=classroom_topic.name).first()
+        question.topic = classroom_topic
         question.question_text = request.POST.get('question_text', '').strip()
         question.question_type = request.POST.get('question_type', MathsQuestion.MULTIPLE_CHOICE)
         question.difficulty = int(request.POST.get('difficulty', 1))

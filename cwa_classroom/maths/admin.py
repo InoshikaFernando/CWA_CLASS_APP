@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Topic, Level, ClassRoom, Enrollment, BasicFactsResult, TimeLog, Question, Answer
+from .models import BasicFactsResult, TimeLog, Question, Answer
 
 
 @admin.register(BasicFactsResult)
@@ -32,7 +32,3 @@ class QuestionAdmin(admin.ModelAdmin):
     inlines = [AnswerInline]
 
 
-admin.site.register(Topic)
-admin.site.register(Level)
-admin.site.register(ClassRoom)
-admin.site.register(Enrollment)

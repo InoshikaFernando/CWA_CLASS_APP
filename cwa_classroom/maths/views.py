@@ -19,9 +19,10 @@ from datetime import datetime
 import json
 import threading
 from django.utils.text import slugify
-from .models import Topic, Level, ClassRoom, Enrollment, Question, Answer, StudentAnswer, BasicFactsResult, TimeLog, TopicLevelStatistics, StudentFinalAnswer
+from .models import Question, Answer, StudentAnswer, BasicFactsResult, TimeLog, TopicLevelStatistics, StudentFinalAnswer
+from classroom.models import Topic, Level as ClassroomLevel, Subject as ClassroomSubject, ClassRoom as ClassroomClassRoom  # classroom models
 from accounts.models import CustomUser, Role, UserRole
-from .forms import CreateClassForm, StudentSignUpForm, TeacherSignUpForm, TeacherCenterRegistrationForm, IndividualStudentRegistrationForm, StudentBulkRegistrationForm, QuestionForm, AnswerFormSet, UserProfileForm, UserPasswordChangeForm
+from .forms import StudentSignUpForm, TeacherSignUpForm, TeacherCenterRegistrationForm, IndividualStudentRegistrationForm, StudentBulkRegistrationForm, QuestionForm, AnswerFormSet, UserProfileForm, UserPasswordChangeForm
 from .constants import YEAR_TOPICS_MAP, TIMES_TABLES_BY_YEAR
 
 BASIC_FACTS_TOPIC_CONFIG = {
@@ -96,21 +97,52 @@ def calculate_age_from_dob(date_of_birth):
     return age
 
 
+def _get_maths_subject():
+    """Return the global Mathematics classroom.Subject (create if needed)."""
+    subject, _ = ClassroomSubject.objects.get_or_create(
+        slug='mathematics',
+        school=None,
+        defaults={'name': 'Mathematics', 'is_active': True},
+    )
+    return subject
+
+
+def get_or_create_classroom_topic(name):
+    """Get or create a classroom.Topic by name under the global Mathematics subject."""
+    subject = _get_maths_subject()
+    base_slug = slugify(name) or f'topic-unnamed'
+    topic = Topic.objects.filter(subject=subject, name__iexact=name).first()
+    if topic is None:
+        # Ensure unique slug
+        slug = base_slug
+        counter = 1
+        while Topic.objects.filter(subject=subject, slug=slug).exists():
+            slug = f'{base_slug}-{counter}'
+            counter += 1
+        topic = Topic.objects.create(
+            subject=subject,
+            name=name,
+            slug=slug,
+            is_active=True,
+        )
+    return topic
+
+
 def get_or_create_age_level(age):
-    """Get or create a Level object for a specific age (for Basic Facts statistics)"""
-    # Use level_number = 2000 + age to avoid conflicts with regular levels (2-9) and Basic Facts (100+)
+    """Get or create a classroom.Level for a specific age (for Basic Facts statistics)."""
+    # Use level_number = 2000 + age to avoid conflicts with regular (1-99) and Basic Facts (100+) levels
     age_level_number = 2000 + age
-    age_level, created = Level.objects.get_or_create(
+    age_level, _ = ClassroomLevel.objects.get_or_create(
         level_number=age_level_number,
-        defaults={'title': f"Age {age}"}
+        defaults={'display_name': f"Age {age}"},
     )
     return age_level
 
+
 def get_or_create_formatted_topic(level_number, topic_name):
-    """Get or create a Topic with formatted name for Basic Facts: {level_number}_{topic_name}"""
+    """Get or create a classroom.Topic with formatted name for Basic Facts: {level_number}_{topic_name}"""
     formatted_name = f"{level_number}_{topic_name}"
-    topic, created = Topic.objects.get_or_create(name=formatted_name)
-    return topic
+    return get_or_create_classroom_topic(formatted_name)
 
 def select_questions_stratified(all_questions, num_needed):
     """
@@ -257,12 +289,12 @@ def update_topic_statistics(level_num=None, topic_name=None):
                 topic_name_val = combo['question__topic__name']
                 
                 try:
-                    level_obj = Level.objects.get(level_number=level_num_val)
+                    level_obj = ClassroomLevel.objects.get(level_number=level_num_val)
                     topic_obj = Topic.objects.filter(name=topic_name_val).first()
-                    
+
                     if not topic_obj:
                         continue
-                    
+
                     # Get available questions count
                     available_questions = Question.objects.filter(
                         level=level_obj,
@@ -410,7 +442,7 @@ def update_topic_statistics(level_num=None, topic_name=None):
                     formatted_topic = get_or_create_formatted_topic(level_num_val, original_topic_name)
                     
                     # Get available questions count (for the original level and topic)
-                    original_level = Level.objects.filter(level_number=level_num_val).first()
+                    original_level = ClassroomLevel.objects.filter(level_number=level_num_val).first()
                     original_topic = Topic.objects.filter(name=original_topic_name).first()
                     
                     if not original_level or not original_topic:
@@ -517,31 +549,10 @@ def signup_teacher(request):
         form = TeacherSignUpForm()
     return render(request, "maths/signup.html", {"form": form, "type": "Teacher"})
 
-def student_allowed_levels(user):
-    """
-    Determine which levels a student can access.
-    Returns None if user is a teacher or if individual student should see all levels.
-    Returns a queryset of allowed levels if student is enrolled in classes.
-    """
-    if user.is_teacher:
-        return None
-    
-    # Check if student is enrolled in any classes
-    enrollments = Enrollment.objects.filter(student=user)
-    
-    if not enrollments.exists():
-        # Individual student - can access all levels
-        return None
-    
-    # Student enrolled in classes - can only access levels assigned to their classes
-    qs = Level.objects.filter(classrooms__enrollments__student=user).distinct()
-    return qs
-
 @login_required
 def dashboard(request):
     if request.user.is_teacher:
-        classes = request.user.classes.all()
-        return render(request, "maths/teacher_dashboard.html", {"classes": classes})
+        return redirect('home')
 
     # ── Time log (read heartbeat-accumulated time) ────────────────────────
     try:
@@ -549,13 +560,10 @@ def dashboard(request):
     except Exception:
         time_log = None
 
-    # ── Accessibility ─────────────────────────────────────────────────────
-    enrolled_level_ids = set(
-        Level.objects.filter(
-            classrooms__enrollments__student=request.user
-        ).values_list('id', flat=True)
-    )
-    is_individual_student = not enrolled_level_ids
+    # ── All students see all levels; is_individual_student = not in any class ──
+    is_individual_student = not ClassroomClassRoom.objects.filter(
+        students=request.user, is_active=True
+    ).exists()
 
     # ── Best score ────────────────────────────────────────────────────────
     from django.db.models import Max
@@ -565,88 +573,54 @@ def dashboard(request):
     best_score = round(float(best_pts), 1) if best_pts else None
 
     # ── Year data (all year levels 1–99, marked accessible/locked) ────────
-    from classroom.models import Topic as ClassroomTopic, Level as ClassroomLevel
     from collections import defaultdict
 
-    all_year_levels = (
-        Level.objects.filter(level_number__lt=100)
-        .order_by('level_number')
-    )
+    # Use classroom.Level as the authoritative level list
+    all_year_levels = ClassroomLevel.objects.filter(level_number__lt=100).order_by('level_number')
 
-    # One query: maths topic name → id map (for URL generation).
-    # Builds multiple lookup keys per topic to bridge name mismatches between
-    # maths.Topic (e.g. "BODMAS/PEMDAS", "Measurement") and classroom.Topic
-    # sub-topic names (e.g. "BODMAS", "Measurements").
-    maths_topic_name_to_id = {}
-    for _t in Topic.objects.all():
-        _lower = _t.name.lower()
-        # Exact and lowercase
-        maths_topic_name_to_id[_t.name] = _t.id
-        maths_topic_name_to_id[_lower] = _t.id
-        # Slash-variant: "BODMAS/PEMDAS" → also register "BODMAS" and "bodmas"
-        if '/' in _t.name:
-            _pre = _t.name.split('/')[0].strip()
-            maths_topic_name_to_id[_pre] = _t.id
-            maths_topic_name_to_id[_pre.lower()] = _t.id
-        # Plural variant: "Measurement" → also register "measurements"
-        if not _lower.endswith('s'):
-            maths_topic_name_to_id[_lower + 's'] = _t.id
-
-    # One query: maths level_id → set of topic_ids that have questions
+    # One query: classroom level_id → set of classroom topic_ids that have questions
     topics_with_q_by_level = defaultdict(set)
     for row in Question.objects.values('level_id', 'topic_id').distinct():
         topics_with_q_by_level[row['level_id']].add(row['topic_id'])
 
-    # One query: classroom level_number → ClassroomLevel object
-    classroom_level_map = {
-        cl.level_number: cl for cl in ClassroomLevel.objects.all()
-    }
-
     year_data = []
     for level in all_year_levels:
-        accessible = is_individual_student or level.id in enrolled_level_ids
-        topics_with_q = topics_with_q_by_level[level.id]
+        accessible = True  # all students see all levels
+        topics_with_q = topics_with_q_by_level[level.id]  # level.id is classroom.Level.id
 
-        # Try to build hierarchical strand_data via classroom.Topic
-        classroom_level = classroom_level_map.get(level.level_number)
+        # Build hierarchical strand_data via classroom.Topic (level IS a ClassroomLevel)
         strand_data = []
+        cl_topics = (
+            Topic.objects
+            .filter(levels=level, is_active=True)
+            .select_related('parent')
+            .order_by('parent__order', 'parent__name', 'order', 'name')
+        )
+        strand_dict = {}
+        for ct in cl_topics:
+            if ct.parent_id is None:
+                if ct.id not in strand_dict:
+                    strand_dict[ct.id] = {'strand': ct, 'subtopics': []}
+            else:
+                key = ct.parent_id
+                if key not in strand_dict:
+                    strand_dict[key] = {'strand': ct.parent, 'subtopics': []}
+                has_q = ct.id in topics_with_q
+                strand_dict[key]['subtopics'].append({
+                    'topic': ct,
+                    'topic_id': ct.id,
+                    'has_questions': has_q,
+                })
+        strand_data = [g for g in strand_dict.values() if g['subtopics']]
 
-        if classroom_level:
-            cl_topics = (
-                ClassroomTopic.objects
-                .filter(levels=classroom_level, is_active=True)
-                .select_related('parent')
-                .order_by('parent__order', 'parent__name', 'order', 'name')
-            )
-            strand_dict = {}
-            for ct in cl_topics:
-                if ct.parent_id is None:
-                    # Strand header — create the bucket but do NOT add as a subtopic card
-                    if ct.id not in strand_dict:
-                        strand_dict[ct.id] = {'strand': ct, 'subtopics': []}
-                else:
-                    key = ct.parent_id
-                    if key not in strand_dict:
-                        strand_dict[key] = {'strand': ct.parent, 'subtopics': []}
-                    maths_topic_id = (maths_topic_name_to_id.get(ct.name)
-                                      or maths_topic_name_to_id.get(ct.name.lower()))
-                    has_q = (maths_topic_id in topics_with_q) if maths_topic_id else False
-                    strand_dict[key]['subtopics'].append({
-                        'topic': ct,
-                        'maths_topic_id': maths_topic_id,
-                        'has_questions': has_q,
-                    })
-            # Drop strand headers that ended up with no sub-topics
-            strand_data = [g for g in strand_dict.values() if g['subtopics']]
-
-        # Fallback: use maths.Level.topics directly (flat, no hierarchy)
+        # Fallback: classroom.Level.topics (flat, no hierarchy)
         if not strand_data:
             flat_subtopics = []
-            for mt in level.topics.order_by('name'):
+            for ct in level.topics.order_by('name'):
                 flat_subtopics.append({
-                    'topic': mt,
-                    'maths_topic_id': mt.id,
-                    'has_questions': mt.id in topics_with_q,
+                    'topic': ct,
+                    'topic_id': ct.id,
+                    'has_questions': ct.id in topics_with_q,
                 })
             if flat_subtopics:
                 strand_data = [{'strand': None, 'subtopics': flat_subtopics}]
@@ -673,13 +647,11 @@ def dashboard(request):
 def dashboard_detail(request):
     """Detailed dashboard view showing progress table"""
     if request.user.is_teacher:
-        classes = request.user.classes.all()
-        return render(request, "maths/teacher_dashboard.html", {"classes": classes})
-    allowed = student_allowed_levels(request.user)
-    levels = allowed if allowed is not None else Level.objects.all()
-    
+        return redirect('home')
+    levels = ClassroomLevel.objects.all()
+
     # Separate Basic Facts levels (>= 100) from Year levels (< 100)
-    basic_facts_levels = Level.objects.filter(level_number__gte=100)
+    basic_facts_levels = ClassroomLevel.objects.filter(level_number__gte=100)
     year_levels = levels.filter(level_number__lt=100)
     
     # Group year levels by year and topics
@@ -768,13 +740,13 @@ def dashboard_detail(request):
         
         # Get level info
         try:
-            level_obj = Level.objects.get(level_number=level_num)
+            level_obj = ClassroomLevel.objects.get(level_number=level_num)
             level_name = f"Level {level_num}" if level_num >= 100 else f"Year {level_num}"
-        except Level.DoesNotExist:
+        except ClassroomLevel.DoesNotExist:
             level_obj = None
             level_name = f"Level {level_num}"
             topic_name = "Unknown"
-        
+
         # Get topic object
         topic_obj = Topic.objects.filter(name=topic_name).first() if level_obj else None
         
@@ -923,7 +895,7 @@ def dashboard_detail(request):
                             formatted_topic = Topic.objects.filter(name=formatted_topic_name).first()
                             if formatted_topic:
                                 # Get age level (2000 + age)
-                                age_level = Level.objects.filter(level_number=2000 + age).first()
+                                age_level = ClassroomLevel.objects.filter(level_number=2000 + age).first()
                                 if age_level:
                                     stats = TopicLevelStatistics.objects.filter(
                                         level=age_level,
@@ -998,7 +970,7 @@ def dashboard_detail(request):
                             formatted_topic = Topic.objects.filter(name=formatted_topic_name).first()
                             if formatted_topic:
                                 # Get age level (2000 + age)
-                                age_level = Level.objects.filter(level_number=2000 + age).first()
+                                age_level = ClassroomLevel.objects.filter(level_number=2000 + age).first()
                                 if age_level:
                                     stats = TopicLevelStatistics.objects.filter(
                                         level=age_level,
@@ -1104,7 +1076,7 @@ def dashboard_detail(request):
         "sorted_years": sorted_years,
         "basic_facts_by_subtopic": basic_facts_by_subtopic,
         "basic_facts_progress": basic_facts_progress,
-        "has_class": Enrollment.objects.filter(student=request.user).exists(),
+        "has_class": ClassroomClassRoom.objects.filter(students=request.user, is_active=True).exists(),
         "progress_by_level": progress_by_level,
         "show_progress_table": True,
         "show_all_content": False,
@@ -1114,13 +1086,7 @@ def dashboard_detail(request):
 @login_required
 def measurements_progress(request, level_number):
     """Show detailed measurements progress with attempt history and graph"""
-    level = get_object_or_404(Level, level_number=level_number)
-    
-    # Check if student has access to this level
-    allowed = student_allowed_levels(request.user)
-    if allowed is not None and not allowed.filter(pk=level.pk).exists():
-        messages.error(request, "You don't have access to this level.")
-        return redirect("maths:dashboard")
+    level = get_object_or_404(ClassroomLevel, level_number=level_number)
     
     # Get all student answers for Measurements topic for this level
     student_answers = StudentAnswer.objects.filter(
@@ -1225,43 +1191,17 @@ def topic_list(request):
 @login_required
 def level_list(request, topic_id):
     topic = get_object_or_404(Topic, pk=topic_id)
-    allowed = student_allowed_levels(request.user)
-    if allowed is None:
-        levels = topic.levels.all()
-    else:
-        levels = topic.levels.filter(pk__in=allowed.values_list("pk", flat=True))
+    levels = topic.levels.all()
     return render(request, "maths/levels.html", {"topic": topic, "levels": levels})
 
 @login_required
 def level_detail(request, level_number):
-    level = get_object_or_404(Level, level_number=level_number)
-    allowed = student_allowed_levels(request.user)
-    if allowed is not None and not allowed.filter(pk=level.pk).exists():
-        return render(request, "maths/forbidden.html", status=403)
-    
-    # Get topics for this level
+    level = get_object_or_404(ClassroomLevel, level_number=level_number)
     topics = level.topics.all()
-    
     return render(request, "maths/level_detail.html", {
         "level": level,
         "topics": topics
     })
-
-@login_required
-def create_class(request):
-    if not request.user.is_teacher:
-        return redirect("maths:dashboard")
-    if request.method == "POST":
-        form = CreateClassForm(request.POST)
-        if form.is_valid():
-            classroom = form.save(commit=False)
-            classroom.teacher = request.user
-            classroom.save()
-            form.save_m2m()
-            return redirect("maths:dashboard")
-    else:
-        form = CreateClassForm()
-    return render(request, "maths/create_class.html", {"form": form})
 
 def teacher_center_registration(request):
     """Handle teacher registration for creating a center/school"""
@@ -1325,19 +1265,6 @@ def bulk_student_registration(request):
         form = StudentBulkRegistrationForm()
     
     return render(request, "maths/bulk_student_registration.html", {"form": form})
-
-@login_required
-def join_class(request):
-    if request.method == "POST":
-        code = request.POST.get("code", "").strip()
-        try:
-            classroom = ClassRoom.objects.get(code=code)
-            Enrollment.objects.get_or_create(student=request.user, classroom=classroom)
-            messages.success(request, f"Successfully joined class: {classroom.name}")
-            return redirect("maths:dashboard")
-        except ClassRoom.DoesNotExist:
-            messages.error(request, "Invalid class code")
-    return render(request, "maths/join_class.html")
 
 @login_required
 def user_profile(request):
@@ -1855,15 +1782,7 @@ def take_basic_facts_quiz(request, basic_topic, display_level):
 @login_required
 def take_quiz(request, level_number):
     """Allow students to take a quiz for a specific level"""
-    level = get_object_or_404(Level, level_number=level_number)
-    
-    # Check if student has access to this level
-    # Basic Facts levels (>= 100) are always accessible to all students
-    if level_number < 100:
-        allowed = student_allowed_levels(request.user)
-        if allowed is not None and not allowed.filter(pk=level.pk).exists():
-            messages.error(request, "You don't have access to this level.")
-            return redirect("maths:dashboard")
+    level = get_object_or_404(ClassroomLevel, level_number=level_number)
     
     # For Basic Facts levels, generate questions dynamically
     is_basic_facts = level_number >= 100
@@ -2171,7 +2090,7 @@ def take_quiz(request, level_number):
             # For regular levels, save to StudentFinalAnswer with "Quiz" topic
             if not is_basic_facts:
                 # Get or create "Quiz" topic for mixed quizzes
-                quiz_topic, _ = Topic.objects.get_or_create(name="Quiz")
+                quiz_topic = get_or_create_classroom_topic("Quiz")
                 
                 # Save to StudentFinalAnswer table with retry logic
                 from maths.utils import save_student_final_answer
@@ -2252,7 +2171,7 @@ def take_quiz(request, level_number):
         # For regular levels, show results page with all questions and answers
         if not is_basic_facts:
             # Get or create "Quiz" topic
-            quiz_topic, _ = Topic.objects.get_or_create(name="Quiz")
+            quiz_topic = get_or_create_classroom_topic("Quiz")
             
             # Get student answers for this session to show results
             student_answers_dict = {}
@@ -2336,16 +2255,10 @@ def take_quiz(request, level_number):
 @login_required
 def practice_questions(request, level_number):
     """Practice questions with random selection from all topics"""
-    level = get_object_or_404(Level, level_number=level_number)
-    
-    # Check if student has access to this level
-    allowed = student_allowed_levels(request.user)
-    if allowed is not None and not allowed.filter(pk=level.pk).exists():
-        messages.error(request, "You don't have access to this level.")
-        return redirect("maths:dashboard")
-    
+    level = get_object_or_404(ClassroomLevel, level_number=level_number)
+
     # Get all questions for this level
-    all_questions = level.questions.all()
+    all_questions = level.maths_questions_by_level.all()
     
     # Select random questions (limit to 10 for practice)
     if all_questions.count() > 10:
@@ -2377,11 +2290,6 @@ def submit_topic_answer(request):
 
     try:
         question = Question.objects.get(id=question_id)
-
-        # Verify the student has access to this question's level
-        allowed = student_allowed_levels(request.user)
-        if allowed is not None and not allowed.filter(pk=question.level.pk).exists():
-            return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
 
         if answer_id:
             answer = Answer.objects.get(id=answer_id, question=question)
@@ -2436,16 +2344,11 @@ def topic_questions(request, level_number, topic_name):
     Finance, Integers, Trigonometry). Accepts level_number and topic_name.
     All questions are prefetched on initial load and rendered client-side for
     faster question navigation."""
-    level = get_object_or_404(Level, level_number=level_number)
-
-    allowed = student_allowed_levels(request.user)
-    if allowed is not None and not allowed.filter(pk=level.pk).exists():
-        messages.error(request, "You don't have access to this level.")
-        return redirect("maths:dashboard")
+    level = get_object_or_404(ClassroomLevel, level_number=level_number)
 
     topic_obj = Topic.objects.filter(name=topic_name).first()
     if not topic_obj:
-        topic_obj = Topic.objects.create(name=topic_name)
+        topic_obj = get_or_create_classroom_topic(topic_name)
 
     all_questions_query = Question.objects.filter(
         level=level,
@@ -2741,11 +2644,7 @@ def _get_or_create_times_table_questions(level, topic_obj, table_number, operati
 @login_required
 def multiplication_selection(request, level_number):
     """Show times table selection grid for Multiplication."""
-    level = get_object_or_404(Level, level_number=level_number)
-    allowed = student_allowed_levels(request.user)
-    if allowed is not None and not allowed.filter(pk=level.pk).exists():
-        messages.error(request, "You don't have access to this level.")
-        return redirect("maths:dashboard")
+    level = get_object_or_404(ClassroomLevel, level_number=level_number)
 
     tables = TIMES_TABLES_BY_YEAR.get(level_number, [])
     return render(request, "maths/times_table_selection.html", {
@@ -2761,11 +2660,7 @@ def multiplication_selection(request, level_number):
 @login_required
 def division_selection(request, level_number):
     """Show times table selection grid for Division."""
-    level = get_object_or_404(Level, level_number=level_number)
-    allowed = student_allowed_levels(request.user)
-    if allowed is not None and not allowed.filter(pk=level.pk).exists():
-        messages.error(request, "You don't have access to this level.")
-        return redirect("maths:dashboard")
+    level = get_object_or_404(ClassroomLevel, level_number=level_number)
 
     tables = TIMES_TABLES_BY_YEAR.get(level_number, [])
     return render(request, "maths/times_table_selection.html", {
@@ -2783,12 +2678,7 @@ def times_table_quiz(request, level_number, table_number, operation):
     """Run a times table quiz. Generates questions on-the-fly and delegates to
     the standard topic_questions flow so scoring, progress tracking, and the
     submit_topic_answer endpoint all work identically to other topics."""
-    level = get_object_or_404(Level, level_number=level_number)
-    allowed = student_allowed_levels(request.user)
-    if allowed is not None and not allowed.filter(pk=level.pk).exists():
-        messages.error(request, "You don't have access to this level.")
-        return redirect("maths:dashboard")
-
+    level = get_object_or_404(ClassroomLevel, level_number=level_number)
     tables = TIMES_TABLES_BY_YEAR.get(level_number, [])
     if table_number not in tables:
         messages.error(request, f"{table_number} times table is not available for Year {level_number}.")
@@ -2799,10 +2689,10 @@ def times_table_quiz(request, level_number, table_number, operation):
     else:
         topic_name = f"Division ({table_number}\u00d7)"
 
-    # Get or create Topic
+    # Get or create Topic (classroom.Topic)
     topic_obj = Topic.objects.filter(name=topic_name).first()
     if not topic_obj:
-        topic_obj = Topic.objects.create(name=topic_name)
+        topic_obj = get_or_create_classroom_topic(topic_name)
 
     # Ensure questions exist in DB
     _get_or_create_times_table_questions(level, topic_obj, table_number, operation)

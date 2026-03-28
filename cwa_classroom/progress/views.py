@@ -12,23 +12,16 @@ def _build_strand_data(student, level, include_attempts=False):
     """Build strand_data list for a level, grouping topics by parent strand.
     Topics without a parent (flat/legacy) are grouped under strand=None.
 
-    Uses classroom.Topic for the display hierarchy (parent/order/is_active),
-    but bridges to maths.Topic/Level by name for result lookups.
+    Uses classroom.Topic for the display hierarchy (parent/order/is_active).
+    StudentFinalAnswer and TopicLevelStatistics now reference classroom.Topic
+    and classroom.Level directly — no name bridge needed.
     Colour is based on mean/std-dev from TopicLevelStatistics.
     """
-    from maths.models import Topic as MathsTopic, Level as MathsLevel
-
-    # Resolve the maths-side Level from the classroom Level's level_number
-    maths_level = MathsLevel.objects.filter(level_number=level.level_number).first()
-
-    # Build a name → maths.Topic lookup to avoid per-topic DB hits
-    maths_topic_map = {t.name: t for t in MathsTopic.objects.all()}
-
-    # Pre-fetch statistics for this level keyed by maths topic id
-    stats_map = {}
-    if maths_level:
-        for s in TopicLevelStatistics.objects.filter(level=maths_level).select_related('topic'):
-            stats_map[s.topic_id] = s
+    # Pre-fetch statistics for this level keyed by classroom topic id
+    stats_map = {
+        s.topic_id: s
+        for s in TopicLevelStatistics.objects.filter(level=level).select_related('topic')
+    }
 
     all_topics = (
         Topic.objects.filter(levels=level, is_active=True)
@@ -41,39 +34,27 @@ def _build_strand_data(student, level, include_attempts=False):
         if key not in strand_dict:
             strand_dict[key] = {'strand': topic.parent, 'subtopics': []}
 
-        # Bridge classroom.Topic → maths.Topic by name
-        maths_topic = maths_topic_map.get(topic.name)
-
-        best = None
-        if maths_topic and maths_level:
-            best = StudentFinalAnswer.get_best_result(student, maths_topic, maths_level)
+        best = StudentFinalAnswer.get_best_result(student, topic, level)
 
         # Colour based on stats (mean/sigma) if available, else fallback
-        if best and maths_topic:
-            stats = stats_map.get(maths_topic.id)
+        if best:
+            stats = stats_map.get(topic.id)
             if stats:
                 colour = stats.get_colour_band(best.points)
             else:
-                # No stats yet — treat as average
                 colour = 'bg-green-200 text-green-900'
-        elif best:
-            colour = 'bg-green-200 text-green-900'
         else:
             colour = 'bg-gray-100 text-gray-400'
 
         entry = {
             'topic': topic,
-            'maths_topic': maths_topic,
             'best': best,
             'colour': colour,
         }
         if include_attempts:
-            if maths_topic and maths_level:
-                entry['attempts'] = StudentFinalAnswer.objects.filter(
-                    student=student, topic=maths_topic, level=maths_level
-                ).count()
-            else:
-                entry['attempts'] = 0
+            entry['attempts'] = StudentFinalAnswer.objects.filter(
+                student=student, topic=topic, level=level
+            ).count()
         strand_dict[key]['subtopics'].append(entry)
     return list(strand_dict.values())
 

@@ -7,7 +7,8 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.utils import timezone
 from django.conf import settings
 
-from maths.models import Level, Topic, calculate_points
+from maths.models import calculate_points
+from classroom.models import Level as ClassroomLevel, Topic as ClassroomTopic
 from .basic_facts import (
     SUBTOPIC_CONFIG, SUBTOPIC_LABELS, get_display_level,
     generate_questions, check_answer
@@ -270,7 +271,7 @@ class TimesTablesHomeView(LoginRequiredMixin, View):
         # Determine student's year level from their hub classrooms
         year = 4  # default
         if request.user.is_student or request.user.is_individual_student:
-            from classroom.models import ClassRoom, Level as ClassroomLevel
+            from classroom.models import ClassRoom
             classrooms = ClassRoom.objects.filter(students=request.user, is_active=True)
             hub_levels = ClassroomLevel.objects.filter(classrooms__in=classrooms, level_number__lte=8)
             if hub_levels.exists():
@@ -287,7 +288,7 @@ class TimesTablesHomeView(LoginRequiredMixin, View):
 
 class TimesTablesSelectView(LoginRequiredMixin, View):
     def get(self, request, level_number, operation):
-        level = get_object_or_404(Level, level_number=level_number)
+        level = get_object_or_404(ClassroomLevel, level_number=level_number)
         year = level_number
         available = TIMES_TABLES_BY_YEAR.get(year, list(range(1, 13)))
         return render(request, 'quiz/times_tables_select.html', {
@@ -410,7 +411,7 @@ class TimesTablesSubmitView(LoginRequiredMixin, View):
 
         # Save to DB
         from maths.models import StudentFinalAnswer
-        level_obj = Level.objects.filter(level_number=table).first()
+        level_obj = ClassroomLevel.objects.filter(level_number=table).first()
         StudentFinalAnswer.objects.create(
             student=request.user,
             topic=None,
@@ -448,8 +449,8 @@ class TimesTablesResultsView(LoginRequiredMixin, View):
 class TopicQuizView(LoginRequiredMixin, View):
     def get(self, request, level_number, topic_id):
         import random as rnd
-        level = get_object_or_404(Level, level_number=level_number)
-        topic = get_object_or_404(Topic, id=topic_id)
+        level = get_object_or_404(ClassroomLevel, level_number=level_number)
+        topic = get_object_or_404(ClassroomTopic, id=topic_id)
 
         from maths.models import Question
         questions_qs = list(Question.objects.filter(
@@ -505,8 +506,8 @@ class TopicQuizView(LoginRequiredMixin, View):
 
 class TopicResultsView(LoginRequiredMixin, View):
     def get(self, request, level_number, topic_id):
-        level = get_object_or_404(Level, level_number=level_number)
-        topic = get_object_or_404(Topic, id=topic_id)
+        level = get_object_or_404(ClassroomLevel, level_number=level_number)
+        topic = get_object_or_404(ClassroomTopic, id=topic_id)
 
         result_id = request.session.get(f'tq_result_{topic_id}_{level_number}')
         from maths.models import StudentFinalAnswer
@@ -528,11 +529,11 @@ class TopicResultsView(LoginRequiredMixin, View):
 class MixedQuizView(LoginRequiredMixin, View):
     def get(self, request, level_number):
         import random as rnd
-        level = get_object_or_404(Level, level_number=level_number)
+        level = get_object_or_404(ClassroomLevel, level_number=level_number)
         from maths.models import Question
 
-        # Stratified sample across all topics for this level (maths.Topic has no is_active)
-        topics = Topic.objects.filter(levels=level)
+        # Stratified sample across all topics for this level
+        topics = level.topics.all()
         all_questions = []
         for topic in topics:
             qs = list(Question.objects.filter(topic=topic, level=level).prefetch_related('answers'))
@@ -565,7 +566,7 @@ class MixedQuizView(LoginRequiredMixin, View):
 
     def post(self, request, level_number):
         import random as rnd
-        level = get_object_or_404(Level, level_number=level_number)
+        level = get_object_or_404(ClassroomLevel, level_number=level_number)
         session_id = request.POST.get('session_id', '')
         session_data = request.session.get(f'mq_{session_id}', {})
         start_time = session_data.get('start_time', time.time())
@@ -644,7 +645,7 @@ class MixedQuizView(LoginRequiredMixin, View):
 
 class MixedResultsView(LoginRequiredMixin, View):
     def get(self, request, level_number):
-        level = get_object_or_404(Level, level_number=level_number)
+        level = get_object_or_404(ClassroomLevel, level_number=level_number)
         data = request.session.get(f'mq_result_{level_number}', {})
         from maths.models import StudentFinalAnswer
         result = None
@@ -741,8 +742,7 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             points = calculate_points(correct, total, time_taken)
 
             from maths.models import StudentFinalAnswer
-            from maths.models import Level as _Level
-            level = _Level.objects.filter(level_number=session_data['level_number']).first()
+            level = ClassroomLevel.objects.filter(level_number=session_data['level_number']).first()
             attempt_num = StudentFinalAnswer.get_next_attempt_number(request.user, q.topic, level)
             result = StudentFinalAnswer.objects.create(
                 student=request.user,
