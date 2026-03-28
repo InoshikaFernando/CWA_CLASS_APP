@@ -4233,11 +4233,16 @@ class SubjectsHubView(LoginRequiredMixin, View):
                 })
 
         # ── INDIVIDUAL STUDENT path (or school student with no schools) ──
-        global_subjects = _annotate_apps_with_questions(
-            SubjectApp.objects.filter(
-                is_active=True, is_coming_soon=False,
-            ).order_by('order')
-        )
+        # Only show apps that have global questions — hide the card entirely
+        # if no global questions exist for that subject.
+        global_subjects = [
+            app for app in _annotate_apps_with_questions(
+                SubjectApp.objects.filter(
+                    is_active=True, is_coming_soon=False,
+                ).order_by('order')
+            )
+            if app.has_questions
+        ]
         subjects = global_subjects
 
         return render(request, 'hub/home.html', {
