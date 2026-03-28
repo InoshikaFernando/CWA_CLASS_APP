@@ -280,6 +280,51 @@ def drop_old_fk_columns_if_exist(apps, schema_editor):
             cursor.execute(f"ALTER TABLE `{table}` DROP COLUMN `{column}`")
 
 
+def ensure_question_0009_columns(apps, schema_editor):
+    """
+    Production guard: migration 0009 (question_classroom_question_department)
+    may have been faked or partially applied, leaving classroom_id and
+    department_id absent from maths_question even though the migration is
+    recorded as applied in django_migrations.
+
+    If either column is missing, add it with a FK constraint now so that ORM
+    queries in this migration — which explicitly SELECT every field on the
+    historical Question model, including the 0009-added ones — do not fail
+    with "Unknown column 'maths_question.classroom_id'".
+    """
+    db_name = schema_editor.connection.settings_dict['NAME']
+    with schema_editor.connection.cursor() as cursor:
+        def col_exists(col):
+            cursor.execute(
+                "SELECT COUNT(*) FROM information_schema.columns "
+                "WHERE table_schema = %s "
+                "  AND table_name = 'maths_question' "
+                "  AND column_name = %s",
+                [db_name, col],
+            )
+            return cursor.fetchone()[0] > 0
+
+        if not col_exists('classroom_id'):
+            cursor.execute(
+                "ALTER TABLE `maths_question` "
+                "  ADD COLUMN `classroom_id` bigint DEFAULT NULL, "
+                "  ADD KEY `maths_question_classroom_id_fk_idx` (`classroom_id`), "
+                "  ADD CONSTRAINT `maths_question_classroom_id_fk_cc` "
+                "    FOREIGN KEY (`classroom_id`) "
+                "    REFERENCES `classroom_classroom` (`id`)"
+            )
+
+        if not col_exists('department_id'):
+            cursor.execute(
+                "ALTER TABLE `maths_question` "
+                "  ADD COLUMN `department_id` bigint DEFAULT NULL, "
+                "  ADD KEY `maths_question_department_id_fk_idx` (`department_id`), "
+                "  ADD CONSTRAINT `maths_question_department_id_fk_cd` "
+                "    FOREIGN KEY (`department_id`) "
+                "    REFERENCES `classroom_department` (`id`)"
+            )
+
+
 def cleanup_partial_shadow_columns(apps, schema_editor):
     """
     Drop any shadow columns (and their FK constraints) that were added by a
@@ -336,6 +381,12 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        # ── Pre-step: ensure 0009 columns exist (production safety guard) ──
+        # Migration 0009 may have been faked on production; this idempotently
+        # adds classroom_id / department_id to maths_question if absent so
+        # that subsequent ORM queries (which SELECT all model fields) succeed.
+        migrations.RunPython(ensure_question_0009_columns, migrations.RunPython.noop),
+
         # ── Step 0: clean up shadow columns from any previous partial run ──
         migrations.RunPython(cleanup_partial_shadow_columns, migrations.RunPython.noop),
 
