@@ -41,6 +41,27 @@ def migrate_to_classroom_models(apps, schema_editor):
     TopicLevelStatistics = apps.get_model('maths', 'TopicLevelStatistics')
     BasicFactsResult = apps.get_model('maths', 'BasicFactsResult')
 
+    # ── 0. Detect which old source columns still exist ────────────────────
+    # A prior partial run may have already removed some old FK columns.
+    # We skip data-copy steps for tables whose old columns are gone.
+    db_name = schema_editor.connection.settings_dict['NAME']
+    with schema_editor.connection.cursor() as cursor:
+        def col_exists(table, col):
+            cursor.execute(
+                "SELECT COUNT(*) FROM information_schema.columns "
+                "WHERE table_schema=%s AND table_name=%s AND column_name=%s",
+                [db_name, table, col],
+            )
+            return cursor.fetchone()[0] > 0
+
+        q_has_old_topic = col_exists('maths_question', 'topic_id')
+        q_has_old_level = col_exists('maths_question', 'level_id')
+        sfa_has_old_topic = col_exists('maths_studentfinalanswer', 'topic_id')
+        sfa_has_old_level = col_exists('maths_studentfinalanswer', 'level_id')
+        tls_has_old_topic = col_exists('maths_topiclevelstatistics', 'topic_id')
+        tls_has_old_level = col_exists('maths_topiclevelstatistics', 'level_id')
+        bfr_has_old_level = col_exists('maths_basicfactsresult', 'level_id')
+
     # ── 1. Ensure global "Mathematics" classroom.Subject ──────────────────
     maths_subject, _ = ClassroomSubject.objects.get_or_create(
         slug='mathematics',
@@ -106,43 +127,50 @@ def migrate_to_classroom_models(apps, schema_editor):
                 cl.topics.add(ct)
 
     # ── 5. Populate shadow fields on Question ─────────────────────────────
-    for q in Question.objects.filter(topic_id__isnull=False):
-        ct_pk = topic_map.get(q.topic_id)
-        if ct_pk is not None:
-            q.classroom_topic_id = ct_pk
-            q.save(update_fields=['classroom_topic_id'])
+    # Guard: skip if old source columns were already removed by a prior partial run
+    if q_has_old_topic:
+        for q in Question.objects.filter(topic_id__isnull=False):
+            ct_pk = topic_map.get(q.topic_id)
+            if ct_pk is not None:
+                q.classroom_topic_id = ct_pk
+                q.save(update_fields=['classroom_topic_id'])
 
-    for q in Question.objects.filter(level_id__isnull=False):
-        cl_pk = level_map.get(q.level_id)
-        if cl_pk is not None:
-            q.classroom_level_id = cl_pk
-            q.save(update_fields=['classroom_level_id'])
+    if q_has_old_level:
+        for q in Question.objects.filter(level_id__isnull=False):
+            cl_pk = level_map.get(q.level_id)
+            if cl_pk is not None:
+                q.classroom_level_id = cl_pk
+                q.save(update_fields=['classroom_level_id'])
 
     # ── 6. Populate shadow fields on StudentFinalAnswer ───────────────────
-    for sfa in StudentFinalAnswer.objects.filter(topic_id__isnull=False):
-        ct_pk = topic_map.get(sfa.topic_id)
-        if ct_pk is not None:
-            sfa.classroom_topic_id = ct_pk
-            sfa.save(update_fields=['classroom_topic_id'])
+    if sfa_has_old_topic:
+        for sfa in StudentFinalAnswer.objects.filter(topic_id__isnull=False):
+            ct_pk = topic_map.get(sfa.topic_id)
+            if ct_pk is not None:
+                sfa.classroom_topic_id = ct_pk
+                sfa.save(update_fields=['classroom_topic_id'])
 
-    for sfa in StudentFinalAnswer.objects.filter(level_id__isnull=False):
-        cl_pk = level_map.get(sfa.level_id)
-        if cl_pk is not None:
-            sfa.classroom_level_id = cl_pk
-            sfa.save(update_fields=['classroom_level_id'])
+    if sfa_has_old_level:
+        for sfa in StudentFinalAnswer.objects.filter(level_id__isnull=False):
+            cl_pk = level_map.get(sfa.level_id)
+            if cl_pk is not None:
+                sfa.classroom_level_id = cl_pk
+                sfa.save(update_fields=['classroom_level_id'])
 
     # ── 7. Populate shadow fields on TopicLevelStatistics ─────────────────
-    for tls in TopicLevelStatistics.objects.filter(topic_id__isnull=False):
-        ct_pk = topic_map.get(tls.topic_id)
-        if ct_pk is not None:
-            tls.classroom_topic_id = ct_pk
-            tls.save(update_fields=['classroom_topic_id'])
+    if tls_has_old_topic:
+        for tls in TopicLevelStatistics.objects.filter(topic_id__isnull=False):
+            ct_pk = topic_map.get(tls.topic_id)
+            if ct_pk is not None:
+                tls.classroom_topic_id = ct_pk
+                tls.save(update_fields=['classroom_topic_id'])
 
-    for tls in TopicLevelStatistics.objects.filter(level_id__isnull=False):
-        cl_pk = level_map.get(tls.level_id)
-        if cl_pk is not None:
-            tls.classroom_level_id = cl_pk
-            tls.save(update_fields=['classroom_level_id'])
+    if tls_has_old_level:
+        for tls in TopicLevelStatistics.objects.filter(level_id__isnull=False):
+            cl_pk = level_map.get(tls.level_id)
+            if cl_pk is not None:
+                tls.classroom_level_id = cl_pk
+                tls.save(update_fields=['classroom_level_id'])
 
     # ── 7b. Deduplicate TopicLevelStatistics on (classroom_level, classroom_topic)
     # If two old maths (level, topic) rows map to the same classroom pair,
@@ -160,11 +188,12 @@ def migrate_to_classroom_models(apps, schema_editor):
             seen_pairs[key] = True
 
     # ── 8. Populate shadow fields on BasicFactsResult ─────────────────────
-    for bfr in BasicFactsResult.objects.filter(level_id__isnull=False):
-        cl_pk = level_map.get(bfr.level_id)
-        if cl_pk is not None:
-            bfr.classroom_level_id = cl_pk
-            bfr.save(update_fields=['classroom_level_id'])
+    if bfr_has_old_level:
+        for bfr in BasicFactsResult.objects.filter(level_id__isnull=False):
+            cl_pk = level_map.get(bfr.level_id)
+            if cl_pk is not None:
+                bfr.classroom_level_id = cl_pk
+                bfr.save(update_fields=['classroom_level_id'])
 
 
 def reverse_migration(apps, schema_editor):
