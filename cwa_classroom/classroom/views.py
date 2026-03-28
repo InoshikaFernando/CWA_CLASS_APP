@@ -4172,14 +4172,11 @@ class SubjectsHubView(LoginRequiredMixin, View):
                                     subject_id=subj.global_subject_id, is_active=True,
                                 ).first()
 
-                            # Determine link: app external_url, but only if questions exist.
-                            # Local-only schools (no global questions) still get a link so
-                            # long as at least one question (local OR global) is available.
+                            # Determine link: SubjectApp external_url if available
                             if matching_app and matching_app.external_url:
-                                has_q = _subject_has_questions(subj, school)
-                                link = matching_app.external_url if has_q else None
+                                link = matching_app.external_url
                             else:
-                                link = None
+                                link = reverse('student_class_detail', args=[enrolled_cr.id])
 
                             subject_cards.append({
                                 'name': subj.name,
@@ -4222,8 +4219,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
                         continue
                     uncovered_apps.append(app)
 
-                # Annotate with question availability (single DB query)
-                global_subjects = _annotate_apps_with_questions(uncovered_apps)
+                global_subjects = uncovered_apps
 
                 return render(request, 'hub/home.html', {
                     'greeting_tod': greeting_tod,
@@ -4236,7 +4232,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
                 })
 
         # ── INDIVIDUAL STUDENT path (or school student with no schools) ──
-        global_subjects = _annotate_apps_with_questions(
+        global_subjects = list(
             SubjectApp.objects.filter(
                 is_active=True, is_coming_soon=False,
             ).order_by('order')
