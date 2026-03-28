@@ -1,14 +1,16 @@
 {% extends "base.html" %}
 
-{% block title %}Create Academic Year — {{ school.name }}{% endblock %}
+{% block title %}{% if academic_year %}Edit{% else %}Create{% endif %} Academic Year — {{ school.name }}{% endblock %}
 
 {% block content %}
 <div class="max-w-2xl mx-auto">
 
   <!-- Header -->
   <div class="mb-8">
-    <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
-    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Create Academic Year</h1>
+    <a href="{% url 'admin_school_detail' school.id %}" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back to {{ school.name }}</a>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">
+      {% if academic_year %}Edit Academic Year{% else %}Create Academic Year{% endif %}
+    </h1>
     <p class="text-gray-500 mt-1">{{ school.name }}</p>
   </div>
 
@@ -46,6 +48,7 @@
         <!-- Is Current -->
         <div class="flex items-center gap-3">
           <input type="checkbox" name="is_current" id="is_current" value="1"
+                 {% if form_data.is_current %}checked{% endif %}
                  class="w-4 h-4 text-accent focus:ring-accent border-slate-300 rounded">
           <label for="is_current" class="text-sm font-medium text-gray-700">Set as current academic year</label>
         </div>
@@ -57,7 +60,7 @@
            class="px-5 py-2.5 text-gray-600 font-semibold rounded-xl hover:bg-gray-100 transition">Cancel</a>
         <button type="submit"
                 class="px-6 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm">
-          Create Academic Year
+          {% if academic_year %}Save Changes{% else %}Create Academic Year{% endif %}
         </button>
       </div>
     </form>

@@ -933,6 +933,78 @@ class AcademicYearCreateView(RoleRequiredMixin, View):
         return redirect('admin_school_detail', school_id=school.id)
 
 
+class AcademicYearEditView(RoleRequiredMixin, View):
+    """Edit an existing academic year for a school."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def _get_academic_year(self, request, school_id, academic_year_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        academic_year = get_object_or_404(AcademicYear, id=academic_year_id, school=school)
+        return school, academic_year
+
+    def get(self, request, school_id, academic_year_id):
+        school, academic_year = self._get_academic_year(request, school_id, academic_year_id)
+        return render(request, 'admin_dashboard/academic_year_form.html', {
+            'school': school,
+            'academic_year': academic_year,
+            'form_data': {
+                'year': academic_year.year,
+                'start_date': academic_year.start_date.isoformat() if academic_year.start_date else '',
+                'end_date': academic_year.end_date.isoformat() if academic_year.end_date else '',
+                'is_current': academic_year.is_current,
+            },
+        })
+
+    def post(self, request, school_id, academic_year_id):
+        school, academic_year = self._get_academic_year(request, school_id, academic_year_id)
+        year = request.POST.get('year', '').strip()
+        start_date = request.POST.get('start_date', '').strip()
+        end_date = request.POST.get('end_date', '').strip()
+        is_current = request.POST.get('is_current') == '1'
+
+        if not year or not start_date or not end_date:
+            messages.error(request, 'Year, start date, and end date are all required.')
+            return render(request, 'admin_dashboard/academic_year_form.html', {
+                'school': school,
+                'academic_year': academic_year,
+                'form_data': {'year': year, 'start_date': start_date, 'end_date': end_date, 'is_current': is_current},
+            })
+
+        try:
+            year = int(year)
+        except (ValueError, TypeError):
+            messages.error(request, 'Year must be a valid number.')
+            return render(request, 'admin_dashboard/academic_year_form.html', {
+                'school': school,
+                'academic_year': academic_year,
+                'form_data': {'year': year, 'start_date': start_date, 'end_date': end_date, 'is_current': is_current},
+            })
+
+        # Check duplicate, excluding self
+        if AcademicYear.objects.filter(school=school, year=year).exclude(id=academic_year.id).exists():
+            messages.error(request, f'Academic year {year} already exists for this school.')
+            return render(request, 'admin_dashboard/academic_year_form.html', {
+                'school': school,
+                'academic_year': academic_year,
+                'form_data': {'year': year, 'start_date': start_date, 'end_date': end_date, 'is_current': is_current},
+            })
+
+        academic_year.year = year
+        academic_year.start_date = start_date
+        academic_year.end_date = end_date
+        academic_year.is_current = is_current
+        academic_year.save()
+
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='academic_year_updated',
+            detail={'year': year, 'academic_year_id': academic_year.id, 'is_current': is_current},
+            request=request,
+        )
+        messages.success(request, f'Academic year {year} updated successfully.')
+        return redirect('admin_school_detail', school_id=school.id)
+
+
 # ── Student CRUD ──────────────────────────────────────────────────────────────
 
 class SchoolStudentManageView(RoleRequiredMixin, View):

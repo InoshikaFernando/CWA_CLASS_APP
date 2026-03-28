@@ -121,6 +121,36 @@
     {% endif %}
   </div>
 
+  <!-- Academic Years section -->
+  {% if academic_years %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm mb-8">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+      <h2 class="text-base font-semibold text-gray-900">Academic Years</h2>
+      <a href="{% url 'admin_academic_year_create' school.id %}"
+         class="inline-flex items-center gap-1.5 text-sm text-accent hover:text-accent-dark font-medium transition">
+        + Add Year
+      </a>
+    </div>
+    <div class="divide-y divide-slate-50">
+      {% for ay in academic_years %}
+      <div class="flex items-center justify-between px-6 py-3">
+        <div class="flex items-center gap-3">
+          <span class="text-sm font-semibold text-gray-900">{{ ay.year }}</span>
+          {% if ay.is_current %}
+            <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Current</span>
+          {% endif %}
+          {% if ay.start_date and ay.end_date %}
+            <span class="text-xs text-gray-400">{{ ay.start_date|date:"d M Y" }} – {{ ay.end_date|date:"d M Y" }}</span>
+          {% endif %}
+        </div>
+        <a href="{% url 'admin_academic_year_edit' school.id ay.id %}"
+           class="text-xs font-medium text-accent hover:text-accent-dark transition">Edit</a>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
 
     <!-- Departments section -->
