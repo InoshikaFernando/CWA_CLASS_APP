@@ -1043,6 +1043,125 @@ class AcademicYearEditView(RoleRequiredMixin, View):
         return redirect('admin_school_detail', school_id=school.id)
 
 
+class AcademicYearCalendarView(RoleRequiredMixin, View):
+    """Full-year calendar for an academic year showing terms and holidays."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request, school_id, academic_year_id):
+        import calendar as cal_module
+        from datetime import date, timedelta
+
+        school = _get_user_school_or_404(request.user, school_id)
+        academic_year = get_object_or_404(AcademicYear, id=academic_year_id, school=school)
+
+        today = timezone.localdate()
+
+        # Fetch all terms overlapping this academic year's date range
+        terms = Term.objects.filter(
+            school=school,
+            start_date__lte=academic_year.end_date,
+            end_date__gte=academic_year.start_date,
+        ).order_by('order', 'start_date')
+
+        # Fetch school holidays overlapping this academic year's date range
+        school_holidays = SchoolHoliday.objects.filter(
+            school=school,
+            start_date__lte=academic_year.end_date,
+            end_date__gte=academic_year.start_date,
+        )
+
+        # Fetch public holidays in this academic year's date range
+        public_holidays = PublicHoliday.objects.filter(
+            school=school,
+            date__gte=academic_year.start_date,
+            date__lte=academic_year.end_date,
+        )
+
+        # Build day-lookup dictionaries
+        term_days = {}  # date -> (term_name, term_order)
+        for term in terms:
+            d = term.start_date
+            while d <= term.end_date:
+                term_days[d] = (term.name, term.order)
+                d += timedelta(days=1)
+
+        school_holiday_days = {}  # date -> holiday name
+        for h in school_holidays:
+            d = h.start_date
+            while d <= h.end_date:
+                school_holiday_days[d] = h.name
+                d += timedelta(days=1)
+
+        public_holiday_days = {}  # date -> holiday name
+        for h in public_holidays:
+            public_holiday_days[h.date] = h.name
+
+        # Build month list spanning the academic year
+        start = academic_year.start_date
+        end = academic_year.end_date
+        months = []
+        cur = date(start.year, start.month, 1)
+        end_month_start = date(end.year, end.month, 1)
+
+        while cur <= end_month_start:
+            # monthcalendar returns weeks [Mon..Sun], 0 = not in this month
+            raw_weeks = cal_module.monthcalendar(cur.year, cur.month)
+            weeks = []
+            for week in raw_weeks:
+                days = []
+                for day_num in week:
+                    if day_num == 0:
+                        days.append(None)
+                    else:
+                        d = date(cur.year, cur.month, day_num)
+                        term_info = term_days.get(d)
+                        days.append({
+                            'date': d,
+                            'day': day_num,
+                            'weekday': d.weekday(),  # 0=Mon, 6=Sun
+                            'is_today': d == today,
+                            'in_range': start <= d <= end,
+                            'in_term': term_info is not None,
+                            'term_name': term_info[0] if term_info else None,
+                            'term_order': term_info[1] if term_info else None,
+                            'is_school_holiday': d in school_holiday_days,
+                            'school_holiday_name': school_holiday_days.get(d),
+                            'is_public_holiday': d in public_holiday_days,
+                            'public_holiday_name': public_holiday_days.get(d),
+                        })
+                weeks.append(days)
+
+            months.append({
+                'year': cur.year,
+                'month': cur.month,
+                'name': cur.strftime('%B %Y'),
+                'weeks': weeks,
+            })
+
+            # Advance to next month
+            if cur.month == 12:
+                cur = date(cur.year + 1, 1, 1)
+            else:
+                cur = date(cur.year, cur.month + 1, 1)
+
+        # Term colour palette (cycle through 4 distinct shades)
+        term_colours = ['blue', 'emerald', 'violet', 'sky', 'teal', 'indigo']
+        term_colour_map = {}
+        for i, term in enumerate(terms):
+            term_colour_map[term.name] = term_colours[i % len(term_colours)]
+
+        return render(request, 'admin_dashboard/academic_year_calendar.html', {
+            'school': school,
+            'academic_year': academic_year,
+            'terms': terms,
+            'months': months,
+            'today': today,
+            'term_colour_map': term_colour_map,
+            'school_holidays': school_holidays,
+            'public_holidays': public_holidays,
+        })
+
+
 class AcademicYearTermSetupView(RoleRequiredMixin, View):
     """Set start/end dates for each auto-generated term slot in an academic year."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]

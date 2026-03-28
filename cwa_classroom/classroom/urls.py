@@ -85,6 +85,7 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/academic-year/create/', views_admin.AcademicYearCreateView.as_view(), name='admin_academic_year_create'),
     path('admin-dashboard/schools/<int:school_id>/academic-year/<int:academic_year_id>/edit/', views_admin.AcademicYearEditView.as_view(), name='admin_academic_year_edit'),
     path('admin-dashboard/schools/<int:school_id>/academic-year/<int:academic_year_id>/term-setup/', views_admin.AcademicYearTermSetupView.as_view(), name='admin_academic_year_term_setup'),
+    path('admin-dashboard/schools/<int:school_id>/academic-year/<int:academic_year_id>/calendar/', views_admin.AcademicYearCalendarView.as_view(), name='admin_academic_year_calendar'),
     path('admin-dashboard/schools/<int:school_id>/holidays/', views_admin.SchoolHolidayManageView.as_view(), name='admin_school_holidays'),
     path('admin-dashboard/schools/<int:school_id>/public-holidays/', views_admin.PublicHolidayManageView.as_view(), name='admin_public_holidays'),
     path('admin-dashboard/schools/<int:school_id>/terms/', views_admin.TermManageView.as_view(), name='admin_school_terms'),

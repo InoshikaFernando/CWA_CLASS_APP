@@ -136,9 +136,10 @@
       {% if academic_years %}
       <div class="divide-y divide-slate-50">
         {% for ay in academic_years %}
-        <div class="flex items-center justify-between px-4 py-2">
-          <div class="flex items-center gap-2 flex-wrap">
-            <span class="text-sm font-bold text-gray-900">{{ ay.year }}</span>
+        <div class="flex items-center justify-between px-4 py-2 hover:bg-slate-50 transition group">
+          <a href="{% url 'admin_academic_year_calendar' school.id ay.id %}"
+             class="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+            <span class="text-sm font-bold text-gray-900 group-hover:text-accent transition">{{ ay.year }}</span>
             {% if ay.is_current %}
               <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Current</span>
             {% endif %}
@@ -148,8 +149,8 @@
             {% if ay.number_of_terms %}
               <span class="text-[10px] text-gray-400">{{ ay.number_of_terms }} terms</span>
             {% endif %}
-          </div>
-          <div class="flex items-center gap-2">
+          </a>
+          <div class="flex items-center gap-2 flex-shrink-0">
             {% if ay.number_of_terms %}
             <a href="{% url 'admin_academic_year_term_setup' school.id ay.id %}"
                class="text-[10px] font-semibold text-gray-400 hover:text-accent transition">Terms</a>
