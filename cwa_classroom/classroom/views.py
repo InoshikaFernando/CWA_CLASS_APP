@@ -4172,9 +4172,10 @@ class SubjectsHubView(LoginRequiredMixin, View):
                                     subject_id=subj.global_subject_id, is_active=True,
                                 ).first()
 
-                            # Determine link: SubjectApp external_url if available
+                            # Determine link: app external_url only when questions exist;
+                            # no questions → link=None (card renders non-clickable, same style)
                             if matching_app and matching_app.external_url:
-                                link = matching_app.external_url
+                                link = matching_app.external_url if _subject_has_questions(subj, school) else None
                             else:
                                 link = reverse('student_class_detail', args=[enrolled_cr.id])
 
@@ -4219,7 +4220,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
                         continue
                     uncovered_apps.append(app)
 
-                global_subjects = uncovered_apps
+                global_subjects = _annotate_apps_with_questions(uncovered_apps)
 
                 return render(request, 'hub/home.html', {
                     'greeting_tod': greeting_tod,
@@ -4232,7 +4233,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
                 })
 
         # ── INDIVIDUAL STUDENT path (or school student with no schools) ──
-        global_subjects = list(
+        global_subjects = _annotate_apps_with_questions(
             SubjectApp.objects.filter(
                 is_active=True, is_coming_soon=False,
             ).order_by('order')

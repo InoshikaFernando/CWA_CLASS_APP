@@ -1,10 +1,13 @@
 {% comment %}
 School subject card partial.
-Context: `card` dict with keys: name, description, icon_name, color, link, is_enrolled
+Context: `card` dict — keys: name, description, icon_name, color, link, is_enrolled
+
+card.link set   → clickable <a>
+card.link empty → identical <div> (no link, no Coming Soon, same appearance)
 {% endcomment %}
 
-<a href="{{ card.link }}"
-   class="rounded-2xl bg-white border border-slate-200 shadow-sm hover:shadow-lg transition p-5 flex flex-col items-start group">
+{% if card.link %}<a href="{{ card.link }}" class="rounded-2xl bg-white border border-slate-200 shadow-sm hover:shadow-lg transition p-5 flex flex-col items-start group">{% else %}<div class="rounded-2xl bg-white border border-slate-200 shadow-sm p-5 flex flex-col items-start">{% endif %}
+
   <!-- Icon -->
   <div class="mb-3">
     {% if card.icon_name == 'calculator' %}
@@ -37,7 +40,8 @@ Context: `card` dict with keys: name, description, icon_name, color, link, is_en
     <p class="text-gray-500 text-xs mb-3 line-clamp-2 flex-1">{{ card.description }}</p>
   {% endif %}
 
-  <!-- Enrolled badge or arrow -->
+  <!-- Enrolled badge or arrow (only shown when clickable) -->
+  {% if card.link %}
   <div class="mt-auto pt-2">
     {% if card.is_enrolled %}
       <span class="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">
@@ -55,4 +59,6 @@ Context: `card` dict with keys: name, description, icon_name, color, link, is_en
       </span>
     {% endif %}
   </div>
-</a>
+  {% endif %}
+
+{% if card.link %}</a>{% else %}</div>{% endif %}
