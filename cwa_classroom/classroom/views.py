@@ -1865,19 +1865,56 @@ class UploadQuestionsView(RoleRequiredMixin, View):
         topic_name = data.get('topic', '').strip()
         strand_name = data.get('strand', '').strip()
         year_level = data.get('year_level')
-        maths_subject = ClassroomSubject.objects.filter(slug='mathematics', school=None).first()
-        topic_qs = ClassroomTopic.objects.filter(subject=maths_subject, name__iexact=topic_name)
+
+        # Ensure the global Mathematics subject exists
+        maths_subject, _ = ClassroomSubject.objects.get_or_create(
+            slug='mathematics',
+            school=None,
+            defaults={'name': 'Mathematics', 'is_active': True},
+        )
+
+        # Resolve (or auto-create) the strand
+        strand_topic = None
         if strand_name:
-            topic_qs = topic_qs.filter(parent__name__iexact=strand_name)
+            from django.utils.text import slugify as _slugify
+            strand_slug = _slugify(strand_name)
+            strand_topic, strand_created = ClassroomTopic.objects.get_or_create(
+                subject=maths_subject,
+                slug=strand_slug,
+                defaults={
+                    'name': strand_name,
+                    'parent': None,
+                    'is_active': True,
+                    'order': 0,
+                },
+            )
+
+        # Resolve (or auto-create) the topic
+        topic_qs = ClassroomTopic.objects.filter(subject=maths_subject, name__iexact=topic_name)
+        if strand_topic is not None:
+            topic_qs = topic_qs.filter(parent=strand_topic)
         try:
             maths_topic = topic_qs.get()
         except ClassroomTopic.DoesNotExist:
-            strand_hint = f' under strand "{strand_name}"' if strand_name else ''
-            messages.error(request, f'Topic "{topic_name}"{strand_hint} not found.')
-            return redirect('upload_questions')
+            from django.utils.text import slugify as _slugify
+            base_slug = _slugify(topic_name) or f'topic-{topic_name.lower()}'
+            slug = base_slug
+            counter = 1
+            while ClassroomTopic.objects.filter(subject=maths_subject, slug=slug).exists():
+                slug = f'{base_slug}-{counter}'
+                counter += 1
+            maths_topic = ClassroomTopic.objects.create(
+                subject=maths_subject,
+                name=topic_name,
+                slug=slug,
+                parent=strand_topic,
+                is_active=True,
+                order=0,
+            )
         except ClassroomTopic.MultipleObjectsReturned:
-            messages.error(request, f'Multiple topics named "{topic_name}" found.')
+            messages.error(request, f'Multiple topics named "{topic_name}" found — please disambiguate in the database.')
             return redirect('upload_questions')
+
         try:
             maths_level = ClassroomLevel.objects.get(level_number=year_level)
         except ClassroomLevel.DoesNotExist:
