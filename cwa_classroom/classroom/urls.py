@@ -61,10 +61,13 @@ urlpatterns = [
 
     # Question management
     path('upload-questions/', views.UploadQuestionsView.as_view(), name='upload_questions'),
+    path('create-question/', views.AddQuestionView.as_view(), name='create_question'),
     path('level/<int:level_number>/questions/', views.QuestionListView.as_view(), name='question_list'),
     path('level/<int:level_number>/add-question/', views.AddQuestionView.as_view(), name='add_question'),
     path('question/<int:question_id>/edit/', views.EditQuestionView.as_view(), name='edit_question'),
     path('question/<int:question_id>/delete/', views.DeleteQuestionView.as_view(), name='delete_question'),
+    # HTMX cascading dropdowns for question form
+    path('htmx/topics-for-level/', views.htmx_topics_for_level, name='htmx_topics_for_level'),
 
     # Admin dashboard & school management
     path('admin-dashboard/', views_admin.AdminDashboardView.as_view(), name='admin_dashboard'),

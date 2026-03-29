@@ -75,6 +75,15 @@
       <span>Import Balances</span>
     </a>
 
+    <a href="{% url 'create_question' %}"
+       class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
+              {% if 'create-question' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
+      <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+      </svg>
+      <span>Create Questions</span>
+    </a>
+
     <a href="{% url 'ai_import:upload' %}"
        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
               {% if 'ai-import' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
