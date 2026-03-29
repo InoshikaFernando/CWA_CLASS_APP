@@ -350,11 +350,17 @@ class ModuleSubscription(models.Model):
     MODULE_TEACHERS_ATTENDANCE = 'teachers_attendance'
     MODULE_STUDENTS_ATTENDANCE = 'students_attendance'
     MODULE_PROGRESS_REPORTS = 'student_progress_reports'
+    MODULE_AI_IMPORT_STARTER = 'ai_import_starter'
+    MODULE_AI_IMPORT_PROFESSIONAL = 'ai_import_professional'
+    MODULE_AI_IMPORT_ENTERPRISE = 'ai_import_enterprise'
 
     MODULE_CHOICES = [
         (MODULE_TEACHERS_ATTENDANCE, 'Teachers Attendance'),
         (MODULE_STUDENTS_ATTENDANCE, 'Students Attendance'),
         (MODULE_PROGRESS_REPORTS, 'Student Progress Reports'),
+        (MODULE_AI_IMPORT_STARTER, 'AI Question Import - Starter'),
+        (MODULE_AI_IMPORT_PROFESSIONAL, 'AI Question Import - Professional'),
+        (MODULE_AI_IMPORT_ENTERPRISE, 'AI Question Import - Enterprise'),
     ]
 
     school_subscription = models.ForeignKey(
