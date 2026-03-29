@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Preview Questions — AI Import{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-6">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="font-display text-3xl text-primary">Preview Questions</h1>
+      <p class="text-gray-400 text-sm mt-1">Review and edit AI-classified questions from <span class="font-mono">{{ session.pdf_filename }}</span></p>
+    </div>
+    <div class="text-right text-sm text-gray-500">
+      <p>{{ session.page_count }} pages processed</p>
+      <p>{{ questions|length }} questions found</p>
+    </div>
+  </div>
+
+  <form method="post" class="space-y-6">
+    {% csrf_token %}
+
+    <!-- Classification Header -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+      <h2 class="font-bold text-gray-800 mb-4">Classification</h2>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div>
+          <label class="block text-xs font-semibold text-gray-500 mb-1">Year Level</label>
+          <select name="year_level" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
+            {% for level in levels %}
+            <option value="{{ level.level_number }}" {% if level.level_number == data.year_level %}selected{% endif %}>
+              {{ level.display_name }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-500 mb-1">Subject</label>
+          <input type="text" name="subject" value="{{ data.subject }}"
+                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-500 mb-1">Strand</label>
+          <input type="text" name="strand" value="{{ data.strand }}"
+                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-500 mb-1">Topic</label>
+          <input type="text" name="topic" value="{{ data.topic }}"
+                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+        </div>
+      </div>
+    </div>
+
+    <!-- Questions -->
+    {% for q in questions %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6" x-data="{ expanded: true }">
+      <div class="flex items-start gap-3">
+        <!-- Include checkbox -->
+        <input type="checkbox" name="q_{{ forloop.counter0 }}_include"
+               {% if q.include is not False %}checked{% endif %}
+               class="mt-1.5 rounded border-gray-300 text-primary focus:ring-primary" />
+
+        <div class="flex-1">
+          <!-- Question header -->
+          <div class="flex items-center gap-2 mb-3 cursor-pointer" @click="expanded = !expanded">
+            <span class="text-xs font-bold text-gray-400">Q{{ forloop.counter }}</span>
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase
+                         {% if q.question_type == 'multiple_choice' %}bg-blue-100 text-blue-700
+                         {% elif q.question_type == 'true_false' %}bg-purple-100 text-purple-700
+                         {% elif q.question_type == 'calculation' %}bg-amber-100 text-amber-700
+                         {% else %}bg-gray-100 text-gray-600{% endif %}">
+              {{ q.question_type }}
+            </span>
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold
+                         {% if q.difficulty == 1 %}bg-green-100 text-green-700
+                         {% elif q.difficulty == 2 %}bg-amber-100 text-amber-700
+                         {% else %}bg-red-100 text-red-700{% endif %}">
+              {% if q.difficulty == 1 %}Easy{% elif q.difficulty == 2 %}Medium{% else %}Hard{% endif %}
+            </span>
+            {% if q.image_ref %}
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 text-teal-700">Has Image</span>
+            {% endif %}
+            <svg :class="expanded ? 'rotate-0' : '-rotate-90'" class="w-4 h-4 ml-auto text-gray-400 transition-transform" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
+            </svg>
+          </div>
+
+          <div x-show="expanded" x-transition class="space-y-3">
+            <!-- Question text -->
+            <div>
+              <label class="block text-xs font-semibold text-gray-500 mb-1">Question Text</label>
+              <textarea name="q_{{ forloop.counter0 }}_text" rows="3"
+                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono">{{ q.question_text }}</textarea>
+            </div>
+
+            <div class="grid grid-cols-3 gap-3">
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 mb-1">Type</label>
+                <select name="q_{{ forloop.counter0 }}_type" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
+                  {% for val, label in question_types %}
+                  <option value="{{ val }}" {% if q.question_type == val %}selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 mb-1">Difficulty</label>
+                <select name="q_{{ forloop.counter0 }}_difficulty" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
+                  <option value="1" {% if q.difficulty == 1 %}selected{% endif %}>Easy</option>
+                  <option value="2" {% if q.difficulty == 2 %}selected{% endif %}>Medium</option>
+                  <option value="3" {% if q.difficulty == 3 %}selected{% endif %}>Hard</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 mb-1">Points</label>
+                <input type="number" name="q_{{ forloop.counter0 }}_points" value="{{ q.points|default:1 }}" min="1"
+                       class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+              </div>
+            </div>
+
+            <!-- Answers -->
+            <div>
+              <label class="block text-xs font-semibold text-gray-500 mb-1">Answers</label>
+              <div class="space-y-2">
+                {% for ans in q.answers %}
+                <div class="flex items-center gap-2">
+                  <input type="checkbox" name="q_{{ forloop.parentloop.counter0 }}_answer_{{ forloop.counter0 }}_correct"
+                         {% if ans.is_correct %}checked{% endif %}
+                         class="rounded border-gray-300 text-emerald-500 focus:ring-emerald-500" />
+                  <input type="text" name="q_{{ forloop.parentloop.counter0 }}_answer_{{ forloop.counter0 }}_text"
+                         value="{{ ans.text }}"
+                         class="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+
+            <!-- Explanation -->
+            <div>
+              <label class="block text-xs font-semibold text-gray-500 mb-1">Explanation (optional)</label>
+              <input type="text" name="q_{{ forloop.counter0 }}_explanation" value="{{ q.explanation|default:'' }}"
+                     class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+
+    <!-- Actions -->
+    <div class="flex gap-3 justify-end sticky bottom-4">
+      <a href="{% url 'ai_import:upload' %}"
+         class="px-6 py-2.5 rounded-xl border border-gray-300 bg-white text-gray-600 font-semibold hover:bg-gray-50 transition shadow-sm">
+        Cancel
+      </a>
+      <button type="submit"
+              class="px-6 py-2.5 rounded-xl bg-primary text-white font-semibold shadow-sm hover:bg-primary/90 transition">
+        Save & Continue
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}
