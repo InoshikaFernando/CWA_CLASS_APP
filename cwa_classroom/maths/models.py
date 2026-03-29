@@ -71,6 +71,7 @@ class Question(models.Model):
     points = models.PositiveIntegerField(default=1)
     explanation = models.TextField(blank=True, help_text="Explanation for the correct answer")
     image = models.ImageField(upload_to='questions/', blank=True, null=True, help_text="Upload an image for this question")
+    video = models.FileField(upload_to='questions/videos/', blank=True, null=True, help_text="Upload a video for this question")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -83,7 +84,8 @@ class Question(models.Model):
 
 class Answer(models.Model):
     question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name="answers")
-    answer_text = models.TextField()
+    answer_text = models.TextField(blank=True)
+    answer_image = models.ImageField(upload_to='answers/', blank=True, null=True, help_text="Image answer for MCQ")
     is_correct = models.BooleanField(default=False)
     order = models.PositiveIntegerField(default=0, help_text="Order for multiple choice options")
 
