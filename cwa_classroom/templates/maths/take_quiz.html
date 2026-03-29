@@ -463,7 +463,8 @@
                 </div>
                 
                 {% if question.image %}
-                    <img src="{{ question.image.url }}" alt="Question diagram" class="question-image">
+                    <img src="{{ question.image.url }}" alt="Question diagram" class="question-image"
+                         onload="var r=this.naturalWidth/this.naturalHeight; if(r>1.5){this.style.maxHeight='24rem';this.style.maxWidth='100%'}else if(r>1){this.style.maxHeight='16rem'}else{this.style.maxHeight='12rem'}">
                 {% endif %}
                 
                 <div class="answer-options">

@@ -1528,7 +1528,8 @@ window.addEventListener('load', function() {
             <div class="question-content">
                 <div class="question-text-container">
                     {% if current_question.image %}
-                        <img src="{{ current_question.image.url }}" alt="Question diagram" class="question-image">
+                        <img src="{{ current_question.image.url }}" alt="Question diagram" class="question-image"
+                             onload="var r=this.naturalWidth/this.naturalHeight; if(r>1.5){this.style.maxHeight='24rem';this.style.maxWidth='100%'}else if(r>1){this.style.maxHeight='16rem'}else{this.style.maxHeight='12rem'}">
                     {% endif %}
                     <p class="question-text">{{ current_question.question_text|safe }}</p>
                     <button class="speaker-btn" onclick="speakText('{{ current_question.question_text|escapejs }}')" title="Listen to question">
