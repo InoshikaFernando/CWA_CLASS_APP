@@ -120,8 +120,15 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
 
     def get(self, request):
         school = get_school_for_user(request.user)
-        tier = _get_ai_import_tier(school) if school else None
-        remaining, limit, used = _get_remaining_pages(school) if school else (0, 0, 0)
+
+        # Superusers get unlimited access
+        if request.user.is_superuser:
+            tier_name = 'Unlimited (Admin)'
+            remaining, limit, used = (999999, 999999, 0)
+        else:
+            tier = _get_ai_import_tier(school) if school else None
+            tier_name = AI_IMPORT_TIER_NAMES.get(tier, 'None')
+            remaining, limit, used = _get_remaining_pages(school) if school else (0, 0, 0)
 
         # Get classrooms for teachers
         classrooms = []
@@ -132,7 +139,7 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
                 classrooms = ClassRoom.objects.filter(id__in=classroom_ids, is_active=True)
 
         return render(request, 'ai_import/upload.html', {
-            'tier': AI_IMPORT_TIER_NAMES.get(tier, 'None'),
+            'tier': tier_name,
             'remaining_pages': remaining,
             'page_limit': limit,
             'pages_used': used,
@@ -152,8 +159,11 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
             messages.error(request, 'Only PDF files are supported.')
             return redirect('ai_import:upload')
 
-        # Check usage limit
-        remaining, limit, used = _get_remaining_pages(school) if school else (0, 0, 0)
+        # Check usage limit (superusers have unlimited)
+        if request.user.is_superuser:
+            remaining, limit, used = (999999, 999999, 0)
+        else:
+            remaining, limit, used = _get_remaining_pages(school) if school else (0, 0, 0)
 
         try:
             # Step 1: Extract PDF content
