@@ -2074,6 +2074,12 @@ class UploadQuestionsView(RoleRequiredMixin, View):
             messages.error(request, f'Year level {year_level} not found.')
             return redirect('upload_questions')
 
+        # Link topic and strand to the level so they appear in the topic browser
+        if not maths_topic.levels.filter(pk=maths_level.pk).exists():
+            maths_topic.levels.add(maths_level)
+        if strand_topic and not strand_topic.levels.filter(pk=maths_level.pk).exists():
+            strand_topic.levels.add(maths_level)
+
         # Build image save directory: questions/year<N>/<topic_slug>/
         topic_slug = re.sub(r'\s+', '_', topic_name.lower())
         image_rel_dir = f'questions/year{year_level}/{topic_slug}'
