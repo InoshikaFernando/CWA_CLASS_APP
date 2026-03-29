@@ -111,7 +111,14 @@ Your task:
 4. Do NOT embed table/chart data as text in the question — keep question_text concise and
    reference the image instead when the question depends on a visual.
 
-For question_type, use one of: multiple_choice, true_false, short_answer, fill_blank, calculation
+QUESTION TYPE RULES (important):
+- If the correct answer is a NUMBER ONLY (digits, decimals, fractions like "14" or "3.5" or "2/3"),
+  use question_type "short_answer" with just the correct answer. Do NOT generate wrong answers.
+- If the correct answer contains TEXT or WORDS (e.g. "Day 3 had the most sales", "True", "Red"),
+  use question_type "multiple_choice" and generate 3-4 plausible wrong answers alongside the correct one.
+- For true/false questions, use "true_false" type.
+- For fill-in-the-blank, use "fill_blank" type.
+
 For difficulty, use: 1 (Easy), 2 (Medium), 3 (Hard)
 
 Map to existing topics where possible. If no match, suggest a new topic name.
