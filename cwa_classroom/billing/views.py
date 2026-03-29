@@ -534,7 +534,22 @@ class InstituteSubscriptionDashboardView(LoginRequiredMixin, View):
 
         # Module status
         from .models import ModuleSubscription
-        active_modules = sub.modules.filter(is_active=True).values_list('module', flat=True)
+        active_modules = list(sub.modules.filter(is_active=True).values_list('module', flat=True))
+
+        # Split standard modules from AI import tiers
+        AI_IMPORT_SLUGS = {'ai_import_starter', 'ai_import_professional', 'ai_import_enterprise'}
+        standard_modules = [
+            (k, v) for k, v in ModuleSubscription.MODULE_CHOICES
+            if k not in AI_IMPORT_SLUGS
+        ]
+        ai_import_tiers = [
+            {'slug': 'ai_import_starter', 'name': 'Starter', 'pages': 300, 'price': 15, 'full_price': 30, 'discount_months': 6},
+            {'slug': 'ai_import_professional', 'name': 'Professional', 'pages': 600, 'price': 30, 'full_price': 60, 'discount_months': 6},
+            {'slug': 'ai_import_enterprise', 'name': 'Enterprise', 'pages': 1000, 'price': 50, 'full_price': 99, 'discount_months': 6},
+        ]
+        active_ai_import_tier = next(
+            (s for s in AI_IMPORT_SLUGS if s in active_modules), None
+        )
 
         return render(request, 'billing/institute_dashboard.html', {
             'school': school,
@@ -547,8 +562,10 @@ class InstituteSubscriptionDashboardView(LoginRequiredMixin, View):
             'invoices_used': invoices_used,
             'invoice_limit': invoice_limit,
             'overage_rate': overage_rate,
-            'active_modules': list(active_modules),
-            'all_modules': ModuleSubscription.MODULE_CHOICES,
+            'active_modules': active_modules,
+            'standard_modules': standard_modules,
+            'ai_import_tiers': ai_import_tiers,
+            'active_ai_import_tier': active_ai_import_tier,
         })
 
 
@@ -749,8 +766,29 @@ class ModuleToggleView(LoginRequiredMixin, View):
         stripe_price_id = module_product.stripe_price_id if module_product else ''
         module_name = dict(ModuleSubscription.MODULE_CHOICES).get(module_slug, module_slug)
 
+        # AI import tiers are mutually exclusive — deactivate others when adding one
+        AI_IMPORT_SLUGS = {'ai_import_starter', 'ai_import_professional', 'ai_import_enterprise'}
+        is_ai_import = module_slug in AI_IMPORT_SLUGS
+
         try:
             if action == 'add':
+                # Deactivate other AI tiers first (mutual exclusivity)
+                if is_ai_import:
+                    other_ai_slugs = AI_IMPORT_SLUGS - {module_slug}
+                    for other_slug in other_ai_slugs:
+                        existing = ModuleSubscription.objects.filter(
+                            school_subscription=sub, module=other_slug, is_active=True,
+                        ).first()
+                        if existing:
+                            if sub.stripe_subscription_id:
+                                from billing.stripe_service import remove_module_from_subscription
+                                remove_module_from_subscription(sub, other_slug)
+                            else:
+                                from django.utils import timezone as tz
+                                ModuleSubscription.objects.filter(
+                                    school_subscription=sub, module=other_slug, is_active=True,
+                                ).update(is_active=False, deactivated_at=tz.now())
+
                 if sub.stripe_subscription_id and stripe_price_id:
                     # Production: add via Stripe
                     from billing.stripe_service import add_module_to_subscription

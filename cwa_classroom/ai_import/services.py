@@ -44,6 +44,7 @@ def extract_pdf_content(pdf_file):
         all_text_parts.append(text)
 
         images = []
+        # Extract embedded images
         for img_idx, img in enumerate(page.get_images(full=True)):
             xref = img[0]
             base_image = doc.extract_image(xref)
@@ -57,10 +58,17 @@ def extract_pdf_content(pdf_file):
                     'ext': ext,
                 })
 
+        # Render the full page as a screenshot (captures tables, charts, diagrams)
+        # Use 150 DPI for good quality without being too large
+        pix = page.get_pixmap(dpi=150)
+        page_img_bytes = pix.tobytes('jpeg')
+        page_screenshot_b64 = base64.b64encode(page_img_bytes).decode('utf-8')
+
         pages.append({
             'page_num': page_num + 1,
             'text': text,
             'images': images,
+            'screenshot': page_screenshot_b64,
         })
 
     doc.close()
@@ -96,17 +104,18 @@ EXISTING TOPICS in the system: {topic_names}
 EXISTING LEVELS in the system: {level_names}
 
 Your task:
-1. Identify the year/grade level of the questions
-2. Identify the subject (e.g., Mathematics, Science, English)
-3. Identify the strand (top-level topic group, e.g., "Number", "Measurement", "Algebra")
-4. Identify the specific topic (e.g., "Fractions", "Decimals", "Quadratics")
-5. Extract each question with its text, type, difficulty, answers, and any image references
+1. Extract each question with its text, type, difficulty, answers
+2. For EACH question, classify: year_level, subject, strand, topic (PDFs may mix topics)
+3. If a question needs an embedded image (table, chart, diagram), set image_ref to the
+   embedded image reference (e.g. "page1_img1.png"). Only use embedded image refs, not screenshots.
+4. Do NOT embed table/chart data as text in the question — keep question_text concise and
+   reference the image instead when the question depends on a visual.
 
 For question_type, use one of: multiple_choice, true_false, short_answer, fill_blank, calculation
 For difficulty, use: 1 (Easy), 2 (Medium), 3 (Hard)
 
-If a question references an image from the PDF, include the image reference in image_ref.
 Map to existing topics where possible. If no match, suggest a new topic name.
+Set default year_level, subject, strand, topic at the top level, then override per-question only if different.
 
 Return your response as a JSON object."""
 
@@ -119,19 +128,19 @@ CLASSIFICATION_TOOL = {
         "properties": {
             "year_level": {
                 "type": "integer",
-                "description": "The year/grade level (1-12)",
+                "description": "Default year/grade level (1-12) for all questions",
             },
             "subject": {
                 "type": "string",
-                "description": "The subject name, e.g. Mathematics",
+                "description": "Default subject name, e.g. Mathematics",
             },
             "strand": {
                 "type": "string",
-                "description": "Top-level topic group, e.g. Number, Measurement, Algebra",
+                "description": "Default top-level topic group, e.g. Number, Measurement, Algebra",
             },
             "topic": {
                 "type": "string",
-                "description": "Specific topic, e.g. Fractions, Decimals, Quadratics",
+                "description": "Default specific topic, e.g. Fractions, Decimals, Quadratics",
             },
             "questions": {
                 "type": "array",
@@ -148,7 +157,23 @@ CLASSIFICATION_TOOL = {
                         "explanation": {"type": "string", "description": "Brief explanation of the answer"},
                         "image_ref": {
                             "type": "string",
-                            "description": "Reference to an extracted image, e.g. page1_img1.png. Null if no image.",
+                            "description": "Reference to an embedded image (e.g. page1_img1.png). Only set if this question needs a visual. Null if no image needed.",
+                        },
+                        "year_level": {
+                            "type": "integer",
+                            "description": "Override year level for this question if different from default",
+                        },
+                        "subject": {
+                            "type": "string",
+                            "description": "Override subject for this question if different from default",
+                        },
+                        "strand": {
+                            "type": "string",
+                            "description": "Override strand for this question if different from default",
+                        },
+                        "topic": {
+                            "type": "string",
+                            "description": "Override topic for this question if different from default",
                         },
                         "answers": {
                             "type": "array",
@@ -193,19 +218,32 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
     client = _get_anthropic_client()
     system_prompt = _build_classification_prompt(existing_topics, existing_levels)
 
-    # Build message content — text + images from first few pages
+    # Build message content — send page screenshots so AI can see tables/charts/diagrams
     content_blocks = []
     content_blocks.append({
         "type": "text",
-        "text": f"Here is the text extracted from a {extracted_content['page_count']}-page PDF:\n\n{extracted_content['all_text']}",
+        "text": f"Here is a {extracted_content['page_count']}-page PDF. I'm sending each page as a screenshot so you can see all tables, charts, and diagrams. The extracted text is also provided for accuracy.",
     })
 
-    # Include images (limit to first 20 to stay within token budget)
-    image_count = 0
-    for page in extracted_content['pages']:
-        for img in page['images']:
-            if image_count >= 20:
-                break
+    # Send page screenshots (limit to first 20 pages to stay within token budget)
+    for page in extracted_content['pages'][:20]:
+        # Page screenshot — captures everything including tables, charts, diagrams
+        if page.get('screenshot'):
+            content_blocks.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/jpeg",
+                    "data": page['screenshot'],
+                },
+            })
+            content_blocks.append({
+                "type": "text",
+                "text": f"[Page {page['page_num']} screenshot above. Extracted text: {page['text'][:500]}]",
+            })
+
+        # Also include any embedded images with references for the AI to map
+        for img in page.get('images', []):
             content_blocks.append({
                 "type": "image",
                 "source": {
@@ -216,13 +254,12 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
             })
             content_blocks.append({
                 "type": "text",
-                "text": f"[Image reference: {img['ref']}]",
+                "text": f"[Embedded image: {img['ref']}]",
             })
-            image_count += 1
 
     content_blocks.append({
         "type": "text",
-        "text": "Please extract and classify all questions from this PDF content. Use the classify_questions tool to return structured data.",
+        "text": "Please extract and classify ALL questions from this PDF. Include any context tables, data, or diagrams that belong with each question in the question_text. Use the classify_questions tool to return structured data.",
     })
 
     response = client.messages.create(
@@ -266,46 +303,14 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
 # Save Questions to DB
 # ---------------------------------------------------------------------------
 
-def save_questions_from_session(session, user, overrides=None):
-    """
-    Save AI-classified questions from an AIImportSession to the database.
-    Reuses the same patterns as UploadQuestionsView.
+def _resolve_topic_for_question(q, default_data):
+    """Resolve subject, strand, topic, level for a single question (per-question overrides)."""
+    from classroom.models import Subject, Topic, Level
 
-    Args:
-        session: AIImportSession instance
-        user: request.user
-        overrides: dict with optional overrides from the preview form
-            {
-                'year_level': int,
-                'topic': str,
-                'strand': str,
-                'classroom_id': int or None,
-                'questions': [
-                    {'include': bool, 'question_text': str, ...overrides}
-                ],
-            }
-
-    Returns:
-        {'inserted': int, 'updated': int, 'failed': int, 'errors': [], 'images_saved': int}
-    """
-    from django.db import transaction
-
-    from classroom.models import Subject, Topic, Level, School
-    from classroom.views import _get_question_scope
-    from maths.models import Question as MathsQuestion, Answer as MathsAnswer
-
-    data = overrides if overrides else session.extracted_data
-    questions_data = data.get('questions', [])
-    year_level = data.get('year_level')
-    topic_name = data.get('topic', '')
-    strand_name = data.get('strand', '')
-    subject_name = data.get('subject', 'Mathematics')
-
-    # Get scope
-    school_id, dept_id, classroom_ids = _get_question_scope(user)
-    classroom_id = data.get('classroom_id')
-    if classroom_id:
-        classroom_id = int(classroom_id)
+    subject_name = q.get('subject') or default_data.get('subject', 'Mathematics')
+    strand_name = q.get('strand') or default_data.get('strand', '')
+    topic_name = q.get('topic') or default_data.get('topic', '')
+    year_level = q.get('year_level') or default_data.get('year_level')
 
     # Resolve subject
     subject_slug = subject_name.lower().replace(' ', '-')
@@ -325,6 +330,7 @@ def save_questions_from_session(session, user, overrides=None):
 
     # Resolve topic
     topic = None
+    topic_slug = 'general'
     if topic_name:
         topic_slug = topic_name.lower().replace(' ', '-')
         topic, _ = Topic.objects.get_or_create(
@@ -333,20 +339,45 @@ def save_questions_from_session(session, user, overrides=None):
         )
 
     # Get level
-    try:
-        level = Level.objects.get(level_number=year_level)
-    except Level.DoesNotExist:
-        return {'inserted': 0, 'updated': 0, 'failed': len(questions_data),
-                'errors': [f'Level for Year {year_level} not found'], 'images_saved': 0}
+    level = None
+    if year_level:
+        try:
+            level = Level.objects.get(level_number=int(year_level))
+        except Level.DoesNotExist:
+            pass
 
-    # Save images from session to media directory
-    images_dir = None
-    if session.extracted_images:
-        topic_dir_name = topic_slug if topic_name else 'general'
-        images_dir = os.path.join(
-            settings.MEDIA_ROOT, 'questions', f'year{year_level}', topic_dir_name,
-        )
-        os.makedirs(images_dir, exist_ok=True)
+    # Auto-link topic and strand to the level (so they appear in topic browser)
+    if level:
+        if topic and not topic.levels.filter(pk=level.pk).exists():
+            topic.levels.add(level)
+        if strand_topic and not strand_topic.levels.filter(pk=level.pk).exists():
+            strand_topic.levels.add(level)
+
+    return subject, topic, level, topic_slug, year_level
+
+
+def save_questions_from_session(session, user, overrides=None):
+    """
+    Save AI-classified questions from an AIImportSession to the database.
+    Supports per-question topic/level/subject overrides.
+
+    Returns:
+        {'inserted': int, 'updated': int, 'failed': int, 'errors': [], 'images_saved': int}
+    """
+    from django.db import transaction
+
+    from classroom.models import Subject, Topic, Level, School
+    from classroom.views import _get_question_scope
+    from maths.models import Question as MathsQuestion, Answer as MathsAnswer
+
+    data = overrides if overrides else session.extracted_data
+    questions_data = data.get('questions', [])
+
+    # Get scope
+    school_id, dept_id, classroom_ids = _get_question_scope(user)
+    classroom_id = data.get('classroom_id')
+    if classroom_id:
+        classroom_id = int(classroom_id)
 
     inserted = 0
     updated = 0
@@ -365,12 +396,22 @@ def save_questions_from_session(session, user, overrides=None):
             failed += 1
             continue
 
+        # Per-question classification
+        subject, topic, level, topic_slug, year_level = _resolve_topic_for_question(q, data)
+        if not level:
+            yl = q.get('year_level') or data.get('year_level', '?')
+            errors.append(f'Q{idx}: Level for Year {yl} not found')
+            failed += 1
+            continue
+
         q_type = q.get('question_type', 'short_answer')
         difficulty = q.get('difficulty', 1)
         points = q.get('points', 1)
         explanation = q.get('explanation', '')
         answers_data = q.get('answers', [])
         image_ref = q.get('image_ref')
+        if image_ref == 'none' or image_ref == '':
+            image_ref = None
 
         try:
             with transaction.atomic():
@@ -405,16 +446,22 @@ def save_questions_from_session(session, user, overrides=None):
                     inserted += 1
 
                 # Save image if referenced
-                if image_ref and images_dir and image_ref in session.extracted_images:
+                if image_ref and image_ref in session.extracted_images:
+                    # Build per-question image path: media/questions/year{N}/{topic_slug}/{filename}
+                    img_dir = os.path.join(
+                        str(settings.MEDIA_ROOT), 'questions',
+                        f'year{year_level}', topic_slug,
+                    )
+                    os.makedirs(img_dir, exist_ok=True)
+
                     img_b64 = session.extracted_images[image_ref]
                     img_bytes = base64.b64decode(img_b64)
-                    img_path = os.path.join(images_dir, image_ref)
+                    img_path = os.path.join(img_dir, image_ref)
                     with open(img_path, 'wb') as f:
                         f.write(img_bytes)
                     # Set relative path from MEDIA_ROOT
                     question.image = os.path.join(
-                        'questions', f'year{year_level}',
-                        topic_dir_name if topic_name else 'general', image_ref,
+                        'questions', f'year{year_level}', topic_slug, image_ref,
                     )
                     question.save(update_fields=['image'])
                     images_saved += 1

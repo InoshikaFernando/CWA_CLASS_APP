@@ -18,12 +18,12 @@
         <p class="text-sm text-gray-800">{{ session.page_count }}</p>
       </div>
       <div>
-        <p class="text-xs font-semibold text-gray-400 uppercase">Year Level</p>
-        <p class="text-sm text-gray-800">Year {{ data.year_level }}</p>
+        <p class="text-xs font-semibold text-gray-400 uppercase">Year Level{{ year_levels|length|pluralize }}</p>
+        <p class="text-sm text-gray-800">{% for yl in year_levels %}Year {{ yl }}{% if not forloop.last %}, {% endif %}{% endfor %}</p>
       </div>
       <div>
-        <p class="text-xs font-semibold text-gray-400 uppercase">Topic</p>
-        <p class="text-sm text-gray-800">{{ data.strand }} &rarr; {{ data.topic }}</p>
+        <p class="text-xs font-semibold text-gray-400 uppercase">Topic{{ topics|length|pluralize }}</p>
+        <p class="text-sm text-gray-800">{% for s in strands %}{{ s }}{% if not forloop.last %}, {% endif %}{% endfor %} &rarr; {% for t in topics %}{{ t }}{% if not forloop.last %}, {% endif %}{% endfor %}</p>
       </div>
     </div>
 
@@ -35,9 +35,15 @@
         <p class="text-xs text-gray-400 font-semibold">Questions to Import</p>
       </div>
       <div class="text-center">
-        <p class="font-display text-3xl text-gray-300">{{ total_count|add:"-"|add:included_count }}</p>
+        <p class="font-display text-3xl text-gray-300">{{ excluded_count }}</p>
         <p class="text-xs text-gray-400 font-semibold">Excluded</p>
       </div>
+      {% if images_count %}
+      <div class="text-center">
+        <p class="font-display text-3xl text-teal-500">{{ images_count }}</p>
+        <p class="text-xs text-gray-400 font-semibold">With Images</p>
+      </div>
+      {% endif %}
     </div>
 
     <form method="post" class="flex gap-3 pt-2">

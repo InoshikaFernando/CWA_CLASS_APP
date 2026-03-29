@@ -54,6 +54,9 @@ urlpatterns = [
     path('accounts/', include('accounts.urls')),  # custom overrides first
     path('accounts/', include('django.contrib.auth.urls')),
 
+    # --- AI tools (before core apps — core apps use root prefix) ---
+    path('ai-import/', include('ai_import.urls', namespace='ai_import')),
+
     # --- Core apps ---
     path('', include('classroom.urls')),
     path('', include('number_puzzles.urls')),  # before quiz — quiz has catch-all basic-facts/<str>/
@@ -65,9 +68,6 @@ urlpatterns = [
 
     # --- Audit ---
     path('', include('audit.urls')),
-
-    # --- AI tools ---
-    path('ai-import/', include('ai_import.urls', namespace='ai_import')),
 
     # --- Subject apps ---
     path('maths/', include('maths.urls', namespace='maths')),
