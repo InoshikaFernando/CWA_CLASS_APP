@@ -65,7 +65,15 @@ INSTALLED_APPS = [
 
     # Activity apps
     'number_puzzles',
+
+    # AI tools
+    'ai_import',
 ]
+
+# ---------------------------------------------------------------------------
+# AI / Anthropic
+# ---------------------------------------------------------------------------
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

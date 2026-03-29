@@ -66,6 +66,9 @@ urlpatterns = [
     # --- Audit ---
     path('', include('audit.urls')),
 
+    # --- AI tools ---
+    path('ai-import/', include('ai_import.urls', namespace='ai_import')),
+
     # --- Subject apps ---
     path('maths/', include('maths.urls', namespace='maths')),
     path('coding/', include('coding.urls', namespace='coding')),

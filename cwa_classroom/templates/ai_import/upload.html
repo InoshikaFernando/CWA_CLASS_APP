@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}AI Question Import{% endblock %}
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-6">
+  <div>
+    <h1 class="font-display text-3xl text-primary">AI Question Import</h1>
+    <p class="text-gray-400 text-sm mt-1">Upload a PDF of questions and let AI extract, classify, and create them automatically.</p>
+  </div>
+
+  <!-- Usage Bar -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+    <div class="flex items-center justify-between mb-2">
+      <span class="text-sm font-semibold text-gray-700">Monthly Usage</span>
+      <span class="text-sm text-gray-500">{{ pages_used }} / {{ page_limit }} pages</span>
+    </div>
+    <div class="w-full bg-gray-100 rounded-full h-3">
+      <div class="h-3 rounded-full transition-all duration-500
+                  {% if usage_percent >= 100 %}bg-red-500
+                  {% elif usage_percent >= 80 %}bg-amber-500
+                  {% else %}bg-emerald-500{% endif %}"
+           style="width: {{ usage_percent }}%"></div>
+    </div>
+    <div class="flex items-center justify-between mt-2">
+      <span class="text-xs text-gray-400">{{ tier }} Plan</span>
+      <span class="text-xs text-gray-400">{{ remaining_pages }} pages remaining</span>
+    </div>
+    {% if usage_percent >= 80 and usage_percent < 100 %}
+    <p class="text-xs text-amber-600 mt-2 font-medium">You're approaching your monthly limit. <a href="{% url 'ai_import:tier_select' %}" class="underline">Upgrade your plan</a></p>
+    {% elif usage_percent >= 100 %}
+    <p class="text-xs text-red-600 mt-2 font-medium">Monthly limit reached. <a href="{% url 'ai_import:tier_select' %}" class="underline">Upgrade your plan</a> or wait until next month.</p>
+    {% endif %}
+  </div>
+
+  <!-- Upload Form -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+    <form method="post" enctype="multipart/form-data" class="space-y-5">
+      {% csrf_token %}
+
+      {% if classrooms %}
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1.5">Classroom <span class="text-red-500">*</span></label>
+        <select name="classroom_id" required
+                class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition">
+          <option value="">-- Select a classroom --</option>
+          {% for c in classrooms %}
+          <option value="{{ c.id }}">{{ c.name }} ({{ c.code }})</option>
+          {% endfor %}
+        </select>
+        <p class="text-xs text-gray-400 mt-1">Imported questions will be scoped to this class.</p>
+      </div>
+      {% endif %}
+
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1.5">PDF File <span class="text-red-500">*</span></label>
+        <input type="file" name="pdf_file" accept=".pdf" required
+               class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-primary/10 file:text-primary file:font-semibold hover:file:bg-primary/20 transition" />
+        <p class="text-xs text-gray-400 mt-1">Upload a PDF containing questions. AI will extract text and images automatically.</p>
+      </div>
+
+      <div class="flex gap-3">
+        <button type="submit"
+                {% if usage_percent >= 100 %}disabled{% endif %}
+                class="px-6 py-2.5 rounded-xl bg-primary text-white font-semibold shadow-sm hover:bg-primary/90 transition disabled:opacity-50 disabled:cursor-not-allowed">
+          <svg class="w-4 h-4 inline-block mr-1 -mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/>
+          </svg>
+          Upload & Classify with AI
+        </button>
+        <a href="{% url 'upload_questions' %}"
+           class="px-6 py-2.5 rounded-xl border border-gray-300 text-gray-600 font-semibold hover:bg-gray-50 transition">
+          JSON Upload
+        </a>
+      </div>
+    </form>
+  </div>
+
+  <!-- How It Works -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+    <h2 class="font-bold text-gray-800 mb-3">How It Works</h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="text-center p-4">
+        <div class="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center mx-auto mb-2 font-bold">1</div>
+        <p class="text-sm font-semibold text-gray-700">Upload PDF</p>
+        <p class="text-xs text-gray-400 mt-1">Upload any PDF containing questions with or without images</p>
+      </div>
+      <div class="text-center p-4">
+        <div class="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center mx-auto mb-2 font-bold">2</div>
+        <p class="text-sm font-semibold text-gray-700">AI Classifies</p>
+        <p class="text-xs text-gray-400 mt-1">AI detects grade, subject, topic and extracts structured questions</p>
+      </div>
+      <div class="text-center p-4">
+        <div class="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center mx-auto mb-2 font-bold">3</div>
+        <p class="text-sm font-semibold text-gray-700">Review & Save</p>
+        <p class="text-xs text-gray-400 mt-1">Preview, edit, and confirm before saving to the question bank</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
