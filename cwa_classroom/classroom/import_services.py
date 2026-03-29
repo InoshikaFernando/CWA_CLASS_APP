@@ -724,6 +724,55 @@ def apply_structure_mapping(preview_data, structure_mapping, department):
     return preview_data
 
 
+def _auto_create_teacher(full_name, school, role_teacher, teacher_cache, counts):
+    """Auto-create a placeholder teacher account from a full name.
+
+    Creates a CustomUser with @teacher.local email, assigns TEACHER role,
+    and creates SchoolTeacher link. Returns the created user or None.
+    """
+    first_name, last_name = _split_child_name(full_name)
+    if not first_name:
+        return None
+
+    # Check if already exists at school by name
+    existing_st = SchoolTeacher.objects.filter(
+        school=school,
+        teacher__first_name__iexact=first_name,
+        teacher__last_name__iexact=last_name,
+        is_active=True,
+    ).select_related('teacher').first()
+    if existing_st:
+        teacher_cache[full_name] = existing_st.teacher
+        return existing_st.teacher
+
+    t_slug = slugify(f'{first_name}-{last_name}') if last_name else slugify(first_name)
+    t_email = f'{t_slug}@teacher.local'
+    t_username = t_slug.replace('-', '_')
+    suffix = 1
+    while CustomUser.objects.filter(username=t_username).exists():
+        t_username = f'{t_slug.replace("-", "_")}{suffix}'
+        suffix += 1
+    t_password = get_random_string(10)
+    teacher_user = CustomUser.objects.create_user(
+        username=t_username, email=t_email,
+        password=t_password,
+        first_name=first_name, last_name=last_name,
+    )
+    teacher_user.must_change_password = True
+    teacher_user.save(update_fields=['must_change_password'])
+    UserRole.objects.get_or_create(user=teacher_user, role=role_teacher)
+    st, created = SchoolTeacher.objects.get_or_create(
+        school=school, teacher=teacher_user,
+        defaults={'role': 'teacher', 'is_active': True},
+    )
+    if created and t_password:
+        st.pending_password = t_password
+        st.save(update_fields=['pending_password'])
+    teacher_cache[full_name] = teacher_user
+    counts['teachers_created'] = counts.get('teachers_created', 0) + 1
+    return teacher_user
+
+
 def execute_import(preview_data, school, uploaded_by):
     """
     Execute the import in a single transaction.
@@ -960,6 +1009,11 @@ def execute_import(preview_data, school, uploaded_by):
                     continue
                 for t_name in t_names:
                     teacher_user = teacher_cache.get(t_name)
+                    if not teacher_user:
+                        # Auto-create placeholder teacher from name
+                        teacher_user = _auto_create_teacher(
+                            t_name, school, role_teacher, teacher_cache, counts,
+                        )
                     if teacher_user:
                         ClassTeacher.objects.get_or_create(
                             classroom=classroom, teacher=teacher_user,
@@ -1045,6 +1099,38 @@ def execute_import(preview_data, school, uploaded_by):
                 counts['classes_created'] += 1
             for cr in ClassRoom.objects.filter(school=school):
                 class_cache[cr.name] = cr
+
+            # 4b. Link teachers to classes (generic path)
+            role_teacher, _ = Role.objects.get_or_create(
+                name=Role.TEACHER, defaults={'display_name': 'Teacher'},
+            )
+            teacher_cache = {}
+            all_students_g = preview_data.get('students_new', []) + preview_data.get('students_existing', [])
+            for sdata in all_students_g:
+                for c in sdata.get('classes', []):
+                    t_name = c.get('teacher', '')
+                    if t_name and c['class_name'] in class_cache:
+                        if t_name not in teacher_cache:
+                            # Try to find existing teacher at school by name
+                            first_name, last_name = _split_child_name(t_name)
+                            existing_st = SchoolTeacher.objects.filter(
+                                school=school,
+                                teacher__first_name__iexact=first_name,
+                                teacher__last_name__iexact=last_name,
+                                is_active=True,
+                            ).select_related('teacher').first()
+                            if existing_st:
+                                teacher_cache[t_name] = existing_st.teacher
+                            else:
+                                teacher_cache[t_name] = _auto_create_teacher(
+                                    t_name, school, role_teacher, teacher_cache, counts,
+                                )
+                        teacher_user = teacher_cache.get(t_name)
+                        if teacher_user:
+                            ClassTeacher.objects.get_or_create(
+                                classroom=class_cache[c['class_name']],
+                                teacher=teacher_user,
+                            )
 
         # 5. Create guardians
         guardian_cache = {}
@@ -1547,7 +1633,28 @@ def execute_teacher_import(preview_data, school, imported_by):
 
     for tdata in all_teachers:
         email = tdata['email']
-        is_new = not CustomUser.objects.filter(email=email).exists()
+
+        # Check for placeholder teacher (created during student import)
+        placeholder_st = SchoolTeacher.objects.filter(
+            school=school,
+            teacher__first_name__iexact=tdata['first_name'],
+            teacher__last_name__iexact=tdata['last_name'],
+            teacher__email__endswith='@teacher.local',
+            is_active=True,
+        ).select_related('teacher').first()
+
+        if placeholder_st:
+            # Update placeholder with real details
+            user = placeholder_st.teacher
+            user.email = email
+            if tdata.get('phone'):
+                user.phone = tdata['phone']
+            user.save(update_fields=['email', 'phone'])
+            password = None
+            is_new = False
+            counts['teachers_updated'] = counts.get('teachers_updated', 0) + 1
+        else:
+            is_new = not CustomUser.objects.filter(email=email).exists()
 
         if is_new:
             password = get_random_string(10)
@@ -1591,7 +1698,7 @@ def execute_teacher_import(preview_data, school, imported_by):
                 'role': tdata['role_display'],
             })
             counts['teachers_created'] += 1
-        else:
+        elif not placeholder_st:
             user = CustomUser.objects.get(email=email)
             password = None
 
