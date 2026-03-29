@@ -8,6 +8,7 @@ from django.http import Http404
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.views import View
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
 from django.db import transaction
@@ -2128,22 +2129,69 @@ class QuestionListView(LoginRequiredMixin, View):
         })
 
 
+@login_required
+def htmx_topics_for_level(request):
+    """HTMX endpoint: return topic <option> tags filtered by level_number."""
+    from django.http import HttpResponse
+    level_number = request.GET.get('level', '')
+    if not level_number:
+        return HttpResponse('<option value="">-- Select topic --</option>')
+    try:
+        level = Level.objects.get(level_number=int(level_number))
+    except (Level.DoesNotExist, ValueError):
+        return HttpResponse('<option value="">-- Select topic --</option>')
+
+    strands = Topic.objects.filter(levels=level, is_active=True, parent__isnull=True).order_by('name')
+    subtopics = Topic.objects.filter(levels=level, is_active=True, parent__isnull=False).order_by('parent__name', 'name')
+
+    html = '<option value="">-- Select topic --</option>'
+    for strand in strands:
+        children = [t for t in subtopics if t.parent_id == strand.id]
+        if children:
+            html += f'<optgroup label="{strand.name}">'
+            for t in children:
+                html += f'<option value="{t.id}">{t.name}</option>'
+            html += '</optgroup>'
+        else:
+            html += f'<option value="{strand.id}">{strand.name}</option>'
+    return HttpResponse(html)
+
+
 class AddQuestionView(RoleRequiredMixin, View):
+    """Create a question. Works both standalone (/create-question/) and with pre-selected level (/level/<int>/add-question/)."""
     required_roles = [
         Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
         Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER,
         Role.TEACHER, Role.JUNIOR_TEACHER,
     ]
 
-    def _build_context(self, request, level):
+    def _build_context(self, request, level=None):
         from maths.models import Question as MathsQuestion
         school_id, dept_id, classroom_ids = _get_question_scope(request.user)
         ctx = {
             'level': level,
-            'topics': Topic.objects.filter(levels=level, is_active=True),
             'question_types': MathsQuestion.QUESTION_TYPES,
             'difficulty_choices': MathsQuestion.DIFFICULTY_CHOICES,
         }
+
+        # Subjects and levels for standalone mode
+        from classroom.models import Subject
+        ctx['subjects'] = Subject.objects.filter(is_active=True).order_by('name')
+        ctx['levels'] = Level.objects.filter(level_number__lte=12).order_by('level_number')
+
+        # Topics — if level is pre-selected, filter by it; otherwise load all
+        if level:
+            ctx['topics'] = Topic.objects.filter(levels=level, is_active=True).order_by('name')
+            # Strands (parent topics) for this level
+            ctx['strands'] = Topic.objects.filter(
+                levels=level, is_active=True, parent__isnull=True,
+            ).order_by('name')
+        else:
+            ctx['topics'] = Topic.objects.filter(is_active=True).order_by('name')
+            ctx['strands'] = Topic.objects.filter(
+                is_active=True, parent__isnull=True,
+            ).order_by('name')
+
         # Teachers must pick a classroom
         if request.user.is_any_teacher and not (
             request.user.has_role(Role.HEAD_OF_INSTITUTE)
@@ -2153,7 +2201,8 @@ class AddQuestionView(RoleRequiredMixin, View):
             ctx['classrooms'] = ClassRoom.objects.filter(
                 id__in=classroom_ids, is_active=True,
             ).order_by('name')
-        # Scope label for the template
+
+        # Scope label
         if request.user.is_superuser:
             ctx['scope_label'] = 'Global'
         elif request.user.has_role(Role.HEAD_OF_INSTITUTE) or request.user.has_role(Role.INSTITUTE_OWNER):
@@ -2163,17 +2212,30 @@ class AddQuestionView(RoleRequiredMixin, View):
             ctx['scope_label'] = f'Department: {dept.name}' if dept else 'Department'
         else:
             ctx['scope_label'] = 'Class'
+
+        # Standalone mode flag
+        ctx['standalone'] = level is None
         return ctx
 
-    def get(self, request, level_number):
-        level = get_object_or_404(Level, level_number=level_number)
+    def get(self, request, level_number=None):
+        level = get_object_or_404(Level, level_number=level_number) if level_number else None
         return render(request, 'teacher/question_form.html', self._build_context(request, level))
 
-    def post(self, request, level_number):
+    def post(self, request, level_number=None):
         from maths.models import Question as MathsQuestion, Answer as MathsAnswer
-        level = get_object_or_404(Level, level_number=level_number)
-        classroom_topic = get_object_or_404(Topic, id=request.POST.get('topic'))
 
+        # Resolve level — from URL or from form POST
+        if level_number:
+            level = get_object_or_404(Level, level_number=level_number)
+        else:
+            level_num = request.POST.get('level')
+            if not level_num:
+                messages.error(request, 'Please select a year level.')
+                return render(request, 'teacher/question_form.html',
+                              self._build_context(request))
+            level = get_object_or_404(Level, level_number=int(level_num))
+
+        classroom_topic = get_object_or_404(Topic, id=request.POST.get('topic'))
         school_id, dept_id, classroom_ids = _get_question_scope(request.user)
 
         # For teachers, get the selected classroom
@@ -2190,6 +2252,12 @@ class AddQuestionView(RoleRequiredMixin, View):
                               self._build_context(request, level))
             selected_classroom_id = int(selected_classroom_id)
 
+        # Auto-link topic to level
+        if not classroom_topic.levels.filter(pk=level.pk).exists():
+            classroom_topic.levels.add(level)
+        if classroom_topic.parent and not classroom_topic.parent.levels.filter(pk=level.pk).exists():
+            classroom_topic.parent.levels.add(level)
+
         with transaction.atomic():
             question = MathsQuestion.objects.create(
                 topic=classroom_topic, level=level,
@@ -2202,12 +2270,16 @@ class AddQuestionView(RoleRequiredMixin, View):
                 points=int(request.POST.get('points', 1)),
                 explanation=request.POST.get('explanation', ''),
                 image=request.FILES.get('image'),
+                video=request.FILES.get('video'),
             )
-            for i in range(1, 5):
+            # Dynamic answers — support up to 20
+            for i in range(1, 21):
                 text = request.POST.get(f'answer_text_{i}', '').strip()
-                if text:
+                answer_image = request.FILES.get(f'answer_image_{i}')
+                if text or answer_image:
                     MathsAnswer.objects.create(
                         question=question, answer_text=text,
+                        answer_image=answer_image,
                         is_correct=request.POST.get(f'answer_correct_{i}') == 'true',
                         order=int(request.POST.get(f'answer_order_{i}', i)),
                     )
@@ -2216,11 +2288,11 @@ class AddQuestionView(RoleRequiredMixin, View):
             school=School.objects.filter(id=school_id).first() if school_id else None,
             category='data_change',
             action='question_created',
-            detail={'question_id': question.id, 'level_number': level_number},
+            detail={'question_id': question.id, 'level_number': level.level_number},
             request=request,
         )
         messages.success(request, 'Question added.')
-        return redirect('question_list', level_number=level_number)
+        return redirect('question_list', level_number=level.level_number)
 
 
 class EditQuestionView(RoleRequiredMixin, View):

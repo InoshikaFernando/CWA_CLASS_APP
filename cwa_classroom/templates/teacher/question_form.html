@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}{% if question %}Edit Question{% else %}Add Question{% endif %}{% endblock %}
+{% block title %}{% if question %}Edit Question{% else %}Create Question{% endif %}{% endblock %}
 {% block content %}
 <div class="max-w-3xl mx-auto space-y-6">
   <div class="flex items-center justify-between">
     <div>
-      <h1 class="font-display text-3xl text-primary">{% if question %}Edit Question{% else %}Add Question{% endif %}</h1>
-      <p class="text-gray-400 text-sm mt-1">{{ level.display_name }}</p>
+      <h1 class="font-display text-3xl text-primary">{% if question %}Edit Question{% else %}Create Question{% endif %}</h1>
+      <p class="text-gray-400 text-sm mt-1">{% if level %}{{ level.display_name }}{% else %}Select a year level to get started{% endif %}</p>
     </div>
     {% if scope_label %}
     <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold
@@ -13,22 +13,13 @@
       {% elif scope_label == 'School' %}bg-blue-100 text-blue-700
       {% elif scope_label == 'Class' %}bg-green-100 text-green-700
       {% else %}bg-amber-100 text-amber-700{% endif %}">
-      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        {% if scope_label == 'Global' %}
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-        {% elif scope_label == 'School' %}
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
-        {% else %}
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
-        {% endif %}
-      </svg>
       {{ scope_label }}
     </span>
     {% endif %}
   </div>
 
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-    <form method="post" enctype="multipart/form-data" class="space-y-5">
+    <form method="post" enctype="multipart/form-data" class="space-y-5" id="question-form">
       {% csrf_token %}
 
       {% if classrooms %}
@@ -41,135 +32,287 @@
           <option value="{{ c.id }}">{{ c.name }} ({{ c.code }})</option>
           {% endfor %}
         </select>
-        <p class="text-xs text-gray-400 mt-1">This question will be available only in the selected class.</p>
       </div>
       {% endif %}
 
+      <!-- Hierarchy Selectors -->
       <div class="grid grid-cols-2 gap-4">
+        {% if standalone %}
         <div>
-          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Topic</label>
-          <select name="topic" required
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Year Level <span class="text-red-500">*</span></label>
+          <select name="level" required id="level-select"
+                  hx-get="{% url 'htmx_topics_for_level' %}"
+                  hx-target="#topic-select"
+                  hx-include="[name='level']"
+                  hx-trigger="change"
                   class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition">
-            {% for t in topics %}
-            <option value="{{ t.id }}" {% if question and question.topic_id == t.id %}selected{% endif %}>{{ t.name }}</option>
+            <option value="">-- Select year level --</option>
+            {% for l in levels %}
+            <option value="{{ l.level_number }}">{{ l.display_name }}</option>
             {% endfor %}
           </select>
         </div>
+        {% endif %}
         <div>
-          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Question Type</label>
-          <select name="question_type" required id="q-type"
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Topic <span class="text-red-500">*</span></label>
+          <select name="topic" required id="topic-select"
+                  class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition">
+            {% if standalone %}
+            <option value="">-- Select year level first --</option>
+            {% else %}
+            <option value="">-- Select topic --</option>
+            {% for t in topics %}
+            <option value="{{ t.id }}" {% if question and question.topic_id == t.id %}selected{% endif %}>{{ t.name }}</option>
+            {% endfor %}
+            {% endif %}
+          </select>
+        </div>
+      </div>
+
+      <!-- Question Type -->
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Question Type <span class="text-red-500">*</span></label>
+          <select name="question_type" required id="q-type-select"
+                  onchange="handleTypeChange(this.value)"
                   class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition">
             {% for val, label in question_types %}
             <option value="{{ val }}" {% if question and question.question_type == val %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
         </div>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-semibold text-gray-700 mb-1.5">Difficulty</label>
+            <select name="difficulty"
+                    class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition">
+              {% for val, label in difficulty_choices %}
+              <option value="{{ val }}" {% if question and question.difficulty == val %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-semibold text-gray-700 mb-1.5">Points</label>
+            <input type="number" name="points" min="1" max="10" value="{{ question.points|default:1 }}"
+                   class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+          </div>
+        </div>
       </div>
 
+      <!-- Question Text -->
       <div>
-        <label class="block text-sm font-semibold text-gray-700 mb-1.5">Question Text</label>
-        <textarea name="question_text" rows="3" required autofocus
+        <label class="block text-sm font-semibold text-gray-700 mb-1.5">Question Text <span class="text-red-500">*</span></label>
+        <textarea name="question_text" rows="3" required
                   class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition resize-y">{{ question.question_text|default:'' }}</textarea>
       </div>
 
+      <!-- Media Uploads -->
       <div class="grid grid-cols-2 gap-4">
         <div>
-          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Difficulty</label>
-          <select name="difficulty"
-                  class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition">
-            {% for val, label in difficulty_choices %}
-            <option value="{{ val }}" {% if question and question.difficulty == val %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Image (optional)</label>
+          <input type="file" name="image" accept="image/*"
+                 class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:font-semibold file:bg-primary/10 file:text-primary" />
+          {% if question.image %}
+          <img src="{{ question.image.url }}" class="mt-2 h-24 rounded-xl object-cover" />
+          {% endif %}
         </div>
         <div>
-          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Points</label>
-          <input type="number" name="points" min="1" max="10" value="{{ question.points|default:1 }}"
-                 class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Video (optional)</label>
+          <input type="file" name="video" accept="video/*"
+                 class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:font-semibold file:bg-primary/10 file:text-primary" />
+          {% if question.video %}
+          <p class="text-xs text-gray-500 mt-1">Current: {{ question.video.name }}</p>
+          {% endif %}
         </div>
-      </div>
-
-      <div>
-        <label class="block text-sm font-semibold text-gray-700 mb-1.5">Image (optional)</label>
-        <input type="file" name="image" accept="image/*"
-               class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:font-semibold file:bg-primary-light file:text-primary" />
-        {% if question.image %}
-        <img src="{{ question.image.url }}" class="mt-2 h-24 rounded-xl object-cover" />
-        {% endif %}
       </div>
 
       <!-- Answers -->
       <div id="answers-section">
-        <label class="block text-sm font-semibold text-gray-700 mb-3">Answers</label>
-        <div class="space-y-3">
+        <div class="flex items-center justify-between mb-3">
+          <label class="block text-sm font-semibold text-gray-700">Answers</label>
+          <button type="button" onclick="addAnswerRow()"
+                  id="add-answer-btn"
+                  class="text-xs text-primary font-semibold hover:underline">+ Add Answer</button>
+        </div>
+        <div class="space-y-3" id="answers-container">
           {% if answer_data %}
           {% for ad in answer_data %}
-          {% with idx=forloop.counter %}
-          <div class="flex items-center gap-3">
-            <input type="text" name="answer_text_{{ idx }}" placeholder="Answer {{ idx }}"
-                   value="{{ ad.text }}"
-                   class="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
-            <label class="flex items-center gap-1.5 text-sm font-semibold text-gray-600 cursor-pointer">
-              <input type="radio" name="correct_answer" value="{{ idx }}"
+          <div class="answer-row flex items-start gap-3 p-3 rounded-lg border border-gray-100 bg-gray-50" data-idx="{{ forloop.counter }}">
+            <div class="flex-1 space-y-2">
+              <input type="text" name="answer_text_{{ forloop.counter }}" placeholder="Answer text..."
+                     value="{{ ad.text }}"
+                     class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" />
+              <div class="flex items-center gap-2">
+                <label class="text-xs text-gray-500">Or image:</label>
+                <input type="file" name="answer_image_{{ forloop.counter }}" accept="image/*"
+                       class="text-xs text-gray-400 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-gray-100 file:text-gray-600 file:text-xs" />
+              </div>
+            </div>
+            <label class="flex items-center gap-1.5 text-sm font-semibold text-gray-600 cursor-pointer whitespace-nowrap mt-2">
+              <input type="radio" name="correct_answer" value="{{ forloop.counter }}"
                      {% if ad.is_correct %}checked{% endif %}
-                     class="text-primary focus:ring-primary" />
+                     onchange="syncCorrectAnswer(this)"
+                     class="text-emerald-500 focus:ring-emerald-500" />
               Correct
             </label>
-            <input type="hidden" name="answer_correct_{{ idx }}" id="correct-hidden-{{ idx }}" value="{% if ad.is_correct %}true{% else %}false{% endif %}" />
-            <input type="hidden" name="answer_order_{{ idx }}" value="{{ idx }}" />
+            <input type="hidden" name="answer_correct_{{ forloop.counter }}" class="correct-hidden" value="{% if ad.is_correct %}true{% else %}false{% endif %}" />
+            <input type="hidden" name="answer_order_{{ forloop.counter }}" value="{{ forloop.counter }}" />
+            <button type="button" onclick="this.closest('.answer-row').remove()" class="text-gray-300 hover:text-red-400 mt-2">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
           </div>
-          {% endwith %}
           {% endfor %}
           {% else %}
           {% for i in "1234" %}
-          {% with idx=forloop.counter %}
-          <div class="flex items-center gap-3">
-            <input type="text" name="answer_text_{{ idx }}" placeholder="Answer {{ idx }}"
-                   class="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
-            <label class="flex items-center gap-1.5 text-sm font-semibold text-gray-600 cursor-pointer">
-              <input type="radio" name="correct_answer" value="{{ idx }}"
-                     class="text-primary focus:ring-primary" />
+          <div class="answer-row flex items-start gap-3 p-3 rounded-lg border border-gray-100 bg-gray-50" data-idx="{{ forloop.counter }}">
+            <div class="flex-1 space-y-2">
+              <input type="text" name="answer_text_{{ forloop.counter }}" placeholder="Answer {{ forloop.counter }}"
+                     class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" />
+              <div class="flex items-center gap-2">
+                <label class="text-xs text-gray-500">Or image:</label>
+                <input type="file" name="answer_image_{{ forloop.counter }}" accept="image/*"
+                       class="text-xs text-gray-400 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-gray-100 file:text-gray-600 file:text-xs" />
+              </div>
+            </div>
+            <label class="flex items-center gap-1.5 text-sm font-semibold text-gray-600 cursor-pointer whitespace-nowrap mt-2">
+              <input type="radio" name="correct_answer" value="{{ forloop.counter }}"
+                     onchange="syncCorrectAnswer(this)"
+                     class="text-emerald-500 focus:ring-emerald-500" />
               Correct
             </label>
-            <input type="hidden" name="answer_correct_{{ idx }}" id="correct-hidden-{{ idx }}" value="false" />
-            <input type="hidden" name="answer_order_{{ idx }}" value="{{ idx }}" />
+            <input type="hidden" name="answer_correct_{{ forloop.counter }}" class="correct-hidden" value="false" />
+            <input type="hidden" name="answer_order_{{ forloop.counter }}" value="{{ forloop.counter }}" />
+            <button type="button" onclick="this.closest('.answer-row').remove()" class="text-gray-300 hover:text-red-400 mt-2">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
           </div>
-          {% endwith %}
           {% endfor %}
           {% endif %}
         </div>
-        <p class="text-xs text-gray-400 mt-2">Select the radio button next to the correct answer.</p>
+        <p class="text-xs text-gray-400 mt-2" id="answers-help">Select the radio button next to the correct answer.</p>
       </div>
 
+      <!-- Explanation -->
       <div>
         <label class="block text-sm font-semibold text-gray-700 mb-1.5">Explanation (optional)</label>
         <textarea name="explanation" rows="2"
                   class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition resize-y">{{ question.explanation|default:'' }}</textarea>
       </div>
 
+      <!-- Submit -->
       <div class="flex gap-3 pt-2">
         <button type="submit" class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition">
-          {% if question %}Save Changes{% else %}Add Question{% endif %}
+          {% if question %}Save Changes{% else %}Create Question{% endif %}
         </button>
+        {% if level %}
         <a href="{% url 'question_list' level_number=level.level_number %}"
            class="bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl px-6 py-3 hover:bg-gray-50 transition">
           Cancel
         </a>
+        {% endif %}
       </div>
     </form>
   </div>
 </div>
 
-{% block extra_js %}
 <script>
-  // Wire radio buttons to hidden correct fields
-  document.querySelectorAll('input[name=correct_answer]').forEach(radio => {
-    radio.addEventListener('change', () => {
-      for (let i = 1; i <= 4; i++) {
-        document.getElementById('correct-hidden-' + i).value = (radio.value == i) ? 'true' : 'false';
-      }
-    });
-  });
+var answerCounter = document.querySelectorAll('.answer-row').length;
+
+function addAnswerRow() {
+  answerCounter++;
+  var idx = answerCounter;
+  var container = document.getElementById('answers-container');
+  var div = document.createElement('div');
+  div.className = 'answer-row flex items-start gap-3 p-3 rounded-lg border border-gray-100 bg-gray-50';
+  div.dataset.idx = idx;
+  div.innerHTML =
+    '<div class="flex-1 space-y-2">' +
+      '<input type="text" name="answer_text_' + idx + '" placeholder="Answer ' + idx + '" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" />' +
+      '<div class="flex items-center gap-2"><label class="text-xs text-gray-500">Or image:</label>' +
+      '<input type="file" name="answer_image_' + idx + '" accept="image/*" class="text-xs text-gray-400 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-gray-100 file:text-gray-600 file:text-xs" /></div>' +
+    '</div>' +
+    '<label class="flex items-center gap-1.5 text-sm font-semibold text-gray-600 cursor-pointer whitespace-nowrap mt-2">' +
+      '<input type="radio" name="correct_answer" value="' + idx + '" onchange="syncCorrectAnswer(this)" class="text-emerald-500 focus:ring-emerald-500" /> Correct' +
+    '</label>' +
+    '<input type="hidden" name="answer_correct_' + idx + '" class="correct-hidden" value="false" />' +
+    '<input type="hidden" name="answer_order_' + idx + '" value="' + idx + '" />' +
+    '<button type="button" onclick="this.closest(\'.answer-row\').remove()" class="text-gray-300 hover:text-red-400 mt-2">' +
+      '<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>' +
+    '</button>';
+  container.appendChild(div);
+}
+
+function syncCorrectAnswer(radio) {
+  // Reset all hidden correct fields
+  document.querySelectorAll('.correct-hidden').forEach(function(h) { h.value = 'false'; });
+  // Set the selected one
+  var row = radio.closest('.answer-row');
+  if (row) {
+    row.querySelector('.correct-hidden').value = 'true';
+  }
+}
+
+function handleTypeChange(type) {
+  var container = document.getElementById('answers-container');
+  var addBtn = document.getElementById('add-answer-btn');
+  var help = document.getElementById('answers-help');
+
+  if (type === 'true_false') {
+    container.innerHTML =
+      '<div class="answer-row flex items-center gap-3 p-3 rounded-lg border border-gray-100 bg-gray-50" data-idx="1">' +
+        '<input type="text" name="answer_text_1" value="True" readonly class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm bg-gray-100" />' +
+        '<label class="flex items-center gap-1.5 text-sm font-semibold text-gray-600 cursor-pointer"><input type="radio" name="correct_answer" value="1" checked onchange="syncCorrectAnswer(this)" class="text-emerald-500 focus:ring-emerald-500" /> Correct</label>' +
+        '<input type="hidden" name="answer_correct_1" class="correct-hidden" value="true" />' +
+        '<input type="hidden" name="answer_order_1" value="1" />' +
+      '</div>' +
+      '<div class="answer-row flex items-center gap-3 p-3 rounded-lg border border-gray-100 bg-gray-50" data-idx="2">' +
+        '<input type="text" name="answer_text_2" value="False" readonly class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm bg-gray-100" />' +
+        '<label class="flex items-center gap-1.5 text-sm font-semibold text-gray-600 cursor-pointer"><input type="radio" name="correct_answer" value="2" onchange="syncCorrectAnswer(this)" class="text-emerald-500 focus:ring-emerald-500" /> Correct</label>' +
+        '<input type="hidden" name="answer_correct_2" class="correct-hidden" value="false" />' +
+        '<input type="hidden" name="answer_order_2" value="2" />' +
+      '</div>';
+    addBtn.style.display = 'none';
+    help.textContent = 'Select True or False as the correct answer.';
+    answerCounter = 2;
+
+  } else if (type === 'short_answer' || type === 'fill_blank' || type === 'calculation') {
+    var existing = container.querySelectorAll('.answer-row');
+    if (existing.length === 0 || existing.length > 1) {
+      container.innerHTML =
+        '<div class="answer-row flex items-start gap-3 p-3 rounded-lg border border-gray-100 bg-gray-50" data-idx="1">' +
+          '<div class="flex-1"><input type="text" name="answer_text_1" placeholder="Correct answer..." class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" /></div>' +
+          '<input type="hidden" name="answer_correct_1" class="correct-hidden" value="true" />' +
+          '<input type="hidden" name="answer_order_1" value="1" />' +
+        '</div>';
+      answerCounter = 1;
+    }
+    addBtn.style.display = 'none';
+    help.textContent = 'Enter the correct answer.';
+
+  } else {
+    // multiple_choice — ensure at least 4 rows
+    var rows = container.querySelectorAll('.answer-row').length;
+    for (var i = rows; i < 4; i++) {
+      addAnswerRow();
+    }
+    addBtn.style.display = '';
+    help.textContent = 'Select the radio button next to the correct answer. Use image upload for picture-based answers.';
+  }
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+  var typeSelect = document.getElementById('q-type-select');
+  if (typeSelect) {
+    // Don't reset answers on edit page
+    {% if not question %}
+    handleTypeChange(typeSelect.value);
+    {% endif %}
+  }
+});
 </script>
-{% endblock %}
 {% endblock %}
