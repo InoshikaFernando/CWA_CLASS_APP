@@ -235,12 +235,31 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
         topics = Topic.objects.filter(subject__slug='mathematics').order_by('name')
         levels = Level.objects.filter(level_number__lte=12).order_by('level_number')
 
+        # Build image list for the gallery (embedded images only, not screenshots)
+        image_list = []
+        for ref, b64 in session.extracted_images.items():
+            image_list.append({'ref': ref, 'name': ref, 'base64': b64})
+
+        # Fill in per-question defaults from global classification
+        questions = data.get('questions', [])
+        for q in questions:
+            if 'year_level' not in q or not q['year_level']:
+                q['year_level'] = data.get('year_level')
+            if 'subject' not in q or not q['subject']:
+                q['subject'] = data.get('subject', 'Mathematics')
+            if 'strand' not in q or not q['strand']:
+                q['strand'] = data.get('strand', '')
+            if 'topic' not in q or not q['topic']:
+                q['topic'] = data.get('topic', '')
+
         return render(request, 'ai_import/preview.html', {
             'session': session,
             'data': data,
-            'questions': data.get('questions', []),
+            'questions': questions,
             'topics': topics,
             'levels': levels,
+            'image_list': image_list,
+            'image_refs_json': json.dumps([img['ref'] for img in image_list]),
             'question_types': [
                 ('multiple_choice', 'Multiple Choice'),
                 ('true_false', 'True / False'),
@@ -252,18 +271,23 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
 
     def post(self, request, session_id):
         """Save user edits from the preview form and redirect to confirm."""
+        import logging
+        logger = logging.getLogger(__name__)
+
         session = get_object_or_404(
             AIImportSession, pk=session_id, user=request.user, is_confirmed=False,
         )
         data = session.extracted_data
 
-        # Update top-level overrides
+        logger.warning(f'AI Import Preview POST: session={session_id}, POST keys={list(request.POST.keys())[:10]}')
+
+        # Update default classification
         data['year_level'] = int(request.POST.get('year_level', data.get('year_level', 1)))
         data['topic'] = request.POST.get('topic', data.get('topic', ''))
         data['strand'] = request.POST.get('strand', data.get('strand', ''))
         data['subject'] = request.POST.get('subject', data.get('subject', 'Mathematics'))
 
-        # Update individual questions
+        # Update individual questions with per-question overrides
         questions = data.get('questions', [])
         for idx, q in enumerate(questions):
             prefix = f'q_{idx}_'
@@ -274,9 +298,19 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
             q['points'] = int(request.POST.get(f'{prefix}points', q.get('points', 1)))
             q['explanation'] = request.POST.get(f'{prefix}explanation', q.get('explanation', ''))
 
-            # Update answers
+            # Per-question classification
+            q['year_level'] = int(request.POST.get(f'{prefix}year_level', q.get('year_level', data['year_level'])))
+            q['subject'] = request.POST.get(f'{prefix}subject', q.get('subject', data['subject']))
+            q['strand'] = request.POST.get(f'{prefix}strand', q.get('strand', data['strand']))
+            q['topic'] = request.POST.get(f'{prefix}topic', q.get('topic', data['topic']))
+
+            # Image ref
+            img_ref = request.POST.get(f'{prefix}image_ref', '')
+            q['image_ref'] = img_ref if img_ref and img_ref != 'none' else None
+
+            # Dynamic answers — collect all answer fields
             answers = []
-            for a_idx in range(4):
+            for a_idx in range(20):  # support up to 20 answers
                 a_text = request.POST.get(f'{prefix}answer_{a_idx}_text', '')
                 if a_text.strip():
                     answers.append({
@@ -293,6 +327,49 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
         return redirect('ai_import:confirm', session_id=session.pk)
 
 
+class UploadImageView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
+    """AJAX endpoint: upload an image to the session's image gallery."""
+    required_roles = [
+        Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER,
+        Role.TEACHER, Role.JUNIOR_TEACHER,
+    ]
+
+    def post(self, request, session_id):
+        import base64
+        from django.http import JsonResponse
+
+        session = get_object_or_404(
+            AIImportSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+
+        image_file = request.FILES.get('image')
+        if not image_file:
+            return JsonResponse({'error': 'No image file provided'}, status=400)
+
+        # Generate a ref name
+        existing_count = len([k for k in session.extracted_images if k.startswith('uploaded_')])
+        ext = image_file.name.rsplit('.', 1)[-1].lower() if '.' in image_file.name else 'png'
+        ref = f'uploaded_{existing_count + 1}.{ext}'
+
+        # Use original filename if provided
+        custom_name = request.POST.get('name', '')
+        if custom_name:
+            ref = custom_name if '.' in custom_name else f'{custom_name}.{ext}'
+
+        # Convert to base64 and store in session
+        img_bytes = image_file.read()
+        img_b64 = base64.b64encode(img_bytes).decode('utf-8')
+        session.extracted_images[ref] = img_b64
+        session.save(update_fields=['extracted_images'])
+
+        return JsonResponse({
+            'ref': ref,
+            'name': ref,
+            'size': len(img_bytes),
+        })
+
+
 class ConfirmImportView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
     """Step 3: Confirm and save questions to the database."""
     required_roles = [
@@ -306,13 +383,31 @@ class ConfirmImportView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
             AIImportSession, pk=session_id, user=request.user, is_confirmed=False,
         )
         data = session.extracted_data
-        included_count = sum(1 for q in data.get('questions', []) if q.get('include', True))
+        included_qs = [q for q in data.get('questions', []) if q.get('include', True)]
+        excluded_count = len(data.get('questions', [])) - len(included_qs)
+
+        # Summarise per-question year levels, topics, strands
+        year_levels = sorted(set(
+            q.get('year_level') or data.get('year_level') for q in included_qs
+        ))
+        topics = sorted(set(
+            q.get('topic') or data.get('topic', '') for q in included_qs
+        ))
+        strands = sorted(set(
+            q.get('strand') or data.get('strand', '') for q in included_qs
+        ))
+        images_count = sum(1 for q in included_qs if q.get('image_ref'))
 
         return render(request, 'ai_import/confirm.html', {
             'session': session,
             'data': data,
-            'included_count': included_count,
+            'included_count': len(included_qs),
+            'excluded_count': excluded_count,
             'total_count': len(data.get('questions', [])),
+            'year_levels': year_levels,
+            'topics': topics,
+            'strands': strands,
+            'images_count': images_count,
         })
 
     def post(self, request, session_id):
@@ -353,6 +448,84 @@ class ConfirmImportView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
             'session': session,
             'result': result,
         })
+
+
+class ExportSessionView(RoleRequiredMixin, View):
+    """Export a confirmed session as ZIP (JSON + images) compatible with UploadQuestionsView."""
+    required_roles = [
+        Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER,
+        Role.TEACHER, Role.JUNIOR_TEACHER,
+    ]
+
+    def get(self, request, session_id):
+        import base64
+        import io
+        import zipfile
+        from django.http import HttpResponse
+
+        session = get_object_or_404(AIImportSession, pk=session_id, user=request.user)
+        data = session.extracted_data
+        questions = data.get('questions', [])
+        included = [q for q in questions if q.get('include', True)]
+
+        export = {
+            'year_level': data.get('year_level'),
+            'subject': data.get('subject', 'Mathematics'),
+            'strand': data.get('strand', ''),
+            'topic': data.get('topic', ''),
+            'questions': [],
+        }
+
+        image_refs_used = set()
+        for q in included:
+            eq = {
+                'question_text': q.get('question_text', ''),
+                'question_type': q.get('question_type', 'short_answer'),
+                'difficulty': q.get('difficulty', 1),
+                'points': q.get('points', 1),
+                'explanation': q.get('explanation', ''),
+                'answers': q.get('answers', []),
+            }
+            if q.get('year_level') and q['year_level'] != data.get('year_level'):
+                eq['year_level'] = q['year_level']
+            if q.get('topic') and q['topic'] != data.get('topic'):
+                eq['topic'] = q['topic']
+            if q.get('strand') and q['strand'] != data.get('strand'):
+                eq['strand'] = q['strand']
+            if q.get('image_ref'):
+                eq['image'] = q['image_ref']
+                image_refs_used.add(q['image_ref'])
+            export['questions'].append(eq)
+
+        # Build ZIP with questions.json + images
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            # Add questions.json
+            zf.writestr('questions.json', json.dumps(export, indent=2))
+
+            # Add images from session (base64 stored)
+            for ref in image_refs_used:
+                if ref in session.extracted_images:
+                    img_bytes = base64.b64decode(session.extracted_images[ref])
+                    zf.writestr(ref, img_bytes)
+                else:
+                    # Try from media directory
+                    for year_dir_name in [f'year{q.get("year_level", data.get("year_level", ""))}' for q in included if q.get('image_ref') == ref]:
+                        topic_slug = (q.get('topic') or data.get('topic', 'general')).lower().replace(' ', '-')
+                        img_path = os.path.join(
+                            str(settings.MEDIA_ROOT), 'questions', year_dir_name, topic_slug, ref,
+                        )
+                        if os.path.exists(img_path):
+                            with open(img_path, 'rb') as f:
+                                zf.writestr(ref, f.read())
+                            break
+
+        zip_buffer.seek(0)
+        filename = session.pdf_filename.rsplit('.', 1)[0] + '.zip'
+        response = HttpResponse(zip_buffer.getvalue(), content_type='application/zip')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
 
 
 class TierSelectView(LoginRequiredMixin, View):

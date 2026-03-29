@@ -46,6 +46,10 @@
        class="px-6 py-2.5 rounded-xl bg-primary text-white font-semibold shadow-sm hover:bg-primary/90 transition">
       Import Another PDF
     </a>
+    <a href="{% url 'ai_import:export' session.pk %}"
+       class="px-6 py-2.5 rounded-xl bg-emerald-600 text-white font-semibold shadow-sm hover:bg-emerald-700 transition">
+      Download as JSON
+    </a>
     <a href="{% url 'upload_questions' %}"
        class="px-6 py-2.5 rounded-xl border border-gray-300 text-gray-600 font-semibold hover:bg-gray-50 transition">
       Back to Question Upload

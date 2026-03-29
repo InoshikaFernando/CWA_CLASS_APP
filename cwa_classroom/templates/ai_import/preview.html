@@ -16,9 +16,10 @@
   <form method="post" class="space-y-6">
     {% csrf_token %}
 
-    <!-- Classification Header -->
+    <!-- Default Classification -->
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-      <h2 class="font-bold text-gray-800 mb-4">Classification</h2>
+      <h2 class="font-bold text-gray-800 mb-1">Default Classification</h2>
+      <p class="text-xs text-gray-400 mb-4">These defaults are applied to all questions. Override per question below.</p>
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div>
           <label class="block text-xs font-semibold text-gray-500 mb-1">Year Level</label>
@@ -48,18 +49,60 @@
       </div>
     </div>
 
+    <!-- Image Gallery -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6" id="image-gallery-section">
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <h2 class="font-bold text-gray-800">Images</h2>
+          <p class="text-xs text-gray-400">Assign images to questions using the dropdown on each question card.</p>
+        </div>
+        <label class="px-4 py-2 rounded-lg bg-primary/10 text-primary text-sm font-semibold cursor-pointer hover:bg-primary/20 transition">
+          <svg class="w-4 h-4 inline-block mr-1 -mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+          </svg>
+          Upload Image
+          <input type="file" accept="image/*" multiple class="hidden" id="image-upload-input" />
+        </label>
+      </div>
+      <div id="image-gallery" class="flex flex-wrap gap-3">
+        {% for img in image_list %}
+        <div class="image-gallery-item relative group border border-gray-200 rounded-lg p-1" data-ref="{{ img.ref }}">
+          <img src="data:image/png;base64,{{ img.base64 }}" alt="{{ img.name }}"
+               class="w-24 h-24 object-cover rounded" />
+          <button type="button" onclick="removeImage(this, '{{ img.ref }}')"
+                  class="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition shadow"
+                  title="Remove image">&times;</button>
+          <p class="text-[10px] text-gray-500 text-center mt-1 truncate w-24">{{ img.name }}</p>
+        </div>
+        {% empty %}
+        <p class="text-sm text-gray-400 italic" id="no-images-msg">No images found in PDF. Upload images manually using the button above.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Select / Deselect All -->
+    <div class="flex items-center gap-3">
+      <button type="button" onclick="toggleAllQuestions(true)" class="text-xs text-primary font-semibold hover:underline">Select All</button>
+      <span class="text-gray-300">|</span>
+      <button type="button" onclick="toggleAllQuestions(false)" class="text-xs text-gray-500 font-semibold hover:underline">Deselect All</button>
+      <span class="text-xs text-gray-400 ml-2" id="selected-count"></span>
+    </div>
+
     <!-- Questions -->
     {% for q in questions %}
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6" x-data="{ expanded: true }">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 question-card"
+         x-data="{ expanded: true }"
+         data-idx="{{ forloop.counter0 }}">
       <div class="flex items-start gap-3">
         <!-- Include checkbox -->
         <input type="checkbox" name="q_{{ forloop.counter0 }}_include"
                {% if q.include is not False %}checked{% endif %}
-               class="mt-1.5 rounded border-gray-300 text-primary focus:ring-primary" />
+               onchange="updateSelectedCount(); this.closest('.question-card').style.opacity = this.checked ? 1 : 0.4"
+               class="mt-1.5 rounded border-gray-300 text-primary focus:ring-primary question-include-cb" />
 
-        <div class="flex-1">
+        <div class="flex-1" :style="$el.closest('.question-card').querySelector('.question-include-cb').checked ? '' : 'pointer-events:none'">
           <!-- Question header -->
-          <div class="flex items-center gap-2 mb-3 cursor-pointer" @click="expanded = !expanded">
+          <div class="flex items-center gap-2 mb-3 cursor-pointer" @click="expanded = !expanded" style="pointer-events:auto">
             <span class="text-xs font-bold text-gray-400">Q{{ forloop.counter }}</span>
             <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase
                          {% if q.question_type == 'multiple_choice' %}bg-blue-100 text-blue-700
@@ -75,7 +118,7 @@
               {% if q.difficulty == 1 %}Easy{% elif q.difficulty == 2 %}Medium{% else %}Hard{% endif %}
             </span>
             {% if q.image_ref %}
-            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 text-teal-700">Has Image</span>
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 text-teal-700">{{ q.image_ref }}</span>
             {% endif %}
             <svg :class="expanded ? 'rotate-0' : '-rotate-90'" class="w-4 h-4 ml-auto text-gray-400 transition-transform" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
@@ -87,13 +130,43 @@
             <div>
               <label class="block text-xs font-semibold text-gray-500 mb-1">Question Text</label>
               <textarea name="q_{{ forloop.counter0 }}_text" rows="3"
-                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono">{{ q.question_text }}</textarea>
+                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">{{ q.question_text }}</textarea>
             </div>
 
-            <div class="grid grid-cols-3 gap-3">
+            <!-- Per-question classification -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 bg-gray-50 rounded-lg p-3">
+              <div>
+                <label class="block text-[10px] font-semibold text-gray-400 mb-1">Year Level</label>
+                <select name="q_{{ forloop.counter0 }}_year_level" class="w-full rounded border border-gray-300 px-2 py-1.5 text-xs">
+                  {% for level in levels %}
+                  <option value="{{ level.level_number }}" {% if level.level_number == q.year_level %}selected{% endif %}>{{ level.display_name }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div>
+                <label class="block text-[10px] font-semibold text-gray-400 mb-1">Subject</label>
+                <input type="text" name="q_{{ forloop.counter0 }}_subject" value="{{ q.subject|default:data.subject }}"
+                       class="w-full rounded border border-gray-300 px-2 py-1.5 text-xs" />
+              </div>
+              <div>
+                <label class="block text-[10px] font-semibold text-gray-400 mb-1">Strand</label>
+                <input type="text" name="q_{{ forloop.counter0 }}_strand" value="{{ q.strand|default:data.strand }}"
+                       class="w-full rounded border border-gray-300 px-2 py-1.5 text-xs" />
+              </div>
+              <div>
+                <label class="block text-[10px] font-semibold text-gray-400 mb-1">Topic</label>
+                <input type="text" name="q_{{ forloop.counter0 }}_topic" value="{{ q.topic|default:data.topic }}"
+                       class="w-full rounded border border-gray-300 px-2 py-1.5 text-xs" />
+              </div>
+            </div>
+
+            <!-- Type, Difficulty, Points, Image -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
               <div>
                 <label class="block text-xs font-semibold text-gray-500 mb-1">Type</label>
-                <select name="q_{{ forloop.counter0 }}_type" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
+                <select name="q_{{ forloop.counter0 }}_type"
+                        onchange="handleTypeChange({{ forloop.counter0 }}, this.value)"
+                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
                   {% for val, label in question_types %}
                   <option value="{{ val }}" {% if q.question_type == val %}selected{% endif %}>{{ label }}</option>
                   {% endfor %}
@@ -112,23 +185,41 @@
                 <input type="number" name="q_{{ forloop.counter0 }}_points" value="{{ q.points|default:1 }}" min="1"
                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
               </div>
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 mb-1">Image</label>
+                <select name="q_{{ forloop.counter0 }}_image_ref"
+                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm image-ref-select">
+                  <option value="none">No Image</option>
+                  {% for img in image_list %}
+                  <option value="{{ img.ref }}" {% if q.image_ref == img.ref %}selected{% endif %}>{{ img.name }}</option>
+                  {% endfor %}
+                </select>
+              </div>
             </div>
 
             <!-- Answers -->
-            <div>
+            <div id="answers-section-{{ forloop.counter0 }}">
               <label class="block text-xs font-semibold text-gray-500 mb-1">Answers</label>
-              <div class="space-y-2">
+              <div class="space-y-2 answers-container" data-idx="{{ forloop.counter0 }}">
                 {% for ans in q.answers %}
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 answer-row">
                   <input type="checkbox" name="q_{{ forloop.parentloop.counter0 }}_answer_{{ forloop.counter0 }}_correct"
                          {% if ans.is_correct %}checked{% endif %}
                          class="rounded border-gray-300 text-emerald-500 focus:ring-emerald-500" />
                   <input type="text" name="q_{{ forloop.parentloop.counter0 }}_answer_{{ forloop.counter0 }}_text"
                          value="{{ ans.text }}"
                          class="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+                  <button type="button" onclick="this.closest('.answer-row').remove()"
+                          class="text-gray-300 hover:text-red-400 transition">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                  </button>
                 </div>
                 {% endfor %}
               </div>
+              <button type="button" onclick="addAnswerRow({{ forloop.counter0 }})"
+                      class="mt-2 text-xs text-primary font-semibold hover:underline">+ Add Answer</button>
             </div>
 
             <!-- Explanation -->
@@ -144,7 +235,7 @@
     {% endfor %}
 
     <!-- Actions -->
-    <div class="flex gap-3 justify-end sticky bottom-4">
+    <div class="sticky bottom-0 bg-gray-50 border-t border-gray-200 -mx-4 px-4 py-3 flex gap-3 justify-end z-10">
       <a href="{% url 'ai_import:upload' %}"
          class="px-6 py-2.5 rounded-xl border border-gray-300 bg-white text-gray-600 font-semibold hover:bg-gray-50 transition shadow-sm">
         Cancel
@@ -156,4 +247,142 @@
     </div>
   </form>
 </div>
+
+<script>
+// --- Image Upload ---
+document.getElementById('image-upload-input').addEventListener('change', function(e) {
+  var files = e.target.files;
+  var csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+  var sessionId = {{ session.pk }};
+
+  for (var i = 0; i < files.length; i++) {
+    var formData = new FormData();
+    formData.append('image', files[i]);
+    formData.append('name', files[i].name);
+
+    fetch('/ai-import/upload-image/' + sessionId + '/', {
+      method: 'POST',
+      headers: {'X-CSRFToken': csrfToken},
+      body: formData,
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.ref) {
+        // Remove "no images" message
+        var noMsg = document.getElementById('no-images-msg');
+        if (noMsg) noMsg.remove();
+
+        // Add to gallery
+        var gallery = document.getElementById('image-gallery');
+        var div = document.createElement('div');
+        div.className = 'image-gallery-item relative group border border-gray-200 rounded-lg p-1';
+        div.dataset.ref = data.ref;
+        div.innerHTML = '<div class="w-24 h-24 bg-gray-100 rounded flex items-center justify-center"><svg class="w-8 h-8 text-gray-300" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5a1.5 1.5 0 0 0 1.5-1.5V5.25a1.5 1.5 0 0 0-1.5-1.5H3.75a1.5 1.5 0 0 0-1.5 1.5v14.25a1.5 1.5 0 0 0 0 1.5Z"/></svg></div>' +
+          '<button type="button" onclick="removeImage(this, \'' + data.ref + '\')" class="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition shadow" title="Remove image">&times;</button>' +
+          '<p class="text-[10px] text-gray-500 text-center mt-1 truncate w-24">' + data.ref + '</p>';
+        gallery.appendChild(div);
+
+        // Add to all image dropdowns
+        var selects = document.querySelectorAll('.image-ref-select');
+        selects.forEach(function(sel) {
+          var opt = document.createElement('option');
+          opt.value = data.ref;
+          opt.textContent = data.ref;
+          sel.appendChild(opt);
+        });
+      }
+    });
+  }
+  e.target.value = '';
+});
+
+// --- Remove Image ---
+function removeImage(btn, ref) {
+  // Remove from gallery
+  var item = btn.closest('.image-gallery-item');
+  if (item) item.remove();
+
+  // Remove from all dropdowns and reset any questions using this image
+  document.querySelectorAll('.image-ref-select').forEach(function(sel) {
+    var opt = sel.querySelector('option[value="' + ref + '"]');
+    if (opt) {
+      if (sel.value === ref) sel.value = 'none';
+      opt.remove();
+    }
+  });
+}
+
+// --- Select / Deselect All ---
+function toggleAllQuestions(checked) {
+  document.querySelectorAll('.question-include-cb').forEach(function(cb) {
+    cb.checked = checked;
+    cb.closest('.question-card').style.opacity = checked ? 1 : 0.4;
+  });
+  updateSelectedCount();
+}
+
+function updateSelectedCount() {
+  var total = document.querySelectorAll('.question-include-cb').length;
+  var selected = document.querySelectorAll('.question-include-cb:checked').length;
+  document.getElementById('selected-count').textContent = selected + ' of ' + total + ' selected';
+}
+
+// --- Dynamic Answer Rows ---
+function addAnswerRow(qIdx) {
+  var container = document.querySelector('.answers-container[data-idx="' + qIdx + '"]');
+  var count = container.querySelectorAll('.answer-row').length;
+  var div = document.createElement('div');
+  div.className = 'flex items-center gap-2 answer-row';
+  div.innerHTML =
+    '<input type="checkbox" name="q_' + qIdx + '_answer_' + count + '_correct" class="rounded border-gray-300 text-emerald-500 focus:ring-emerald-500" />' +
+    '<input type="text" name="q_' + qIdx + '_answer_' + count + '_text" placeholder="Answer text..." class="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />' +
+    '<button type="button" onclick="this.closest(\'.answer-row\').remove()" class="text-gray-300 hover:text-red-400 transition"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg></button>';
+  container.appendChild(div);
+}
+
+// --- Dynamic Type Change ---
+function handleTypeChange(qIdx, newType) {
+  var container = document.querySelector('.answers-container[data-idx="' + qIdx + '"]');
+  var section = document.getElementById('answers-section-' + qIdx);
+  var addBtn = section.querySelector('button[onclick*="addAnswerRow"]');
+
+  if (newType === 'true_false') {
+    // Replace with True/False options
+    container.innerHTML =
+      '<div class="flex items-center gap-2 answer-row">' +
+        '<input type="checkbox" name="q_' + qIdx + '_answer_0_correct" checked class="rounded border-gray-300 text-emerald-500 focus:ring-emerald-500" />' +
+        '<input type="text" name="q_' + qIdx + '_answer_0_text" value="True" class="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" readonly />' +
+      '</div>' +
+      '<div class="flex items-center gap-2 answer-row">' +
+        '<input type="checkbox" name="q_' + qIdx + '_answer_1_correct" class="rounded border-gray-300 text-emerald-500 focus:ring-emerald-500" />' +
+        '<input type="text" name="q_' + qIdx + '_answer_1_text" value="False" class="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" readonly />' +
+      '</div>';
+    addBtn.style.display = 'none';
+
+  } else if (newType === 'multiple_choice') {
+    // Ensure at least 4 answer rows
+    var existing = container.querySelectorAll('.answer-row').length;
+    for (var i = existing; i < 4; i++) {
+      addAnswerRow(qIdx);
+    }
+    addBtn.style.display = '';
+
+  } else {
+    // short_answer, fill_blank, calculation — single answer
+    if (container.querySelectorAll('.answer-row').length === 0) {
+      addAnswerRow(qIdx);
+    }
+    addBtn.style.display = '';
+  }
+}
+
+// Init selected count on page load
+document.addEventListener('DOMContentLoaded', function() {
+  updateSelectedCount();
+  // Dim deselected questions
+  document.querySelectorAll('.question-include-cb').forEach(function(cb) {
+    if (!cb.checked) cb.closest('.question-card').style.opacity = 0.4;
+  });
+});
+</script>
 {% endblock %}
