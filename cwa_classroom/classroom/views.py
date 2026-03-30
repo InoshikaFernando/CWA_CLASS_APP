@@ -2708,8 +2708,13 @@ class HoDOverviewView(RoleRequiredMixin, View):
             group_label = 'Department'
         classes_grouped = dict(sorted(classes_grouped.items()))
 
-        # ── Next classes: only show if user teaches classes ──
-        # "My Classes" section only appears for users who are assigned as teachers
+        # ── Next classes: HoI/Owner always sees upcoming school classes ──
+        # If the user doesn't personally teach but owns/manages a school,
+        # show all upcoming classes for that school instead.
+        if next_classes_scope is None and not is_hod_only:
+            next_classes_scope = classes
+            is_teacher_too = True  # enable the upcoming-classes display block
+
         upcoming_sessions = []
         next_classes_from_schedule = []
 
