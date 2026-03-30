@@ -79,6 +79,24 @@
                         <span class="text-xs font-medium px-2 py-1 rounded-full bg-amber-100 text-amber-700 ml-1">Pending Approval</span>
                       {% endif %}
                     {% endif %}
+                    {# If absent and no token yet, offer to get a makeup token #}
+                    {% if item.attendance.status == 'absent' and not item.has_token %}
+                    <form method="post" action="{% url 'student_request_absence_token' %}" class="inline ml-1">
+                      {% csrf_token %}
+                      <input type="hidden" name="classroom_id" value="{{ classroom.id }}">
+                      <input type="hidden" name="session_id" value="{{ item.session.id }}">
+                      <button type="submit"
+                              class="text-xs font-medium px-2 py-1 rounded-full bg-purple-100 text-purple-700 hover:bg-purple-200 transition"
+                              onclick="return confirm('Get a makeup token for this absence?')">
+                        Get Token
+                      </button>
+                    </form>
+                    {% elif item.attendance.status == 'absent' and item.has_token %}
+                    <a href="{% url 'student_absence_tokens' %}"
+                       class="text-xs font-medium px-2 py-1 rounded-full bg-purple-50 text-purple-500 ml-1">
+                      Token issued ↗
+                    </a>
+                    {% endif %}
                   {% elif item.session.status == 'completed' %}
                     {# No attendance record yet — allow self-marking or requesting absence token #}
                     <div class="inline-flex gap-1 flex-wrap">
