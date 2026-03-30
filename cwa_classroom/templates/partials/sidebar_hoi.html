@@ -30,7 +30,7 @@
 
     <a href="{% url 'admin_dashboard' %}"
        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
-              {% if request.path == '/admin-dashboard/' or 'schools' in request.path and 'admin-dashboard' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
+              {% if request.path == '/admin-dashboard/' or 'schools' in request.path and 'admin-dashboard' in request.path and 'students' not in request.path and 'teachers' not in request.path and 'parent' not in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
       <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21"/>
       </svg>
