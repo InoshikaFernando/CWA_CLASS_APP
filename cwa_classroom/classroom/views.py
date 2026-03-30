@@ -1280,6 +1280,13 @@ class StudentCSVStructureMappingView(RoleRequiredMixin, View):
 
             preview = isvc.validate_and_preview(data_rows, column_mapping, school)
 
+            global_subjects = Subject.objects.filter(
+                school__isnull=True, is_active=True,
+            ).order_by('order', 'name')
+            global_levels = Level.objects.filter(
+                school__isnull=True, level_number__lt=100,
+            ).order_by('level_number')
+
             return render(request, 'admin/csv_student_structure_mapping.html', {
                 'departments': departments,
                 'selected_department': department,
@@ -1291,6 +1298,8 @@ class StudentCSVStructureMappingView(RoleRequiredMixin, View):
                     'guardians_new': len(preview.get('guardians_new', [])),
                 },
                 'school': school,
+                'global_subjects': global_subjects,
+                'global_levels': global_levels,
             })
 
         # Otherwise — user submitted final mapping choices
@@ -1307,6 +1316,8 @@ class StudentCSVStructureMappingView(RoleRequiredMixin, View):
             'level_map': {},
             'class_map': {},
             'teacher_map': {},
+            'global_subject_map': {},  # csv_subject -> global subject id (optional)
+            'global_level_map': {},    # csv_level -> global level id (optional)
             'dummy_subject': False,
             'dummy_level': False,
             'dummy_class': False,
@@ -1317,6 +1328,9 @@ class StudentCSVStructureMappingView(RoleRequiredMixin, View):
             for csv_subj in csv_structure['csv_subjects']:
                 val = request.POST.get(f'subject_map_{csv_subj}', 'create')
                 structure_mapping['subject_map'][csv_subj] = val
+                global_val = request.POST.get(f'global_subject_map_{csv_subj}', 'none')
+                if global_val and global_val != 'none':
+                    structure_mapping['global_subject_map'][csv_subj] = global_val
         elif not csv_structure or not csv_structure['csv_subjects']:
             # No CSV subjects — check if system has subjects
             mapping_ctx = isvc.build_smart_mapping_context(csv_structure or {'csv_subjects': [], 'csv_levels': [], 'csv_classes': [], 'csv_teachers': []}, department)
@@ -1328,6 +1342,9 @@ class StudentCSVStructureMappingView(RoleRequiredMixin, View):
             for csv_lvl in csv_structure['csv_levels']:
                 val = request.POST.get(f'level_map_{csv_lvl}', 'create')
                 structure_mapping['level_map'][csv_lvl] = val
+                global_val = request.POST.get(f'global_level_map_{csv_lvl}', 'none')
+                if global_val and global_val != 'none':
+                    structure_mapping['global_level_map'][csv_lvl] = global_val
         elif not csv_structure or not csv_structure['csv_levels']:
             mapping_ctx = isvc.build_smart_mapping_context(csv_structure or {'csv_subjects': [], 'csv_levels': [], 'csv_classes': [], 'csv_teachers': []}, department)
             if mapping_ctx['level_scenario'] == 'neither':

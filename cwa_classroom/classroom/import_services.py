@@ -839,6 +839,16 @@ def execute_import(preview_data, school, uploaded_by):
                             department=target_dept, subject=subj,
                         )
 
+            # Apply global subject links (optional — links local subject to global Mathematics etc.)
+            global_subject_map = structure_mapping.get('global_subject_map', {})
+            for csv_name, global_subj_id in global_subject_map.items():
+                if global_subj_id and global_subj_id != 'none':
+                    local_subj = subject_cache.get(csv_name)
+                    global_subj = Subject.objects.filter(id=int(global_subj_id), school__isnull=True).first()
+                    if local_subj and global_subj and local_subj.global_subject_id != global_subj.id:
+                        local_subj.global_subject = global_subj
+                        local_subj.save(update_fields=['global_subject'])
+
             # Handle dummy subject
             if structure_mapping.get('dummy_subject'):
                 dummy_subj, created = Subject.objects.get_or_create(
@@ -884,6 +894,20 @@ def execute_import(preview_data, school, uploaded_by):
                             department=target_dept, level=lvl,
                         )
 
+            # Apply global level links — builds a cache: csv_level_name -> global Level
+            global_level_map = structure_mapping.get('global_level_map', {})
+            global_level_cache = {}  # csv_level_name (lower) -> global Level object
+            for csv_name, global_lvl_id in global_level_map.items():
+                if global_lvl_id and global_lvl_id != 'none':
+                    global_lvl = Level.objects.filter(id=int(global_lvl_id), school__isnull=True).first()
+                    if global_lvl:
+                        global_level_cache[csv_name.lower()] = global_lvl
+                        # Ensure DepartmentLevel link exists for this global level too
+                        DepartmentLevel.objects.get_or_create(
+                            department=target_dept, level=global_lvl,
+                            defaults={'order': global_lvl.level_number},
+                        )
+
             # Handle dummy level
             if structure_mapping.get('dummy_level'):
                 base_subj = subject_cache.get('__dummy__') or next(iter(subject_cache.values()), None)
@@ -924,6 +948,10 @@ def execute_import(preview_data, school, uploaded_by):
                     first_lvl = next(iter(level_cache.values()), None)
                     if first_lvl:
                         classroom.levels.add(first_lvl)
+                        # Also link the matching global level (if the user mapped it)
+                        for csv_lvl_name, cached_lvl in level_cache.items():
+                            if cached_lvl == first_lvl and csv_lvl_name in global_level_cache:
+                                classroom.levels.add(global_level_cache[csv_lvl_name])
                     class_cache[csv_name] = classroom
                     counts['classes_created'] += 1
                 else:
@@ -944,6 +972,9 @@ def execute_import(preview_data, school, uploaded_by):
                 first_lvl = next(iter(level_cache.values()), None)
                 if first_lvl:
                     dummy_cr.levels.add(first_lvl)
+                    for csv_lvl_name, cached_lvl in level_cache.items():
+                        if cached_lvl == first_lvl and csv_lvl_name in global_level_cache:
+                            dummy_cr.levels.add(global_level_cache[csv_lvl_name])
                 class_cache['__dummy__'] = dummy_cr
                 counts['classes_created'] += 1
 
