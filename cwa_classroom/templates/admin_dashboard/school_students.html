@@ -6,17 +6,19 @@
        modifiedIds: new Set(),
        expanded: {},
        showAddModal: false,
+       saving: false,
        get hasChanges() { return this.modifiedIds.size > 0 },
        markModified(id) { this.modifiedIds.add(id); document.getElementById('student_ids').value = [...this.modifiedIds].join(',') },
        toggle(id) { this.expanded[id] = !this.expanded[id] },
        submitAction(url, confirmMsg) {
          if (!confirmMsg || confirm(confirmMsg)) {
+           this.saving = true;
            const f = document.getElementById('student-action-form');
            f.action = url; f.submit();
          }
        }
      }"
-     x-init="window.addEventListener('beforeunload', (e) => { if (hasChanges) e.preventDefault() })">
+     x-init="window.addEventListener('beforeunload', (e) => { if (hasChanges && !saving) e.preventDefault() })">
 
   <!-- Header -->
   <div class="mb-8">
@@ -159,7 +161,7 @@
 
       <!-- Batch edit form -->
       <form method="post" action="{% url 'admin_school_student_batch_update' school.id %}"
-            @submit="window.onbeforeunload = null">
+            @submit="saving = true">
         {% csrf_token %}
         <input type="hidden" name="student_ids" id="student_ids" value="">
 
