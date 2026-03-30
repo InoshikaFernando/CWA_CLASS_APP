@@ -26,11 +26,11 @@
       <div class="flex items-center gap-2">
         {% if not school.is_published %}
         <!-- Publish -->
-        <form method="post" action="{% url 'admin_school_publish' school.id %}">
+        <form method="post" action="{% url 'admin_school_publish' school.id %}" id="publish-form">
           {% csrf_token %}
           <button type="submit"
                   class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition shadow-sm"
-                  onclick="return confirm('Publish school \'{{ school.name|escapejs }}\'?\n\nThis will send notification emails to all students and teachers. This action cannot be undone.')">
+                  onclick="if(!confirm('Publish school \'{{ school.name|escapejs }}\'?\n\nThis will send notification emails to all students and teachers. This action cannot be undone.')) return false; document.getElementById('publish-loading').classList.remove('hidden'); return true;">
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/>
             </svg>
@@ -322,5 +322,23 @@
 
   </div>
 
+</div>
+
+{# ── Full-page publish loading overlay ── #}
+<div id="publish-loading" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-lg p-8 text-center max-w-md mx-4">
+    <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-50 mb-4">
+      <svg class="w-8 h-8 text-blue-600 animate-spin" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+      </svg>
+    </div>
+    <h3 class="font-display text-xl text-gray-800 mb-2">Publishing School...</h3>
+    <p class="text-sm text-gray-500 mb-4">Sending notification emails to students and teachers.</p>
+    <div class="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+      <div class="bg-blue-600 h-1.5 rounded-full animate-pulse" style="width: 100%"></div>
+    </div>
+    <p class="text-xs text-red-500 font-medium mt-3">Please do not refresh or navigate away.</p>
+  </div>
 </div>
 {% endblock %}
