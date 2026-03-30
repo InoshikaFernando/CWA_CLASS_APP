@@ -900,12 +900,9 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
                         defaults={'order': DepartmentSubject.objects.filter(department=department).count()},
                     )
                     if created:
-                        # Auto-map global levels for this subject:
-                        # 1. Levels explicitly linked to this subject
-                        # 2. General Year 1-9 global levels (subject=None, level_number 1-9)
+                        # Auto-map subject-specific global levels (if any)
                         subj_levels = Level.objects.filter(
-                            models.Q(subject=subj) | models.Q(subject__isnull=True, level_number__lte=9),
-                            school__isnull=True,
+                            subject=subj, school__isnull=True,
                         ).exclude(level_number__gte=100, level_number__lt=200)
                         for lv in subj_levels:
                             DepartmentLevel.objects.get_or_create(
