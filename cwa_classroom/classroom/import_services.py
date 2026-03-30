@@ -1644,14 +1644,26 @@ def execute_teacher_import(preview_data, school, imported_by):
         ).select_related('teacher').first()
 
         if placeholder_st:
-            # Update placeholder with real details
+            # Update placeholder with real details and a proper password
             user = placeholder_st.teacher
             user.email = email
             if tdata.get('phone'):
                 user.phone = tdata['phone']
-            user.save(update_fields=['email', 'phone'])
-            password = None
+            # Generate a real password so the admin can share credentials
+            password = get_random_string(10)
+            user.set_password(password)
+            user.must_change_password = True
+            user.save(update_fields=['email', 'phone', 'password', 'must_change_password'])
             is_new = False
+            # Include in credentials CSV so admin can distribute login details
+            credentials.append({
+                'username': user.username,
+                'email': email,
+                'password': password,
+                'first_name': tdata['first_name'],
+                'last_name': tdata['last_name'],
+                'role': tdata['role_display'],
+            })
             counts['teachers_updated'] = counts.get('teachers_updated', 0) + 1
         else:
             is_new = not CustomUser.objects.filter(email=email).exists()
@@ -1711,6 +1723,13 @@ def execute_teacher_import(preview_data, school, imported_by):
                 'is_active': True,
             },
         )
+        if not created and placeholder_st:
+            # Update placeholder SchoolTeacher with real role/specialty
+            st.role = tdata['role']
+            st.specialty = tdata.get('specialty', '')
+            if password:
+                st.pending_password = password
+            st.save(update_fields=['role', 'specialty', 'pending_password'])
         # Store pending password for publish email (new users only)
         if is_new and password and created:
             st.pending_password = password
@@ -1725,6 +1744,14 @@ def execute_teacher_import(preview_data, school, imported_by):
                     defaults={'display_name': system_role_name.replace('_', ' ').title()},
                 )
                 UserRole.objects.get_or_create(user=user, role=role_obj)
+        elif placeholder_st:
+            # Placeholder updated — ensure correct role is assigned
+            system_role_name = _role_to_system_role(tdata['role'])
+            role_obj, _ = Role.objects.get_or_create(
+                name=system_role_name,
+                defaults={'display_name': system_role_name.replace('_', ' ').title()},
+            )
+            UserRole.objects.get_or_create(user=user, role=role_obj)
         else:
             counts['teachers_skipped'] += 1
 
