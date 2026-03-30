@@ -124,6 +124,8 @@ class Command(BaseCommand):
             counts['teacher users'] = teacher_users.count()
         if delete_school:
             counts['School record'] = 1
+            if not keep_users and school.admin:
+                counts['admin (HoI) user'] = f'1  ({school.admin.username} / {school.admin.email})'
 
         for label, count in counts.items():
             self.stdout.write(f'  {label:<22} {count}')
@@ -137,8 +139,13 @@ class Command(BaseCommand):
         # --- Delete ---
         with transaction.atomic():
             if delete_school:
-                # Django CASCADE handles everything — just delete the school.
+                # School.admin uses SET_NULL so we must delete the admin user separately.
+                admin_user = school.admin
+                # Django CASCADE handles students/teachers/classes/departments.
                 school.delete()
+                if admin_user and not keep_users:
+                    admin_user.delete()
+                    self.stdout.write(f'  Deleted admin user: {admin_user.username} ({admin_user.email})')
                 self.stdout.write(self.style.SUCCESS(
                     f'\nSchool "{school.name}" and all related data deleted (cascade).'
                 ))
