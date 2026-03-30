@@ -4219,6 +4219,44 @@ class SubjectsHubView(LoginRequiredMixin, View):
             .order_by('date', 'start_time')[:5]
         )
 
+        # Fallback: if no sessions exist yet (e.g. CSV-imported classes),
+        # derive upcoming dates from ClassRoom.day schedule.
+        if not upcoming_classes and enrolled_class_ids:
+            from types import SimpleNamespace
+            from datetime import timedelta as _td
+            _DAY_MAP = {
+                'monday': 0, 'tuesday': 1, 'wednesday': 2,
+                'thursday': 3, 'friday': 4, 'saturday': 5, 'sunday': 6,
+            }
+            _today_idx = now.date().weekday()
+            _now_time = now.time()
+
+            def _days_until_student(day_str, start_time=None):
+                target = _DAY_MAP.get(day_str, 7)
+                diff = (target - _today_idx) % 7
+                if diff == 0:
+                    if start_time and start_time > _now_time:
+                        return 0
+                    return 7
+                return diff
+
+            enrolled_rooms = ClassRoom.objects.filter(
+                id__in=enrolled_class_ids, is_active=True, day__isnull=False,
+            ).exclude(day='')
+            scheduled_rooms = sorted(
+                enrolled_rooms,
+                key=lambda c: (_days_until_student(c.day, c.start_time),
+                               c.start_time or timezone.datetime.min.time()),
+            )
+            for room in scheduled_rooms[:5]:
+                du = _days_until_student(room.day, room.start_time)
+                pseudo = SimpleNamespace(
+                    classroom=room,
+                    date=now.date() + _td(days=du),
+                    start_time=room.start_time,
+                )
+                upcoming_classes.append(pseudo)
+
         # ── Attendance per class ──
         class_attendance = []
         enrolled_entries = (
