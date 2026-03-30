@@ -892,6 +892,66 @@ def _save_inline_terms(request, school, academic_year, number_of_terms, replace=
     return count
 
 
+def _auto_create_sessions_for_school(school, created_by=None):
+    """Auto-create ClassSession records for active classrooms in the school.
+
+    Generates sessions for the next 7 days (today inclusive) for every active
+    classroom that has a scheduled day, start_time and end_time.  A weekly
+    class always falls within this window exactly once; a M/W/F class gets 3;
+    a daily class gets 7.  Already-existing sessions are silently skipped.
+
+    Returns the total number of new sessions created.
+    """
+    from datetime import date as _date, timedelta
+
+    _DAY_MAP = {
+        'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
+        'friday': 4, 'saturday': 5, 'sunday': 6,
+    }
+
+    today = _date.today()
+    window_end = today + timedelta(days=6)   # 7 days inclusive
+
+    classrooms = (
+        ClassRoom.objects
+        .filter(school=school, is_active=True)
+        .exclude(day='')
+        .exclude(start_time__isnull=True)
+        .exclude(end_time__isnull=True)
+    )
+
+    # Batch-fetch existing sessions in the window to avoid N queries
+    existing_keys = set(
+        ClassSession.objects
+        .filter(classroom__in=classrooms, date__range=(today, window_end))
+        .values_list('classroom_id', 'date')
+    )
+
+    to_create = []
+    for classroom in classrooms:
+        target_wd = _DAY_MAP.get(classroom.day)
+        if target_wd is None:
+            continue
+        # First occurrence of this weekday on or after today
+        days_ahead = (target_wd - today.weekday()) % 7
+        session_date = today + timedelta(days=days_ahead)
+        # Walk every 7 days through the window
+        while session_date <= window_end:
+            if (classroom.pk, session_date) not in existing_keys:
+                to_create.append(ClassSession(
+                    classroom=classroom,
+                    date=session_date,
+                    start_time=classroom.start_time,
+                    end_time=classroom.end_time,
+                    status='scheduled',
+                    created_by=created_by,
+                ))
+            session_date += timedelta(weeks=1)
+
+    ClassSession.objects.bulk_create(to_create, ignore_conflicts=True)
+    return len(to_create)
+
+
 class AcademicYearCreateView(RoleRequiredMixin, View):
     """Create a new academic year for a school."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
@@ -954,26 +1014,47 @@ class AcademicYearCreateView(RoleRequiredMixin, View):
                 'form_data': form_data,
             })
 
-        with transaction.atomic():
-            academic_year = AcademicYear.objects.create(
-                school=school,
-                year=year,
-                start_date=start_date,
-                end_date=end_date,
-                is_current=is_current,
-                number_of_terms=number_of_terms,
-            )
-            # Create inline term dates if provided
-            terms_created = _save_inline_terms(request, school, academic_year, number_of_terms)
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        try:
+            with transaction.atomic():
+                academic_year = AcademicYear.objects.create(
+                    school=school,
+                    year=year,
+                    start_date=start_date,
+                    end_date=end_date,
+                    is_current=is_current,
+                    number_of_terms=number_of_terms,
+                )
+                # Create inline term dates if provided
+                terms_created = _save_inline_terms(request, school, academic_year, number_of_terms)
+        except (DjangoValidationError, ValueError) as e:
+            messages.error(request, f'Invalid date value — please check all dates are in the correct format. ({e})')
+            return render(request, 'admin_dashboard/academic_year_form.html', {
+                'school': school,
+                'form_data': form_data,
+            })
+
+        # Auto-create upcoming sessions for the next 7 days so classes are
+        # immediately visible without teachers having to add sessions manually.
+        sessions_created = _auto_create_sessions_for_school(school, created_by=request.user)
 
         log_event(
             user=request.user, school=school, category='data_change',
             action='academic_year_created',
             detail={'year': year, 'academic_year_id': academic_year.id,
-                    'number_of_terms': number_of_terms, 'terms_created': terms_created},
+                    'number_of_terms': number_of_terms, 'terms_created': terms_created,
+                    'sessions_auto_created': sessions_created},
             request=request,
         )
-        messages.success(request, f'Academic year {year} created successfully.')
+        if sessions_created:
+            messages.success(
+                request,
+                f'Academic year {year} created successfully. '
+                f'{sessions_created} upcoming session{"s" if sessions_created != 1 else ""} '
+                f'auto-generated for the next 7 days.',
+            )
+        else:
+            messages.success(request, f'Academic year {year} created successfully.')
         return redirect('admin_school_detail', school_id=school.id)
 
 
@@ -1052,15 +1133,23 @@ class AcademicYearEditView(RoleRequiredMixin, View):
                 'terms': Term.objects.filter(academic_year=academic_year).order_by('order'),
             })
 
-        with transaction.atomic():
-            academic_year.year = year
-            academic_year.start_date = start_date
-            academic_year.end_date = end_date
-            academic_year.is_current = is_current
-            academic_year.number_of_terms = number_of_terms
-            academic_year.save()
-            # Replace inline term dates if any were submitted
-            terms_updated = _save_inline_terms(request, school, academic_year, number_of_terms, replace=True)
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        try:
+            with transaction.atomic():
+                academic_year.year = year
+                academic_year.start_date = start_date
+                academic_year.end_date = end_date
+                academic_year.is_current = is_current
+                academic_year.number_of_terms = number_of_terms
+                academic_year.save()
+                # Replace inline term dates if any were submitted
+                terms_updated = _save_inline_terms(request, school, academic_year, number_of_terms, replace=True)
+        except (DjangoValidationError, ValueError) as e:
+            messages.error(request, f'Invalid date value — please check all dates are in the correct format. ({e})')
+            return render(request, 'admin_dashboard/academic_year_form.html', {
+                'school': school, 'academic_year': academic_year, 'form_data': form_data,
+                'terms': Term.objects.filter(academic_year=academic_year).order_by('order'),
+            })
 
         log_event(
             user=request.user, school=school, category='data_change',
