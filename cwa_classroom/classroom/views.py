@@ -1280,6 +1280,13 @@ class StudentCSVStructureMappingView(RoleRequiredMixin, View):
 
             preview = isvc.validate_and_preview(data_rows, column_mapping, school)
 
+            global_subjects = Subject.objects.filter(
+                school__isnull=True, is_active=True,
+            ).order_by('order', 'name')
+            global_levels = Level.objects.filter(
+                school__isnull=True, level_number__lt=100,
+            ).order_by('level_number')
+
             return render(request, 'admin/csv_student_structure_mapping.html', {
                 'departments': departments,
                 'selected_department': department,
@@ -1291,6 +1298,8 @@ class StudentCSVStructureMappingView(RoleRequiredMixin, View):
                     'guardians_new': len(preview.get('guardians_new', [])),
                 },
                 'school': school,
+                'global_subjects': global_subjects,
+                'global_levels': global_levels,
             })
 
         # Otherwise — user submitted final mapping choices
@@ -1307,6 +1316,8 @@ class StudentCSVStructureMappingView(RoleRequiredMixin, View):
             'level_map': {},
             'class_map': {},
             'teacher_map': {},
+            'global_subject_map': {},  # csv_subject -> global subject id (optional)
+            'global_level_map': {},    # csv_level -> global level id (optional)
             'dummy_subject': False,
             'dummy_level': False,
             'dummy_class': False,
@@ -1317,6 +1328,9 @@ class StudentCSVStructureMappingView(RoleRequiredMixin, View):
             for csv_subj in csv_structure['csv_subjects']:
                 val = request.POST.get(f'subject_map_{csv_subj}', 'create')
                 structure_mapping['subject_map'][csv_subj] = val
+                global_val = request.POST.get(f'global_subject_map_{csv_subj}', 'none')
+                if global_val and global_val != 'none':
+                    structure_mapping['global_subject_map'][csv_subj] = global_val
         elif not csv_structure or not csv_structure['csv_subjects']:
             # No CSV subjects — check if system has subjects
             mapping_ctx = isvc.build_smart_mapping_context(csv_structure or {'csv_subjects': [], 'csv_levels': [], 'csv_classes': [], 'csv_teachers': []}, department)
@@ -1328,6 +1342,9 @@ class StudentCSVStructureMappingView(RoleRequiredMixin, View):
             for csv_lvl in csv_structure['csv_levels']:
                 val = request.POST.get(f'level_map_{csv_lvl}', 'create')
                 structure_mapping['level_map'][csv_lvl] = val
+                global_val = request.POST.get(f'global_level_map_{csv_lvl}', 'none')
+                if global_val and global_val != 'none':
+                    structure_mapping['global_level_map'][csv_lvl] = global_val
         elif not csv_structure or not csv_structure['csv_levels']:
             mapping_ctx = isvc.build_smart_mapping_context(csv_structure or {'csv_subjects': [], 'csv_levels': [], 'csv_classes': [], 'csv_teachers': []}, department)
             if mapping_ctx['level_scenario'] == 'neither':
@@ -1789,6 +1806,159 @@ class TeacherCSVCredentialsView(RoleRequiredMixin, View):
         for c in credentials:
             writer.writerow([c['username'], c['email'], c['password'],
                            c['first_name'], c['last_name'], c['role']])
+        return response
+
+
+class ParentCSVUploadView(RoleRequiredMixin, View):
+    """Step 1: Upload CSV/XLS and map columns for parent import."""
+    required_roles = IMPORT_ROLES
+
+    def get(self, request):
+        from . import import_services as isvc
+        return render(request, 'admin/csv_parent_upload.html', {
+            'source_presets': isvc.PARENT_PRESETS,
+        })
+
+    def post(self, request):
+        from . import import_services as isvc
+        csv_file = request.FILES.get('csv_file')
+        if not csv_file:
+            messages.error(request, 'Please select a file.')
+            return redirect('parent_csv_upload')
+        if csv_file.size > isvc.MAX_CSV_SIZE:
+            messages.error(request, 'File exceeds 10 MB limit.')
+            return redirect('parent_csv_upload')
+        try:
+            headers, data_rows = isvc.parse_upload_file(csv_file.read(), csv_file.name)
+        except ValueError as e:
+            messages.error(request, str(e))
+            return redirect('parent_csv_upload')
+
+        request.session['csv_parent_headers'] = headers
+        request.session['csv_parent_data'] = data_rows
+
+        # Auto-apply preset if selected
+        source_preset = request.POST.get('source_preset', '')
+        preset_mapping = {}
+        if source_preset and source_preset in isvc.PARENT_PRESETS:
+            preset_mapping = isvc.apply_parent_preset(source_preset, headers)
+
+        return render(request, 'admin/csv_parent_upload.html', {
+            'headers': headers,
+            'preview_rows': data_rows[:5],
+            'column_fields': isvc.PARENT_COLUMN_FIELDS,
+            'source_presets': isvc.PARENT_PRESETS,
+            'selected_preset': source_preset,
+            'preset_mapping': preset_mapping,
+            'show_mapping': True,
+        })
+
+
+class ParentCSVPreviewView(RoleRequiredMixin, View):
+    """Step 2: Validate columns and show parent preview."""
+    required_roles = IMPORT_ROLES
+
+    def _get_school(self, request):
+        school_id = SchoolTeacher.objects.filter(
+            teacher=request.user, is_active=True,
+        ).values_list('school_id', flat=True).first()
+        if not school_id and request.user.is_superuser:
+            school_id = School.objects.first()
+            school_id = school_id.id if school_id else None
+        return School.objects.get(id=school_id) if school_id else None
+
+    def post(self, request):
+        from . import import_services as isvc
+        data_rows = request.session.get('csv_parent_data')
+        if not data_rows:
+            messages.error(request, 'No CSV data. Please upload again.')
+            return redirect('parent_csv_upload')
+
+        school = self._get_school(request)
+        if not school:
+            messages.error(request, 'No school found.')
+            return redirect('parent_csv_upload')
+
+        column_mapping = isvc._build_parent_column_mapping(request.POST)
+        preview = isvc.validate_parent_preview(data_rows, column_mapping, school)
+
+        if preview['errors']:
+            for err in preview['errors']:
+                messages.error(request, err)
+            return redirect('parent_csv_upload')
+
+        request.session['csv_parent_preview'] = preview
+        request.session['csv_parent_school_id'] = school.id
+
+        return render(request, 'admin/csv_parent_preview.html', {
+            'preview': preview,
+            'school': school,
+        })
+
+
+class ParentCSVConfirmView(RoleRequiredMixin, View):
+    """Step 3: Execute parent import and show results."""
+    required_roles = IMPORT_ROLES
+
+    def post(self, request):
+        from . import import_services as isvc
+        preview = request.session.get('csv_parent_preview')
+        school_id = request.session.get('csv_parent_school_id')
+        if not preview or not school_id:
+            messages.error(request, 'Session expired. Please upload again.')
+            return redirect('parent_csv_upload')
+
+        school = School.objects.get(id=school_id)
+
+        try:
+            results = isvc.execute_parent_import(preview, school, request.user)
+        except Exception as e:
+            logger.exception('Parent import failed')
+            messages.error(request, f'Import failed: {e}')
+            return redirect('parent_csv_upload')
+
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='parent_csv_imported',
+            detail={
+                'parents_created': results.get('counts', {}).get('parents_created', 0),
+                'links_created': results.get('counts', {}).get('links_created', 0),
+                'credentials_generated': len(results.get('credentials', [])),
+            },
+            request=request,
+        )
+
+        request.session['csv_parent_credentials'] = results['credentials']
+
+        for key in ('csv_parent_data', 'csv_parent_headers', 'csv_parent_preview',
+                     'csv_parent_school_id'):
+            request.session.pop(key, None)
+
+        return render(request, 'admin/csv_parent_results.html', {
+            'results': results,
+            'school': school,
+        })
+
+
+class ParentCSVCredentialsView(RoleRequiredMixin, View):
+    """Download generated parent credentials as CSV."""
+    required_roles = IMPORT_ROLES
+
+    def get(self, request):
+        import csv as csv_mod
+        from django.http import HttpResponse
+        credentials = request.session.get('csv_parent_credentials', [])
+        if not credentials:
+            messages.error(request, 'No credentials available.')
+            return redirect('parent_csv_upload')
+
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="parent_credentials.csv"'
+        writer = csv_mod.writer(response)
+        writer.writerow(['Username', 'Email', 'Password', 'First Name', 'Last Name', 'Children'])
+        for c in credentials:
+            writer.writerow([c['username'], c['email'], c['password'],
+                           c['first_name'], c['last_name'], c.get('children', '')])
         return response
 
 
@@ -2555,8 +2725,13 @@ class HoDOverviewView(RoleRequiredMixin, View):
             group_label = 'Department'
         classes_grouped = dict(sorted(classes_grouped.items()))
 
-        # ── Next classes: only show if user teaches classes ──
-        # "My Classes" section only appears for users who are assigned as teachers
+        # ── Next classes: HoI/Owner always sees upcoming school classes ──
+        # If the user doesn't personally teach but owns/manages a school,
+        # show all upcoming classes for that school instead.
+        if next_classes_scope is None and not is_hod_only:
+            next_classes_scope = classes
+            is_teacher_too = True  # enable the upcoming-classes display block
+
         upcoming_sessions = []
         next_classes_from_schedule = []
 
@@ -2879,6 +3054,28 @@ class HoDOverviewView(RoleRequiredMixin, View):
                 'trend': earnings_trend,
             }
 
+        # ── Next Term Alert ───────────────────────────────────────────
+        next_term_alert = False
+        current_term = None
+        school = None  # for the alert link — use first accessible school
+        if not is_hod_only and my_school_ids:
+            from .models import Term
+            school = School.objects.filter(id__in=my_school_ids).first()
+            current_term = Term.objects.filter(
+                school_id__in=my_school_ids,
+                start_date__lte=today,
+                end_date__gte=today,
+            ).order_by('order').first()
+            if current_term:
+                days_left = (current_term.end_date - today).days
+                if days_left <= 30:
+                    has_next = Term.objects.filter(
+                        school_id__in=my_school_ids,
+                        start_date__gt=current_term.end_date,
+                    ).exists()
+                    if not has_next:
+                        next_term_alert = True
+
         return render(request, 'hod/overview.html', {
             'is_hoi': is_hoi,
             'school_data': school_data,
@@ -2894,6 +3091,9 @@ class HoDOverviewView(RoleRequiredMixin, View):
             'pending_enrollment_count': pending_enrollment_count,
             'classes_no_students': classes_no_students,
             'classes_no_teachers': classes_no_teachers,
+            'next_term_alert': next_term_alert,
+            'current_term': current_term,
+            'school': school,
             'classes_grouped': classes_grouped,
             'group_label': group_label,
             'upcoming_sessions': upcoming_sessions,
@@ -4138,6 +4338,44 @@ class SubjectsHubView(LoginRequiredMixin, View):
             ).select_related('classroom')
             .order_by('date', 'start_time')[:5]
         )
+
+        # Fallback: if no sessions exist yet (e.g. CSV-imported classes),
+        # derive upcoming dates from ClassRoom.day schedule.
+        if not upcoming_classes and enrolled_class_ids:
+            from types import SimpleNamespace
+            from datetime import timedelta as _td
+            _DAY_MAP = {
+                'monday': 0, 'tuesday': 1, 'wednesday': 2,
+                'thursday': 3, 'friday': 4, 'saturday': 5, 'sunday': 6,
+            }
+            _today_idx = now.date().weekday()
+            _now_time = now.time()
+
+            def _days_until_student(day_str, start_time=None):
+                target = _DAY_MAP.get(day_str, 7)
+                diff = (target - _today_idx) % 7
+                if diff == 0:
+                    if start_time and start_time > _now_time:
+                        return 0
+                    return 7
+                return diff
+
+            enrolled_rooms = ClassRoom.objects.filter(
+                id__in=enrolled_class_ids, is_active=True, day__isnull=False,
+            ).exclude(day='')
+            scheduled_rooms = sorted(
+                enrolled_rooms,
+                key=lambda c: (_days_until_student(c.day, c.start_time),
+                               c.start_time or timezone.datetime.min.time()),
+            )
+            for room in scheduled_rooms[:5]:
+                du = _days_until_student(room.day, room.start_time)
+                pseudo = SimpleNamespace(
+                    classroom=room,
+                    date=now.date() + _td(days=du),
+                    start_time=room.start_time,
+                )
+                upcoming_classes.append(pseudo)
 
         # ── Attendance per class ──
         class_attendance = []

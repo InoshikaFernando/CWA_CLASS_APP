@@ -130,6 +130,22 @@
       </div>
     </div>
 
+    <!-- Global levels suggestion banner -->
+    {% if group.available_global_levels and not group.subject.school %}
+    <div class="mx-5 mt-3 flex items-center justify-between gap-3 bg-blue-50 border border-blue-100 rounded-xl px-4 py-2.5">
+      <div class="flex items-center gap-2 text-sm text-blue-700">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 7.478a12.06 12.06 0 01-4.5 0m3.75 2.383a14.406 14.406 0 01-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 10-7.517 0c.85.493 1.509 1.333 1.509 2.316V18"/>
+        </svg>
+        <span>{{ group.available_global_levels|length }} global level{{ group.available_global_levels|length|pluralize }} available to link (e.g. {{ group.available_global_levels.0.display_name }}{% if group.available_global_levels|length > 1 %}, {{ group.available_global_levels.1.display_name }}…{% endif %})</span>
+      </div>
+      <button @click="addMode = 'link'" type="button"
+              class="flex-shrink-0 text-xs font-semibold text-blue-600 hover:text-blue-800 underline underline-offset-2 transition">
+        Link levels
+      </button>
+    </div>
+    {% endif %}
+
     <!-- Levels list -->
     <div class="px-5 py-3">
       {% if group.levels %}
@@ -218,12 +234,42 @@
       {% endif %}
 
       <!-- Add Level -->
-      <div class="mt-2 pt-2 border-t border-slate-100">
-        <div x-show="!addingLevel">
-          <button @click="addingLevel = true" type="button"
-                  class="text-xs text-gray-400 hover:text-accent font-medium transition">+ Add Level</button>
+      <div class="mt-2 pt-2 border-t border-slate-100"
+           x-data="{ addMode: 'none' }">
+        <div x-show="addMode === 'none'" class="flex items-center gap-3">
+          {% if group.available_global_levels %}
+          <button @click="addMode = 'link'" type="button"
+                  class="text-xs text-blue-500 hover:text-blue-700 font-medium transition">
+            + Link Global Level
+          </button>
+          <span class="text-gray-300 text-xs">|</span>
+          {% endif %}
+          <button @click="addMode = 'create'" type="button"
+                  class="text-xs text-gray-400 hover:text-accent font-medium transition">
+            + Create Custom Level
+          </button>
         </div>
-        <div x-show="addingLevel" x-cloak class="pt-1">
+
+        {# ── Link existing global level ── #}
+        <div x-show="addMode === 'link'" x-cloak class="pt-2">
+          <form method="post" class="flex items-center gap-2 flex-wrap">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="link_level">
+            <input type="hidden" name="subject_id" value="{{ group.subject.id }}">
+            <select name="global_level_id" required
+                    class="flex-1 min-w-0 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
+              <option value="">— Select a global level —</option>
+              {% for lv in group.available_global_levels %}
+                <option value="{{ lv.id }}">{{ lv.display_name }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white text-xs font-semibold rounded-lg transition">Link</button>
+            <button @click="addMode = 'none'" type="button" class="px-3 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 transition">Cancel</button>
+          </form>
+        </div>
+
+        {# ── Create new custom level ── #}
+        <div x-show="addMode === 'create'" x-cloak class="pt-2">
           <form method="post" class="space-y-3">
             {% csrf_token %}
             <input type="hidden" name="action" value="add_level">
@@ -243,8 +289,8 @@
               </div>
             </div>
             <div class="flex items-center gap-2">
-              <button type="submit" class="px-3 py-1.5 bg-accent hover:bg-accent-dark text-white text-xs font-semibold rounded-lg transition">Add</button>
-              <button @click="addingLevel = false" type="button" class="px-3 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 transition">Cancel</button>
+              <button type="submit" class="px-3 py-1.5 bg-accent hover:bg-accent-dark text-white text-xs font-semibold rounded-lg transition">Create</button>
+              <button @click="addMode = 'none'" type="button" class="px-3 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 transition">Cancel</button>
             </div>
           </form>
         </div>
@@ -303,9 +349,10 @@
                     class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
               <option value="">— Select a subject —</option>
               {% for subj in available_subjects %}
-                <option value="{{ subj.id }}">{{ subj.name }}{% if not subj.school %} (Global){% endif %}</option>
+                <option value="{{ subj.id }}">{{ subj.name }}{% if not subj.school %} ⭐ Global{% endif %}</option>
               {% endfor %}
             </select>
+            <p class="text-xs text-gray-400 mt-1">⭐ Global subjects (e.g. Mathematics) include curriculum levels you can link after adding.</p>
           </div>
           <div class="relative">
             <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-slate-200"></div></div>

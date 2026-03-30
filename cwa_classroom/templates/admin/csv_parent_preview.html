@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Preview Teacher Import{% endblock %}
+{% block title %}Preview Parent Import{% endblock %}
 {% block content %}
 <div class="max-w-4xl mx-auto space-y-6">
   <div>
-    <h1 class="font-display text-3xl text-primary">Preview Teacher Import</h1>
-    <p class="text-gray-400 text-sm mt-1">Review new and existing teachers before confirming — {{ school.name }}</p>
+    <h1 class="font-display text-3xl text-primary">Preview Parent Import</h1>
+    <p class="text-gray-400 text-sm mt-1">Review new and existing parents before confirming — {{ school.name }}</p>
   </div>
 
   {% if preview.errors %}
@@ -32,23 +32,23 @@
   {# ── Summary cards ── #}
   <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
-      <p class="font-display text-3xl text-green-600">{{ preview.teachers_new|length }}</p>
-      <p class="text-xs text-gray-400 font-semibold">New Teachers</p>
+      <p class="font-display text-3xl text-green-600">{{ preview.parents_new|length }}</p>
+      <p class="text-xs text-gray-400 font-semibold">New Parents</p>
     </div>
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
-      <p class="font-display text-3xl text-blue-600">{{ preview.teachers_existing|length }}</p>
+      <p class="font-display text-3xl text-blue-600">{{ preview.parents_existing|length }}</p>
       <p class="text-xs text-gray-400 font-semibold">Existing Users</p>
     </div>
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
-      <p class="font-display text-3xl text-primary">{{ preview.teachers_new|length|add:preview.teachers_existing|length }}</p>
+      <p class="font-display text-3xl text-primary">{{ preview.parents_new|length|add:preview.parents_existing|length }}</p>
       <p class="text-xs text-gray-400 font-semibold">Total</p>
     </div>
   </div>
 
-  {# ── New teachers table ── #}
-  {% if preview.teachers_new %}
+  {# ── New parents table ── #}
+  {% if preview.parents_new %}
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-    <h2 class="font-bold text-gray-800 mb-3">New Teachers ({{ preview.teachers_new|length }})</h2>
+    <h2 class="font-bold text-gray-800 mb-3">New Parents ({{ preview.parents_new|length }})</h2>
     <p class="text-xs text-gray-500 mb-3">These accounts will be created. Credentials will be available for download after import.</p>
     <div class="overflow-x-auto max-h-64 overflow-y-auto">
       <table class="text-sm w-full">
@@ -56,19 +56,23 @@
           <tr>
             <th class="px-3 py-2 text-left text-gray-600 font-semibold">Name</th>
             <th class="px-3 py-2 text-left text-gray-600 font-semibold">Email</th>
-            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Role</th>
-            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Specialty</th>
+            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Children</th>
+            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Relationship</th>
           </tr>
         </thead>
         <tbody>
-          {% for t in preview.teachers_new %}
+          {% for p in preview.parents_new %}
           <tr class="border-t border-gray-100">
-            <td class="px-3 py-2 text-gray-800">{{ t.first_name }} {{ t.last_name }}</td>
-            <td class="px-3 py-2 text-gray-500">{{ t.email }}</td>
-            <td class="px-3 py-2">
-              <span class="text-xs bg-green-100 text-green-700 font-semibold rounded-full px-2 py-0.5">{{ t.role_display }}</span>
+            <td class="px-3 py-2 text-gray-800">{{ p.first_name }} {{ p.last_name }}</td>
+            <td class="px-3 py-2 text-gray-500">{{ p.email }}</td>
+            <td class="px-3 py-2 text-gray-600">
+              {% for c in p.children %}
+                <span class="inline-flex items-center text-xs bg-blue-50 text-blue-700 rounded-full px-2 py-0.5 mr-1 mb-1">{{ c.student_name }}</span>
+              {% endfor %}
             </td>
-            <td class="px-3 py-2 text-gray-500">{{ t.specialty|default:"-" }}</td>
+            <td class="px-3 py-2 text-gray-500">
+              {% for c in p.children %}{{ c.relationship }}{% if not forloop.last %}, {% endif %}{% endfor %}
+            </td>
           </tr>
           {% endfor %}
         </tbody>
@@ -77,35 +81,44 @@
   </div>
   {% endif %}
 
-  {# ── Existing teachers table ── #}
-  {% if preview.teachers_existing %}
+  {# ── Existing parents table ── #}
+  {% if preview.parents_existing %}
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-    <h2 class="font-bold text-gray-800 mb-3">Existing Users ({{ preview.teachers_existing|length }})</h2>
-    <p class="text-xs text-gray-500 mb-3">These users already exist in the system and will be linked to this school (if not already linked).</p>
+    <h2 class="font-bold text-gray-800 mb-3">Existing Users ({{ preview.parents_existing|length }})</h2>
+    <p class="text-xs text-gray-500 mb-3">These users already exist in the system. New child links will be created where needed.</p>
     <div class="overflow-x-auto max-h-64 overflow-y-auto">
       <table class="text-sm w-full">
         <thead class="bg-gray-50 sticky top-0">
           <tr>
             <th class="px-3 py-2 text-left text-gray-600 font-semibold">Name</th>
             <th class="px-3 py-2 text-left text-gray-600 font-semibold">Email</th>
-            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Role</th>
+            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Children</th>
             <th class="px-3 py-2 text-left text-gray-600 font-semibold">Status</th>
           </tr>
         </thead>
         <tbody>
-          {% for t in preview.teachers_existing %}
+          {% for p in preview.parents_existing %}
           <tr class="border-t border-gray-100">
-            <td class="px-3 py-2 text-gray-800">{{ t.first_name }} {{ t.last_name }}</td>
-            <td class="px-3 py-2 text-gray-500">{{ t.email }}</td>
-            <td class="px-3 py-2">
-              <span class="text-xs bg-blue-100 text-blue-700 font-semibold rounded-full px-2 py-0.5">{{ t.role_display }}</span>
+            <td class="px-3 py-2 text-gray-800">{{ p.first_name }} {{ p.last_name }}</td>
+            <td class="px-3 py-2 text-gray-500">{{ p.email }}</td>
+            <td class="px-3 py-2 text-gray-600">
+              {% for c in p.children %}
+                <span class="inline-flex items-center text-xs {% if c.already_linked %}bg-gray-100 text-gray-500{% else %}bg-blue-50 text-blue-700{% endif %} rounded-full px-2 py-0.5 mr-1 mb-1">
+                  {{ c.student_name }}{% if c.already_linked %} (linked){% endif %}
+                </span>
+              {% endfor %}
             </td>
             <td class="px-3 py-2">
-              {% if t.already_linked %}
-              <span class="text-xs bg-gray-100 text-gray-500 font-semibold rounded-full px-2 py-0.5">Already in school</span>
-              {% else %}
-              <span class="text-xs bg-amber-100 text-amber-700 font-semibold rounded-full px-2 py-0.5">Will be linked</span>
-              {% endif %}
+              {% with new_links=0 %}
+              {% for c in p.children %}
+                {% if c.already_linked %}
+                  <span class="text-xs bg-gray-100 text-gray-500 font-semibold rounded-full px-2 py-0.5">Already linked</span>
+                {% else %}
+                  <span class="text-xs bg-amber-100 text-amber-700 font-semibold rounded-full px-2 py-0.5">Will be linked</span>
+                {% endif %}
+                {% if not forloop.last %}<br>{% endif %}
+              {% endfor %}
+              {% endwith %}
             </td>
           </tr>
           {% endfor %}
@@ -116,16 +129,16 @@
   {% endif %}
 
   {# ── Confirm section ── #}
-  {% if preview.teachers_new or preview.teachers_existing %}
+  {% if preview.parents_new or preview.parents_existing %}
   <div id="confirm-section">
-    <form method="post" action="{% url 'teacher_csv_confirm' %}" id="import-form">
+    <form method="post" action="{% url 'parent_csv_confirm' %}" id="import-form">
       {% csrf_token %}
       <div class="flex gap-3" id="confirm-actions">
         <button type="submit" id="confirm-btn"
                 class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-8 py-3 transition">
           Confirm & Import
         </button>
-        <a href="{% url 'teacher_csv_upload' %}" id="cancel-btn"
+        <a href="{% url 'parent_csv_upload' %}" id="cancel-btn"
            class="bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl px-6 py-3 hover:bg-gray-50 transition">
           Cancel
         </a>
@@ -142,8 +155,8 @@
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
       </div>
-      <h3 class="font-display text-xl text-gray-800 mb-2">Importing Teachers...</h3>
-      <p class="text-sm text-gray-500 mb-4">Creating accounts and linking teachers to your school.</p>
+      <h3 class="font-display text-xl text-gray-800 mb-2">Importing Parents...</h3>
+      <p class="text-sm text-gray-500 mb-4">Creating accounts and linking parents to students.</p>
       <div class="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
         <div class="bg-primary h-1.5 rounded-full animate-pulse" style="width: 100%"></div>
       </div>
@@ -152,7 +165,7 @@
   </div>
   {% else %}
   <div class="flex gap-3">
-    <a href="{% url 'teacher_csv_upload' %}"
+    <a href="{% url 'parent_csv_upload' %}"
        class="bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl px-6 py-3 hover:bg-gray-50 transition">
       Back to Upload
     </a>

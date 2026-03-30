@@ -248,6 +248,15 @@ class StudentClassDetailView(LoginRequiredMixin, View):
             status='absent', session__status='completed'
         ).count()
 
+        # Fetch session IDs that already have an absence token for this student
+        from .models import AbsenceToken
+        tokenised_session_ids = set(
+            AbsenceToken.objects.filter(
+                student=request.user,
+                original_session__classroom=classroom,
+            ).values_list('original_session_id', flat=True)
+        )
+
         # Combine sessions with their attendance records for template access
         sessions_with_attendance = []
         for session in sessions:
@@ -255,6 +264,7 @@ class StudentClassDetailView(LoginRequiredMixin, View):
             sessions_with_attendance.append({
                 'session': session,
                 'attendance': att,
+                'has_token': session.id in tokenised_session_ids,
             })
 
         return render(request, 'student/class_detail.html', {

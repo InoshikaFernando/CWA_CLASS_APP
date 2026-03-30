@@ -235,8 +235,28 @@
   </div>
 
   <!-- ── Alerts (conditional) ───────────────────────────────── -->
-  {% if pending_enrollment_count > 0 or classes_no_teachers or classes_no_students %}
+  {% if next_term_alert or pending_enrollment_count > 0 or classes_no_teachers or classes_no_students %}
   <div class="space-y-3">
+    {% if next_term_alert %}
+    <div class="flex items-start gap-3 bg-red-50 rounded-xl p-4 border border-red-200">
+      <div class="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
+        <svg class="w-4 h-4 text-red-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+      </div>
+      <div class="flex-1">
+        <p class="text-sm font-semibold text-red-800">Next Term Not Set Up</p>
+        <p class="text-xs text-red-600 mt-0.5">
+          {{ current_term.name }} ends {{ current_term.end_date|date:"d M Y" }} — less than 1 month away. Please define the next term.
+        </p>
+      </div>
+      {% if school %}
+      <a href="{% url 'admin_school_detail' school.id %}"
+         class="text-xs text-red-700 hover:text-red-900 font-semibold underline flex-shrink-0">Set up →</a>
+      {% endif %}
+    </div>
+    {% endif %}
+
     {% if pending_enrollment_count > 0 %}
     <a href="{% url 'enrollment_requests' %}"
        class="flex items-center justify-between bg-amber-50 rounded-xl p-4 border border-amber-200 hover:bg-amber-100 transition group">
