@@ -5,11 +5,12 @@ global data (Levels, Subjects, Topics, Roles) intact.
 Useful for re-running CSV imports without data conflicts.
 
 Usage:
-    python manage.py clean_school                    # dry-run — shows counts
-    python manage.py clean_school --confirm          # actually delete
-    python manage.py clean_school --school 3         # target school by id
-    python manage.py clean_school --school 3 --confirm
-    python manage.py clean_school --keep-users       # delete school data but not user accounts
+    python manage.py clean_school                         # dry-run — shows counts
+    python manage.py clean_school --confirm               # wipe data, keep School record
+    python manage.py clean_school --delete --confirm      # cascade delete the whole School record
+    python manage.py clean_school --school 3 --confirm    # target school by id
+    python manage.py clean_school --name sipsewana --delete --confirm  # target by name
+    python manage.py clean_school --keep-users            # delete school data but not user accounts
 """
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
@@ -18,7 +19,7 @@ from django.db import transaction
 class Command(BaseCommand):
     help = (
         'Wipe all imported data for a school (students, teachers, classes, '
-        'departments, guardians) while keeping global levels/subjects/topics.'
+        'departments, guardians). Use --delete to also remove the School record itself.'
     )
 
     def add_arguments(self, parser):
@@ -29,9 +30,19 @@ class Command(BaseCommand):
             help='School ID to clean. If omitted and only one school exists, uses that one.',
         )
         parser.add_argument(
+            '--name',
+            default=None,
+            help='School name (or partial match) to clean.',
+        )
+        parser.add_argument(
             '--confirm',
             action='store_true',
             help='Actually delete. Without this flag the command only shows a dry-run.',
+        )
+        parser.add_argument(
+            '--delete',
+            action='store_true',
+            help='Cascade delete the School record itself (not just its data).',
         )
         parser.add_argument(
             '--keep-users',
@@ -43,20 +54,36 @@ class Command(BaseCommand):
         from classroom.models import (
             School, Department, ClassRoom, ClassTeacher, ClassStudent,
             SchoolTeacher, SchoolStudent, Guardian, DepartmentSubject,
-            DepartmentTeacher, Level, ClassSession,
+            Level, ClassSession,
         )
-        from accounts.models import CustomUser, UserRole
+        from accounts.models import CustomUser
 
         confirm = options['confirm']
         keep_users = options['keep_users']
+        delete_school = options['delete']
 
         # --- Resolve school ---
         school_id = options['school']
+        name_query = options['name']
+
         if school_id:
             try:
                 school = School.objects.get(pk=school_id)
             except School.DoesNotExist:
                 raise CommandError(f'School with id={school_id} does not exist.')
+        elif name_query:
+            matches = list(School.objects.filter(name__icontains=name_query))
+            if not matches:
+                all_schools = ', '.join(f'{s.id}: {s.name}' for s in School.objects.all())
+                raise CommandError(
+                    f'No school matching "{name_query}".\n  Available: {all_schools}'
+                )
+            if len(matches) > 1:
+                ids = ', '.join(f'{s.id}: {s.name}' for s in matches)
+                raise CommandError(
+                    f'Multiple schools match "{name_query}" — use --school <id>.\n  {ids}'
+                )
+            school = matches[0]
         else:
             schools = list(School.objects.all())
             if len(schools) == 0:
@@ -64,11 +91,14 @@ class Command(BaseCommand):
             if len(schools) > 1:
                 ids = ', '.join(f'{s.id}: {s.name}' for s in schools)
                 raise CommandError(
-                    f'Multiple schools found — specify one with --school <id>.\n  {ids}'
+                    f'Multiple schools found — specify one with --school <id> or --name.\n  {ids}'
                 )
             school = schools[0]
 
-        self.stdout.write(self.style.WARNING(f'\n=== Clean School: {school.name} (id={school.id}) ==='))
+        action = 'DELETE school record + all data' if delete_school else 'Clean school data'
+        self.stdout.write(self.style.WARNING(
+            f'\n=== {action}: {school.name} (id={school.id}) ==='
+        ))
 
         # --- Gather counts ---
         student_users = CustomUser.objects.filter(
@@ -92,6 +122,8 @@ class Command(BaseCommand):
         if not keep_users:
             counts['student users'] = student_users.count()
             counts['teacher users'] = teacher_users.count()
+        if delete_school:
+            counts['School record'] = 1
 
         for label, count in counts.items():
             self.stdout.write(f'  {label:<22} {count}')
@@ -104,22 +136,29 @@ class Command(BaseCommand):
 
         # --- Delete ---
         with transaction.atomic():
-            ClassSession.objects.filter(classroom__school=school).delete()
-            ClassStudent.objects.filter(classroom__school=school).delete()
-            ClassTeacher.objects.filter(classroom__school=school).delete()
-            ClassRoom.objects.filter(school=school).delete()
-            Guardian.objects.filter(school=school).delete()
-            SchoolStudent.objects.filter(school=school).delete()
+            if delete_school:
+                # Django CASCADE handles everything — just delete the school.
+                school.delete()
+                self.stdout.write(self.style.SUCCESS(
+                    f'\nSchool "{school.name}" and all related data deleted (cascade).'
+                ))
+            else:
+                # Manual ordered deletion (keeps the School record).
+                ClassSession.objects.filter(classroom__school=school).delete()
+                ClassStudent.objects.filter(classroom__school=school).delete()
+                ClassTeacher.objects.filter(classroom__school=school).delete()
+                ClassRoom.objects.filter(school=school).delete()
+                Guardian.objects.filter(school=school).delete()
+                SchoolStudent.objects.filter(school=school).delete()
 
-            if not keep_users:
-                # Delete student/teacher user accounts (cascades UserRole etc.)
-                student_users.delete()
-                teacher_users.delete()
+                if not keep_users:
+                    student_users.delete()
+                    teacher_users.delete()
 
-            SchoolTeacher.objects.filter(school=school).delete()
-            DepartmentSubject.objects.filter(department__school=school).delete()
-            Department.objects.filter(school=school).delete()
+                SchoolTeacher.objects.filter(school=school).delete()
+                DepartmentSubject.objects.filter(department__school=school).delete()
+                Department.objects.filter(school=school).delete()
 
-        self.stdout.write(self.style.SUCCESS(
-            f'\nSchool "{school.name}" cleaned successfully.'
-        ))
+                self.stdout.write(self.style.SUCCESS(
+                    f'\nSchool "{school.name}" data cleaned. School record kept.'
+                ))
