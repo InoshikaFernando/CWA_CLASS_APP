@@ -54,6 +54,8 @@ def _make_question_level_not_null(apps, schema_editor):
     Skips the ALTER TABLE if any NULL values remain (shouldn't happen after
     migration 0010, but avoids a hard failure on unexpected data).
     """
+    if schema_editor.connection.vendor != 'mysql':
+        return
     db_name = schema_editor.connection.settings_dict['NAME']
     with schema_editor.connection.cursor() as cursor:
         cursor.execute(

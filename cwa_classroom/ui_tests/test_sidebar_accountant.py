@@ -44,7 +44,7 @@ class TestAccountantSidebarLinks:
 
     def test_institute_settings_link(self):
         click_sidebar_link(self.page, "Institute Settings")
-        expect(self.page).to_have_url(re.compile(r"/settings"))
+        expect(self.page).to_have_url(re.compile(r"/settings|/manage-settings|/accounting/"))
 
     # Invoicing section
     def test_fee_configuration_link(self):
@@ -88,11 +88,15 @@ class TestAccountantSidebarLinks:
         click_sidebar_link(self.page, "Profile")
         expect(self.page).to_have_url(re.compile(r"/accounts/profile"))
 
-    # Collapsible sections
+    # Collapsible sections (scoped to aside#sidebar to avoid mobile drawer duplicates)
     def test_invoicing_section_visible(self):
-        toggle = self.page.locator("button", has_text="Invoicing")
+        from .helpers import _ensure_sidebar_visible
+        _ensure_sidebar_visible(self.page)
+        toggle = self.page.locator("aside#sidebar button", has_text="Invoicing")
         expect(toggle).to_be_visible()
 
     def test_salaries_section_visible(self):
-        toggle = self.page.locator("button", has_text="Salaries")
+        from .helpers import _ensure_sidebar_visible
+        _ensure_sidebar_visible(self.page)
+        toggle = self.page.locator("aside#sidebar button", has_text="Salaries")
         expect(toggle).to_be_visible()

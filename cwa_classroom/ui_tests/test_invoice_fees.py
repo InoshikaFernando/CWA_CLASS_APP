@@ -39,10 +39,10 @@ class TestFeeConfiguration:
         body = self.page.locator("body").inner_text()
         assert "Inherited" in body or "Not set" in body or "override" in body.lower()
 
-    def test_save_button_visible(self):
-        """Save All Changes button should exist."""
-        btn = self.page.locator("button", has_text=re.compile(r"Save", re.IGNORECASE))
-        expect(btn.first).to_be_visible()
+    def test_save_button_exists(self):
+        """Save All Changes button should exist (hidden until a fee is modified)."""
+        btn = self.page.locator("button[type='submit']", has_text=re.compile(r"Save", re.IGNORECASE))
+        expect(btn.first).to_be_attached()
 
     def test_student_override_section(self):
         """Student fee override section should be present."""

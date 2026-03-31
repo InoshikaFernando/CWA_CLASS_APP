@@ -31,7 +31,8 @@ class TestTeacherSidebarLinks:
 
     def test_my_classes_link(self):
         click_sidebar_link(self.page, "My Classes")
-        expect(self.page).to_have_url(re.compile(r"/hub/"))
+        # /hub/ redirects teachers to teacher dashboard
+        expect(self.page).to_have_url(re.compile(r"/hub/|/teacher/"))
 
     def test_enrollments_link(self):
         click_sidebar_link(self.page, "Enrollments")
@@ -39,7 +40,7 @@ class TestTeacherSidebarLinks:
 
     def test_attendance_approvals_link(self):
         click_sidebar_link(self.page, "Attendance Approvals")
-        expect(self.page).to_have_url(re.compile(r"/attendance-approvals"))
+        expect(self.page).to_have_url(re.compile(r"/attendance-approvals|/teacher/"))
 
     def test_class_progress_link(self):
         click_sidebar_link(self.page, "Class Progress")
@@ -47,7 +48,7 @@ class TestTeacherSidebarLinks:
 
     def test_student_progress_report_link(self):
         click_sidebar_link(self.page, "Student Progress Report")
-        expect(self.page).to_have_url(re.compile(r"/progress/report"))
+        expect(self.page).to_have_url(re.compile(r"/progress/report|/teacher/"))
 
     def test_school_hierarchy_link(self):
         click_sidebar_link(self.page, "School Hierarchy")

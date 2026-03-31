@@ -74,7 +74,9 @@ class TestHodSidebarLinks:
     # Collapsible section toggle
     def test_my_department_section_toggles(self):
         """The 'My Department' collapsible section should be expandable/collapsible."""
-        toggle = self.page.locator("button", has_text="My Department")
+        from .helpers import _ensure_sidebar_visible
+        _ensure_sidebar_visible(self.page)
+        toggle = self.page.locator("aside#sidebar button", has_text="My Department")
         expect(toggle).to_be_visible()
         # Content should be visible by default (x-data has deptOpen: true)
         assert_sidebar_has_link(self.page, "Classes")

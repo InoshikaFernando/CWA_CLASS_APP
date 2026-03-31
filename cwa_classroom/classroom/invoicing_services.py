@@ -260,10 +260,11 @@ def set_opening_balance(school_student, amount):
 
 def create_draft_invoices(school, student_data, attendance_mode,
                            billing_period_start, billing_period_end, created_by,
-                           billing_type='post_term'):
+                           billing_type='post_term', period_type='custom'):
     """
     Creates draft Invoice + InvoiceLineItem records.
     student_data: list of {student, lines, custom_amount (optional), notes (optional)}
+    period_type: 'custom', 'month', 'term', or 'year'
     Returns list of created Invoice objects.
     """
     invoices = []
@@ -286,6 +287,7 @@ def create_draft_invoices(school, student_data, attendance_mode,
                 billing_period_end=billing_period_end,
                 attendance_mode=attendance_mode,
                 billing_type=billing_type,
+                period_type=period_type,
                 calculated_amount=calculated_amount,
                 amount=amount,
                 status='draft',

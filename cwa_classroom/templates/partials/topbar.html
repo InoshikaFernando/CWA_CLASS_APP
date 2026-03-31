@@ -65,7 +65,18 @@
           <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"/>
           </svg>
-          Switch
+          {% if active_role == 'admin' %}Admin
+          {% elif active_role == 'senior_teacher' %}Senior Teacher
+          {% elif active_role == 'teacher' %}Teacher
+          {% elif active_role == 'junior_teacher' %}Junior Teacher
+          {% elif active_role == 'student' %}Student
+          {% elif active_role == 'individual_student' %}Student (Individual)
+          {% elif active_role == 'institute_owner' %}Institute Owner
+          {% elif active_role == 'head_of_department' %}Head of Dept
+          {% elif active_role == 'head_of_institute' %}Head of Institute
+          {% elif active_role == 'accountant' %}Accountant
+          {% elif active_role == 'parent' %}Parent
+          {% else %}Switch{% endif %}
           <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
           </svg>

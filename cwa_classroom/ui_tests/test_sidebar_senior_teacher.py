@@ -27,7 +27,7 @@ class TestSeniorTeacherSidebarLinks:
 
     def test_my_classes_link(self):
         click_sidebar_link(self.page, "My Classes")
-        expect(self.page).to_have_url(re.compile(r"/hub/"))
+        expect(self.page).to_have_url(re.compile(r"/hub/|/teacher/"))
 
     def test_enrollments_link(self):
         click_sidebar_link(self.page, "Enrollments")

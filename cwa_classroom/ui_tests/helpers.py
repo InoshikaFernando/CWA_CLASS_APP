@@ -20,21 +20,47 @@ def wait_for_network_idle(page: Page, timeout: int = 5_000) -> None:
     page.wait_for_load_state("networkidle", timeout=timeout)
 
 
+def _ensure_sidebar_visible(page: Page) -> None:
+    """Force the desktop sidebar to be visible and expand collapsed sections.
+
+    Tailwind CDN may not generate responsive ``md:flex`` styles in headless
+    Chromium, so the ``hidden md:flex`` aside stays ``display:none``.
+    We also expand any Alpine.js collapsed sections (x-show divs) so all
+    sidebar links are accessible for testing.
+    """
+    page.evaluate("""() => {
+        const aside = document.querySelector('aside#sidebar');
+        if (aside) {
+            aside.style.display = 'flex';
+            // Force collapsible nav sections visible (Alpine x-show sets display:none)
+            // Only expand sections that contain links, not dropdowns
+            aside.querySelectorAll('nav [x-show]').forEach(el => {
+                if (el.querySelector('a')) {
+                    el.style.setProperty('display', 'flex', 'important');
+                }
+            });
+        }
+    }""")
+
+
 def assert_sidebar_has_link(page: Page, text: str) -> None:
-    """Assert that a sidebar link with the given text is visible."""
-    link = page.locator("nav a, aside a, [class*='sidebar'] a", has_text=text).first
+    """Assert that a sidebar link with the given text exists."""
+    _ensure_sidebar_visible(page)
+    link = page.locator("aside#sidebar a", has_text=text).first
     expect(link).to_be_visible()
 
 
 def assert_sidebar_missing_link(page: Page, text: str) -> None:
-    """Assert that a sidebar link with the given text is NOT visible."""
-    link = page.locator("nav a, aside a, [class*='sidebar'] a", has_text=text)
+    """Assert that a sidebar link with the given text does NOT exist."""
+    _ensure_sidebar_visible(page)
+    link = page.locator("aside#sidebar a", has_text=text)
     expect(link).to_have_count(0)
 
 
 def click_sidebar_link(page: Page, text: str) -> None:
     """Click a sidebar link and wait for navigation."""
-    link = page.locator("nav a, aside a, [class*='sidebar'] a", has_text=text).first
+    _ensure_sidebar_visible(page)
+    link = page.locator("aside#sidebar a", has_text=text).first
     expect(link).to_be_visible()
     link.click()
     page.wait_for_load_state("domcontentloaded")

@@ -2,8 +2,9 @@
 Invoicing views — fee configuration, invoice generation, payment
 reconciliation (CSV + manual), and reference mapping management.
 """
+import calendar
 import json
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
@@ -21,7 +22,7 @@ from .models import (
     School, Department, ClassRoom, SchoolStudent, SchoolTeacher,
     DepartmentFee, StudentFeeOverride, Invoice, InvoiceLineItem,
     CSVColumnTemplate, CSVImport, PaymentReferenceMapping,
-    InvoicePayment, CreditTransaction, Term,
+    InvoicePayment, CreditTransaction, Term, AcademicYear,
 )
 from .views import RoleRequiredMixin
 from . import invoicing_services as svc
@@ -299,10 +300,41 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
 
         departments = Department.objects.filter(school=school, is_active=True)
         terms = Term.objects.filter(school=school).select_related('academic_year')
+
+        # Compute period options for quick-select
+        today = date.today()
+
+        # Next month
+        if today.month == 12:
+            next_month_start = date(today.year + 1, 1, 1)
+        else:
+            next_month_start = date(today.year, today.month + 1, 1)
+        next_month_end = date(
+            next_month_start.year,
+            next_month_start.month,
+            calendar.monthrange(next_month_start.year, next_month_start.month)[1],
+        )
+        next_month_label = next_month_start.strftime('%B %Y')
+
+        # Next term (first term starting after today)
+        next_term = Term.objects.filter(
+            school=school, start_date__gt=today,
+        ).select_related('academic_year').order_by('start_date').first()
+
+        # Current academic year (for "year" option)
+        current_year = AcademicYear.objects.filter(
+            school=school, is_current=True,
+        ).first()
+
         return render(request, 'invoicing/generate_invoices.html', {
             'school': school,
             'departments': departments,
             'terms': terms,
+            'next_month_start': next_month_start.isoformat(),
+            'next_month_end': next_month_end.isoformat(),
+            'next_month_label': next_month_label,
+            'next_term': next_term,
+            'current_year': current_year,
         })
 
     def post(self, request):
@@ -315,6 +347,7 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
         end = _parse_date(request.POST.get('billing_period_end'))
         mode = request.POST.get('attendance_mode', 'all_class_days')
         billing_type = request.POST.get('billing_type', 'post_term')
+        period_type = request.POST.get('period_type', 'custom')
         dept_id = request.POST.get('department_id')
 
         if not start or not end:
@@ -324,6 +357,13 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
         if start > end:
             messages.error(request, 'Start date must be before end date.')
             return redirect('generate_invoices')
+
+        # Future periods: force upfront billing and all-class-days mode
+        today = date.today()
+        is_future = end > today
+        if is_future:
+            billing_type = 'upfront'
+            mode = 'all_class_days'
 
         department = None
         if dept_id:
@@ -383,7 +423,7 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
         with transaction.atomic():
             invoices = svc.create_draft_invoices(
                 school, student_data, mode, start, end, request.user,
-                billing_type=billing_type,
+                billing_type=billing_type, period_type=period_type,
             )
 
         invoice_ids = [inv.id for inv in invoices]
@@ -394,7 +434,8 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
             action='invoice_generated',
             detail={'count': len(invoices), 'invoice_ids': invoice_ids,
                     'period_start': str(start), 'period_end': str(end),
-                    'mode': mode, 'billing_type': billing_type},
+                    'mode': mode, 'billing_type': billing_type,
+                    'period_type': period_type},
             request=request,
         )
         return redirect('invoice_preview')

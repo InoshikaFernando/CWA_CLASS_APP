@@ -498,6 +498,19 @@ def sync_module_to_stripe(module_product):
     return price.id
 
 
+def _build_stripe_coupon_kwargs(code_obj):
+    """Build kwargs for stripe.Coupon.create from any discount/coupon model instance."""
+    kwargs = {
+        'percent_off': float(code_obj.discount_percent),
+        'duration': getattr(code_obj, 'duration', 'forever') or 'forever',
+        'name': f'{code_obj.code} ({code_obj.discount_percent}% off)',
+        'metadata': {'code': code_obj.code},
+    }
+    if kwargs['duration'] == 'repeating' and getattr(code_obj, 'duration_in_months', None):
+        kwargs['duration_in_months'] = code_obj.duration_in_months
+    return kwargs
+
+
 def sync_discount_to_stripe(discount_code):
     """
     Create a Stripe Coupon for an InstituteDiscountCode.
@@ -510,12 +523,30 @@ def sync_discount_to_stripe(discount_code):
     if discount_code.is_fully_free:
         return ''
 
-    coupon = stripe.Coupon.create(
-        percent_off=float(discount_code.discount_percent),
-        duration='forever',
-        name=f'{discount_code.code} ({discount_code.discount_percent}% off)',
-        metadata={'discount_code_id': discount_code.id, 'code': discount_code.code},
-    )
+    kwargs = _build_stripe_coupon_kwargs(discount_code)
+    kwargs['metadata']['discount_code_id'] = discount_code.id
+    coupon = stripe.Coupon.create(**kwargs)
+
+    discount_code.stripe_coupon_id = coupon.id
+    discount_code.save(update_fields=['stripe_coupon_id'])
+    return coupon.id
+
+
+def sync_individual_discount_to_stripe(discount_code):
+    """
+    Create a Stripe Coupon for a DiscountCode (individual student).
+    Skips if discount is 100% (fully free). Returns coupon_id.
+    """
+    _ensure_stripe_key()
+    if not _stripe_configured():
+        raise ValueError('Stripe is not configured.')
+
+    if discount_code.is_fully_free:
+        return ''
+
+    kwargs = _build_stripe_coupon_kwargs(discount_code)
+    kwargs['metadata']['discount_code_id'] = discount_code.id
+    coupon = stripe.Coupon.create(**kwargs)
 
     discount_code.stripe_coupon_id = coupon.id
     discount_code.save(update_fields=['stripe_coupon_id'])

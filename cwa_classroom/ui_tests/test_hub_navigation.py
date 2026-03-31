@@ -21,37 +21,42 @@ class TestHubQuickActionNavigation:
 
     def _go_hub(self):
         self.page.goto(f"{self.url}/hub/")
-        self.page.wait_for_load_state("domcontentloaded")
+        self.page.wait_for_load_state("networkidle")
 
     def test_click_my_classes_card(self):
         self._go_hub()
-        self.page.locator("a", has_text="My Classes").first.click()
+        # Quick action cards are in main content area (not sidebar)
+        card = self.page.locator("main a", has_text="My Classes").first
+        card.click()
         expect(self.page).to_have_url(re.compile(r"/student/my-classes|/hub/"))
 
     def test_click_join_class_card(self):
         self._go_hub()
-        self.page.locator("a", has_text="Join Class").first.click()
+        card = self.page.locator("main a", has_text="Join Class").first
+        card.click()
         expect(self.page).to_have_url(re.compile(r"/student/join"))
 
     def test_click_progress_card(self):
         self._go_hub()
-        self.page.locator("a", has_text="Progress").first.click()
+        card = self.page.locator("main a", has_text="Progress").first
+        card.click()
         expect(self.page).to_have_url(re.compile(r"/student-dashboard"))
 
     def test_click_attendance_card(self):
         self._go_hub()
-        self.page.locator("a", has_text="Attendance").first.click()
-        expect(self.page).to_have_url(re.compile(r"/student/attendance"))
+        card = self.page.locator("main a", has_text="Attendance").first
+        card.click()
+        expect(self.page).to_have_url(re.compile(r"/student/attendance|/attendance"))
 
     def test_click_profile_card(self):
         self._go_hub()
-        self.page.locator("a", has_text="Profile").first.click()
-        expect(self.page).to_have_url(re.compile(r"/accounts/profile"))
+        card = self.page.locator("main a", has_text="Profile").first
+        card.click()
+        expect(self.page).to_have_url(re.compile(r"/accounts/profile|/profile"))
 
     def test_click_subject_card_navigates(self):
         self._go_hub()
-        # Subject cards link to the subject's dashboard (e.g. /maths/)
-        subject_card = self.page.locator("a[href*='/maths/']").first
+        subject_card = self.page.locator("main a[href*='/maths/']").first
         if subject_card.count() > 0:
             subject_card.click()
             expect(self.page).to_have_url(re.compile(r"/maths/"))

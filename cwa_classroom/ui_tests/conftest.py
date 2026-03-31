@@ -9,6 +9,13 @@ which truncates all tables after each test function.
 
 from __future__ import annotations
 
+import os
+
+# Force SQLite for UI tests (avoids MySQL connection issues)
+os.environ["DB_ENGINE"] = "sqlite"
+# Allow synchronous DB operations in Playwright's async event loop
+os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
+
 import uuid
 from datetime import date, time, timedelta
 from decimal import Decimal
@@ -16,6 +23,18 @@ from decimal import Decimal
 import pytest
 from django.utils import timezone
 from playwright.sync_api import Page, expect
+
+
+# ---------------------------------------------------------------------------
+# Viewport — must be wide enough for the desktop sidebar (md: = 768px)
+# ---------------------------------------------------------------------------
+@pytest.fixture(scope="session")
+def browser_context_args(browser_context_args):
+    """Set a desktop-sized viewport so the sidebar (hidden md:flex) is visible."""
+    return {
+        **browser_context_args,
+        "viewport": {"width": 1280, "height": 800},
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -52,6 +71,7 @@ def _make_user(username: str, role_name: str, **extra):
         username=username,
         password=TEST_PASSWORD,
         email=f"{username}@test.local",
+        first_name=extra.pop("first_name", username.replace("_", " ").title()),
         profile_completed=True,
         must_change_password=False,
         **extra,
@@ -65,12 +85,18 @@ def _make_user(username: str, role_name: str, **extra):
 # ---------------------------------------------------------------------------
 def do_login(page: Page, live_server_url: str, user) -> None:
     """Navigate to login page, fill credentials, submit, and wait for redirect."""
+    # Ensure desktop viewport so sidebar (hidden md:flex) is visible
+    page.set_viewport_size({"width": 1280, "height": 800})
     page.goto(f"{live_server_url}/accounts/login/")
+    # Wait for Tailwind CDN to finish generating styles
+    page.wait_for_load_state("networkidle")
     page.locator("#id_username").fill(user.username)
     page.locator("#id_password").fill(TEST_PASSWORD)
     page.locator("button[type='submit'], input[type='submit']").first.click()
     # Wait until we leave the login page
     page.wait_for_url(lambda url: "/accounts/login" not in url, timeout=10_000)
+    # Wait for page + Tailwind to fully load after redirect
+    page.wait_for_load_state("networkidle")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -175,9 +201,9 @@ def accountant_user(db, roles):
 
 @pytest.fixture
 def school(db, admin_user):
-    """Create a school with an active subscription."""
+    """Create a school with an active subscription and admin as SchoolTeacher."""
     from billing.models import InstitutePlan, SchoolSubscription
-    from classroom.models import School
+    from classroom.models import School, SchoolTeacher
 
     school = School.objects.create(
         name="Test School",
@@ -197,6 +223,12 @@ def school(db, admin_user):
     )
     SchoolSubscription.objects.create(
         school=school, plan=plan, status="active",
+    )
+    # Admin must also be a SchoolTeacher for sidebar views to work
+    SchoolTeacher.objects.get_or_create(
+        school=school,
+        teacher=admin_user,
+        defaults={"role": "head_of_institute"},
     )
     return school
 
@@ -461,6 +493,44 @@ def progress_data(db, enrolled_student, level, topic):
         },
     )
     return stats
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Academic Year / Term fixtures
+# ═══════════════════════════════════════════════════════════════════════════
+
+@pytest.fixture
+def academic_year(db, school):
+    """Current academic year."""
+    from classroom.models import AcademicYear
+
+    today = date.today()
+    return AcademicYear.objects.create(
+        school=school,
+        year=today.year,
+        start_date=date(today.year, 1, 1),
+        end_date=date(today.year, 12, 31),
+        is_current=True,
+    )
+
+
+@pytest.fixture
+def future_term(db, school, academic_year):
+    """A term starting in the future (next month onwards)."""
+    from classroom.models import Term
+
+    today = date.today()
+    # Start 30 days from now, end 90 days from now
+    start = today + timedelta(days=30)
+    end = today + timedelta(days=90)
+    return Term.objects.create(
+        school=school,
+        academic_year=academic_year,
+        name="Term 2",
+        start_date=start,
+        end_date=end,
+        order=2,
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
