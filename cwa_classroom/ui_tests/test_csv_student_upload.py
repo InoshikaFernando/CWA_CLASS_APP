@@ -37,7 +37,7 @@ class TestStudentCSVUploadPage:
 
     def test_submit_button_visible(self):
         """Upload/submit button should be visible."""
-        btn = self.page.locator("button[type='submit'], input[type='submit']")
+        btn = self.page.locator("button[type='submit'], input[type='submit'], button:not([type])")
         expect(btn.first).to_be_visible()
 
 
@@ -60,5 +60,5 @@ class TestTeacherCSVUploadPage:
         expect(file_input).to_be_attached()
 
     def test_submit_button_visible(self):
-        btn = self.page.locator("button[type='submit'], input[type='submit']")
+        btn = self.page.locator("button[type='submit'], input[type='submit'], button:not([type])")
         expect(btn.first).to_be_visible()

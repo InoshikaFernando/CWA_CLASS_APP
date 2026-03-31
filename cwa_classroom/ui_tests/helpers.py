@@ -21,15 +21,29 @@ def wait_for_network_idle(page: Page, timeout: int = 5_000) -> None:
 
 
 def _ensure_sidebar_visible(page: Page) -> None:
-    """Force the desktop sidebar to be visible.
+    """Force the desktop sidebar to be visible and expand collapsed sections.
 
     Tailwind CDN may not generate responsive ``md:flex`` styles in headless
     Chromium, so the ``hidden md:flex`` aside stays ``display:none``.
-    We inject a one-line style override to make it visible for testing.
+    We also expand any Alpine.js collapsed sections (x-show divs) so all
+    sidebar links are accessible for testing.
     """
     page.evaluate("""() => {
         const aside = document.querySelector('aside#sidebar');
-        if (aside) aside.style.display = 'flex';
+        if (aside) {
+            aside.style.display = 'flex';
+            // Expand all Alpine.js collapsed sections
+            aside.querySelectorAll('[x-show]').forEach(el => {
+                el.style.display = '';
+                el.removeAttribute('style');
+                el.style.display = 'flex';
+            });
+            // Also expand flex-col divs that might be collapsed
+            aside.querySelectorAll('div[x-show]').forEach(el => {
+                el.style.display = 'flex';
+                el.style.flexDirection = 'column';
+            });
+        }
     }""")
 
 

@@ -104,7 +104,7 @@ class TestBasicFactsSelect:
         self.url = live_server.url
         self.page = page
         do_login(page, self.url, enrolled_student)
-        page.goto(f"{self.url}/maths/basic-facts/")
+        page.goto(f"{self.url}/basic-facts/")
         page.wait_for_load_state("domcontentloaded")
 
     def test_page_loads(self):
@@ -125,14 +125,14 @@ class TestBasicFactsSelect:
 # ---------------------------------------------------------------------------
 
 class TestTimesTablesSelect:
-    """Tests for /maths/times-tables/ — table selection page."""
+    """Tests for /times-tables/ — table selection page."""
 
     @pytest.fixture(autouse=True)
     def _setup(self, live_server, page, enrolled_student, school, classroom):
         self.url = live_server.url
         self.page = page
         do_login(page, self.url, enrolled_student)
-        page.goto(f"{self.url}/maths/times-tables/")
+        page.goto(f"{self.url}/times-tables/")
         page.wait_for_load_state("domcontentloaded")
 
     def test_page_loads(self):
