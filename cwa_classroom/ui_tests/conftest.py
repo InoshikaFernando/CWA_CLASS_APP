@@ -9,6 +9,13 @@ which truncates all tables after each test function.
 
 from __future__ import annotations
 
+import os
+
+# Force SQLite for UI tests (avoids MySQL connection issues)
+os.environ["DB_ENGINE"] = "sqlite"
+# Allow synchronous DB operations in Playwright's async event loop
+os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
+
 import uuid
 from datetime import date, time, timedelta
 from decimal import Decimal

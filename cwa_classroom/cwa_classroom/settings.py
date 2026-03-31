@@ -115,6 +115,8 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 'accounts.context_processors.user_role',
                 'classroom.context_processors.subject_apps',
+                'classroom.context_processors.subject_sidebar_context',
+                'classroom.context_processors.breadcrumbs_context',
             ],
         },
     },

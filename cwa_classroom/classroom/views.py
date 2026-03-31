@@ -4551,6 +4551,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
                     'school_sections': school_sections,
                     'global_subjects': global_subjects,
                     'is_school_student': True,
+                    'hide_sidebar': True,
                     **hub_extra,
                 })
 
