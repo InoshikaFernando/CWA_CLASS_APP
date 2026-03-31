@@ -57,6 +57,9 @@ urlpatterns = [
     # --- AI tools (before core apps — core apps use root prefix) ---
     path('ai-import/', include('ai_import.urls', namespace='ai_import')),
 
+    # --- Homework ---
+    path('homework/', include('homework.urls')),
+
     # --- Core apps ---
     path('', include('classroom.urls')),
     path('', include('number_puzzles.urls')),
