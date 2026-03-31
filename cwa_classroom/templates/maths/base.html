@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}{% block maths_title %}Maths Practice{% endblock %} — Maths Room{% endblock %}
+
+{% block extra_head %}
+{{ block.super }}
+{% endblock %}
+
+{% block extra_js %}
+{{ block.super }}
+{% if user.is_authenticated and not user.is_teacher %}
+<script>
+  function formatTime(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return `${hours}h ${minutes}m`;
+  }
+
+  function fetchTimeFromServer() {
+    fetch('{% url "maths:update_time_log" %}', {
+      method: 'GET',
+      credentials: 'same-origin'
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        const d = document.getElementById('dailyTime');
+        const w = document.getElementById('weeklyTime');
+        if (d) d.textContent = formatTime(data.daily_seconds);
+        if (w) w.textContent = formatTime(data.weekly_seconds);
+      }
+    })
+    .catch(() => {});
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    fetchTimeFromServer();
+    setInterval(fetchTimeFromServer, 30000);
+  });
+  document.addEventListener('visibilitychange', function() {
+    if (!document.hidden) fetchTimeFromServer();
+  });
+  window.addEventListener('focus', fetchTimeFromServer);
+</script>
+{% endif %}
+{% endblock %}

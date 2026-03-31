@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}My Classes{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-6">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="font-display text-3xl text-primary">My Classes</h1>
+      <p class="text-gray-400 text-sm mt-1">Welcome back, {{ request.user.first_name|default:request.user.username }}!</p>
+    </div>
+    <a href="{% url 'create_class' %}"
+       class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-5 py-2.5 transition text-sm">
+      + New Class
+    </a>
+  </div>
+
+  <!-- Stats bar -->
+  <div class="grid grid-cols-3 gap-4">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+      <p class="font-display text-3xl text-primary">{{ classes|length }}</p>
+      <p class="text-xs text-gray-400 font-semibold uppercase tracking-wide mt-1">Classes</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+      <p class="font-display text-3xl text-primary">
+        {% with total=0 %}
+          {% for c in classes %}{% with total=total|add:c.students.count %}{% endwith %}{% endfor %}
+          {{ classes|length }}
+        {% endwith %}
+      </p>
+      <p class="text-xs text-gray-400 font-semibold uppercase tracking-wide mt-1">Students</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+      <a href="{% url 'upload_questions' %}" class="block">
+        <p class="font-display text-3xl text-accent">+</p>
+        <p class="text-xs text-gray-400 font-semibold uppercase tracking-wide mt-1">Upload Questions</p>
+      </a>
+    </div>
+  </div>
+
+  <!-- Quick actions -->
+  <div class="flex flex-wrap gap-3">
+    <a href="{% url 'bulk_student_registration' %}"
+       class="bg-white border border-slate-200 hover:border-primary text-gray-700 hover:text-primary font-semibold rounded-xl px-4 py-2.5 transition text-sm">
+      👥 Bulk Register Students
+    </a>
+    <a href="{% url 'upload_questions' %}"
+       class="bg-white border border-slate-200 hover:border-primary text-gray-700 hover:text-primary font-semibold rounded-xl px-4 py-2.5 transition text-sm">
+      📤 Upload Questions
+    </a>
+    <a href="{% url 'topics' %}"
+       class="bg-white border border-slate-200 hover:border-primary text-gray-700 hover:text-primary font-semibold rounded-xl px-4 py-2.5 transition text-sm">
+      📚 Browse Topics
+    </a>
+  </div>
+
+  <!-- Class cards -->
+  {% if classes %}
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    {% for classroom in classes %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 hover:shadow-md transition">
+      <div class="flex items-start justify-between mb-3">
+        <h3 class="font-bold text-gray-800 text-lg">{{ classroom.name }}</h3>
+        <span class="font-mono text-xs bg-gray-100 text-gray-500 rounded-lg px-2 py-1 cursor-pointer"
+              title="Click to copy" onclick="navigator.clipboard.writeText('{{ classroom.code }}'); this.textContent='Copied!'">
+          {{ classroom.code }}
+        </span>
+      </div>
+
+      <!-- Level badges -->
+      <div class="flex flex-wrap gap-1.5 mb-4">
+        {% for level in classroom.levels.all %}
+          <span class="bg-accent-light text-yellow-800 rounded-full px-2.5 py-0.5 text-xs font-semibold">
+            {{ level.display_name }}
+          </span>
+        {% empty %}
+          <span class="text-xs text-gray-400">No levels assigned</span>
+        {% endfor %}
+      </div>
+
+      <!-- Counts -->
+      <div class="flex gap-4 text-sm text-gray-500 mb-5">
+        <span>👨‍🎓 {{ classroom.students.count }} student{{ classroom.students.count|pluralize }}</span>
+        <span>👩‍🏫 {{ classroom.teachers.count }} teacher{{ classroom.teachers.count|pluralize }}</span>
+      </div>
+
+      <!-- Actions -->
+      <div class="flex gap-2">
+        <a href="{% url 'class_attendance' class_id=classroom.id %}"
+           class="flex-1 text-center bg-primary hover:bg-primary-dark text-white text-sm font-semibold rounded-xl py-2 transition">
+          Attendance
+        </a>
+        <a href="{% url 'assign_students' class_id=classroom.id %}"
+           class="flex-1 text-center bg-white border border-slate-200 hover:border-primary text-gray-600 hover:text-primary text-sm font-semibold rounded-xl py-2 transition">
+          👥 Students
+        </a>
+        <a href="{% url 'assign_teachers' class_id=classroom.id %}"
+           class="flex-1 text-center bg-white border border-slate-200 hover:border-primary text-gray-600 hover:text-primary text-sm font-semibold rounded-xl py-2 transition">
+          👩‍🏫 Teachers
+        </a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">
+    <div class="text-5xl mb-4">🏫</div>
+    <h3 class="font-bold text-gray-700 text-lg mb-2">No classes yet</h3>
+    <p class="text-gray-400 text-sm mb-6">Create your first class to get started.</p>
+    <a href="{% url 'create_class' %}"
+       class="inline-block bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition">
+      + Create First Class
+    </a>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

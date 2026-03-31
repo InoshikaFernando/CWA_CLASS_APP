@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ classroom.name }}{% endblock %}
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+  <div>
+    <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
+    <h1 class="font-display text-2xl font-bold text-gray-900 mt-2">Edit Class</h1>
+    <p class="text-gray-500 text-sm mt-1">Update class details. Code: <span class="font-mono">{{ classroom.code }}</span></p>
+  </div>
+
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+    <form method="post" class="space-y-5">
+      {% csrf_token %}
+      {% if back_url %}<input type="hidden" name="next" value="{{ back_url }}">{% endif %}
+
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1.5">Class Name</label>
+        <input type="text" name="name" required autofocus value="{{ classroom.name }}"
+               class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+      </div>
+
+      <!-- Day & Time -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Day</label>
+          <select name="day"
+                  class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition">
+            <option value="">Select day</option>
+            <option value="monday" {% if classroom.day == "monday" %}selected{% endif %}>Monday</option>
+            <option value="tuesday" {% if classroom.day == "tuesday" %}selected{% endif %}>Tuesday</option>
+            <option value="wednesday" {% if classroom.day == "wednesday" %}selected{% endif %}>Wednesday</option>
+            <option value="thursday" {% if classroom.day == "thursday" %}selected{% endif %}>Thursday</option>
+            <option value="friday" {% if classroom.day == "friday" %}selected{% endif %}>Friday</option>
+            <option value="saturday" {% if classroom.day == "saturday" %}selected{% endif %}>Saturday</option>
+            <option value="sunday" {% if classroom.day == "sunday" %}selected{% endif %}>Sunday</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Start Time</label>
+          <input type="time" name="start_time" value="{{ classroom.start_time|time:'H:i'|default:'' }}"
+                 class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">End Time</label>
+          <input type="time" name="end_time" value="{{ classroom.end_time|time:'H:i'|default:'' }}"
+                 class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1.5">Description</label>
+        <textarea name="description" rows="3" placeholder="Optional notes about this class"
+                  class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition resize-none">{{ classroom.description }}</textarea>
+      </div>
+
+      <!-- Fee -->
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1.5">Fee (NZD)</label>
+        {% if can_edit_fee %}
+          <input type="number" name="fee_override" step="0.01" min="0"
+                 value="{{ classroom.fee_override|default:'' }}"
+                 placeholder="{% if parent_fee %}Inherit ${{ parent_fee }} ({{ fee_source }}){% else %}No fee set{% endif %}"
+                 class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+          <p class="text-xs text-gray-400 mt-1">
+            {% if classroom.fee_override is not None %}
+              Override: ${{ classroom.fee_override }} — leave blank to inherit{% if parent_fee %} (${{ parent_fee }} from {{ fee_source }}){% endif %}.
+            {% elif parent_fee %}
+              Inherited: ${{ parent_fee }} from {{ fee_source }}. Enter a value to override.
+            {% else %}
+              No fee set at any level. Enter a value to set one.
+            {% endif %}
+          </p>
+        {% else %}
+          {% if classroom.fee_override is not None %}
+            <p class="text-sm font-medium text-gray-900">${{ classroom.fee_override }} <span class="text-xs text-gray-400">(class override)</span></p>
+          {% elif parent_fee %}
+            <p class="text-sm font-medium text-gray-900">${{ parent_fee }} <span class="text-xs text-gray-400">({{ fee_source }})</span></p>
+          {% else %}
+            <p class="text-sm text-gray-400">No fee set</p>
+          {% endif %}
+        {% endif %}
+      </div>
+
+      <!-- Subject dropdown -->
+      <div>
+        <label for="subject_select" class="block text-sm font-semibold text-gray-700 mb-1.5">Subject</label>
+        <select id="subject_select"
+                class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition">
+          {% if subject_groups|length > 1 %}
+            <option value="">— Select a subject —</option>
+          {% endif %}
+          {% for group in subject_groups %}
+            <option value="{{ group.subject.id }}"
+                    {% if group.subject.id == current_subject_id %}selected{% endif %}>{{ group.subject.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Level selector (filtered by subject) -->
+      <div id="level-container">
+        <label class="block text-sm font-semibold text-gray-700 mb-2">Levels</label>
+        <p class="text-xs text-gray-400 mb-3">Select the levels students in this class will cover.</p>
+        <div id="level-list" class="space-y-2 max-h-64 overflow-y-auto border border-slate-200 rounded-xl p-3">
+          <p id="level-placeholder" class="text-sm text-gray-400 text-center py-3">Select a subject first.</p>
+        </div>
+      </div>
+
+      <!-- Embed level data as JSON for JS filtering -->
+      <script>
+      (function() {
+        const subjectData = {
+          {% for group in subject_groups %}
+          "{{ group.subject.id }}": {
+            "name": "{{ group.subject.name }}",
+            "levels": [
+              {% for level in group.year_levels %}
+              { "id": {{ level.id }}, "name": "{{ level.display_name }}", "number": {{ level.level_number }}, "type": "year" },
+              {% endfor %}
+              {% for level in group.custom_levels %}
+              { "id": {{ level.id }}, "name": "{{ level.display_name }}", "desc": "{{ level.description|default:'' }}", "type": "custom" },
+              {% endfor %}
+            ]
+          }{% if not forloop.last %},{% endif %}
+          {% endfor %}
+        };
+        const selectedIds = new Set([{% for lid in selected_levels %}{{ lid }}{% if not forloop.last %},{% endif %}{% endfor %}]);
+
+        const subjectSelect = document.getElementById('subject_select');
+        const levelList = document.getElementById('level-list');
+        const placeholder = document.getElementById('level-placeholder');
+
+        function renderLevels(subjectId) {
+          levelList.innerHTML = '';
+          if (!subjectId || !subjectData[subjectId]) {
+            levelList.innerHTML = '<p class="text-sm text-gray-400 text-center py-3">Select a subject first.</p>';
+            return;
+          }
+          const data = subjectData[subjectId];
+          if (data.levels.length === 0) {
+            levelList.innerHTML = '<p class="text-sm text-gray-400 text-center py-3">No levels available for ' + data.name + '.</p>';
+            return;
+          }
+          data.levels.forEach(lv => {
+            const checked = selectedIds.has(lv.id) ? 'checked' : '';
+            const isYear = lv.type === 'year';
+            const badge = isYear
+              ? '<span class="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-primary/10 text-primary text-xs font-bold">' + lv.number + '</span>'
+              : '<span class="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-accent/10 text-accent text-xs font-bold">' + lv.name.substring(0, 2).toUpperCase() + '</span>';
+            const desc = lv.desc ? '<p class="text-xs text-gray-400">' + lv.desc + '</p>' : '';
+            levelList.innerHTML +=
+              '<label class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-50 cursor-pointer transition">' +
+                '<input type="checkbox" name="levels" value="' + lv.id + '" ' + checked +
+                '       class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20">' +
+                badge +
+                '<div><p class="text-sm font-medium text-gray-900">' + lv.name + '</p>' + desc + '</div>' +
+              '</label>';
+          });
+        }
+
+        subjectSelect.addEventListener('change', function() {
+          renderLevels(this.value);
+        });
+
+        // Render on load
+        const initial = subjectSelect.value;
+        if (initial) {
+          renderLevels(initial);
+        }
+      })();
+      </script>
+
+      <div class="flex gap-3 pt-2">
+        <button type="submit" class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition">
+          Save Changes
+        </button>
+        <a href="javascript:history.back()" class="bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 font-semibold rounded-xl px-6 py-3 transition">
+          Cancel
+        </a>
+      </div>
+
+      <div class="border-t border-gray-100 pt-4 mt-2">
+        <p class="text-xs text-gray-400 mb-2">Manage what criteria students are assessed on:</p>
+        <div class="flex gap-3">
+          <a href="{% url 'progress_criteria_list' %}"
+             class="text-sm text-primary font-semibold hover:text-primary-dark transition">View Progress Criteria</a>
+          <a href="{% url 'progress_criteria_create' %}"
+             class="text-sm text-accent font-semibold hover:text-accent-dark transition">+ Create Criteria</a>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

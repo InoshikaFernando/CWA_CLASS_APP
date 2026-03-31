@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Number Puzzles — No Puzzles Available{% endblock %}
+
+{% block content %}
+<div class="max-w-xl mx-auto text-center py-16 space-y-4">
+  <div class="text-6xl mb-4">&#128300;</div>
+  <h1 class="font-display text-2xl text-primary">No Puzzles Available</h1>
+  <p class="text-gray-500">
+    There are no puzzles generated for <strong>{{ level.name }}</strong> yet.
+    An administrator needs to run the puzzle generation command.
+  </p>
+  <a href="{% url 'number_puzzles_home' %}"
+     class="inline-block bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition mt-4">
+    &larr; Back</a>
+</div>
+{% endblock %}

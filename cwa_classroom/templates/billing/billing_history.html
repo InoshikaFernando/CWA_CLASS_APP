@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Billing History{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+  <h1 class="font-display text-2xl text-primary mb-4">Billing History</h1>
+
+  {% if subscription %}
+  <div class="card mb-6">
+    <div class="card-body">
+      <h2 class="text-lg font-semibold mb-3">Current Subscription</h2>
+      <table class="w-full text-sm">
+        <tr>
+          <td class="py-1 font-medium text-gray-600 w-40">Plan</td>
+          <td>{{ subscription.plan.name|default:"No plan" }}</td>
+        </tr>
+        <tr>
+          <td class="py-1 font-medium text-gray-600">Status</td>
+          <td>
+            <span class="inline-block px-2 py-0.5 rounded text-xs font-medium
+              {% if subscription.status == 'active' %}bg-green-100 text-green-800
+              {% elif subscription.status == 'trialing' %}bg-blue-100 text-blue-800
+              {% elif subscription.status == 'past_due' %}bg-yellow-100 text-yellow-800
+              {% else %}bg-red-100 text-red-800{% endif %}">
+              {{ subscription.get_status_display }}
+            </span>
+          </td>
+        </tr>
+        {% if subscription.current_period_end %}
+        <tr>
+          <td class="py-1 font-medium text-gray-600">Current Period Ends</td>
+          <td>{{ subscription.current_period_end|date:"M d, Y" }}</td>
+        </tr>
+        {% endif %}
+        {% if subscription.trial_end %}
+        <tr>
+          <td class="py-1 font-medium text-gray-600">Trial Ends</td>
+          <td>{{ subscription.trial_end|date:"M d, Y" }} ({{ subscription.trial_days_remaining }} days left)</td>
+        </tr>
+        {% endif %}
+      </table>
+    </div>
+  </div>
+  {% elif individual_sub %}
+  <div class="card mb-6">
+    <div class="card-body">
+      <h2 class="text-lg font-semibold mb-3">Your Subscription</h2>
+      <table class="w-full text-sm">
+        <tr>
+          <td class="py-1 font-medium text-gray-600 w-40">Package</td>
+          <td>{{ individual_sub.package.name|default:"No package" }}</td>
+        </tr>
+        <tr>
+          <td class="py-1 font-medium text-gray-600">Status</td>
+          <td>{{ individual_sub.get_status_display }}</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <div class="card-body text-center py-8">
+      <p class="text-gray-600 mb-4">View detailed invoices and manage payment methods in the Stripe Billing Portal.</p>
+      <a href="{% url 'stripe_billing_portal' %}" class="btn btn-primary">
+        Open Billing Portal
+      </a>
+    </div>
+  </div>
+
+  <div class="mt-4">
+    <a href="javascript:history.back()" class="text-blue-600 hover:underline text-sm">&larr; Back</a>
+  </div>
+</div>
+{% endblock %}

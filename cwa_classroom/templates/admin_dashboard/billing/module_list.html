@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}Module Products - Billing Admin{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Module Products</h1>
+    <p class="text-gray-500 mt-1">Module add-ons are pre-defined. Edit pricing and sync to Stripe here.</p>
+  </div>
+
+  <!-- Table -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-left">
+        <thead>
+          <tr class="border-b border-slate-200 bg-slate-50">
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Module</th>
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Price</th>
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Stripe</th>
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          {% for mod in modules %}
+          <tr class="hover:bg-slate-50 transition">
+            <td class="px-6 py-4 font-mono text-sm text-gray-700">{{ mod.module }}</td>
+            <td class="px-6 py-4 font-semibold text-gray-900">{{ mod.name }}</td>
+            <td class="px-6 py-4 text-gray-700">${{ mod.price }}/mo</td>
+            <td class="px-6 py-4">
+              {% if mod.stripe_price_id %}
+                <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">Synced</span>
+              {% else %}
+                <span class="inline-flex px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">Not synced</span>
+              {% endif %}
+            </td>
+            <td class="px-6 py-4">
+              {% if mod.is_active %}
+                <span class="inline-flex px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">Active</span>
+              {% else %}
+                <span class="inline-flex px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-500">Inactive</span>
+              {% endif %}
+            </td>
+            <td class="px-6 py-4">
+              <div class="flex items-center gap-2">
+                <a href="{% url 'billing_admin_module_edit' mod.pk %}" class="text-accent hover:text-accent-dark text-sm font-medium">Edit</a>
+                <form method="post" action="{% url 'billing_admin_module_sync' mod.pk %}" class="inline">
+                  {% csrf_token %}
+                  <button type="submit" class="text-indigo-600 hover:text-indigo-800 text-sm font-medium">Sync</button>
+                </form>
+                <form method="post" action="{% url 'billing_admin_module_toggle' mod.pk %}" class="inline">
+                  {% csrf_token %}
+                  <button type="submit" class="text-sm font-medium {% if mod.is_active %}text-red-600 hover:text-red-800{% else %}text-emerald-600 hover:text-emerald-800{% endif %}">
+                    {% if mod.is_active %}Deactivate{% else %}Activate{% endif %}
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="6" class="px-6 py-12 text-center text-gray-500">No module products configured.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

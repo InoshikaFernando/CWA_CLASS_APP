@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Times Tables{% endblock %}
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-6">
+  <div>
+    <h1 class="font-display text-3xl text-primary">✖️ Times Tables</h1>
+    <p class="text-gray-400 text-sm mt-1">Choose a table to practise — multiplication or division.</p>
+  </div>
+
+  <div class="grid grid-cols-3 sm:grid-cols-4 gap-3">
+    {% for t in all_tables %}
+    <div class="bg-white rounded-2xl border shadow-sm p-4 text-center
+                {% if t in available_tables %}border-slate-200 hover:shadow-md hover:border-primary{% else %}border-gray-100 opacity-40{% endif %}">
+      <p class="font-display text-2xl text-primary mb-3">{{ t }}×</p>
+      {% if t in available_tables %}
+      <div class="flex flex-col gap-2">
+        <a href="{% url 'multiplication_quiz' level_number=year|default:4 table=t %}"
+           class="text-xs bg-primary hover:bg-primary-dark text-white font-semibold rounded-lg px-2 py-1.5 transition">
+          × Multiply
+        </a>
+        <a href="{% url 'division_quiz' level_number=year|default:4 table=t %}"
+           class="text-xs bg-white border border-primary text-primary hover:bg-primary-light font-semibold rounded-lg px-2 py-1.5 transition">
+          ÷ Divide
+        </a>
+      </div>
+      {% else %}
+        <p class="text-xs text-gray-300">🔒 Locked</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

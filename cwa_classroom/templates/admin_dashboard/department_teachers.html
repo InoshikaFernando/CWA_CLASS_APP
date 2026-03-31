@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}Manage Staff — {{ department.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Manage Department Staff</h1>
+    <p class="text-gray-500 mt-1">{{ department.name }} — {{ school.name }}</p>
+  </div>
+
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+    <div class="p-6 border-b border-slate-100">
+      <p class="text-sm text-gray-500">Select staff from {{ school.name }} to add to this department. Staff already in the department are pre-checked.</p>
+    </div>
+    <div class="p-6">
+      {% if school_teachers %}
+        <form method="post">
+          {% csrf_token %}
+          <div class="space-y-2 mb-6 max-h-96 overflow-y-auto">
+            {% for st in page %}
+              <label class="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-accent/30 hover:bg-accent/5 cursor-pointer transition
+                            {% if st.teacher.id in assigned_ids %}border-accent/20 bg-accent/5{% endif %}">
+                <input type="checkbox" name="teacher_ids" value="{{ st.teacher.id }}"
+                       class="rounded text-accent focus:ring-accent"
+                       {% if st.teacher.id in assigned_ids %}checked{% endif %}
+                       {% if st.teacher == department.head %}checked disabled title="Cannot remove department head"{% endif %}>
+                {% if st.teacher == department.head %}
+                  <input type="hidden" name="teacher_ids" value="{{ st.teacher.id }}">
+                {% endif %}
+                <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-accent text-white text-xs font-bold">
+                  {{ st.teacher.username|slice:":2"|upper }}
+                </span>
+                <div class="flex-1">
+                  <p class="text-sm font-medium text-gray-900">{{ st.teacher.get_full_name|default:st.teacher.username }}</p>
+                  <p class="text-xs text-gray-500">{{ st.teacher.email }} &middot; {{ st.get_role_display }}</p>
+                </div>
+                {% if st.teacher == department.head %}
+                  <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">HoD</span>
+                {% endif %}
+              </label>
+            {% endfor %}
+          </div>
+          <button type="submit"
+                  class="w-full px-4 py-2.5 bg-accent hover:bg-accent-dark text-white text-sm font-semibold rounded-xl transition">
+            Save Changes
+          </button>
+        </form>
+      {% else %}
+        <p class="text-sm text-gray-400 text-center py-6">No staff at this school yet. Add staff to the school first.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  {% include "partials/pagination.html" %}
+
+</div>
+{% endblock %}

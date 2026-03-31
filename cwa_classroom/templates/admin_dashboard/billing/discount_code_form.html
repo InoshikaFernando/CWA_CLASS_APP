@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}{% if discount %}Edit Discount Code{% else %}Create Discount Code{% endif %} - Billing Admin{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">{% if discount %}Edit: {{ discount.code }}{% else %}Create Discount Code{% endif %}</h1>
+  </div>
+
+  <!-- Form card -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8">
+    <form method="post">
+      {% csrf_token %}
+
+      <div class="space-y-6">
+        <!-- Code -->
+        <div>
+          <label for="code" class="block text-sm font-semibold text-gray-700 mb-1.5">Code *</label>
+          {% if discount %}
+            <p class="font-mono font-semibold text-gray-900">{{ discount.code }} <span class="text-xs text-gray-400">(locked after creation)</span></p>
+          {% else %}
+            <input type="text" name="code" id="code" required
+                   value="{{ form_data.code|default:'' }}"
+                   class="w-full px-4 py-2.5 border {% if errors.code %}border-red-400{% else %}border-slate-300{% endif %} rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition font-mono uppercase"
+                   placeholder="SCHOOLDISCOUNT50">
+            <p class="text-xs text-gray-400 mt-1">Auto-uppercased, no spaces</p>
+            {% if errors.code %}<p class="text-red-500 text-xs mt-1">{{ errors.code }}</p>{% endif %}
+          {% endif %}
+        </div>
+
+        <!-- Description -->
+        <div>
+          <label for="description" class="block text-sm font-semibold text-gray-700 mb-1.5">Description</label>
+          <input type="text" name="description" id="description"
+                 value="{{ form_data.description|default:'' }}"
+                 class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition"
+                 placeholder="Internal note about this code">
+        </div>
+
+        <!-- Discount Percent -->
+        <div>
+          <label for="discount_percent" class="block text-sm font-semibold text-gray-700 mb-1.5">Discount Percent *</label>
+          {% if discount %}
+            <p class="text-gray-900">{{ discount.discount_percent }}% <span class="text-xs text-gray-400">(locked after creation)</span></p>
+          {% else %}
+            <input type="number" min="0" max="100" name="discount_percent" id="discount_percent" required
+                   value="{{ form_data.discount_percent|default:'100' }}"
+                   class="w-full px-4 py-2.5 border {% if errors.discount_percent %}border-red-400{% else %}border-slate-300{% endif %} rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+            <p class="text-xs text-gray-400 mt-1">100 = fully free (no Stripe needed)</p>
+            {% if errors.discount_percent %}<p class="text-red-500 text-xs mt-1">{{ errors.discount_percent }}</p>{% endif %}
+          {% endif %}
+        </div>
+
+        <!-- Max Uses -->
+        <div>
+          <label for="max_uses" class="block text-sm font-semibold text-gray-700 mb-1.5">Max Uses</label>
+          <input type="number" min="1" name="max_uses" id="max_uses"
+                 value="{{ form_data.max_uses|default:'' }}"
+                 class="w-full px-4 py-2.5 border {% if errors.max_uses %}border-red-400{% else %}border-slate-300{% endif %} rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition"
+                 placeholder="Leave blank for unlimited">
+          {% if errors.max_uses %}<p class="text-red-500 text-xs mt-1">{{ errors.max_uses }}</p>{% endif %}
+        </div>
+
+        <!-- Overrides -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label for="override_class_limit" class="block text-sm font-semibold text-gray-700 mb-1.5">Override Class Limit</label>
+            <input type="number" min="0" name="override_class_limit" id="override_class_limit"
+                   value="{{ form_data.override_class_limit|default:'' }}"
+                   class="w-full px-4 py-2.5 border {% if errors.override_class_limit %}border-red-400{% else %}border-slate-300{% endif %} rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition"
+                   placeholder="Leave blank for plan default">
+            <p class="text-xs text-gray-400 mt-1">0 = unlimited</p>
+            {% if errors.override_class_limit %}<p class="text-red-500 text-xs mt-1">{{ errors.override_class_limit }}</p>{% endif %}
+          </div>
+          <div>
+            <label for="override_student_limit" class="block text-sm font-semibold text-gray-700 mb-1.5">Override Student Limit</label>
+            <input type="number" min="0" name="override_student_limit" id="override_student_limit"
+                   value="{{ form_data.override_student_limit|default:'' }}"
+                   class="w-full px-4 py-2.5 border {% if errors.override_student_limit %}border-red-400{% else %}border-slate-300{% endif %} rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition"
+                   placeholder="Leave blank for plan default">
+            <p class="text-xs text-gray-400 mt-1">0 = unlimited</p>
+            {% if errors.override_student_limit %}<p class="text-red-500 text-xs mt-1">{{ errors.override_student_limit }}</p>{% endif %}
+          </div>
+        </div>
+
+        <!-- Expiry -->
+        <div>
+          <label for="expires_at" class="block text-sm font-semibold text-gray-700 mb-1.5">Expires At</label>
+          <input type="datetime-local" name="expires_at" id="expires_at"
+                 value="{{ form_data.expires_at|default:'' }}"
+                 class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+          <p class="text-xs text-gray-400 mt-1">Leave blank for no expiry</p>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="flex items-center justify-end gap-3 mt-8 pt-6 border-t border-slate-100">
+        <a href="{% url 'billing_admin_discount_list' %}"
+           class="px-5 py-2.5 text-gray-600 font-semibold rounded-xl hover:bg-gray-100 transition">Cancel</a>
+        <button type="submit"
+                class="px-6 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm">
+          {% if discount %}Save Changes{% else %}Create Code{% endif %}
+        </button>
+      </div>
+    </form>
+  </div>
+
+</div>
+{% endblock %}

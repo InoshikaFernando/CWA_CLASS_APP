@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}Manage Levels — {{ department.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Manage Curriculum Levels</h1>
+    <p class="text-gray-500 mt-1">{{ department.name }} — {{ school.name }}</p>
+    {% for ds in department.department_subjects.all %}
+      <span class="inline-flex items-center mt-2 px-2.5 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-700">{{ ds.subject.name }}</span>
+    {% endfor %}
+  </div>
+
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+    <div class="p-6 border-b border-slate-100">
+      <p class="text-sm text-gray-500">
+        Select which curriculum levels this department covers. You can optionally set a local display name
+        (e.g. "Year 1 (AU)") to relabel a level for your school's context.
+      </p>
+    </div>
+    <div class="p-6">
+      {% if level_data %}
+        <form method="post">
+          {% csrf_token %}
+          <div class="space-y-2 mb-6 max-h-[32rem] overflow-y-auto">
+            {% for item in level_data %}
+              <div class="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-accent/30 hover:bg-accent/5 transition
+                          {% if item.is_mapped %}border-accent/20 bg-accent/5{% endif %}"
+                   x-data="{ checked: {{ item.is_mapped|yesno:'true,false' }} }">
+                <input type="checkbox" name="level_ids" value="{{ item.level.id }}"
+                       class="rounded text-accent focus:ring-accent"
+                       {% if item.is_mapped %}checked{% endif %}
+                       x-model="checked">
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium text-gray-900">{{ item.level.display_name }}</p>
+                  <p class="text-xs text-gray-500">Level {{ item.level.level_number }}</p>
+                </div>
+                <div x-show="checked" x-cloak class="flex-shrink-0">
+                  <input type="text" name="local_name_{{ item.level.id }}"
+                         value="{{ item.local_display_name }}"
+                         placeholder="Local name (optional)"
+                         class="px-2 py-1 text-xs border border-slate-300 rounded-lg w-40 focus:ring-2 focus:ring-accent focus:border-accent transition">
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+          <button type="submit"
+                  class="w-full px-4 py-2.5 bg-accent hover:bg-accent-dark text-white text-sm font-semibold rounded-xl transition">
+            Save Level Mappings
+          </button>
+        </form>
+      {% else %}
+        <p class="text-sm text-gray-400 text-center py-6">
+          No levels available for this department.
+          {% if not department.department_subjects.exists %}
+            Create custom levels for your school first.
+          {% endif %}
+        </p>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}

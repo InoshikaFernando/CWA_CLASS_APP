@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block title %}Preview Balance Import{% endblock %}
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+  <div>
+    <h1 class="font-display text-3xl text-primary">Preview Balance Import</h1>
+    <p class="text-gray-400 text-sm mt-1">Review matched and unmatched records before confirming.</p>
+  </div>
+
+  {% if preview.errors %}
+  <div class="bg-red-50 rounded-2xl border border-red-200 p-5">
+    <h2 class="font-bold text-red-700 mb-2">Validation Errors</h2>
+    <div class="space-y-1 max-h-48 overflow-y-auto">
+      {% for err in preview.errors %}
+      <p class="text-sm text-red-600 font-mono">{{ err }}</p>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if preview.warnings %}
+  <div class="bg-amber-50 rounded-2xl border border-amber-200 p-5">
+    <h2 class="font-bold text-amber-700 mb-2">Warnings</h2>
+    <div class="space-y-1 max-h-32 overflow-y-auto">
+      {% for w in preview.warnings %}
+      <p class="text-sm text-amber-600">{{ w }}</p>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Summary cards ── #}
+  <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+      <p class="font-display text-3xl text-primary">{{ preview.total_rows }}</p>
+      <p class="text-xs text-gray-400 font-semibold">Total Rows</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+      <p class="font-display text-3xl text-green-600">{{ preview.matched|length }}</p>
+      <p class="text-xs text-gray-400 font-semibold">Matched</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+      <p class="font-display text-3xl text-red-500">{{ preview.unmatched|length }}</p>
+      <p class="text-xs text-gray-400 font-semibold">Unmatched</p>
+    </div>
+  </div>
+
+  {# ── Matched table ── #}
+  {% if preview.matched %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+    <h2 class="font-bold text-gray-800 mb-3">Matched Records ({{ preview.matched|length }})</h2>
+    <div class="overflow-x-auto max-h-64 overflow-y-auto">
+      <table class="text-sm w-full">
+        <thead class="bg-gray-50 sticky top-0">
+          <tr>
+            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Parent Name</th>
+            <th class="px-3 py-2 text-right text-gray-600 font-semibold">Balance</th>
+            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Assigned To</th>
+            <th class="px-3 py-2 text-right text-gray-600 font-semibold">Current Balance</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in preview.matched %}
+          <tr class="border-t border-gray-100">
+            <td class="px-3 py-2 text-gray-800">{{ m.parent_name }}</td>
+            <td class="px-3 py-2 text-right font-mono {% if m.balance < 0 %}text-red-600{% else %}text-green-600{% endif %}">${{ m.balance }}</td>
+            <td class="px-3 py-2 text-gray-500">{{ m.student_name }}</td>
+            <td class="px-3 py-2 text-right font-mono text-gray-400">${{ m.current_balance }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot class="bg-gray-50">
+          <tr>
+            <td class="px-3 py-2 font-bold text-gray-700">Total</td>
+            <td class="px-3 py-2 text-right font-mono font-bold text-gray-700">${{ preview.total_balance }}</td>
+            <td colspan="2"></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Unmatched warning banner with required checkbox ── #}
+  {% if preview.unmatched %}
+  <div class="bg-amber-50 rounded-2xl border border-amber-200 p-5">
+    <div class="flex items-start gap-3 mb-3">
+      <svg class="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+      </svg>
+      <div>
+        <h2 class="font-bold text-amber-800">{{ preview.unmatched|length }} Record{{ preview.unmatched|length|pluralize }} Not Found</h2>
+        <p class="text-sm text-amber-700 mt-1">The following parents could not be matched to any guardian in the system. Their balances will <strong>not</strong> be imported.</p>
+      </div>
+    </div>
+    <div class="overflow-x-auto max-h-48 overflow-y-auto mb-4">
+      <table class="text-sm w-full">
+        <thead class="bg-amber-100/50 sticky top-0">
+          <tr>
+            <th class="px-3 py-2 text-left text-amber-800 font-semibold">Row</th>
+            <th class="px-3 py-2 text-left text-amber-800 font-semibold">Parent Name</th>
+            <th class="px-3 py-2 text-right text-amber-800 font-semibold">Balance</th>
+            <th class="px-3 py-2 text-left text-amber-800 font-semibold">Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in preview.unmatched %}
+          <tr class="border-t border-amber-200/50">
+            <td class="px-3 py-2 text-amber-700">{{ u.row }}</td>
+            <td class="px-3 py-2 text-amber-900">{{ u.parent_name }}</td>
+            <td class="px-3 py-2 text-right font-mono text-amber-700">${{ u.balance }}</td>
+            <td class="px-3 py-2 text-amber-600 text-xs">{{ u.reason|default:"No matching guardian found" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Confirm section ── #}
+  {% if preview.matched %}
+  <div id="confirm-section">
+    <form method="post" action="{% url 'balance_csv_confirm' %}" id="import-form">
+      {% csrf_token %}
+
+      {# Checkbox required if there are unmatched records #}
+      {% if preview.unmatched %}
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 mb-4">
+        <label class="flex items-start gap-3 cursor-pointer select-none">
+          <input type="checkbox" id="ack-checkbox" class="mt-1 w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary">
+          <span class="text-sm text-gray-700">
+            I understand that <strong class="text-red-600">{{ preview.unmatched|length }}</strong> record{{ preview.unmatched|length|pluralize }}
+            will be skipped because no matching parent was found. Only <strong class="text-green-600">{{ preview.matched|length }}</strong>
+            matched record{{ preview.matched|length|pluralize }} will be imported.
+          </span>
+        </label>
+      </div>
+      {% endif %}
+
+      <div class="flex gap-3" id="confirm-actions">
+        <button type="submit" id="confirm-btn"
+                {% if preview.unmatched %}disabled{% endif %}
+                class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-8 py-3 transition
+                       disabled:opacity-40 disabled:cursor-not-allowed">
+          Confirm & Import {{ preview.matched|length }} Balance{{ preview.matched|length|pluralize:"s" }}
+        </button>
+        <a href="{% url 'balance_csv_upload' %}" id="cancel-btn"
+           class="bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl px-6 py-3 hover:bg-gray-50 transition">
+          Cancel
+        </a>
+      </div>
+    </form>
+  </div>
+
+  {# ── Loading overlay (hidden by default) ── #}
+  <div id="import-loading" class="hidden">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-lg p-8 text-center max-w-md mx-auto">
+      <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
+        <svg class="w-8 h-8 text-primary animate-spin" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+      </div>
+      <h3 class="font-display text-xl text-gray-800 mb-2">Importing Balances...</h3>
+      <p class="text-sm text-gray-500 mb-4">Updating opening balances for matched students. This may take a moment.</p>
+      <div class="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+        <div class="bg-primary h-1.5 rounded-full animate-pulse" style="width: 100%"></div>
+      </div>
+      <p class="text-xs text-gray-400 mt-3">Please don't close this page.</p>
+    </div>
+  </div>
+  {% else %}
+  <div class="flex gap-3">
+    <a href="{% url 'balance_csv_upload' %}"
+       class="bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl px-6 py-3 hover:bg-gray-50 transition">
+      Back to Upload
+    </a>
+  </div>
+  {% endif %}
+</div>
+
+{% block extra_js %}
+<script>
+// Checkbox enables confirm button
+var ackBox = document.getElementById('ack-checkbox');
+var confirmBtn = document.getElementById('confirm-btn');
+if (ackBox && confirmBtn) {
+  ackBox.addEventListener('change', function() {
+    confirmBtn.disabled = !this.checked;
+  });
+}
+
+// Loading spinner on submit
+var importForm = document.getElementById('import-form');
+if (importForm) {
+  importForm.addEventListener('submit', function() {
+    var section = document.getElementById('confirm-section');
+    var loading = document.getElementById('import-loading');
+    if (section) section.classList.add('hidden');
+    if (loading) loading.classList.remove('hidden');
+  });
+}
+</script>
+{% endblock %}
+{% endblock %}

@@ -1,0 +1,589 @@
+"""
+Migration 0010: Reduce coupling — point maths FK fields at classroom.Topic
+and classroom.Level instead of the internal maths.Topic / maths.Level models.
+
+Strategy (avoids FK constraint violations on MySQL):
+  1. Add nullable shadow fields alongside existing ones on affected models.
+  2. RunPython: ensure classroom.Subject(slug='mathematics') exists, then
+     create / map classroom.Topic and classroom.Level entries, populate the
+     shadow fields, and copy maths.Level.topics M2M data.
+  3. Remove the old topic / level fields.
+  4. Rename the shadow fields back to topic / level.
+  5. Replace maths.Level.topics M2M (old target: maths.Topic →
+     new target: classroom.Topic).
+
+Affected models
+───────────────
+  • maths.Question            topic, level
+  • maths.StudentFinalAnswer   topic, level
+  • maths.TopicLevelStatistics topic, level
+  • maths.BasicFactsResult     level
+  • maths.Level                topics  (M2M target changes)
+"""
+
+from django.db import migrations, models
+import django.db.models.deletion
+from django.utils.text import slugify as django_slugify
+
+
+# ---------------------------------------------------------------------------
+# Data migration
+# ---------------------------------------------------------------------------
+
+def migrate_to_classroom_models(apps, schema_editor):
+    MathsTopic = apps.get_model('maths', 'Topic')
+    MathsLevel = apps.get_model('maths', 'Level')
+    ClassroomTopic = apps.get_model('classroom', 'Topic')
+    ClassroomLevel = apps.get_model('classroom', 'Level')
+    ClassroomSubject = apps.get_model('classroom', 'Subject')
+    Question = apps.get_model('maths', 'Question')
+    StudentFinalAnswer = apps.get_model('maths', 'StudentFinalAnswer')
+    TopicLevelStatistics = apps.get_model('maths', 'TopicLevelStatistics')
+    BasicFactsResult = apps.get_model('maths', 'BasicFactsResult')
+
+    # ── 0. Detect which old source columns still exist ────────────────────
+    # A prior partial run may have already removed some old FK columns.
+    # We skip data-copy steps for tables whose old columns are gone.
+    db_name = schema_editor.connection.settings_dict['NAME']
+    with schema_editor.connection.cursor() as cursor:
+        def col_exists(table, col):
+            cursor.execute(
+                "SELECT COUNT(*) FROM information_schema.columns "
+                "WHERE table_schema=%s AND table_name=%s AND column_name=%s",
+                [db_name, table, col],
+            )
+            return cursor.fetchone()[0] > 0
+
+        q_has_old_topic = col_exists('maths_question', 'topic_id')
+        q_has_old_level = col_exists('maths_question', 'level_id')
+        sfa_has_old_topic = col_exists('maths_studentfinalanswer', 'topic_id')
+        sfa_has_old_level = col_exists('maths_studentfinalanswer', 'level_id')
+        tls_has_old_topic = col_exists('maths_topiclevelstatistics', 'topic_id')
+        tls_has_old_level = col_exists('maths_topiclevelstatistics', 'level_id')
+        bfr_has_old_level = col_exists('maths_basicfactsresult', 'level_id')
+
+    # ── 1. Ensure global "Mathematics" classroom.Subject ──────────────────
+    maths_subject, _ = ClassroomSubject.objects.get_or_create(
+        slug='mathematics',
+        school=None,
+        defaults={'name': 'Mathematics', 'is_active': True},
+    )
+
+    # ── 2. Build maths.Topic → classroom.Topic map ────────────────────────
+    topic_map = {}  # maths_topic_id → classroom_topic pk
+
+    for mt in MathsTopic.objects.all():
+        base_slug = django_slugify(mt.name) or f'topic-{mt.pk}'
+
+        # Try exact name match within mathematics subject
+        ct = ClassroomTopic.objects.filter(
+            subject=maths_subject,
+            name__iexact=mt.name,
+        ).first()
+
+        if ct is None:
+            ct = ClassroomTopic.objects.filter(
+                subject=maths_subject,
+                slug=base_slug,
+            ).first()
+
+        if ct is None:
+            # Create — ensure unique slug
+            slug = base_slug
+            counter = 1
+            while ClassroomTopic.objects.filter(subject=maths_subject, slug=slug).exists():
+                slug = f'{base_slug}-{counter}'
+                counter += 1
+            ct = ClassroomTopic.objects.create(
+                subject=maths_subject,
+                name=mt.name,
+                slug=slug,
+                is_active=True,
+            )
+
+        topic_map[mt.pk] = ct.pk
+
+    # ── 3. Build maths.Level → classroom.Level map ────────────────────────
+    level_map = {}  # maths_level_id → classroom_level pk
+
+    for ml in MathsLevel.objects.all():
+        cl, _ = ClassroomLevel.objects.get_or_create(
+            level_number=ml.level_number,
+            defaults={'display_name': ml.title or f'Year {ml.level_number}'},
+        )
+        level_map[ml.pk] = cl.pk
+
+    # ── 4. Copy maths.Level.topics M2M into classroom.Level.topics ────────
+    # Access the M2M through the historical model's manager
+    for ml in MathsLevel.objects.prefetch_related('topics').all():
+        cl_pk = level_map.get(ml.pk)
+        if cl_pk is None:
+            continue
+        cl = ClassroomLevel.objects.get(pk=cl_pk)
+        for mt in ml.topics.all():
+            ct_pk = topic_map.get(mt.pk)
+            if ct_pk is not None:
+                ct = ClassroomTopic.objects.get(pk=ct_pk)
+                cl.topics.add(ct)
+
+    # ── 5. Populate shadow fields on Question ─────────────────────────────
+    # Guard: skip if old source columns were already removed by a prior partial run
+    if q_has_old_topic:
+        for q in Question.objects.filter(topic_id__isnull=False):
+            ct_pk = topic_map.get(q.topic_id)
+            if ct_pk is not None:
+                q.classroom_topic_id = ct_pk
+                q.save(update_fields=['classroom_topic_id'])
+
+    if q_has_old_level:
+        for q in Question.objects.filter(level_id__isnull=False):
+            cl_pk = level_map.get(q.level_id)
+            if cl_pk is not None:
+                q.classroom_level_id = cl_pk
+                q.save(update_fields=['classroom_level_id'])
+
+    # ── 6. Populate shadow fields on StudentFinalAnswer ───────────────────
+    if sfa_has_old_topic:
+        for sfa in StudentFinalAnswer.objects.filter(topic_id__isnull=False):
+            ct_pk = topic_map.get(sfa.topic_id)
+            if ct_pk is not None:
+                sfa.classroom_topic_id = ct_pk
+                sfa.save(update_fields=['classroom_topic_id'])
+
+    if sfa_has_old_level:
+        for sfa in StudentFinalAnswer.objects.filter(level_id__isnull=False):
+            cl_pk = level_map.get(sfa.level_id)
+            if cl_pk is not None:
+                sfa.classroom_level_id = cl_pk
+                sfa.save(update_fields=['classroom_level_id'])
+
+    # ── 7. Populate shadow fields on TopicLevelStatistics ─────────────────
+    if tls_has_old_topic:
+        for tls in TopicLevelStatistics.objects.filter(topic_id__isnull=False):
+            ct_pk = topic_map.get(tls.topic_id)
+            if ct_pk is not None:
+                tls.classroom_topic_id = ct_pk
+                tls.save(update_fields=['classroom_topic_id'])
+
+    if tls_has_old_level:
+        for tls in TopicLevelStatistics.objects.filter(level_id__isnull=False):
+            cl_pk = level_map.get(tls.level_id)
+            if cl_pk is not None:
+                tls.classroom_level_id = cl_pk
+                tls.save(update_fields=['classroom_level_id'])
+
+    # ── 7b. Deduplicate TopicLevelStatistics on (classroom_level, classroom_topic)
+    # If two old maths (level, topic) rows map to the same classroom pair,
+    # keep the one with the highest student_count and delete the rest.
+    # This prevents a unique-constraint violation in step 6.
+    seen_pairs = {}
+    for tls in TopicLevelStatistics.objects.filter(
+        classroom_level_id__isnull=False,
+        classroom_topic_id__isnull=False,
+    ).order_by('-student_count', 'pk'):
+        key = (tls.classroom_level_id, tls.classroom_topic_id)
+        if key in seen_pairs:
+            tls.delete()
+        else:
+            seen_pairs[key] = True
+
+    # ── 8. Populate shadow fields on BasicFactsResult ─────────────────────
+    if bfr_has_old_level:
+        for bfr in BasicFactsResult.objects.filter(level_id__isnull=False):
+            cl_pk = level_map.get(bfr.level_id)
+            if cl_pk is not None:
+                bfr.classroom_level_id = cl_pk
+                bfr.save(update_fields=['classroom_level_id'])
+
+
+def reverse_migration(apps, schema_editor):
+    pass  # Non-destructive — shadow fields removed on reverse schema rollback
+
+
+def drop_tls_unique_if_exists(apps, schema_editor):
+    """
+    Drop the unique constraint on maths_topiclevelstatistics(level_id, topic_id)
+    only if it still exists.  A prior partial run may have already dropped it;
+    Django's AlterUniqueTogether raises ValueError when it finds 0 constraints.
+    """
+    db_name = schema_editor.connection.settings_dict['NAME']
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT constraint_name "
+            "FROM information_schema.table_constraints "
+            "WHERE table_schema = %s "
+            "  AND table_name = 'maths_topiclevelstatistics' "
+            "  AND constraint_type = 'UNIQUE'",
+            [db_name],
+        )
+        unique_constraints = [row[0] for row in cursor.fetchall()]
+        for constraint_name in unique_constraints:
+            # Check that this constraint covers (level_id, topic_id)
+            cursor.execute(
+                "SELECT COUNT(*) FROM information_schema.key_column_usage "
+                "WHERE table_schema = %s "
+                "  AND table_name = 'maths_topiclevelstatistics' "
+                "  AND constraint_name = %s "
+                "  AND column_name IN ('level_id', 'topic_id')",
+                [db_name, constraint_name],
+            )
+            col_count = cursor.fetchone()[0]
+            if col_count == 2:
+                cursor.execute(
+                    f"ALTER TABLE `maths_topiclevelstatistics` DROP INDEX `{constraint_name}`"
+                )
+                break  # Only one such constraint expected
+
+
+def drop_old_fk_columns_if_exist(apps, schema_editor):
+    """
+    Drop the old maths FK columns (topic_id / level_id pointing at maths.Topic
+    / maths.Level) using raw SQL guarded by information_schema checks.
+
+    A prior partial run may have already removed some of these columns.
+    Django's RemoveField would fail with 1091 ("Can't DROP; check column/key
+    exists") in that case — this function skips any column that is already gone.
+
+    Used via SeparateDatabaseAndState so that the migration *state* is still
+    updated by the corresponding RemoveField operations in state_operations.
+    """
+    old_columns = [
+        ('maths_question',             'topic_id'),
+        ('maths_question',             'level_id'),
+        ('maths_studentfinalanswer',   'topic_id'),
+        ('maths_studentfinalanswer',   'level_id'),
+        ('maths_topiclevelstatistics', 'topic_id'),
+        ('maths_topiclevelstatistics', 'level_id'),
+        ('maths_basicfactsresult',     'level_id'),
+    ]
+    db_name = schema_editor.connection.settings_dict['NAME']
+    with schema_editor.connection.cursor() as cursor:
+        for table, column in old_columns:
+            cursor.execute(
+                "SELECT COUNT(*) FROM information_schema.columns "
+                "WHERE table_schema = %s AND table_name = %s AND column_name = %s",
+                [db_name, table, column],
+            )
+            if cursor.fetchone()[0] == 0:
+                continue  # Already removed by a prior partial run — skip
+
+            # Must drop FK constraints before dropping the column (MySQL InnoDB)
+            cursor.execute(
+                "SELECT constraint_name FROM information_schema.key_column_usage "
+                "WHERE table_schema = %s AND table_name = %s AND column_name = %s "
+                "AND referenced_table_name IS NOT NULL",
+                [db_name, table, column],
+            )
+            for (fk_name,) in cursor.fetchall():
+                cursor.execute(f"ALTER TABLE `{table}` DROP FOREIGN KEY `{fk_name}`")
+
+            cursor.execute(f"ALTER TABLE `{table}` DROP COLUMN `{column}`")
+
+
+def ensure_question_0009_columns(apps, schema_editor):
+    """
+    Production guard: migration 0009 (question_classroom_question_department)
+    may have been faked or partially applied, leaving classroom_id and
+    department_id absent from maths_question even though the migration is
+    recorded as applied in django_migrations.
+
+    If either column is missing, add it with a FK constraint now so that ORM
+    queries in this migration — which explicitly SELECT every field on the
+    historical Question model, including the 0009-added ones — do not fail
+    with "Unknown column 'maths_question.classroom_id'".
+    """
+    db_name = schema_editor.connection.settings_dict['NAME']
+    with schema_editor.connection.cursor() as cursor:
+        def col_exists(col):
+            cursor.execute(
+                "SELECT COUNT(*) FROM information_schema.columns "
+                "WHERE table_schema = %s "
+                "  AND table_name = 'maths_question' "
+                "  AND column_name = %s",
+                [db_name, col],
+            )
+            return cursor.fetchone()[0] > 0
+
+        if not col_exists('classroom_id'):
+            cursor.execute(
+                "ALTER TABLE `maths_question` "
+                "  ADD COLUMN `classroom_id` bigint DEFAULT NULL, "
+                "  ADD KEY `maths_question_classroom_id_fk_idx` (`classroom_id`), "
+                "  ADD CONSTRAINT `maths_question_classroom_id_fk_cc` "
+                "    FOREIGN KEY (`classroom_id`) "
+                "    REFERENCES `classroom_classroom` (`id`)"
+            )
+
+        if not col_exists('department_id'):
+            cursor.execute(
+                "ALTER TABLE `maths_question` "
+                "  ADD COLUMN `department_id` bigint DEFAULT NULL, "
+                "  ADD KEY `maths_question_department_id_fk_idx` (`department_id`), "
+                "  ADD CONSTRAINT `maths_question_department_id_fk_cd` "
+                "    FOREIGN KEY (`department_id`) "
+                "    REFERENCES `classroom_department` (`id`)"
+            )
+
+
+def cleanup_partial_shadow_columns(apps, schema_editor):
+    """
+    Drop any shadow columns (and their FK constraints) that were added by a
+    previous failed run of this migration.  If the migration is being applied
+    fresh these columns won't exist and nothing happens; if it was partially
+    applied they are removed so the AddField operations below can succeed.
+    """
+    shadow_columns = [
+        ('maths_question',              'classroom_topic_id'),
+        ('maths_question',              'classroom_level_id'),
+        ('maths_studentfinalanswer',    'classroom_topic_id'),
+        ('maths_studentfinalanswer',    'classroom_level_id'),
+        ('maths_topiclevelstatistics',  'classroom_topic_id'),
+        ('maths_topiclevelstatistics',  'classroom_level_id'),
+        ('maths_basicfactsresult',      'classroom_level_id'),
+    ]
+    db_name = schema_editor.connection.settings_dict['NAME']
+    with schema_editor.connection.cursor() as cursor:
+        for table, column in shadow_columns:
+            # Check if column exists
+            cursor.execute(
+                "SELECT COUNT(*) FROM information_schema.columns "
+                "WHERE table_schema = %s AND table_name = %s AND column_name = %s",
+                [db_name, table, column],
+            )
+            if cursor.fetchone()[0] == 0:
+                continue  # Column doesn't exist — nothing to do
+
+            # Drop any FK constraints referencing this column first
+            cursor.execute(
+                "SELECT constraint_name FROM information_schema.key_column_usage "
+                "WHERE table_schema = %s AND table_name = %s AND column_name = %s "
+                "AND referenced_table_name IS NOT NULL",
+                [db_name, table, column],
+            )
+            for (fk_name,) in cursor.fetchall():
+                cursor.execute(
+                    f"ALTER TABLE `{table}` DROP FOREIGN KEY `{fk_name}`"
+                )
+
+            # Now drop the column
+            cursor.execute(f"ALTER TABLE `{table}` DROP COLUMN `{column}`")
+
+
+# ---------------------------------------------------------------------------
+# Migration
+# ---------------------------------------------------------------------------
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ('maths', '0009_question_classroom_question_department'),
+        ('classroom', '0069_pending_password_fields'),
+    ]
+
+    operations = [
+        # ── Pre-step: ensure 0009 columns exist (production safety guard) ──
+        # Migration 0009 may have been faked on production; this idempotently
+        # adds classroom_id / department_id to maths_question if absent so
+        # that subsequent ORM queries (which SELECT all model fields) succeed.
+        migrations.RunPython(ensure_question_0009_columns, migrations.RunPython.noop),
+
+        # ── Step 0: clean up shadow columns from any previous partial run ──
+        migrations.RunPython(cleanup_partial_shadow_columns, migrations.RunPython.noop),
+
+        # ── Step 1: add nullable shadow fields ────────────────────────────
+
+        # maths.Question
+        migrations.AddField(
+            model_name='question',
+            name='classroom_topic',
+            field=models.ForeignKey(
+                'classroom.Topic',
+                null=True, blank=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name='maths_questions_new',
+            ),
+        ),
+        migrations.AddField(
+            model_name='question',
+            name='classroom_level',
+            field=models.ForeignKey(
+                'classroom.Level',
+                null=True, blank=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name='maths_questions_by_level_new',
+            ),
+        ),
+
+        # maths.StudentFinalAnswer
+        migrations.AddField(
+            model_name='studentfinalanswer',
+            name='classroom_topic',
+            field=models.ForeignKey(
+                'classroom.Topic',
+                null=True, blank=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name='maths_final_answers_new',
+            ),
+        ),
+        migrations.AddField(
+            model_name='studentfinalanswer',
+            name='classroom_level',
+            field=models.ForeignKey(
+                'classroom.Level',
+                null=True, blank=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name='maths_final_answers_by_level_new',
+            ),
+        ),
+
+        # maths.TopicLevelStatistics
+        migrations.AddField(
+            model_name='topicLevelStatistics',
+            name='classroom_topic',
+            field=models.ForeignKey(
+                'classroom.Topic',
+                null=True, blank=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name='maths_level_statistics_new',
+            ),
+        ),
+        migrations.AddField(
+            model_name='topicLevelStatistics',
+            name='classroom_level',
+            field=models.ForeignKey(
+                'classroom.Level',
+                null=True, blank=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name='maths_topic_statistics_new',
+            ),
+        ),
+
+        # maths.BasicFactsResult
+        migrations.AddField(
+            model_name='basicfactsresult',
+            name='classroom_level',
+            field=models.ForeignKey(
+                'classroom.Level',
+                null=True, blank=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name='maths_basic_facts_results_new',
+            ),
+        ),
+
+        # ── Step 2: populate shadow fields via data migration ─────────────
+        migrations.RunPython(migrate_to_classroom_models, reverse_migration),
+
+        # ── Step 3: explicitly drop unique_together on TopicLevelStatistics
+        # before removing the old fields — MySQL may reject the DROP COLUMN
+        # if the unique constraint is still present during the ALTER TABLE.
+        # SeparateDatabaseAndState: database side is guarded (skips if the
+        # constraint was already dropped by a prior partial run); state side
+        # uses the normal AlterUniqueTogether so Django's state stays correct.
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunPython(
+                    drop_tls_unique_if_exists,
+                    migrations.RunPython.noop,
+                ),
+            ],
+            state_operations=[
+                migrations.AlterUniqueTogether(
+                    name='topicLevelStatistics',
+                    unique_together=set(),
+                ),
+            ],
+        ),
+
+        # ── Step 3b: remove old FK fields ─────────────────────────────────
+        # SeparateDatabaseAndState lets the database side use guarded raw SQL
+        # (skips columns already removed by a prior partial run) while the
+        # state side uses normal RemoveField so Django's model state stays
+        # accurate for the RenameField operations that follow.
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunPython(
+                    drop_old_fk_columns_if_exist,
+                    migrations.RunPython.noop,
+                ),
+            ],
+            state_operations=[
+                migrations.RemoveField(model_name='question', name='topic'),
+                migrations.RemoveField(model_name='question', name='level'),
+                migrations.RemoveField(model_name='studentfinalanswer', name='topic'),
+                migrations.RemoveField(model_name='studentfinalanswer', name='level'),
+                migrations.RemoveField(model_name='topicLevelStatistics', name='topic'),
+                migrations.RemoveField(model_name='topicLevelStatistics', name='level'),
+                migrations.RemoveField(model_name='basicfactsresult', name='level'),
+            ],
+        ),
+
+        # ── Step 4: rename shadow fields to their canonical names ─────────
+        migrations.RenameField(
+            model_name='question',
+            old_name='classroom_topic', new_name='topic',
+        ),
+        migrations.RenameField(
+            model_name='question',
+            old_name='classroom_level', new_name='level',
+        ),
+        migrations.RenameField(
+            model_name='studentfinalanswer',
+            old_name='classroom_topic', new_name='topic',
+        ),
+        migrations.RenameField(
+            model_name='studentfinalanswer',
+            old_name='classroom_level', new_name='level',
+        ),
+        migrations.RenameField(
+            model_name='topicLevelStatistics',
+            old_name='classroom_topic', new_name='topic',
+        ),
+        migrations.RenameField(
+            model_name='topicLevelStatistics',
+            old_name='classroom_level', new_name='level',
+        ),
+        migrations.RenameField(
+            model_name='basicfactsresult',
+            old_name='classroom_level', new_name='level',
+        ),
+
+        # ── Step 5: replace maths.Level.topics M2M target ─────────────────
+        # Drop the old M2M (data already copied in step 2) then add new one.
+        migrations.RemoveField(model_name='level', name='topics'),
+        migrations.AddField(
+            model_name='level',
+            name='topics',
+            field=models.ManyToManyField(
+                'classroom.Topic',
+                related_name='maths_levels',
+                blank=True,
+            ),
+        ),
+
+        # ── Step 6: restore unique constraints and indexes ─────────────────
+        # unique_together on TopicLevelStatistics (was dropped with the old
+        # 'topic' / 'level' fields and must be recreated on the renamed fields)
+        migrations.AlterUniqueTogether(
+            name='topicLevelStatistics',
+            unique_together={('level', 'topic')},
+        ),
+        migrations.AddIndex(
+            model_name='topicLevelStatistics',
+            index=models.Index(fields=['level', 'topic'], name='maths_tls_level_topic_idx'),
+        ),
+        # StudentFinalAnswer compound indexes on (student, topic, level)
+        migrations.AddIndex(
+            model_name='studentfinalanswer',
+            index=models.Index(
+                fields=['student', 'topic', 'level'],
+                name='maths_sfa_student_topic_level_idx',
+            ),
+        ),
+        migrations.AddIndex(
+            model_name='studentfinalanswer',
+            index=models.Index(
+                fields=['student', 'topic', 'level', 'attempt_number'],
+                name='maths_sfa_student_topic_level_attempt_idx',
+            ),
+        ),
+    ]

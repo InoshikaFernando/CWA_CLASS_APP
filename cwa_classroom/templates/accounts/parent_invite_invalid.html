@@ -1,0 +1,18 @@
+{% extends "base_auth.html" %}
+{% block title %}Invite Invalid{% endblock %}
+
+{% block card_content %}
+  <div class="text-center py-6">
+    <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
+      <svg class="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+      </svg>
+    </div>
+    <h1 class="font-display text-2xl text-gray-800 mb-3">Invite Not Valid</h1>
+    <p class="text-gray-500 text-sm mb-6">{{ message }}</p>
+    <a href="{% url 'login' %}"
+       class="inline-block bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-2.5 transition text-sm">
+      Go to Login
+    </a>
+  </div>
+{% endblock %}

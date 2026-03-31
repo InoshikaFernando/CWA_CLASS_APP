@@ -1,0 +1,19 @@
+{% extends "base_quiz.html" %}
+{% block title %}Times Tables Results{% endblock %}
+{% block quiz_title %}{{ table }}× Results{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center">
+    <div class="text-5xl mb-4">🎉</div>
+    <h2 class="font-display text-2xl text-primary mb-2">Quiz Complete!</h2>
+    <p class="text-gray-400 text-sm">{{ table }}× {{ operation|title }}</p>
+  </div>
+  <div class="flex flex-wrap gap-3 pb-6">
+    <a href="{% url 'times_tables_home' %}" class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-5 py-3 transition">
+      Try Another Table
+    </a>
+    <a href="{% url 'maths:dashboard' %}" class="bg-white border border-slate-200 text-gray-600 font-semibold rounded-xl px-5 py-3 transition">Home</a>
+  </div>
+</div>
+{% endblock %}

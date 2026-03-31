@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}Subjects — {{ school.name }}{% endblock %}
+{% block content %}
+<div class="max-w-4xl mx-auto">
+
+  <div class="mb-8">
+    <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Subjects</h1>
+    <p class="text-gray-500 mt-1">Manage subjects for {{ school.name }}. Global subjects are shared across all schools.</p>
+  </div>
+
+  <!-- Add New Subject -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-8">
+    <h2 class="text-lg font-semibold text-gray-900 mb-5">Add New Subject</h2>
+    <form method="post" class="flex flex-col gap-4">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="create">
+      <div class="flex flex-col sm:flex-row gap-4">
+        <div class="flex-1">
+          <input type="text" name="name" required placeholder="e.g. Scratch, Python, Web Design"
+                 class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+        </div>
+        <div class="sm:w-64">
+          <select name="global_subject_id"
+                  class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent transition">
+            <option value="">— Link to Global Subject (optional)</option>
+            {% for gs in global_subjects %}
+              <option value="{{ gs.id }}">{{ gs.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button type="submit"
+                class="px-6 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-blue-600 transition shadow-sm whitespace-nowrap">
+          Add Subject
+        </button>
+      </div>
+      <p class="text-xs text-gray-400 -mt-2">Link to a global subject to share its content (e.g. link "Mathematics" to global "Mathematics" for shared quizzes).</p>
+    </form>
+  </div>
+
+  <!-- School-Created Subjects -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm mb-8">
+    <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+      <div>
+        <h2 class="text-lg font-semibold text-gray-900">School Subjects ({{ school_subjects|length }})</h2>
+        <p class="text-sm text-gray-500 mt-1">Subjects created specifically for {{ school.name }}.</p>
+      </div>
+      {% if archived_count > 0 or show_inactive %}
+        <a href="?{% if show_inactive %}{% else %}show_inactive=1{% endif %}"
+           class="text-sm font-medium {% if show_inactive %}text-blue-600{% else %}text-gray-500 hover:text-gray-700{% endif %} transition">
+          {% if show_inactive %}Hide Archived{% else %}Show Archived ({{ archived_count }}){% endif %}
+        </a>
+      {% endif %}
+    </div>
+    {% if school_subjects %}
+      <div class="divide-y divide-slate-100">
+        {% for subject in school_subjects %}
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between px-6 py-4 gap-3">
+            <div class="min-w-0">
+              <p class="font-medium text-gray-900 {% if not subject.is_active %}opacity-50{% endif %}">
+                {{ subject.name }}
+                {% if not subject.is_active %}
+                  <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">Archived</span>
+                {% endif %}
+              </p>
+              {% if subject.global_subject %}
+                <p class="text-xs text-blue-600">🔗 Linked to: {{ subject.global_subject.name }}</p>
+              {% endif %}
+              {% if subject.description %}
+                <p class="text-sm text-gray-500">{{ subject.description }}</p>
+              {% endif %}
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <form method="post" class="flex items-center gap-2 flex-wrap">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="edit">
+                <input type="hidden" name="subject_id" value="{{ subject.id }}">
+                <input type="text" name="name" value="{{ subject.name }}" placeholder="Name"
+                       class="px-3 py-1.5 border border-slate-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent transition w-40">
+                <select name="global_subject_id"
+                        class="px-3 py-1.5 border border-slate-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent transition w-44">
+                  <option value="">— No global link</option>
+                  {% for gs in global_subjects %}
+                    <option value="{{ gs.id }}" {% if subject.global_subject_id == gs.id %}selected{% endif %}>{{ gs.name }}</option>
+                  {% endfor %}
+                </select>
+                <button type="submit"
+                        class="px-3 py-1.5 bg-accent text-white text-sm font-medium rounded-lg hover:bg-blue-600 transition">
+                  Save
+                </button>
+              </form>
+              {% if subject.is_active %}
+              <form method="post" class="inline flex-shrink-0">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="delete">
+                <input type="hidden" name="subject_id" value="{{ subject.id }}">
+                <button type="submit"
+                        class="inline-flex items-center px-3 py-1.5 text-red-600 hover:bg-red-50 text-sm font-medium rounded-lg transition"
+                        onclick="return confirm('Archive subject &quot;{{ subject.name }}&quot;?')">
+                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/>
+                  </svg>
+                </button>
+              </form>
+              {% else %}
+              <form method="post" class="inline flex-shrink-0">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="restore">
+                <input type="hidden" name="subject_id" value="{{ subject.id }}">
+                <button type="submit"
+                        class="inline-flex items-center gap-1 px-3 py-1.5 text-green-600 hover:bg-green-50 text-sm font-medium rounded-lg transition">
+                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3"/>
+                  </svg>
+                  Restore
+                </button>
+              </form>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="px-6 py-12 text-center">
+        <p class="text-gray-500 font-medium">No school-specific subjects yet</p>
+        <p class="text-sm text-gray-400 mt-1">Use the form above to create subjects like "Scratch", "Python", or "Web Design".</p>
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- Global Subjects (read-only) -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+    <div class="px-6 py-5 border-b border-slate-100">
+      <h2 class="text-lg font-semibold text-gray-900">Global Subjects ({{ global_subjects|length }})</h2>
+      <p class="text-sm text-gray-500 mt-1">Built-in subjects available to all schools. These cannot be edited.</p>
+    </div>
+    {% if global_subjects %}
+      <div class="divide-y divide-slate-100">
+        {% for subject in global_subjects %}
+          <div class="px-6 py-4">
+            <p class="font-medium text-gray-900">{{ subject.name }}</p>
+            {% if subject.description %}
+              <p class="text-sm text-gray-500">{{ subject.description }}</p>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="px-6 py-12 text-center">
+        <p class="text-gray-500 font-medium">No global subjects available</p>
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

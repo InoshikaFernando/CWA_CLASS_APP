@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Browse Topics{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-6">
+  <h1 class="font-display text-3xl text-primary">Browse Topics</h1>
+  {% for subject in subjects %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+    <h2 class="font-bold text-xl text-gray-800 mb-4">{{ subject.name }}</h2>
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+      {% for topic in subject.topics.all %}
+      <div class="rounded-xl border border-gray-200 p-4 hover:border-primary hover:shadow-sm transition">
+        <p class="font-semibold text-gray-800 text-sm mb-2">{{ topic.name }}</p>
+        <div class="flex flex-wrap gap-1">
+          {% for level in topic.levels.all %}
+          <span class="text-xs bg-accent-light text-yellow-800 rounded-full px-2 py-0.5">Y{{ level.level_number }}</span>
+          {% endfor %}
+        </div>
+        <a href="{% url 'topic_levels' topic_id=topic.id %}" class="text-xs text-primary font-semibold mt-2 block hover:underline">View questions →</a>
+      </div>
+      {% empty %}
+      <p class="text-sm text-gray-400 col-span-4">No topics yet.</p>
+      {% endfor %}
+    </div>
+  </div>
+  {% empty %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">
+    <p class="text-gray-400">No subjects found. Run <code class="font-mono">python manage.py setup_dev</code> to load sample data.</p>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

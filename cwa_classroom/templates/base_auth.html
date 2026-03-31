@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Welcome{% endblock %} — Classroom</title>
+  {% load static %}
+  <link rel="icon" type="image/png" href="{% static 'images/logo.png' %}" />
+  <link rel="apple-touch-icon" href="{% static 'images/logo.png' %}" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            display: ['Inter', 'sans-serif'],
+            body:    ['Nunito', 'sans-serif'],
+          },
+          colors: {
+            primary: { DEFAULT: '#1e293b', dark: '#0f172a', light: '#f1f5f9' },
+            accent:  { DEFAULT: '#3b82f6', dark: '#2563eb', light: '#dbeafe' },
+            success: { DEFAULT: '#059669', dark: '#047857', light: '#d1fae5' },
+            danger:  { DEFAULT: '#ef4444', dark: '#dc2626', light: '#fee2e2' },
+            border:  '#e2e8f0',
+          },
+        },
+      },
+    }
+  </script>
+  {% block extra_head %}{% endblock %}
+</head>
+
+<body class="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50
+             font-body flex items-center justify-center px-4 py-12">
+
+  <div class="w-full max-w-md">
+
+    <!-- Logo / branding -->
+    <div class="text-center mb-8">
+      {% if logo_url %}
+        <img src="{{ logo_url }}" alt="CWA School" class="h-16 mx-auto mb-3" />
+      {% else %}
+        <div class="font-display text-4xl text-primary mb-1">Classroom</div>
+      {% endif %}
+      <p class="text-sm text-gray-500">CWA School · Wizards Learning Hub</p>
+    </div>
+
+    <!-- Card -->
+    <div class="bg-white rounded-2xl shadow-lg p-8">
+      {% block card_content %}{% endblock %}
+    </div>
+
+    <!-- Footer links -->
+    <div class="text-center mt-6 text-sm text-gray-500 space-x-4">
+      {% block footer_links %}{% endblock %}
+    </div>
+
+  </div>
+
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

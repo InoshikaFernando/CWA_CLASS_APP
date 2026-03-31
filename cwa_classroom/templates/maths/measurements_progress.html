@@ -1,0 +1,234 @@
+{% extends "maths/base.html" %}
+{% block content %}
+<style>
+    .progress-container {
+        max-width: 1200px;
+        margin: 30px auto;
+        padding: 20px;
+    }
+    
+    .stats-table {
+        background: white;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 30px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .stats-table h2 {
+        margin-top: 0;
+        color: #333;
+    }
+    
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 15px;
+    }
+    
+    th, td {
+        padding: 12px;
+        text-align: left;
+        border-bottom: 1px solid #ddd;
+    }
+    
+    th {
+        background-color: #667eea;
+        color: white;
+        font-weight: bold;
+    }
+    
+    tr:hover {
+        background-color: #f5f5f5;
+    }
+    
+    .graph-container {
+        background: white;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 30px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .graph-container h2 {
+        margin-top: 0;
+        color: #333;
+    }
+    
+    .action-buttons {
+        text-align: center;
+        margin-top: 30px;
+    }
+    
+    .btn {
+        padding: 12px 30px;
+        margin: 0 10px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: bold;
+        font-size: 16px;
+        text-decoration: none;
+        display: inline-block;
+    }
+    
+    .btn-primary {
+        background: #667eea;
+        color: white;
+    }
+    
+    .btn-primary:hover {
+        background: #5568d3;
+    }
+    
+    .btn-secondary {
+        background: #6c757d;
+        color: white;
+    }
+    
+    .btn-secondary:hover {
+        background: #5a6268;
+    }
+    
+    .no-data {
+        text-align: center;
+        padding: 40px;
+        color: #666;
+    }
+</style>
+
+<div class="progress-container">
+    <h1>📊 {{ level }} - Measurements Progress</h1>
+    
+    <!-- Statistics Table -->
+    <div class="stats-table">
+        <h2>📈 Summary Statistics</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Total Attempts</th>
+                    <th>Min Points</th>
+                    <th>Max Points</th>
+                    <th>Average Points</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>{{ stats.total_attempts }}</td>
+                    <td>{{ stats.min_points }}</td>
+                    <td>{{ stats.max_points }}</td>
+                    <td>{{ stats.avg_points }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    
+    {% if attempt_history %}
+        <!-- Attempt History Table -->
+        <div class="stats-table">
+            <h2>📋 Attempt History</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Attempt #</th>
+                        <th>Points</th>
+                        <th>Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for attempt in attempt_history %}
+                    <tr>
+                        <td>{{ attempt.attempt_number }}</td>
+                        <td>{{ attempt.points }}</td>
+                        <td>{{ attempt.date|date:"Y-m-d H:i" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Growth Graph -->
+        <div class="graph-container">
+            <h2>📈 Growth Over Time</h2>
+            <canvas id="progressChart" width="400" height="150"></canvas>
+        </div>
+    {% else %}
+        <div class="no-data">
+            <p>📊 No attempt history yet. Start practicing to see your progress!</p>
+        </div>
+    {% endif %}
+    
+    <!-- Action Buttons -->
+    <div class="action-buttons">
+        <a href="{% url 'maths:measurements_questions' level.level_number %}" class="btn btn-primary">Start New Attempt</a>
+        <a href="{% url 'maths:dashboard' %}" class="btn btn-secondary">Back to Dashboard</a>
+    </div>
+</div>
+
+{% if attempt_history %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+<script>
+    const ctx = document.getElementById('progressChart');
+    if (ctx) {
+        const attemptNumbers = JSON.parse('{{ graph_data.attempt_numbers|safe }}');
+        const points = JSON.parse('{{ graph_data.points|safe }}');
+        const dates = JSON.parse('{{ graph_data.dates|safe }}');
+        
+        const chart = new Chart(ctx.getContext('2d'), {
+        type: 'line',
+        data: {
+            labels: attemptNumbers,
+            datasets: [{
+                label: 'Points',
+                data: points,
+                borderColor: '#667eea',
+                backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Points'
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Attempt Number'
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top'
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            let label = 'Points: ' + context.parsed.y;
+                            let dateIndex = context.dataIndex;
+                            if (dates && dates[dateIndex]) {
+                                label += ' (Date: ' + dates[dateIndex] + ')';
+                            }
+                            return label;
+                        }
+                    }
+                }
+            }
+        }
+    });
+    }
+</script>
+{% endif %}
+
+{% endblock %}
+

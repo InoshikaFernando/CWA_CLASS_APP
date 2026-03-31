@@ -1,0 +1,157 @@
+{% extends "maths/base.html" %}
+{% block title %}{{ operation_display }} - Year {{ level.level_number }}{% endblock %}
+
+{% block content %}
+<style>
+.times-table-container {
+    max-width: 800px;
+    margin: 40px auto;
+    padding: 20px;
+}
+
+.times-table-header {
+    text-align: center;
+    color: #667eea;
+    margin-bottom: 30px;
+}
+
+.times-table-header h1 {
+    font-size: 28px;
+    margin-bottom: 10px;
+}
+
+.times-table-header p {
+    color: #666;
+    font-size: 16px;
+}
+
+.times-table-card-area {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 12px;
+    padding: 30px;
+    margin-bottom: 20px;
+}
+
+.times-table-card-area h2 {
+    color: white;
+    margin-bottom: 20px;
+    text-align: center;
+    font-size: 22px;
+}
+
+.times-table-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 15px;
+}
+
+.times-table-card {
+    background: white;
+    border-radius: 10px;
+    padding: 20px 15px;
+    text-align: center;
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    text-decoration: none;
+    display: block;
+}
+
+.times-table-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+}
+
+.times-table-card .table-number {
+    font-size: 32px;
+    font-weight: bold;
+    color: #667eea;
+    display: block;
+    margin-bottom: 5px;
+}
+
+.times-table-card .table-symbol {
+    font-size: 16px;
+    color: #764ba2;
+    font-weight: bold;
+}
+
+.times-table-card .table-label {
+    font-size: 13px;
+    color: #888;
+    margin-top: 5px;
+    display: block;
+}
+
+.practice-all-card {
+    background: white;
+    border-radius: 10px;
+    padding: 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    text-decoration: none;
+    display: block;
+    grid-column: 1 / -1;
+    margin-top: 10px;
+    border: 2px dashed #667eea;
+}
+
+.practice-all-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    background: #f8f9fa;
+}
+
+.practice-all-card .label {
+    font-size: 18px;
+    font-weight: bold;
+    color: #667eea;
+}
+
+.practice-all-card .sublabel {
+    font-size: 13px;
+    color: #888;
+    margin-top: 4px;
+}
+
+.back-link {
+    text-align: center;
+    margin-top: 20px;
+}
+
+.back-link a {
+    color: #667eea;
+    text-decoration: none;
+    font-size: 16px;
+}
+
+.back-link a:hover {
+    text-decoration: underline;
+}
+</style>
+
+<div class="times-table-container">
+    <div class="times-table-header">
+        <h1>{{ operation_icon }} Year {{ level.level_number }} {{ operation_display }}</h1>
+        <p>Choose a times table to practice. Each quiz has 12 questions.</p>
+    </div>
+
+    <div class="times-table-card-area">
+        <h2>Select a Times Table</h2>
+        <div class="times-table-grid">
+            {% for table in tables %}
+            <a class="times-table-card"
+               href="{% if operation == 'multiplication' %}{% url 'maths:multiplication_quiz' level.level_number table %}{% else %}{% url 'maths:division_quiz' level.level_number table %}{% endif %}">
+                <span class="table-number">{{ table }}</span>
+                <span class="table-symbol">{{ operation_symbol }}</span>
+                <span class="table-label">{{ table }} times table</span>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="back-link">
+        <a href="javascript:history.back()">← Back</a>
+    </div>
+</div>
+{% endblock %}

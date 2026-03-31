@@ -1,0 +1,30 @@
+{% extends "email/base_email.html" %}
+
+{% block email_title %}You're Invited to CWA Classroom{% endblock %}
+
+{% block email_content %}
+<div style="background-color:#f5f3ff;border-left:4px solid #7c3aed;padding:16px;border-radius:4px;margin-bottom:24px;">
+  <p style="margin:0;color:#7c3aed;font-weight:700;font-size:16px;">Parent Invite</p>
+</div>
+
+<p style="margin:0 0 16px;color:#334155;font-size:15px;">Hi,</p>
+
+<p style="margin:0 0 16px;color:#334155;font-size:15px;">
+  You have been invited by <strong>{{ school_name }}</strong> to view
+  <strong>{{ student_name }}</strong>'s academic records including attendance, invoices, progress reports, and payment history.
+</p>
+
+<p style="margin:0 0 24px;text-align:center;">
+  <a href="{{ registration_url }}"
+     style="display:inline-block;background-color:#7c3aed;color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px;">
+    Create Your Free Account
+  </a>
+</p>
+
+<p style="margin:0 0 8px;color:#64748b;font-size:13px;">
+  This invite expires on {{ expires_at|date:"j M Y" }}.
+</p>
+<p style="margin:0;color:#64748b;font-size:13px;">
+  If you already have an account, log in first, then click the link above to accept the invite.
+</p>
+{% endblock %}

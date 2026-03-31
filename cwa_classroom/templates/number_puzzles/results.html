@@ -1,0 +1,112 @@
+{% extends "base_quiz.html" %}
+{% block title %}Results — Number Puzzles {{ level.name }}{% endblock %}
+{% block quiz_title %}Number Puzzles — {{ level.name }}{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+  <!-- New best banner -->
+  {% if is_new_best %}
+  <div class="bg-accent text-white rounded-2xl px-6 py-4 text-center font-bold text-lg animate-pulse">
+    New Personal Best!
+  </div>
+  {% endif %}
+
+  <!-- Unlock banner -->
+  {% if next_level %}
+  <div class="bg-success text-white rounded-2xl px-6 py-4 text-center font-bold text-lg">
+    {{ next_level.name }} Unlocked!
+  </div>
+  {% endif %}
+
+  <!-- Hero score -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center">
+    <div class="inline-flex items-center justify-center w-28 h-28 rounded-full
+                {% if session.score >= 8 %}bg-green-100{% elif session.score >= 5 %}bg-yellow-100{% else %}bg-red-100{% endif %} mb-4">
+      <span class="font-display text-4xl {% if session.score >= 8 %}text-green-700{% elif session.score >= 5 %}text-yellow-700{% else %}text-red-600{% endif %}">
+        {{ session.score }}/{{ session.total_questions }}
+      </span>
+    </div>
+
+    <p class="text-gray-500 text-sm mb-1">{{ level.name }} — Level {{ level.number }}</p>
+
+    <!-- Stars -->
+    <div class="flex justify-center gap-1 mb-4">
+      {% if progress %}
+        {% for i in "123" %}
+          {% if forloop.counter <= progress.stars %}
+            <span class="text-2xl text-yellow-400">&#9733;</span>
+          {% else %}
+            <span class="text-2xl text-gray-300">&#9733;</span>
+          {% endif %}
+        {% endfor %}
+      {% endif %}
+    </div>
+
+    <div class="flex justify-center gap-8 text-sm">
+      <div class="text-center">
+        <p class="font-bold text-gray-800 text-xl font-mono">{{ time_display }}</p>
+        <p class="text-gray-400 text-xs">Time taken</p>
+      </div>
+      <div class="text-center">
+        <p class="font-bold text-gray-800 text-xl font-mono">{{ session_accuracy }}%</p>
+        <p class="text-gray-400 text-xs">Accuracy</p>
+      </div>
+      {% if progress and progress.total_sessions > 1 %}
+      <div class="text-center">
+        <p class="font-bold text-primary text-xl font-mono">{{ progress.best_score }}/10</p>
+        <p class="text-gray-400 text-xs">Best score</p>
+      </div>
+      <div class="text-center">
+        <p class="font-bold text-gray-500 text-xl font-mono">{{ progress.accuracy }}%</p>
+        <p class="text-gray-400 text-xs">Overall accuracy</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Question review -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+    <h2 class="font-bold text-gray-800 mb-4">Question Review</h2>
+    <div class="space-y-3">
+      {% for q in questions_data %}
+      <div class="flex items-start gap-3 p-3 rounded-xl {% if q.is_correct %}bg-green-50{% else %}bg-red-50{% endif %}">
+        <span class="text-xl flex-shrink-0">{% if q.is_correct %}&#10003;{% else %}&#10007;{% endif %}</span>
+        <div class="flex-1 text-sm">
+          <p class="font-mono font-semibold text-gray-800">{{ q.display }}</p>
+          {% if q.is_correct %}
+            <p class="text-green-600 mt-0.5 font-mono">{{ q.student_answer }}</p>
+          {% else %}
+            <p class="text-red-600 mt-0.5">Your answer: <strong class="font-mono">{{ q.student_answer|default:"(blank)" }}</strong></p>
+            <p class="text-green-700 mt-0.5">Correct: <strong class="font-mono">{{ q.correct_answer }}</strong></p>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Actions -->
+  <div class="flex flex-wrap gap-3 pb-6">
+    <a href="{% url 'number_puzzles_play' slug=level.slug %}"
+       class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-5 py-3 transition">
+      Try Again
+    </a>
+    {% if next_level %}
+    <a href="{% url 'number_puzzles_play' slug=next_level.slug %}"
+       class="bg-accent hover:bg-accent-dark text-white font-semibold rounded-xl px-5 py-3 transition">
+      Try {{ next_level.name }} &rarr;
+    </a>
+    {% endif %}
+    <a href="{% url 'number_puzzles_home' %}"
+       class="bg-white border border-slate-200 text-gray-600 hover:border-primary hover:text-primary font-semibold rounded-xl px-5 py-3 transition">
+      All Levels
+    </a>
+    <a href="{% url 'maths:dashboard' %}"
+       class="bg-white border border-slate-200 text-gray-600 hover:border-primary hover:text-primary font-semibold rounded-xl px-5 py-3 transition">
+      Home
+    </a>
+  </div>
+
+</div>
+{% endblock %}

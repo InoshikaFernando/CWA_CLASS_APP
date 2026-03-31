@@ -1,0 +1,20 @@
+{% extends "base_auth.html" %}
+{% block title %}Account Blocked{% endblock %}
+
+{% block card_content %}
+<div class="text-center">
+  <div class="text-5xl mb-4">🚫</div>
+  <h1 class="font-display text-2xl text-red-600 mb-2">Account Blocked</h1>
+  <p class="text-gray-500 text-sm mb-6">
+    Your account has been suspended. If you believe this is an error,
+    please contact support.
+  </p>
+  <a href="mailto:support@wizardslearninghub.co.nz"
+     class="inline-block bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition">
+    Contact Support
+  </a>
+  <div class="mt-4">
+    <a href="{% url 'login' %}" class="text-sm text-gray-400 hover:text-gray-600">Back to Login</a>
+  </div>
+</div>
+{% endblock %}

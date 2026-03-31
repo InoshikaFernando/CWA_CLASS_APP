@@ -1,0 +1,43 @@
+{% if page.has_other_pages %}
+<nav class="flex items-center justify-between mt-6 px-1" aria-label="Pagination">
+  <p class="text-sm text-gray-500">
+    Showing <span class="font-semibold text-gray-700">{{ page.start_index }}</span>–<span class="font-semibold text-gray-700">{{ page.end_index }}</span>
+    of <span class="font-semibold text-gray-700">{{ page.paginator.count }}</span>
+  </p>
+  <div class="flex items-center gap-1">
+    {% if page.has_previous %}
+      <a href="?{% for k,v in request.GET.items %}{% if k != 'page' %}{{ k }}={{ v }}&{% endif %}{% endfor %}page={{ page.previous_page_number }}"
+         class="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-gray-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/>
+        </svg>
+        Prev
+      </a>
+    {% endif %}
+
+    {% for num in page.paginator.page_range %}
+      {% if page.number == num %}
+        <span class="inline-flex items-center justify-center w-9 h-9 text-sm font-bold text-white bg-accent rounded-lg">{{ num }}</span>
+      {% elif num > page.number|add:"-3" and num < page.number|add:"3" %}
+        <a href="?{% for k,v in request.GET.items %}{% if k != 'page' %}{{ k }}={{ v }}&{% endif %}{% endfor %}page={{ num }}"
+           class="inline-flex items-center justify-center w-9 h-9 text-sm font-medium text-gray-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition">{{ num }}</a>
+      {% elif num == 1 or num == page.paginator.num_pages %}
+        <a href="?{% for k,v in request.GET.items %}{% if k != 'page' %}{{ k }}={{ v }}&{% endif %}{% endfor %}page={{ num }}"
+           class="inline-flex items-center justify-center w-9 h-9 text-sm font-medium text-gray-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition">{{ num }}</a>
+      {% elif num == 2 or num == page.paginator.num_pages|add:"-1" %}
+        <span class="text-gray-400 px-1">…</span>
+      {% endif %}
+    {% endfor %}
+
+    {% if page.has_next %}
+      <a href="?{% for k,v in request.GET.items %}{% if k != 'page' %}{{ k }}={{ v }}&{% endif %}{% endfor %}page={{ page.next_page_number }}"
+         class="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-gray-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition">
+        Next
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
+        </svg>
+      </a>
+    {% endif %}
+  </div>
+</nav>
+{% endif %}

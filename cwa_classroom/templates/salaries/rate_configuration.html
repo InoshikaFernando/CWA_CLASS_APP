@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+
+{% block title %}Salary Rate Configuration{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto"
+     x-data="{
+       modifiedIds: new Set(),
+       get hasChanges() { return this.modifiedIds.size > 0 },
+       markModified(id) { this.modifiedIds.add(id); document.getElementById('teacher_ids').value = [...this.modifiedIds].join(',') }
+     }"
+     :class="hasChanges ? 'pb-24' : ''"
+     x-init="window.onbeforeunload = (e) => { if (hasChanges) { e.preventDefault(); return '' } }">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <h1 class="text-2xl font-display font-bold text-gray-900">Salary Rate Configuration</h1>
+    <p class="text-gray-500 mt-1">{{ school.name }} — Set default and per-teacher hourly rates</p>
+  </div>
+
+  <!-- Stats cards -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 bg-accent/10 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6 text-accent" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-2xl font-bold text-gray-900">{% if current_rate %}${{ current_rate.hourly_rate }}/hr{% else %}Not set{% endif %}</p>
+          <p class="text-sm text-gray-500">Default Rate</p>
+        </div>
+      </div>
+    </div>
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-2xl font-bold text-gray-900">{% if teacher_overrides %}{{ teacher_overrides|length }}{% else %}0{% endif %}</p>
+          <p class="text-sm text-gray-500">Teacher Overrides</p>
+        </div>
+      </div>
+    </div>
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-2xl font-bold text-gray-900">{{ teachers|length }}</p>
+          <p class="text-sm text-gray-500">Active Teachers</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Set Default Hourly Rate -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-8">
+    <div class="px-6 py-4 border-b border-slate-200">
+      <h2 class="text-lg font-semibold text-gray-900">Default Hourly Rate</h2>
+      <p class="text-sm text-gray-500 mt-1">Set the base hourly rate for all teachers at this school.</p>
+    </div>
+    <div class="px-6 py-4">
+      <form method="post" action="{% url 'set_school_default_rate' %}" class="flex flex-wrap items-end gap-4">
+        {% csrf_token %}
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Hourly Rate ($)</label>
+          <input type="number" name="hourly_rate" step="0.01" min="0" placeholder="0.00"
+            {% if current_rate %}value="{{ current_rate.hourly_rate }}"{% endif %}
+            class="w-32 px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-accent focus:border-accent" required>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Effective From</label>
+          <input type="date" name="effective_from"
+            class="px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-accent focus:border-accent" required>
+        </div>
+        <button type="submit"
+          class="px-4 py-1.5 text-sm bg-accent text-white rounded-lg hover:bg-accent-dark transition font-medium">
+          Set Default Rate
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Batch Teacher Rate Edit -->
+  <h2 class="text-lg font-semibold text-gray-900 mb-4">Teacher Rates</h2>
+  <p class="text-sm text-gray-500 mb-4">Set per-teacher hourly rates. Leave blank to use the school default.</p>
+
+  {% if teachers %}
+    <form method="post" action="{% url 'batch_teacher_rate' %}" @submit="window.onbeforeunload = null">
+      {% csrf_token %}
+      <input type="hidden" name="teacher_ids" id="teacher_ids" value="">
+      <input type="hidden" name="effective_from" value="{{ current_rate.effective_from|date:'Y-m-d' }}">
+
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-8">
+        <table class="w-full">
+          <thead>
+            <tr class="border-b border-slate-100">
+              <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Teacher</th>
+              <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Role</th>
+              <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Current Rate</th>
+              <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Source</th>
+              <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Set Rate</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for st in teachers %}
+              <tr class="border-b border-slate-50 hover:bg-slate-50 transition"
+                  :class="modifiedIds.has({{ st.teacher.id }}) ? 'bg-accent/5 border-l-4 border-l-accent' : ''">
+                <td class="px-6 py-4 font-medium text-gray-900">{{ st.teacher.first_name }} {{ st.teacher.last_name }}</td>
+                <td class="px-6 py-4 text-gray-600">{{ st.get_role_display }}</td>
+                <td class="px-6 py-4 text-gray-600">
+                  {% if current_rate %}${{ current_rate.hourly_rate }}/hr{% else %}<span class="text-gray-400">Not set</span>{% endif %}
+                </td>
+                <td class="px-6 py-4">
+                  <span class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium">Default</span>
+                </td>
+                <td class="px-6 py-4">
+                  <input type="number" name="rate_{{ st.teacher.id }}" step="0.01" min="0"
+                    placeholder="{{ current_rate.hourly_rate|default:'Rate' }}"
+                    @input="markModified({{ st.teacher.id }})"
+                    class="w-28 px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-accent focus:border-accent transition">
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Sticky Save Bar -->
+      <div x-show="hasChanges" x-transition
+           class="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 shadow-lg z-50 px-6 py-4">
+        <div class="max-w-7xl mx-auto flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-2 h-2 rounded-full bg-accent animate-pulse"></div>
+            <p class="text-sm font-medium text-gray-700">
+              <span x-text="modifiedIds.size"></span> rate<span x-show="modifiedIds.size !== 1">s</span> modified
+            </p>
+          </div>
+          <div class="flex items-center gap-3">
+            <label class="text-xs font-medium text-gray-600">Effective From</label>
+            <input type="date" name="effective_from_bar"
+              onchange="this.form.querySelector('[name=effective_from]').value = this.value"
+              class="px-3 py-1.5 text-sm border border-slate-300 rounded-lg" required>
+            <button type="button" @click="window.location.reload()"
+                    class="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 transition">Discard</button>
+            <button type="submit"
+                    class="px-6 py-2 bg-accent text-white text-sm font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm">
+              Save All Changes
+            </button>
+          </div>
+        </div>
+      </div>
+    </form>
+  {% else %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center mb-8">
+      <p class="text-gray-500">No active teachers found. Add teachers first.</p>
+    </div>
+  {% endif %}
+
+  <!-- Teacher Rate Overrides -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    <div class="px-6 py-4 border-b border-slate-200">
+      <h2 class="text-lg font-semibold text-gray-900">Teacher Rate Overrides</h2>
+      <p class="text-sm text-gray-500 mt-1">Override the default rate for specific teachers (e.g., senior rates, specialist pay).</p>
+    </div>
+
+    <div class="px-6 py-4 border-b border-slate-100 bg-slate-50">
+      <form method="post" action="{% url 'add_teacher_rate_override' %}" class="flex flex-wrap items-end gap-4">
+        {% csrf_token %}
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Teacher</label>
+          <select name="teacher_id" required
+            class="px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-accent focus:border-accent">
+            <option value="">Select teacher...</option>
+            {% for st in teachers %}
+              <option value="{{ st.teacher.id }}">{{ st.teacher.first_name }} {{ st.teacher.last_name }} ({{ st.teacher.username }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Hourly Rate ($)</label>
+          <input type="number" name="hourly_rate" step="0.01" min="0" placeholder="0.00"
+            class="w-28 px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-accent focus:border-accent" required>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Effective From</label>
+          <input type="date" name="effective_from"
+            class="px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-accent focus:border-accent" required>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Reason</label>
+          <input type="text" name="reason" placeholder="e.g., Senior teacher"
+            class="w-40 px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-accent focus:border-accent">
+        </div>
+        <button type="submit"
+          class="px-4 py-1.5 text-sm bg-accent text-white rounded-lg hover:bg-accent-dark transition font-medium">
+          Add Override
+        </button>
+      </form>
+    </div>
+
+    {% if teacher_overrides %}
+      <table class="w-full">
+        <thead>
+          <tr class="border-b border-slate-100">
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Teacher</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Hourly Rate</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Reason</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Effective From</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for override in teacher_overrides %}
+            <tr class="border-b border-slate-50 hover:bg-slate-50 transition">
+              <td class="px-6 py-4 font-medium text-gray-900">{{ override.teacher.first_name }} {{ override.teacher.last_name }}</td>
+              <td class="px-6 py-4 text-gray-600">${{ override.hourly_rate }}/hr</td>
+              <td class="px-6 py-4 text-gray-600">{{ override.reason|default:"\u2014" }}</td>
+              <td class="px-6 py-4 text-gray-600">{{ override.effective_from|date:"M d, Y" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="px-6 py-8 text-center">
+        <p class="text-gray-500">No teacher rate overrides configured.</p>
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

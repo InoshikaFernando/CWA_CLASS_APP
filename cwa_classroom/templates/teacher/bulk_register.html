@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Bulk Register Students{% endblock %}
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-6">
+  <div>
+    <h1 class="font-display text-3xl text-primary">Bulk Register Students</h1>
+    <p class="text-gray-400 text-sm mt-1">Paste one student per line in the format: <code class="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-xs">username,email,password</code></p>
+  </div>
+
+  {% if results %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+    <div class="flex gap-6 mb-4">
+      {% if results.created %}
+      <div class="text-center">
+        <p class="font-display text-3xl text-primary">{{ results.created }}</p>
+        <p class="text-xs text-gray-400 font-semibold">Created</p>
+      </div>
+      {% endif %}
+      {% if results.errors %}
+      <div class="text-center">
+        <p class="font-display text-3xl text-red-500">{{ results.errors|length }}</p>
+        <p class="text-xs text-gray-400 font-semibold">Errors</p>
+      </div>
+      {% endif %}
+    </div>
+    {% if results.errors %}
+    <div class="bg-red-50 rounded-xl p-4 space-y-1">
+      {% for err in results.errors %}
+      <p class="text-sm text-red-600">{{ err }}</p>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+    <form method="post" class="space-y-5">
+      {% csrf_token %}
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1.5">Student Data</label>
+        <textarea name="students_data" rows="10" autofocus
+                  placeholder="john_smith,john@school.nz,password123&#10;jane_doe,jane@school.nz,password456"
+                  class="w-full font-mono text-sm rounded-xl border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition resize-y"></textarea>
+        <p class="text-xs text-gray-400 mt-1">Minimum password length: 8 characters. Usernames must be unique.</p>
+      </div>
+      <div class="flex gap-3">
+        <button type="submit" class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition">
+          Register Students →
+        </button>
+        <a href="{% url 'bulk_student_registration' %}" class="bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl px-6 py-3 hover:bg-gray-50 transition">
+          Clear
+        </a>
+      </div>
+    </form>
+  </div>
+
+  <div class="bg-accent-light rounded-2xl p-5 text-sm text-yellow-800">
+    <p class="font-bold mb-2">📋 Format guide</p>
+    <p class="font-mono text-xs bg-white rounded-lg p-3 border border-yellow-200">
+      username,email@example.com,password123<br>
+      another_student,email2@example.com,securepass
+    </p>
+    <p class="mt-2">After registering, go to each class and use <strong>Add Students</strong> to enrol them.</p>
+  </div>
+</div>
+{% endblock %}

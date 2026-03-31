@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}Email Campaigns{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-8">
+    <div class="flex items-center gap-4">
+      <a href="{% url 'email_dashboard' %}" class="text-gray-400 hover:text-gray-600 transition">
+        <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/>
+        </svg>
+      </a>
+      <div>
+        <h1 class="text-2xl font-display font-bold text-gray-900">Campaigns</h1>
+        <p class="text-gray-500 mt-1">All email campaigns for {{ school.name }}</p>
+      </div>
+    </div>
+    <a href="{% url 'email_compose' %}"
+       class="inline-flex items-center gap-2 px-5 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm">
+      <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+      </svg>
+      New Campaign
+    </a>
+  </div>
+
+  {% if campaigns %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    <table class="w-full">
+      <thead>
+        <tr class="border-b border-slate-100">
+          <th class="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Campaign</th>
+          <th class="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Status</th>
+          <th class="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Recipients</th>
+          <th class="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Sent</th>
+          <th class="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Failed</th>
+          <th class="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Date</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for campaign in campaigns %}
+        <tr class="hover:bg-slate-50 transition">
+          <td class="px-6 py-4">
+            <a href="{% url 'email_campaign_detail' campaign.id %}" class="font-semibold text-gray-900 hover:text-accent transition">
+              {{ campaign.name }}
+            </a>
+            <p class="text-sm text-gray-500 mt-0.5">{{ campaign.subject }}</p>
+          </td>
+          <td class="px-6 py-4">
+            <span class="text-xs font-medium px-2.5 py-1 rounded-full
+              {% if campaign.status == 'sent' %}bg-emerald-100 text-emerald-700
+              {% elif campaign.status == 'sending' %}bg-yellow-100 text-yellow-700
+              {% elif campaign.status == 'failed' %}bg-red-100 text-red-700
+              {% else %}bg-gray-100 text-gray-600{% endif %}">
+              {{ campaign.get_status_display }}
+            </span>
+          </td>
+          <td class="px-6 py-4 text-sm text-gray-700">{{ campaign.total_recipients }}</td>
+          <td class="px-6 py-4 text-sm text-gray-700">{{ campaign.sent_count }}</td>
+          <td class="px-6 py-4 text-sm text-gray-700">{{ campaign.failed_count }}</td>
+          <td class="px-6 py-4 text-sm text-gray-500">{{ campaign.created_at|date:"M d, Y" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="bg-white rounded-2xl p-12 border border-slate-200 text-center">
+    <h3 class="text-lg font-semibold text-gray-700 mb-2">No campaigns yet</h3>
+    <p class="text-gray-500 mb-6">Create your first email campaign.</p>
+    <a href="{% url 'email_compose' %}"
+       class="inline-flex items-center gap-2 px-5 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition">
+      Compose Email
+    </a>
+  </div>
+  {% endif %}
+
+  {% include "partials/pagination.html" %}
+</div>
+{% endblock %}

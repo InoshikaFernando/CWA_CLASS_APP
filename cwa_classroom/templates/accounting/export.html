@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Export Data{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-6">
+  <div>
+    <h1 class="font-display text-2xl font-bold text-gray-900">Export Data</h1>
+    <p class="text-sm text-gray-500 mt-1">Download accounting reports and financial data exports.</p>
+  </div>
+
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+    <div class="px-6 py-4 border-b border-slate-200">
+      <h2 class="font-display text-lg font-semibold text-gray-900">Available Exports</h2>
+    </div>
+    <div class="p-6 space-y-4">
+      <div class="flex items-center justify-between p-4 rounded-xl border border-slate-200 hover:bg-slate-50 transition">
+        <div>
+          <p class="font-medium text-gray-900">Payment History</p>
+          <p class="text-xs text-gray-500 mt-0.5">Export all payment records as CSV.</p>
+        </div>
+        <button class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-4 py-2 transition text-sm" disabled>
+          Coming Soon
+        </button>
+      </div>
+      <div class="flex items-center justify-between p-4 rounded-xl border border-slate-200 hover:bg-slate-50 transition">
+        <div>
+          <p class="font-medium text-gray-900">Subscription Report</p>
+          <p class="text-xs text-gray-500 mt-0.5">Export active and expired subscriptions.</p>
+        </div>
+        <button class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-4 py-2 transition text-sm" disabled>
+          Coming Soon
+        </button>
+      </div>
+      <div class="flex items-center justify-between p-4 rounded-xl border border-slate-200 hover:bg-slate-50 transition">
+        <div>
+          <p class="font-medium text-gray-900">User Summary</p>
+          <p class="text-xs text-gray-500 mt-0.5">Export user role and activity summary.</p>
+        </div>
+        <button class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-4 py-2 transition text-sm" disabled>
+          Coming Soon
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

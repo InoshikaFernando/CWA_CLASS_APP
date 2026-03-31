@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+
+{% block title %}Progress Criteria{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto" x-data="{ panel: {% if edit_criteria %}true{% else %}false{% endif %}, editing: {% if edit_criteria %}true{% else %}false{% endif %} }">
+
+  <div class="flex items-center justify-between mb-8">
+    <div>
+      <h1 class="text-2xl font-display font-bold text-gray-900">Progress Criteria</h1>
+      {% if school %}<p class="text-gray-500 mt-1">{{ school.name }}</p>{% endif %}
+    </div>
+    <button @click="editing = false; panel = true" type="button"
+            class="inline-flex items-center gap-2 px-4 py-2 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition text-sm shadow-sm">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+      </svg>
+      New Criteria
+    </button>
+  </div>
+
+  <!-- Filters -->
+  <div class="bg-white rounded-xl p-4 border border-slate-200 mb-6 flex flex-wrap items-center gap-4">
+    <form method="get" class="flex flex-wrap items-center gap-4 w-full">
+      <div>
+        <select name="subject_id" class="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent transition">
+          <option value="">All Subjects</option>
+          {% for s in subjects %}
+            <option value="{{ s.id }}" {% if selected_subject_id == s.id %}selected{% endif %}>{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit" class="px-4 py-2 bg-slate-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-slate-200 transition">Filter</button>
+    </form>
+  </div>
+
+  <!-- Criteria table -->
+  {% if hierarchical_criteria %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left text-gray-500 bg-slate-50">
+              <th class="px-6 py-3 font-medium">Name</th>
+              <th class="px-6 py-3 font-medium">Subject</th>
+              <th class="px-6 py-3 font-medium">Level</th>
+              <th class="px-6 py-3 font-medium">Status</th>
+              <th class="px-6 py-3 font-medium">Actions</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-50">
+            {% for item in hierarchical_criteria %}
+              <tr class="{% if item.is_child %}bg-slate-50/50{% endif %} hover:bg-slate-50 transition group">
+                <td class="px-6 py-3 font-medium text-gray-900">
+                  {% if item.is_child %}
+                    <span class="inline-block ml-6 text-gray-400">&#8627;</span>
+                    <span class="text-gray-700">{{ item.criteria.name }}</span>
+                  {% else %}
+                    <span class="font-bold">{{ item.criteria.name }}</span>
+                  {% endif %}
+                </td>
+                <td class="px-6 py-3 text-gray-600">{{ item.criteria.subject.name }}</td>
+                <td class="px-6 py-3 text-gray-600">{% if item.criteria.level %}{{ item.criteria.level.display_name }}{% else %}<span class="text-gray-400">All Levels</span>{% endif %}</td>
+                <td class="px-6 py-3">
+                  <span class="text-xs font-medium px-2 py-1 rounded-full
+                    {% if item.criteria.status == 'approved' %}bg-emerald-100 text-emerald-700
+                    {% elif item.criteria.status == 'pending_approval' %}bg-amber-100 text-amber-700
+                    {% elif item.criteria.status == 'rejected' %}bg-red-100 text-red-700
+                    {% else %}bg-slate-100 text-slate-600{% endif %}">
+                    {{ item.criteria.get_status_display }}
+                  </span>
+                </td>
+                <td class="px-6 py-3">
+                  <div class="flex items-center gap-2">
+                    <a href="?edit={{ item.criteria.id }}"
+                       class="p-1 rounded text-gray-400 hover:text-accent transition opacity-100 md:opacity-0 md:group-hover:opacity-100" title="Edit">
+                      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"/>
+                      </svg>
+                    </a>
+                    {% if item.criteria.status == 'draft' %}
+                      <form method="post" action="{% url 'progress_criteria_submit' item.criteria.id %}" class="inline">
+                        {% csrf_token %}
+                        <button type="submit" class="text-accent hover:text-accent-dark text-xs font-semibold">Submit</button>
+                      </form>
+                    {% endif %}
+                    {% if not item.is_child and item.criteria.status == 'approved' %}
+                      <a href="?edit=new&parent={{ item.criteria.id }}"
+                         class="text-blue-600 hover:text-blue-800 text-xs font-semibold">+ Sub</a>
+                    {% endif %}
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% else %}
+    <div class="bg-white rounded-xl p-12 border border-slate-200 text-center">
+      <p class="text-gray-400">No progress criteria found.</p>
+    </div>
+  {% endif %}
+
+  <!-- Side Panel -->
+  <div x-show="panel" x-cloak
+       class="fixed inset-0 z-50 flex justify-end"
+       @keydown.escape.window="panel = false">
+    <!-- Backdrop -->
+    <div class="absolute inset-0 bg-black/30" @click="panel = false"
+         x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"></div>
+    <!-- Panel -->
+    <div class="relative w-full max-w-md bg-white shadow-2xl flex flex-col"
+         x-transition:enter="transition ease-out duration-300" x-transition:enter-start="translate-x-full" x-transition:enter-end="translate-x-0"
+         x-transition:leave="transition ease-in duration-200" x-transition:leave-start="translate-x-0" x-transition:leave-end="translate-x-full">
+      <!-- Panel header -->
+      <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+        <h2 class="text-lg font-display font-bold text-gray-900" x-text="editing ? 'Edit Criteria' : 'New Criteria'"></h2>
+        <button @click="panel = false" type="button" class="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-slate-100 transition">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <!-- Panel body -->
+      <div class="flex-1 overflow-y-auto px-6 py-5">
+        <form method="post" class="space-y-5" id="criteria-panel-form">
+          {% csrf_token %}
+          {% if edit_criteria %}
+            <input type="hidden" name="action" value="edit">
+            <input type="hidden" name="criteria_id" value="{{ edit_criteria.id }}">
+          {% else %}
+            <input type="hidden" name="action" value="create">
+          {% endif %}
+
+          <div>
+            <label for="panel-name" class="block text-sm font-semibold text-gray-700 mb-1.5">Criteria Name *</label>
+            <input type="text" name="name" id="panel-name" required
+                   value="{% if edit_criteria %}{{ edit_criteria.name }}{% endif %}"
+                   placeholder="e.g. Understanding Javascript Variables"
+                   class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+          </div>
+
+          <div>
+            <label for="panel-subject" class="block text-sm font-semibold text-gray-700 mb-1.5">Subject *</label>
+            <select name="subject" id="panel-subject" required
+                    class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+              <option value="">Select subject...</option>
+              {% for s in subjects %}
+                <option value="{{ s.id }}" {% if edit_criteria and edit_criteria.subject_id == s.id %}selected{% endif %}>{{ s.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div>
+            <label for="panel-level" class="block text-sm font-semibold text-gray-700 mb-1.5">Level</label>
+            <select name="level" id="panel-level"
+                    class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+              <option value="">All Levels</option>
+            </select>
+            <p class="text-xs text-gray-400 mt-1" id="panel-level-hint">Select a subject first</p>
+          </div>
+
+          <div>
+            <label for="panel-description" class="block text-sm font-semibold text-gray-700 mb-1.5">Description</label>
+            <textarea name="description" id="panel-description" rows="3"
+                      placeholder="Optional details about this criteria"
+                      class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">{% if edit_criteria %}{{ edit_criteria.description }}{% endif %}</textarea>
+          </div>
+
+          <div>
+            <label for="panel-order" class="block text-sm font-semibold text-gray-700 mb-1.5">Display Order</label>
+            <input type="number" name="order" id="panel-order" min="0"
+                   value="{% if edit_criteria %}{{ edit_criteria.order }}{% else %}0{% endif %}"
+                   class="w-32 px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+          </div>
+        </form>
+      </div>
+      <!-- Panel footer -->
+      <div class="px-6 py-4 border-t border-slate-100 flex items-center gap-3">
+        <button type="submit" form="criteria-panel-form"
+                class="flex-1 px-4 py-2.5 bg-accent hover:bg-accent-dark text-white text-sm font-semibold rounded-xl transition"
+                x-text="editing ? 'Save Changes' : 'Create Criteria'"></button>
+        <button @click="panel = false" type="button"
+                class="px-4 py-2.5 text-sm font-semibold text-gray-500 hover:text-gray-700 rounded-xl hover:bg-slate-50 transition">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  var subjectLevels = {{ subject_levels_json|safe }};
+  var savedLevel = '{% if edit_criteria and edit_criteria.level_id %}{{ edit_criteria.level_id }}{% endif %}';
+
+  function setupPanel(subjectEl, levelEl, hintEl) {
+    function updateLevels() {
+      var subjectId = subjectEl.value;
+      var levels = subjectLevels[subjectId] || [];
+      levelEl.innerHTML = '<option value="">All Levels</option>';
+      for (var i = 0; i < levels.length; i++) {
+        var opt = document.createElement('option');
+        opt.value = levels[i].id;
+        opt.textContent = levels[i].name;
+        if (String(levels[i].id) === savedLevel) opt.selected = true;
+        levelEl.appendChild(opt);
+      }
+      levelEl.disabled = !subjectId;
+      if (!subjectId) {
+        hintEl.textContent = 'Select a subject first';
+        hintEl.style.display = '';
+      } else if (!levelEl.value) {
+        hintEl.textContent = 'Applies to all levels in this subject';
+        hintEl.style.display = '';
+      } else {
+        hintEl.style.display = 'none';
+      }
+    }
+    subjectEl.addEventListener('change', function() { savedLevel = ''; updateLevels(); });
+    levelEl.addEventListener('change', function() {
+      if (!levelEl.value && subjectEl.value) {
+        hintEl.textContent = 'Applies to all levels in this subject';
+        hintEl.style.display = '';
+      } else { hintEl.style.display = 'none'; }
+    });
+    updateLevels();
+  }
+
+  // Panel
+  var ps = document.getElementById('panel-subject');
+  var pl = document.getElementById('panel-level');
+  var ph = document.getElementById('panel-level-hint');
+  if (ps && pl && ph) setupPanel(ps, pl, ph);
+})();
+</script>
+{% endblock %}

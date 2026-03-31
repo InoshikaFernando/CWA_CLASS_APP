@@ -1,0 +1,115 @@
+{% extends "base_quiz.html" %}
+{% block title %}Number Puzzles — {{ level.name }}{% endblock %}
+
+{% block quiz_title %}Number Puzzles{% endblock %}
+
+{% block quiz_meta %}
+  <span class="inline-flex items-center rounded-full bg-primary-light text-primary text-xs font-bold px-3 py-1">
+    {{ level.name }}
+  </span>
+{% endblock %}
+
+{% block quiz_timer %}
+  <div class="flex items-center gap-1.5 font-mono text-sm font-bold text-gray-700 bg-gray-100 rounded-xl px-3 py-1.5">
+    <svg class="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    <span id="timer">0:00</span>
+  </div>
+{% endblock %}
+
+{% block content %}
+<form method="post" id="quiz-form">
+  {% csrf_token %}
+  <input type="hidden" name="session_id" value="{{ session.id }}" />
+
+  <div class="space-y-4 mb-28">
+    {% for q in questions %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+      <div class="flex items-start gap-3">
+        <span class="flex-shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-lg bg-primary-light text-primary text-xs font-bold">
+          {{ q.number }}
+        </span>
+        <div class="flex-1">
+          <!-- Puzzle display -->
+          <p class="font-mono font-bold text-gray-800 text-xl mb-3 tracking-wide">{{ q.display }}</p>
+
+          <!-- Answer input -->
+          {% if level.brackets_required %}
+          <input type="text"
+                 name="answer_{{ q.puzzle_id }}"
+                 autocomplete="off"
+                 placeholder="Type full expression e.g. 3x(3+4)=21"
+                 class="w-full rounded-xl border-2 border-gray-200 px-4 py-3 text-lg font-mono font-bold
+                        focus:outline-none focus:border-primary transition"
+                 {% if forloop.first %}autofocus{% endif %} />
+          {% elif level.brackets_shown %}
+          <input type="text"
+                 name="answer_{{ q.puzzle_id }}"
+                 autocomplete="off"
+                 placeholder="Type expression with brackets e.g. (2+3)x2=10"
+                 class="w-full rounded-xl border-2 border-gray-200 px-4 py-3 text-lg font-mono font-bold
+                        focus:outline-none focus:border-primary transition"
+                 {% if forloop.first %}autofocus{% endif %} />
+          {% else %}
+          <input type="text"
+                 name="answer_{{ q.puzzle_id }}"
+                 autocomplete="off"
+                 placeholder="Type expression e.g. 1+2=3"
+                 class="w-full rounded-xl border-2 border-gray-200 px-4 py-3 text-lg font-mono font-bold
+                        focus:outline-none focus:border-primary transition"
+                 {% if forloop.first %}autofocus{% endif %} />
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Sticky submit bar -->
+  <div class="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 px-4 py-4 z-30">
+    <div class="max-w-3xl mx-auto flex items-center justify-between gap-4">
+      <span id="answered-count" class="text-sm font-semibold text-gray-500">0 / {{ questions|length }} answered</span>
+      <button type="submit"
+              class="bg-accent hover:bg-accent-dark text-white font-bold rounded-xl px-8 py-3 transition text-base">
+        Submit All Answers &rarr;
+      </button>
+    </div>
+  </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // Timer
+  let seconds = 0;
+  const timerEl = document.getElementById('timer');
+  setInterval(() => {
+    seconds++;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    timerEl.textContent = m + ':' + String(s).padStart(2, '0');
+  }, 1000);
+
+  // Answered counter
+  const inputs = document.querySelectorAll('input[type=text]');
+  const countEl = document.getElementById('answered-count');
+  function updateCount() {
+    const filled = [...inputs].filter(i => i.value.trim() !== '').length;
+    countEl.textContent = filled + ' / ' + inputs.length + ' answered';
+  }
+  inputs.forEach(i => i.addEventListener('input', updateCount));
+
+  // Enter advances to next input
+  inputs.forEach((input, idx) => {
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const next = inputs[idx + 1];
+        if (next) next.focus();
+        else document.querySelector('button[type=submit]').focus();
+      }
+    });
+  });
+</script>
+{% endblock %}

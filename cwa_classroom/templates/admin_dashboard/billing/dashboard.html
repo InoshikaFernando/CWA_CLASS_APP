@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block title %}Billing Admin{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <h1 class="text-2xl font-display font-bold text-gray-900">Billing Administration</h1>
+    <p class="text-gray-500 mt-1">Manage plans, discounts, modules, and subscriptions</p>
+  </div>
+
+  <!-- Stats cards -->
+  <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 bg-accent/10 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6 text-accent" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-2xl font-bold text-gray-900">{{ total_plans }}</p>
+          <p class="text-sm text-gray-500">Plans ({{ active_plans }} active)</p>
+        </div>
+      </div>
+    </div>
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-2xl font-bold text-gray-900">{{ active_subs }}</p>
+          <p class="text-sm text-gray-500">Active Subscriptions</p>
+        </div>
+      </div>
+    </div>
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 bg-amber-50 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6 text-amber-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 6h.008v.008H6V6z"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-2xl font-bold text-gray-900">{{ active_discounts }}</p>
+          <p class="text-sm text-gray-500">Active Discount Codes</p>
+        </div>
+      </div>
+    </div>
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-2xl font-bold text-gray-900">${{ mrr }}</p>
+          <p class="text-sm text-gray-500">Estimated MRR</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quick links -->
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <a href="{% url 'billing_admin_plan_list' %}"
+       class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:shadow-md hover:border-accent/30 transition group">
+      <h3 class="text-lg font-semibold text-gray-900 group-hover:text-accent transition">Plans</h3>
+      <p class="text-sm text-gray-500 mt-1">Create and manage institute subscription plans</p>
+    </a>
+    <a href="{% url 'billing_admin_discount_list' %}"
+       class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:shadow-md hover:border-accent/30 transition group">
+      <h3 class="text-lg font-semibold text-gray-900 group-hover:text-accent transition">Discount Codes</h3>
+      <p class="text-sm text-gray-500 mt-1">Manage institute discount codes and Stripe coupons</p>
+    </a>
+    <a href="{% url 'billing_admin_module_list' %}"
+       class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:shadow-md hover:border-accent/30 transition group">
+      <h3 class="text-lg font-semibold text-gray-900 group-hover:text-accent transition">Module Products</h3>
+      <p class="text-sm text-gray-500 mt-1">Configure module add-on pricing and Stripe sync</p>
+    </a>
+    <a href="{% url 'billing_admin_subscription_list' %}"
+       class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:shadow-md hover:border-accent/30 transition group">
+      <h3 class="text-lg font-semibold text-gray-900 group-hover:text-accent transition">Subscriptions</h3>
+      <p class="text-sm text-gray-500 mt-1">View and override school subscriptions</p>
+    </a>
+    <a href="{% url 'billing_admin_promo_list' %}"
+       class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:shadow-md hover:border-accent/30 transition group">
+      <h3 class="text-lg font-semibold text-gray-900 group-hover:text-accent transition">Promo Codes</h3>
+      <p class="text-sm text-gray-500 mt-1">Manage student promo codes for class access</p>
+    </a>
+  </div>
+
+</div>
+{% endblock %}

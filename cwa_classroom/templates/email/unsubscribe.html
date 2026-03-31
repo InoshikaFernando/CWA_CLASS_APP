@@ -1,0 +1,15 @@
+{% extends "email/base_email.html" %}
+
+{% block email_title %}Unsubscribed{% endblock %}
+
+{% block email_content %}
+<div style="text-align:center;padding:24px 0;">
+  <h2 style="margin:0 0 16px;color:#334155;font-size:20px;">You have been unsubscribed</h2>
+  <p style="margin:0 0 16px;color:#64748b;font-size:15px;">
+    You will no longer receive marketing emails from {{ site_name }}.
+  </p>
+  <p style="margin:0;color:#64748b;font-size:14px;">
+    You will still receive important transactional emails (enrollment updates, progress notifications, etc.).
+  </p>
+</div>
+{% endblock %}

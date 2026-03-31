@@ -1,0 +1,7 @@
+{% extends "email/base_email.html" %}
+
+{% block email_title %}{{ campaign_name }}{% endblock %}
+
+{% block email_content %}
+{{ html_body|safe }}
+{% endblock %}

@@ -1,0 +1,74 @@
+[
+  {
+    "model": "classroom.subjectapp",
+    "pk": 1,
+    "fields": {
+      "name": "Maths",
+      "slug": "maths",
+      "description": "Practise arithmetic, algebra, geometry and more with instant feedback.",
+      "icon_name": "calculator",
+      "external_url": "/maths/",
+      "is_active": true,
+      "is_coming_soon": false,
+      "order": 1,
+      "color": "#16a34a",
+      "subject": null,
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "classroom.subjectapp",
+    "pk": 2,
+    "fields": {
+      "name": "Science",
+      "slug": "science",
+      "description": "Explore biology, chemistry and physics through interactive experiments.",
+      "icon_name": "beaker",
+      "external_url": null,
+      "is_active": false,
+      "is_coming_soon": true,
+      "order": 2,
+      "color": "#2563eb",
+      "subject": null,
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "classroom.subjectapp",
+    "pk": 3,
+    "fields": {
+      "name": "Coding",
+      "slug": "coding",
+      "description": "Learn to code with fun puzzles and step-by-step programming challenges.",
+      "icon_name": "code-bracket",
+      "external_url": null,
+      "is_active": false,
+      "is_coming_soon": true,
+      "order": 3,
+      "color": "#7c3aed",
+      "subject": null,
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "classroom.subjectapp",
+    "pk": 4,
+    "fields": {
+      "name": "Music",
+      "slug": "music",
+      "description": "Develop musical theory, ear training and composition skills.",
+      "icon_name": "musical-note",
+      "external_url": null,
+      "is_active": false,
+      "is_coming_soon": true,
+      "order": 4,
+      "color": "#db2777",
+      "subject": null,
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-01T00:00:00Z"
+    }
+  }
+]

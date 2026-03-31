@@ -1,0 +1,484 @@
+{% extends "base.html" %}
+
+{% block title %}School Hierarchy — {{ school.name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* ── Clickable class link ──────────────────────────────── */
+  a.class-link {
+    text-decoration: none;
+    transition: all 0.15s ease;
+  }
+  a.class-link:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+    transform: translateY(-1px);
+  }
+
+  /* ── TREE VIEW: Horizontal org-chart ─────────────────── */
+  .tree ul {
+    position: relative;
+    padding-top: 1.5rem;
+  }
+  .tree ul::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    border-left: 2.5px solid #94a3b8;
+    height: 1.5rem;
+  }
+  .tree li {
+    position: relative;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    vertical-align: top;
+    padding: 1.5rem 0.5rem 0;
+  }
+  .tree li::before,
+  .tree li::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    width: 50%;
+    height: 1.5rem;
+    border-top: 2.5px solid #94a3b8;
+  }
+  .tree li::before { left: 0; }
+  .tree li::after  { right: 0; }
+  .tree li > .node::before {
+    content: '';
+    position: absolute;
+    top: -1.5rem;
+    left: 50%;
+    border-left: 2.5px solid #94a3b8;
+    height: 1.5rem;
+  }
+  .tree > ul > li::before,
+  .tree > ul > li::after { display: none; }
+  .tree li:first-child::before { border: none; }
+  .tree li:last-child::after  { border: none; }
+  .tree li:only-child::before,
+  .tree li:only-child::after { display: none; }
+  .node {
+    position: relative;
+    min-width: 10rem;
+  }
+
+  /* Fixed-size department cards */
+  .dept-card {
+    width: 14rem;
+    white-space: normal;
+  }
+  .dept-card p {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
+
+  /* Let <main> handle both scrollbars for this page */
+  main {
+    overflow: auto !important;
+  }
+
+  /* ── Scroll indicator fades ─────────────────────────── */
+  .scroll-fade-left,
+  .scroll-fade-right {
+    pointer-events: none;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 3rem;
+    z-index: 5;
+  }
+  .scroll-fade-left {
+    left: 0;
+    background: linear-gradient(to right, rgba(249,250,251,0.95), transparent);
+  }
+  .scroll-fade-right {
+    right: 0;
+    background: linear-gradient(to left, rgba(249,250,251,0.95), transparent);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="max-w-full">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-4">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">School Hierarchy</h1>
+      <p class="text-sm text-gray-500 mt-1">{{ school.name }}</p>
+    </div>
+    {% if shared_class_colors %}
+    <div class="flex items-center gap-2 text-xs text-gray-500">
+      <span class="inline-block w-3 h-3 rounded-full bg-gradient-to-r from-blue-200 to-purple-200 border border-gray-300"></span>
+      Colour-coded classes are shared between staff
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Tab Switcher -->
+  <div class="flex gap-1 mb-6 bg-gray-100 rounded-lg p-1 w-fit">
+    <button id="btn-tree" onclick="switchTab('tree')"
+            class="px-4 py-2 rounded-md text-sm font-medium transition-all bg-white shadow text-gray-900">
+      <svg class="w-4 h-4 inline-block mr-1 -mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/>
+      </svg>
+      Tree View
+    </button>
+    <button id="btn-grid" onclick="switchTab('grid')"
+            class="px-4 py-2 rounded-md text-sm font-medium transition-all text-gray-500 hover:text-gray-700">
+      <svg class="w-4 h-4 inline-block mr-1 -mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z"/>
+      </svg>
+      Grid View
+    </button>
+  </div>
+
+
+  {# ════════════════════════════════════════════════════════ #}
+  {# ── TAB 1: TREE VIEW (org chart with connector lines) ── #}
+  {# ════════════════════════════════════════════════════════ #}
+  <div id="view-tree"
+       x-data="{ canScrollLeft: false, canScrollRight: false }"
+       x-init="$nextTick(() => { let el = $refs.treeScroll; if(el) { canScrollRight = el.scrollWidth > el.clientWidth + 1; } })"
+       class="relative">
+
+      {# Scroll fade indicators #}
+      <div x-show="canScrollLeft" x-transition.opacity class="scroll-fade-left"></div>
+      <div x-show="canScrollRight" x-transition.opacity class="scroll-fade-right"></div>
+
+      {# Scroll arrow buttons #}
+      <button x-show="canScrollLeft" x-transition.opacity
+              @click="$refs.treeScroll.scrollBy({left: -300, behavior: 'smooth'})"
+              class="absolute left-1 top-1/2 -translate-y-1/2 z-10 w-8 h-8 bg-white/90 border border-gray-300 rounded-full shadow-md flex items-center justify-center text-gray-500 hover:text-gray-800 hover:bg-white transition-all">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/></svg>
+      </button>
+      <button x-show="canScrollRight" x-transition.opacity
+              @click="$refs.treeScroll.scrollBy({left: 300, behavior: 'smooth'})"
+              class="absolute right-1 top-1/2 -translate-y-1/2 z-10 w-8 h-8 bg-white/90 border border-gray-300 rounded-full shadow-md flex items-center justify-center text-gray-500 hover:text-gray-800 hover:bg-white transition-all">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+      </button>
+
+      <div x-ref="treeScroll"
+           @scroll="canScrollLeft = $el.scrollLeft > 0; canScrollRight = $el.scrollLeft + $el.clientWidth < $el.scrollWidth - 1"
+           class="overflow-x-auto">
+      <div class="tree inline-block min-w-full text-center p-6">
+
+        {# Root: HoI #}
+        <ul class="flex justify-center" style="padding-top:0">
+          <li style="padding-top:0">
+            <div class="node">
+              {% if hoi_users %}
+              <div class="inline-block bg-white border-2 border-amber-400 rounded-2xl shadow-md px-5 py-3">
+                  {% for hoi in hoi_users %}
+                  <div class="flex items-center gap-2 {% if not forloop.first %}mt-2 pt-2 border-t border-gray-100{% endif %}">
+                    <div class="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center">
+                      <svg class="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z"/>
+                      </svg>
+                    </div>
+                    <div class="text-left">
+                      <p class="font-semibold text-sm text-gray-900">{{ hoi.get_full_name|default:hoi.username }}</p>
+                      <span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">Head of Institute</span>
+                    </div>
+                  </div>
+                  {% endfor %}
+              </div>
+              {% else %}
+              <div class="inline-block bg-gray-50 border-2 border-dashed border-amber-300 rounded-2xl px-5 py-3">
+                <div class="flex items-center gap-2">
+                  <div class="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center">
+                    <svg class="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z"/>
+                    </svg>
+                  </div>
+                  <p class="text-sm text-gray-400 italic">No Head of Institute assigned</p>
+                </div>
+              </div>
+              {% endif %}
+            </div>
+
+            {# Departments in one horizontal row #}
+            {% if dept_hierarchy %}
+            <ul class="flex justify-center">
+              {% for dept_data in dept_hierarchy %}
+              <li>
+                <div class="node">
+                  <div class="dept-card bg-white border-2 border-purple-400 rounded-2xl shadow-md px-4 py-3">
+                    <div class="flex items-center gap-2">
+                      <div class="w-9 h-9 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0">
+                        <svg class="w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/>
+                        </svg>
+                      </div>
+                      <div class="text-left min-w-0">
+                        <p class="font-semibold text-sm text-gray-900">{{ dept_data.department.name }}</p>
+                        {% if dept_data.hod %}
+                        <p class="text-xs text-gray-500">HoD: {{ dept_data.hod.get_full_name|default:dept_data.hod.username }}</p>
+                        {% else %}
+                        <p class="text-xs text-gray-400 italic">No HoD assigned</p>
+                        {% endif %}
+                      </div>
+                    </div>
+                    <div class="flex justify-center gap-3 mt-2 pt-2 border-t border-purple-100 text-[11px] text-gray-500">
+                      <span title="Staff">{{ dept_data.total_teachers }} <span class="text-purple-400">staff</span></span>
+                      <span title="Classes">{{ dept_data.total_classes }} <span class="text-purple-400">classes</span></span>
+                      <span title="Students">{{ dept_data.total_students }} <span class="text-purple-400">students</span></span>
+                    </div>
+                  </div>
+                </div>
+
+                {# Teachers #}
+                {% if dept_data.teachers %}
+                <ul class="flex justify-center">
+                  {% for teacher_data in dept_data.teachers %}
+                  <li>
+                    <div class="node">
+                      {% include "hierarchy/_teacher_card.html" with teacher_data=teacher_data %}
+                    </div>
+                  </li>
+                  {% endfor %}
+                </ul>
+                {% else %}
+                <ul class="flex justify-center">
+                  <li>
+                    <div class="node">
+                      <div class="inline-block bg-gray-50 border border-dashed border-gray-300 rounded-xl px-4 py-2">
+                        <p class="text-xs text-gray-400 italic">No staff assigned</p>
+                      </div>
+                    </div>
+                  </li>
+                </ul>
+                {% endif %}
+                {% if dept_data.unassigned_classes %}
+                <ul class="flex justify-center mt-2">
+                  {% for uc in dept_data.unassigned_classes %}
+                  <li>
+                    <div class="node">
+                      <div class="inline-block bg-amber-50 border border-amber-300 rounded-xl px-3 py-1.5">
+                        <p class="text-xs font-medium text-amber-800">{{ uc.classroom.name }}</p>
+                        <p class="text-[10px] text-amber-600">No staff &middot; {{ uc.student_count }} students</p>
+                      </div>
+                    </div>
+                  </li>
+                  {% endfor %}
+                </ul>
+                {% endif %}
+              </li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <ul class="flex justify-center">
+              <li>
+                <div class="node">
+                  <div class="inline-block bg-gray-50 border border-dashed border-gray-300 rounded-xl px-4 py-2">
+                    <p class="text-xs text-gray-400 italic">No departments created</p>
+                  </div>
+                </div>
+              </li>
+            </ul>
+            {% endif %}
+
+          </li>
+        </ul>
+
+      </div>
+      </div>{# /treeScroll #}
+  </div>
+
+
+  {# ════════════════════════════════════════════════════════ #}
+  {# ── TAB 2: GRID VIEW (department cards in a grid) ────── #}
+  {# ════════════════════════════════════════════════════════ #}
+  <div id="view-grid" class="pb-8 hidden">
+
+    {# HoI banner #}
+    <div class="{% if hoi_users %}bg-white border-2 border-amber-400 shadow-md{% else %}bg-gray-50 border-2 border-dashed border-amber-300{% endif %} rounded-2xl px-5 py-3 mb-6 w-fit">
+      {% if hoi_users %}
+        {% for hoi in hoi_users %}
+        <div class="flex items-center gap-2 {% if not forloop.first %}mt-2 pt-2 border-t border-gray-100{% endif %}">
+          <div class="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center">
+            <svg class="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z"/>
+            </svg>
+          </div>
+          <div class="text-left">
+            <p class="font-semibold text-sm text-gray-900">{{ hoi.get_full_name|default:hoi.username }}</p>
+            <span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">Head of Institute</span>
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center">
+            <svg class="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z"/>
+            </svg>
+          </div>
+          <p class="text-sm text-gray-400 italic">No Head of Institute assigned</p>
+        </div>
+      {% endif %}
+    </div>
+
+    {# Department cards grid #}
+    {% if dept_hierarchy %}
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+      {% for dept_data in dept_hierarchy %}
+      <div class="bg-white border-2 border-purple-300 rounded-2xl shadow-sm overflow-hidden">
+
+        {# Department header #}
+        <div class="bg-purple-50 border-b border-purple-200 px-5 py-3">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0">
+              <svg class="w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/>
+              </svg>
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between">
+                <p class="font-bold text-gray-900">{{ dept_data.department.name }}</p>
+              </div>
+              {% if dept_data.hod %}
+              <p class="text-xs text-gray-500">HoD: {{ dept_data.hod.get_full_name|default:dept_data.hod.username }}</p>
+              {% else %}
+              <p class="text-xs text-gray-400 italic">No HoD assigned</p>
+              {% endif %}
+              <div class="flex gap-3 mt-1.5 text-xs text-gray-500">
+                <span>{{ dept_data.total_teachers }} <span class="text-purple-500">staff</span></span>
+                <span>{{ dept_data.total_classes }} <span class="text-purple-500">classes</span></span>
+                <span>{{ dept_data.total_students }} <span class="text-purple-500">students</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {# Teachers list #}
+        <div class="p-4 space-y-3">
+          {% if dept_data.teachers %}
+            {% for teacher_data in dept_data.teachers %}
+            <div class="border rounded-xl px-4 py-3
+                        {% if teacher_data.role_key == 'senior_teacher' %}border-indigo-200 bg-indigo-50/30
+                        {% elif teacher_data.role_key == 'teacher' %}border-blue-200 bg-blue-50/30
+                        {% elif teacher_data.role_key == 'junior_teacher' %}border-sky-200 bg-sky-50/30
+                        {% else %}border-gray-200 bg-gray-50/30{% endif %}">
+              <div class="flex items-center gap-2 mb-2">
+                <div class="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0
+                            {% if teacher_data.role_key == 'senior_teacher' %}bg-indigo-100
+                            {% elif teacher_data.role_key == 'teacher' %}bg-blue-100
+                            {% elif teacher_data.role_key == 'junior_teacher' %}bg-sky-100
+                            {% else %}bg-gray-100{% endif %}">
+                  <svg class="w-3.5 h-3.5
+                              {% if teacher_data.role_key == 'senior_teacher' %}text-indigo-600
+                              {% elif teacher_data.role_key == 'teacher' %}text-blue-600
+                              {% elif teacher_data.role_key == 'junior_teacher' %}text-sky-600
+                              {% else %}text-gray-600{% endif %}"
+                       fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>
+                  </svg>
+                </div>
+                <div>
+                  <p class="font-semibold text-sm text-gray-900">{{ teacher_data.user.get_full_name|default:teacher_data.user.username }}</p>
+                  <span class="text-[10px] font-medium
+                               {% if teacher_data.role_key == 'senior_teacher' %}text-indigo-600
+                               {% elif teacher_data.role_key == 'teacher' %}text-blue-600
+                               {% elif teacher_data.role_key == 'junior_teacher' %}text-sky-600
+                               {% else %}text-gray-500{% endif %}">
+                    {{ teacher_data.role_display }}
+                  </span>
+                </div>
+              </div>
+
+              {# Classes #}
+              {% if teacher_data.classes %}
+              <div class="space-y-1 ml-9">
+                {% for cls_data in teacher_data.classes %}
+                {% if cls_data.can_view %}
+                <a href="{% url 'class_detail' cls_data.classroom.id %}"
+                   class="class-link flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs
+                          {% if cls_data.is_shared %}{{ cls_data.color.bg }} {{ cls_data.color.text }} border {{ cls_data.color.border }}{% else %}bg-white text-gray-600 border border-gray-200 hover:bg-gray-50{% endif %}">
+                {% else %}
+                <div class="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs
+                            {% if cls_data.is_shared %}{{ cls_data.color.bg }} {{ cls_data.color.text }} border {{ cls_data.color.border }}{% else %}bg-white text-gray-600 border border-gray-200{% endif %}">
+                {% endif %}
+                  <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.436 60.436 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.697 50.697 0 0112 13.489a50.702 50.702 0 017.74-3.342M6.75 15a.75.75 0 100-1.5.75.75 0 000 1.5zm0 0v-3.675A55.378 55.378 0 0112 8.443m-7.007 11.55A5.981 5.981 0 006.75 15.75v-1.5"/>
+                  </svg>
+                  <span class="font-medium">{{ cls_data.classroom.name }}</span>
+                  {% if cls_data.is_shared %}
+                  <span class="text-[10px] opacity-70">(shared)</span>
+                  {% endif %}
+                  <span class="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-gray-100 text-xs text-gray-600">
+                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/>
+                    </svg>
+                    {{ cls_data.student_count }}
+                  </span>
+                {% if cls_data.can_view %}
+                </a>
+                {% else %}
+                </div>
+                {% endif %}
+                {% endfor %}
+              </div>
+              {% else %}
+              <p class="ml-9 text-xs text-gray-400 italic">No classes</p>
+              {% endif %}
+            </div>
+            {% endfor %}
+          {% else %}
+            <p class="text-xs text-gray-400 italic text-center py-2">No staff assigned</p>
+          {% endif %}
+
+          {% if dept_data.unassigned_classes %}
+            <div class="mt-3 pt-3 border-t border-slate-100">
+              <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Unassigned Classes</p>
+              <div class="space-y-1">
+                {% for uc in dept_data.unassigned_classes %}
+                  <div class="flex items-center justify-between px-3 py-1.5 bg-amber-50 rounded-lg border border-amber-200">
+                    <span class="text-xs font-medium text-amber-800">{{ uc.classroom.name }}</span>
+                    <span class="text-xs text-amber-600">{{ uc.student_count }} students</span>
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
+        </div>
+
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-center py-8">
+      <p class="text-sm text-gray-400 italic">No departments created</p>
+    </div>
+    {% endif %}
+
+  </div>
+
+</div>
+
+<script>
+function switchTab(tab) {
+  const treeView = document.getElementById('view-tree');
+  const gridView = document.getElementById('view-grid');
+  const btnTree  = document.getElementById('btn-tree');
+  const btnGrid  = document.getElementById('btn-grid');
+
+  if (tab === 'tree') {
+    treeView.classList.remove('hidden');
+    gridView.classList.add('hidden');
+    btnTree.className = 'px-4 py-2 rounded-md text-sm font-medium transition-all bg-white shadow text-gray-900';
+    btnGrid.className = 'px-4 py-2 rounded-md text-sm font-medium transition-all text-gray-500 hover:text-gray-700';
+  } else {
+    treeView.classList.add('hidden');
+    gridView.classList.remove('hidden');
+    btnGrid.className = 'px-4 py-2 rounded-md text-sm font-medium transition-all bg-white shadow text-gray-900';
+    btnTree.className = 'px-4 py-2 rounded-md text-sm font-medium transition-all text-gray-500 hover:text-gray-700';
+  }
+}
+</script>
+
+{% endblock %}

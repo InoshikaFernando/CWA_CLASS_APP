@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+
+{% block title %}Invoices{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <div class="flex items-center justify-between">
+      <div>
+        <h1 class="text-2xl font-display font-bold text-gray-900">Invoices</h1>
+        <p class="text-gray-500 mt-1">{{ school.name }}</p>
+      </div>
+      <div class="flex items-center gap-3">
+        {% if draft_count > 0 %}
+          <form method="post" action="{% url 'issue_invoices' %}"
+                onsubmit="return confirm('Issue all {{ draft_count }} draft invoice(s)?')">
+            {% csrf_token %}
+            {% for did in draft_ids %}
+              <input type="hidden" name="invoice_ids" value="{{ did }}">
+            {% endfor %}
+            <button type="submit"
+              class="px-5 py-2.5 bg-emerald-600 text-white font-semibold rounded-xl hover:bg-emerald-700 transition shadow-sm">
+              Issue All Drafts ({{ draft_count }})
+            </button>
+          </form>
+        {% endif %}
+        <a href="{% url 'generate_invoices' %}"
+           class="inline-flex items-center gap-2 px-5 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+          </svg>
+          Generate Invoices
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats cards -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 bg-accent/10 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6 text-accent" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-2xl font-bold text-gray-900">{{ page.paginator.count }}</p>
+          <p class="text-sm text-gray-500">Total Invoices</p>
+        </div>
+      </div>
+    </div>
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 bg-amber-50 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6 text-amber-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-2xl font-bold text-amber-600">{{ draft_count }}</p>
+          <p class="text-sm text-gray-500">Drafts</p>
+        </div>
+      </div>
+    </div>
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-2xl font-bold text-emerald-600">Billing</p>
+          <p class="text-sm text-gray-500">Search & filter below</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="mb-4 p-4 rounded-xl text-sm font-medium
+        {% if message.tags == 'success' %}bg-emerald-50 text-emerald-700 border border-emerald-200
+        {% elif message.tags == 'error' %}bg-red-50 text-red-700 border border-red-200
+        {% else %}bg-blue-50 text-blue-700 border border-blue-200{% endif %}">
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  <!-- Filters -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 mb-6">
+    <form method="get" class="flex flex-wrap items-end gap-4">
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Search</label>
+        <input type="text" name="q" value="{{ search }}" placeholder="Name or invoice #..."
+          class="px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Status</label>
+        <select name="status"
+          class="px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+          <option value="">All</option>
+          <option value="draft" {% if status_filter == 'draft' %}selected{% endif %}>Draft</option>
+          <option value="issued" {% if status_filter == 'issued' %}selected{% endif %}>Issued</option>
+          <option value="partially_paid" {% if status_filter == 'partially_paid' %}selected{% endif %}>Partially Paid</option>
+          <option value="paid" {% if status_filter == 'paid' %}selected{% endif %}>Paid</option>
+          <option value="cancelled" {% if status_filter == 'cancelled' %}selected{% endif %}>Cancelled</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Department</label>
+        <select name="department"
+          class="px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+          <option value="">All</option>
+          {% for dept in departments %}
+            <option value="{{ dept.id }}" {% if dept_filter == dept.id|stringformat:"s" %}selected{% endif %}>{{ dept.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit"
+        class="px-4 py-1.5 text-sm bg-slate-100 text-gray-700 rounded-lg hover:bg-slate-200 transition font-medium border border-slate-300">
+        Filter
+      </button>
+      {% if search or status_filter or dept_filter %}
+        <a href="{% url 'invoice_list' %}" class="px-4 py-1.5 text-sm text-gray-500 hover:text-gray-700 transition">Clear</a>
+      {% endif %}
+    </form>
+  </div>
+
+  <!-- Table -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    {% if page.object_list %}
+      <table class="w-full">
+        <thead>
+          <tr class="border-b border-slate-100">
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Invoice #</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Student</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Period</th>
+            <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Amount</th>
+            <th class="px-6 py-3 text-center text-xs font-semibold text-gray-500 uppercase">Status</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for invoice in page %}
+            <tr class="border-b border-slate-50 hover:bg-slate-50 transition cursor-pointer"
+                onclick="window.location='{% url 'invoice_detail' invoice_id=invoice.id %}'">
+              <td class="px-6 py-4 font-mono text-sm text-indigo-600">{{ invoice.invoice_number }}</td>
+              <td class="px-6 py-4 font-medium text-gray-900">{{ invoice.student.first_name }} {{ invoice.student.last_name }}</td>
+              <td class="px-6 py-4 text-sm text-gray-600">{{ invoice.billing_period_start|date:"M d" }} &ndash; {{ invoice.billing_period_end|date:"M d, Y" }}</td>
+              <td class="px-6 py-4 text-right font-semibold text-gray-900">${{ invoice.amount }}</td>
+              <td class="px-6 py-4 text-center">
+                <span class="text-xs font-medium px-2.5 py-1 rounded-full
+                  {% if invoice.status == 'draft' %}bg-gray-100 text-gray-600
+                  {% elif invoice.status == 'issued' %}bg-blue-100 text-blue-700
+                  {% elif invoice.status == 'partially_paid' %}bg-amber-100 text-amber-700
+                  {% elif invoice.status == 'paid' %}bg-emerald-100 text-emerald-700
+                  {% elif invoice.status == 'cancelled' %}bg-red-100 text-red-700
+                  {% endif %}">
+                  {{ invoice.get_status_display }}
+                </span>
+              </td>
+              <td class="px-6 py-4 text-sm text-gray-500">{{ invoice.created_at|date:"M d, Y" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <!-- Pagination -->
+      {% if page.has_other_pages %}
+        <div class="px-6 py-4 border-t border-slate-100 flex items-center justify-between">
+          <p class="text-sm text-gray-500">
+            Showing {{ page.start_index }}&ndash;{{ page.end_index }} of {{ page.paginator.count }}
+          </p>
+          <div class="flex gap-1">
+            {% if page.has_previous %}
+              <a href="?page={{ page.previous_page_number }}{% if search %}&q={{ search }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if dept_filter %}&department={{ dept_filter }}{% endif %}"
+                 class="px-3 py-1 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 transition">Prev</a>
+            {% endif %}
+            {% if page.has_next %}
+              <a href="?page={{ page.next_page_number }}{% if search %}&q={{ search }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if dept_filter %}&department={{ dept_filter }}{% endif %}"
+                 class="px-3 py-1 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 transition">Next</a>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+    {% else %}
+      <div class="px-6 py-16 text-center">
+        <svg class="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/>
+        </svg>
+        <h3 class="text-lg font-semibold text-gray-900 mb-1">No Invoices Found</h3>
+        <p class="text-gray-500 mb-4">
+          {% if search or status_filter or dept_filter %}
+            No invoices match your filters. Try adjusting your search.
+          {% else %}
+            Generate your first batch of invoices to get started.
+          {% endif %}
+        </p>
+        <a href="{% url 'generate_invoices' %}"
+           class="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition">
+          Generate Invoices
+        </a>
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

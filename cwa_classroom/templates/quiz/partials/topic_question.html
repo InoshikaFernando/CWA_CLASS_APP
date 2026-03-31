@@ -1,0 +1,86 @@
+{% if error %}
+  <div class="bg-red-50 rounded-2xl p-6 text-center text-red-600">{{ error }}</div>
+{% else %}
+<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6" id="question-card">
+
+  <!-- Question number badge -->
+  <div class="flex items-center gap-2 mb-4">
+    <span class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-primary text-white text-xs font-bold">
+      {{ question_number }}
+    </span>
+    <span class="text-xs text-gray-400 font-semibold">of {{ total_questions }}</span>
+  </div>
+
+  <!-- Question image -->
+  {% if question.image %}
+  <img src="{{ question.image.url }}" alt="Question image"
+       class="rounded-xl mb-4 max-h-48 object-contain mx-auto" />
+  {% endif %}
+
+  <!-- Question text -->
+  <p class="text-gray-800 font-semibold text-lg mb-6 leading-snug">{{ question.question_text }}</p>
+
+  <!-- Answer inputs by type -->
+  {% if question.question_type == 'multiple_choice' or question.question_type == 'true_false' %}
+    <div class="space-y-3">
+      {% for answer in answers %}
+      <button type="button"
+              class="answer-btn w-full text-left px-5 py-3.5 rounded-xl border-2 border-gray-200
+                     hover:border-primary hover:bg-primary-light font-semibold text-gray-700
+                     transition focus:outline-none"
+              onclick="submitMCAnswer('{{ session_id }}', {{ question.id }}, {{ answer.id }})">
+        {{ answer.answer_text }}
+      </button>
+      {% endfor %}
+    </div>
+
+  {% elif question.question_type == 'drag_drop' %}
+    <p class="text-sm text-gray-500 mb-3">Drag the tiles into the correct order.</p>
+    <ul id="sortable-list" class="space-y-2">
+      {% for answer in answers %}
+      <li class="flex items-center gap-3 bg-gray-50 border border-slate-200 rounded-xl px-4 py-3 cursor-grab active:cursor-grabbing"
+          data-id="{{ answer.id }}">
+        <span class="text-gray-400">⠿</span>
+        <span class="font-semibold text-gray-800">{{ answer.answer_text }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    <button type="button"
+            class="mt-4 w-full bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-5 py-3 transition"
+            onclick="submitDragDrop('{{ session_id }}', {{ question.id }})">
+      Submit Order
+    </button>
+
+  {% else %}
+    <!-- Short answer / calculation -->
+    <div class="flex gap-3">
+      <input type="text" id="text-answer-input"
+             placeholder="Your answer..."
+             autocomplete="off"
+             autofocus
+             class="flex-1 rounded-xl border-2 border-gray-200 px-4 py-3 text-lg font-bold
+                    focus:outline-none focus:border-primary transition" />
+      <button type="button"
+              class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition"
+              onclick="submitTextAnswer('{{ session_id }}', {{ question.id }})">
+        Submit
+      </button>
+    </div>
+    <script>
+      document.getElementById('text-answer-input').addEventListener('keydown', e => {
+        if (e.key === 'Enter') submitTextAnswer('{{ session_id }}', {{ question.id }});
+      });
+    </script>
+  {% endif %}
+
+</div>
+{% endif %}
+
+<script>
+  // Disable answer buttons after click to prevent double-submit
+  document.querySelectorAll('.answer-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.answer-btn').forEach(b => b.disabled = true);
+    });
+  });
+</script>

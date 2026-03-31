@@ -1,0 +1,670 @@
+{% extends "maths/base.html" %}
+{% load practice_extras %}
+{% block content %}
+
+{% if completed %}
+<style>
+    .score-container {
+        border-radius: 20px;
+        padding: 40px;
+        text-align: center;
+        color: white;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        margin: 50px auto;
+        max-width: 600px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    
+    .score-container.gold {
+        background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
+        animation: goldPulse 2s ease-in-out infinite;
+    }
+    
+    @keyframes goldPulse {
+        0%, 100% {
+            box-shadow: 0 10px 30px rgba(255, 215, 0, 0.4);
+        }
+        50% {
+            box-shadow: 0 15px 40px rgba(255, 215, 0, 0.7);
+        }
+    }
+    
+    .score-title {
+        font-size: 32px;
+        margin-bottom: 20px;
+    }
+    
+    .score-value {
+        font-size: 72px;
+        font-weight: bold;
+        margin: 20px 0;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+    }
+    
+    .score-percentage {
+        font-size: 24px;
+        margin-top: 20px;
+    }
+    
+    .back-button {
+        display: inline-block;
+        margin-top: 30px;
+        padding: 15px 40px;
+        background: white;
+        color: #667eea;
+        text-decoration: none;
+        border-radius: 30px;
+        font-weight: bold;
+        transition: transform 0.3s;
+    }
+    
+    .back-button.gold {
+        color: #FFA500;
+    }
+    
+    .back-button:hover {
+        transform: scale(1.05);
+    }
+    
+    .high-score-badge {
+        margin-top: 20px;
+        padding: 15px 20px;
+        background: rgba(255,255,255,0.25);
+        border-radius: 15px;
+        border: 2px solid rgba(255,255,255,0.5);
+        font-size: 26px;
+        font-weight: bold;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+    }
+    
+    /* Popup Modal Styles */
+    .review-popup-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.7);
+        z-index: 1000;
+        overflow-y: auto;
+    }
+    
+    .review-popup-overlay.active {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+    }
+    
+    .review-popup {
+        background: white;
+        border-radius: 15px;
+        max-width: 900px;
+        width: 100%;
+        max-height: 90vh;
+        overflow-y: auto;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        position: relative;
+        animation: slideIn 0.3s ease-out;
+    }
+    
+    @keyframes slideIn {
+        from {
+            transform: translateY(-50px);
+            opacity: 0;
+        }
+        to {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    }
+    
+    .review-popup-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 20px 30px;
+        border-radius: 15px 15px 0 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+    }
+    
+    .review-popup-header h2 {
+        margin: 0;
+        font-size: 24px;
+    }
+    
+    .close-popup {
+        background: rgba(255,255,255,0.2);
+        border: 2px solid rgba(255,255,255,0.5);
+        color: white;
+        width: 35px;
+        height: 35px;
+        border-radius: 50%;
+        cursor: pointer;
+        font-size: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.3s;
+    }
+    
+    .close-popup:hover {
+        background: rgba(255,255,255,0.3);
+        transform: scale(1.1);
+    }
+    
+    .review-popup-stats {
+        padding: 20px 30px;
+        background: #f8f9fa;
+        border-bottom: 2px solid #dee2e6;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 15px;
+    }
+    
+    .stat-box {
+        text-align: center;
+        padding: 15px;
+        background: white;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .stat-box .stat-label {
+        font-size: 12px;
+        color: #666;
+        margin-bottom: 5px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    .stat-box .stat-value {
+        font-size: 24px;
+        font-weight: bold;
+        color: #667eea;
+    }
+    
+    .review-popup-content {
+        padding: 30px;
+    }
+    
+    .review-question-item {
+        margin-bottom: 25px;
+        padding: 20px;
+        border-radius: 10px;
+        border: 2px solid #e9ecef;
+        background: #f8f9fa;
+    }
+    
+    .review-question-item.correct {
+        border-color: #28a745;
+        background: #d4edda;
+    }
+    
+    .review-question-item.incorrect {
+        border-color: #dc3545;
+        background: #f8d7da;
+    }
+    
+    .review-question-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+    }
+    
+    .review-question-number {
+        font-size: 18px;
+        font-weight: bold;
+        color: #333;
+    }
+    
+    .review-question-status {
+        padding: 5px 15px;
+        border-radius: 20px;
+        font-weight: bold;
+        font-size: 14px;
+    }
+    
+    .review-question-status.correct {
+        background: #28a745;
+        color: white;
+    }
+    
+    .review-question-status.incorrect {
+        background: #dc3545;
+        color: white;
+    }
+    
+    .review-question-text {
+        font-size: 20px;
+        font-weight: bold;
+        margin-bottom: 15px;
+        color: #333;
+    }
+    
+    .review-answer-section {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 15px;
+        margin-top: 15px;
+    }
+    
+    .review-answer-box {
+        padding: 15px;
+        border-radius: 8px;
+        background: white;
+    }
+    
+    .review-answer-box.student-answer {
+        border: 2px solid #ffc107;
+    }
+    
+    .review-answer-box.correct-answer {
+        border: 2px solid #28a745;
+    }
+    
+    .review-answer-label {
+        font-size: 12px;
+        text-transform: uppercase;
+        color: #666;
+        margin-bottom: 8px;
+        font-weight: bold;
+        letter-spacing: 0.5px;
+    }
+    
+    .review-answer-value {
+        font-size: 18px;
+        font-weight: bold;
+        color: #333;
+    }
+    
+    .review-answer-box.student-answer .review-answer-value {
+        color: #856404;
+    }
+    
+    .review-answer-box.correct-answer .review-answer-value {
+        color: #155724;
+    }
+    
+    .view-details-button {
+        margin-top: 20px;
+        padding: 12px 30px;
+        background: #667eea;
+        color: white;
+        border: none;
+        border-radius: 25px;
+        font-size: 16px;
+        font-weight: bold;
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+    
+    .view-details-button:hover {
+        background: #5568d3;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+    }
+</style>
+
+<div class="score-container{% if beat_record %} gold{% endif %}">
+    {% if beat_record %}
+    <h1 class="score-title">🏆 NEW HIGH SCORE! 🏆</h1>
+    {% else %}
+    <h1 class="score-title">🎉 Quiz Completed! 🎉</h1>
+    {% endif %}
+    <div class="score-value">{{ total_score }}/{{ total_points }}</div>
+    {% widthratio total_score total_points 100 as percentage %}
+    <div class="score-percentage">{{ percentage }}%</div>
+    <div class="score-percentage">Time: {{ total_time_seconds|format_time }}</div>
+    <div class="score-percentage">Points: {{ final_points }}</div>
+    {% if beat_record %}
+    <div class="high-score-badge">
+        🎉 New High Score! Previous best: {{ previous_best_points }}
+    </div>
+    {% elif is_first_attempt %}
+    <div class="score-percentage" style="margin-top: 20px; padding: 10px; background: rgba(255,255,255,0.2); border-radius: 10px;">
+        ✨ First Attempt!
+    </div>
+    {% else %}
+    <div class="score-percentage" style="margin-top: 20px; padding: 10px; background: rgba(255,255,255,0.2); border-radius: 10px;">
+        Best record: {{ previous_best_points }}
+    </div>
+    {% endif %}
+    {% if question_review_data %}
+    <button onclick="openReviewPopup()" class="back-button{% if beat_record %} gold{% endif %}" style="margin-right: 15px; cursor: pointer;">
+        📋 View Answers
+    </button>
+    {% endif %}
+    <a href="{% url 'maths:dashboard_detail' %}" class="back-button{% if beat_record %} gold{% endif %}">Back to Dashboard</a>
+</div>
+
+{% if question_review_data %}
+<!-- Review Popup Modal -->
+<div id="reviewPopup" class="review-popup-overlay">
+    <div class="review-popup">
+        <div class="review-popup-header">
+            <h2>📊 Quiz Results - Answer Review</h2>
+            <button class="close-popup" onclick="closeReviewPopup()">×</button>
+        </div>
+        <div class="review-popup-stats">
+            <div class="stat-box">
+                <div class="stat-label">Score</div>
+                <div class="stat-value">{{ total_score }}/{{ total_points }}</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Percentage</div>
+                <div class="stat-value">{% widthratio total_score total_points 100 %}%</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Time</div>
+                <div class="stat-value">{{ total_time_seconds|format_time }}</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Points</div>
+                <div class="stat-value">{{ final_points }}</div>
+            </div>
+        </div>
+        <div class="review-popup-content">
+            {% for review in question_review_data %}
+            <div class="review-question-item {% if review.is_correct %}correct{% else %}incorrect{% endif %}">
+                <div class="review-question-header">
+                    <span class="review-question-number">Question {{ forloop.counter }}</span>
+                    <span class="review-question-status {% if review.is_correct %}correct{% else %}incorrect{% endif %}">
+                        {% if review.is_correct %}✓ Correct{% else %}✗ Incorrect{% endif %}
+                    </span>
+                </div>
+                <div class="review-question-text">{{ review.question_text }}</div>
+                {% if review.question_image %}
+                    <img src="{{ review.question_image.url }}" alt="Question diagram" class="question-image" style="max-width: 100%; margin: 15px 0;">
+                {% endif %}
+                <div class="review-answer-section">
+                    <div class="review-answer-box student-answer">
+                        <div class="review-answer-label">Your Answer</div>
+                        <div class="review-answer-value">{{ review.student_answer|default:"No answer" }}</div>
+                    </div>
+                    <div class="review-answer-box correct-answer">
+                        <div class="review-answer-label">Correct Answer</div>
+                        <div class="review-answer-value">{{ review.correct_answer }}</div>
+                    </div>
+                </div>
+                {% if review.explanation %}
+                    <div class="review-explanation" style="margin-top: 15px; padding: 15px; background: #e3f2fd; border-left: 4px solid #2196f3; border-radius: 4px;">
+                        <div style="font-weight: bold; margin-bottom: 8px; color: #1976d2;">💡 Explanation:</div>
+                        <div style="color: #333;">{{ review.explanation }}</div>
+                    </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<script>
+    // Auto-open popup on page load
+    window.addEventListener('DOMContentLoaded', function() {
+        openReviewPopup();
+    });
+    
+    function openReviewPopup() {
+        document.getElementById('reviewPopup').classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }
+    
+    function closeReviewPopup() {
+        document.getElementById('reviewPopup').classList.remove('active');
+        document.body.style.overflow = 'auto';
+    }
+    
+    // Close popup when clicking outside
+    document.getElementById('reviewPopup').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeReviewPopup();
+        }
+    });
+    
+    // Close popup with Escape key
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            closeReviewPopup();
+        }
+    });
+</script>
+{% endif %}
+
+{% else %}
+
+<h1>📝 Quiz - {% if level.level_number >= 100 %}Level {{ level.level_number|basic_facts_level }}{% else %}Year {{ level.level_number }}{% endif %}</h1>
+
+<div class="quiz-container">
+    <form method="post">
+        {% csrf_token %}
+        
+        <div class="quiz-info">
+            <p><strong>Total Questions:</strong> {{ questions|length }}</p>
+            <p><strong>Topics Covered:</strong> {% if level.level_number >= 100 %}Basic Facts{% else %}All topics for Year {{ level.level_number }}{% endif %}</p>
+            <p style="text-align: center; color: #333; font-weight: bold; margin-top: 10px;">⏱️ Time: <span id="live-timer">0s</span></p>
+        </div>
+        
+        {% for question in questions %}
+            <div class="question-item">
+                <div class="question-header">
+                    <h3>Question {{ forloop.counter }}</h3>
+                    <span class="points">{{ question.points }} point{{ question.points|pluralize }}</span>
+                </div>
+                
+                <div class="question-text">
+                    {{ question.question_text|safe }}
+                </div>
+                
+                {% if question.image %}
+                    <img src="{{ question.image.url }}" alt="Question diagram" class="question-image">
+                {% endif %}
+                
+                <div class="answer-options">
+                    {% if question.question_type == 'short_answer' %}
+                        <div class="text-answer">
+                            <input type="text" 
+                                   name="question_{{ question.id }}" 
+                                   placeholder="Enter your answer..." 
+                                   required
+                                   style="width: 100%; padding: 12px; font-size: 16px; border: 2px solid #dee2e6; border-radius: 6px; margin-top: 10px;">
+                        </div>
+                    {% else %}
+                        {% if question.shuffled_answers %}
+                            {% for answer in question.shuffled_answers %}
+                                <label class="answer-option">
+                                    <input type="radio" name="question_{{ question.id }}" value="{{ answer.id }}" required>
+                                    <span>{{ answer.answer_text }}</span>
+                                </label>
+                            {% endfor %}
+                        {% else %}
+                            {% for answer in question.answers.all %}
+                                <label class="answer-option">
+                                    <input type="radio" name="question_{{ question.id }}" value="{{ answer.id }}" required>
+                                    <span>{{ answer.answer_text }}</span>
+                                </label>
+                            {% endfor %}
+                        {% endif %}
+                    {% endif %}
+                </div>
+                
+                {% comment %}Hints/explanations are hidden initially and shown after submission{% endcomment %}
+            </div>
+        {% endfor %}
+        
+        <div class="submit-container">
+            <button type="submit" class="btn btn-primary">Submit Quiz</button>
+        </div>
+    </form>
+</div>
+
+<style>
+    .quiz-container {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+    
+    .quiz-info {
+        background: #e3f2fd;
+        border: 1px solid #2196f3;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 30px;
+    }
+    
+    .quiz-info p {
+        margin: 5px 0;
+    }
+    
+    .question-item {
+        background: white;
+        border: 2px solid #e9ecef;
+        border-radius: 8px;
+        padding: 25px;
+        margin-bottom: 25px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .question-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+        border-bottom: 2px solid #dee2e6;
+        padding-bottom: 10px;
+    }
+    
+    .question-header h3 {
+        margin: 0;
+        color: #007bff;
+    }
+    
+    .points {
+        background: #28a745;
+        color: white;
+        padding: 5px 12px;
+        border-radius: 20px;
+        font-size: 14px;
+        font-weight: bold;
+    }
+    
+    .question-text {
+        font-size: 18px;
+        margin: 20px 0;
+        color: #333;
+    }
+    
+    .question-image {
+        max-width: 100%;
+        height: auto;
+        margin: 20px 0;
+        border: 2px solid #ddd;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .answer-options {
+        margin: 20px 0;
+    }
+    
+    .answer-option {
+        display: block;
+        background: #f8f9fa;
+        border: 2px solid #dee2e6;
+        border-radius: 6px;
+        padding: 15px;
+        margin: 10px 0;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    
+    .answer-option:hover {
+        background: #e9ecef;
+        border-color: #007bff;
+    }
+    
+    .answer-option input[type="radio"] {
+        margin-right: 10px;
+        cursor: pointer;
+    }
+    
+    .answer-option span {
+        display: inline-block;
+    }
+    
+    .question-hint {
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        border-radius: 4px;
+        padding: 10px;
+        margin-top: 15px;
+    }
+    
+    .submit-container {
+        text-align: center;
+        margin: 30px 0;
+    }
+    
+    .btn {
+        padding: 15px 40px;
+        font-size: 18px;
+        font-weight: bold;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    
+    .btn-primary {
+        background: #007bff;
+        color: white;
+    }
+    
+    .btn-primary:hover {
+        background: #0056b3;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,123,255,0.3);
+    }
+    
+    .alert {
+        padding: 15px;
+        border-radius: 6px;
+        margin-bottom: 20px;
+    }
+    
+    .alert-success {
+        background: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+    }
+</style>
+
+<script>
+    // Live timer for all quizzes - tracks actual elapsed time from page load
+    document.addEventListener('DOMContentLoaded', function() {
+        const timerEl = document.getElementById('live-timer');
+        if (!timerEl) return;
+        
+        const startTime = Date.now();
+        setInterval(function() {
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            const minutes = Math.floor(elapsed / 60);
+            const seconds = elapsed % 60;
+            if (minutes > 0) {
+                timerEl.textContent = minutes + 'm ' + seconds + 's';
+            } else {
+                timerEl.textContent = elapsed + 's';
+            }
+        }, 1000);
+    });
+</script>
+
+{% endif %}
+{% endblock %}

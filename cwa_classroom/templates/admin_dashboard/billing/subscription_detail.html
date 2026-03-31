@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block title %}Subscription: {{ sub.school.name }} - Billing Admin{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">{{ sub.school.name }}</h1>
+    <p class="text-gray-500 mt-1">
+      Plan: <span class="font-medium text-gray-700">{% if sub.plan %}{{ sub.plan.name }}{% else %}None{% endif %}</span>
+      &mdash; Status:
+      <span class="font-medium {% if sub.status == 'active' %}text-emerald-600{% elif sub.status == 'trialing' %}text-blue-600{% else %}text-gray-700{% endif %}">
+        {{ sub.get_status_display }}
+      </span>
+    </p>
+  </div>
+
+  <!-- Details card -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 mb-8">
+    <h2 class="text-lg font-semibold text-gray-900 mb-4">Subscription Details</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+      <div>
+        <p class="text-gray-500">Stripe Customer ID</p>
+        <p class="font-mono text-gray-900">{{ sub.stripe_customer_id|default:"-" }}</p>
+      </div>
+      <div>
+        <p class="text-gray-500">Stripe Subscription ID</p>
+        <p class="font-mono text-gray-900">{{ sub.stripe_subscription_id|default:"-" }}</p>
+      </div>
+      <div>
+        <p class="text-gray-500">Discount Code</p>
+        <p class="text-gray-900">{% if sub.discount_code %}{{ sub.discount_code.code }} ({{ sub.discount_code.discount_percent }}%){% else %}-{% endif %}</p>
+      </div>
+      <div>
+        <p class="text-gray-500">Trial End</p>
+        <p class="text-gray-900">{% if sub.trial_end %}{{ sub.trial_end|date:"M d, Y H:i" }}{% else %}-{% endif %}</p>
+      </div>
+      <div>
+        <p class="text-gray-500">Created</p>
+        <p class="text-gray-900">{{ sub.created_at|date:"M d, Y H:i" }}</p>
+      </div>
+      <div>
+        <p class="text-gray-500">Updated</p>
+        <p class="text-gray-900">{{ sub.updated_at|date:"M d, Y H:i" }}</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Usage card -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 mb-8">
+    <h2 class="text-lg font-semibold text-gray-900 mb-4">Usage</h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <!-- Classes -->
+      <div>
+        <p class="text-sm text-gray-500 mb-2">Classes</p>
+        <p class="text-2xl font-bold text-gray-900">{{ classes_count }}{% if class_limit > 0 %} <span class="text-sm font-normal text-gray-400">/ {{ class_limit }}</span>{% endif %}</p>
+        {% if class_limit > 0 %}
+        <div class="w-full h-2.5 bg-gray-200 rounded-full mt-2 overflow-hidden">
+          {% widthratio classes_count class_limit 100 as pct %}
+          <div class="h-full rounded-full {% if pct > 90 %}bg-red-500{% elif pct > 70 %}bg-amber-500{% else %}bg-emerald-500{% endif %}" style="width: {{ pct }}%"></div>
+        </div>
+        {% else %}
+        <p class="text-xs text-gray-400 mt-1">Unlimited</p>
+        {% endif %}
+      </div>
+      <!-- Students -->
+      <div>
+        <p class="text-sm text-gray-500 mb-2">Students</p>
+        <p class="text-2xl font-bold text-gray-900">{{ students_count }}{% if student_limit > 0 %} <span class="text-sm font-normal text-gray-400">/ {{ student_limit }}</span>{% endif %}</p>
+        {% if student_limit > 0 %}
+        <div class="w-full h-2.5 bg-gray-200 rounded-full mt-2 overflow-hidden">
+          {% widthratio students_count student_limit 100 as pct %}
+          <div class="h-full rounded-full {% if pct > 90 %}bg-red-500{% elif pct > 70 %}bg-amber-500{% else %}bg-emerald-500{% endif %}" style="width: {{ pct }}%"></div>
+        </div>
+        {% else %}
+        <p class="text-xs text-gray-400 mt-1">Unlimited</p>
+        {% endif %}
+      </div>
+      <!-- Invoices -->
+      <div>
+        <p class="text-sm text-gray-500 mb-2">Invoices This Year</p>
+        <p class="text-2xl font-bold text-gray-900">{{ sub.invoices_used_this_year }}{% if invoice_limit > 0 %} <span class="text-sm font-normal text-gray-400">/ {{ invoice_limit }}</span>{% endif %}</p>
+        {% if invoice_limit > 0 %}
+        <div class="w-full h-2.5 bg-gray-200 rounded-full mt-2 overflow-hidden">
+          {% widthratio sub.invoices_used_this_year invoice_limit 100 as pct %}
+          <div class="h-full rounded-full {% if pct > 90 %}bg-red-500{% elif pct > 70 %}bg-amber-500{% else %}bg-emerald-500{% endif %}" style="width: {{ pct }}%"></div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Active Modules -->
+  {% if active_modules %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 mb-8">
+    <h2 class="text-lg font-semibold text-gray-900 mb-4">Active Modules</h2>
+    <div class="space-y-2">
+      {% for mod in active_modules %}
+      <div class="flex items-center gap-3 text-sm">
+        <span class="w-2 h-2 bg-emerald-500 rounded-full"></span>
+        <span class="text-gray-900">{{ mod.get_module_display }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Override actions -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8">
+    <h2 class="text-lg font-semibold text-gray-900 mb-4">Admin Overrides</h2>
+    <div class="space-y-6">
+
+      <!-- Change Plan -->
+      <form method="post" action="{% url 'billing_admin_subscription_override' sub.pk %}" class="flex items-end gap-4">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="change_plan">
+        <div class="flex-1">
+          <label for="plan_id" class="block text-sm font-semibold text-gray-700 mb-1.5">Change Plan</label>
+          <select name="plan_id" id="plan_id"
+                  class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+            {% for p in plans %}
+            <option value="{{ p.pk }}" {% if sub.plan and sub.plan.pk == p.pk %}selected{% endif %}>{{ p.name }} (${{ p.price }}/mo)</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button type="submit" class="px-5 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm whitespace-nowrap">Change Plan</button>
+      </form>
+
+      <!-- Extend Trial -->
+      <form method="post" action="{% url 'billing_admin_subscription_override' sub.pk %}" class="flex items-end gap-4">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="extend_trial">
+        <div class="flex-1">
+          <label for="days" class="block text-sm font-semibold text-gray-700 mb-1.5">Extend Trial (days)</label>
+          <input type="number" name="days" id="days" min="1" value="14"
+                 class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+        </div>
+        <button type="submit" class="px-5 py-2.5 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition shadow-sm whitespace-nowrap">Extend Trial</button>
+      </form>
+
+      <!-- Reset Invoices -->
+      <form method="post" action="{% url 'billing_admin_subscription_override' sub.pk %}" class="flex items-end gap-4">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="reset_invoices">
+        <div class="flex-1">
+          <p class="text-sm font-semibold text-gray-700">Reset Invoice Counter</p>
+          <p class="text-xs text-gray-400">Currently: {{ sub.invoices_used_this_year }} invoices used</p>
+        </div>
+        <button type="submit" class="px-5 py-2.5 bg-amber-600 text-white font-semibold rounded-xl hover:bg-amber-700 transition shadow-sm whitespace-nowrap">Reset to 0</button>
+      </form>
+
+      <!-- Change Status -->
+      <form method="post" action="{% url 'billing_admin_subscription_override' sub.pk %}" class="flex items-end gap-4">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="change_status">
+        <div class="flex-1">
+          <label for="status" class="block text-sm font-semibold text-gray-700 mb-1.5">Change Status</label>
+          <select name="status" id="status"
+                  class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+            <option value="trialing" {% if sub.status == 'trialing' %}selected{% endif %}>Trialing</option>
+            <option value="active" {% if sub.status == 'active' %}selected{% endif %}>Active</option>
+            <option value="past_due" {% if sub.status == 'past_due' %}selected{% endif %}>Past Due</option>
+            <option value="cancelled" {% if sub.status == 'cancelled' %}selected{% endif %}>Cancelled</option>
+            <option value="expired" {% if sub.status == 'expired' %}selected{% endif %}>Expired</option>
+            <option value="suspended" {% if sub.status == 'suspended' %}selected{% endif %}>Suspended</option>
+          </select>
+        </div>
+        <button type="submit" class="px-5 py-2.5 bg-gray-700 text-white font-semibold rounded-xl hover:bg-gray-800 transition shadow-sm whitespace-nowrap">Update Status</button>
+      </form>
+
+    </div>
+  </div>
+
+</div>
+{% endblock %}

@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+{% block title %}{{ classroom.name }}{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-6">
+  <div class="flex items-start justify-between">
+    <div>
+      <h1 class="font-display text-3xl text-primary">{{ classroom.name }}</h1>
+      <div class="flex items-center gap-3 mt-2 flex-wrap">
+        <span class="font-mono text-sm bg-gray-100 text-gray-600 rounded-lg px-3 py-1 cursor-pointer"
+              onclick="navigator.clipboard.writeText('{{ classroom.code }}'); this.textContent='Copied!';"
+              title="Click to copy class code">
+          Code: {{ classroom.code }}
+        </span>
+        {% for level in classroom.levels.all %}
+          <span class="bg-accent-light text-yellow-800 rounded-full px-2.5 py-0.5 text-xs font-semibold">{{ level.display_name }}</span>
+        {% endfor %}
+        {% if classroom.day %}
+          <span class="bg-blue-50 text-blue-700 rounded-full px-2.5 py-0.5 text-xs font-semibold">{{ classroom.get_day_display }}</span>
+        {% endif %}
+        {% if classroom.start_time %}
+          <span class="bg-gray-100 text-gray-600 rounded-full px-2.5 py-0.5 text-xs font-semibold">{{ classroom.start_time|time:"g:ia" }}{% if classroom.end_time %} – {{ classroom.end_time|time:"g:ia" }}{% endif %}</span>
+        {% endif %}
+      </div>
+      {% if classroom.description %}
+      <p class="text-sm text-gray-500 mt-2">{{ classroom.description }}</p>
+      {% endif %}
+    </div>
+    <div class="flex gap-2">
+      <a href="{% url 'edit_class' class_id=classroom.id %}"
+         class="bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-semibold rounded-xl px-4 py-2.5 transition">
+        Edit
+      </a>
+      <a href="{% url 'progress_criteria_list' %}"
+         class="bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-semibold rounded-xl px-4 py-2.5 transition">
+        Progress Criteria
+      </a>
+      <a href="{% url 'record_progress' class_id=classroom.id %}"
+         class="bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold rounded-xl px-4 py-2.5 transition">
+        Record Progress
+      </a>
+      <a href="{% url 'class_attendance' class_id=classroom.id %}"
+         class="bg-primary hover:bg-primary-dark text-white text-sm font-semibold rounded-xl px-4 py-2.5 transition">
+        Attendance
+      </a>
+    </div>
+  </div>
+
+  <!-- Today's Session Bar -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+    <div class="flex items-center justify-between">
+      <div>
+        <h2 class="font-bold text-gray-800">Today's Session</h2>
+        <p class="text-sm text-gray-500 mt-0.5">
+          {% if classroom.day %}{{ classroom.get_day_display }}{% endif %}
+          {% if classroom.start_time %} &middot; {{ classroom.start_time|time:"g:ia" }}{% if classroom.end_time %} – {{ classroom.end_time|time:"g:ia" }}{% endif %}{% endif %}
+        </p>
+      </div>
+      {% if can_start_session %}
+        <form method="post" action="{% url 'start_session' class_id=classroom.id %}">
+          {% csrf_token %}
+          <button type="submit"
+                  class="inline-flex items-center gap-2 bg-accent hover:bg-accent-dark text-white text-sm font-semibold rounded-xl px-6 py-2.5 transition shadow-sm">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z"/>
+            </svg>
+            Start Session
+          </button>
+        </form>
+      {% elif todays_session %}
+        <div class="flex items-center gap-3">
+          <span class="text-xs font-semibold px-2.5 py-1 rounded-full
+            {% if todays_session.status == 'completed' %}bg-emerald-100 text-emerald-700
+            {% elif todays_session.status == 'cancelled' %}bg-red-100 text-red-700
+            {% else %}bg-blue-100 text-blue-700{% endif %}">
+            {{ todays_session.get_status_display }}
+          </span>
+          {% if todays_session.status == 'scheduled' %}
+            <a href="{% url 'session_attendance' todays_session.id %}"
+               class="bg-accent hover:bg-accent-dark text-white text-sm font-semibold rounded-xl px-4 py-2.5 transition">
+              Mark Attendance
+            </a>
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <!-- Students -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h2 class="font-bold text-gray-800">Students ({{ students.count }})</h2>
+          {% if class_effective_fee %}
+            <p class="text-xs text-gray-400">Class fee: ${{ class_effective_fee }}</p>
+          {% endif %}
+        </div>
+        <a href="{% url 'assign_students' class_id=classroom.id %}"
+           class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-primary-dark transition">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z"/>
+          </svg>
+          Add Students
+        </a>
+      </div>
+      {% if student_fee_data %}
+      <ul class="space-y-2">
+        {% for item in student_fee_data %}
+        <li class="flex items-center justify-between py-2 border-b border-gray-50 last:border-0"
+            x-data="{ editingFee: false }">
+          <div class="flex items-center gap-2">
+            <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-primary-light text-primary text-xs font-bold">
+              {{ item.student.username|slice:":2"|upper }}
+            </span>
+            <div>
+              <span class="text-sm font-semibold text-gray-700">{{ item.student.get_full_name|default:item.student.username }}</span>
+              {% if item.effective_fee %}
+                <span class="text-xs {% if item.class_student.fee_override is not None %}text-emerald-600 font-semibold{% else %}text-gray-400{% endif %} ml-1">
+                  ${{ item.effective_fee }}
+                  {% if item.class_student.fee_override is not None %}
+                    <span class="text-emerald-400 font-normal">(override)</span>
+                  {% endif %}
+                </span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <div x-show="!editingFee" class="flex items-center gap-2">
+              {% if can_edit_fee %}
+                <button @click="editingFee = true" type="button"
+                        class="text-xs text-accent hover:text-accent-dark font-medium">Fee</button>
+              {% endif %}
+              <a href="{% url 'student_progress' student_id=item.student.id %}" class="text-xs text-primary hover:underline">Progress</a>
+              <form method="post" action="{% url 'class_student_remove' class_id=classroom.id student_id=item.student.id %}" class="inline"
+                    onsubmit="return confirm('Remove {{ item.student.get_full_name|default:item.student.username }} from this class?')">
+                {% csrf_token %}
+                <button type="submit" class="text-xs text-red-500 hover:text-red-700 font-medium">Remove</button>
+              </form>
+            </div>
+            {% if can_edit_fee %}
+            <form x-show="editingFee" x-cloak method="post"
+                  action="{% url 'update_student_fee' class_id=classroom.id student_id=item.student.id %}"
+                  class="flex items-center gap-1">
+              {% csrf_token %}
+              <input type="number" name="fee_override" step="0.01" min="0"
+                     value="{{ item.class_student.fee_override|default:'' }}"
+                     placeholder="{% if class_effective_fee %}Inherit ${{ class_effective_fee }}{% else %}No fee{% endif %}"
+                     class="w-20 px-2 py-1 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-accent/30">
+              <button type="submit" class="text-xs bg-accent text-white px-2 py-1 rounded font-semibold">Save</button>
+              <button @click="editingFee = false" type="button" class="text-xs text-gray-400">✕</button>
+            </form>
+            {% endif %}
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% elif students %}
+      <ul class="space-y-2">
+        {% for s in students %}
+        <li class="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+          <div class="flex items-center gap-2">
+            <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-primary-light text-primary text-xs font-bold">
+              {{ s.username|slice:":2"|upper }}
+            </span>
+            <span class="text-sm font-semibold text-gray-700">{{ s.get_full_name|default:s.username }}</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <a href="{% url 'student_progress' student_id=s.id %}" class="text-xs text-primary hover:underline">Progress</a>
+            <form method="post" action="{% url 'class_student_remove' class_id=classroom.id student_id=s.id %}" class="inline"
+                  onsubmit="return confirm('Remove {{ s.get_full_name|default:s.username }} from this class?')">
+              {% csrf_token %}
+              <button type="submit" class="text-xs text-red-500 hover:text-red-700 font-medium">Remove</button>
+            </form>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+        <p class="text-sm text-gray-400">No students yet. <a href="{% url 'assign_students' class_id=classroom.id %}" class="text-primary font-semibold hover:underline">Add students &rarr;</a></p>
+      {% endif %}
+    </div>
+
+    <!-- Teachers -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="font-bold text-gray-800">Teachers ({{ teachers.count }})</h2>
+        <a href="{% url 'assign_teachers' class_id=classroom.id %}"
+           class="text-xs text-primary font-semibold hover:text-primary-dark transition">+ Add</a>
+      </div>
+      {% if teachers %}
+      <ul class="space-y-2">
+        {% for t in teachers %}
+        <li class="flex items-center gap-2 py-2 border-b border-gray-50 last:border-0">
+          <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-blue-100 text-blue-600 text-xs font-bold">
+            {{ t.username|slice:":2"|upper }}
+          </span>
+          <span class="text-sm font-semibold text-gray-700">{{ t.get_full_name|default:t.username }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+        <p class="text-sm text-gray-400">No other teachers.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Sessions Table -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+    <div class="flex items-center justify-between p-6 pb-4">
+      <h2 class="font-bold text-gray-800">Sessions</h2>
+      <a href="{% url 'create_session' class_id=classroom.id %}"
+         class="text-xs text-primary font-semibold hover:text-primary-dark transition">+ Create Session</a>
+    </div>
+    {% if sessions %}
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-gray-500 bg-slate-50 border-t border-slate-100">
+            <th class="px-6 py-3 font-semibold">Date</th>
+            <th class="px-6 py-3 font-semibold">Time</th>
+            <th class="px-6 py-3 font-semibold">Status</th>
+            <th class="px-6 py-3 font-semibold text-center">Attendance</th>
+            <th class="px-6 py-3 font-semibold text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-50">
+          {% for session in sessions %}
+          <tr class="hover:bg-slate-50/50 transition">
+            <td class="px-6 py-3 font-medium text-gray-900">{{ session.date|date:"D, d M" }}</td>
+            <td class="px-6 py-3 text-gray-600">{{ session.start_time|time:"H:i" }} – {{ session.end_time|time:"H:i" }}</td>
+            <td class="px-6 py-3">
+              <span class="text-xs font-semibold px-2 py-1 rounded-full
+                {% if session.status == 'completed' %}bg-emerald-100 text-emerald-700
+                {% elif session.status == 'cancelled' %}bg-red-100 text-red-700
+                {% else %}bg-blue-100 text-blue-700{% endif %}">
+                {{ session.get_status_display }}
+              </span>
+            </td>
+            <td class="px-6 py-3 text-center text-xs text-gray-600">
+              {% if session.present_count or session.late_count or session.absent_count %}
+                <span class="text-emerald-600">{{ session.present_count }}P</span>
+                <span class="text-amber-600 ml-1">{{ session.late_count }}L</span>
+                <span class="text-red-600 ml-1">{{ session.absent_count }}A</span>
+              {% else %}
+                <span class="text-gray-400">--</span>
+              {% endif %}
+            </td>
+            <td class="px-6 py-3 text-right">
+              <div class="flex items-center justify-end gap-2">
+                {% if session.status != 'cancelled' %}
+                  <a href="{% url 'session_attendance' session.id %}"
+                     class="text-xs text-accent font-semibold hover:underline">Attendance</a>
+                {% endif %}
+                {% if session.status == 'scheduled' %}
+                  <form method="post" action="{% url 'complete_session' session_id=session.id %}" class="inline">
+                    {% csrf_token %}
+                    <button type="submit" class="text-xs text-emerald-600 font-semibold hover:underline">Complete</button>
+                  </form>
+                  <form method="post" action="{% url 'cancel_session' session_id=session.id %}" class="inline">
+                    {% csrf_token %}
+                    <button type="submit" class="text-xs text-red-500 font-semibold hover:underline">Cancel</button>
+                  </form>
+                {% endif %}
+                <form method="post" action="{% url 'delete_session' session_id=session.id %}" class="inline"
+                      onsubmit="return confirm('Delete this session and all its attendance/progress records? This cannot be undone.')">
+                  {% csrf_token %}
+                  <button type="submit" class="text-xs text-gray-400 hover:text-red-600 font-semibold">Delete</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="p-6 pt-2 text-center">
+      <p class="text-sm text-gray-400">No sessions yet. Start a session or create one manually.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

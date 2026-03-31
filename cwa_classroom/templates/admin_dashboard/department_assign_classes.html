@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Assign Classes — {{ department.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Assign Classes to Department</h1>
+    <p class="text-gray-500 mt-1">{{ department.name }} — {{ school.name }}</p>
+  </div>
+
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+    <div class="p-6 border-b border-slate-100">
+      <p class="text-sm text-gray-500">Select classes from {{ school.name }} to assign to this department. A class can only belong to one department at a time.</p>
+    </div>
+    <div class="p-6">
+      {% if all_classes %}
+        <form method="post">
+          {% csrf_token %}
+          <div class="space-y-2 mb-6 max-h-96 overflow-y-auto">
+            {% for cls in all_classes %}
+              {% with is_assigned=cls.id|floatformat:"0" %}
+              <label class="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-accent/30 hover:bg-accent/5 cursor-pointer transition
+                            {% if cls.id in assigned_ids %}border-accent/20 bg-accent/5{% endif %}">
+                <input type="checkbox" name="class_ids" value="{{ cls.id }}"
+                       class="rounded text-accent focus:ring-accent"
+                       {% if cls.id in assigned_ids %}checked{% endif %}>
+                <div class="flex-1">
+                  <p class="text-sm font-medium text-gray-900">{{ cls.name }}</p>
+                  <p class="text-xs text-gray-500">
+                    Code: {{ cls.code }}
+                    &middot; {{ cls.students.count }} student{{ cls.students.count|pluralize }}
+                    {% if cls.department and cls.department != department %}
+                      &middot; <span class="text-amber-600 font-medium">Currently in: {{ cls.department.name }}</span>
+                    {% endif %}
+                  </p>
+                </div>
+                {% if cls.subject %}
+                  <span class="text-xs font-medium px-2 py-1 rounded-full bg-slate-200 text-slate-700">{{ cls.subject.name }}</span>
+                {% endif %}
+              </label>
+              {% endwith %}
+            {% endfor %}
+          </div>
+          <button type="submit"
+                  class="w-full px-4 py-2.5 bg-accent hover:bg-accent-dark text-white text-sm font-semibold rounded-xl transition">
+            Save Changes
+          </button>
+        </form>
+      {% else %}
+        <p class="text-sm text-gray-400 text-center py-6">No classes in this school yet. Create classes first.</p>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}

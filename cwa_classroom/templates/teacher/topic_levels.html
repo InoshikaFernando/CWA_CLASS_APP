@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}{{ topic.name }} — Levels{% endblock %}
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+  <div>
+    <nav class="text-sm text-gray-400 flex gap-2 mb-2">
+      <a href="{% url 'topics' %}" class="hover:text-primary transition">Topics</a> ›
+      <span class="text-gray-700 font-semibold">{{ topic.name }}</span>
+    </nav>
+    <h1 class="font-display text-3xl text-primary">{{ topic.name }}</h1>
+  </div>
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+    {% for level in levels %}
+    <a href="{% url 'question_list' level_number=level.level_number %}"
+       class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center hover:shadow-md hover:border-primary transition">
+      <span class="font-display text-3xl text-primary block mb-1">{{ level.level_number }}</span>
+      <span class="text-sm font-semibold text-gray-600">{{ level.display_name }}</span>
+    </a>
+    {% empty %}
+    <p class="col-span-4 text-gray-400 text-sm">No levels assigned to this topic.</p>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

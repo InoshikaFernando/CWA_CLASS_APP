@@ -1,0 +1,24 @@
+{% extends "email/base_email.html" %}
+
+{% block email_title %}Enrollment Approved{% endblock %}
+
+{% block email_content %}
+<div style="background-color:#ecfdf5;border-left:4px solid #059669;padding:16px;border-radius:4px;margin-bottom:24px;">
+  <p style="margin:0;color:#059669;font-weight:700;font-size:16px;">Enrollment Approved</p>
+</div>
+
+{% if recipient_name %}
+<p style="margin:0 0 16px;color:#334155;font-size:15px;">Hi {{ recipient_name }},</p>
+{% endif %}
+
+<p style="margin:0 0 16px;color:#334155;font-size:15px;">{{ notification_message }}</p>
+
+{% if notification_link %}
+<p style="margin:0;text-align:center;">
+  <a href="{{ site_url }}{{ notification_link }}"
+     style="display:inline-block;background-color:#059669;color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px;">
+    View Class
+  </a>
+</p>
+{% endif %}
+{% endblock %}

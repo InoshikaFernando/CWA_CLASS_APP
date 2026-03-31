@@ -1,0 +1,324 @@
+{% extends "base_auth.html" %}
+{% block title %}Checkout — {{ package.name }}{% endblock %}
+
+{% block extra_head %}
+<script src="https://js.stripe.com/v3/"></script>
+<style>
+  #card-element {
+    padding: 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: white;
+  }
+  #card-element.StripeElement--focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.2); }
+  #card-element.StripeElement--invalid { border-color: #ef4444; }
+  .modal-overlay { background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); }
+</style>
+{% endblock %}
+
+{% block card_content %}
+  <h1 class="font-display text-2xl text-primary text-center mb-2">Subscribe to {{ package.name }}</h1>
+
+  <div class="bg-primary-light rounded-xl p-4 mb-6 text-center">
+    <p class="font-bold text-green-800 text-lg">{{ package.name }}</p>
+    <p class="text-sm text-green-700">
+      {% if package.class_limit == 0 %}Unlimited classes{% else %}{{ package.class_limit }} class{{ package.class_limit|pluralize:"es" }}{% endif %}
+    </p>
+    <p id="price-display" class="text-2xl font-bold text-gray-800 mt-2">${{ package.price }}<span class="text-sm font-normal text-gray-500">/month</span></p>
+  </div>
+
+  <!-- Promotion Code -->
+  <div class="mb-4">
+    <label class="block text-sm font-semibold text-gray-700 mb-1.5">Have a promotion code?</label>
+    <div class="flex gap-2">
+      <input id="promo-input" type="text" maxlength="50" placeholder="Enter code"
+             class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+      <button id="promo-btn" type="button"
+              class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-lg px-4 py-2 text-sm transition">
+        Apply
+      </button>
+    </div>
+    <p id="promo-error" class="text-red-600 text-xs mt-1 hidden"></p>
+    <p id="promo-success" class="text-green-600 text-xs mt-1 hidden"></p>
+  </div>
+
+  <div class="flex items-center gap-3 mb-4">
+    <hr class="flex-1 border-gray-200">
+    <span class="text-xs text-gray-400 uppercase tracking-wide">or</span>
+    <hr class="flex-1 border-gray-200">
+  </div>
+
+  <button id="pay-btn"
+          class="w-full bg-accent hover:bg-accent-dark text-white font-semibold rounded-xl px-5 py-3 transition text-base">
+    Enter Card Details
+  </button>
+
+  <!-- Payment Modal -->
+  <div id="payment-modal" class="fixed inset-0 z-50 hidden items-center justify-center modal-overlay">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6 relative">
+      <button id="close-modal" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+
+      <h2 class="font-display text-xl text-primary mb-1">Payment Details</h2>
+      <p id="modal-price" class="text-sm text-gray-500 mb-5">{{ package.name }} — ${{ package.price }}/month</p>
+
+      <form id="payment-form">
+        <div class="mb-4">
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Name on Card</label>
+          <input id="card-name" type="text" required placeholder="Full name"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+        </div>
+
+        <div class="mb-4">
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Phone Number</label>
+          <input id="card-phone" type="tel" required placeholder="+64 21 123 4567"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+        </div>
+
+        <div class="mb-4">
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Billing Address</label>
+          <input id="card-address" type="text" required placeholder="Street address"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+          <div class="grid grid-cols-2 gap-2">
+            <input id="card-city" type="text" required placeholder="City"
+                   class="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+            <input id="card-postal" type="text" required placeholder="Postal code"
+                   class="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+          </div>
+        </div>
+
+        <div class="mb-4">
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Card Information</label>
+          <div id="card-element"></div>
+          <div id="card-errors" class="text-red-600 text-xs mt-1.5" role="alert"></div>
+        </div>
+
+        <button type="submit" id="submit-btn"
+                class="w-full bg-accent hover:bg-accent-dark text-white font-semibold rounded-xl px-5 py-3 transition disabled:opacity-50 disabled:cursor-not-allowed">
+          <span id="btn-text">Pay ${{ package.price }}</span>
+          <span id="btn-spinner" class="hidden">Processing...</span>
+        </button>
+      </form>
+    </div>
+  </div>
+{% endblock %}
+
+{% block footer_links %}
+  <a href="{% url 'trial_expired' %}" class="hover:text-primary transition">Back</a>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  const stripeKey = '{{ stripe_publishable_key }}';
+  const packageId = {{ package.id }};
+  const originalPrice = {{ package.price }};
+  const csrfToken = '{{ csrf_token }}';
+  const modal = document.getElementById('payment-modal');
+  const payBtn = document.getElementById('pay-btn');
+  const closeBtn = document.getElementById('close-modal');
+  const form = document.getElementById('payment-form');
+  const submitBtn = document.getElementById('submit-btn');
+  const btnText = document.getElementById('btn-text');
+  const btnSpinner = document.getElementById('btn-spinner');
+  const errorEl = document.getElementById('card-errors');
+
+  const promoInput = document.getElementById('promo-input');
+  const promoBtn = document.getElementById('promo-btn');
+  const promoError = document.getElementById('promo-error');
+  const promoSuccess = document.getElementById('promo-success');
+  const priceDisplay = document.getElementById('price-display');
+  const modalPrice = document.getElementById('modal-price');
+
+  let stripe, elements, cardElement, clientSecret;
+  let appliedCouponId = null;
+  let appliedDiscountCode = null;
+
+  // Init Stripe Elements
+  if (stripeKey) {
+    stripe = Stripe(stripeKey);
+    elements = stripe.elements();
+    cardElement = elements.create('card', {
+      style: {
+        base: {
+          fontSize: '16px',
+          color: '#1e293b',
+          fontFamily: 'Nunito, sans-serif',
+          '::placeholder': { color: '#9ca3af' },
+        },
+      },
+    });
+  }
+
+  // Apply promo code
+  promoBtn.addEventListener('click', async () => {
+    const code = promoInput.value.trim();
+    if (!code) return;
+
+    promoError.classList.add('hidden');
+    promoSuccess.classList.add('hidden');
+    promoBtn.disabled = true;
+    promoBtn.textContent = 'Checking...';
+
+    try {
+      const res = await fetch(`/billing/apply-promo/${packageId}/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrfToken,
+        },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json();
+
+      if (data.error) {
+        promoError.textContent = data.error;
+        promoError.classList.remove('hidden');
+      } else if (data.fully_free) {
+        // 100% off — redirect to success
+        promoSuccess.textContent = `Code applied! You have ${data.grant_days} days of free access.`;
+        promoSuccess.classList.remove('hidden');
+        promoInput.disabled = true;
+        promoBtn.classList.add('hidden');
+        payBtn.classList.add('hidden');
+        setTimeout(() => { window.location.href = data.redirect_url; }, 1500);
+      } else {
+        // Partial discount
+        const discounted = data.discounted_price;
+        appliedCouponId = data.stripe_coupon_id;
+        appliedDiscountCode = code;
+        promoSuccess.textContent = `${data.discount_percent}% off applied! New price: $${discounted.toFixed(2)}/month`;
+        promoSuccess.classList.remove('hidden');
+        promoInput.disabled = true;
+        promoBtn.classList.add('hidden');
+
+        // Update displayed prices
+        priceDisplay.innerHTML = `<span class="line-through text-gray-400 text-lg">$${originalPrice.toFixed(2)}</span> $${discounted.toFixed(2)}<span class="text-sm font-normal text-gray-500">/month</span>`;
+        modalPrice.textContent = `{{ package.name }} — $${discounted.toFixed(2)}/month`;
+        btnText.textContent = `Pay $${discounted.toFixed(2)}`;
+      }
+    } catch (err) {
+      promoError.textContent = 'Failed to apply code. Please try again.';
+      promoError.classList.remove('hidden');
+    }
+
+    promoBtn.disabled = false;
+    promoBtn.textContent = 'Apply';
+  });
+
+  // Allow Enter key in promo input
+  promoInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); promoBtn.click(); }
+  });
+
+  payBtn.addEventListener('click', async () => {
+    if (!stripeKey) {
+      alert('Stripe is not configured. Please set STRIPE_PUBLISHABLE_KEY.');
+      return;
+    }
+
+    payBtn.disabled = true;
+    payBtn.textContent = 'Loading...';
+
+    try {
+      const res = await fetch(`/billing/create-payment-intent/${packageId}/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrfToken,
+        },
+        body: JSON.stringify({ discount_code: appliedDiscountCode || '' }),
+      });
+      const data = await res.json();
+
+      if (data.error) {
+        alert(data.error);
+        payBtn.disabled = false;
+        payBtn.textContent = 'Enter Card Details';
+        return;
+      }
+
+      clientSecret = data.client_secret;
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      cardElement.mount('#card-element');
+
+    } catch (err) {
+      alert('Failed to initialize payment. Please try again.');
+    }
+
+    payBtn.disabled = false;
+    payBtn.textContent = 'Enter Card Details';
+  });
+
+  closeBtn.addEventListener('click', () => {
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+  });
+
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    submitBtn.disabled = true;
+    btnText.classList.add('hidden');
+    btnSpinner.classList.remove('hidden');
+    errorEl.textContent = '';
+
+    const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
+      payment_method: {
+        card: cardElement,
+        billing_details: {
+          name: document.getElementById('card-name').value,
+          phone: document.getElementById('card-phone').value,
+          address: {
+            line1: document.getElementById('card-address').value,
+            city: document.getElementById('card-city').value,
+            postal_code: document.getElementById('card-postal').value,
+          },
+        },
+      },
+    });
+
+    if (error) {
+      errorEl.textContent = error.message;
+      submitBtn.disabled = false;
+      btnText.classList.remove('hidden');
+      btnSpinner.classList.add('hidden');
+      return;
+    }
+
+    if (paymentIntent.status === 'succeeded') {
+      try {
+        const res = await fetch('/billing/confirm-payment/', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken,
+          },
+          body: JSON.stringify({
+            payment_intent_id: paymentIntent.id,
+            package_id: packageId,
+          }),
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          window.location.href = data.redirect_url;
+        } else {
+          errorEl.textContent = data.error || 'Something went wrong.';
+        }
+      } catch (err) {
+        errorEl.textContent = 'Failed to confirm payment.';
+      }
+    }
+
+    submitBtn.disabled = false;
+    btnText.classList.remove('hidden');
+    btnSpinner.classList.add('hidden');
+  });
+</script>
+{% endblock %}

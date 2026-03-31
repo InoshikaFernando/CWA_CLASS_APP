@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}Subscriptions - Billing Admin{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">School Subscriptions</h1>
+  </div>
+
+  <!-- Table -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-left">
+        <thead>
+          <tr class="border-b border-slate-200 bg-slate-50">
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">School</th>
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Plan</th>
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Classes</th>
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Students</th>
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Invoices</th>
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Trial End</th>
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          {% for item in sub_data %}
+          <tr class="hover:bg-slate-50 transition">
+            <td class="px-6 py-4 font-semibold text-gray-900">{{ item.sub.school.name }}</td>
+            <td class="px-6 py-4 text-gray-700">{% if item.sub.plan %}{{ item.sub.plan.name }}{% else %}-{% endif %}</td>
+            <td class="px-6 py-4">
+              {% if item.sub.status == 'active' %}
+                <span class="inline-flex px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">Active</span>
+              {% elif item.sub.status == 'trialing' %}
+                <span class="inline-flex px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">Trialing</span>
+              {% elif item.sub.status == 'past_due' %}
+                <span class="inline-flex px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">Past Due</span>
+              {% elif item.sub.status == 'cancelled' %}
+                <span class="inline-flex px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">Cancelled</span>
+              {% else %}
+                <span class="inline-flex px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-500">{{ item.sub.get_status_display }}</span>
+              {% endif %}
+            </td>
+            <td class="px-6 py-4">
+              <div class="flex items-center gap-2">
+                <span class="text-sm text-gray-700">{{ item.classes_count }}{% if item.sub.plan %}/{{ item.sub.plan.class_limit }}{% endif %}</span>
+                {% if item.sub.plan and item.sub.plan.class_limit > 0 %}
+                  <div class="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
+                    {% widthratio item.classes_count item.sub.plan.class_limit 100 as pct %}
+                    <div class="h-full rounded-full {% if pct > 90 %}bg-red-500{% elif pct > 70 %}bg-amber-500{% else %}bg-emerald-500{% endif %}" style="width: {{ pct }}%"></div>
+                  </div>
+                {% endif %}
+              </div>
+            </td>
+            <td class="px-6 py-4">
+              <div class="flex items-center gap-2">
+                <span class="text-sm text-gray-700">{{ item.students_count }}{% if item.sub.plan %}/{{ item.sub.plan.student_limit }}{% endif %}</span>
+                {% if item.sub.plan and item.sub.plan.student_limit > 0 %}
+                  <div class="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
+                    {% widthratio item.students_count item.sub.plan.student_limit 100 as pct %}
+                    <div class="h-full rounded-full {% if pct > 90 %}bg-red-500{% elif pct > 70 %}bg-amber-500{% else %}bg-emerald-500{% endif %}" style="width: {{ pct }}%"></div>
+                  </div>
+                {% endif %}
+              </div>
+            </td>
+            <td class="px-6 py-4">
+              <span class="text-sm text-gray-700">{{ item.sub.invoices_used_this_year }}{% if item.sub.plan %}/{{ item.sub.plan.invoice_limit_yearly }}{% endif %}</span>
+            </td>
+            <td class="px-6 py-4 text-sm text-gray-500">
+              {% if item.sub.trial_end %}{{ item.sub.trial_end|date:"M d, Y" }}{% else %}-{% endif %}
+            </td>
+            <td class="px-6 py-4">
+              <a href="{% url 'billing_admin_subscription_detail' item.sub.pk %}" class="text-accent hover:text-accent-dark text-sm font-medium">View</a>
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="8" class="px-6 py-12 text-center text-gray-500">No subscriptions found.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

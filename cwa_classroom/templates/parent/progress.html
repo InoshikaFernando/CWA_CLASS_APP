@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Progress — {{ active_child.first_name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-8">
+
+  <div>
+    <h1 class="font-display text-3xl text-gray-800">Progress Report</h1>
+    <p class="text-violet-500 text-sm mt-1 font-semibold">{{ active_child.first_name }} {{ active_child.last_name }} &middot; {{ active_school.name }}</p>
+  </div>
+
+  {% if grouped_progress %}
+    <!-- Overall summary -->
+    {% if overall.total %}
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="bg-gradient-to-br from-violet-500 to-purple-500 rounded-2xl p-4 text-white">
+          <p class="text-2xl font-bold">{{ overall.total }}</p>
+          <p class="text-xs text-white/70">Total Criteria</p>
+        </div>
+        <div class="bg-gradient-to-br from-emerald-500 to-green-500 rounded-2xl p-4 text-white">
+          <p class="text-2xl font-bold">{{ overall.achieved }}</p>
+          <p class="text-xs text-white/70">Achieved</p>
+        </div>
+        <div class="bg-gradient-to-br from-amber-500 to-orange-500 rounded-2xl p-4 text-white">
+          <p class="text-2xl font-bold">{{ overall.in_progress }}</p>
+          <p class="text-xs text-white/70">In Progress</p>
+        </div>
+        <div class="bg-gradient-to-br from-gray-400 to-gray-500 rounded-2xl p-4 text-white">
+          <p class="text-2xl font-bold">{{ overall.not_started }}</p>
+          <p class="text-xs text-white/70">Not Started</p>
+        </div>
+      </div>
+    {% endif %}
+
+    <!-- Grouped by subject/level -->
+    {% for group in grouped_progress %}
+      <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <h2 class="font-semibold text-gray-800">
+              {% if group.subject %}{{ group.subject.name }}{% else %}General{% endif %}
+              {% if group.level %} &middot; {{ group.level.display_name }}{% endif %}
+            </h2>
+            <p class="text-xs text-gray-400 mt-0.5">{{ group.achieved }}/{{ group.total }} achieved</p>
+          </div>
+          {% if group.total %}
+            <div class="w-20 h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div class="h-full bg-emerald-500 rounded-full" style="width: {% widthratio group.achieved group.total 100 %}%"></div>
+            </div>
+          {% endif %}
+        </div>
+        <div class="divide-y divide-gray-50">
+          {% for rec in group.records %}
+            <div class="px-6 py-3 flex items-center gap-3">
+              <div class="flex-1 min-w-0">
+                <p class="text-sm text-gray-700 truncate">{{ rec.criteria.name }}</p>
+                {% if rec.notes %}
+                  <p class="text-xs text-gray-400 mt-0.5 truncate">{{ rec.notes }}</p>
+                {% endif %}
+              </div>
+              {% if rec.status == 'achieved' %}
+                <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700 shrink-0">Achieved</span>
+              {% elif rec.status == 'in_progress' %}
+                <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 shrink-0">In Progress</span>
+              {% else %}
+                <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-500 shrink-0">Not Started</span>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endfor %}
+
+  {% else %}
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center">
+      <p class="text-gray-400">No progress records yet for {{ active_child.first_name }}.</p>
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}

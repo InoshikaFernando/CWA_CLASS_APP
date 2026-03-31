@@ -1,0 +1,139 @@
+{% extends "maths/base.html" %}
+{% block title %}Home{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-8">
+
+  <!-- ── Greeting ─────────────────────────────────────── -->
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="font-display text-3xl md:text-4xl text-gray-800 leading-tight">
+        {% now "H" as hour %}
+        {% if hour < "12" %}Good morning{% elif hour < "17" %}Good afternoon{% else %}Good evening{% endif %},
+        {{ request.user.first_name|default:request.user.username }}! 👋
+      </h1>
+      <p class="text-emerald-500 text-sm mt-1 font-semibold">What would you like to practise today?</p>
+    </div>
+  </div>
+
+  <!-- ── Quick Stats ───────────────────────────────────── -->
+  <div class="grid grid-cols-3 gap-3">
+    <div class="bg-emerald-500 rounded-2xl shadow-sm p-4 text-center">
+      <p class="text-xs text-white/80 font-bold uppercase tracking-wide mb-1">Today</p>
+      <p class="font-display text-2xl text-white">{{ time_daily|default:"0m" }}</p>
+    </div>
+    <div class="bg-teal-500 rounded-2xl shadow-sm p-4 text-center">
+      <p class="text-xs text-white/80 font-bold uppercase tracking-wide mb-1">This Week</p>
+      <p class="font-display text-2xl text-white">{{ time_weekly|default:"0m" }}</p>
+    </div>
+    <div class="bg-lime-500 rounded-2xl shadow-sm p-4 text-center">
+      <p class="text-xs text-white/80 font-bold uppercase tracking-wide mb-1">Best Score</p>
+      <p class="font-display text-2xl text-white">{{ best_score|default:"—" }}</p>
+    </div>
+  </div>
+
+  <!-- ── Year Levels Accordion ─────────────────────────── -->
+  <div>
+    <h2 class="font-bold text-xl text-gray-800 mb-4">📚 Topic Quizzes by Year</h2>
+
+    <div class="space-y-3" id="year-accordion">
+      {% for item in year_data %}
+      <div class="bg-white rounded-2xl border border-emerald-100 shadow-sm hover:shadow-md transition overflow-hidden">
+
+        <!-- Accordion header -->
+        <button type="button"
+                class="w-full flex items-center justify-between px-6 py-4 text-left hover:bg-emerald-50/50 transition"
+                onclick="toggleYear('year-{{ item.level.level_number }}')">
+          <div class="flex items-center gap-3">
+            <span class="inline-flex items-center justify-center w-9 h-9 rounded-xl
+                         {% if item.accessible %}bg-emerald-500 text-white{% else %}bg-gray-200 text-gray-400{% endif %}
+                         font-display text-lg">
+              {{ item.level.level_number }}
+            </span>
+            <span class="font-bold text-gray-800">{{ item.level.display_name }}</span>
+            {% if not item.accessible %}
+              <span class="text-xs text-gray-400 bg-gray-100 rounded-full px-2 py-0.5">🔒 Not enrolled</span>
+            {% else %}
+              <span class="text-xs text-emerald-600 bg-emerald-100 rounded-full px-2 py-0.5 font-semibold">
+                {{ item.subtopic_count }} topic{{ item.subtopic_count|pluralize }}
+              </span>
+            {% endif %}
+          </div>
+          <svg id="chevron-year-{{ item.level.level_number }}"
+               class="w-5 h-5 text-emerald-400 transition-transform duration-200{% if item.accessible %} rotate-180{% endif %}"
+               fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
+          </svg>
+        </button>
+
+        <!-- Accordion body -->
+        <div id="year-{{ item.level.level_number }}" class="{% if not item.accessible %}hidden {% endif %}border-t border-emerald-100 px-6 py-5">
+          <div class="space-y-5">
+            {% for group in item.strand_data %}
+            <div>
+              {% if group.strand %}
+              <p class="text-xs font-bold text-green-500 uppercase tracking-wider mb-2">{{ group.strand.name }}</p>
+              {% endif %}
+              <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {% for entry in group.subtopics %}
+                {% if item.accessible %}
+                  {% if entry.has_questions and entry.topic_id %}
+                  <a href="{% url 'topic_quiz' level_number=item.level.level_number topic_id=entry.topic_id %}"
+                     class="rounded-xl border border-emerald-200 p-3 hover:border-emerald-400 hover:bg-emerald-50 hover:shadow-sm transition text-sm font-semibold text-gray-700 hover:text-emerald-700">
+                    {{ entry.topic.name }}
+                  </a>
+                  {% else %}
+                  <div class="rounded-xl border border-gray-200 p-3 text-sm font-semibold text-gray-400 bg-gray-50 cursor-default">
+                    {{ entry.topic.name }}
+                  </div>
+                  {% endif %}
+                {% else %}
+                <div class="rounded-xl border border-gray-200 p-3 text-sm font-semibold text-gray-400 bg-gray-50 flex items-center gap-1.5">
+                  <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V7a4.5 4.5 0 00-9 0v3.5m-2 0h13a1 1 0 011 1V19a1 1 0 01-1 1h-13a1 1 0 01-1-1v-7.5a1 1 0 011-1z"/></svg>
+                  {{ entry.topic.name }}
+                </div>
+                {% endif %}
+                {% endfor %}
+              </div>
+            </div>
+            {% empty %}
+            <p class="text-sm text-gray-400">No topics available for this year yet.</p>
+            {% endfor %}
+          </div>
+          {% if item.accessible %}
+          <div class="mt-4">
+            <a href="{% url 'mixed_quiz' level_number=item.level.level_number %}"
+               class="block rounded-xl bg-emerald-500 p-3 hover:bg-emerald-600 hover:shadow-md transition text-sm font-bold text-white text-center shadow-sm">
+              🎲 Take Mixed Quiz
+            </a>
+          </div>
+          {% else %}
+          <p class="text-xs text-gray-400 mt-4">
+            Enrol in a Year {{ item.level.level_number }} class to unlock these quizzes.
+            {% if not_in_any_class %}<a href="{% url 'maths:join_class' %}" class="text-emerald-600 font-semibold hover:underline">Browse classes →</a>{% endif %}
+          </p>
+          {% endif %}
+        </div>
+
+      </div>
+      {% empty %}
+        <p class="text-gray-400 text-sm">No year levels found. Ask an administrator to set up levels.</p>
+      {% endfor %}
+    </div>
+  </div>
+
+</div>
+
+{% block extra_js %}
+<script>
+  function toggleYear(id) {
+    const body = document.getElementById(id);
+    const chevron = document.getElementById('chevron-' + id);
+    const isHidden = body.classList.contains('hidden');
+    body.classList.toggle('hidden', !isHidden);
+    chevron.style.transform = isHidden ? 'rotate(180deg)' : '';
+  }
+</script>
+{% endblock %}
+
+{% endblock %}

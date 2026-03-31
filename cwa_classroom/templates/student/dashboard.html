@@ -1,0 +1,322 @@
+{% extends "base.html" %}
+{% block title %}My Progress{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-8">
+
+  <div>
+    <h1 class="font-display text-3xl text-gray-800">📊 My Progress</h1>
+    <p class="text-emerald-500 text-sm mt-1 font-semibold">Your performance across all topics and levels.</p>
+  </div>
+
+  <!-- Filter controls -->
+  {% if enrolled_subjects|length > 0 or enrolled_classes|length > 1 %}
+  <div class="flex flex-wrap items-center gap-2">
+    <a href="{% url 'student_dashboard' %}"
+       class="px-4 py-2 rounded-xl text-sm font-semibold transition
+              {% if not filter_class_id and not filter_subject_id %}bg-emerald-500 text-white shadow-sm{% else %}bg-white border border-slate-200 text-gray-600 hover:bg-gray-50{% endif %}">
+      All
+    </a>
+    {% for subject in enrolled_subjects %}
+      <a href="{% url 'student_dashboard' %}?subject_id={{ subject.id }}"
+         class="px-4 py-2 rounded-xl text-sm font-semibold transition
+                {% if filter_subject_id == subject.id %}bg-emerald-500 text-white shadow-sm{% else %}bg-white border border-slate-200 text-gray-600 hover:bg-gray-50{% endif %}">
+        {{ subject.name }}
+      </a>
+    {% endfor %}
+    {% if enrolled_classes|length > 1 %}
+      <select onchange="if(this.value) window.location.href=this.value; else window.location.href='{% url 'student_dashboard' %}';"
+              class="px-4 py-2 rounded-xl text-sm font-semibold border border-slate-200 bg-white text-gray-600 focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 transition">
+        <option value="">Filter by class...</option>
+        {% for cls in enrolled_classes %}
+          <option value="{% url 'student_dashboard' %}?class_id={{ cls.id }}"
+                  {% if filter_class_id == cls.id %}selected{% endif %}>
+            {{ cls.name }}
+          </option>
+        {% endfor %}
+      </select>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- Time stats -->
+  <div class="grid grid-cols-2 gap-4">
+    <div class="bg-emerald-500 rounded-2xl shadow-sm p-5 text-center">
+      <p class="font-display text-3xl text-white">{{ time_daily }}</p>
+      <p class="text-xs text-white/80 font-bold uppercase tracking-wide mt-1">Today</p>
+    </div>
+    <div class="bg-emerald-600 rounded-2xl shadow-sm p-5 text-center">
+      <p class="font-display text-3xl text-white">{{ time_weekly }}</p>
+      <p class="text-xs text-white/80 font-bold uppercase tracking-wide mt-1">This Week</p>
+    </div>
+  </div>
+
+  <!-- ── Year Level Progress (accordion) ─────────────────────────────────── -->
+  {% if progress_grid %}
+  <details class="group bg-white rounded-2xl border border-emerald-100 shadow-sm overflow-hidden">
+    <summary class="flex items-center justify-between px-5 py-4 cursor-pointer select-none bg-emerald-50 hover:bg-emerald-100/50 transition">
+      <h2 class="font-bold text-lg text-emerald-700">📚 Year Level Progress</h2>
+      <svg class="w-5 h-5 text-emerald-500 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+      </svg>
+    </summary>
+
+    <div class="p-4 space-y-3">
+      <!-- Colour legend (deviation from class average) -->
+      <div class="flex flex-wrap gap-2 text-xs font-semibold mb-2">
+        <span class="px-3 py-1 rounded-full bg-green-800 text-white">Outstanding</span>
+        <span class="px-3 py-1 rounded-full bg-green-500 text-white">Above Average</span>
+        <span class="px-3 py-1 rounded-full bg-green-200 text-green-900">Average</span>
+        <span class="px-3 py-1 rounded-full bg-yellow-200 text-yellow-900">Below Average</span>
+        <span class="px-3 py-1 rounded-full bg-orange-200 text-orange-900">Needs Practice</span>
+        <span class="px-3 py-1 rounded-full bg-red-200 text-red-900">Needs Support</span>
+        <span class="px-3 py-1 rounded-full bg-gray-100 text-gray-400">Not attempted</span>
+      </div>
+
+      {% for row in progress_grid %}
+      <details class="group/row border border-emerald-100 rounded-xl overflow-hidden">
+        <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none bg-emerald-50/50 hover:bg-emerald-50 transition">
+          <h3 class="font-bold text-gray-800">{{ row.level.display_name }}</h3>
+          <svg class="w-4 h-4 text-emerald-400 transition-transform group-open/row:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+          </svg>
+        </summary>
+        <div class="p-3 space-y-4">
+          {% for strand_item in row.strand_data %}
+          <div>
+            <!-- Strand label (hidden for flat/legacy topics) -->
+            {% if strand_item.strand %}
+            <p class="text-xs font-bold text-green-500 uppercase tracking-wider mb-2 px-1">
+              {{ strand_item.strand.name }}
+            </p>
+            {% endif %}
+            <!-- Subtopics grid -->
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+              {% for item in strand_item.subtopics %}
+              <a href="{% if item.topic_id %}{% url 'topic_quiz' level_number=row.level.level_number topic_id=item.topic_id %}{% else %}#{% endif %}"
+                 class="rounded-xl border border-transparent p-3 hover:shadow-md transition block {{ item.colour }}">
+                <p class="text-xs font-semibold mb-1">{{ item.topic.name }}</p>
+                {% if item.best %}
+                <p class="text-sm font-bold">{{ item.best.points|floatformat:1 }} pts</p>
+                <p class="text-xs opacity-70 mt-0.5">{{ item.best.percentage }}% · {{ item.attempts }} attempt{{ item.attempts|pluralize }}</p>
+                {% else %}
+                <p class="text-sm font-bold opacity-50">0 pts</p>
+                {% endif %}
+              </a>
+              {% endfor %}
+            </div>
+          </div>
+          {% empty %}
+          <p class="text-sm text-gray-400 px-1">No topics available for this year yet.</p>
+          {% endfor %}
+        </div>
+      </details>
+      {% endfor %}
+    </div>
+  </details>
+  {% endif %}
+
+  <!-- ── Basic Facts Progress (accordion) ────────────────────────────────── -->
+  {% if bf_grid %}
+  <details class="group bg-white rounded-2xl border border-teal-100 shadow-sm overflow-hidden">
+    <summary class="flex items-center justify-between px-5 py-4 cursor-pointer select-none bg-teal-50 hover:bg-teal-100/50 transition">
+      <h2 class="font-bold text-lg text-teal-600">⚡ Basic Facts Progress</h2>
+      <svg class="w-5 h-5 text-teal-500 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+      </svg>
+    </summary>
+
+    <div class="p-4 space-y-3">
+      {% for subtopic_data in bf_grid %}
+      <details class="group/bf border border-teal-100 rounded-xl overflow-hidden">
+        <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none bg-teal-50/50 hover:bg-teal-50 transition">
+          <h3 class="font-bold text-gray-800">{{ subtopic_data.label }}</h3>
+          <svg class="w-4 h-4 text-teal-400 transition-transform group-open/bf:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+          </svg>
+        </summary>
+        <div class="p-3">
+          <div class="flex flex-wrap gap-3">
+            {% for level in subtopic_data.levels %}
+            <a href="{% url 'basic_facts_quiz' subtopic=subtopic_data.subtopic level_number=level.level_number %}"
+               class="flex flex-col items-center gap-1 p-3 rounded-xl border border-transparent hover:shadow-md transition min-w-16 {{ level.colour }}">
+              <span class="text-xs font-semibold">L{{ level.display_level }}</span>
+              {% if level.best %}
+              <span class="text-sm font-bold">{{ level.best.percentage }}%</span>
+              {% else %}
+              <span class="text-sm font-bold opacity-40">—</span>
+              {% endif %}
+            </a>
+            {% endfor %}
+          </div>
+        </div>
+      </details>
+      {% endfor %}
+
+      <!-- Number Puzzles inside Basic Facts -->
+      {% if np_grid %}
+      <details class="group/np border border-teal-100 rounded-xl overflow-hidden">
+        <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none bg-teal-50/50 hover:bg-teal-50 transition">
+          <h3 class="font-bold text-gray-800">Number Puzzles</h3>
+          <svg class="w-4 h-4 text-teal-400 transition-transform group-open/np:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+          </svg>
+        </summary>
+        <div class="p-3">
+          <div class="flex flex-wrap gap-3">
+            {% for item in np_grid %}
+            {% url 'number_puzzles_play' slug=item.level.slug as play_url %}
+            <a href="{% if item.is_unlocked and play_url %}{{ play_url }}{% else %}#{% endif %}"
+               class="flex flex-col items-center gap-1 p-3 rounded-xl border border-transparent hover:shadow-md transition min-w-16 {{ item.colour }} {% if not item.is_unlocked %}opacity-50 cursor-not-allowed{% endif %}">
+              <span class="text-xs font-semibold">L{{ item.level.number }}</span>
+              {% if item.total_sessions > 0 %}
+              <span class="text-sm font-bold">{{ item.best_score }}/10</span>
+              <span class="text-xs opacity-70">{% if item.stars >= 3 %}⭐⭐⭐{% elif item.stars >= 2 %}⭐⭐{% elif item.stars >= 1 %}⭐{% endif %}</span>
+              {% elif not item.is_unlocked %}
+              <span class="text-sm">🔒</span>
+              {% else %}
+              <span class="text-sm font-bold opacity-40">—</span>
+              {% endif %}
+            </a>
+            {% endfor %}
+          </div>
+        </div>
+      </details>
+      {% endif %}
+
+    </div>
+  </details>
+  {% endif %}
+
+  <!-- ── Times Tables Progress (accordion) ───────────────────────────────── -->
+  {% if tt_results %}
+  <details class="group bg-white rounded-2xl border border-cyan-100 shadow-sm overflow-hidden">
+    <summary class="flex items-center justify-between px-5 py-4 cursor-pointer select-none bg-cyan-50 hover:bg-cyan-100/50 transition">
+      <h2 class="font-bold text-lg text-cyan-700">✕ Times Tables Progress</h2>
+      <svg class="w-5 h-5 text-cyan-500 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+      </svg>
+    </summary>
+
+    <div class="p-4">
+      <div class="flex flex-wrap gap-3">
+        {% for tt in tt_results %}
+        <div class="rounded-xl border border-cyan-200 overflow-hidden min-w-[4.5rem] bg-white shadow-sm">
+          <!-- Table header -->
+          <div class="text-center py-1.5 px-2 font-bold text-xs border-b border-cyan-200 bg-cyan-50 text-cyan-700">
+            {{ tt.table }}×
+          </div>
+          <!-- Multiply row -->
+          <div class="flex items-center justify-between px-2 py-1.5 border-b border-black/10 {{ tt.mul_colour }}">
+            <span class="text-xs font-semibold opacity-80">×</span>
+            {% with r=tt.mul|default:tt.legacy %}
+            {% if r %}
+            <div class="text-right">
+              <div class="text-xs font-bold">{{ r.percentage }}%</div>
+              <div class="text-xs opacity-70">{{ r.points|floatformat:0 }}pts</div>
+              <div class="text-xs opacity-60">⏱{{ r.time_taken_seconds }}s</div>
+            </div>
+            {% else %}
+            <span class="text-xs opacity-40">—</span>
+            {% endif %}
+            {% endwith %}
+          </div>
+          <!-- Divide row -->
+          <div class="flex items-center justify-between px-2 py-1.5 {{ tt.div_colour }}">
+            <span class="text-xs font-semibold opacity-80">÷</span>
+            {% if tt.div %}
+            <div class="text-right">
+              <div class="text-xs font-bold">{{ tt.div.percentage }}%</div>
+              <div class="text-xs opacity-70">{{ tt.div.points|floatformat:0 }}pts</div>
+              <div class="text-xs opacity-60">⏱{{ tt.div.time_taken_seconds }}s</div>
+            </div>
+            {% else %}
+            <span class="text-xs opacity-40">—</span>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </details>
+  {% endif %}
+
+  <!-- ── Recent Activity ─────────────────────────────────────────────────── -->
+  {% if recent_topic or recent_bf or recent_tt or recent_np %}
+  <div>
+    <h2 class="font-bold text-xl text-gray-800 mb-4">🕐 Recent Activity</h2>
+    <div class="bg-white rounded-2xl border border-emerald-100 shadow-sm divide-y divide-emerald-50">
+      {% for r in recent_topic %}
+      <div class="flex items-center justify-between px-5 py-3">
+        <div>
+          <p class="font-semibold text-gray-800 text-sm">{{ r.topic.name }} — {{ r.level.display_name }}</p>
+          <p class="text-xs text-gray-400">{{ r.completed_at|date:"j M Y, g:ia" }}</p>
+        </div>
+        <span class="inline-block px-3 py-1 rounded-full text-xs font-bold
+          {% if r.percentage >= 80 %}bg-green-100 text-green-700
+          {% elif r.percentage >= 60 %}bg-yellow-100 text-yellow-800
+          {% else %}bg-red-100 text-red-600{% endif %}">
+          {{ r.score }}/{{ r.total_questions }} — {{ r.points|floatformat:1 }}pts
+        </span>
+      </div>
+      {% endfor %}
+      {% for r in recent_bf %}
+      <div class="flex items-center justify-between px-5 py-3">
+        <div>
+          <p class="font-semibold text-gray-800 text-sm">⚡ {{ r.subtopic }} Level {{ r.level_number }}</p>
+          <p class="text-xs text-gray-400">{{ r.completed_at|date:"j M Y, g:ia" }}</p>
+        </div>
+        <span class="inline-block px-3 py-1 rounded-full text-xs font-bold
+          {% if r.percentage >= 80 %}bg-green-100 text-green-700
+          {% elif r.percentage >= 60 %}bg-yellow-100 text-yellow-800
+          {% else %}bg-red-100 text-red-600{% endif %}">
+          {{ r.score }}/{{ r.total_questions }} — {{ r.points|floatformat:1 }}pts
+        </span>
+      </div>
+      {% endfor %}
+      {% for r in recent_tt %}
+      <div class="flex items-center justify-between px-5 py-3">
+        <div>
+          <p class="font-semibold text-gray-800 text-sm">✕ {{ r.level.level_number }}× Times Table</p>
+          <p class="text-xs text-gray-400">{{ r.completed_at|date:"j M Y, g:ia" }}</p>
+        </div>
+        <span class="inline-block px-3 py-1 rounded-full text-xs font-bold
+          {% if r.percentage >= 80 %}bg-green-100 text-green-700
+          {% elif r.percentage >= 60 %}bg-yellow-100 text-yellow-800
+          {% else %}bg-red-100 text-red-600{% endif %}">
+          {{ r.score }}/{{ r.total_questions }} — {{ r.points|floatformat:1 }}pts
+        </span>
+      </div>
+      {% endfor %}
+      {% for r in recent_np %}
+      <div class="flex items-center justify-between px-5 py-3">
+        <div>
+          <p class="font-semibold text-gray-800 text-sm">🧩 Number Puzzles — {{ r.level.name }}</p>
+          <p class="text-xs text-gray-400">{{ r.completed_at|date:"j M Y, g:ia" }}</p>
+        </div>
+        <span class="inline-block px-3 py-1 rounded-full text-xs font-bold
+          {% if r.score >= 8 %}bg-green-100 text-green-700
+          {% elif r.score >= 6 %}bg-yellow-100 text-yellow-800
+          {% else %}bg-red-100 text-red-600{% endif %}">
+          {{ r.score }}/{{ r.total_questions }}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+
+{% block extra_js %}
+<script>
+  // Heartbeat to track time-on-page every 30s
+  setInterval(() => {
+    fetch('{% url "api_update_time_log" %}', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
+      body: JSON.stringify({seconds: 30})
+    });
+  }, 30000);
+</script>
+{% endblock %}
+{% endblock %}

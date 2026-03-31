@@ -1,0 +1,68 @@
+<div class="inline-block bg-white border rounded-2xl shadow-sm px-4 py-3
+            {% if teacher_data.role_key == 'senior_teacher' %}border-indigo-300
+            {% elif teacher_data.role_key == 'teacher' %}border-blue-300
+            {% elif teacher_data.role_key == 'junior_teacher' %}border-sky-300
+            {% else %}border-gray-300{% endif %}">
+  <div class="flex items-center gap-2">
+    <div class="w-8 h-8 rounded-full flex items-center justify-center
+                {% if teacher_data.role_key == 'senior_teacher' %}bg-indigo-100
+                {% elif teacher_data.role_key == 'teacher' %}bg-blue-100
+                {% elif teacher_data.role_key == 'junior_teacher' %}bg-sky-100
+                {% else %}bg-gray-100{% endif %}">
+      <svg class="w-4 h-4
+                  {% if teacher_data.role_key == 'senior_teacher' %}text-indigo-600
+                  {% elif teacher_data.role_key == 'teacher' %}text-blue-600
+                  {% elif teacher_data.role_key == 'junior_teacher' %}text-sky-600
+                  {% else %}text-gray-600{% endif %}"
+           fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>
+      </svg>
+    </div>
+    <div class="text-left">
+      <p class="font-semibold text-sm text-gray-900">{{ teacher_data.user.get_full_name|default:teacher_data.user.username }}</p>
+      <span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium
+                   {% if teacher_data.role_key == 'senior_teacher' %}bg-indigo-100 text-indigo-800
+                   {% elif teacher_data.role_key == 'teacher' %}bg-blue-100 text-blue-800
+                   {% elif teacher_data.role_key == 'junior_teacher' %}bg-sky-100 text-sky-800
+                   {% else %}bg-gray-100 text-gray-800{% endif %}">
+        {{ teacher_data.role_display }}
+      </span>
+    </div>
+  </div>
+
+  {# Classes #}
+  {% if teacher_data.classes %}
+  <div class="mt-2 pt-2 border-t border-gray-100 space-y-1">
+    {% for cls_data in teacher_data.classes %}
+    {% if cls_data.can_view %}
+    <a href="{% url 'class_detail' cls_data.classroom.id %}"
+       class="class-link flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs
+              {% if cls_data.is_shared %}{{ cls_data.color.bg }} {{ cls_data.color.text }} border {{ cls_data.color.border }}{% else %}bg-gray-50 text-gray-600 hover:bg-gray-100{% endif %}">
+    {% else %}
+    <div class="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs
+                {% if cls_data.is_shared %}{{ cls_data.color.bg }} {{ cls_data.color.text }} border {{ cls_data.color.border }}{% else %}bg-gray-50 text-gray-600{% endif %}">
+    {% endif %}
+      <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.436 60.436 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.697 50.697 0 0112 13.489a50.702 50.702 0 017.74-3.342M6.75 15a.75.75 0 100-1.5.75.75 0 000 1.5zm0 0v-3.675A55.378 55.378 0 0112 8.443m-7.007 11.55A5.981 5.981 0 006.75 15.75v-1.5"/>
+      </svg>
+      <span class="font-medium">{{ cls_data.classroom.name }}</span>
+      {% if cls_data.is_shared %}
+      <span class="text-[10px] opacity-70">(shared)</span>
+      {% endif %}
+      <span class="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-gray-100 text-xs text-gray-600">
+        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/>
+        </svg>
+        {{ cls_data.student_count }}
+      </span>
+    {% if cls_data.can_view %}
+    </a>
+    {% else %}
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="mt-2 pt-2 border-t border-gray-100 text-xs text-gray-400 italic">No classes</p>
+  {% endif %}
+</div>

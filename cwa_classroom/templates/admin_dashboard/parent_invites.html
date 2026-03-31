@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Parent Invites — {{ school.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+
+  <div>
+    <h1 class="font-display text-2xl text-gray-800">Parent Invites</h1>
+    <p class="text-sm text-gray-400">{{ school.name }}</p>
+  </div>
+
+  {% if invites %}
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+            <th class="px-6 py-3 text-left">Parent Email</th>
+            <th class="px-6 py-3 text-left">Student</th>
+            <th class="px-6 py-3 text-center">Status</th>
+            <th class="px-6 py-3 text-left">Sent</th>
+            <th class="px-6 py-3 text-left">Expires</th>
+            <th class="px-6 py-3 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          {% for inv in invites %}
+            <tr>
+              <td class="px-6 py-4 text-gray-700">{{ inv.parent_email }}</td>
+              <td class="px-6 py-4 text-gray-600">{{ inv.student.first_name }} {{ inv.student.last_name }}</td>
+              <td class="px-6 py-4 text-center">
+                {% if inv.status == 'pending' %}
+                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">Pending</span>
+                {% elif inv.status == 'accepted' %}
+                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">Accepted</span>
+                {% elif inv.status == 'revoked' %}
+                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">Revoked</span>
+                {% else %}
+                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">{{ inv.get_status_display }}</span>
+                {% endif %}
+              </td>
+              <td class="px-6 py-4 text-gray-500 text-xs">{{ inv.created_at|date:"d M Y" }}</td>
+              <td class="px-6 py-4 text-gray-500 text-xs">{{ inv.expires_at|date:"d M Y" }}</td>
+              <td class="px-6 py-4 text-right">
+                {% if inv.status == 'pending' %}
+                  <form method="post" action="{% url 'revoke_parent_invite' school.id inv.id %}" class="inline">
+                    {% csrf_token %}
+                    <button type="submit" class="text-xs text-red-500 hover:text-red-600 font-medium">Revoke</button>
+                  </form>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center">
+      <p class="text-gray-400">No parent invites yet.</p>
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}

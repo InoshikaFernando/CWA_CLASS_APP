@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block title %}Reference Mappings{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-8">
+    <div>
+      <h1 class="text-2xl font-display font-bold text-gray-900">Reference Mappings</h1>
+      <p class="text-gray-500 mt-1">{{ school.name }} &mdash; Saved mappings between bank references and students</p>
+    </div>
+  </div>
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="mb-4 p-4 rounded-xl text-sm font-medium
+        {% if message.tags == 'success' %}bg-emerald-50 text-emerald-700 border border-emerald-200
+        {% elif message.tags == 'error' %}bg-red-50 text-red-700 border border-red-200
+        {% else %}bg-blue-50 text-blue-700 border border-blue-200{% endif %}">
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  <!-- Search -->
+  <div class="mb-6">
+    <form method="get" class="flex items-center gap-3">
+      <input type="text" name="q" value="{{ search }}" placeholder="Search reference or student name..."
+        class="w-80 px-4 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+      <button type="submit"
+        class="px-4 py-2 text-sm bg-slate-100 text-gray-700 rounded-lg hover:bg-slate-200 transition font-medium border border-slate-300">
+        Search
+      </button>
+      {% if search %}
+        <a href="{% url 'reference_mappings' %}" class="text-sm text-gray-500 hover:text-gray-700">Clear</a>
+      {% endif %}
+    </form>
+  </div>
+
+  <!-- Table -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    {% if mappings %}
+      <table class="w-full">
+        <thead>
+          <tr class="border-b border-slate-100">
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Reference Name</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Mapped Student</th>
+            <th class="px-6 py-3 text-center text-xs font-semibold text-gray-500 uppercase">Status</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Created</th>
+            <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for mapping in mappings %}
+            <tr class="border-b border-slate-50 hover:bg-slate-50 transition">
+              <td class="px-6 py-4 font-medium text-gray-900">{{ mapping.reference_name }}</td>
+              <td class="px-6 py-4 text-gray-600">
+                {% if mapping.student %}
+                  {{ mapping.student.first_name }} {{ mapping.student.last_name }}
+                {% else %}
+                  <span class="text-gray-400">&mdash;</span>
+                {% endif %}
+              </td>
+              <td class="px-6 py-4 text-center">
+                {% if mapping.is_ignored %}
+                  <span class="text-xs font-medium px-2.5 py-1 rounded-full bg-gray-100 text-gray-600">Ignored</span>
+                {% else %}
+                  <span class="text-xs font-medium px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700">Mapped</span>
+                {% endif %}
+              </td>
+              <td class="px-6 py-4 text-sm text-gray-500">{{ mapping.created_at|date:"M d, Y" }}</td>
+              <td class="px-6 py-4 text-right">
+                <form method="post" action="{% url 'reference_mappings' %}" class="inline">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="delete">
+                  <input type="hidden" name="mapping_id" value="{{ mapping.id }}">
+                  <button type="submit" class="text-sm text-red-600 hover:text-red-800 font-medium"
+                    onclick="return confirm('Delete this mapping?')">
+                    Delete
+                  </button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="px-6 py-16 text-center">
+        <svg class="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"/>
+        </svg>
+        <h3 class="text-lg font-semibold text-gray-900 mb-1">No Reference Mappings</h3>
+        <p class="text-gray-500">
+          {% if search %}
+            No mappings match your search. Try a different query.
+          {% else %}
+            Reference mappings are automatically created when you process CSV payment uploads.
+          {% endif %}
+        </p>
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

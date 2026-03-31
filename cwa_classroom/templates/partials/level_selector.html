@@ -1,0 +1,185 @@
+<!-- Dynamic Level Selector — loaded via JS after department selection -->
+<div id="level-section" class="hidden space-y-5">
+  <!-- Subject badges -->
+  <div id="subject-info" class="hidden">
+    <div id="subject-badges" class="flex flex-wrap gap-1.5"></div>
+  </div>
+
+  <!-- Levels grouped by subject -->
+  <div id="levels-by-subject"></div>
+
+  <!-- No levels message -->
+  <div id="no-levels-msg" class="hidden">
+    <p class="text-sm text-gray-400 bg-gray-50 rounded-xl p-4 text-center">
+      No levels configured for this department yet. Ask an administrator to set up levels.
+    </p>
+  </div>
+</div>
+
+<script>
+function loadDepartmentLevels(deptId) {
+  const section = document.getElementById('level-section');
+  const subjectInfo = document.getElementById('subject-info');
+  const subjectBadges = document.getElementById('subject-badges');
+  const levelsContainer = document.getElementById('levels-by-subject');
+  const noMsg = document.getElementById('no-levels-msg');
+
+  // Reset
+  subjectBadges.innerHTML = '';
+  levelsContainer.innerHTML = '';
+  subjectInfo.classList.add('hidden');
+  noMsg.classList.add('hidden');
+
+  if (!deptId) {
+    section.classList.add('hidden');
+    return;
+  }
+
+  section.classList.remove('hidden');
+
+  fetch('/api/department/' + deptId + '/levels/')
+    .then(r => r.json())
+    .then(data => {
+      const subjects = data.subjects || [];
+      let totalLevels = 0;
+
+      // Show subject tabs (clickable to filter)
+      if (subjects.length > 1) {
+        // "All" tab
+        subjectBadges.innerHTML = `<button type="button" onclick="filterSubject(null)" class="subject-tab inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-full bg-primary text-white transition" data-subject="all">All</button>`;
+        subjects.forEach(subj => {
+          subjectBadges.innerHTML += `<button type="button" onclick="filterSubject(${subj.id})" class="subject-tab inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-600 hover:bg-blue-100 hover:text-blue-700 transition" data-subject="${subj.id}">${subj.name}</button>`;
+        });
+        subjectInfo.classList.remove('hidden');
+      } else if (subjects.length === 1) {
+        subjectBadges.innerHTML = `<span class="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-700">${subjects[0].name}</span>`;
+        subjectInfo.classList.remove('hidden');
+      }
+
+      // Render levels grouped by subject
+      subjects.forEach(subj => {
+        const hasYear = subj.levels && subj.levels.length > 0;
+        const hasCustom = subj.custom_levels && subj.custom_levels.length > 0;
+        if (!hasYear && !hasCustom) return;
+
+        totalLevels += (subj.levels ? subj.levels.length : 0) + (subj.custom_levels ? subj.custom_levels.length : 0);
+
+        let html = `<div class="subject-group" data-subject-group="${subj.id}">`;
+        if (subjects.length > 1) {
+          html += `<p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 mt-4">${subj.name}</p>`;
+        }
+
+        if (hasYear) {
+          html += `<label class="block text-sm font-semibold text-gray-700 mb-2">Year Levels</label>`;
+          html += `<p class="text-xs text-gray-400 mb-3">Students will have access to topics from the selected levels.</p>`;
+          html += `<div class="grid grid-cols-4 gap-3 mb-4">`;
+          subj.levels.forEach(lv => {
+            html += `
+              <label class="flex flex-col items-center justify-center gap-1 p-3 rounded-xl border-2 border-gray-200
+                             hover:border-primary cursor-pointer transition has-[:checked]:border-primary has-[:checked]:bg-primary-light"
+                     data-subject-id="${subj.id}">
+                <input type="checkbox" name="levels" value="${lv.id}" class="sr-only level-checkbox" data-subject-id="${subj.id}" />
+                <span class="font-display text-xl text-primary">${lv.level_number}</span>
+                <span class="text-xs text-gray-500">${lv.display_name}</span>
+              </label>`;
+          });
+          html += `</div>`;
+        }
+
+        if (hasCustom) {
+          html += `<label class="block text-sm font-semibold text-gray-700 mb-2">Custom Levels</label>`;
+          html += `<p class="text-xs text-gray-400 mb-3">School-specific levels for this subject.</p>`;
+          html += `<div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">`;
+          subj.custom_levels.forEach(lv => {
+            html += `
+              <label class="flex flex-col items-center justify-center gap-1 p-3 rounded-xl border-2 border-gray-200
+                             hover:border-accent cursor-pointer transition has-[:checked]:border-accent has-[:checked]:bg-accent-light"
+                     data-subject-id="${subj.id}">
+                <input type="checkbox" name="levels" value="${lv.id}" class="sr-only level-checkbox" data-subject-id="${subj.id}" />
+                <span class="text-sm font-semibold text-accent">${lv.display_name}</span>
+                ${lv.description ? `<span class="text-xs text-gray-400">${lv.description}</span>` : ''}
+              </label>`;
+          });
+          html += `</div>`;
+        }
+
+        html += `</div>`; // close subject-group
+        levelsContainer.innerHTML += html;
+      });
+
+      if (totalLevels === 0) {
+        // Fallback: use legacy flat lists if subjects array is empty
+        if (data.levels && data.levels.length > 0) {
+          let html = `<label class="block text-sm font-semibold text-gray-700 mb-2">Year Levels</label>`;
+          html += `<div class="grid grid-cols-4 gap-3 mb-4">`;
+          data.levels.forEach(lv => {
+            html += `
+              <label class="flex flex-col items-center justify-center gap-1 p-3 rounded-xl border-2 border-gray-200
+                             hover:border-primary cursor-pointer transition has-[:checked]:border-primary has-[:checked]:bg-primary-light">
+                <input type="checkbox" name="levels" value="${lv.id}" class="sr-only level-checkbox" />
+                <span class="font-display text-xl text-primary">${lv.level_number}</span>
+                <span class="text-xs text-gray-500">${lv.display_name}</span>
+              </label>`;
+          });
+          html += `</div>`;
+          levelsContainer.innerHTML += html;
+          totalLevels += data.levels.length;
+        }
+        if (data.custom_levels && data.custom_levels.length > 0) {
+          let html = `<label class="block text-sm font-semibold text-gray-700 mb-2">Custom Levels</label>`;
+          html += `<div class="grid grid-cols-2 sm:grid-cols-3 gap-3">`;
+          data.custom_levels.forEach(lv => {
+            html += `
+              <label class="flex flex-col items-center justify-center gap-1 p-3 rounded-xl border-2 border-gray-200
+                             hover:border-accent cursor-pointer transition has-[:checked]:border-accent has-[:checked]:bg-accent-light">
+                <input type="checkbox" name="levels" value="${lv.id}" class="sr-only level-checkbox" />
+                <span class="text-sm font-semibold text-accent">${lv.display_name}</span>
+                ${lv.description ? `<span class="text-xs text-gray-400">${lv.description}</span>` : ''}
+              </label>`;
+          });
+          html += `</div>`;
+          levelsContainer.innerHTML += html;
+          totalLevels += data.custom_levels.length;
+        }
+      }
+
+      if (totalLevels === 0) {
+        noMsg.classList.remove('hidden');
+      }
+    })
+    .catch(() => {
+      noMsg.classList.remove('hidden');
+      noMsg.querySelector('p').textContent = 'Failed to load levels. Please try again.';
+    });
+}
+
+function filterSubject(subjectId) {
+  // Update tab styles
+  document.querySelectorAll('.subject-tab').forEach(btn => {
+    btn.classList.remove('bg-primary', 'text-white');
+    btn.classList.add('bg-gray-100', 'text-gray-600');
+  });
+  if (subjectId === null) {
+    const allTab = document.querySelector('.subject-tab[data-subject="all"]');
+    if (allTab) {
+      allTab.classList.remove('bg-gray-100', 'text-gray-600');
+      allTab.classList.add('bg-primary', 'text-white');
+    }
+  } else {
+    const activeTab = document.querySelector(`.subject-tab[data-subject="${subjectId}"]`);
+    if (activeTab) {
+      activeTab.classList.remove('bg-gray-100', 'text-gray-600');
+      activeTab.classList.add('bg-primary', 'text-white');
+    }
+  }
+
+  // Show/hide subject groups
+  document.querySelectorAll('.subject-group').forEach(group => {
+    if (subjectId === null) {
+      group.style.display = '';
+    } else {
+      group.style.display = group.dataset.subjectGroup === String(subjectId) ? '' : 'none';
+    }
+  });
+}
+</script>

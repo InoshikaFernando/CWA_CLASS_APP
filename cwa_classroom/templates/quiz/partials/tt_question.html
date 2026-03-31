@@ -1,0 +1,14 @@
+<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8" id="tt-question-card">
+  <p class="font-display text-4xl text-gray-800 mb-10 text-center">{{ question.question }}</p>
+  <div class="grid grid-cols-2 gap-4">
+    {% for choice in question.choices %}
+    <button type="button"
+            class="tt-answer-btn text-center px-5 py-5 rounded-xl border-2 border-gray-200
+                   hover:border-primary hover:bg-primary-light font-display text-3xl text-gray-700
+                   transition focus:outline-none active:scale-95"
+            onclick="submitAnswer({{ choice }})">
+      {{ choice }}
+    </button>
+    {% endfor %}
+  </div>
+</div>

@@ -1,0 +1,106 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Classroom{% endblock %} — CWA School</title>
+  <link rel="icon" type="image/png" href="{% static 'images/logo.png' %}" />
+  <link rel="apple-touch-icon" href="{% static 'images/logo.png' %}" />
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Nunito:wght@400;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind CSS CDN (replace with compiled build in production) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- HTMX -->
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <!-- Alpine.js -->
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>[x-cloak] { display: none !important; }</style>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            display: ['Inter', 'sans-serif'],
+            body: ['Nunito', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            primary: { DEFAULT: '#020617', dark: '#000000', light: '#f1f5f9' },
+            accent:  { DEFAULT: '#3b82f6', dark: '#2563eb', light: '#dbeafe' },
+            success: { DEFAULT: '#059669', dark: '#047857', light: '#d1fae5' },
+            danger:  { DEFAULT: '#ef4444', dark: '#dc2626', light: '#fee2e2' },
+            border:  '#e2e8f0',
+            /* Student theme colours (green) */
+            fun:     { DEFAULT: '#059669', dark: '#047857', light: '#d1fae5' },
+            candy:   { DEFAULT: '#0d9488', dark: '#0f766e', light: '#ccfbf1' },
+            sunny:   { DEFAULT: '#65a30d', dark: '#4d7c0f', light: '#ecfccb' },
+            ocean:   { DEFAULT: '#06b6d4', dark: '#0891b2', light: '#cffafe' },
+          },
+        },
+      },
+    }
+  </script>
+
+  <meta name="csrf-token" content="{{ csrf_token }}" />
+  {% block extra_head %}{% endblock %}
+</head>
+
+<body class="{% if is_parent %}bg-violet-50{% elif is_student or is_individual_student %}bg-emerald-50{% else %}bg-slate-50{% endif %} font-body text-gray-700 antialiased">
+
+  <!-- ── Topbar ─────────────────────────────────────────────── -->
+  {% include "partials/topbar.html" %}
+
+  <div class="flex h-[calc(100vh-4rem)] pt-16">
+
+    <!-- ── Sidebar (desktop) — hidden when hide_sidebar is set ── -->
+    {% if not hide_sidebar %}
+    <aside id="sidebar"
+           class="hidden md:flex flex-col w-64 {% block sidebar_bg %}{% if is_parent %}bg-violet-700{% elif is_student or is_individual_student %}bg-emerald-700{% else %}bg-primary{% endif %}{% endblock %} fixed top-16 bottom-0 left-0 z-30 overflow-y-auto">
+      {% block sidebar %}
+        {% if is_admin_user %}
+          {% include "partials/sidebar_admin.html" %}
+        {% elif is_institute_owner %}
+          {% include "partials/sidebar_hoi.html" %}
+        {% elif is_hoi %}
+          {% include "partials/sidebar_hoi.html" %}
+        {% elif is_hod %}
+          {% include "partials/sidebar_hod.html" %}
+        {% elif is_senior_teacher %}
+          {% include "partials/sidebar_senior_teacher.html" %}
+        {% elif is_teacher or is_junior_teacher %}
+          {% include "partials/sidebar_teacher.html" %}
+        {% elif is_parent %}
+          {% include "partials/sidebar_parent.html" %}
+        {% elif is_student or is_individual_student %}
+          {% include "partials/sidebar_student.html" %}
+        {% elif is_parent %}
+          {% include "partials/sidebar_parent.html" %}
+        {% elif is_accountant %}
+          {% include "partials/sidebar_accountant.html" %}
+        {% endif %}
+      {% endblock %}
+    </aside>
+    {% endif %}
+
+    <!-- ── Main content ───────────────────────────────────────── -->
+    <main class="flex-1 {% if not hide_sidebar %}md:ml-64{% endif %} overflow-y-auto px-4 py-6 md:px-8 pb-24 md:pb-6">
+      <!-- Toast messages -->
+      {% include "partials/toast.html" %}
+
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  <!-- ── Bottom nav (mobile) ───────────────────────────────────── -->
+  <div class="md:hidden">
+    {% include "partials/bottom_nav.html" %}
+  </div>
+
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

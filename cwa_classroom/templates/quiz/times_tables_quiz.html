@@ -1,0 +1,81 @@
+{% extends "base_quiz.html" %}
+{% block title %}{{ table }}× Tables — {{ operation|title }}{% endblock %}
+{% block quiz_title %}{{ table }}× — {{ operation|title }}{% endblock %}
+
+{% block quiz_progress %}
+  <div class="flex items-center gap-3">
+    <span class="text-xs text-gray-500 font-semibold" id="progress-text">
+      Question <span id="q-num">1</span> of {{ total_questions }}
+    </span>
+    <div class="w-32 h-2 bg-gray-200 rounded-full overflow-hidden">
+      <div id="progress-bar" class="h-full bg-primary rounded-full transition-all" style="width: 0%"></div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block quiz_timer %}
+  <div class="flex items-center gap-1.5 font-mono text-sm font-bold text-gray-700 bg-gray-100 rounded-xl px-3 py-1.5">
+    <span id="timer">0:00</span>
+  </div>
+{% endblock %}
+
+{% block content %}
+<div id="question-container">
+  {% include "quiz/partials/tt_question.html" %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // Timer
+  let s = 0;
+  setInterval(() => {
+    s++;
+    const m = Math.floor(s / 60);
+    document.getElementById('timer').textContent = m + ':' + String(s % 60).padStart(2, '0');
+  }, 1000);
+
+  const SESSION_ID = "{{ session_id }}";
+  const TOTAL = {{ total_questions }};
+  let questionNum = 1;
+
+  function updateProgress() {
+    document.getElementById('q-num').textContent = questionNum;
+    document.getElementById('progress-bar').style.width = ((questionNum - 1) / TOTAL * 100) + '%';
+  }
+
+  function submitAnswer(choice) {
+    document.querySelectorAll('.tt-answer-btn').forEach(b => b.disabled = true);
+    fetch("{% url 'api_tt_answer' %}", {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content,
+      },
+      body: new URLSearchParams({ session_id: SESSION_ID, answer: String(choice) }),
+    })
+    .then(r => r.text())
+    .then(html => {
+      document.getElementById('question-container').innerHTML = html;
+      questionNum++;
+      updateProgress();
+    })
+    .catch(() => {
+      document.getElementById('question-container').innerHTML =
+        '<p class="text-red-500 text-center p-8">Something went wrong. Please refresh.</p>';
+    });
+  }
+
+  function loadNextTTQuestion() {
+    fetch(`/api/tt-next/${SESSION_ID}/`, {
+      headers: { 'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content }
+    })
+    .then(r => r.text())
+    .then(html => { document.getElementById('question-container').innerHTML = html; })
+    .catch(() => {
+      document.getElementById('question-container').innerHTML =
+        '<p class="text-red-500 text-center p-8">Something went wrong. Please refresh.</p>';
+    });
+  }
+</script>
+{% endblock %}

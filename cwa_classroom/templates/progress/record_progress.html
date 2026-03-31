@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}Record Progress — {{ classroom.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto">
+
+  <div class="mb-8">
+    <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Record Progress</h1>
+    <p class="text-gray-500 mt-1">{{ classroom.name }}</p>
+  </div>
+
+  {% if hierarchical_criteria and student_rows %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <form method="post">
+        {% csrf_token %}
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="bg-slate-50 text-left text-gray-500">
+                <th class="px-4 py-3 font-medium sticky left-0 bg-slate-50 z-10">Student</th>
+                {% for h_item in hierarchical_criteria %}
+                  <th class="px-4 py-3 font-medium text-center min-w-[140px]">
+                    {% if h_item.is_child %}
+                      <span class="text-xs text-gray-400">&#8627; {{ h_item.criteria.name|truncatechars:25 }}</span>
+                    {% else %}
+                      <span class="text-xs font-bold">{{ h_item.criteria.name|truncatechars:25 }}</span>
+                    {% endif %}
+                  </th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-50">
+              {% for row in student_rows %}
+                <tr>
+                  <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-white z-10 whitespace-nowrap">
+                    {{ row.student.get_full_name|default:row.student.username }}
+                  </td>
+                  {% for cs in row.criteria_statuses %}
+                    <td class="px-4 py-3 text-center">
+                      <select name="status_{{ row.student.id }}_{{ cs.criteria.id }}"
+                              class="text-xs px-2 py-1 border border-slate-200 rounded-lg focus:ring-2 focus:ring-accent
+                                {% if cs.current_status == 'achieved' %}bg-emerald-50 text-emerald-700
+                                {% elif cs.current_status == 'in_progress' %}bg-amber-50 text-amber-700
+                                {% else %}bg-white{% endif %}">
+                        {% for value, label in status_choices %}
+                          <option value="{{ value }}" {% if cs.current_status == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                      </select>
+                    </td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="px-6 py-4 bg-slate-50 flex justify-end">
+          <button type="submit"
+                  class="px-6 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm">
+            Save Progress
+          </button>
+        </div>
+      </form>
+    </div>
+  {% else %}
+    <div class="bg-white rounded-xl p-12 border border-slate-200 text-center">
+      {% if not hierarchical_criteria %}
+        <p class="text-gray-400 mb-2">No approved criteria for this class's subject and levels.</p>
+        <a href="{% url 'progress_criteria_create' %}" class="text-accent text-sm font-medium">Create criteria &rarr;</a>
+      {% elif not student_rows %}
+        <p class="text-gray-400">No students enrolled in this class.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}

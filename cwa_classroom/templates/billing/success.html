@@ -1,0 +1,12 @@
+{% extends "base_auth.html" %}
+{% block title %}Subscription Active{% endblock %}
+{% block card_content %}
+  <div class="text-center">
+    <div class="text-5xl mb-4">🎉</div>
+    <h1 class="font-display text-2xl text-primary mb-2">You're all set!</h1>
+    <p class="text-gray-500 text-sm mb-6">Your subscription is active. Let's get learning!</p>
+    <a href="{% url 'select_classes' %}" class="inline-block bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition">
+      Choose Your Classes →
+    </a>
+  </div>
+{% endblock %}
