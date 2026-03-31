@@ -178,8 +178,25 @@
                         {% endif %}
                       </p>
                       <p class="text-xs text-gray-400">
-                        <span class="font-mono text-gray-500">ID: {{ ss.student.id }}</span>
+                        <span class="font-mono text-gray-500">@{{ ss.student.username }}</span>
                         &middot; {{ ss.student.email }} &middot; {{ ss.class_count }} class{{ ss.class_count|pluralize:"es" }}
+                        {% with parents=ss.student.student_parent_links.all %}
+                          {% if parents %}
+                            &middot;
+                            {% for link in parents %}
+                              <span class="text-blue-400" title="{{ link.parent.get_full_name }}">&#128100; {{ link.parent.username }}</span>{% if not forloop.last %}, {% endif %}
+                            {% endfor %}
+                          {% else %}
+                            {% with guardians=ss.student.student_guardians.all %}
+                              {% if guardians %}
+                                &middot;
+                                {% for sg in guardians %}
+                                  <span class="text-purple-400" title="{{ sg.guardian.first_name }} {{ sg.guardian.last_name }}">&#128100; {{ sg.guardian.first_name }}</span>{% if not forloop.last %}, {% endif %}
+                                {% endfor %}
+                              {% endif %}
+                            {% endwith %}
+                          {% endif %}
+                        {% endwith %}
                       </p>
                     </div>
                   </div>
