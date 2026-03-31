@@ -1191,6 +1191,17 @@ class AcademicYearEditView(RoleRequiredMixin, View):
                     'number_of_terms': number_of_terms, 'terms_updated': terms_updated},
             request=request,
         )
+        # Sync scheduled sessions with updated term/year dates
+        from . import invoicing_services as svc
+        created, deleted = svc.sync_sessions_for_school(school, created_by=request.user)
+        if created or deleted:
+            parts = []
+            if created:
+                parts.append(f'{created} session(s) created')
+            if deleted:
+                parts.append(f'{deleted} orphaned session(s) removed')
+            messages.info(request, f'Sessions synced: {", ".join(parts)}.')
+
         messages.success(request, f'Academic year {year} updated successfully.')
         return redirect('admin_school_detail', school_id=school.id)
 
@@ -2444,6 +2455,17 @@ class TermManageView(RoleRequiredMixin, View):
                 request=request,
             )
             messages.success(request, f'Term "{term_name}" deleted.')
+
+        # Sync scheduled sessions with updated term dates
+        from . import invoicing_services as svc
+        created, deleted = svc.sync_sessions_for_school(school, created_by=request.user)
+        if created or deleted:
+            parts = []
+            if created:
+                parts.append(f'{created} session(s) created')
+            if deleted:
+                parts.append(f'{deleted} orphaned session(s) removed')
+            messages.info(request, f'Sessions synced: {", ".join(parts)}.')
 
         return redirect('admin_school_terms', school_id=school.id)
 
