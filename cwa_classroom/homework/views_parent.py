@@ -26,8 +26,8 @@ class ParentHomeworkView(RoleRequiredMixin, View):
         # Get current child from session (set by parent portal)
         child_id = request.session.get('parent_current_child_id')
         if not child_id:
-            from classroom.models import ParentStudentLink
-            link = ParentStudentLink.objects.filter(
+            from classroom.models import ParentStudent
+            link = ParentStudent.objects.filter(
                 parent=request.user, is_active=True,
             ).select_related('student').first()
             if link:
