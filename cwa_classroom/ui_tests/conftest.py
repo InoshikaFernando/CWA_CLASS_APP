@@ -26,6 +26,18 @@ from playwright.sync_api import Page, expect
 
 
 # ---------------------------------------------------------------------------
+# Viewport — must be wide enough for the desktop sidebar (md: = 768px)
+# ---------------------------------------------------------------------------
+@pytest.fixture(scope="session")
+def browser_context_args(browser_context_args):
+    """Set a desktop-sized viewport so the sidebar (hidden md:flex) is visible."""
+    return {
+        **browser_context_args,
+        "viewport": {"width": 1280, "height": 800},
+    }
+
+
+# ---------------------------------------------------------------------------
 # Password used for every test user — kept simple for Playwright form-fill
 # ---------------------------------------------------------------------------
 TEST_PASSWORD = "TestPass123!"
@@ -72,12 +84,18 @@ def _make_user(username: str, role_name: str, **extra):
 # ---------------------------------------------------------------------------
 def do_login(page: Page, live_server_url: str, user) -> None:
     """Navigate to login page, fill credentials, submit, and wait for redirect."""
+    # Ensure desktop viewport so sidebar (hidden md:flex) is visible
+    page.set_viewport_size({"width": 1280, "height": 800})
     page.goto(f"{live_server_url}/accounts/login/")
+    # Wait for Tailwind CDN to finish generating styles
+    page.wait_for_load_state("networkidle")
     page.locator("#id_username").fill(user.username)
     page.locator("#id_password").fill(TEST_PASSWORD)
     page.locator("button[type='submit'], input[type='submit']").first.click()
     # Wait until we leave the login page
     page.wait_for_url(lambda url: "/accounts/login" not in url, timeout=10_000)
+    # Wait for page + Tailwind to fully load after redirect
+    page.wait_for_load_state("networkidle")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -182,9 +200,9 @@ def accountant_user(db, roles):
 
 @pytest.fixture
 def school(db, admin_user):
-    """Create a school with an active subscription."""
+    """Create a school with an active subscription and admin as SchoolTeacher."""
     from billing.models import InstitutePlan, SchoolSubscription
-    from classroom.models import School
+    from classroom.models import School, SchoolTeacher
 
     school = School.objects.create(
         name="Test School",
@@ -204,6 +222,12 @@ def school(db, admin_user):
     )
     SchoolSubscription.objects.create(
         school=school, plan=plan, status="active",
+    )
+    # Admin must also be a SchoolTeacher for sidebar views to work
+    SchoolTeacher.objects.get_or_create(
+        school=school,
+        teacher=admin_user,
+        defaults={"role": "head_of_institute"},
     )
     return school
 
