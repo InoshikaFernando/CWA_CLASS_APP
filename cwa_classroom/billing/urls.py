@@ -38,7 +38,11 @@ urlpatterns = [
     path('admin-dashboard/billing/plans/<int:pk>/toggle/', views_admin.PlanToggleActiveView.as_view(), name='billing_admin_plan_toggle'),
     path('admin-dashboard/billing/plans/<int:pk>/sync-stripe/', views_admin.PlanSyncStripeView.as_view(), name='billing_admin_plan_sync'),
 
-    # Discount Codes
+    # Unified Coupon Codes
+    path('admin-dashboard/billing/coupon-codes/', views_admin.CouponCodeListView.as_view(), name='billing_admin_coupon_list'),
+    path('admin-dashboard/billing/coupon-codes/create/', views_admin.CouponCodeCreateView.as_view(), name='billing_admin_coupon_create'),
+
+    # Discount Codes (legacy routes, still used for edit/toggle)
     path('admin-dashboard/billing/discount-codes/', views_admin.DiscountCodeListView.as_view(), name='billing_admin_discount_list'),
     path('admin-dashboard/billing/discount-codes/create/', views_admin.DiscountCodeCreateView.as_view(), name='billing_admin_discount_create'),
     path('admin-dashboard/billing/discount-codes/<int:pk>/edit/', views_admin.DiscountCodeEditView.as_view(), name='billing_admin_discount_edit'),
