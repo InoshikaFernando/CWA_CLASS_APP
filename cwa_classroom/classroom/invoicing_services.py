@@ -318,6 +318,28 @@ def sync_sessions_for_school(school, created_by=None):
     # --- DELETE future scheduled sessions that are now outside term ranges ---
     # Only delete sessions that: are in the future, are 'scheduled', have no
     # attendance records, and are not linked to any invoice line items.
+    from .models import InvoiceLineItem
+
+    # Session IDs that have attendance — keep these
+    attended_ids = set(
+        StudentAttendance.objects.filter(
+            session__classroom__in=classrooms,
+            session__date__gte=today,
+        ).values_list('session_id', flat=True)
+    )
+
+    # Classroom+date pairs covered by an invoice — keep these
+    invoiced_pairs = set()
+    for li in InvoiceLineItem.objects.filter(
+        classroom__in=classrooms,
+        invoice__billing_period_end__gte=today,
+    ).select_related('invoice'):
+        inv = li.invoice
+        d = max(inv.billing_period_start, today)
+        while d <= inv.billing_period_end:
+            invoiced_pairs.add((li.classroom_id, d))
+            d += timedelta(days=1)
+
     orphan_sessions = (
         ClassSession.objects
         .filter(
@@ -325,23 +347,16 @@ def sync_sessions_for_school(school, created_by=None):
             date__gte=today,
             status='scheduled',
         )
-        .exclude(
-            # Keep sessions that have attendance
-            id__in=StudentAttendance.objects.values_list('session_id', flat=True)
-        )
-        .exclude(
-            # Keep sessions linked to invoices
-            classroom__line_items__invoice__billing_period_start__lte=models.F('date'),
-            classroom__line_items__invoice__billing_period_end__gte=models.F('date'),
-        )
+        .exclude(id__in=attended_ids)
     )
 
     deleted_count = 0
     for session in orphan_sessions:
         valid_dates = valid_dates_by_classroom.get(session.classroom_id, set())
         if session.date not in valid_dates:
-            session.delete()
-            deleted_count += 1
+            if (session.classroom_id, session.date) not in invoiced_pairs:
+                session.delete()
+                deleted_count += 1
 
     return len(to_create), deleted_count
 
