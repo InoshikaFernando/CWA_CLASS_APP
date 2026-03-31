@@ -4,6 +4,7 @@ reconciliation (CSV + manual), and reference mapping management.
 """
 import calendar
 import json
+import logging
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
@@ -27,6 +28,8 @@ from .models import (
 from .views import RoleRequiredMixin
 from . import invoicing_services as svc
 from .fee_utils import get_effective_fee_for_class, _get_class_fee_source
+
+logger = logging.getLogger(__name__)
 
 
 INVOICING_ROLES = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.ACCOUNTANT]
@@ -388,6 +391,15 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
                         'department_id': dept_id,
                     },
                 })
+
+        # For upfront billing, auto-create scheduled sessions for the period
+        if billing_type == 'upfront':
+            sessions_created = svc.ensure_sessions_for_period(
+                school, start, end, created_by=request.user,
+            )
+            if sessions_created:
+                logger.info('Auto-created %d sessions for %s (%s to %s)',
+                            sessions_created, school, start, end)
 
         # Get students in scope
         students_qs = SchoolStudent.objects.filter(
