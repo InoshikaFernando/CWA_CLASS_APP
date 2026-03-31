@@ -416,7 +416,17 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
                 })
 
         if not student_data:
-            messages.warning(request, 'No invoices to generate for the selected period.')
+            if all_warnings:
+                # Warnings mean sessions exist but fees are not configured
+                classrooms = set(w['classroom'].name for w in all_warnings)
+                messages.warning(
+                    request,
+                    f'No invoices generated — fees are not configured for: '
+                    f'{", ".join(sorted(classrooms))}. '
+                    f'Please set fees on the Fee Configuration page first.'
+                )
+            else:
+                messages.warning(request, 'No invoices to generate — no sessions found in the selected period.')
             return redirect('generate_invoices')
 
         # Create drafts
