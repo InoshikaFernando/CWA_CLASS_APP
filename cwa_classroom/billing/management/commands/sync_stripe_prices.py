@@ -207,6 +207,18 @@ class Command(BaseCommand):
                     stripe_module_map.setdefault('student_progress_reports', {
                         'price_id': price.id, 'product_name': product_name,
                     })
+                elif 'ai question import - starter' in name_lower:
+                    stripe_module_map.setdefault('ai_import_starter', {
+                        'price_id': price.id, 'product_name': product_name,
+                    })
+                elif 'ai question import - professional' in name_lower:
+                    stripe_module_map.setdefault('ai_import_professional', {
+                        'price_id': price.id, 'product_name': product_name,
+                    })
+                elif 'ai question import - enterprise' in name_lower:
+                    stripe_module_map.setdefault('ai_import_enterprise', {
+                        'price_id': price.id, 'product_name': product_name,
+                    })
 
         self.stdout.write(self.style.MIGRATE_HEADING('\n=== Module Products ==='))
         for mp in module_products:

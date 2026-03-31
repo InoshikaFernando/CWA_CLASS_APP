@@ -21,11 +21,12 @@ def wait_for_network_idle(page: Page, timeout: int = 5_000) -> None:
 
 
 def _ensure_sidebar_visible(page: Page) -> None:
-    """Force the desktop sidebar to be visible and expand all sections.
+    """Force the desktop sidebar to be visible and expand collapsed sections.
 
     Tailwind CDN may not generate responsive ``md:flex`` styles in headless
     Chromium, so the ``hidden md:flex`` aside stays ``display:none``.
-    Also force all Alpine.js collapsible sections visible so links are clickable.
+    We also expand any Alpine.js collapsed sections (x-show divs) so all
+    sidebar links are accessible for testing.
     """
     page.evaluate("""() => {
         const aside = document.querySelector('aside#sidebar');

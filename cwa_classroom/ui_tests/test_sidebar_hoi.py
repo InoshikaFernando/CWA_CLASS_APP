@@ -134,15 +134,21 @@ class TestHoiSidebarLinks:
         click_sidebar_link(self.page, "Profile")
         expect(self.page).to_have_url(re.compile(r"/accounts/profile"))
 
-    # Collapsible sections
+    # Collapsible sections (scoped to aside#sidebar to avoid mobile drawer duplicates)
     def test_institution_setup_section_visible(self):
+        from .helpers import _ensure_sidebar_visible
+        _ensure_sidebar_visible(self.page)
         toggle = self.page.locator("aside#sidebar button", has_text="Institution Setup")
         expect(toggle.first).to_be_visible()
 
     def test_invoicing_section_toggle(self):
+        from .helpers import _ensure_sidebar_visible
+        _ensure_sidebar_visible(self.page)
         toggle = self.page.locator("aside#sidebar button", has_text="Invoicing")
         expect(toggle.first).to_be_visible()
 
     def test_salaries_section_toggle(self):
+        from .helpers import _ensure_sidebar_visible
+        _ensure_sidebar_visible(self.page)
         toggle = self.page.locator("aside#sidebar button", has_text="Salaries")
         expect(toggle.first).to_be_visible()

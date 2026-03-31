@@ -1529,6 +1529,10 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
             qs = qs.filter(is_active=True)
         school_students = (
             qs.select_related('student')
+            .prefetch_related(
+                'student__student_guardians__guardian',
+                'student__student_parent_links__parent',
+            )
             .annotate(
                 class_count=Count(
                     'student__class_student_entries',
