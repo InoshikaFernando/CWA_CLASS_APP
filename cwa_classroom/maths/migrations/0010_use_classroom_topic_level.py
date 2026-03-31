@@ -31,6 +31,8 @@ from django.utils.text import slugify as django_slugify
 # ---------------------------------------------------------------------------
 
 def migrate_to_classroom_models(apps, schema_editor):
+    if schema_editor.connection.vendor != 'mysql':
+        return
     MathsTopic = apps.get_model('maths', 'Topic')
     MathsLevel = apps.get_model('maths', 'Level')
     ClassroomTopic = apps.get_model('classroom', 'Topic')
@@ -206,6 +208,8 @@ def drop_tls_unique_if_exists(apps, schema_editor):
     only if it still exists.  A prior partial run may have already dropped it;
     Django's AlterUniqueTogether raises ValueError when it finds 0 constraints.
     """
+    if schema_editor.connection.vendor != 'mysql':
+        return
     db_name = schema_editor.connection.settings_dict['NAME']
     with schema_editor.connection.cursor() as cursor:
         cursor.execute(
@@ -247,6 +251,8 @@ def drop_old_fk_columns_if_exist(apps, schema_editor):
     Used via SeparateDatabaseAndState so that the migration *state* is still
     updated by the corresponding RemoveField operations in state_operations.
     """
+    if schema_editor.connection.vendor != 'mysql':
+        return
     old_columns = [
         ('maths_question',             'topic_id'),
         ('maths_question',             'level_id'),
@@ -292,6 +298,8 @@ def ensure_question_0009_columns(apps, schema_editor):
     historical Question model, including the 0009-added ones — do not fail
     with "Unknown column 'maths_question.classroom_id'".
     """
+    if schema_editor.connection.vendor != 'mysql':
+        return
     db_name = schema_editor.connection.settings_dict['NAME']
     with schema_editor.connection.cursor() as cursor:
         def col_exists(col):
@@ -332,6 +340,8 @@ def cleanup_partial_shadow_columns(apps, schema_editor):
     fresh these columns won't exist and nothing happens; if it was partially
     applied they are removed so the AddField operations below can succeed.
     """
+    if schema_editor.connection.vendor != 'mysql':
+        return
     shadow_columns = [
         ('maths_question',              'classroom_topic_id'),
         ('maths_question',              'classroom_level_id'),

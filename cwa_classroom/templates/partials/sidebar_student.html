@@ -13,42 +13,6 @@
     <span>Home</span>
   </a>
 
-  <!-- Maths-specific items (only show when inside /maths/) -->
-  {% if '/maths/' in request.path %}
-    <div class="mt-2 mb-1 px-3">
-      <p class="text-[10px] font-semibold text-white/40 uppercase tracking-wider">Maths</p>
-    </div>
-
-    <a href="{% url 'maths:dashboard' %}"
-       class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
-              {% if request.path == '/maths/' %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
-      <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/>
-      </svg>
-      <span>Topic Quizzes</span>
-    </a>
-
-    <a href="{% url 'basic_facts_home' %}"
-       class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
-              {% if 'basic_facts' in request.path or 'basic-facts' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
-      <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/>
-      </svg>
-      <span>Basic Facts</span>
-    </a>
-
-    <a href="{% url 'times_tables_home' %}"
-       class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
-              {% if 'times-tables' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
-      <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 15.75V18m-7.5-6.75h.008v.008H8.25v-.008zm0 2.25h.008v.008H8.25V13.5zm0 2.25h.008v.008H8.25v-.008zm0 2.25h.008v.008H8.25V18zm2.498-6.75h.007v.008h-.007v-.008zm0 2.25h.007v.008h-.007V13.5zm0 2.25h.007v.008h-.007v-.008zm0 2.25h.007v.008h-.007V18zm2.504-6.75h.008v.008h-.008v-.008zm0 2.25h.008v.008h-.008V13.5zm0 2.25h.008v.008h-.008v-.008zm0 2.25h.008v.008h-.008V18z"/>
-      </svg>
-      <span>Times Tables</span>
-    </a>
-
-    <div class="border-t border-white/10 my-1.5"></div>
-  {% endif %}
-
   <!-- My Classes -->
   <a href="{% url 'student_my_classes' %}"
      class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
@@ -82,7 +46,7 @@
   <!-- Attendance -->
   <a href="{% url 'student_attendance_history' %}"
      class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
-            {% if 'attendance' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
+            {% if request.path == '/student/attendance/' %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
     <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
       <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
     </svg>

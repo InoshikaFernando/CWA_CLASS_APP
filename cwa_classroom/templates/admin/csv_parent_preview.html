@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block title %}Preview Parent Import{% endblock %}
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+  <div>
+    <h1 class="font-display text-3xl text-primary">Preview Parent Import</h1>
+    <p class="text-gray-400 text-sm mt-1">Review new and existing parents before confirming — {{ school.name }}</p>
+  </div>
+
+  {% if preview.errors %}
+  <div class="bg-red-50 rounded-2xl border border-red-200 p-5">
+    <h2 class="font-bold text-red-700 mb-2">Validation Errors</h2>
+    <div class="space-y-1 max-h-48 overflow-y-auto">
+      {% for err in preview.errors %}
+      <p class="text-sm text-red-600 font-mono">{{ err }}</p>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if preview.warnings %}
+  <div class="bg-amber-50 rounded-2xl border border-amber-200 p-5">
+    <h2 class="font-bold text-amber-700 mb-2">Warnings</h2>
+    <div class="space-y-1 max-h-32 overflow-y-auto">
+      {% for w in preview.warnings %}
+      <p class="text-sm text-amber-600">{{ w }}</p>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Summary cards ── #}
+  <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+      <p class="font-display text-3xl text-green-600">{{ preview.parents_new|length }}</p>
+      <p class="text-xs text-gray-400 font-semibold">New Parents</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+      <p class="font-display text-3xl text-blue-600">{{ preview.parents_existing|length }}</p>
+      <p class="text-xs text-gray-400 font-semibold">Existing Users</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+      <p class="font-display text-3xl text-primary">{{ preview.parents_new|length|add:preview.parents_existing|length }}</p>
+      <p class="text-xs text-gray-400 font-semibold">Total</p>
+    </div>
+  </div>
+
+  {# ── New parents table ── #}
+  {% if preview.parents_new %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+    <h2 class="font-bold text-gray-800 mb-3">New Parents ({{ preview.parents_new|length }})</h2>
+    <p class="text-xs text-gray-500 mb-3">These accounts will be created. Credentials will be available for download after import.</p>
+    <div class="overflow-x-auto max-h-64 overflow-y-auto">
+      <table class="text-sm w-full">
+        <thead class="bg-gray-50 sticky top-0">
+          <tr>
+            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Name</th>
+            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Email</th>
+            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Children</th>
+            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Relationship</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in preview.parents_new %}
+          <tr class="border-t border-gray-100">
+            <td class="px-3 py-2 text-gray-800">{{ p.first_name }} {{ p.last_name }}</td>
+            <td class="px-3 py-2 text-gray-500">{{ p.email }}</td>
+            <td class="px-3 py-2 text-gray-600">
+              {% for c in p.children %}
+                <span class="inline-flex items-center text-xs bg-blue-50 text-blue-700 rounded-full px-2 py-0.5 mr-1 mb-1">{{ c.student_name }}</span>
+              {% endfor %}
+            </td>
+            <td class="px-3 py-2 text-gray-500">
+              {% for c in p.children %}{{ c.relationship }}{% if not forloop.last %}, {% endif %}{% endfor %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Existing parents table ── #}
+  {% if preview.parents_existing %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+    <h2 class="font-bold text-gray-800 mb-3">Existing Users ({{ preview.parents_existing|length }})</h2>
+    <p class="text-xs text-gray-500 mb-3">These users already exist in the system. New child links will be created where needed.</p>
+    <div class="overflow-x-auto max-h-64 overflow-y-auto">
+      <table class="text-sm w-full">
+        <thead class="bg-gray-50 sticky top-0">
+          <tr>
+            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Name</th>
+            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Email</th>
+            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Children</th>
+            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in preview.parents_existing %}
+          <tr class="border-t border-gray-100">
+            <td class="px-3 py-2 text-gray-800">{{ p.first_name }} {{ p.last_name }}</td>
+            <td class="px-3 py-2 text-gray-500">{{ p.email }}</td>
+            <td class="px-3 py-2 text-gray-600">
+              {% for c in p.children %}
+                <span class="inline-flex items-center text-xs {% if c.already_linked %}bg-gray-100 text-gray-500{% else %}bg-blue-50 text-blue-700{% endif %} rounded-full px-2 py-0.5 mr-1 mb-1">
+                  {{ c.student_name }}{% if c.already_linked %} (linked){% endif %}
+                </span>
+              {% endfor %}
+            </td>
+            <td class="px-3 py-2">
+              {% with new_links=0 %}
+              {% for c in p.children %}
+                {% if c.already_linked %}
+                  <span class="text-xs bg-gray-100 text-gray-500 font-semibold rounded-full px-2 py-0.5">Already linked</span>
+                {% else %}
+                  <span class="text-xs bg-amber-100 text-amber-700 font-semibold rounded-full px-2 py-0.5">Will be linked</span>
+                {% endif %}
+                {% if not forloop.last %}<br>{% endif %}
+              {% endfor %}
+              {% endwith %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Confirm section ── #}
+  {% if preview.parents_new or preview.parents_existing %}
+  <div id="confirm-section">
+    <form method="post" action="{% url 'parent_csv_confirm' %}" id="import-form">
+      {% csrf_token %}
+      <div class="flex gap-3" id="confirm-actions">
+        <button type="submit" id="confirm-btn"
+                class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-8 py-3 transition">
+          Confirm & Import
+        </button>
+        <a href="{% url 'parent_csv_upload' %}" id="cancel-btn"
+           class="bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl px-6 py-3 hover:bg-gray-50 transition">
+          Cancel
+        </a>
+      </div>
+    </form>
+  </div>
+
+  {# ── Full-page loading overlay ── #}
+  <div id="import-loading" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-lg p-8 text-center max-w-md mx-4">
+      <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
+        <svg class="w-8 h-8 text-primary animate-spin" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+      </div>
+      <h3 class="font-display text-xl text-gray-800 mb-2">Importing Parents...</h3>
+      <p class="text-sm text-gray-500 mb-4">Creating accounts and linking parents to students.</p>
+      <div class="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+        <div class="bg-primary h-1.5 rounded-full animate-pulse" style="width: 100%"></div>
+      </div>
+      <p class="text-xs text-red-500 font-medium mt-3">Please do not refresh or navigate away.</p>
+    </div>
+  </div>
+  {% else %}
+  <div class="flex gap-3">
+    <a href="{% url 'parent_csv_upload' %}"
+       class="bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl px-6 py-3 hover:bg-gray-50 transition">
+      Back to Upload
+    </a>
+  </div>
+  {% endif %}
+</div>
+
+{% block extra_js %}
+<script>
+var importForm = document.getElementById('import-form');
+if (importForm) {
+  importForm.addEventListener('submit', function() {
+    var section = document.getElementById('confirm-section');
+    var loading = document.getElementById('import-loading');
+    if (section) section.classList.add('hidden');
+    if (loading) loading.classList.remove('hidden');
+  });
+}
+</script>
+{% endblock %}
+{% endblock %}

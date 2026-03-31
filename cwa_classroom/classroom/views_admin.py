@@ -15,6 +15,7 @@ from accounts.views import _validate_username, _generate_username_suggestion
 from .models import (
     School, SchoolTeacher, AcademicYear, ClassRoom, ClassSession, Department,
     DepartmentTeacher, SchoolStudent, Level, Subject, Term, ClassStudent,
+    SchoolHoliday, PublicHoliday,
 )
 from .views import RoleRequiredMixin
 from .email_utils import send_staff_welcome_email
@@ -867,6 +868,90 @@ class SchoolTeacherRestoreView(RoleRequiredMixin, View):
         return redirect('admin_school_teachers', school_id=school.id)
 
 
+def _save_inline_terms(request, school, academic_year, number_of_terms, replace=False):
+    """Read term_start_N / term_end_N from POST and create/replace Term objects.
+    Returns the number of terms successfully saved. Skips slots with missing dates."""
+    if not number_of_terms:
+        return 0
+    if replace:
+        Term.objects.filter(academic_year=academic_year).delete()
+    count = 0
+    for i in range(1, number_of_terms + 1):
+        start = request.POST.get(f'term_start_{i}', '').strip()
+        end = request.POST.get(f'term_end_{i}', '').strip()
+        if start and end:
+            Term.objects.create(
+                school=school,
+                academic_year=academic_year,
+                name=f'Term {i}',
+                start_date=start,
+                end_date=end,
+                order=i,
+            )
+            count += 1
+    return count
+
+
+def _auto_create_sessions_for_school(school, created_by=None):
+    """Auto-create ClassSession records for active classrooms in the school.
+
+    Generates sessions for the next 7 days (today inclusive) for every active
+    classroom that has a scheduled day, start_time and end_time.  A weekly
+    class always falls within this window exactly once; a M/W/F class gets 3;
+    a daily class gets 7.  Already-existing sessions are silently skipped.
+
+    Returns the total number of new sessions created.
+    """
+    from datetime import date as _date, timedelta
+
+    _DAY_MAP = {
+        'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
+        'friday': 4, 'saturday': 5, 'sunday': 6,
+    }
+
+    today = _date.today()
+    window_end = today + timedelta(days=6)   # 7 days inclusive
+
+    classrooms = (
+        ClassRoom.objects
+        .filter(school=school, is_active=True)
+        .exclude(day='')
+        .exclude(start_time__isnull=True)
+        .exclude(end_time__isnull=True)
+    )
+
+    # Batch-fetch existing sessions in the window to avoid N queries
+    existing_keys = set(
+        ClassSession.objects
+        .filter(classroom__in=classrooms, date__range=(today, window_end))
+        .values_list('classroom_id', 'date')
+    )
+
+    to_create = []
+    for classroom in classrooms:
+        target_wd = _DAY_MAP.get(classroom.day)
+        if target_wd is None:
+            continue
+        # First occurrence of this weekday on or after today
+        days_ahead = (target_wd - today.weekday()) % 7
+        session_date = today + timedelta(days=days_ahead)
+        # Walk every 7 days through the window
+        while session_date <= window_end:
+            if (classroom.pk, session_date) not in existing_keys:
+                to_create.append(ClassSession(
+                    classroom=classroom,
+                    date=session_date,
+                    start_time=classroom.start_time,
+                    end_time=classroom.end_time,
+                    status='scheduled',
+                    created_by=created_by,
+                ))
+            session_date += timedelta(weeks=1)
+
+    ClassSession.objects.bulk_create(to_create, ignore_conflicts=True)
+    return len(to_create)
+
+
 class AcademicYearCreateView(RoleRequiredMixin, View):
     """Create a new academic year for a school."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
@@ -882,16 +967,22 @@ class AcademicYearCreateView(RoleRequiredMixin, View):
         year = request.POST.get('year', '').strip()
         start_date = request.POST.get('start_date', '').strip()
         end_date = request.POST.get('end_date', '').strip()
+        is_current = request.POST.get('is_current') == '1'
+        number_of_terms_raw = request.POST.get('number_of_terms', '').strip()
+
+        form_data = {
+            'year': year,
+            'start_date': start_date,
+            'end_date': end_date,
+            'is_current': is_current,
+            'number_of_terms': number_of_terms_raw,
+        }
 
         if not year or not start_date or not end_date:
             messages.error(request, 'Year, start date, and end date are all required.')
             return render(request, 'admin_dashboard/academic_year_form.html', {
                 'school': school,
-                'form_data': {
-                    'year': year,
-                    'start_date': start_date,
-                    'end_date': end_date,
-                },
+                'form_data': form_data,
             })
 
         try:
@@ -900,37 +991,509 @@ class AcademicYearCreateView(RoleRequiredMixin, View):
             messages.error(request, 'Year must be a valid number.')
             return render(request, 'admin_dashboard/academic_year_form.html', {
                 'school': school,
-                'form_data': {
-                    'year': year,
-                    'start_date': start_date,
-                    'end_date': end_date,
-                },
+                'form_data': form_data,
             })
+
+        number_of_terms = None
+        if number_of_terms_raw:
+            try:
+                number_of_terms = int(number_of_terms_raw)
+                if not (1 <= number_of_terms <= 6):
+                    raise ValueError
+            except (ValueError, TypeError):
+                messages.error(request, 'Number of terms must be between 1 and 6.')
+                return render(request, 'admin_dashboard/academic_year_form.html', {
+                    'school': school,
+                    'form_data': form_data,
+                })
 
         if AcademicYear.objects.filter(school=school, year=year).exists():
             messages.error(request, f'Academic year {year} already exists for this school.')
             return render(request, 'admin_dashboard/academic_year_form.html', {
                 'school': school,
-                'form_data': {
-                    'year': year,
-                    'start_date': start_date,
-                    'end_date': end_date,
-                },
+                'form_data': form_data,
             })
 
-        academic_year = AcademicYear.objects.create(
-            school=school,
-            year=year,
-            start_date=start_date,
-            end_date=end_date,
-        )
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        try:
+            with transaction.atomic():
+                academic_year = AcademicYear.objects.create(
+                    school=school,
+                    year=year,
+                    start_date=start_date,
+                    end_date=end_date,
+                    is_current=is_current,
+                    number_of_terms=number_of_terms,
+                )
+                # Create inline term dates if provided
+                terms_created = _save_inline_terms(request, school, academic_year, number_of_terms)
+        except (DjangoValidationError, ValueError) as e:
+            messages.error(request, f'Invalid date value — please check all dates are in the correct format. ({e})')
+            return render(request, 'admin_dashboard/academic_year_form.html', {
+                'school': school,
+                'form_data': form_data,
+            })
+
+        # Auto-create upcoming sessions for the next 7 days so classes are
+        # immediately visible without teachers having to add sessions manually.
+        sessions_created = _auto_create_sessions_for_school(school, created_by=request.user)
+
         log_event(
             user=request.user, school=school, category='data_change',
-            action='academic_year_created', detail={'year': year, 'academic_year_id': academic_year.id},
+            action='academic_year_created',
+            detail={'year': year, 'academic_year_id': academic_year.id,
+                    'number_of_terms': number_of_terms, 'terms_created': terms_created,
+                    'sessions_auto_created': sessions_created},
             request=request,
         )
-        messages.success(request, f'Academic year {year} created successfully.')
+        if sessions_created:
+            messages.success(
+                request,
+                f'Academic year {year} created successfully. '
+                f'{sessions_created} upcoming session{"s" if sessions_created != 1 else ""} '
+                f'auto-generated for the next 7 days.',
+            )
+        else:
+            messages.success(request, f'Academic year {year} created successfully.')
         return redirect('admin_school_detail', school_id=school.id)
+
+
+class AcademicYearEditView(RoleRequiredMixin, View):
+    """Edit an existing academic year for a school."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def _get_academic_year(self, request, school_id, academic_year_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        academic_year = get_object_or_404(AcademicYear, id=academic_year_id, school=school)
+        return school, academic_year
+
+    def get(self, request, school_id, academic_year_id):
+        school, academic_year = self._get_academic_year(request, school_id, academic_year_id)
+        terms = Term.objects.filter(academic_year=academic_year).order_by('order')
+        return render(request, 'admin_dashboard/academic_year_form.html', {
+            'school': school,
+            'academic_year': academic_year,
+            'terms': terms,
+            'form_data': {
+                'year': academic_year.year,
+                'start_date': academic_year.start_date.isoformat() if academic_year.start_date else '',
+                'end_date': academic_year.end_date.isoformat() if academic_year.end_date else '',
+                'is_current': academic_year.is_current,
+                'number_of_terms': academic_year.number_of_terms or '',
+            },
+        })
+
+    def post(self, request, school_id, academic_year_id):
+        school, academic_year = self._get_academic_year(request, school_id, academic_year_id)
+        year = request.POST.get('year', '').strip()
+        start_date = request.POST.get('start_date', '').strip()
+        end_date = request.POST.get('end_date', '').strip()
+        is_current = request.POST.get('is_current') == '1'
+        number_of_terms_raw = request.POST.get('number_of_terms', '').strip()
+
+        form_data = {
+            'year': year, 'start_date': start_date, 'end_date': end_date,
+            'is_current': is_current, 'number_of_terms': number_of_terms_raw,
+        }
+
+        if not year or not start_date or not end_date:
+            messages.error(request, 'Year, start date, and end date are all required.')
+            return render(request, 'admin_dashboard/academic_year_form.html', {
+                'school': school, 'academic_year': academic_year, 'form_data': form_data,
+                'terms': Term.objects.filter(academic_year=academic_year).order_by('order'),
+            })
+
+        try:
+            year = int(year)
+        except (ValueError, TypeError):
+            messages.error(request, 'Year must be a valid number.')
+            return render(request, 'admin_dashboard/academic_year_form.html', {
+                'school': school, 'academic_year': academic_year, 'form_data': form_data,
+                'terms': Term.objects.filter(academic_year=academic_year).order_by('order'),
+            })
+
+        number_of_terms = None
+        if number_of_terms_raw:
+            try:
+                number_of_terms = int(number_of_terms_raw)
+                if not (1 <= number_of_terms <= 6):
+                    raise ValueError
+            except (ValueError, TypeError):
+                messages.error(request, 'Number of terms must be between 1 and 6.')
+                return render(request, 'admin_dashboard/academic_year_form.html', {
+                    'school': school, 'academic_year': academic_year, 'form_data': form_data,
+                    'terms': Term.objects.filter(academic_year=academic_year).order_by('order'),
+                })
+
+        # Check duplicate, excluding self
+        if AcademicYear.objects.filter(school=school, year=year).exclude(id=academic_year.id).exists():
+            messages.error(request, f'Academic year {year} already exists for this school.')
+            return render(request, 'admin_dashboard/academic_year_form.html', {
+                'school': school, 'academic_year': academic_year, 'form_data': form_data,
+                'terms': Term.objects.filter(academic_year=academic_year).order_by('order'),
+            })
+
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        try:
+            with transaction.atomic():
+                academic_year.year = year
+                academic_year.start_date = start_date
+                academic_year.end_date = end_date
+                academic_year.is_current = is_current
+                academic_year.number_of_terms = number_of_terms
+                academic_year.save()
+                # Replace inline term dates if any were submitted
+                terms_updated = _save_inline_terms(request, school, academic_year, number_of_terms, replace=True)
+        except (DjangoValidationError, ValueError) as e:
+            messages.error(request, f'Invalid date value — please check all dates are in the correct format. ({e})')
+            return render(request, 'admin_dashboard/academic_year_form.html', {
+                'school': school, 'academic_year': academic_year, 'form_data': form_data,
+                'terms': Term.objects.filter(academic_year=academic_year).order_by('order'),
+            })
+
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='academic_year_updated',
+            detail={'year': year, 'academic_year_id': academic_year.id, 'is_current': is_current,
+                    'number_of_terms': number_of_terms, 'terms_updated': terms_updated},
+            request=request,
+        )
+        messages.success(request, f'Academic year {year} updated successfully.')
+        return redirect('admin_school_detail', school_id=school.id)
+
+
+class AcademicYearCalendarView(RoleRequiredMixin, View):
+    """Full-year calendar for an academic year showing terms and holidays."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request, school_id, academic_year_id):
+        import calendar as cal_module
+        from datetime import date, timedelta
+
+        school = _get_user_school_or_404(request.user, school_id)
+        academic_year = get_object_or_404(AcademicYear, id=academic_year_id, school=school)
+
+        today = timezone.localdate()
+
+        # Fetch all terms overlapping this academic year's date range
+        terms = Term.objects.filter(
+            school=school,
+            start_date__lte=academic_year.end_date,
+            end_date__gte=academic_year.start_date,
+        ).order_by('order', 'start_date')
+
+        # Fetch school holidays overlapping this academic year's date range
+        school_holidays = SchoolHoliday.objects.filter(
+            school=school,
+            start_date__lte=academic_year.end_date,
+            end_date__gte=academic_year.start_date,
+        )
+
+        # Fetch public holidays in this academic year's date range
+        public_holidays = PublicHoliday.objects.filter(
+            school=school,
+            date__gte=academic_year.start_date,
+            date__lte=academic_year.end_date,
+        )
+
+        # Build day-lookup dictionaries
+        term_days = {}  # date -> (term_name, term_order)
+        for term in terms:
+            d = term.start_date
+            while d <= term.end_date:
+                term_days[d] = (term.name, term.order)
+                d += timedelta(days=1)
+
+        school_holiday_days = {}  # date -> holiday name
+        for h in school_holidays:
+            d = h.start_date
+            while d <= h.end_date:
+                school_holiday_days[d] = h.name
+                d += timedelta(days=1)
+
+        public_holiday_days = {}  # date -> holiday name
+        for h in public_holidays:
+            public_holiday_days[h.date] = h.name
+
+        # Build month list spanning the academic year
+        start = academic_year.start_date
+        end = academic_year.end_date
+        months = []
+        cur = date(start.year, start.month, 1)
+        end_month_start = date(end.year, end.month, 1)
+
+        while cur <= end_month_start:
+            # monthcalendar returns weeks [Mon..Sun], 0 = not in this month
+            raw_weeks = cal_module.monthcalendar(cur.year, cur.month)
+            weeks = []
+            for week in raw_weeks:
+                days = []
+                for day_num in week:
+                    if day_num == 0:
+                        days.append(None)
+                    else:
+                        d = date(cur.year, cur.month, day_num)
+                        term_info = term_days.get(d)
+                        days.append({
+                            'date': d,
+                            'day': day_num,
+                            'weekday': d.weekday(),  # 0=Mon, 6=Sun
+                            'is_today': d == today,
+                            'in_range': start <= d <= end,
+                            'in_term': term_info is not None,
+                            'term_name': term_info[0] if term_info else None,
+                            'term_order': term_info[1] if term_info else None,
+                            'is_school_holiday': d in school_holiday_days,
+                            'school_holiday_name': school_holiday_days.get(d),
+                            'is_public_holiday': d in public_holiday_days,
+                            'public_holiday_name': public_holiday_days.get(d),
+                        })
+                weeks.append(days)
+
+            months.append({
+                'year': cur.year,
+                'month': cur.month,
+                'name': cur.strftime('%B %Y'),
+                'weeks': weeks,
+            })
+
+            # Advance to next month
+            if cur.month == 12:
+                cur = date(cur.year + 1, 1, 1)
+            else:
+                cur = date(cur.year, cur.month + 1, 1)
+
+        # Term colour palette (cycle through 4 distinct shades)
+        term_colours = ['blue', 'emerald', 'violet', 'sky', 'teal', 'indigo']
+        term_colour_map = {}
+        for i, term in enumerate(terms):
+            term_colour_map[term.name] = term_colours[i % len(term_colours)]
+
+        return render(request, 'admin_dashboard/academic_year_calendar.html', {
+            'school': school,
+            'academic_year': academic_year,
+            'terms': terms,
+            'months': months,
+            'today': today,
+            'term_colour_map': term_colour_map,
+            'school_holidays': school_holidays,
+            'public_holidays': public_holidays,
+        })
+
+
+class AcademicYearTermSetupView(RoleRequiredMixin, View):
+    """Set start/end dates for each auto-generated term slot in an academic year."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def _get_objects(self, request, school_id, academic_year_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        academic_year = get_object_or_404(AcademicYear, id=academic_year_id, school=school)
+        return school, academic_year
+
+    def get(self, request, school_id, academic_year_id):
+        school, academic_year = self._get_objects(request, school_id, academic_year_id)
+        n = academic_year.number_of_terms or 0
+        existing_terms = {
+            t.order: t for t in Term.objects.filter(academic_year=academic_year).order_by('order')
+        }
+        term_slots = []
+        for i in range(1, n + 1):
+            t = existing_terms.get(i)
+            term_slots.append({
+                'order': i,
+                'label': f'Term {i}',
+                'start_date': t.start_date.isoformat() if t else '',
+                'end_date': t.end_date.isoformat() if t else '',
+            })
+        return render(request, 'admin_dashboard/term_setup.html', {
+            'school': school,
+            'academic_year': academic_year,
+            'term_slots': term_slots,
+        })
+
+    def post(self, request, school_id, academic_year_id):
+        school, academic_year = self._get_objects(request, school_id, academic_year_id)
+        n = academic_year.number_of_terms or 0
+        errors = []
+        term_data = []
+        for i in range(1, n + 1):
+            start = request.POST.get(f'start_date_{i}', '').strip()
+            end = request.POST.get(f'end_date_{i}', '').strip()
+            if not start or not end:
+                errors.append(f'Term {i}: start and end dates are required.')
+            else:
+                term_data.append({'order': i, 'start': start, 'end': end})
+
+        if errors:
+            for e in errors:
+                messages.error(request, e)
+            term_slots = [
+                {
+                    'order': i,
+                    'label': f'Term {i}',
+                    'start_date': request.POST.get(f'start_date_{i}', ''),
+                    'end_date': request.POST.get(f'end_date_{i}', ''),
+                }
+                for i in range(1, n + 1)
+            ]
+            return render(request, 'admin_dashboard/term_setup.html', {
+                'school': school,
+                'academic_year': academic_year,
+                'term_slots': term_slots,
+            })
+
+        with transaction.atomic():
+            # Remove existing terms for this academic year, then recreate
+            Term.objects.filter(academic_year=academic_year).delete()
+            for td in term_data:
+                Term.objects.create(
+                    school=school,
+                    academic_year=academic_year,
+                    name=f'Term {td["order"]}',
+                    start_date=td['start'],
+                    end_date=td['end'],
+                    order=td['order'],
+                )
+
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='terms_setup',
+            detail={'academic_year_id': academic_year.id, 'term_count': len(term_data)},
+            request=request,
+        )
+        messages.success(request, f'{len(term_data)} term(s) saved for {academic_year.year}.')
+        return redirect('admin_school_detail', school_id=school.id)
+
+
+class SchoolHolidayManageView(RoleRequiredMixin, View):
+    """CRUD for school holidays (e.g. half-term, inset days)."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request, school_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        holidays = SchoolHoliday.objects.filter(school=school).select_related('academic_year', 'term')
+        academic_years = AcademicYear.objects.filter(school=school).order_by('-year')
+        terms = Term.objects.filter(school=school).select_related('academic_year').order_by('academic_year__year', 'order')
+        return render(request, 'admin_dashboard/school_holidays.html', {
+            'school': school,
+            'holidays': holidays,
+            'academic_years': academic_years,
+            'terms': terms,
+        })
+
+    def post(self, request, school_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        action = request.POST.get('action', 'create')
+
+        if action == 'delete':
+            holiday_id = request.POST.get('holiday_id')
+            holiday = get_object_or_404(SchoolHoliday, id=holiday_id, school=school)
+            holiday.delete()
+            log_event(user=request.user, school=school, category='data_change',
+                      action='school_holiday_deleted', detail={'holiday_id': holiday_id}, request=request)
+            messages.success(request, 'Holiday deleted.')
+            return redirect('admin_school_holidays', school_id=school.id)
+
+        # create or edit
+        name = request.POST.get('name', '').strip()
+        start_date = request.POST.get('start_date', '').strip()
+        end_date = request.POST.get('end_date', '').strip()
+        academic_year_id = request.POST.get('academic_year') or None
+        term_id = request.POST.get('term') or None
+
+        if not name or not start_date or not end_date:
+            messages.error(request, 'Name, start date, and end date are required.')
+            return redirect('admin_school_holidays', school_id=school.id)
+
+        academic_year = None
+        if academic_year_id:
+            academic_year = get_object_or_404(AcademicYear, id=academic_year_id, school=school)
+        term = None
+        if term_id:
+            term = get_object_or_404(Term, id=term_id, school=school)
+
+        if action == 'edit':
+            holiday_id = request.POST.get('holiday_id')
+            holiday = get_object_or_404(SchoolHoliday, id=holiday_id, school=school)
+            holiday.name = name
+            holiday.start_date = start_date
+            holiday.end_date = end_date
+            holiday.academic_year = academic_year
+            holiday.term = term
+            holiday.save()
+            log_event(user=request.user, school=school, category='data_change',
+                      action='school_holiday_updated', detail={'holiday_id': holiday.id, 'name': name}, request=request)
+            messages.success(request, f'Holiday "{name}" updated.')
+        else:
+            holiday = SchoolHoliday.objects.create(
+                school=school, name=name, start_date=start_date, end_date=end_date,
+                academic_year=academic_year, term=term,
+            )
+            log_event(user=request.user, school=school, category='data_change',
+                      action='school_holiday_created', detail={'holiday_id': holiday.id, 'name': name}, request=request)
+            messages.success(request, f'Holiday "{name}" added.')
+
+        return redirect('admin_school_holidays', school_id=school.id)
+
+
+class PublicHolidayManageView(RoleRequiredMixin, View):
+    """CRUD for public/national holidays."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request, school_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        holidays = PublicHoliday.objects.filter(school=school).select_related('academic_year')
+        academic_years = AcademicYear.objects.filter(school=school).order_by('-year')
+        return render(request, 'admin_dashboard/public_holidays.html', {
+            'school': school,
+            'holidays': holidays,
+            'academic_years': academic_years,
+        })
+
+    def post(self, request, school_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        action = request.POST.get('action', 'create')
+
+        if action == 'delete':
+            holiday_id = request.POST.get('holiday_id')
+            holiday = get_object_or_404(PublicHoliday, id=holiday_id, school=school)
+            holiday.delete()
+            log_event(user=request.user, school=school, category='data_change',
+                      action='public_holiday_deleted', detail={'holiday_id': holiday_id}, request=request)
+            messages.success(request, 'Public holiday deleted.')
+            return redirect('admin_public_holidays', school_id=school.id)
+
+        name = request.POST.get('name', '').strip()
+        date = request.POST.get('date', '').strip()
+        academic_year_id = request.POST.get('academic_year') or None
+
+        if not name or not date:
+            messages.error(request, 'Name and date are required.')
+            return redirect('admin_public_holidays', school_id=school.id)
+
+        academic_year = None
+        if academic_year_id:
+            academic_year = get_object_or_404(AcademicYear, id=academic_year_id, school=school)
+
+        if action == 'edit':
+            holiday_id = request.POST.get('holiday_id')
+            holiday = get_object_or_404(PublicHoliday, id=holiday_id, school=school)
+            holiday.name = name
+            holiday.date = date
+            holiday.academic_year = academic_year
+            holiday.save()
+            log_event(user=request.user, school=school, category='data_change',
+                      action='public_holiday_updated', detail={'holiday_id': holiday.id, 'name': name}, request=request)
+            messages.success(request, f'Public holiday "{name}" updated.')
+        else:
+            holiday = PublicHoliday.objects.create(
+                school=school, name=name, date=date, academic_year=academic_year,
+            )
+            log_event(user=request.user, school=school, category='data_change',
+                      action='public_holiday_created', detail={'holiday_id': holiday.id, 'name': name}, request=request)
+            messages.success(request, f'Public holiday "{name}" added.')
+
+        return redirect('admin_public_holidays', school_id=school.id)
 
 
 # ── Student CRUD ──────────────────────────────────────────────────────────────
@@ -966,6 +1529,10 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
             qs = qs.filter(is_active=True)
         school_students = (
             qs.select_related('student')
+            .prefetch_related(
+                'student__student_guardians__guardian',
+                'student__student_parent_links__parent',
+            )
             .annotate(
                 class_count=Count(
                     'student__class_student_entries',

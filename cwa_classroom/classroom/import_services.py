@@ -15,7 +15,7 @@ from accounts.models import CustomUser, Role, UserRole
 from .models import (
     School, SchoolStudent, SchoolTeacher, Department, DepartmentSubject,
     Subject, Level, ClassRoom, ClassStudent, ClassTeacher,
-    Guardian, StudentGuardian,
+    Guardian, StudentGuardian, ParentStudent,
 )
 
 logger = logging.getLogger(__name__)
@@ -724,6 +724,55 @@ def apply_structure_mapping(preview_data, structure_mapping, department):
     return preview_data
 
 
+def _auto_create_teacher(full_name, school, role_teacher, teacher_cache, counts):
+    """Auto-create a placeholder teacher account from a full name.
+
+    Creates a CustomUser with @teacher.local email, assigns TEACHER role,
+    and creates SchoolTeacher link. Returns the created user or None.
+    """
+    first_name, last_name = _split_child_name(full_name)
+    if not first_name:
+        return None
+
+    # Check if already exists at school by name
+    existing_st = SchoolTeacher.objects.filter(
+        school=school,
+        teacher__first_name__iexact=first_name,
+        teacher__last_name__iexact=last_name,
+        is_active=True,
+    ).select_related('teacher').first()
+    if existing_st:
+        teacher_cache[full_name] = existing_st.teacher
+        return existing_st.teacher
+
+    t_slug = slugify(f'{first_name}-{last_name}') if last_name else slugify(first_name)
+    t_email = f'{t_slug}@teacher.local'
+    t_username = t_slug.replace('-', '_')
+    suffix = 1
+    while CustomUser.objects.filter(username=t_username).exists():
+        t_username = f'{t_slug.replace("-", "_")}{suffix}'
+        suffix += 1
+    t_password = get_random_string(10)
+    teacher_user = CustomUser.objects.create_user(
+        username=t_username, email=t_email,
+        password=t_password,
+        first_name=first_name, last_name=last_name,
+    )
+    teacher_user.must_change_password = True
+    teacher_user.save(update_fields=['must_change_password'])
+    UserRole.objects.get_or_create(user=teacher_user, role=role_teacher)
+    st, created = SchoolTeacher.objects.get_or_create(
+        school=school, teacher=teacher_user,
+        defaults={'role': 'teacher', 'is_active': True},
+    )
+    if created and t_password:
+        st.pending_password = t_password
+        st.save(update_fields=['pending_password'])
+    teacher_cache[full_name] = teacher_user
+    counts['teachers_created'] = counts.get('teachers_created', 0) + 1
+    return teacher_user
+
+
 def execute_import(preview_data, school, uploaded_by):
     """
     Execute the import in a single transaction.
@@ -790,6 +839,16 @@ def execute_import(preview_data, school, uploaded_by):
                             department=target_dept, subject=subj,
                         )
 
+            # Apply global subject links (optional — links local subject to global Mathematics etc.)
+            global_subject_map = structure_mapping.get('global_subject_map', {})
+            for csv_name, global_subj_id in global_subject_map.items():
+                if global_subj_id and global_subj_id != 'none':
+                    local_subj = subject_cache.get(csv_name)
+                    global_subj = Subject.objects.filter(id=int(global_subj_id), school__isnull=True).first()
+                    if local_subj and global_subj and local_subj.global_subject_id != global_subj.id:
+                        local_subj.global_subject = global_subj
+                        local_subj.save(update_fields=['global_subject'])
+
             # Handle dummy subject
             if structure_mapping.get('dummy_subject'):
                 dummy_subj, created = Subject.objects.get_or_create(
@@ -835,6 +894,20 @@ def execute_import(preview_data, school, uploaded_by):
                             department=target_dept, level=lvl,
                         )
 
+            # Apply global level links — builds a cache: csv_level_name -> global Level
+            global_level_map = structure_mapping.get('global_level_map', {})
+            global_level_cache = {}  # csv_level_name (lower) -> global Level object
+            for csv_name, global_lvl_id in global_level_map.items():
+                if global_lvl_id and global_lvl_id != 'none':
+                    global_lvl = Level.objects.filter(id=int(global_lvl_id), school__isnull=True).first()
+                    if global_lvl:
+                        global_level_cache[csv_name.lower()] = global_lvl
+                        # Ensure DepartmentLevel link exists for this global level too
+                        DepartmentLevel.objects.get_or_create(
+                            department=target_dept, level=global_lvl,
+                            defaults={'order': global_lvl.level_number},
+                        )
+
             # Handle dummy level
             if structure_mapping.get('dummy_level'):
                 base_subj = subject_cache.get('__dummy__') or next(iter(subject_cache.values()), None)
@@ -875,6 +948,10 @@ def execute_import(preview_data, school, uploaded_by):
                     first_lvl = next(iter(level_cache.values()), None)
                     if first_lvl:
                         classroom.levels.add(first_lvl)
+                        # Also link the matching global level (if the user mapped it)
+                        for csv_lvl_name, cached_lvl in level_cache.items():
+                            if cached_lvl == first_lvl and csv_lvl_name in global_level_cache:
+                                classroom.levels.add(global_level_cache[csv_lvl_name])
                     class_cache[csv_name] = classroom
                     counts['classes_created'] += 1
                 else:
@@ -895,6 +972,9 @@ def execute_import(preview_data, school, uploaded_by):
                 first_lvl = next(iter(level_cache.values()), None)
                 if first_lvl:
                     dummy_cr.levels.add(first_lvl)
+                    for csv_lvl_name, cached_lvl in level_cache.items():
+                        if cached_lvl == first_lvl and csv_lvl_name in global_level_cache:
+                            dummy_cr.levels.add(global_level_cache[csv_lvl_name])
                 class_cache['__dummy__'] = dummy_cr
                 counts['classes_created'] += 1
 
@@ -960,6 +1040,11 @@ def execute_import(preview_data, school, uploaded_by):
                     continue
                 for t_name in t_names:
                     teacher_user = teacher_cache.get(t_name)
+                    if not teacher_user:
+                        # Auto-create placeholder teacher from name
+                        teacher_user = _auto_create_teacher(
+                            t_name, school, role_teacher, teacher_cache, counts,
+                        )
                     if teacher_user:
                         ClassTeacher.objects.get_or_create(
                             classroom=classroom, teacher=teacher_user,
@@ -1046,6 +1131,38 @@ def execute_import(preview_data, school, uploaded_by):
             for cr in ClassRoom.objects.filter(school=school):
                 class_cache[cr.name] = cr
 
+            # 4b. Link teachers to classes (generic path)
+            role_teacher, _ = Role.objects.get_or_create(
+                name=Role.TEACHER, defaults={'display_name': 'Teacher'},
+            )
+            teacher_cache = {}
+            all_students_g = preview_data.get('students_new', []) + preview_data.get('students_existing', [])
+            for sdata in all_students_g:
+                for c in sdata.get('classes', []):
+                    t_name = c.get('teacher', '')
+                    if t_name and c['class_name'] in class_cache:
+                        if t_name not in teacher_cache:
+                            # Try to find existing teacher at school by name
+                            first_name, last_name = _split_child_name(t_name)
+                            existing_st = SchoolTeacher.objects.filter(
+                                school=school,
+                                teacher__first_name__iexact=first_name,
+                                teacher__last_name__iexact=last_name,
+                                is_active=True,
+                            ).select_related('teacher').first()
+                            if existing_st:
+                                teacher_cache[t_name] = existing_st.teacher
+                            else:
+                                teacher_cache[t_name] = _auto_create_teacher(
+                                    t_name, school, role_teacher, teacher_cache, counts,
+                                )
+                        teacher_user = teacher_cache.get(t_name)
+                        if teacher_user:
+                            ClassTeacher.objects.get_or_create(
+                                classroom=class_cache[c['class_name']],
+                                teacher=teacher_user,
+                            )
+
         # 5. Create guardians
         guardian_cache = {}
         for g_data in preview_data['guardians_new']:
@@ -1113,7 +1230,7 @@ def execute_import(preview_data, school, uploaded_by):
                 })
                 counts['students_created'] += 1
             else:
-                user = CustomUser.objects.get(email=email)
+                user = CustomUser.objects.filter(email=email).first()
                 password = None
 
             # SchoolStudent
@@ -1233,7 +1350,7 @@ def validate_balance_preview(data_rows, column_mapping, school):
 
     # Build guardian lookup by (first_name_lower, last_name_lower)
     guardians = Guardian.objects.filter(school=school).prefetch_related(
-        'students__student', 'students__student__school_students'
+        'guardian_students__student', 'guardian_students__student__school_student_entries'
     )
     guardian_lookup = {}
     for g in guardians:
@@ -1511,7 +1628,7 @@ def validate_teacher_preview(data_rows, column_mapping, school):
         # Check if user already exists
         if CustomUser.objects.filter(email=email).exists():
             # Check if already linked to this school
-            user = CustomUser.objects.get(email=email)
+            user = CustomUser.objects.filter(email=email).first()
             already_linked = SchoolTeacher.objects.filter(school=school, teacher=user).exists()
             teacher_data['already_linked'] = already_linked
             if already_linked:
@@ -1547,7 +1664,40 @@ def execute_teacher_import(preview_data, school, imported_by):
 
     for tdata in all_teachers:
         email = tdata['email']
-        is_new = not CustomUser.objects.filter(email=email).exists()
+
+        # Check for placeholder teacher (created during student import)
+        placeholder_st = SchoolTeacher.objects.filter(
+            school=school,
+            teacher__first_name__iexact=tdata['first_name'],
+            teacher__last_name__iexact=tdata['last_name'],
+            teacher__email__endswith='@teacher.local',
+            is_active=True,
+        ).select_related('teacher').first()
+
+        if placeholder_st:
+            # Update placeholder with real details and a proper password
+            user = placeholder_st.teacher
+            user.email = email
+            if tdata.get('phone'):
+                user.phone = tdata['phone']
+            # Generate a real password so the admin can share credentials
+            password = get_random_string(10)
+            user.set_password(password)
+            user.must_change_password = True
+            user.save(update_fields=['email', 'phone', 'password', 'must_change_password'])
+            is_new = False
+            # Include in credentials CSV so admin can distribute login details
+            credentials.append({
+                'username': user.username,
+                'email': email,
+                'password': password,
+                'first_name': tdata['first_name'],
+                'last_name': tdata['last_name'],
+                'role': tdata['role_display'],
+            })
+            counts['teachers_updated'] = counts.get('teachers_updated', 0) + 1
+        else:
+            is_new = not CustomUser.objects.filter(email=email).exists()
 
         if is_new:
             password = get_random_string(10)
@@ -1591,8 +1741,8 @@ def execute_teacher_import(preview_data, school, imported_by):
                 'role': tdata['role_display'],
             })
             counts['teachers_created'] += 1
-        else:
-            user = CustomUser.objects.get(email=email)
+        elif not placeholder_st:
+            user = CustomUser.objects.filter(email=email).first()
             password = None
 
         # Link to school (skip if already linked)
@@ -1604,6 +1754,13 @@ def execute_teacher_import(preview_data, school, imported_by):
                 'is_active': True,
             },
         )
+        if not created and placeholder_st:
+            # Update placeholder SchoolTeacher with real role/specialty
+            st.role = tdata['role']
+            st.specialty = tdata.get('specialty', '')
+            if password:
+                st.pending_password = password
+            st.save(update_fields=['role', 'specialty', 'pending_password'])
         # Store pending password for publish email (new users only)
         if is_new and password and created:
             st.pending_password = password
@@ -1618,8 +1775,379 @@ def execute_teacher_import(preview_data, school, imported_by):
                     defaults={'display_name': system_role_name.replace('_', ' ').title()},
                 )
                 UserRole.objects.get_or_create(user=user, role=role_obj)
+        elif placeholder_st:
+            # Placeholder updated — ensure correct role is assigned
+            system_role_name = _role_to_system_role(tdata['role'])
+            role_obj, _ = Role.objects.get_or_create(
+                name=system_role_name,
+                defaults={'display_name': system_role_name.replace('_', ' ').title()},
+            )
+            UserRole.objects.get_or_create(user=user, role=role_obj)
         else:
             counts['teachers_skipped'] += 1
+
+    return {
+        'counts': counts,
+        'credentials': credentials,
+    }
+
+
+# ── Parent Import ───────────────────────────────────────────
+
+PARENT_COLUMN_FIELDS = {
+    'first_name': 'Parent First Name',
+    'last_name': 'Parent Last Name',
+    'email': 'Parent Email',
+    'phone': 'Phone',
+    'relationship': 'Relationship',
+    'student_email': 'Student Email',
+    'children': 'Children (names)',
+    'status': 'Status',
+    'address': 'Address',
+    'city': 'City',
+    'country': 'Country',
+}
+
+# student_email OR children must be mapped (checked in validate)
+PARENT_REQUIRED_FIELDS = {'first_name', 'last_name', 'email'}
+
+PARENT_PRESETS = {
+    'teachworks': {
+        'name': 'Teachworks',
+        'description': 'Import from Teachworks Families export (.xls).',
+        'mapping': {
+            'first_name': 'First Name',
+            'last_name': 'Last Name',
+            'email': 'Email',
+            'phone': 'Mobile Phone',
+            'children': 'Children',
+            'status': 'Status',
+            'address': 'Address',
+            'city': 'City',
+            'country': 'Country',
+        },
+    },
+}
+
+
+def apply_parent_preset(preset_key, headers):
+    """Apply a parent preset to map column headers. Returns {field: col_index}."""
+    preset = PARENT_PRESETS.get(preset_key)
+    if not preset:
+        return {}
+    header_lower = {h.lower().strip(): i for i, h in enumerate(headers)}
+    mapping = {}
+    for system_field, csv_header in preset['mapping'].items():
+        idx = header_lower.get(csv_header.lower())
+        if idx is not None:
+            mapping[system_field] = idx
+    return mapping
+
+
+def _build_parent_column_mapping(post_data):
+    """Build column_mapping dict from POST data for parent import."""
+    mapping = {}
+    for field in PARENT_COLUMN_FIELDS:
+        val = post_data.get(f'col_{field}', '')
+        if val != '' and val != '-1':
+            mapping[field] = int(val)
+    return mapping
+
+
+PARENT_RELATIONSHIP_MAP = {
+    'mother': 'mother', 'mom': 'mother', 'mum': 'mother',
+    'father': 'father', 'dad': 'father',
+    'guardian': 'guardian',
+    'other': 'other',
+}
+
+
+def _find_student_at_school_by_email(student_email, school):
+    """Returns CustomUser or None if student_email is not a student at school."""
+    try:
+        user = CustomUser.objects.get(email=student_email)
+        if SchoolStudent.objects.filter(student=user, school=school, is_active=True).exists():
+            return user
+    except CustomUser.DoesNotExist:
+        pass
+    return None
+
+
+def _build_student_name_lookup(school):
+    """Build a lookup dict of (first_lower, last_lower) -> CustomUser for students at school."""
+    lookup = {}
+    for ss in SchoolStudent.objects.filter(school=school, is_active=True).select_related('student'):
+        u = ss.student
+        key = (u.first_name.lower().strip(), u.last_name.lower().strip())
+        if key not in lookup:
+            lookup[key] = u
+    return lookup
+
+
+def _find_student_by_name(full_name, name_lookup):
+    """Find a student by full name from the pre-built lookup. Returns CustomUser or None."""
+    first, last = _split_child_name(full_name)
+    if not first:
+        return None
+    return name_lookup.get((first.lower().strip(), last.lower().strip()))
+
+
+def validate_parent_preview(data_rows, column_mapping, school):
+    """
+    Validate parent CSV rows. Groups by parent email since one parent
+    may appear on multiple rows (one row per child).
+
+    Supports two modes:
+    - student_email mapped: match students by email
+    - children mapped: match students by name (comma-separated full names)
+
+    Returns dict with: parents_new, parents_existing, errors, warnings.
+    """
+    errors = []
+    warnings = []
+
+    # Check required fields are mapped
+    for f in PARENT_REQUIRED_FIELDS:
+        if f not in column_mapping:
+            errors.append(f'Required column "{PARENT_COLUMN_FIELDS[f]}" is not mapped.')
+
+    has_student_email = 'student_email' in column_mapping
+    has_children = 'children' in column_mapping
+    if not has_student_email and not has_children:
+        errors.append('Either "Student Email" or "Children (names)" must be mapped.')
+
+    if errors:
+        return {'parents_new': [], 'parents_existing': [], 'errors': errors, 'warnings': warnings}
+
+    # Pre-build name lookup for children mode
+    name_lookup = _build_student_name_lookup(school) if has_children else {}
+
+    # Filter inactive rows if status column is mapped
+    has_status = 'status' in column_mapping
+
+    # First pass: group rows by parent email
+    parent_groups = {}  # email -> {parent_data, children: [...]}
+
+    for row_idx, row in enumerate(data_rows, start=2):
+        # Skip inactive rows
+        if has_status:
+            status_val = _get_cell(row, column_mapping.get('status')).lower()
+            if status_val and status_val not in ('active', ''):
+                continue
+
+        first_name = _get_cell(row, column_mapping.get('first_name'))
+        last_name = _get_cell(row, column_mapping.get('last_name'))
+        email = _get_cell(row, column_mapping.get('email')).lower()
+        phone = _get_cell(row, column_mapping.get('phone'))
+        rel_raw = _get_cell(row, column_mapping.get('relationship')).lower()
+        address = _get_cell(row, column_mapping.get('address'))
+        city = _get_cell(row, column_mapping.get('city'))
+        country = _get_cell(row, column_mapping.get('country'))
+
+        if not first_name:
+            errors.append(f'Row {row_idx}: Missing parent first name.')
+            continue
+        if not last_name:
+            errors.append(f'Row {row_idx}: Missing parent last name.')
+            continue
+        if not email or '@' not in email:
+            errors.append(f'Row {row_idx}: Missing or invalid parent email.')
+            continue
+
+        relationship = PARENT_RELATIONSHIP_MAP.get(rel_raw, '')
+        if rel_raw and not relationship:
+            relationship = 'other'
+            warnings.append(f'Row {row_idx}: Unrecognised relationship "{rel_raw}", defaulting to "other".')
+
+        if email not in parent_groups:
+            parent_groups[email] = {
+                'first_name': first_name,
+                'last_name': last_name,
+                'email': email,
+                'phone': phone,
+                'address': address,
+                'city': city,
+                'country': country,
+                'children': [],
+            }
+
+        # Resolve student(s) for this row
+        matched_students = []
+
+        if has_children:
+            children_val = _get_cell(row, column_mapping.get('children'))
+            if children_val:
+                child_names = [c.strip() for c in children_val.split(',') if c.strip()]
+                for child_name in child_names:
+                    student_user = _find_student_by_name(child_name, name_lookup)
+                    if student_user:
+                        matched_students.append((student_user, child_name))
+                    else:
+                        warnings.append(
+                            f'Row {row_idx}: Child "{child_name}" not found at this school — skipping.'
+                        )
+
+        if has_student_email:
+            student_email = _get_cell(row, column_mapping.get('student_email')).lower()
+            if student_email and '@' in student_email:
+                student_user = _find_student_at_school_by_email(student_email, school)
+                if student_user:
+                    # Avoid duplicates if also matched via children
+                    existing_ids = {s[0].id for s in matched_students}
+                    if student_user.id not in existing_ids:
+                        matched_students.append((student_user, student_email))
+                else:
+                    warnings.append(
+                        f'Row {row_idx}: Student "{student_email}" not found at this school — skipping.'
+                    )
+
+        if not matched_students:
+            warnings.append(f'Row {row_idx}: No matching students found for {first_name} {last_name} — skipping.')
+            continue
+
+        for student_user, student_ref in matched_students:
+            # Check if already linked
+            already_linked = ParentStudent.objects.filter(
+                parent__email=email, student=student_user, school=school, is_active=True,
+            ).exists()
+
+            # Check max 2 parents
+            active_parent_count = ParentStudent.objects.filter(
+                student=student_user, school=school, is_active=True,
+            ).count()
+            if active_parent_count >= 2 and not already_linked:
+                warnings.append(
+                    f'Row {row_idx}: {student_user.get_full_name()} already has 2 parents linked — will be skipped.'
+                )
+
+            # Deduplicate within this parent's children list
+            existing_child_ids = {c['student_id'] for c in parent_groups[email]['children']}
+            if student_user.id not in existing_child_ids:
+                parent_groups[email]['children'].append({
+                    'student_email': student_user.email,
+                    'student_name': student_user.get_full_name() or student_ref,
+                    'student_id': student_user.id,
+                    'relationship': relationship,
+                    'row': row_idx,
+                    'already_linked': already_linked,
+                    'at_max_parents': active_parent_count >= 2 and not already_linked,
+                })
+
+    # Remove parents with no matched children
+    parent_groups = {e: p for e, p in parent_groups.items() if p['children']}
+
+    # Categorise as new or existing
+    existing_emails = set(
+        CustomUser.objects.filter(
+            email__in=parent_groups.keys()
+        ).values_list('email', flat=True)
+    )
+
+    parents_new = []
+    parents_existing = []
+    for email, pdata in parent_groups.items():
+        if email in existing_emails:
+            parents_existing.append(pdata)
+        else:
+            parents_new.append(pdata)
+
+    return {
+        'parents_new': parents_new,
+        'parents_existing': parents_existing,
+        'errors': errors,
+        'warnings': warnings,
+    }
+
+
+def execute_parent_import(preview_data, school, imported_by):
+    """
+    Create parent user accounts and link them to students.
+    Returns dict with counts and credentials list.
+    """
+    credentials = []
+    counts = {
+        'parents_created': 0,
+        'links_created': 0,
+        'links_skipped': 0,
+        'errors': [],
+    }
+
+    parent_role, _ = Role.objects.get_or_create(
+        name=Role.PARENT, defaults={'display_name': 'Parent'},
+    )
+
+    with transaction.atomic():
+        all_parents = preview_data['parents_new'] + preview_data['parents_existing']
+        for pdata in all_parents:
+            email = pdata['email']
+            is_new = not CustomUser.objects.filter(email=email).exists()
+
+            if is_new:
+                password = get_random_string(10)
+                base_username = slugify(
+                    f"{pdata['first_name']}.{pdata['last_name']}"
+                ).replace('-', '.')
+                if not base_username:
+                    base_username = email.split('@')[0]
+                username = base_username
+                suffix = 1
+                while CustomUser.objects.filter(username=username).exists():
+                    username = f'{base_username}{suffix}'
+                    suffix += 1
+
+                user = CustomUser.objects.create_user(
+                    username=username,
+                    email=email,
+                    password=password,
+                    first_name=pdata['first_name'],
+                    last_name=pdata['last_name'],
+                )
+                user.must_change_password = True
+                if pdata.get('phone'):
+                    user.phone = pdata['phone']
+                if pdata.get('address'):
+                    user.address_line1 = pdata['address']
+                if pdata.get('city'):
+                    user.city = pdata['city']
+                if pdata.get('country'):
+                    user.country = pdata['country']
+                user.save()
+
+                UserRole.objects.get_or_create(user=user, role=parent_role)
+                credentials.append({
+                    'username': username,
+                    'email': email,
+                    'password': password,
+                    'first_name': pdata['first_name'],
+                    'last_name': pdata['last_name'],
+                    'children': ', '.join(c['student_name'] for c in pdata['children']),
+                })
+                counts['parents_created'] += 1
+            else:
+                user = CustomUser.objects.get(email=email)
+                password = None
+                # Ensure parent role assigned
+                UserRole.objects.get_or_create(user=user, role=parent_role)
+
+            # Create ParentStudent links
+            for child in pdata['children']:
+                if child.get('at_max_parents'):
+                    counts['links_skipped'] += 1
+                    continue
+
+                student_user = CustomUser.objects.get(id=child['student_id'])
+                _, created = ParentStudent.objects.get_or_create(
+                    parent=user, student=student_user, school=school,
+                    defaults={
+                        'relationship': child.get('relationship', ''),
+                        'is_active': True,
+                        'created_by': imported_by,
+                    },
+                )
+                if created:
+                    counts['links_created'] += 1
+                else:
+                    counts['links_skipped'] += 1
 
     return {
         'counts': counts,

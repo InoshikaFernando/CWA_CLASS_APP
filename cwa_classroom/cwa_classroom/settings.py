@@ -30,7 +30,12 @@ ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,test-cwa-cl
 
 CSRF_TRUSTED_ORIGINS = [
     f'https://{host}' for host in ALLOWED_HOSTS if host not in ('localhost', '127.0.0.1')
-] + ['http://localhost', 'http://127.0.0.1']
+] + [
+    'http://localhost:8000',
+    'http://127.0.0.1:8000',
+    'http://localhost',
+    'http://127.0.0.1',
+]
 
 
 # ---------------------------------------------------------------------------
@@ -110,6 +115,8 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 'accounts.context_processors.user_role',
                 'classroom.context_processors.subject_apps',
+                'classroom.context_processors.subject_sidebar_context',
+                'classroom.context_processors.breadcrumbs_context',
             ],
         },
     },

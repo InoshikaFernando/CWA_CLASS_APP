@@ -39,6 +39,8 @@ def _drop_auto_indexes_if_exist(apps, schema_editor):
     Drop the three auto-named indexes from the DB if they still exist.
     No-op when they are absent (idempotent).
     """
+    if schema_editor.connection.vendor != 'mysql':
+        return
     db_name = schema_editor.connection.settings_dict['NAME']
     targets = [
         ('maths_studentfinalanswer',   'maths_stude_student_ad30a8_idx'),

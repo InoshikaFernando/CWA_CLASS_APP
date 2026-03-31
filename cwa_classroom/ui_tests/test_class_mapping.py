@@ -47,7 +47,7 @@ class TestDepartmentAssignClasses:
 
     def test_submit_button_visible(self):
         """Save Changes button should be present."""
-        btn = self.page.locator("button[type='submit'], input[type='submit']")
+        btn = self.page.locator("button[type='submit'], input[type='submit'], button:not([type])")
         expect(btn.first).to_be_visible()
 
     def test_back_link_visible(self):

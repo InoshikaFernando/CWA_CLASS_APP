@@ -111,7 +111,9 @@
                 </span>
               </td>
               <td class="px-5 py-3">
-                {% if record.self_reported %}
+                {% if record.makeup_token %}
+                  <span class="text-xs font-medium px-2 py-1 rounded-full bg-purple-100 text-purple-700">Makeup</span>
+                {% elif record.self_reported %}
                   {% if record.approved_at %}
                     <span class="text-xs font-medium px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">Approved</span>
                   {% else %}

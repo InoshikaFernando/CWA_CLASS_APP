@@ -19,7 +19,7 @@ class TestParentSidebarLinks:
         self.url = live_server.url
         self.page = page
         do_login(page, self.url, parent_with_child)
-        page.goto(f"{self.url}/classroom/parent/")
+        page.goto(f"{self.url}/parent/")
         page.wait_for_load_state("domcontentloaded")
 
     def test_dashboard_link(self):
@@ -27,7 +27,7 @@ class TestParentSidebarLinks:
 
     def test_dashboard_navigates(self):
         click_sidebar_link(self.page, "Dashboard")
-        expect(self.page).to_have_url(re.compile(r"/classroom/parent/"))
+        expect(self.page).to_have_url(re.compile(r"/parent/"))
 
     def test_my_children_link(self):
         click_sidebar_link(self.page, "My Children")
@@ -66,7 +66,7 @@ class TestParentChildSwitcher:
         self.url = live_server.url
         self.page = page
         do_login(page, self.url, parent_with_child)
-        page.goto(f"{self.url}/classroom/parent/")
+        page.goto(f"{self.url}/parent/")
         page.wait_for_load_state("domcontentloaded")
 
     def test_child_switcher_button_visible(self):

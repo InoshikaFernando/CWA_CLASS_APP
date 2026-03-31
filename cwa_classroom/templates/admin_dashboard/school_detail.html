@@ -12,25 +12,25 @@
       <div>
         <div class="flex items-center gap-3">
           <h1 class="text-2xl font-display font-bold text-gray-900">{{ school.name }}</h1>
-          <span class="text-xs font-medium px-2.5 py-1 rounded-full {% if school.is_active %}bg-emerald-100 text-emerald-700{% else %}bg-gray-100 text-gray-500{% endif %}">
-            {% if school.is_active %}Active{% else %}Inactive{% endif %}
+          <span class="text-xs font-medium px-2.5 py-1 rounded-full
+            {% if not school.is_active %}bg-gray-100 text-gray-500
+            {% elif not school.is_published %}bg-amber-100 text-amber-700
+            {% else %}bg-emerald-100 text-emerald-700{% endif %}">
+            {% if not school.is_active %}Inactive
+            {% elif not school.is_published %}Draft
+            {% else %}Active{% endif %}
           </span>
-          {% if school.is_published %}
-          <span class="text-xs font-medium px-2.5 py-1 rounded-full bg-blue-100 text-blue-700">Published</span>
-          {% else %}
-          <span class="text-xs font-medium px-2.5 py-1 rounded-full bg-amber-100 text-amber-700">Draft</span>
-          {% endif %}
         </div>
         {% if school.address %}<p class="text-gray-500 mt-1">{{ school.address }}</p>{% endif %}
       </div>
       <div class="flex items-center gap-2">
         {% if not school.is_published %}
         <!-- Publish -->
-        <form method="post" action="{% url 'admin_school_publish' school.id %}">
+        <form method="post" action="{% url 'admin_school_publish' school.id %}" id="publish-form">
           {% csrf_token %}
           <button type="submit"
                   class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition shadow-sm"
-                  onclick="return confirm('Publish school \'{{ school.name|escapejs }}\'?\n\nThis will send notification emails to all students and teachers. This action cannot be undone.')">
+                  onclick="if(!confirm('Publish school \'{{ school.name|escapejs }}\'?\n\nThis will send notification emails to all students and teachers. This action cannot be undone.')) return false; document.getElementById('publish-loading').classList.remove('hidden'); return true;">
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/>
             </svg>
@@ -95,30 +95,77 @@
   </div>
 
   <!-- Quick stats -->
-  <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-    <a href="{% url 'admin_school_teachers' school.id %}" class="bg-white rounded-xl p-4 border border-slate-200 hover:border-accent hover:shadow-sm transition">
-      <p class="text-sm text-gray-500">Staff</p>
-      <p class="text-xl font-bold text-gray-900">{{ teachers|length }}</p>
-    </a>
-    <a href="{% url 'admin_school_departments' school.id %}" class="bg-white rounded-xl p-4 border border-slate-200 hover:border-accent hover:shadow-sm transition">
-      <p class="text-sm text-gray-500">Classes</p>
-      <p class="text-xl font-bold text-gray-900">{{ classes|length }}</p>
-    </a>
-    <a href="{% url 'admin_academic_year_create' school.id %}" class="bg-white rounded-xl p-4 border border-slate-200 hover:border-accent hover:shadow-sm transition">
-      <p class="text-sm text-gray-500">Academic Years</p>
-      <p class="text-xl font-bold text-gray-900">{{ academic_years|length }}</p>
-    </a>
-    {% if school.email %}
-    <a href="mailto:{{ school.email }}" class="bg-white rounded-xl p-4 border border-slate-200 hover:border-accent hover:shadow-sm transition">
-      <p class="text-sm text-gray-500">Contact</p>
-      <p class="text-sm font-medium text-gray-700">{{ school.email }}</p>
-    </a>
-    {% else %}
-    <div class="bg-white rounded-xl p-4 border border-slate-200">
-      <p class="text-sm text-gray-500">Contact</p>
-      <p class="text-sm font-medium text-gray-700">—</p>
+  <div class="space-y-3 mb-8">
+
+    <!-- Row 1: Staff / Classes / Contact -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <a href="{% url 'admin_school_teachers' school.id %}" class="bg-white rounded-xl p-3 border border-slate-200 hover:border-accent hover:shadow-sm transition">
+        <p class="text-[10px] text-gray-400 uppercase tracking-wide font-semibold">Staff</p>
+        <p class="text-sm font-bold text-gray-900 mt-0.5">{{ teachers|length }}</p>
+      </a>
+      <a href="{% url 'admin_school_departments' school.id %}" class="bg-white rounded-xl p-3 border border-slate-200 hover:border-accent hover:shadow-sm transition">
+        <p class="text-[10px] text-gray-400 uppercase tracking-wide font-semibold">Classes</p>
+        <p class="text-sm font-bold text-gray-900 mt-0.5">{{ classes|length }}</p>
+      </a>
+      {% if school.email %}
+      <a href="mailto:{{ school.email }}" class="bg-white rounded-xl p-3 border border-slate-200 hover:border-accent hover:shadow-sm transition">
+        <p class="text-[10px] text-gray-400 uppercase tracking-wide font-semibold">Contact</p>
+        <p class="text-xs font-medium text-gray-700 mt-0.5">{{ school.email }}</p>
+      </a>
+      {% else %}
+      <div class="bg-white rounded-xl p-3 border border-slate-200">
+        <p class="text-[10px] text-gray-400 uppercase tracking-wide font-semibold">Contact</p>
+        <p class="text-xs font-medium text-gray-700 mt-0.5">—</p>
+      </div>
+      {% endif %}
     </div>
-    {% endif %}
+
+    <!-- Row 2: Academic Years -->
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+        <p class="text-[10px] text-gray-400 uppercase tracking-wide font-semibold">Academic Years</p>
+        <div class="flex items-center gap-3">
+          <a href="{% url 'admin_school_holidays' school.id %}"
+             class="text-[10px] text-gray-500 hover:text-accent font-semibold transition">Holidays</a>
+          <a href="{% url 'admin_public_holidays' school.id %}"
+             class="text-[10px] text-gray-500 hover:text-accent font-semibold transition">Public Hols</a>
+          <a href="{% url 'admin_academic_year_create' school.id %}"
+             class="text-[10px] text-accent hover:text-accent-dark font-semibold transition">+ Add</a>
+        </div>
+      </div>
+      {% if academic_years %}
+      <div class="divide-y divide-slate-50">
+        {% for ay in academic_years %}
+        <div class="flex items-center justify-between px-4 py-2 hover:bg-slate-50 transition group">
+          <a href="{% url 'admin_academic_year_calendar' school.id ay.id %}"
+             class="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+            <span class="text-sm font-bold text-gray-900 group-hover:text-accent transition">{{ ay.year }}</span>
+            {% if ay.is_current %}
+              <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Current</span>
+            {% endif %}
+            {% if ay.start_date and ay.end_date %}
+              <span class="text-[10px] text-gray-400">{{ ay.start_date|date:"d M Y" }} – {{ ay.end_date|date:"d M Y" }}</span>
+            {% endif %}
+            {% if ay.number_of_terms %}
+              <span class="text-[10px] text-gray-400">{{ ay.number_of_terms }} terms</span>
+            {% endif %}
+          </a>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            {% if ay.number_of_terms %}
+            <a href="{% url 'admin_academic_year_term_setup' school.id ay.id %}"
+               class="text-[10px] font-semibold text-gray-400 hover:text-accent transition">Terms</a>
+            {% endif %}
+            <a href="{% url 'admin_academic_year_edit' school.id ay.id %}"
+               class="text-[10px] font-semibold text-accent hover:text-accent-dark transition">Edit</a>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="px-4 py-3 text-xs text-gray-400">No academic years set up yet.</div>
+      {% endif %}
+    </div>
+
   </div>
 
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -177,7 +224,7 @@
           <div class="space-y-3">
             {% for st in teachers %}
               <a href="{% url 'admin_school_teacher_edit' school.id st.teacher.id %}"
-                 class="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 transition"
+                 class="flex items-center justify-between px-3 py-1 rounded-lg hover:bg-slate-50 transition"
                  x-show="{{ forloop.counter }} > (page - 1) * perPage && {{ forloop.counter }} <= page * perPage">
                 <div class="flex items-center gap-3">
                   <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-accent text-white text-xs font-bold">
@@ -216,7 +263,7 @@
           <div class="space-y-3">
             {% for ss in school_students %}
               <a href="{% url 'admin_school_student_edit' school.id ss.student.id %}"
-                 class="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 transition"
+                 class="flex items-center gap-3 px-3 py-1 rounded-lg hover:bg-slate-50 transition"
                  x-show="{{ forloop.counter }} > (page - 1) * perPage && {{ forloop.counter }} <= page * perPage">
                 <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-emerald-500 text-white text-xs font-bold">
                   {{ ss.student.first_name|slice:":1"|upper }}{{ ss.student.last_name|slice:":1"|upper }}
@@ -272,55 +319,26 @@
       </div>
     </div>
 
-    <!-- Academic Years section -->
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm lg:col-span-2">
-      <div class="flex items-center justify-between p-6 border-b border-slate-100">
-        <h2 class="text-lg font-semibold text-gray-900">Academic Years</h2>
-        <a href="{% url 'admin_academic_year_create' school.id %}"
-           class="inline-flex items-center gap-1.5 text-sm text-accent hover:text-accent-dark font-medium transition">
-          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-          </svg>
-          Add Year
-        </a>
-      </div>
-      <div class="p-6">
-        {% if academic_years %}
-          <div class="overflow-x-auto">
-            <table class="w-full text-sm">
-              <thead>
-                <tr class="text-left text-gray-500 border-b border-slate-100">
-                  <th class="pb-3 font-medium">Year</th>
-                  <th class="pb-3 font-medium">Start Date</th>
-                  <th class="pb-3 font-medium">End Date</th>
-                  <th class="pb-3 font-medium">Status</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-slate-50">
-                {% for ay in academic_years %}
-                  <tr>
-                    <td class="py-3 font-semibold text-gray-900">{{ ay.year }}</td>
-                    <td class="py-3 text-gray-600">{{ ay.start_date|date:"d M Y" }}</td>
-                    <td class="py-3 text-gray-600">{{ ay.end_date|date:"d M Y" }}</td>
-                    <td class="py-3">
-                      {% if ay.is_current %}
-                        <span class="text-xs font-medium px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">Current</span>
-                      {% else %}
-                        <span class="text-xs font-medium px-2 py-1 rounded-full bg-gray-100 text-gray-500">Past</span>
-                      {% endif %}
-                    </td>
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        {% else %}
-          <p class="text-sm text-gray-400 text-center py-4">No academic years created yet.</p>
-        {% endif %}
-      </div>
-    </div>
 
   </div>
 
+</div>
+
+{# ── Full-page publish loading overlay ── #}
+<div id="publish-loading" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-lg p-8 text-center max-w-md mx-4">
+    <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-50 mb-4">
+      <svg class="w-8 h-8 text-blue-600 animate-spin" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+      </svg>
+    </div>
+    <h3 class="font-display text-xl text-gray-800 mb-2">Publishing School...</h3>
+    <p class="text-sm text-gray-500 mb-4">Sending notification emails to students and teachers.</p>
+    <div class="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+      <div class="bg-blue-600 h-1.5 rounded-full animate-pulse" style="width: 100%"></div>
+    </div>
+    <p class="text-xs text-red-500 font-medium mt-3">Please do not refresh or navigate away.</p>
+  </div>
 </div>
 {% endblock %}

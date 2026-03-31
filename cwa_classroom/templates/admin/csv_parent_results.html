@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Parent Import Results{% endblock %}
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+  <div>
+    <h1 class="font-display text-3xl text-primary">Parent Import Complete</h1>
+    <p class="text-gray-400 text-sm mt-1">{{ school.name }}</p>
+  </div>
+
+  {# ── Summary cards ── #}
+  <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+      <p class="font-display text-3xl text-green-600">{{ results.counts.parents_created }}</p>
+      <p class="text-xs text-gray-400 font-semibold">Accounts Created</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+      <p class="font-display text-3xl text-blue-600">{{ results.counts.links_created }}</p>
+      <p class="text-xs text-gray-400 font-semibold">Links Created</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+      <p class="font-display text-3xl text-gray-400">{{ results.counts.links_skipped }}</p>
+      <p class="text-xs text-gray-400 font-semibold">Links Skipped</p>
+    </div>
+  </div>
+
+  {# ── Credentials table ── #}
+  {% if results.credentials %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-gray-800">New Parent Credentials</h2>
+      <a href="{% url 'parent_csv_credentials' %}"
+         class="inline-flex items-center gap-1.5 bg-primary hover:bg-primary-dark text-white text-sm font-semibold rounded-lg px-4 py-2 transition">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
+        </svg>
+        Download CSV
+      </a>
+    </div>
+    <div class="overflow-x-auto max-h-64 overflow-y-auto">
+      <table class="text-sm w-full">
+        <thead class="bg-gray-50 sticky top-0">
+          <tr>
+            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Name</th>
+            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Username</th>
+            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Email</th>
+            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Password</th>
+            <th class="px-3 py-2 text-left text-gray-600 font-semibold">Children</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in results.credentials %}
+          <tr class="border-t border-gray-100">
+            <td class="px-3 py-2 text-gray-800">{{ c.first_name }} {{ c.last_name }}</td>
+            <td class="px-3 py-2 text-gray-500 font-mono text-xs">{{ c.username }}</td>
+            <td class="px-3 py-2 text-gray-500">{{ c.email }}</td>
+            <td class="px-3 py-2 font-mono text-xs text-gray-600">{{ c.password }}</td>
+            <td class="px-3 py-2 text-gray-500">{{ c.children }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="text-xs text-amber-600 mt-3">Save these credentials securely. Passwords cannot be retrieved later.</p>
+  </div>
+  {% endif %}
+
+  <div class="flex gap-3">
+    <a href="{% url 'admin_dashboard' %}" id="dashboard-btn"
+       class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition">
+      Go to Dashboard <span id="countdown" class="ml-1 opacity-60">(10)</span>
+    </a>
+    <a href="{% url 'parent_csv_upload' %}"
+       class="bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl px-6 py-3 hover:bg-gray-50 transition">
+      Import More Parents
+    </a>
+  </div>
+</div>
+
+{% block extra_js %}
+<script>
+(function() {
+  let seconds = 10;
+  const countdownEl = document.getElementById('countdown');
+  const dashboardBtn = document.getElementById('dashboard-btn');
+  let cancelled = false;
+
+  const timer = setInterval(function() {
+    if (cancelled) return;
+    seconds--;
+    if (countdownEl) countdownEl.textContent = '(' + seconds + ')';
+    if (seconds <= 0) {
+      clearInterval(timer);
+      window.location.href = dashboardBtn.href;
+    }
+  }, 1000);
+
+  document.addEventListener('click', function(e) {
+    if (!cancelled) {
+      cancelled = true;
+      clearInterval(timer);
+      if (countdownEl) countdownEl.style.display = 'none';
+    }
+  });
+})();
+</script>
+{% endblock %}
+{% endblock %}
