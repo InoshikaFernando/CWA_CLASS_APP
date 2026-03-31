@@ -356,7 +356,7 @@ class SchoolDetailView(RoleRequiredMixin, View):
         school_students = SchoolStudent.objects.filter(school=school, is_active=True).select_related('student')
         custom_levels = Level.objects.filter(school=school).order_by('level_number')
         terms = Term.objects.filter(school=school).select_related('academic_year')
-        holidays = Holiday.objects.filter(school=school).select_related('academic_year')
+        holidays = SchoolHoliday.objects.filter(school=school).select_related('academic_year')
         return render(request, 'admin_dashboard/school_detail.html', {
             'school': school,
             'teachers': teachers,
@@ -2454,7 +2454,7 @@ class HolidayManageView(RoleRequiredMixin, View):
 
     def get(self, request, school_id):
         school = _get_user_school_or_404(request.user, school_id)
-        holidays = Holiday.objects.filter(school=school).select_related('academic_year')
+        holidays = SchoolHoliday.objects.filter(school=school).select_related('academic_year')
         academic_years = AcademicYear.objects.filter(school=school)
         return render(request, 'admin_dashboard/school_holidays.html', {
             'school': school,
@@ -2483,7 +2483,7 @@ class HolidayManageView(RoleRequiredMixin, View):
                 ).first()
 
             try:
-                holiday = Holiday.objects.create(
+                holiday = SchoolHoliday.objects.create(
                     school=school,
                     academic_year=academic_year,
                     name=name,
@@ -2502,7 +2502,7 @@ class HolidayManageView(RoleRequiredMixin, View):
 
         elif action == 'edit':
             holiday_id = request.POST.get('holiday_id')
-            holiday = get_object_or_404(Holiday, id=holiday_id, school=school)
+            holiday = get_object_or_404(SchoolHoliday, id=holiday_id, school=school)
             holiday.name = request.POST.get('name', '').strip() or holiday.name
             start_date = request.POST.get('start_date')
             end_date = request.POST.get('end_date')
@@ -2531,7 +2531,7 @@ class HolidayManageView(RoleRequiredMixin, View):
 
         elif action == 'delete':
             holiday_id = request.POST.get('holiday_id')
-            holiday = get_object_or_404(Holiday, id=holiday_id, school=school)
+            holiday = get_object_or_404(SchoolHoliday, id=holiday_id, school=school)
             holiday_name = holiday.name
             holiday.delete()
             log_event(
