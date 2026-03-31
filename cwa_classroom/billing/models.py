@@ -188,8 +188,8 @@ class InstituteDiscountCode(models.Model):
         help_text='Override student limit. Leave blank to use plan default. 0 = unlimited.',
     )
     max_uses = models.PositiveIntegerField(
-        default=1,
-        help_text='Number of times this code can be used. Default 1 (single-use).',
+        null=True, blank=True,
+        help_text='Leave blank for unlimited uses.',
     )
     uses = models.PositiveIntegerField(default=0)
     stripe_coupon_id = models.CharField(
