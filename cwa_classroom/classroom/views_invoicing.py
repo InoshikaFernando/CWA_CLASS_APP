@@ -408,13 +408,24 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
 
         student_data = []
         all_warnings = []
+        skipped_overlap = []
+        skipped_no_enrollment = []
 
         for ss in students_qs:
             student = ss.student
 
             overlaps = svc.check_overlapping_invoices(student, school, start, end)
             if overlaps.exists():
+                skipped_overlap.append(student.get_full_name() or student.username)
                 continue
+
+            # Check if student has any active class enrollments
+            active_enrollments = ClassStudent.objects.filter(
+                classroom__school=school, student=student, is_active=True,
+                classroom__is_active=True,
+            ).exists()
+            if not active_enrollments:
+                skipped_no_enrollment.append(student.get_full_name() or student.username)
 
             lines, warnings = svc.calculate_invoice_lines(
                 student, school, start, end, mode, billing_type=billing_type
@@ -428,17 +439,56 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
                 })
 
         if not student_data:
-            if all_warnings:
-                # Warnings mean sessions exist but fees are not configured
-                classrooms = set(w['classroom'].name for w in all_warnings)
-                messages.warning(
-                    request,
-                    f'No invoices generated — fees are not configured for: '
-                    f'{", ".join(sorted(classrooms))}. '
-                    f'Please set fees on the Fee Configuration page first.'
+            reasons = []
+            total_students = students_qs.count()
+
+            if total_students == 0:
+                messages.warning(request, 'No invoices generated — no active students found in this school.')
+                return redirect('generate_invoices')
+
+            if skipped_overlap:
+                reasons.append(
+                    f'{len(skipped_overlap)} student(s) already have invoices for this period: '
+                    f'{", ".join(sorted(skipped_overlap)[:5])}'
+                    f'{"..." if len(skipped_overlap) > 5 else ""}'
                 )
+
+            if skipped_no_enrollment:
+                reasons.append(
+                    f'{len(skipped_no_enrollment)} student(s) have no active class enrollments: '
+                    f'{", ".join(sorted(skipped_no_enrollment)[:5])}'
+                    f'{"..." if len(skipped_no_enrollment) > 5 else ""}'
+                )
+
+            if all_warnings:
+                classrooms = set(w['classroom'].name for w in all_warnings)
+                reasons.append(
+                    f'Fees not configured for: {", ".join(sorted(classrooms))}. '
+                    f'Set fees on the Fee Configuration page.'
+                )
+
+            # Check if sessions exist at all in this period
+            session_count = ClassSession.objects.filter(
+                classroom__school=school,
+                classroom__is_active=True,
+                date__range=(start, end),
+            ).exclude(status='cancelled').count()
+            if session_count == 0:
+                reasons.append(
+                    f'No sessions found between {start} and {end}. '
+                    f'Sessions are auto-created for upfront billing, or use '
+                    f'"Create Session" on each class page.'
+                )
+
+            if reasons:
+                msg = 'No invoices generated. Reasons: ' + ' | '.join(reasons)
             else:
-                messages.warning(request, 'No invoices to generate — no sessions found in the selected period.')
+                msg = (
+                    f'No invoices generated for {total_students} student(s). '
+                    f'Check that students are enrolled in active classes with sessions '
+                    f'and fees configured for the period {start} to {end}.'
+                )
+            messages.warning(request, msg)
             return redirect('generate_invoices')
 
         # Create drafts
