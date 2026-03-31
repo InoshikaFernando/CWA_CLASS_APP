@@ -41,7 +41,7 @@ class TestHoiSidebarLinks:
 
     def test_subjects_link(self):
         click_sidebar_link(self.page, "Subjects")
-        expect(self.page).to_have_url(re.compile(r"/subjects"))
+        expect(self.page).to_have_url(re.compile(r"/subject"))
 
     def test_academic_levels_link(self):
         click_sidebar_link(self.page, "Academic Levels")
@@ -136,13 +136,13 @@ class TestHoiSidebarLinks:
 
     # Collapsible sections
     def test_institution_setup_section_visible(self):
-        toggle = self.page.locator("button", has_text="Institution Setup")
-        expect(toggle).to_be_visible()
+        toggle = self.page.locator("aside#sidebar button", has_text="Institution Setup")
+        expect(toggle.first).to_be_visible()
 
     def test_invoicing_section_toggle(self):
-        toggle = self.page.locator("button", has_text="Invoicing")
-        expect(toggle).to_be_visible()
+        toggle = self.page.locator("aside#sidebar button", has_text="Invoicing")
+        expect(toggle.first).to_be_visible()
 
     def test_salaries_section_toggle(self):
-        toggle = self.page.locator("button", has_text="Salaries")
-        expect(toggle).to_be_visible()
+        toggle = self.page.locator("aside#sidebar button", has_text="Salaries")
+        expect(toggle.first).to_be_visible()

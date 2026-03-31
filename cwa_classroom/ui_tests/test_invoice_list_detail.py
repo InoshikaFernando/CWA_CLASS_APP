@@ -32,7 +32,7 @@ class TestInvoiceList:
 
     def test_generate_invoices_button(self):
         """Generate Invoices button should be visible."""
-        btn = self.page.locator("a, button", has_text=re.compile(r"Generate", re.IGNORECASE))
+        btn = self.page.get_by_role("link", name=re.compile(r"Generate Invoices", re.IGNORECASE))
         expect(btn.first).to_be_visible()
 
     def test_search_bar_visible(self):
@@ -63,7 +63,7 @@ class TestInvoiceDetail:
         assert_page_has_text(self.page, "INV-0001")
 
     def test_student_name_displayed(self):
-        assert_page_has_text(self.page, "ui_student")
+        assert_page_has_text(self.page, "Ui Student")
 
     def test_status_badge_displayed(self):
         """Status badge (draft) should be visible."""

@@ -1445,6 +1445,12 @@ class Invoice(models.Model):
         ('paid', 'Paid'),
         ('cancelled', 'Cancelled'),
     ]
+    PERIOD_TYPE_CHOICES = [
+        ('custom', 'Custom'),
+        ('month', 'Month'),
+        ('term', 'Term'),
+        ('year', 'Year'),
+    ]
 
     invoice_number = models.CharField(max_length=50, unique=True)
     school = models.ForeignKey('School', on_delete=models.CASCADE,
@@ -1456,6 +1462,8 @@ class Invoice(models.Model):
     attendance_mode = models.CharField(max_length=20, choices=ATTENDANCE_MODE_CHOICES)
     billing_type = models.CharField(max_length=20, choices=BILLING_TYPE_CHOICES,
                                      default='post_term')
+    period_type = models.CharField(max_length=10, choices=PERIOD_TYPE_CHOICES,
+                                    default='custom')
     calculated_amount = models.DecimalField(max_digits=10, decimal_places=2,
                                              help_text='System-calculated sum of line items')
     amount = models.DecimalField(max_digits=10, decimal_places=2,
