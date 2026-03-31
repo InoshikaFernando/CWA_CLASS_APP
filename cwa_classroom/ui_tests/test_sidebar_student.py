@@ -48,9 +48,9 @@ class TestStudentSidebarLinks:
 
     def test_attendance_link(self):
         click_sidebar_link(self.page, "Attendance")
-        # Attendance URL may redirect depending on data availability
         self.page.wait_for_load_state("domcontentloaded")
-        assert "/attendance" in self.page.url or "/student" in self.page.url
+        # May redirect to billing/module-required if attendance module not subscribed
+        assert "/attendance" in self.page.url or "/billing/module-required" in self.page.url
 
     def test_billing_link(self):
         click_sidebar_link(self.page, "Billing")
