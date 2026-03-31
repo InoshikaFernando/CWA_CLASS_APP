@@ -31,6 +31,7 @@ class Role(models.Model):
 
 
 class CustomUser(AbstractUser):
+    email = models.EmailField(unique=True, blank=True, null=True, default=None)
     date_of_birth = models.DateField(null=True, blank=True)
     country = models.CharField(max_length=100, blank=True)
     region = models.CharField(max_length=100, blank=True)
