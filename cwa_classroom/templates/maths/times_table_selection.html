@@ -141,7 +141,7 @@
         <div class="times-table-grid">
             {% for table in tables %}
             <a class="times-table-card"
-               href="{% if operation == 'multiplication' %}{% url 'maths:multiplication_quiz' level.level_number table %}{% else %}{% url 'maths:division_quiz' level.level_number table %}{% endif %}">
+               href="{% if operation == 'multiplication' %}{% url 'multiplication_quiz' level_number=level.level_number table=table %}{% else %}{% url 'division_quiz' level_number=level.level_number table=table %}{% endif %}">
                 <span class="table-number">{{ table }}</span>
                 <span class="table-symbol">{{ operation_symbol }}</span>
                 <span class="table-label">{{ table }} times table</span>
