@@ -4,9 +4,9 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Virtual environments
-venv/
-venv_linux/
+# Virtual environments (any depth)
+**/venv/
+**/venv_linux/
 .venv/
 env/
 
@@ -15,10 +15,13 @@ env/
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
-media/
-!media/
-!media/**/
-!media/**/.gitkeep
+
+# Uploaded media files
+**/media/
+
+# Database dumps
+*.sql
+sql/
 
 # Environment variables
 .env
@@ -37,3 +40,6 @@ static_collected/
 # OS
 .DS_Store
 Thumbs.db
+
+# Misc
+mysql.txt

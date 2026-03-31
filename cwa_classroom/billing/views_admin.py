@@ -17,6 +17,7 @@ from django.db.models import Sum, Count, Q
 from .models import (
     InstitutePlan, InstituteDiscountCode, ModuleProduct,
     SchoolSubscription, ModuleSubscription, PromoCode,
+    DiscountCode, Package, DURATION_CHOICES,
 )
 from audit.services import log_event
 
@@ -466,7 +467,13 @@ class DiscountCodeEditView(SuperuserRequiredMixin, View):
                 'override_class_limit': str(dc.override_class_limit) if dc.override_class_limit is not None else '',
                 'override_student_limit': str(dc.override_student_limit) if dc.override_student_limit is not None else '',
                 'expires_at': dc.expires_at.strftime('%Y-%m-%dT%H:%M') if dc.expires_at else '',
+                'duration': dc.duration or 'forever',
+                'duration_in_months': str(dc.duration_in_months) if dc.duration_in_months else '',
             },
+            'plans': InstitutePlan.objects.filter(is_active=True),
+            'modules': ModuleProduct.objects.filter(is_active=True),
+            'selected_plans': list(dc.applicable_plans.values_list('id', flat=True)),
+            'selected_modules': list(dc.applicable_modules.values_list('id', flat=True)),
         })
 
     def post(self, request, pk):
@@ -480,6 +487,8 @@ class DiscountCodeEditView(SuperuserRequiredMixin, View):
         override_class_limit = data.get('override_class_limit', '').strip()
         override_student_limit = data.get('override_student_limit', '').strip()
         expires_at = data.get('expires_at', '').strip()
+        duration = data.get('duration', dc.duration or 'forever').strip()
+        duration_in_months = data.get('duration_in_months', '').strip()
 
         try:
             max_uses_val = int(max_uses) if max_uses else None
@@ -506,6 +515,25 @@ class DiscountCodeEditView(SuperuserRequiredMixin, View):
             except ValueError:
                 errors['override_student_limit'] = 'Enter a valid number.'
 
+        if duration not in ('forever', 'once', 'repeating'):
+            duration = 'forever'
+
+        duration_in_months_val = None
+        if duration == 'repeating':
+            if not duration_in_months:
+                errors['duration_in_months'] = 'Number of months is required.'
+            else:
+                try:
+                    duration_in_months_val = int(duration_in_months)
+                    if duration_in_months_val < 1:
+                        errors['duration_in_months'] = 'Must be at least 1.'
+                except ValueError:
+                    errors['duration_in_months'] = 'Enter a valid number.'
+
+        # Warn if duration changed on already-synced coupon
+        if dc.stripe_coupon_id and duration != (dc.duration or 'forever'):
+            errors['duration'] = 'Duration cannot be changed after Stripe sync. Create a new code instead.'
+
         expires_at_val = None
         if expires_at:
             try:
@@ -527,14 +555,23 @@ class DiscountCodeEditView(SuperuserRequiredMixin, View):
                 'discount': dc,
                 'form_data': data,
                 'errors': errors,
+                'plans': InstitutePlan.objects.filter(is_active=True),
+                'modules': ModuleProduct.objects.filter(is_active=True),
+                'selected_plans': list(dc.applicable_plans.values_list('id', flat=True)),
+                'selected_modules': list(dc.applicable_modules.values_list('id', flat=True)),
             })
 
         dc.description = description
         dc.max_uses = max_uses_val
         dc.override_class_limit = override_class_val
         dc.override_student_limit = override_student_val
+        dc.duration = duration
+        dc.duration_in_months = duration_in_months_val
         dc.expires_at = expires_at_val
         dc.save()
+
+        dc.applicable_plans.set(data.getlist('applicable_plans'))
+        dc.applicable_modules.set(data.getlist('applicable_modules'))
 
         log_event(
             user=request.user, school=None, category='data_change',
@@ -543,7 +580,7 @@ class DiscountCodeEditView(SuperuserRequiredMixin, View):
             request=request,
         )
         messages.success(request, f'Discount code "{dc.code}" updated.')
-        return redirect('billing_admin_discount_list')
+        return redirect('billing_admin_coupon_list')
 
 
 class DiscountCodeToggleActiveView(SuperuserRequiredMixin, View):
@@ -902,7 +939,11 @@ class PromoCodeEditView(SuperuserRequiredMixin, View):
                 'class_limit': str(promo.class_limit),
                 'max_uses': str(promo.max_uses) if promo.max_uses else '',
                 'expires_at': promo.expires_at.strftime('%Y-%m-%dT%H:%M') if promo.expires_at else '',
+                'duration': promo.duration or 'forever',
+                'duration_in_months': str(promo.duration_in_months) if promo.duration_in_months else '',
             },
+            'packages': Package.objects.filter(is_active=True),
+            'selected_packages': list(promo.applicable_packages.values_list('id', flat=True)),
         })
 
     def post(self, request, pk):
@@ -916,6 +957,8 @@ class PromoCodeEditView(SuperuserRequiredMixin, View):
         class_limit = data.get('class_limit', '0').strip()
         max_uses = data.get('max_uses', '').strip()
         expires_at = data.get('expires_at', '').strip()
+        duration = data.get('duration', promo.duration or 'forever').strip()
+        duration_in_months = data.get('duration_in_months', '').strip()
 
         try:
             discount_percent_val = int(discount_percent)
@@ -950,6 +993,21 @@ class PromoCodeEditView(SuperuserRequiredMixin, View):
             except ValueError:
                 errors['max_uses'] = 'Enter a valid number.'
 
+        if duration not in ('forever', 'once', 'repeating'):
+            duration = 'forever'
+
+        duration_in_months_val = None
+        if duration == 'repeating':
+            if not duration_in_months:
+                errors['duration_in_months'] = 'Number of months is required.'
+            else:
+                try:
+                    duration_in_months_val = int(duration_in_months)
+                    if duration_in_months_val < 1:
+                        errors['duration_in_months'] = 'Must be at least 1.'
+                except ValueError:
+                    errors['duration_in_months'] = 'Enter a valid number.'
+
         expires_at_val = None
         if expires_at:
             try:
@@ -970,6 +1028,8 @@ class PromoCodeEditView(SuperuserRequiredMixin, View):
                 'promo': promo,
                 'form_data': data,
                 'errors': errors,
+                'packages': Package.objects.filter(is_active=True),
+                'selected_packages': list(promo.applicable_packages.values_list('id', flat=True)),
             })
 
         promo.description = description
@@ -977,8 +1037,12 @@ class PromoCodeEditView(SuperuserRequiredMixin, View):
         promo.grant_days = grant_days_val
         promo.class_limit = class_limit_val
         promo.max_uses = max_uses_val
+        promo.duration = duration
+        promo.duration_in_months = duration_in_months_val
         promo.expires_at = expires_at_val
         promo.save()
+
+        promo.applicable_packages.set(data.getlist('applicable_packages'))
 
         log_event(
             user=request.user, school=None, category='data_change',
@@ -987,7 +1051,7 @@ class PromoCodeEditView(SuperuserRequiredMixin, View):
             request=request,
         )
         messages.success(request, f'Promo code "{promo.code}" updated.')
-        return redirect('billing_admin_promo_list')
+        return redirect('billing_admin_coupon_list')
 
 
 class PromoCodeToggleActiveView(SuperuserRequiredMixin, View):
@@ -1004,3 +1068,299 @@ class PromoCodeToggleActiveView(SuperuserRequiredMixin, View):
         )
         messages.success(request, f'Promo code "{promo.code}" {state}.')
         return redirect('billing_admin_promo_list')
+
+
+# ---------------------------------------------------------------------------
+# Unified Coupon Codes
+# ---------------------------------------------------------------------------
+
+def _duration_display(obj):
+    d = getattr(obj, 'duration', 'forever') or 'forever'
+    if d == 'repeating':
+        months = getattr(obj, 'duration_in_months', None)
+        return f'{months} months' if months else 'Repeating'
+    return d.capitalize()
+
+
+class CouponCodeListView(SuperuserRequiredMixin, View):
+    def get(self, request):
+        from django.urls import reverse
+
+        codes = []
+
+        for dc in InstituteDiscountCode.objects.all():
+            plans = list(dc.applicable_plans.values_list('name', flat=True))
+            modules = list(dc.applicable_modules.values_list('name', flat=True))
+            products = plans + modules
+            codes.append({
+                'id': dc.pk, 'type': 'institute', 'type_label': 'Institute',
+                'code': dc.code, 'description': dc.description,
+                'discount_percent': dc.discount_percent,
+                'duration_display': _duration_display(dc),
+                'max_uses': dc.max_uses, 'uses': dc.uses,
+                'is_active': dc.is_active, 'expires_at': dc.expires_at,
+                'stripe_synced': bool(dc.stripe_coupon_id) if not dc.is_fully_free else None,
+                'products': ', '.join(products) if products else 'All',
+                'created_at': dc.created_at,
+                'edit_url': reverse('billing_admin_discount_edit', args=[dc.pk]),
+                'toggle_url': reverse('billing_admin_discount_toggle', args=[dc.pk]),
+            })
+
+        for promo in PromoCode.objects.all():
+            pkgs = list(promo.applicable_packages.values_list('name', flat=True))
+            codes.append({
+                'id': promo.pk, 'type': 'student_promo', 'type_label': 'Student Promo',
+                'code': promo.code, 'description': promo.description,
+                'discount_percent': promo.discount_percent,
+                'duration_display': _duration_display(promo),
+                'max_uses': promo.max_uses, 'uses': promo.uses,
+                'is_active': promo.is_active, 'expires_at': promo.expires_at,
+                'stripe_synced': None,
+                'products': ', '.join(pkgs) if pkgs else 'All',
+                'created_at': promo.created_at,
+                'edit_url': reverse('billing_admin_promo_edit', args=[promo.pk]),
+                'toggle_url': reverse('billing_admin_promo_toggle', args=[promo.pk]),
+            })
+
+        for dc in DiscountCode.objects.all():
+            pkgs = list(dc.applicable_packages.values_list('name', flat=True))
+            codes.append({
+                'id': dc.pk, 'type': 'student_discount', 'type_label': 'Student Billing',
+                'code': dc.code, 'description': '',
+                'discount_percent': dc.discount_percent,
+                'duration_display': _duration_display(dc),
+                'max_uses': dc.max_uses, 'uses': dc.uses,
+                'is_active': dc.is_active, 'expires_at': dc.expires_at,
+                'stripe_synced': bool(dc.stripe_coupon_id) if not dc.is_fully_free else None,
+                'products': ', '.join(pkgs) if pkgs else 'All',
+                'created_at': dc.created_at,
+                'edit_url': None,
+                'toggle_url': None,
+            })
+
+        codes.sort(key=lambda c: c['created_at'], reverse=True)
+
+        return render(request, 'admin_dashboard/billing/coupon_code_list.html', {
+            'codes': codes,
+        })
+
+
+class CouponCodeCreateView(SuperuserRequiredMixin, View):
+    def get(self, request):
+        return render(request, 'admin_dashboard/billing/coupon_code_form.html', {
+            'form_data': {},
+            'packages': Package.objects.filter(is_active=True),
+            'plans': InstitutePlan.objects.filter(is_active=True),
+            'modules': ModuleProduct.objects.filter(is_active=True),
+        })
+
+    def post(self, request):
+        data = request.POST
+        errors = {}
+
+        target_type = data.get('target_type', 'institute')
+        code = data.get('code', '').strip().upper().replace(' ', '')
+        description = data.get('description', '').strip()
+        discount_percent = data.get('discount_percent', '100').strip()
+        max_uses = data.get('max_uses', '').strip()
+        expires_at = data.get('expires_at', '').strip()
+        duration = data.get('duration', 'forever').strip()
+        duration_in_months = data.get('duration_in_months', '').strip()
+
+        # Validate code
+        if not code:
+            errors['code'] = 'Code is required.'
+        else:
+            # Check uniqueness across all 3 models
+            if (InstituteDiscountCode.objects.filter(code=code).exists()
+                    or PromoCode.objects.filter(code=code).exists()
+                    or DiscountCode.objects.filter(code=code).exists()):
+                errors['code'] = 'This code already exists.'
+
+        # Validate discount percent
+        try:
+            percent_val = int(discount_percent)
+            if percent_val < 0 or percent_val > 100:
+                errors['discount_percent'] = 'Must be 0-100.'
+        except ValueError:
+            errors['discount_percent'] = 'Enter a valid number.'
+            percent_val = 100
+
+        # Validate max uses
+        max_uses_val = None
+        if max_uses:
+            try:
+                max_uses_val = int(max_uses)
+                if max_uses_val < 1:
+                    errors['max_uses'] = 'Must be at least 1.'
+            except ValueError:
+                errors['max_uses'] = 'Enter a valid number.'
+
+        # Validate duration
+        if duration not in ('forever', 'once', 'repeating'):
+            duration = 'forever'
+
+        duration_in_months_val = None
+        if duration == 'repeating':
+            if not duration_in_months:
+                errors['duration_in_months'] = 'Number of months is required for repeating duration.'
+            else:
+                try:
+                    duration_in_months_val = int(duration_in_months)
+                    if duration_in_months_val < 1:
+                        errors['duration_in_months'] = 'Must be at least 1.'
+                except ValueError:
+                    errors['duration_in_months'] = 'Enter a valid number.'
+
+        # Validate expires_at
+        expires_at_val = None
+        if expires_at:
+            try:
+                from django.utils.dateparse import parse_datetime, parse_date
+                expires_at_val = parse_datetime(expires_at)
+                if expires_at_val is None:
+                    d = parse_date(expires_at)
+                    if d:
+                        from datetime import datetime, time
+                        expires_at_val = timezone.make_aware(
+                            datetime.combine(d, time.max)
+                        )
+            except (ValueError, TypeError):
+                pass
+
+        # Type-specific fields
+        override_class_limit = data.get('override_class_limit', '').strip()
+        override_student_limit = data.get('override_student_limit', '').strip()
+        grant_days = data.get('grant_days', '').strip()
+        class_limit = data.get('class_limit', '0').strip()
+
+        override_class_val = None
+        override_student_val = None
+        grant_days_val = None
+        class_limit_val = 0
+
+        if target_type == 'institute':
+            if override_class_limit:
+                try:
+                    override_class_val = int(override_class_limit)
+                    if override_class_val < 0:
+                        errors['override_class_limit'] = 'Must be 0 or greater.'
+                except ValueError:
+                    errors['override_class_limit'] = 'Enter a valid number.'
+            if override_student_limit:
+                try:
+                    override_student_val = int(override_student_limit)
+                    if override_student_val < 0:
+                        errors['override_student_limit'] = 'Must be 0 or greater.'
+                except ValueError:
+                    errors['override_student_limit'] = 'Enter a valid number.'
+
+        if target_type == 'student_promo':
+            if grant_days:
+                try:
+                    grant_days_val = int(grant_days)
+                    if grant_days_val < 1:
+                        errors['grant_days'] = 'Must be at least 1.'
+                except ValueError:
+                    errors['grant_days'] = 'Enter a valid number.'
+            try:
+                class_limit_val = int(class_limit)
+                if class_limit_val < 0:
+                    errors['class_limit'] = 'Must be 0 or greater.'
+            except ValueError:
+                errors['class_limit'] = 'Enter a valid number.'
+
+        if errors:
+            return render(request, 'admin_dashboard/billing/coupon_code_form.html', {
+                'form_data': data,
+                'errors': errors,
+                'packages': Package.objects.filter(is_active=True),
+                'plans': InstitutePlan.objects.filter(is_active=True),
+                'modules': ModuleProduct.objects.filter(is_active=True),
+            })
+
+        # Create based on target type
+        selected_plans = data.getlist('applicable_plans')
+        selected_modules = data.getlist('applicable_modules')
+        selected_packages = data.getlist('applicable_packages')
+
+        if target_type == 'institute':
+            dc = InstituteDiscountCode.objects.create(
+                code=code, description=description,
+                discount_percent=percent_val,
+                max_uses=max_uses_val if max_uses_val else 1,
+                override_class_limit=override_class_val,
+                override_student_limit=override_student_val,
+                duration=duration,
+                duration_in_months=duration_in_months_val,
+                expires_at=expires_at_val,
+            )
+            if selected_plans:
+                dc.applicable_plans.set(selected_plans)
+            if selected_modules:
+                dc.applicable_modules.set(selected_modules)
+
+            if not dc.is_fully_free:
+                try:
+                    from .stripe_service import sync_discount_to_stripe, _stripe_configured
+                    if _stripe_configured():
+                        sync_discount_to_stripe(dc)
+                except Exception as e:
+                    logger.warning('Stripe discount sync failed: %s', e)
+
+            log_event(
+                user=request.user, school=None, category='data_change',
+                action='coupon_code_created',
+                detail={'type': 'institute', 'code': code, 'discount_percent': percent_val},
+                request=request,
+            )
+
+        elif target_type == 'student_promo':
+            promo = PromoCode.objects.create(
+                code=code, description=description,
+                discount_percent=percent_val,
+                grant_days=grant_days_val,
+                class_limit=class_limit_val,
+                max_uses=max_uses_val,
+                duration=duration,
+                duration_in_months=duration_in_months_val,
+                expires_at=expires_at_val,
+            )
+            if selected_packages:
+                promo.applicable_packages.set(selected_packages)
+
+            log_event(
+                user=request.user, school=None, category='data_change',
+                action='coupon_code_created',
+                detail={'type': 'student_promo', 'code': code, 'discount_percent': percent_val},
+                request=request,
+            )
+
+        elif target_type == 'student_discount':
+            dc = DiscountCode.objects.create(
+                code=code, discount_percent=percent_val,
+                max_uses=max_uses_val,
+                duration=duration,
+                duration_in_months=duration_in_months_val,
+                expires_at=expires_at_val,
+            )
+            if selected_packages:
+                dc.applicable_packages.set(selected_packages)
+
+            if not dc.is_fully_free:
+                try:
+                    from .stripe_service import sync_individual_discount_to_stripe, _stripe_configured
+                    if _stripe_configured():
+                        sync_individual_discount_to_stripe(dc)
+                except Exception as e:
+                    logger.warning('Stripe discount sync failed: %s', e)
+
+            log_event(
+                user=request.user, school=None, category='data_change',
+                action='coupon_code_created',
+                detail={'type': 'student_discount', 'code': code, 'discount_percent': percent_val},
+                request=request,
+            )
+
+        messages.success(request, f'Coupon code "{code}" created.')
+        return redirect('billing_admin_coupon_list')

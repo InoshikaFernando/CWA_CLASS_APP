@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Available Makeup Sessions{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-8">
+
+  <div>
+    <a href="{% url 'student_absence_tokens' %}" class="text-emerald-600 hover:text-emerald-700 text-sm font-semibold transition">&larr; Back to Tokens</a>
+    <h1 class="font-display text-3xl text-gray-800 mt-2">Available Makeup Sessions</h1>
+    <p class="text-emerald-500 text-sm mt-1 font-semibold">
+      Token for: {{ token.original_classroom.name }}
+      {% if token.original_session %} &middot; Absent {{ token.original_session.date|date:"d M Y" }}{% endif %}
+    </p>
+  </div>
+
+  {% if sessions %}
+  <div class="bg-white rounded-2xl border border-emerald-100 shadow-sm overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-emerald-600 bg-emerald-50">
+            <th class="px-6 py-3 font-semibold">Class</th>
+            <th class="px-6 py-3 font-semibold">Date</th>
+            <th class="px-6 py-3 font-semibold">Time</th>
+            <th class="px-6 py-3 font-semibold">Status</th>
+            <th class="px-6 py-3 font-semibold"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-emerald-50">
+          {% for session in sessions %}
+          <tr class="hover:bg-emerald-50/30 transition">
+            <td class="px-6 py-3">
+              <p class="font-medium text-gray-900">{{ session.classroom.name }}</p>
+              {% if session.classroom.subject %}
+                <p class="text-xs text-gray-400">{{ session.classroom.subject.name }}</p>
+              {% endif %}
+            </td>
+            <td class="px-6 py-3 font-medium text-gray-900">{{ session.date|date:"D, d M Y" }}</td>
+            <td class="px-6 py-3 text-gray-600">{{ session.start_time|time:"H:i" }}&ndash;{{ session.end_time|time:"H:i" }}</td>
+            <td class="px-6 py-3">
+              <span class="text-xs font-medium px-2 py-1 rounded-full
+                {% if session.status == 'completed' %}bg-emerald-100 text-emerald-700
+                {% else %}bg-slate-100 text-slate-600{% endif %}">
+                {{ session.get_status_display }}
+              </span>
+            </td>
+            <td class="px-6 py-3 text-right">
+              <form method="post" action="{% url 'student_redeem_absence_token' token_id=token.id %}">
+                {% csrf_token %}
+                <input type="hidden" name="session_id" value="{{ session.id }}">
+                <button type="submit"
+                        class="px-4 py-1.5 bg-emerald-500 text-white text-xs font-semibold rounded-lg hover:bg-emerald-600 transition shadow-sm"
+                        onclick="return confirm('Use your absence token to attend this session?')">
+                  Use Token
+                </button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% else %}
+  <div class="bg-white rounded-2xl p-12 border border-emerald-100 text-center">
+    <p class="text-5xl mb-4">📅</p>
+    <h3 class="text-lg font-semibold text-gray-700 mb-2">No available sessions</h3>
+    <p class="text-gray-500">There are no sessions available from other classes at the same level right now. Check back later.</p>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

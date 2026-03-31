@@ -82,37 +82,62 @@
 
       {% if mapping_context.subject_scenario == 'both' %}
       <p class="text-sm text-gray-500 mb-4">
-        Your department has existing subjects and the CSV also contains subjects.
         Map each CSV subject to an existing system subject, or choose "Create new".
+        Optionally link it to a global subject (e.g. Mathematics) to enable curriculum quiz content.
       </p>
       <div class="space-y-3">
         {% for csv_subj in mapping_context.csv_subjects %}
-        <div class="flex items-center gap-4 p-3 bg-gray-50 rounded-xl">
-          <span class="text-sm font-semibold text-gray-700 w-40 flex-shrink-0">{{ csv_subj }}</span>
-          <svg class="w-5 h-5 text-gray-300 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
-          </svg>
-          <select name="subject_map_{{ csv_subj }}"
-                  class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:border-transparent">
-            <option value="create">➕ Create new "{{ csv_subj }}"</option>
-            {% for sys_subj in mapping_context.system_subjects %}
-            <option value="{{ sys_subj.id }}">{{ sys_subj.name }}</option>
-            {% endfor %}
-          </select>
+        <div class="p-3 bg-gray-50 rounded-xl space-y-2">
+          <div class="flex items-center gap-4">
+            <span class="text-sm font-semibold text-gray-700 w-40 flex-shrink-0">{{ csv_subj }}</span>
+            <svg class="w-5 h-5 text-gray-300 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
+            </svg>
+            <select name="subject_map_{{ csv_subj }}"
+                    class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:border-transparent">
+              <option value="create">➕ Create new "{{ csv_subj }}"</option>
+              {% for sys_subj in mapping_context.system_subjects %}
+              <option value="{{ sys_subj.id }}">{{ sys_subj.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          {% if global_subjects %}
+          <div class="flex items-center gap-3 pl-44">
+            <span class="text-xs text-gray-400 flex-shrink-0">Also link to global:</span>
+            <select name="global_subject_map_{{ csv_subj }}"
+                    class="flex-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs text-blue-800 focus:ring-2 focus:ring-blue-300 focus:border-transparent">
+              <option value="none">— None (skip) —</option>
+              {% for g_subj in global_subjects %}
+              <option value="{{ g_subj.id }}">⭐ {{ g_subj.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          {% endif %}
         </div>
         {% endfor %}
       </div>
 
       {% elif mapping_context.subject_scenario == 'csv_only' %}
       <p class="text-sm text-gray-500 mb-3">
-        The department has no subjects yet. The following subjects from the CSV will be created automatically.
+        The department has no subjects yet. The following subjects from the CSV will be created.
+        Optionally link each to a global subject.
       </p>
-      <div class="flex flex-wrap gap-2">
+      <div class="space-y-2">
         {% for csv_subj in mapping_context.csv_subjects %}
         <input type="hidden" name="subject_map_{{ csv_subj }}" value="create" />
-        <span class="text-xs bg-green-100 text-green-700 font-semibold rounded-full px-3 py-1">
-          ➕ {{ csv_subj }}
-        </span>
+        <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+          <span class="text-xs bg-green-100 text-green-700 font-semibold rounded-full px-3 py-1.5 flex-shrink-0">➕ {{ csv_subj }}</span>
+          {% if global_subjects %}
+          <span class="text-xs text-gray-400 flex-shrink-0">Link to global:</span>
+          <select name="global_subject_map_{{ csv_subj }}"
+                  class="flex-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs text-blue-800 focus:ring-2 focus:ring-blue-300">
+            <option value="none">— None (skip) —</option>
+            {% for g_subj in global_subjects %}
+            <option value="{{ g_subj.id }}">⭐ {{ g_subj.name }}</option>
+            {% endfor %}
+          </select>
+          {% endif %}
+        </div>
         {% endfor %}
       </div>
 
@@ -145,23 +170,40 @@
       {% if mapping_context.level_scenario == 'both' %}
       <p class="text-sm text-gray-500 mb-4">
         Map CSV levels to existing system levels, or create new ones.
+        Optionally link each to a global curriculum level (Year 1–9) so classes are automatically placed in the right curriculum.
       </p>
       <div class="space-y-3">
         {% for csv_lvl in mapping_context.csv_levels %}
-        <div class="flex items-center gap-4 p-3 bg-gray-50 rounded-xl">
-          <span class="text-sm font-semibold text-gray-700 w-40 flex-shrink-0">{{ csv_lvl }}</span>
-          <svg class="w-5 h-5 text-gray-300 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
-          </svg>
-          <select name="level_map_{{ csv_lvl }}"
-                  class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:border-transparent">
-            <option value="create">➕ Create new "{{ csv_lvl }}"</option>
-            {% for sys_lvl in mapping_context.system_levels %}
-            <option value="{{ sys_lvl.id }}"
-              {% if csv_lvl|lower == sys_lvl.display_name|lower %}selected{% endif %}
-            >{{ sys_lvl.display_name }}{% if sys_lvl.subject_name %} ({{ sys_lvl.subject_name }}){% endif %}</option>
-            {% endfor %}
-          </select>
+        <div class="p-3 bg-gray-50 rounded-xl space-y-2">
+          <div class="flex items-center gap-4">
+            <span class="text-sm font-semibold text-gray-700 w-40 flex-shrink-0">{{ csv_lvl }}</span>
+            <svg class="w-5 h-5 text-gray-300 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
+            </svg>
+            <select name="level_map_{{ csv_lvl }}"
+                    class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:border-transparent">
+              <option value="create">➕ Create new "{{ csv_lvl }}"</option>
+              {% for sys_lvl in mapping_context.system_levels %}
+              <option value="{{ sys_lvl.id }}"
+                {% if csv_lvl|lower == sys_lvl.display_name|lower %}selected{% endif %}
+              >{{ sys_lvl.display_name }}{% if sys_lvl.subject_name %} ({{ sys_lvl.subject_name }}){% endif %}</option>
+              {% endfor %}
+            </select>
+          </div>
+          {% if global_levels %}
+          <div class="flex items-center gap-3 pl-44">
+            <span class="text-xs text-gray-400 flex-shrink-0">Also link to global level:</span>
+            <select name="global_level_map_{{ csv_lvl }}"
+                    class="flex-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-800 focus:ring-2 focus:ring-emerald-300 focus:border-transparent">
+              <option value="none">— None (skip) —</option>
+              {% for g_lvl in global_levels %}
+              <option value="{{ g_lvl.id }}"
+                {% if csv_lvl|lower == g_lvl.display_name|lower %}selected{% endif %}
+              >🎓 {{ g_lvl.display_name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          {% endif %}
         </div>
         {% endfor %}
       </div>
@@ -169,13 +211,26 @@
       {% elif mapping_context.level_scenario == 'csv_only' %}
       <p class="text-sm text-gray-500 mb-3">
         The department has no levels yet. The following levels from the CSV will be created.
+        Optionally link each to a global curriculum level.
       </p>
-      <div class="flex flex-wrap gap-2">
+      <div class="space-y-2">
         {% for csv_lvl in mapping_context.csv_levels %}
         <input type="hidden" name="level_map_{{ csv_lvl }}" value="create" />
-        <span class="text-xs bg-green-100 text-green-700 font-semibold rounded-full px-3 py-1">
-          ➕ {{ csv_lvl }}
-        </span>
+        <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+          <span class="text-xs bg-green-100 text-green-700 font-semibold rounded-full px-3 py-1.5 flex-shrink-0">➕ {{ csv_lvl }}</span>
+          {% if global_levels %}
+          <span class="text-xs text-gray-400 flex-shrink-0">Link to global level:</span>
+          <select name="global_level_map_{{ csv_lvl }}"
+                  class="flex-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-800 focus:ring-2 focus:ring-emerald-300">
+            <option value="none">— None (skip) —</option>
+            {% for g_lvl in global_levels %}
+            <option value="{{ g_lvl.id }}"
+              {% if csv_lvl|lower == g_lvl.display_name|lower %}selected{% endif %}
+            >🎓 {{ g_lvl.display_name }}</option>
+            {% endfor %}
+          </select>
+          {% endif %}
+        </div>
         {% endfor %}
       </div>
 

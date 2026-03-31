@@ -14,7 +14,7 @@ from django.utils import timezone
 from accounts.models import CustomUser, Role, UserRole
 from billing.models import (
     InstitutePlan, InstituteDiscountCode, ModuleProduct,
-    SchoolSubscription, PromoCode,
+    SchoolSubscription, PromoCode, DiscountCode, Package,
 )
 from classroom.models import School
 
@@ -557,3 +557,221 @@ class DashboardTests(TestCase):
         _create_plan()
         resp = self.client.get(reverse('billing_admin_dashboard'))
         self.assertContains(resp, '1')  # total_plans count
+
+
+# ===========================================================================
+# Unified Coupon Code Views
+# ===========================================================================
+
+class CouponCodeListTests(TestCase):
+    def setUp(self):
+        self.superuser = _create_superuser()
+        self.client.login(username='super', password='testpass123')
+
+    def test_coupon_list_shows_all_types(self):
+        InstituteDiscountCode.objects.create(code='INST1', discount_percent=50)
+        PromoCode.objects.create(code='PROMO1', class_limit=5)
+        DiscountCode.objects.create(code='DISC1', discount_percent=100)
+        resp = self.client.get(reverse('billing_admin_coupon_list'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'INST1')
+        self.assertContains(resp, 'PROMO1')
+        self.assertContains(resp, 'DISC1')
+
+    def test_coupon_list_shows_type_badges(self):
+        InstituteDiscountCode.objects.create(code='INST2', discount_percent=50)
+        PromoCode.objects.create(code='PROMO2', class_limit=5)
+        resp = self.client.get(reverse('billing_admin_coupon_list'))
+        self.assertContains(resp, 'Institute')
+        self.assertContains(resp, 'Student Promo')
+
+    def test_coupon_list_empty(self):
+        resp = self.client.get(reverse('billing_admin_coupon_list'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Coupon Codes')
+
+    def test_coupon_list_requires_superuser(self):
+        self.client.logout()
+        normal = _create_normal_user()
+        self.client.login(username='normal', password='testpass123')
+        resp = self.client.get(reverse('billing_admin_coupon_list'))
+        self.assertNotEqual(resp.status_code, 200)
+
+
+class CouponCodeCreateTests(TestCase):
+    def setUp(self):
+        self.superuser = _create_superuser()
+        self.client.login(username='super', password='testpass123')
+
+    def test_create_form_renders(self):
+        resp = self.client.get(reverse('billing_admin_coupon_create'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Create Coupon Code')
+
+    def test_create_institute_code(self):
+        resp = self.client.post(reverse('billing_admin_coupon_create'), {
+            'target_type': 'institute',
+            'code': 'NEWINST',
+            'discount_percent': '50',
+            'max_uses': '10',
+            'duration': 'forever',
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(InstituteDiscountCode.objects.filter(code='NEWINST').exists())
+        dc = InstituteDiscountCode.objects.get(code='NEWINST')
+        self.assertEqual(dc.discount_percent, 50)
+        self.assertEqual(dc.duration, 'forever')
+
+    def test_create_student_promo_code(self):
+        resp = self.client.post(reverse('billing_admin_coupon_create'), {
+            'target_type': 'student_promo',
+            'code': 'NEWPROMO',
+            'discount_percent': '100',
+            'grant_days': '30',
+            'class_limit': '5',
+            'duration': 'forever',
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(PromoCode.objects.filter(code='NEWPROMO').exists())
+        promo = PromoCode.objects.get(code='NEWPROMO')
+        self.assertEqual(promo.grant_days, 30)
+        self.assertEqual(promo.class_limit, 5)
+
+    def test_create_student_discount_code(self):
+        resp = self.client.post(reverse('billing_admin_coupon_create'), {
+            'target_type': 'student_discount',
+            'code': 'NEWDISC',
+            'discount_percent': '100',
+            'duration': 'forever',
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(DiscountCode.objects.filter(code='NEWDISC').exists())
+
+    def test_create_with_duration_repeating(self):
+        resp = self.client.post(reverse('billing_admin_coupon_create'), {
+            'target_type': 'institute',
+            'code': 'REPEAT12',
+            'discount_percent': '50',
+            'duration': 'repeating',
+            'duration_in_months': '12',
+        })
+        self.assertEqual(resp.status_code, 302)
+        dc = InstituteDiscountCode.objects.get(code='REPEAT12')
+        self.assertEqual(dc.duration, 'repeating')
+        self.assertEqual(dc.duration_in_months, 12)
+
+    def test_create_repeating_without_months_shows_error(self):
+        resp = self.client.post(reverse('billing_admin_coupon_create'), {
+            'target_type': 'institute',
+            'code': 'NOMONTHS',
+            'discount_percent': '50',
+            'duration': 'repeating',
+            'duration_in_months': '',
+        })
+        self.assertEqual(resp.status_code, 200)  # re-renders form
+        self.assertContains(resp, 'Number of months is required')
+
+    def test_create_with_product_selection(self):
+        plan = _create_plan()
+        module = ModuleProduct.objects.create(module='test_mod', name='Test Module', price=Decimal('10.00'))
+        resp = self.client.post(reverse('billing_admin_coupon_create'), {
+            'target_type': 'institute',
+            'code': 'WITHPROD',
+            'discount_percent': '50',
+            'duration': 'forever',
+            'applicable_plans': [str(plan.pk)],
+            'applicable_modules': [str(module.pk)],
+        })
+        self.assertEqual(resp.status_code, 302)
+        dc = InstituteDiscountCode.objects.get(code='WITHPROD')
+        self.assertEqual(list(dc.applicable_plans.values_list('id', flat=True)), [plan.pk])
+        self.assertEqual(list(dc.applicable_modules.values_list('id', flat=True)), [module.pk])
+
+    def test_cross_model_code_uniqueness(self):
+        InstituteDiscountCode.objects.create(code='TAKEN', discount_percent=50)
+        resp = self.client.post(reverse('billing_admin_coupon_create'), {
+            'target_type': 'student_promo',
+            'code': 'TAKEN',
+            'discount_percent': '100',
+            'duration': 'forever',
+        })
+        self.assertEqual(resp.status_code, 200)  # re-renders form
+        self.assertContains(resp, 'already exists')
+
+    def test_cross_model_uniqueness_promo_to_discount(self):
+        PromoCode.objects.create(code='TAKEN2', class_limit=5)
+        resp = self.client.post(reverse('billing_admin_coupon_create'), {
+            'target_type': 'student_discount',
+            'code': 'TAKEN2',
+            'discount_percent': '100',
+            'duration': 'forever',
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'already exists')
+
+    def test_create_with_duration_once(self):
+        resp = self.client.post(reverse('billing_admin_coupon_create'), {
+            'target_type': 'student_promo',
+            'code': 'ONCEONLY',
+            'discount_percent': '25',
+            'duration': 'once',
+        })
+        self.assertEqual(resp.status_code, 302)
+        promo = PromoCode.objects.get(code='ONCEONLY')
+        self.assertEqual(promo.duration, 'once')
+
+
+class CouponStripeDurationTests(TestCase):
+    @patch('billing.stripe_service._stripe_configured', return_value=True)
+    @patch('stripe.Coupon.create')
+    def test_sync_discount_duration_forever(self, mock_coupon, _cfg):
+        from billing.stripe_service import sync_discount_to_stripe
+        dc = InstituteDiscountCode.objects.create(
+            code='FOREVER50', discount_percent=50, duration='forever',
+        )
+        mock_coupon.return_value = MagicMock(id='coupon_forever')
+        sync_discount_to_stripe(dc)
+        mock_coupon.assert_called_once()
+        call_kwargs = mock_coupon.call_args[1]
+        self.assertEqual(call_kwargs['duration'], 'forever')
+        self.assertNotIn('duration_in_months', call_kwargs)
+
+    @patch('billing.stripe_service._stripe_configured', return_value=True)
+    @patch('stripe.Coupon.create')
+    def test_sync_discount_duration_once(self, mock_coupon, _cfg):
+        from billing.stripe_service import sync_discount_to_stripe
+        dc = InstituteDiscountCode.objects.create(
+            code='ONCE50', discount_percent=50, duration='once',
+        )
+        mock_coupon.return_value = MagicMock(id='coupon_once')
+        sync_discount_to_stripe(dc)
+        call_kwargs = mock_coupon.call_args[1]
+        self.assertEqual(call_kwargs['duration'], 'once')
+
+    @patch('billing.stripe_service._stripe_configured', return_value=True)
+    @patch('stripe.Coupon.create')
+    def test_sync_discount_duration_repeating(self, mock_coupon, _cfg):
+        from billing.stripe_service import sync_discount_to_stripe
+        dc = InstituteDiscountCode.objects.create(
+            code='REP50', discount_percent=50, duration='repeating', duration_in_months=6,
+        )
+        mock_coupon.return_value = MagicMock(id='coupon_rep')
+        sync_discount_to_stripe(dc)
+        call_kwargs = mock_coupon.call_args[1]
+        self.assertEqual(call_kwargs['duration'], 'repeating')
+        self.assertEqual(call_kwargs['duration_in_months'], 6)
+
+    @patch('billing.stripe_service._stripe_configured', return_value=True)
+    @patch('stripe.Coupon.create')
+    def test_sync_individual_discount(self, mock_coupon, _cfg):
+        from billing.stripe_service import sync_individual_discount_to_stripe
+        dc = DiscountCode.objects.create(
+            code='INDIV50', discount_percent=50, duration='repeating', duration_in_months=12,
+        )
+        mock_coupon.return_value = MagicMock(id='coupon_indiv')
+        sync_individual_discount_to_stripe(dc)
+        dc.refresh_from_db()
+        self.assertEqual(dc.stripe_coupon_id, 'coupon_indiv')
+        call_kwargs = mock_coupon.call_args[1]
+        self.assertEqual(call_kwargs['duration'], 'repeating')
+        self.assertEqual(call_kwargs['duration_in_months'], 12)

@@ -103,11 +103,11 @@
     </div>
   </div>
 
-  <!-- Modules -->
+  <!-- Standard Modules -->
   <div class="border border-gray-200 rounded-xl p-4 mb-6">
     <h3 class="font-semibold text-gray-800 mb-3">Modules ($10/mo each)</h3>
     <div class="space-y-2">
-      {% for module_key, module_name in all_modules %}
+      {% for module_key, module_name in standard_modules %}
       <div class="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
         <span class="text-sm text-gray-700">{{ module_name }}</span>
         <div class="flex items-center gap-2">
@@ -133,6 +133,53 @@
       </div>
       {% endfor %}
     </div>
+  </div>
+
+  <!-- AI Question Import -->
+  <div class="border border-gray-200 rounded-xl p-4 mb-6">
+    <h3 class="font-semibold text-gray-800 mb-3">AI Question Import</h3>
+    <p class="text-xs text-gray-400 mb-3">Upload PDFs and let AI extract questions automatically. Select one plan below.</p>
+    <form id="ai-import-tier-form" method="post" action="{% url 'module_toggle' %}">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="add">
+      <div class="space-y-2">
+        {% for tier in ai_import_tiers %}
+        <label class="flex items-center justify-between py-3 px-4 rounded-lg border cursor-pointer transition
+                      {% if tier.slug in active_modules %}border-primary bg-primary/5{% else %}border-gray-200 hover:border-gray-300 hover:bg-gray-50{% endif %}">
+          <div class="flex items-center gap-3">
+            <input type="radio" name="module_slug" value="{{ tier.slug }}"
+                   {% if tier.slug in active_modules %}checked{% endif %}
+                   class="text-primary focus:ring-primary" />
+            <div>
+              <span class="text-sm font-semibold text-gray-700">{{ tier.name }}</span>
+              <span class="text-xs text-gray-400 ml-1">{{ tier.pages }} pages/mo</span>
+            </div>
+          </div>
+          <div class="text-right">
+            <span class="text-sm font-bold text-primary">${{ tier.price }}/mo</span>
+            <p class="text-[10px] text-gray-400"><s>${{ tier.full_price }}</s> first 6 months</p>
+          </div>
+        </label>
+        {% endfor %}
+      </div>
+      <div class="flex gap-2 mt-4">
+        <button type="button"
+                @click="show({ title: 'Change AI Import Plan', message: 'Switch to the selected AI Import plan?', confirmText: 'Confirm', variant: 'default', formId: 'ai-import-tier-form' })"
+                class="text-xs bg-primary hover:bg-primary-dark text-white font-semibold rounded-lg px-4 py-2 transition">
+          {% if active_ai_import_tier %}Switch Plan{% else %}Activate{% endif %}
+        </button>
+      </div>
+    </form>
+    {% if active_ai_import_tier %}
+    <form id="remove-ai-import" method="post" action="{% url 'module_toggle' %}" class="mt-2">
+      {% csrf_token %}
+      <input type="hidden" name="module_slug" value="{{ active_ai_import_tier }}">
+      <input type="hidden" name="action" value="remove">
+      <button type="button"
+              @click="show({ title: 'Remove AI Import', message: 'Remove AI Question Import? You will lose access to AI-powered question extraction.', confirmText: 'Remove', variant: 'danger', formId: 'remove-ai-import' })"
+              class="text-xs text-red-500 hover:text-red-700 font-medium px-4 py-2">Remove</button>
+    </form>
+    {% endif %}
   </div>
 
   <!-- Cancel Subscription -->

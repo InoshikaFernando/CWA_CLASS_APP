@@ -5,6 +5,13 @@ from django.conf import settings
 from django.utils import timezone
 
 
+DURATION_CHOICES = [
+    ('forever', 'Forever'),
+    ('once', 'Once'),
+    ('repeating', 'Multiple Months'),
+]
+
+
 class Package(models.Model):
     """Individual student subscription package. billing_type is reserved for future one-time purchases."""
     BILLING_RECURRING = 'recurring'
@@ -60,6 +67,18 @@ class DiscountCode(models.Model):
     grant_days = models.PositiveIntegerField(
         null=True, blank=True,
         help_text='Days of access granted when code is redeemed. For 100% codes this sets the subscription period.',
+    )
+    duration = models.CharField(
+        max_length=20, choices=DURATION_CHOICES, default='forever',
+        help_text='Stripe coupon duration: forever, once, or repeating (multiple months).',
+    )
+    duration_in_months = models.PositiveSmallIntegerField(
+        null=True, blank=True,
+        help_text='Number of months for repeating duration. Required when duration is "repeating".',
+    )
+    applicable_packages = models.ManyToManyField(
+        'Package', blank=True, related_name='discount_codes',
+        help_text='Packages this code applies to. Leave empty for all packages.',
     )
     is_active = models.BooleanField(default=True)
     expires_at = models.DateTimeField(null=True, blank=True)
@@ -135,6 +154,18 @@ class PromoCode(models.Model):
         null=True, blank=True,
         help_text='Days of access granted. Leave blank to use package default.',
     )
+    duration = models.CharField(
+        max_length=20, choices=DURATION_CHOICES, default='forever',
+        help_text='Stripe coupon duration: forever, once, or repeating (multiple months).',
+    )
+    duration_in_months = models.PositiveSmallIntegerField(
+        null=True, blank=True,
+        help_text='Number of months for repeating duration.',
+    )
+    applicable_packages = models.ManyToManyField(
+        'Package', blank=True, related_name='promo_codes',
+        help_text='Packages this code applies to. Leave empty for all packages.',
+    )
     max_uses = models.PositiveIntegerField(
         null=True, blank=True,
         help_text='Leave blank for unlimited uses.',
@@ -186,6 +217,22 @@ class InstituteDiscountCode(models.Model):
     override_student_limit = models.PositiveIntegerField(
         null=True, blank=True,
         help_text='Override student limit. Leave blank to use plan default. 0 = unlimited.',
+    )
+    duration = models.CharField(
+        max_length=20, choices=DURATION_CHOICES, default='forever',
+        help_text='Stripe coupon duration: forever, once, or repeating (multiple months).',
+    )
+    duration_in_months = models.PositiveSmallIntegerField(
+        null=True, blank=True,
+        help_text='Number of months for repeating duration. Required when duration is "repeating".',
+    )
+    applicable_plans = models.ManyToManyField(
+        'InstitutePlan', blank=True, related_name='discount_codes',
+        help_text='Plans this code applies to. Leave empty for all plans.',
+    )
+    applicable_modules = models.ManyToManyField(
+        'ModuleProduct', blank=True, related_name='discount_codes',
+        help_text='Modules this code applies to. Leave empty for all modules.',
     )
     max_uses = models.PositiveIntegerField(
         null=True, blank=True,
@@ -350,11 +397,17 @@ class ModuleSubscription(models.Model):
     MODULE_TEACHERS_ATTENDANCE = 'teachers_attendance'
     MODULE_STUDENTS_ATTENDANCE = 'students_attendance'
     MODULE_PROGRESS_REPORTS = 'student_progress_reports'
+    MODULE_AI_IMPORT_STARTER = 'ai_import_starter'
+    MODULE_AI_IMPORT_PROFESSIONAL = 'ai_import_professional'
+    MODULE_AI_IMPORT_ENTERPRISE = 'ai_import_enterprise'
 
     MODULE_CHOICES = [
         (MODULE_TEACHERS_ATTENDANCE, 'Teachers Attendance'),
         (MODULE_STUDENTS_ATTENDANCE, 'Students Attendance'),
         (MODULE_PROGRESS_REPORTS, 'Student Progress Reports'),
+        (MODULE_AI_IMPORT_STARTER, 'AI Question Import - Starter'),
+        (MODULE_AI_IMPORT_PROFESSIONAL, 'AI Question Import - Professional'),
+        (MODULE_AI_IMPORT_ENTERPRISE, 'AI Question Import - Enterprise'),
     ]
 
     school_subscription = models.ForeignKey(

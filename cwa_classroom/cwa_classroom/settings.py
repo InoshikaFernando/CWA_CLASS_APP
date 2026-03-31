@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-load_dotenv(BASE_DIR / '.env')
+load_dotenv(BASE_DIR / '.env', override=True)
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
@@ -30,7 +30,12 @@ ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,test-cwa-cl
 
 CSRF_TRUSTED_ORIGINS = [
     f'https://{host}' for host in ALLOWED_HOSTS if host not in ('localhost', '127.0.0.1')
-] + ['http://localhost', 'http://127.0.0.1']
+] + [
+    'http://localhost:8000',
+    'http://127.0.0.1:8000',
+    'http://localhost',
+    'http://127.0.0.1',
+]
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +70,15 @@ INSTALLED_APPS = [
 
     # Activity apps
     'number_puzzles',
+
+    # AI tools
+    'ai_import',
 ]
+
+# ---------------------------------------------------------------------------
+# AI / Anthropic
+# ---------------------------------------------------------------------------
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -102,6 +115,8 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 'accounts.context_processors.user_role',
                 'classroom.context_processors.subject_apps',
+                'classroom.context_processors.subject_sidebar_context',
+                'classroom.context_processors.breadcrumbs_context',
             ],
         },
     },
