@@ -21,6 +21,7 @@ from .models import (
     DepartmentFee, StudentFeeOverride, InvoiceNumberSequence,
     Invoice, InvoiceLineItem, InvoicePayment, CreditTransaction,
     PaymentReferenceMapping, CSVImport, SchoolStudent,
+    SchoolHoliday, PublicHoliday,
 )
 from .fee_utils import get_effective_fee_for_student, get_fee_source_label
 
@@ -120,6 +121,88 @@ def check_overlapping_invoices(student, school, billing_period_start, billing_pe
 # ---------------------------------------------------------------------------
 # Invoice Line Calculation
 # ---------------------------------------------------------------------------
+
+_DAY_MAP = {
+    'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
+    'friday': 4, 'saturday': 5, 'sunday': 6,
+}
+
+
+def ensure_sessions_for_period(school, billing_period_start, billing_period_end, created_by=None):
+    """
+    Auto-generate scheduled sessions for all active classrooms in the billing
+    period.  Skips dates that already have a session and dates that fall on
+    school or public holidays.  Only creates sessions for classrooms that have
+    a day/time schedule configured.
+
+    Returns the number of new sessions created.
+    """
+    classrooms = (
+        ClassRoom.objects
+        .filter(school=school, is_active=True)
+        .exclude(day='')
+        .exclude(start_time__isnull=True)
+        .exclude(end_time__isnull=True)
+    )
+
+    if not classrooms.exists():
+        return 0
+
+    # Build set of holiday dates to skip
+    holiday_dates = set()
+    school_holidays = SchoolHoliday.objects.filter(
+        school=school,
+        start_date__lte=billing_period_end,
+        end_date__gte=billing_period_start,
+    )
+    for h in school_holidays:
+        d = max(h.start_date, billing_period_start)
+        while d <= min(h.end_date, billing_period_end):
+            holiday_dates.add(d)
+            d += timedelta(days=1)
+
+    public_holidays = PublicHoliday.objects.filter(
+        school=school,
+        date__range=(billing_period_start, billing_period_end),
+    )
+    for h in public_holidays:
+        holiday_dates.add(h.date)
+
+    # Existing sessions — avoid duplicates
+    existing_keys = set(
+        ClassSession.objects
+        .filter(classroom__in=classrooms,
+                date__range=(billing_period_start, billing_period_end))
+        .values_list('classroom_id', 'date')
+    )
+
+    to_create = []
+    for classroom in classrooms:
+        target_wd = _DAY_MAP.get(classroom.day)
+        if target_wd is None:
+            continue
+        # First occurrence of this weekday on or after period start
+        days_ahead = (target_wd - billing_period_start.weekday()) % 7
+        session_date = billing_period_start + timedelta(days=days_ahead)
+
+        while session_date <= billing_period_end:
+            if (session_date not in holiday_dates
+                    and (classroom.pk, session_date) not in existing_keys):
+                to_create.append(ClassSession(
+                    classroom=classroom,
+                    date=session_date,
+                    start_time=classroom.start_time,
+                    end_time=classroom.end_time,
+                    status='scheduled',
+                    created_by=created_by,
+                ))
+            session_date += timedelta(weeks=1)
+
+    if to_create:
+        ClassSession.objects.bulk_create(to_create, ignore_conflicts=True)
+
+    return len(to_create)
+
 
 def calculate_invoice_lines(student, school, billing_period_start, billing_period_end,
                              attendance_mode, billing_type='post_term'):
