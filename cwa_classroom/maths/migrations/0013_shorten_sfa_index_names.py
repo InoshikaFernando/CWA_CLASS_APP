@@ -25,6 +25,8 @@ def _rename_long_sfa_indexes(apps, schema_editor):
     Rename over-long SFA indexes using MySQL RENAME INDEX if they exist.
     No-op when the old name is already absent (idempotent).
     """
+    if schema_editor.connection.vendor != 'mysql':
+        return
     renames = [
         (
             'maths_sfa_student_topic_level_idx',

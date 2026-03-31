@@ -77,7 +77,13 @@
         {% elif is_parent %}
           {% include "partials/sidebar_parent.html" %}
         {% elif is_student or is_individual_student %}
-          {% include "partials/sidebar_student.html" %}
+          {% if subject_sidebar == 'maths' %}
+            {% include "partials/sidebar_maths.html" %}
+          {% elif subject_sidebar %}
+            {% include "partials/sidebar_subject_generic.html" %}
+          {% else %}
+            {% include "partials/sidebar_student.html" %}
+          {% endif %}
         {% elif is_parent %}
           {% include "partials/sidebar_parent.html" %}
         {% elif is_accountant %}
@@ -89,6 +95,8 @@
 
     <!-- ── Main content ───────────────────────────────────────── -->
     <main class="flex-1 {% if not hide_sidebar %}md:ml-64{% endif %} overflow-y-auto px-4 py-6 md:px-8 pb-24 md:pb-6">
+      <!-- Breadcrumbs -->
+      {% include "partials/breadcrumbs.html" %}
       <!-- Toast messages -->
       {% include "partials/toast.html" %}
 

@@ -77,8 +77,13 @@
             <div class="w-10 h-10 bg-primary rounded-xl flex items-center justify-center">
               <span class="text-white font-bold text-sm">{{ item.school.name|slice:":2"|upper }}</span>
             </div>
-            <span class="text-xs font-medium px-2.5 py-1 rounded-full {% if item.school.is_active %}bg-emerald-100 text-emerald-700{% else %}bg-gray-100 text-gray-500{% endif %}">
-              {% if item.school.is_active %}Active{% else %}Inactive{% endif %}
+            <span class="text-xs font-medium px-2.5 py-1 rounded-full
+              {% if not item.school.is_active %}bg-gray-100 text-gray-500
+              {% elif not item.school.is_published %}bg-amber-100 text-amber-700
+              {% else %}bg-emerald-100 text-emerald-700{% endif %}">
+              {% if not item.school.is_active %}Inactive
+              {% elif not item.school.is_published %}Draft
+              {% else %}Active{% endif %}
             </span>
           </div>
           <h3 class="text-lg font-semibold text-gray-900 group-hover:text-accent transition">{{ item.school.name }}</h3>

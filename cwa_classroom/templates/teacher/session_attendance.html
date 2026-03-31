@@ -28,7 +28,9 @@
                 </span>
                 <div>
                   <p class="font-medium text-gray-900">{{ item.student.get_full_name|default:item.student.username }}</p>
-                  {% if item.self_reported %}
+                  {% if item.is_makeup %}
+                    <span class="text-xs font-medium px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">Makeup from {{ item.makeup_from }}</span>
+                  {% elif item.self_reported %}
                     <span class="text-xs font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Self-reported</span>
                   {% endif %}
                 </div>

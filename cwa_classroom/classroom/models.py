@@ -428,6 +428,7 @@ class AcademicYear(models.Model):
     start_date = models.DateField()
     end_date = models.DateField()
     is_current = models.BooleanField(default=False)
+    number_of_terms = models.PositiveIntegerField(null=True, blank=True, help_text='Number of terms in this academic year (1–6)')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -468,12 +469,14 @@ class Term(models.Model):
         return f'{self.name}{yr} — {self.school.name}'
 
 
-class Holiday(models.Model):
-    """A holiday or break within a school's academic calendar."""
-    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='holidays')
+class SchoolHoliday(models.Model):
+    """A holiday period specific to a school (e.g. half-term, inset days)."""
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='school_holidays')
     academic_year = models.ForeignKey(
-        AcademicYear, on_delete=models.CASCADE, related_name='holidays',
-        null=True, blank=True,
+        AcademicYear, on_delete=models.CASCADE, null=True, blank=True, related_name='school_holidays'
+    )
+    term = models.ForeignKey(
+        Term, on_delete=models.SET_NULL, null=True, blank=True, related_name='school_holidays'
     )
     name = models.CharField(max_length=100)
     start_date = models.DateField()
@@ -481,11 +484,25 @@ class Holiday(models.Model):
 
     class Meta:
         ordering = ['start_date']
-        unique_together = ('school', 'name', 'start_date')
 
     def __str__(self):
-        yr = f' ({self.academic_year.year})' if self.academic_year else ''
-        return f'{self.name}{yr} — {self.school.name}'
+        return f'{self.name} ({self.start_date} – {self.end_date}) — {self.school.name}'
+
+
+class PublicHoliday(models.Model):
+    """A public/national holiday on which the school does not hold classes."""
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='public_holidays')
+    academic_year = models.ForeignKey(
+        AcademicYear, on_delete=models.CASCADE, null=True, blank=True, related_name='public_holidays'
+    )
+    name = models.CharField(max_length=100)
+    date = models.DateField()
+
+    class Meta:
+        ordering = ['date']
+
+    def __str__(self):
+        return f'{self.name} ({self.date}) — {self.school.name}'
 
 
 # ---------------------------------------------------------------------------
@@ -842,6 +859,53 @@ class Enrollment(models.Model):
 # Attendance
 # ---------------------------------------------------------------------------
 
+class AbsenceToken(models.Model):
+    """Token issued when a student marks themselves absent, redeemable at another
+    class covering the same level as a makeup session."""
+
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='absence_tokens',
+    )
+    original_session = models.ForeignKey(
+        ClassSession,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='absence_tokens',
+    )
+    original_classroom = models.ForeignKey(
+        ClassRoom,
+        on_delete=models.CASCADE,
+        related_name='absence_tokens',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='absence_tokens_created',
+    )
+    note = models.TextField(blank=True)
+
+    # Redemption fields
+    redeemed = models.BooleanField(default=False)
+    redeemed_session = models.ForeignKey(
+        ClassSession,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='redeemed_tokens',
+    )
+    redeemed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        status = 'Used' if self.redeemed else 'Available'
+        return f'AbsenceToken({self.student.username}, {self.original_classroom.name}, {status})'
+
+
 class StudentAttendance(models.Model):
     """Tracks student attendance for a specific class session."""
     STATUS_CHOICES = [
@@ -871,6 +935,12 @@ class StudentAttendance(models.Model):
         related_name='student_attendance_approvals',
     )
     approved_at = models.DateTimeField(null=True, blank=True)
+    makeup_token = models.ForeignKey(
+        AbsenceToken,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='makeup_attendance',
+    )
 
     class Meta:
         unique_together = ('session', 'student')
@@ -1377,6 +1447,12 @@ class Invoice(models.Model):
         ('paid', 'Paid'),
         ('cancelled', 'Cancelled'),
     ]
+    PERIOD_TYPE_CHOICES = [
+        ('custom', 'Custom'),
+        ('month', 'Month'),
+        ('term', 'Term'),
+        ('year', 'Year'),
+    ]
 
     invoice_number = models.CharField(max_length=50, unique=True)
     school = models.ForeignKey('School', on_delete=models.CASCADE,
@@ -1388,6 +1464,8 @@ class Invoice(models.Model):
     attendance_mode = models.CharField(max_length=20, choices=ATTENDANCE_MODE_CHOICES)
     billing_type = models.CharField(max_length=20, choices=BILLING_TYPE_CHOICES,
                                      default='post_term')
+    period_type = models.CharField(max_length=10, choices=PERIOD_TYPE_CHOICES,
+                                    default='custom')
     calculated_amount = models.DecimalField(max_digits=10, decimal_places=2,
                                              help_text='System-calculated sum of line items')
     amount = models.DecimalField(max_digits=10, decimal_places=2,
