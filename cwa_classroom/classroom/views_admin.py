@@ -515,10 +515,36 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
         school = _get_user_school_or_404(request.user, school_id)
         show_inactive = request.GET.get('show_inactive') == '1'
         if show_inactive:
-            school_teachers = SchoolTeacher.objects.filter(school=school).select_related('teacher')
+            qs = SchoolTeacher.objects.filter(school=school).select_related('teacher')
         else:
-            school_teachers = SchoolTeacher.objects.filter(school=school, is_active=True).select_related('teacher')
-        paginator = Paginator(school_teachers, 25)
+            qs = SchoolTeacher.objects.filter(school=school, is_active=True).select_related('teacher')
+
+        # Server-side search
+        q = request.GET.get('q', '').strip()
+        if q:
+            from django.db.models import Q
+            qs = qs.filter(
+                Q(teacher__first_name__icontains=q)
+                | Q(teacher__last_name__icontains=q)
+                | Q(teacher__email__icontains=q)
+                | Q(teacher__username__icontains=q)
+            )
+
+        # Server-side ordering
+        order_by = request.GET.get('order_by', 'name')
+        order_map = {
+            'name': ('teacher__first_name', 'teacher__last_name'),
+            '-name': ('-teacher__first_name', '-teacher__last_name'),
+            'email': ('teacher__email',),
+            '-email': ('-teacher__email',),
+            'role': ('role',),
+            '-role': ('-role',),
+            'joined': ('joined_at',),
+            '-joined': ('-joined_at',),
+        }
+        qs = qs.order_by(*order_map.get(order_by, ('teacher__first_name', 'teacher__last_name')))
+
+        paginator = Paginator(qs, 25)
         page = paginator.get_page(request.GET.get('page'))
         return render(request, 'admin_dashboard/school_teachers.html', {
             'school': school,
@@ -526,6 +552,9 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
             'page': page,
             'role_choices': self._get_role_choices(request.user),
             'show_inactive': show_inactive,
+            'q': q,
+            'order_by': order_by,
+            'total_count': paginator.count,
         })
 
     def post(self, request, school_id):
@@ -964,7 +993,7 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
         qs = SchoolStudent.objects.filter(school=school)
         if not show_inactive:
             qs = qs.filter(is_active=True)
-        school_students = (
+        qs = (
             qs.select_related('student')
             .annotate(
                 class_count=Count(
@@ -973,13 +1002,41 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
                 )
             )
         )
-        paginator = Paginator(school_students, 25)
+
+        # Server-side search
+        q = request.GET.get('q', '').strip()
+        if q:
+            qs = qs.filter(
+                Q(student__first_name__icontains=q)
+                | Q(student__last_name__icontains=q)
+                | Q(student__email__icontains=q)
+                | Q(student__username__icontains=q)
+            )
+
+        # Server-side ordering
+        order_by = request.GET.get('order_by', 'name')
+        order_map = {
+            'name': ('student__first_name', 'student__last_name'),
+            '-name': ('-student__first_name', '-student__last_name'),
+            'email': ('student__email',),
+            '-email': ('-student__email',),
+            'joined': ('joined_at',),
+            '-joined': ('-joined_at',),
+            'classes': ('class_count',),
+            '-classes': ('-class_count',),
+        }
+        qs = qs.order_by(*order_map.get(order_by, ('student__first_name', 'student__last_name')))
+
+        paginator = Paginator(qs, 25)
         page = paginator.get_page(request.GET.get('page'))
         return render(request, 'admin_dashboard/school_students.html', {
             'school': school,
             'school_students': page,
             'page': page,
             'show_inactive': show_inactive,
+            'q': q,
+            'order_by': order_by,
+            'total_count': paginator.count,
         })
 
     def post(self, request, school_id):
