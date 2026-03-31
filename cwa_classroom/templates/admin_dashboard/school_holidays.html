@@ -1,13 +1,12 @@
 {% extends "base.html" %}
-{% load tz %}
-{% block title %}Terms — {{ school.name }}{% endblock %}
+{% block title %}Holidays — {{ school.name }}{% endblock %}
 {% block content %}
 <div class="max-w-4xl mx-auto">
 
   <div class="mb-8">
     <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
-    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Terms</h1>
-    <p class="text-gray-500 mt-1">Manage terms for {{ school.name }}. Terms define billing periods and academic scheduling.</p>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Holidays</h1>
+    <p class="text-gray-500 mt-1">Manage holidays and breaks for {{ school.name }}.</p>
   </div>
 
   {% if messages %}
@@ -22,16 +21,16 @@
     {% endfor %}
   {% endif %}
 
-  <!-- Add New Term -->
+  <!-- Add New Holiday -->
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-8">
-    <h2 class="text-lg font-semibold text-gray-900 mb-5">Add New Term</h2>
+    <h2 class="text-lg font-semibold text-gray-900 mb-5">Add New Holiday</h2>
     <form method="post" class="space-y-4">
       {% csrf_token %}
       <input type="hidden" name="action" value="create">
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
-          <input type="text" name="name" required placeholder="e.g. Term 1, Term 2"
+          <input type="text" name="name" required placeholder="e.g. Easter Break, Public Holiday"
                  class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
         </div>
         <div>
@@ -54,63 +53,35 @@
           <input type="date" name="end_date" required
                  class="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-accent focus:border-accent transition">
         </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Order</label>
-          <input type="number" name="order" value="0" min="0"
-                 class="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-accent focus:border-accent transition">
-        </div>
       </div>
       <div class="flex justify-end pt-2">
         <button type="submit"
                 class="px-6 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-blue-600 transition shadow-sm">
-          Add Term
+          Add Holiday
         </button>
       </div>
     </form>
   </div>
 
-  <!-- Existing Terms -->
+  <!-- Existing Holidays -->
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
     <div class="px-6 py-5 border-b border-slate-100">
-      <h2 class="text-lg font-semibold text-gray-900">Terms ({{ terms|length }})</h2>
+      <h2 class="text-lg font-semibold text-gray-900">Holidays ({{ holidays|length }})</h2>
     </div>
-    {% if terms %}
+    {% if holidays %}
       <div class="divide-y divide-slate-100">
-        {% for term in terms %}
+        {% for holiday in holidays %}
           <div class="px-6 py-4" x-data="{ editing: false }">
             <!-- Display Mode -->
             <div x-show="!editing" class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div class="min-w-0">
-                <div class="flex items-center gap-2">
-                  <p class="font-medium text-gray-900">{{ term.name }}</p>
-                  {% if term.is_confirmed %}
-                    <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Confirmed</span>
-                  {% else %}
-                    <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Unconfirmed</span>
-                  {% endif %}
-                </div>
+                <p class="font-medium text-gray-900">{{ holiday.name }}</p>
                 <p class="text-sm text-gray-500">
-                  {{ term.start_date|date:"M d, Y" }} — {{ term.end_date|date:"M d, Y" }}
-                  {% if term.academic_year %}<span class="ml-2 text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full">{{ term.academic_year.year }}</span>{% endif %}
-                  <span class="ml-2 text-xs text-gray-400">Order: {{ term.order }}</span>
+                  {{ holiday.start_date|date:"M d, Y" }} — {{ holiday.end_date|date:"M d, Y" }}
+                  {% if holiday.academic_year %}<span class="ml-2 text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full">{{ holiday.academic_year.year }}</span>{% endif %}
                 </p>
-                {% if term.is_confirmed and term.confirmed_at %}
-                  <p class="text-xs text-gray-400 mt-0.5">Confirmed on {{ term.confirmed_at|date:"M d, Y H:i" }}</p>
-                {% endif %}
               </div>
               <div class="flex items-center gap-2 flex-shrink-0">
-                {% if not term.is_confirmed %}
-                  <form method="post" class="inline">
-                    {% csrf_token %}
-                    <input type="hidden" name="action" value="confirm">
-                    <input type="hidden" name="term_id" value="{{ term.id }}">
-                    <button type="submit"
-                            class="px-3 py-1.5 text-emerald-600 hover:bg-emerald-50 text-sm font-medium rounded-lg transition"
-                            onclick="return confirm('Confirm term &quot;{{ term.name }}&quot;? This locks in the dates.')">
-                      Confirm
-                    </button>
-                  </form>
-                {% endif %}
                 <button @click="editing = true"
                         class="px-3 py-1.5 text-accent hover:bg-blue-50 text-sm font-medium rounded-lg transition">
                   Edit
@@ -118,10 +89,10 @@
                 <form method="post" class="inline">
                   {% csrf_token %}
                   <input type="hidden" name="action" value="delete">
-                  <input type="hidden" name="term_id" value="{{ term.id }}">
+                  <input type="hidden" name="holiday_id" value="{{ holiday.id }}">
                   <button type="submit"
                           class="inline-flex items-center px-3 py-1.5 text-red-600 hover:bg-red-50 text-sm font-medium rounded-lg transition"
-                          onclick="return confirm('Delete term &quot;{{ term.name }}&quot;?')">
+                          onclick="return confirm('Delete holiday &quot;{{ holiday.name }}&quot;?')">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                       <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/>
                     </svg>
@@ -135,11 +106,11 @@
               <form method="post" class="space-y-4">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="edit">
-                <input type="hidden" name="term_id" value="{{ term.id }}">
+                <input type="hidden" name="holiday_id" value="{{ holiday.id }}">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                    <input type="text" name="name" value="{{ term.name }}"
+                    <input type="text" name="name" value="{{ holiday.name }}"
                            class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent focus:border-accent transition">
                   </div>
                   <div>
@@ -148,23 +119,18 @@
                             class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent focus:border-accent transition">
                       <option value="">— None —</option>
                       {% for ay in academic_years %}
-                        <option value="{{ ay.id }}" {% if term.academic_year_id == ay.id %}selected{% endif %}>{{ ay.year }}</option>
+                        <option value="{{ ay.id }}" {% if holiday.academic_year_id == ay.id %}selected{% endif %}>{{ ay.year }}</option>
                       {% endfor %}
                     </select>
                   </div>
                   <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
-                    <input type="date" name="start_date" value="{{ term.start_date|date:'Y-m-d' }}"
+                    <input type="date" name="start_date" value="{{ holiday.start_date|date:'Y-m-d' }}"
                            class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent focus:border-accent transition">
                   </div>
                   <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">End Date</label>
-                    <input type="date" name="end_date" value="{{ term.end_date|date:'Y-m-d' }}"
-                           class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent focus:border-accent transition">
-                  </div>
-                  <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Order</label>
-                    <input type="number" name="order" value="{{ term.order }}" min="0"
+                    <input type="date" name="end_date" value="{{ holiday.end_date|date:'Y-m-d' }}"
                            class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent focus:border-accent transition">
                   </div>
                 </div>
@@ -185,8 +151,8 @@
       </div>
     {% else %}
       <div class="px-6 py-12 text-center">
-        <p class="text-gray-500 font-medium">No terms yet</p>
-        <p class="text-sm text-gray-400 mt-1">Use the form above to create terms like "Term 1", "Term 2", etc.</p>
+        <p class="text-gray-500 font-medium">No holidays yet</p>
+        <p class="text-sm text-gray-400 mt-1">Use the form above to add holidays like "Easter Break", "Mid-Year Break", etc.</p>
       </div>
     {% endif %}
   </div>
