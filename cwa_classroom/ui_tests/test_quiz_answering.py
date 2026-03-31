@@ -25,7 +25,7 @@ class TestTopicQuiz:
         self.level = level
         self.topic = topic
         do_login(page, self.url, enrolled_student)
-        page.goto(f"{self.url}/level/{self.level.level_number}/topic/{self.topic.id}/quiz/")
+        page.goto(f"{self.url}/maths/level/{self.level.level_number}/topic/{self.topic.id}/quiz/")
         page.wait_for_load_state("domcontentloaded")
 
     def test_quiz_page_loads(self):
@@ -77,7 +77,7 @@ class TestTopicQuizResults:
         self.level = level
         self.topic = topic
         do_login(page, self.url, enrolled_student)
-        page.goto(f"{self.url}/level/{self.level.level_number}/topic/{self.topic.id}/results/")
+        page.goto(f"{self.url}/maths/level/{self.level.level_number}/topic/{self.topic.id}/results/")
         page.wait_for_load_state("domcontentloaded")
 
     def test_results_page_loads(self):
@@ -104,7 +104,7 @@ class TestBasicFactsSelect:
         self.url = live_server.url
         self.page = page
         do_login(page, self.url, enrolled_student)
-        page.goto(f"{self.url}/basic-facts/")
+        page.goto(f"{self.url}/maths/basic-facts/")
         page.wait_for_load_state("domcontentloaded")
 
     def test_page_loads(self):
@@ -132,7 +132,7 @@ class TestTimesTablesSelect:
         self.url = live_server.url
         self.page = page
         do_login(page, self.url, enrolled_student)
-        page.goto(f"{self.url}/times-tables/")
+        page.goto(f"{self.url}/maths/times-tables/")
         page.wait_for_load_state("domcontentloaded")
 
     def test_page_loads(self):

@@ -19,10 +19,7 @@ def subject_apps(request):
 
 # ── Path prefixes that belong to the Maths subject ──────────────────
 _MATHS_PREFIXES = (
-    '/maths/',
-    '/basic-facts/',
-    '/times-tables/',
-    '/level/',          # topic quiz, mixed quiz, times-tables quiz
+    '/maths/',          # maths app + quiz app (basic-facts, times-tables, topic quiz)
     '/number-puzzles/',
 )
 
@@ -62,13 +59,13 @@ def subject_sidebar_context(request):
 # ── Breadcrumb mapping ──────────────────────────────────────────────
 _BREADCRUMB_MAP = [
     # (path_prefix, [(label, url), ...])  — last item has no url (current page)
+    # Maths (quiz URLs now under /maths/)
     ('/maths/basic-facts/',     [('Hub', '/hub/'), ('Maths', '/maths/'), ('Basic Facts', None)]),
     ('/maths/times-tables/',    [('Hub', '/hub/'), ('Maths', '/maths/'), ('Times Tables', None)]),
+    ('/maths/level/',           [('Hub', '/hub/'), ('Maths', '/maths/'), ('Quiz', None)]),
     ('/maths/dashboard/',       [('Hub', '/hub/'), ('Maths', '/maths/'), ('Topics', None)]),
     ('/maths/',                 [('Hub', '/hub/'), ('Maths', None)]),
-    ('/basic-facts/',           [('Hub', '/hub/'), ('Maths', '/maths/'), ('Basic Facts', None)]),
-    ('/times-tables/',          [('Hub', '/hub/'), ('Maths', '/maths/'), ('Times Tables', None)]),
-    ('/level/',                 [('Hub', '/hub/'), ('Maths', '/maths/'), ('Quiz', None)]),
+    # Student pages
     ('/student/my-classes/',    [('Hub', '/hub/'), ('My Classes', None)]),
     ('/student/join/',          [('Hub', '/hub/'), ('Join Class', None)]),
     ('/student/attendance/',    [('Hub', '/hub/'), ('Attendance', None)]),
