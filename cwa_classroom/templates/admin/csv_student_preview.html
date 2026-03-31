@@ -38,6 +38,9 @@
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
       <p class="font-display text-3xl text-accent">{{ preview.students_existing|length }}</p>
       <p class="text-xs text-gray-400 font-semibold">Existing Students</p>
+      {% if preview.students_existing %}
+      <p class="text-xs text-blue-500 mt-1">Will be linked to this school</p>
+      {% endif %}
     </div>
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
       <p class="font-display text-3xl text-primary">{{ preview.classes_new|length }}</p>
