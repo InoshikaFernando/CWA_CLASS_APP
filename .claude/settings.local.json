@@ -352,7 +352,7 @@
       "Bash(./venv/Scripts/python.exe manage.py test classroom.tests.test_models -v2)",
       "Bash(./venv/Scripts/python.exe manage.py test classroom.tests.test_department_levels_api -v2)",
       "Bash(./venv/Scripts/python.exe manage.py test classroom.tests.test_department_manage_levels -v2)",
-      "Bash(grep -r \"fetch\\\\|XMLHttpRequest\" /c/Source/CWA_SCHOOL_APP_2/.claude/worktrees/mystifying-goldwasser/cwa_classroom/static --include=*.js)"
+      "Bash(grep -c \"def test_\" \"C:/Source/CWA_SCHOOL_APP_2/.claude/worktrees/ecstatic-goldstine/cwa_classroom/ui_tests/\"test_*.py)"
     ]
   }
 }
