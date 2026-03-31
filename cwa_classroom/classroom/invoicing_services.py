@@ -204,6 +204,148 @@ def ensure_sessions_for_period(school, billing_period_start, billing_period_end,
     return len(to_create)
 
 
+def sync_sessions_for_school(school, created_by=None):
+    """
+    Synchronise scheduled sessions with the current academic year / term dates.
+
+    1. Creates missing scheduled sessions within all current term date ranges.
+    2. Deletes future *scheduled* sessions that now fall outside any term range
+       (only sessions with no attendance recorded and no linked invoice).
+
+    Call this after editing academic year dates, term dates, or holidays.
+    Returns (created_count, deleted_count).
+    """
+    from datetime import date as _date
+    from .models import Term, StudentAttendance
+
+    today = _date.today()
+
+    terms = Term.objects.filter(
+        school=school,
+        end_date__gte=today,  # only current/future terms
+    ).order_by('start_date')
+
+    if not terms.exists():
+        return 0, 0
+
+    classrooms = (
+        ClassRoom.objects
+        .filter(school=school, is_active=True)
+        .exclude(day='')
+        .exclude(start_time__isnull=True)
+        .exclude(end_time__isnull=True)
+    )
+
+    if not classrooms.exists():
+        return 0, 0
+
+    # Collect all valid date ranges from terms
+    term_ranges = []
+    overall_start = None
+    overall_end = None
+    for term in terms:
+        # Only create sessions from today onwards
+        effective_start = max(term.start_date, today)
+        if effective_start <= term.end_date:
+            term_ranges.append((effective_start, term.end_date))
+            if overall_start is None or effective_start < overall_start:
+                overall_start = effective_start
+            if overall_end is None or term.end_date > overall_end:
+                overall_end = term.end_date
+
+    if not term_ranges:
+        return 0, 0
+
+    # Build set of holiday dates
+    holiday_dates = set()
+    school_holidays = SchoolHoliday.objects.filter(
+        school=school,
+        start_date__lte=overall_end,
+        end_date__gte=overall_start,
+    )
+    for h in school_holidays:
+        d = max(h.start_date, overall_start)
+        while d <= min(h.end_date, overall_end):
+            holiday_dates.add(d)
+            d += timedelta(days=1)
+
+    public_holidays = PublicHoliday.objects.filter(
+        school=school,
+        date__range=(overall_start, overall_end),
+    )
+    for h in public_holidays:
+        holiday_dates.add(h.date)
+
+    # --- CREATE missing sessions within term ranges ---
+    existing_keys = set(
+        ClassSession.objects
+        .filter(classroom__in=classrooms,
+                date__range=(overall_start, overall_end))
+        .values_list('classroom_id', 'date')
+    )
+
+    to_create = []
+    valid_dates_by_classroom = {}  # track which dates should have sessions
+
+    for classroom in classrooms:
+        target_wd = _DAY_MAP.get(classroom.day)
+        if target_wd is None:
+            continue
+
+        classroom_valid_dates = set()
+        for range_start, range_end in term_ranges:
+            days_ahead = (target_wd - range_start.weekday()) % 7
+            session_date = range_start + timedelta(days=days_ahead)
+            while session_date <= range_end:
+                if session_date not in holiday_dates:
+                    classroom_valid_dates.add(session_date)
+                    if (classroom.pk, session_date) not in existing_keys:
+                        to_create.append(ClassSession(
+                            classroom=classroom,
+                            date=session_date,
+                            start_time=classroom.start_time,
+                            end_time=classroom.end_time,
+                            status='scheduled',
+                            created_by=created_by,
+                        ))
+                session_date += timedelta(weeks=1)
+
+        valid_dates_by_classroom[classroom.pk] = classroom_valid_dates
+
+    if to_create:
+        ClassSession.objects.bulk_create(to_create, ignore_conflicts=True)
+
+    # --- DELETE future scheduled sessions that are now outside term ranges ---
+    # Only delete sessions that: are in the future, are 'scheduled', have no
+    # attendance records, and are not linked to any invoice line items.
+    orphan_sessions = (
+        ClassSession.objects
+        .filter(
+            classroom__in=classrooms,
+            date__gte=today,
+            status='scheduled',
+        )
+        .exclude(
+            # Keep sessions that have attendance
+            id__in=StudentAttendance.objects.values_list('session_id', flat=True)
+        )
+        .exclude(
+            # Keep sessions linked to invoices
+            classroom__line_items__invoice__billing_period_start__lte=models.F('date'),
+            classroom__line_items__invoice__billing_period_end__gte=models.F('date'),
+        )
+    )
+
+    deleted_count = 0
+    for session in orphan_sessions:
+        valid_dates = valid_dates_by_classroom.get(session.classroom_id, set())
+        if session.date not in valid_dates:
+            session.delete()
+            deleted_count += 1
+
+    return len(to_create), deleted_count
+
+
 def calculate_invoice_lines(student, school, billing_period_start, billing_period_end,
                              attendance_mode, billing_type='post_term'):
     """
