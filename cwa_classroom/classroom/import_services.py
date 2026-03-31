@@ -1230,7 +1230,7 @@ def execute_import(preview_data, school, uploaded_by):
                 })
                 counts['students_created'] += 1
             else:
-                user = CustomUser.objects.get(email=email)
+                user = CustomUser.objects.filter(email=email).first()
                 password = None
 
             # SchoolStudent
@@ -1628,7 +1628,7 @@ def validate_teacher_preview(data_rows, column_mapping, school):
         # Check if user already exists
         if CustomUser.objects.filter(email=email).exists():
             # Check if already linked to this school
-            user = CustomUser.objects.get(email=email)
+            user = CustomUser.objects.filter(email=email).first()
             already_linked = SchoolTeacher.objects.filter(school=school, teacher=user).exists()
             teacher_data['already_linked'] = already_linked
             if already_linked:
@@ -1742,7 +1742,7 @@ def execute_teacher_import(preview_data, school, imported_by):
             })
             counts['teachers_created'] += 1
         elif not placeholder_st:
-            user = CustomUser.objects.get(email=email)
+            user = CustomUser.objects.filter(email=email).first()
             password = None
 
         # Link to school (skip if already linked)
