@@ -1350,7 +1350,7 @@ def validate_balance_preview(data_rows, column_mapping, school):
 
     # Build guardian lookup by (first_name_lower, last_name_lower)
     guardians = Guardian.objects.filter(school=school).prefetch_related(
-        'students__student', 'students__student__school_students'
+        'guardian_students__student', 'guardian_students__student__school_student_entries'
     )
     guardian_lookup = {}
     for g in guardians:
