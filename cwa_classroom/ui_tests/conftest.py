@@ -201,8 +201,8 @@ def accountant_user(db, roles):
 
 @pytest.fixture
 def school(db, admin_user):
-    """Create a school with an active subscription and admin as SchoolTeacher."""
-    from billing.models import InstitutePlan, SchoolSubscription
+    """Create a school with an active subscription, modules enabled, and admin as SchoolTeacher."""
+    from billing.models import InstitutePlan, ModuleSubscription, SchoolSubscription
     from classroom.models import School, SchoolTeacher
 
     school = School.objects.create(
@@ -221,9 +221,16 @@ def school(db, admin_user):
         invoice_limit_yearly=500,
         extra_invoice_rate=Decimal("0.30"),
     )
-    SchoolSubscription.objects.create(
+    sub = SchoolSubscription.objects.create(
         school=school, plan=plan, status="active",
     )
+    # Enable all modules so attendance, progress reports etc. work
+    for module_key, _ in ModuleSubscription.MODULE_CHOICES:
+        ModuleSubscription.objects.create(
+            school_subscription=sub,
+            module=module_key,
+            is_active=True,
+        )
     # Admin must also be a SchoolTeacher for sidebar views to work
     SchoolTeacher.objects.get_or_create(
         school=school,
