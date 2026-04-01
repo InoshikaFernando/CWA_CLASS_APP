@@ -5,6 +5,8 @@ from django.db import migrations
 
 def forward(apps, schema_editor):
     """Copy each Department's old subject FK into the new DepartmentSubject M2M."""
+    if schema_editor.connection.vendor != 'mysql':
+        return
     db_alias = schema_editor.connection.alias
     # Use raw SQL to avoid model-state issues when running from scratch
     with schema_editor.connection.cursor() as cursor:
