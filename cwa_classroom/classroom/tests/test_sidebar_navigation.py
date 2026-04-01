@@ -129,6 +129,14 @@ class SidebarAdminNavigationTests(TestCase):
         resp = self.client.get(reverse('admin_dashboard'))
         self.assertContains(resp, reverse('profile'))
 
+    def test_admin_sidebar_contains_settings_link(self):
+        resp = self.client.get(reverse('admin_dashboard'))
+        self.assertContains(resp, reverse('admin_manage_settings'))
+
+    def test_admin_sidebar_contains_settings_label(self):
+        resp = self.client.get(reverse('admin_dashboard'))
+        self.assertContains(resp, '>Settings</span>')
+
 
 # ===========================================================================
 # sidebar_hod.html — HoI / Institute Owner sidebar
@@ -213,6 +221,14 @@ class SidebarHodNavigationTests(TestCase):
     def test_hod_sidebar_contains_reports_link(self):
         resp = self._get_dashboard()
         self.assertContains(resp, reverse('hod_reports'))
+
+    def test_hod_sidebar_contains_settings_link(self):
+        resp = self._get_dashboard()
+        self.assertContains(resp, reverse('admin_manage_settings'))
+
+    def test_hod_sidebar_contains_settings_label(self):
+        resp = self._get_dashboard()
+        self.assertContains(resp, '>Settings</span>')
 
 
 # ===========================================================================

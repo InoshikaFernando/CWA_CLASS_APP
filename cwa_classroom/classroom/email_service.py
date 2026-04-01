@@ -30,6 +30,20 @@ def _get_email_logo_url(school=None, department=None):
     return f'{site_url}{static_url}images/logo.png'
 
 
+def resolve_cc_email(school, department=None):
+    """Return CC list using school's outgoing_email (with department override).
+
+    Uses ``school.get_effective_settings()`` so that a department-level
+    ``outgoing_email`` takes precedence over the school-level value.
+    Returns a list with one email address, or an empty list.
+    """
+    if not school:
+        return []
+    eff = school.get_effective_settings(department)
+    cc_email = eff.get('outgoing_email', '')
+    return [cc_email] if cc_email else []
+
+
 def send_templated_email(
     recipient_email,
     subject,
@@ -81,8 +95,10 @@ def send_templated_email(
         settings, 'DEFAULT_FROM_EMAIL', 'noreply@wizardslearninghub.co.nz',
     )
 
+    cc = resolve_cc_email(school, department)
+
     try:
-        msg = EmailMultiAlternatives(subject, text_content, from_email, [recipient_email])
+        msg = EmailMultiAlternatives(subject, text_content, from_email, [recipient_email], cc=cc)
         msg.attach_alternative(html_content, 'text/html')
         msg.send(fail_silently=False)
 

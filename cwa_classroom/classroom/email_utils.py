@@ -61,12 +61,16 @@ def send_staff_welcome_email(
         settings, 'DEFAULT_FROM_EMAIL', 'noreply@wizardslearninghub.co.nz'
     )
 
+    from .email_service import resolve_cc_email
+    cc = resolve_cc_email(school, department)
+
     try:
         msg = EmailMultiAlternatives(
             subject=subject,
             body=text_body,
             from_email=from_email,
             to=[user.email],
+            cc=cc,
         )
         msg.attach_alternative(html_body, 'text/html')
         msg.send(fail_silently=True)
