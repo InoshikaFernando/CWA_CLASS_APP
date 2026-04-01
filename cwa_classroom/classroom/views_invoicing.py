@@ -20,7 +20,7 @@ from django.views import View
 from accounts.models import Role
 from audit.services import log_event
 from .models import (
-    School, Department, ClassRoom, SchoolStudent, SchoolTeacher,
+    School, Department, ClassRoom, ClassStudent, SchoolStudent, SchoolTeacher,
     DepartmentFee, StudentFeeOverride, Invoice, InvoiceLineItem,
     CSVColumnTemplate, CSVImport, PaymentReferenceMapping,
     InvoicePayment, CreditTransaction, Term, AcademicYear,
