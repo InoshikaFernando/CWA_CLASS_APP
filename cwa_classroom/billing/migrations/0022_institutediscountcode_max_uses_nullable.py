@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('billing', '0018_add_promo_code_used_to_subscription'),
+        ('billing', '0021_add_duration_and_product_fields'),
     ]
 
     operations = [
