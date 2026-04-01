@@ -54,7 +54,7 @@ class HomeworkCreateView(RoleRequiredMixin, View):
         classroom = _get_classroom_or_403(request, class_id)
         if not classroom:
             return redirect('teacher_dashboard')
-        form = HomeworkForm(request.POST, classroom=classroom)
+        form = HomeworkForm(request.POST, request.FILES, classroom=classroom)
         if form.is_valid():
             homework = form.save(commit=False)
             homework.classroom = classroom
@@ -69,7 +69,25 @@ class HomeworkCreateView(RoleRequiredMixin, View):
             elif publish_option == HomeworkForm.SCHEDULE:
                 homework.status = Homework.STATUS_SCHEDULED
 
+            # Set quiz level from classroom
+            if homework.homework_type == Homework.TYPE_QUIZ and not homework.quiz_level_id:
+                first_level = classroom.levels.first()
+                if first_level:
+                    homework.quiz_level = first_level
+
             homework.save()
+            form.save_m2m()
+
+            # For quiz type: set quiz_topics from selected topic + subtopics
+            if homework.homework_type == Homework.TYPE_QUIZ and homework.topic_id:
+                from classroom.models import Topic
+                subtopic_ids = request.POST.getlist('subtopics')
+                if subtopic_ids:
+                    homework.quiz_topics.set(subtopic_ids)
+                else:
+                    homework.quiz_topics.set([homework.topic_id])
+                homework.snapshot_questions()
+
             status_label = homework.get_status_display()
             messages.success(request, f'Homework "{homework.title}" created ({status_label}).')
             return redirect('homework:class_list', class_id=classroom.pk)
@@ -153,7 +171,7 @@ class HomeworkEditView(RoleRequiredMixin, View):
             messages.warning(request, 'This homework cannot be edited.')
             return redirect('homework:class_list', class_id=homework.classroom_id)
 
-        form = HomeworkForm(request.POST, instance=homework, classroom=homework.classroom)
+        form = HomeworkForm(request.POST, request.FILES, instance=homework, classroom=homework.classroom)
         if form.is_valid():
             hw = form.save(commit=False)
             publish_option = form.cleaned_data['publish_option']
@@ -165,6 +183,18 @@ class HomeworkEditView(RoleRequiredMixin, View):
             elif publish_option == HomeworkForm.SCHEDULE:
                 hw.status = Homework.STATUS_SCHEDULED
             hw.save()
+            form.save_m2m()
+
+            # Re-snapshot questions for quiz type
+            if hw.homework_type == Homework.TYPE_QUIZ and hw.topic_id:
+                from classroom.models import Topic
+                subtopic_ids = request.POST.getlist('subtopics')
+                if subtopic_ids:
+                    hw.quiz_topics.set(subtopic_ids)
+                else:
+                    hw.quiz_topics.set([hw.topic_id])
+                hw.snapshot_questions()
+
             messages.success(request, f'Homework "{hw.title}" updated.')
             return redirect('homework:class_list', class_id=hw.classroom_id)
 

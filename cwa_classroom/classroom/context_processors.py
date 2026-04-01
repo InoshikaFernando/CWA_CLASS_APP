@@ -35,23 +35,47 @@ def subject_sidebar_context(request):
 
     # ── Maths (including quiz URLs at root level) ──
     if any(path.startswith(p) for p in _MATHS_PREFIXES):
-        # Look up the maths Subject id for the progress filter link
         maths_subject_id = None
+        has_quizzes = False
         try:
+            from maths.models import Question as MathsQuestion
             maths_subject_id = Subject.objects.filter(
                 slug='mathematics', school__isnull=True,
             ).values_list('id', flat=True).first()
+            has_quizzes = MathsQuestion.objects.exists()
         except Exception:
             pass
         return {
             'subject_sidebar': 'maths',
+            'subject_has_quizzes': has_quizzes,
             'current_subject_slug': 'mathematics',
             'current_subject_id': maths_subject_id,
         }
 
-    # ── Future subjects ──
-    # if path.startswith('/coding/'):
-    #     return {'subject_sidebar': 'coding', ...}
+    # ── Other subjects (coding, music, science, custom) ──
+    for prefix in ('/coding/', '/music/', '/science/'):
+        if path.startswith(prefix):
+            slug = prefix.strip('/')
+            subject_id = None
+            has_quizzes = False
+            try:
+                from maths.models import Question
+                subj = Subject.objects.filter(
+                    slug=slug, school__isnull=True,
+                ).first()
+                if subj:
+                    subject_id = subj.id
+                    has_quizzes = Question.objects.filter(
+                        topic__subject=subj,
+                    ).exists()
+            except Exception:
+                pass
+            return {
+                'subject_sidebar': slug,
+                'subject_has_quizzes': has_quizzes,
+                'current_subject_slug': slug,
+                'current_subject_id': subject_id,
+            }
 
     return {}
 

@@ -85,6 +85,37 @@ class TestStudentSidebarNoMathsOrTokenLinks:
         assert_sidebar_missing_link(self.page, "Absence Tokens")
 
 
+class TestStudentSidebarNoClasses:
+    """Class-dependent links hidden when student has no enrollments."""
+
+    @pytest.fixture(autouse=True)
+    def _setup(self, live_server, page, student_user, roles):
+        # student_user with NO ClassStudent enrollment
+        self.url = live_server.url
+        self.page = page
+        do_login(page, self.url, student_user)
+        page.goto(f"{self.url}/student/my-classes/")
+        page.wait_for_load_state("domcontentloaded")
+
+    def test_no_my_classes_link(self):
+        assert_sidebar_missing_link(self.page, "My Classes")
+
+    def test_no_homework_link(self):
+        assert_sidebar_missing_link(self.page, "Homework")
+
+    def test_no_attendance_link(self):
+        assert_sidebar_missing_link(self.page, "Attendance")
+
+    def test_join_class_visible(self):
+        assert_sidebar_has_link(self.page, "Join Class")
+
+    def test_billing_visible(self):
+        assert_sidebar_has_link(self.page, "Billing")
+
+    def test_profile_visible(self):
+        assert_sidebar_has_link(self.page, "Profile")
+
+
 class TestHubHasNoSidebar:
     """Hub page should have no sidebar for students."""
 

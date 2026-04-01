@@ -5,13 +5,13 @@
 {% block content %}
 <div class="max-w-2xl mx-auto space-y-6">
 
-  <!-- Back link -->
   <a href="{% url 'homework:class_list' class_id=classroom.pk %}" class="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition">
     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
     Back to Class
   </a>
 
-  <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-6">
+  <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-6"
+       x-data="{ hwType: '{{ form.homework_type.value|default:'quiz' }}', pubOption: '{{ form.publish_option.value|default:'publish' }}' }">
     <div>
       <h1 class="text-xl font-display font-bold text-gray-900">
         {% if editing %}Edit Homework{% else %}Assign Homework{% endif %}
@@ -19,8 +19,23 @@
       <p class="text-sm text-gray-500 mt-1">{{ classroom.name }}{% if classroom.subject %} &middot; {{ classroom.subject.name }}{% endif %}</p>
     </div>
 
-    <form method="post" class="space-y-5">
+    <form method="post" enctype="multipart/form-data" class="space-y-5">
       {% csrf_token %}
+
+      <!-- Homework Type -->
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-2">Homework Type</label>
+        <div class="grid grid-cols-3 gap-2">
+          {% for value, label in form.homework_type.field.choices %}
+          <label class="flex items-center justify-center gap-2 p-3 rounded-lg border cursor-pointer transition text-sm font-medium"
+                 :class="hwType === '{{ value }}' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600 hover:border-gray-300'">
+            <input type="radio" name="homework_type" value="{{ value }}" x-model="hwType" class="sr-only">
+            {% if value == 'quiz' %}📝{% elif value == 'pdf' %}📄{% else %}💬{% endif %}
+            {{ label }}
+          </label>
+          {% endfor %}
+        </div>
+      </div>
 
       <!-- Title -->
       <div>
@@ -29,8 +44,8 @@
         {% if form.title.errors %}<p class="text-red-500 text-xs mt-1">{{ form.title.errors.0 }}</p>{% endif %}
       </div>
 
-      <!-- Topic -->
-      <div>
+      <!-- Topic (quiz type) -->
+      <div x-show="hwType === 'quiz'" x-cloak>
         <label for="id_topic" class="block text-sm font-semibold text-gray-700 mb-1">Topic</label>
         <select name="topic" id="id_topic"
                 hx-get="{% url 'homework:htmx_subtopics' %}"
@@ -44,15 +59,42 @@
           {% endfor %}
         </select>
         {% if form.topic.errors %}<p class="text-red-500 text-xs mt-1">{{ form.topic.errors.0 }}</p>{% endif %}
+
+        <!-- Subtopics (HTMX loaded) -->
+        <div id="subtopics-container" class="mt-2"></div>
+
+        <!-- Number of questions -->
+        <div class="mt-3">
+          <label for="id_num_questions" class="block text-sm font-semibold text-gray-700 mb-1">Number of Questions</label>
+          {{ form.num_questions }}
+          <p class="text-xs text-gray-400 mt-1">Leave blank to include all available questions</p>
+        </div>
+
+        <!-- Min score -->
+        <div class="mt-3">
+          <label for="id_min_score_percent" class="block text-sm font-semibold text-gray-700 mb-1">Minimum Score % <span class="font-normal text-gray-400">(informational)</span></label>
+          {{ form.min_score_percent }}
+        </div>
       </div>
 
-      <!-- Subtopics (HTMX loaded) -->
-      <div id="subtopics-container"></div>
+      <!-- Teacher attachment (PDF type) -->
+      <div x-show="hwType === 'pdf'" x-cloak>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Worksheet / Instructions</label>
+        {{ form.teacher_attachment }}
+        {% if form.teacher_attachment.errors %}<p class="text-red-500 text-xs mt-1">{{ form.teacher_attachment.errors.0 }}</p>{% endif %}
+        {% if homework.teacher_attachment %}
+        <p class="text-xs text-gray-500 mt-1">Current: <a href="{{ homework.teacher_attachment.url }}" target="_blank" class="text-blue-600 hover:underline">{{ homework.teacher_attachment.name }}</a></p>
+        {% endif %}
+      </div>
 
-      <!-- Description -->
+      <!-- Description / Message -->
       <div>
-        <label for="id_description" class="block text-sm font-semibold text-gray-700 mb-1">Description <span class="font-normal text-gray-400">(optional)</span></label>
+        <label for="id_description" class="block text-sm font-semibold text-gray-700 mb-1">
+          <span x-show="hwType === 'note'">Message for Students</span>
+          <span x-show="hwType !== 'note'">Description <span class="font-normal text-gray-400">(optional)</span></span>
+        </label>
         {{ form.description }}
+        {% if form.description.errors %}<p class="text-red-500 text-xs mt-1">{{ form.description.errors.0 }}</p>{% endif %}
       </div>
 
       <!-- Due date & Max attempts -->
@@ -71,20 +113,18 @@
       <!-- Publish options -->
       <div>
         <label class="block text-sm font-semibold text-gray-700 mb-2">Publish Option</label>
-        <div class="space-y-2" x-data="{ option: '{{ form.publish_option.value|default:'publish' }}' }">
+        <div class="space-y-2">
           {% for value, label in form.publish_option.field.choices %}
           <label class="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition"
-                 :class="option === '{{ value }}' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'">
-            <input type="radio" name="publish_option" value="{{ value }}"
-                   x-model="option"
+                 :class="pubOption === '{{ value }}' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'">
+            <input type="radio" name="publish_option" value="{{ value }}" x-model="pubOption"
                    class="text-blue-600 focus:ring-blue-500"
                    {% if forloop.first and not editing %}checked{% endif %}>
             <span class="text-sm font-medium text-gray-700">{{ label }}</span>
           </label>
           {% endfor %}
 
-          <!-- Scheduled publish datetime (shown only when schedule selected) -->
-          <div x-show="option === 'schedule'" x-cloak class="pl-8 pt-1">
+          <div x-show="pubOption === 'schedule'" x-cloak class="pl-8 pt-1">
             <label for="id_scheduled_publish_at" class="block text-sm font-semibold text-gray-700 mb-1">Publish At</label>
             {{ form.scheduled_publish_at }}
             {% if form.scheduled_publish_at.errors %}<p class="text-red-500 text-xs mt-1">{{ form.scheduled_publish_at.errors.0 }}</p>{% endif %}
@@ -94,13 +134,10 @@
 
       {% if form.non_field_errors %}
       <div class="text-red-500 text-sm">
-        {% for error in form.non_field_errors %}
-        <p>{{ error }}</p>
-        {% endfor %}
+        {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
       </div>
       {% endif %}
 
-      <!-- Buttons -->
       <div class="flex items-center justify-end gap-3 pt-2">
         <a href="{% url 'homework:class_list' class_id=classroom.pk %}" class="px-4 py-2 text-sm font-medium text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition">Cancel</a>
         <button type="submit" class="px-5 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition">
