@@ -9,7 +9,7 @@ from django.views import View
 from accounts.models import Role
 from .models import (
     ParentStudent, ClassStudent, ClassSession, StudentAttendance,
-    Invoice, InvoicePayment, ProgressRecord, SchoolStudent,
+    Invoice, InvoicePayment, ProgressRecord, SchoolStudent, ClassRoom,
 )
 from .views import RoleRequiredMixin
 
@@ -468,3 +468,55 @@ class ParentAddChildView(RoleRequiredMixin, View):
             f'has been linked to your account.'
         )
         return redirect('parent_dashboard')
+
+
+# ---------------------------------------------------------------------------
+# Classes / Schedule
+# ---------------------------------------------------------------------------
+
+class ParentClassesView(RoleRequiredMixin, View):
+    required_roles = [Role.PARENT]
+
+    def get(self, request):
+        child, school, _ = _get_active_child(request)
+        if not child:
+            return render(request, 'parent/classes.html', {
+                'children': _get_parent_children(request.user),
+                'enrollments': [],
+            })
+
+        enrollments = (
+            ClassStudent.objects.filter(
+                student=child, classroom__school=school, is_active=True,
+            )
+            .select_related(
+                'classroom', 'classroom__department',
+                'classroom__teacher', 'classroom__teacher__teacher',
+            )
+            .order_by('classroom__day', 'classroom__start_time', 'classroom__name')
+        )
+
+        # Upcoming sessions (next 14 days)
+        from django.utils import timezone
+        import datetime
+        today = timezone.now().date()
+        upcoming = (
+            ClassSession.objects.filter(
+                classroom__classstudent__student=child,
+                classroom__school=school,
+                date__gte=today,
+                date__lte=today + datetime.timedelta(days=14),
+                status__in=['scheduled', 'in_progress'],
+            )
+            .select_related('classroom')
+            .order_by('date', 'start_time')
+            .distinct()
+        )
+
+        return render(request, 'parent/classes.html', {
+            'enrollments': enrollments,
+            'upcoming_sessions': upcoming,
+            'active_child': child,
+            'active_school': school,
+            'children': _get_parent_children(request.user),
+        })
