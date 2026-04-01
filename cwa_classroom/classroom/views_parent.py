@@ -9,7 +9,7 @@ from django.views import View
 from accounts.models import Role
 from .models import (
     ParentStudent, ClassStudent, ClassSession, StudentAttendance,
-    Invoice, InvoicePayment, ProgressRecord,
+    Invoice, InvoicePayment, ProgressRecord, SchoolStudent,
 )
 from .views import RoleRequiredMixin
 
@@ -372,3 +372,99 @@ class ParentProgressView(RoleRequiredMixin, View):
             'active_school': school,
             'children': _get_parent_children(request.user),
         })
+
+
+# ---------------------------------------------------------------------------
+# Add Child (logged-in parent links another student via Student ID)
+# ---------------------------------------------------------------------------
+
+class ParentAddChildView(RoleRequiredMixin, View):
+    required_roles = [Role.PARENT]
+    RELATIONSHIP_CHOICES = [
+        ('mother', 'Mother'),
+        ('father', 'Father'),
+        ('guardian', 'Guardian'),
+        ('other', 'Other'),
+    ]
+
+    def get(self, request):
+        return render(request, 'parent/add_child.html', {
+            'children': _get_parent_children(request.user),
+            'relationship_choices': self.RELATIONSHIP_CHOICES,
+        })
+
+    def post(self, request):
+        student_id_code = request.POST.get('student_id', '').strip().upper()
+        relationship = request.POST.get('relationship', 'guardian').strip()
+        errors = {}
+
+        if not student_id_code:
+            errors['student_id'] = 'Student ID is required.'
+        else:
+            school_student = SchoolStudent.objects.filter(
+                student_id_code=student_id_code, is_active=True,
+            ).select_related('school', 'student').first()
+
+            if not school_student:
+                errors['student_id'] = f'Student ID "{student_id_code}" was not found. Please check and try again.'
+            else:
+                # Already linked?
+                if ParentStudent.objects.filter(
+                    parent=request.user,
+                    student=school_student.student,
+                    school=school_student.school,
+                ).exists():
+                    errors['student_id'] = 'You are already linked to this student.'
+                else:
+                    # Max 2 parents per student
+                    parent_count = ParentStudent.objects.filter(
+                        student=school_student.student,
+                        school=school_student.school,
+                        is_active=True,
+                    ).count()
+                    if parent_count >= 2:
+                        errors['student_id'] = (
+                            f'{school_student.student.first_name} already has the '
+                            f'maximum number of parent accounts linked.'
+                        )
+
+        if errors:
+            return render(request, 'parent/add_child.html', {
+                'errors': errors,
+                'children': _get_parent_children(request.user),
+                'relationship_choices': self.RELATIONSHIP_CHOICES,
+                'form_data': {'student_id': student_id_code, 'relationship': relationship},
+            })
+
+        existing_count = ParentStudent.objects.filter(
+            student=school_student.student,
+            school=school_student.school,
+            is_active=True,
+        ).count()
+        link = ParentStudent.objects.create(
+            parent=request.user,
+            student=school_student.student,
+            school=school_student.school,
+            relationship=relationship,
+            is_primary_contact=(existing_count == 0),
+            created_by=request.user,
+        )
+
+        # Switch to newly added child
+        request.session['active_child_id'] = school_student.student_id
+
+        from audit.services import log_event
+        log_event(
+            user=request.user, school=school_student.school,
+            category='data_change', action='parent_linked_child',
+            detail={'student_id_code': student_id_code, 'relationship': relationship},
+            request=request,
+        )
+
+        from django.contrib import messages
+        messages.success(
+            request,
+            f'{school_student.student.first_name} {school_student.student.last_name} '
+            f'has been linked to your account.'
+        )
+        return redirect('parent_dashboard')

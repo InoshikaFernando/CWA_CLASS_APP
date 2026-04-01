@@ -50,6 +50,15 @@
       Dashboard
     </a>
 
+    <a href="{% url 'parent_add_child' %}"
+       class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition
+              {% if 'add-child' in request.path %}bg-white/20 text-white{% else %}text-white/70 hover:bg-white/10 hover:text-white{% endif %}">
+      <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+      </svg>
+      Add Child
+    </a>
+
     <a href="{% url 'parent_dashboard' %}"
        class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition
               {% if 'children' in request.path %}bg-white/20 text-white{% else %}text-white/70 hover:bg-white/10 hover:text-white{% endif %}">
