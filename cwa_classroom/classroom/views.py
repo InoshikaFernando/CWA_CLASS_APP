@@ -611,16 +611,20 @@ class ClassDetailView(RoleRequiredMixin, View):
         else:
             classroom = get_object_or_404(ClassRoom, id=class_id, teachers=request.user)
 
-        # Sessions for this class (last 10, with attendance counts)
-        sessions = (
+        # Sessions for this class — soonest upcoming first, paginated
+        from django.core.paginator import Paginator
+        all_sessions = (
             ClassSession.objects.filter(classroom=classroom)
             .annotate(
                 present_count=Count('student_attendance', filter=Q(student_attendance__status='present')),
                 late_count=Count('student_attendance', filter=Q(student_attendance__status='late')),
                 absent_count=Count('student_attendance', filter=Q(student_attendance__status='absent')),
             )
-            .order_by('-date', '-start_time')[:10]
+            .order_by('date', 'start_time')
         )
+        paginator = Paginator(all_sessions, 15)
+        page_number = request.GET.get('page')
+        sessions = paginator.get_page(page_number)
 
         today = timezone.localdate()
         todays_session = ClassSession.objects.filter(classroom=classroom, date=today).first()

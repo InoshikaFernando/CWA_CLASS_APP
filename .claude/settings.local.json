@@ -352,7 +352,25 @@
       "Bash(./venv/Scripts/python.exe manage.py test classroom.tests.test_models -v2)",
       "Bash(./venv/Scripts/python.exe manage.py test classroom.tests.test_department_levels_api -v2)",
       "Bash(./venv/Scripts/python.exe manage.py test classroom.tests.test_department_manage_levels -v2)",
-      "Bash(grep -c \"def test_\" \"C:/Source/CWA_SCHOOL_APP_2/.claude/worktrees/ecstatic-goldstine/cwa_classroom/ui_tests/\"test_*.py)"
+      "mcp__5ef70484-069b-4230-bf47-89324f7b64fc__getJiraIssue",
+      "Bash(wc -l /c/Source/CWA_SCHOOL_APP_2/.claude/worktrees/determined-carson/cwa_classroom/classroom/views_*.py)",
+      "mcp__5ef70484-069b-4230-bf47-89324f7b64fc__searchJiraIssuesUsingJql",
+      "mcp__5ef70484-069b-4230-bf47-89324f7b64fc__addCommentToJiraIssue",
+      "mcp__5ef70484-069b-4230-bf47-89324f7b64fc__editJiraIssue",
+      "Bash(python manage.py makemigrations homework)",
+      "Bash(python manage.py migrate homework)",
+      "Bash(DB_PASSWORD=root python manage.py migrate homework)",
+      "Bash(DB_PASSWORD=root python manage.py check)",
+      "Bash(DB_PASSWORD=root python manage.py runserver 8000)",
+      "Bash(DB_PASSWORD=root python manage.py migrate)",
+      "Bash(DB_PASSWORD=root python manage.py test homework -v2)",
+      "Bash(DB_PASSWORD=root python manage.py makemigrations --merge --noinput)",
+      "Bash(gh pr:*)",
+      "Bash(DB_PASSWORD=root python -c \":*)",
+      "Bash(DB_PASSWORD=root python manage.py makemigrations classroom)",
+      "Bash(DB_PASSWORD=root python manage.py migrate classroom)",
+      "Bash(pip show:*)",
+      "Bash(DB_ENGINE=sqlite python -m pytest ui_tests/test_homework.py -v --tb=short)"
     ]
   }
 }

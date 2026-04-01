@@ -71,6 +71,7 @@ def _make_user(username: str, role_name: str, **extra):
         username=username,
         password=TEST_PASSWORD,
         email=f"{username}@test.local",
+        first_name=extra.pop("first_name", username.replace("_", " ").title()),
         profile_completed=True,
         must_change_password=False,
         **extra,
@@ -492,6 +493,44 @@ def progress_data(db, enrolled_student, level, topic):
         },
     )
     return stats
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Academic Year / Term fixtures
+# ═══════════════════════════════════════════════════════════════════════════
+
+@pytest.fixture
+def academic_year(db, school):
+    """Current academic year."""
+    from classroom.models import AcademicYear
+
+    today = date.today()
+    return AcademicYear.objects.create(
+        school=school,
+        year=today.year,
+        start_date=date(today.year, 1, 1),
+        end_date=date(today.year, 12, 31),
+        is_current=True,
+    )
+
+
+@pytest.fixture
+def future_term(db, school, academic_year):
+    """A term starting in the future (next month onwards)."""
+    from classroom.models import Term
+
+    today = date.today()
+    # Start 30 days from now, end 90 days from now
+    start = today + timedelta(days=30)
+    end = today + timedelta(days=90)
+    return Term.objects.create(
+        school=school,
+        academic_year=academic_year,
+        name="Term 2",
+        start_date=start,
+        end_date=end,
+        order=2,
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
