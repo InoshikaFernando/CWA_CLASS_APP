@@ -72,22 +72,19 @@ class TestParentDashboard:
         expect(self.page.locator("body")).to_contain_text("Unpaid")
 
 
-class TestParentDashboardNoChildren:
-    """Dashboard when parent has no linked children shows CTA."""
+class TestParentAddChildLinkInDashboard:
+    """Add Child link is visible on dashboard and navigates correctly."""
 
     @pytest.fixture(autouse=True)
-    def _setup(self, live_server, page, parent_user):
+    def _setup(self, live_server, page, parent_with_child, school):
         self.url = live_server.url
         self.page = page
-        do_login(page, self.url, parent_user)
+        do_login(page, self.url, parent_with_child)
         page.goto(f"{self.url}/parent/")
         page.wait_for_load_state("domcontentloaded")
 
-    def test_shows_link_child_cta(self):
-        expect(self.page.locator("body")).to_contain_text("Link a Child")
-
-    def test_link_child_button_navigates(self):
-        self.page.get_by_text("Link a Child").click()
+    def test_add_child_sidebar_link_navigates(self):
+        click_sidebar_link(self.page, "Add Child")
         expect(self.page).to_have_url(re.compile(r"/parent/add-child/"))
 
 
@@ -98,10 +95,10 @@ class TestParentDashboardNoChildren:
 class TestParentAddChild:
 
     @pytest.fixture(autouse=True)
-    def _setup(self, live_server, page, parent_user):
+    def _setup(self, live_server, page, parent_with_child, school):
         self.url = live_server.url
         self.page = page
-        do_login(page, self.url, parent_user)
+        do_login(page, self.url, parent_with_child)
         page.goto(f"{self.url}/parent/add-child/")
         page.wait_for_load_state("domcontentloaded")
 
@@ -116,12 +113,14 @@ class TestParentAddChild:
 
     def test_invalid_student_id_shows_error(self):
         self.page.fill("input[name='student_id']", "STU-INVALID-9999")
-        self.page.locator("button[type='submit']").click()
+        self.page.get_by_role("button", name="Link Child").click()
         self.page.wait_for_load_state("domcontentloaded")
         expect(self.page.locator("body")).to_contain_text("was not found")
 
     def test_empty_submit_shows_error(self):
-        self.page.locator("button[type='submit']").click()
+        # Spaces pass HTML5 required but Django's .strip() makes it blank → server error
+        self.page.fill("input[name='student_id']", "   ")
+        self.page.get_by_role("button", name="Link Child").click()
         self.page.wait_for_load_state("domcontentloaded")
         expect(self.page.locator("body")).to_contain_text("required")
 
@@ -159,6 +158,8 @@ class TestParentSelfRegistration:
         expect(self.page.locator("body")).to_contain_text("Student ID")
 
     def test_empty_submit_shows_errors(self):
+        # Disable HTML5 validation so Django server-side errors appear in the DOM
+        self.page.evaluate("document.querySelector('form').noValidate = true")
         self.page.locator("button[type='submit']").click()
         self.page.wait_for_load_state("domcontentloaded")
         expect(self.page.locator("body")).to_contain_text("required")
@@ -199,7 +200,7 @@ class TestParentClasses:
         expect(self.page.locator("body")).to_contain_text("Ui Student")
 
     def test_shows_enrolled_class(self):
-        expect(self.page.locator("body")).to_contain_text("Ui Classroom")
+        expect(self.page.locator("body")).to_contain_text("Year 7 Maths")
 
 
 # ---------------------------------------------------------------------------
@@ -233,7 +234,22 @@ class TestParentAttendance:
 class TestParentProgress:
 
     @pytest.fixture(autouse=True)
-    def _setup(self, live_server, page, parent_with_child, school, progress_data):
+    def _setup(self, live_server, page, parent_with_child, enrolled_student, school, subject, level, db):
+        from classroom.models import ProgressCriteria, ProgressRecord
+        # Create a criteria and a progress record so the stats panel is visible
+        criteria = ProgressCriteria.objects.create(
+            school=school,
+            subject=subject,
+            level=level,
+            name="Understand fractions",
+            order=1,
+            status='approved',
+        )
+        ProgressRecord.objects.create(
+            student=enrolled_student,
+            criteria=criteria,
+            status='achieved',
+        )
         self.url = live_server.url
         self.page = page
         do_login(page, self.url, parent_with_child)

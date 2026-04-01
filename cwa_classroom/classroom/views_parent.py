@@ -491,8 +491,8 @@ class ParentClassesView(RoleRequiredMixin, View):
             )
             .select_related(
                 'classroom', 'classroom__department',
-                'classroom__teacher', 'classroom__teacher__teacher',
             )
+            .prefetch_related('classroom__class_teachers__teacher')
             .order_by('classroom__day', 'classroom__start_time', 'classroom__name')
         )
 
