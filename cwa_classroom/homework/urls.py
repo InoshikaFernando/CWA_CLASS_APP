@@ -23,6 +23,9 @@ urlpatterns = [
     path('', views_student.HomeworkDashboardView.as_view(), name='dashboard'),
     path('<int:hw_id>/', views_student.HomeworkDetailView.as_view(), name='detail'),
     path('<int:hw_id>/submit/', views_student.HomeworkSubmitView.as_view(), name='submit'),
+    path('<int:hw_id>/mark-done/', views_student.MarkDoneView.as_view(), name='mark_done'),
+    path('<int:hw_id>/quiz/', views_student.HomeworkQuizView.as_view(), name='start_quiz'),
+    path('<int:hw_id>/quiz/submit/', views_student.SubmitHomeworkAnswerView.as_view(), name='submit_answer'),
 
     # Parent
     path('parent/', views_parent.ParentHomeworkView.as_view(), name='parent_dashboard'),

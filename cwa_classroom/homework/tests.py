@@ -23,7 +23,7 @@ from accounts.models import CustomUser, Role, UserRole
 from classroom.models import (
     School, Subject, Level, Topic, ClassRoom, ClassTeacher, ClassStudent,
 )
-from homework.models import Homework, HomeworkSubmission
+from homework.models import Homework, HomeworkQuestion, HomeworkSubmission
 from homework.forms import HomeworkForm, GradingForm
 
 
@@ -252,6 +252,7 @@ class TeacherHomeworkViewsTest(TestCase):
             'description': 'Do this',
             'due_date': (timezone.now() + timedelta(days=3)).strftime('%Y-%m-%dT%H:%M'),
             'max_attempts': 0,
+            'homework_type': 'note',
             'publish_option': 'publish',
         })
         self.assertEqual(resp.status_code, 302)
@@ -264,8 +265,10 @@ class TeacherHomeworkViewsTest(TestCase):
         resp = self.client.post(url, {
             'title': 'Draft HW',
             'topic': self.topic.pk,
+            'description': 'Revise this',
             'due_date': (timezone.now() + timedelta(days=3)).strftime('%Y-%m-%dT%H:%M'),
             'max_attempts': 0,
+            'homework_type': 'note',
             'publish_option': 'draft',
         })
         self.assertEqual(resp.status_code, 302)
@@ -278,8 +281,10 @@ class TeacherHomeworkViewsTest(TestCase):
         resp = self.client.post(url, {
             'title': 'Scheduled HW',
             'topic': self.topic.pk,
+            'description': 'Revise this',
             'due_date': (publish_at + timedelta(days=3)).strftime('%Y-%m-%dT%H:%M'),
             'max_attempts': 0,
+            'homework_type': 'note',
             'publish_option': 'schedule',
             'scheduled_publish_at': publish_at.strftime('%Y-%m-%dT%H:%M'),
         })
@@ -437,11 +442,17 @@ class StudentHomeworkViewsTest(TestCase):
         resp = self.client.get(reverse('homework:dashboard'))
         self.assertNotContains(resp, 'Draft HW')
 
-    def test_detail_page(self):
-        hw = _create_homework(self.classroom, self.topic, self.teacher)
+    def test_detail_page_note(self):
+        hw = _create_homework(self.classroom, self.topic, self.teacher, homework_type=Homework.TYPE_NOTE)
         resp = self.client.get(reverse('homework:detail', kwargs={'hw_id': hw.pk}))
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'Submit Your Work')
+        self.assertContains(resp, 'Mark as Done')
+
+    def test_detail_page_quiz(self):
+        hw = _create_homework(self.classroom, self.topic, self.teacher, homework_type=Homework.TYPE_QUIZ)
+        resp = self.client.get(reverse('homework:detail', kwargs={'hw_id': hw.pk}))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Quiz')
 
     def test_submit_homework(self):
         hw = _create_homework(self.classroom, self.topic, self.teacher)
@@ -472,18 +483,17 @@ class StudentHomeworkViewsTest(TestCase):
         )
 
     def test_unenrolled_student_read_only(self):
-        hw = _create_homework(self.classroom, self.topic, self.teacher)
+        hw = _create_homework(self.classroom, self.topic, self.teacher, homework_type=Homework.TYPE_PDF)
         HomeworkSubmission.objects.create(
             homework=hw, student=self.student, attempt_number=1, content='My work',
         )
-        # Deactivate enrollment
         cs = ClassStudent.objects.get(classroom=self.classroom, student=self.student)
         cs.is_active = False
         cs.save()
         resp = self.client.get(reverse('homework:detail', kwargs={'hw_id': hw.pk}))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'no longer enrolled')
-        self.assertNotContains(resp, 'Submit Your Work')
+        self.assertNotContains(resp, 'Upload &amp; Submit')
 
     def test_published_score_visible(self):
         hw = _create_homework(self.classroom, self.topic, self.teacher)
@@ -603,3 +613,115 @@ class PublishScheduledHomeworkTest(TestCase):
         out = StringIO()
         call_command('publish_scheduled_homework', stdout=out)
         self.assertIn('No scheduled homework', out.getvalue())
+
+
+# ===========================================================================
+# Homework Type Tests
+# ===========================================================================
+
+class MarkDoneViewTest(TestCase):
+    """Tests for note-type homework mark-as-done."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.school = _create_school()
+        cls.teacher = _create_user('teacher1', Role.TEACHER)
+        cls.student = _create_user('student1', Role.STUDENT)
+        cls.classroom, cls.topic, cls.level = _create_classroom(cls.school, cls.teacher)
+        ClassStudent.objects.create(classroom=cls.classroom, student=cls.student)
+
+    def setUp(self):
+        self.client = Client()
+        self.client.force_login(self.student)
+
+    def test_mark_done_creates_submission(self):
+        hw = _create_homework(
+            self.classroom, self.topic, self.teacher,
+            homework_type=Homework.TYPE_NOTE,
+        )
+        url = reverse('homework:mark_done', kwargs={'hw_id': hw.pk})
+        resp = self.client.post(url)
+        self.assertEqual(resp.status_code, 302)
+        sub = HomeworkSubmission.objects.get(homework=hw, student=self.student)
+        self.assertTrue(sub.is_auto_completed)
+        self.assertEqual(sub.attempt_number, 1)
+
+    def test_mark_done_rejects_non_note_type(self):
+        hw = _create_homework(
+            self.classroom, self.topic, self.teacher,
+            homework_type=Homework.TYPE_PDF,
+        )
+        url = reverse('homework:mark_done', kwargs={'hw_id': hw.pk})
+        resp = self.client.post(url)
+        self.assertEqual(resp.status_code, 404)
+
+    def test_mark_done_rejects_non_enrolled(self):
+        other = _create_user('other_student', Role.STUDENT)
+        hw = _create_homework(
+            self.classroom, self.topic, self.teacher,
+            homework_type=Homework.TYPE_NOTE,
+        )
+        client = Client()
+        client.force_login(other)
+        resp = client.post(reverse('homework:mark_done', kwargs={'hw_id': hw.pk}))
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(HomeworkSubmission.objects.count(), 0)
+
+
+class QuestionSnapshotTest(TestCase):
+    """Tests for quiz-type homework question snapshot."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.school = _create_school()
+        cls.teacher = _create_user('teacher1', Role.TEACHER)
+        cls.classroom, cls.topic, cls.level = _create_classroom(cls.school, cls.teacher)
+
+    def test_snapshot_creates_homework_questions(self):
+        from maths.models import Question, Answer
+        for i in range(5):
+            q = Question.objects.create(
+                level=self.level, topic=self.topic,
+                question_text=f'Q{i}', question_type='multiple_choice',
+            )
+            Answer.objects.create(question=q, answer_text='A', is_correct=True)
+
+        hw = _create_homework(
+            self.classroom, self.topic, self.teacher,
+            homework_type=Homework.TYPE_QUIZ,
+        )
+        hw.quiz_topics.set([self.topic])
+        hw.quiz_level = self.level
+        hw.num_questions = 3
+        hw.save()
+        hw.snapshot_questions()
+
+        self.assertEqual(HomeworkQuestion.objects.filter(homework=hw).count(), 3)
+
+    def test_snapshot_all_questions_when_num_is_none(self):
+        from maths.models import Question, Answer
+        for i in range(4):
+            q = Question.objects.create(
+                level=self.level, topic=self.topic,
+                question_text=f'Q{i}', question_type='multiple_choice',
+            )
+            Answer.objects.create(question=q, answer_text='A', is_correct=True)
+
+        hw = _create_homework(
+            self.classroom, self.topic, self.teacher,
+            homework_type=Homework.TYPE_QUIZ,
+        )
+        hw.quiz_topics.set([self.topic])
+        hw.quiz_level = self.level
+        hw.save()
+        hw.snapshot_questions()
+
+        self.assertEqual(HomeworkQuestion.objects.filter(homework=hw).count(), 4)
+
+    def test_snapshot_skipped_for_non_quiz(self):
+        hw = _create_homework(
+            self.classroom, self.topic, self.teacher,
+            homework_type=Homework.TYPE_NOTE,
+        )
+        hw.snapshot_questions()
+        self.assertEqual(HomeworkQuestion.objects.filter(homework=hw).count(), 0)

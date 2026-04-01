@@ -364,7 +364,13 @@
       "Bash(DB_PASSWORD=root python manage.py runserver 8000)",
       "Bash(DB_PASSWORD=root python manage.py migrate)",
       "Bash(DB_PASSWORD=root python manage.py test homework -v2)",
-      "Bash(DB_PASSWORD=root python manage.py makemigrations --merge --noinput)"
+      "Bash(DB_PASSWORD=root python manage.py makemigrations --merge --noinput)",
+      "Bash(gh pr:*)",
+      "Bash(DB_PASSWORD=root python -c \":*)",
+      "Bash(DB_PASSWORD=root python manage.py makemigrations classroom)",
+      "Bash(DB_PASSWORD=root python manage.py migrate classroom)",
+      "Bash(pip show:*)",
+      "Bash(DB_ENGINE=sqlite python -m pytest ui_tests/test_homework.py -v --tb=short)"
     ]
   }
 }
