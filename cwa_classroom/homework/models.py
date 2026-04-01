@@ -1,7 +1,8 @@
 """
 homework/models.py
 ==================
-Homework and HomeworkSubmission models for the Homework Module (CPP-74).
+Homework, HomeworkSubmission, and HomeworkQuestion models for the Homework
+Module (CPP-74).
 
 Uses lazy FK strings ('classroom.ClassRoom') to avoid circular imports,
 following the attendance app pattern.
@@ -27,6 +28,16 @@ class Homework(models.Model):
         (STATUS_CLOSED, 'Closed'),
     ]
 
+    TYPE_QUIZ = 'quiz'
+    TYPE_PDF = 'pdf'
+    TYPE_NOTE = 'note'
+
+    TYPE_CHOICES = [
+        (TYPE_QUIZ, 'Quiz'),
+        (TYPE_PDF, 'PDF Upload'),
+        (TYPE_NOTE, 'Note / Message'),
+    ]
+
     classroom = models.ForeignKey(
         'classroom.ClassRoom',
         on_delete=models.CASCADE,
@@ -36,9 +47,17 @@ class Homework(models.Model):
         'classroom.Topic',
         on_delete=models.PROTECT,
         related_name='homeworks',
+        null=True,
+        blank=True,
+        help_text='Primary topic (used for classification/filtering).',
     )
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
+    homework_type = models.CharField(
+        max_length=20,
+        choices=TYPE_CHOICES,
+        default=TYPE_QUIZ,
+    )
     assigned_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -70,6 +89,41 @@ class Homework(models.Model):
         default=True,
         help_text='False = soft-deleted (hidden from all users).',
     )
+
+    # ── PDF type fields ──
+    teacher_attachment = models.FileField(
+        upload_to='homework/teacher_files/%Y/%m/',
+        blank=True,
+        null=True,
+        help_text="Teacher's worksheet/instructions (PDF type).",
+    )
+
+    # ── Quiz type fields ──
+    quiz_topics = models.ManyToManyField(
+        'classroom.Topic',
+        blank=True,
+        related_name='quiz_homeworks',
+        help_text='Topics/subtopics for quiz-type homework.',
+    )
+    quiz_level = models.ForeignKey(
+        'classroom.Level',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='quiz_homeworks',
+        help_text='Level for quiz questions.',
+    )
+    num_questions = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text='Number of questions to select for quiz homework.',
+    )
+    min_score_percent = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text='Minimum score % for quiz homework (informational).',
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -109,6 +163,66 @@ class Homework(models.Model):
         self.published_at = timezone.now()
         self.save(update_fields=['status', 'published_at', 'updated_at'])
 
+    def snapshot_questions(self):
+        """Select and lock in questions for quiz-type homework.
+
+        Randomly picks ``num_questions`` from the selected quiz_topics
+        and creates HomeworkQuestion rows with a fixed order.
+        """
+        if self.homework_type != self.TYPE_QUIZ:
+            return
+
+        from maths.models import Question
+
+        topic_ids = list(self.quiz_topics.values_list('id', flat=True))
+        if not topic_ids:
+            return
+
+        questions = Question.objects.filter(
+            topic_id__in=topic_ids,
+        )
+        if self.quiz_level_id:
+            questions = questions.filter(level=self.quiz_level)
+
+        questions = list(questions.order_by('?'))
+        if self.num_questions and self.num_questions < len(questions):
+            questions = questions[:self.num_questions]
+
+        HomeworkQuestion.objects.filter(homework=self).delete()
+        for order, q in enumerate(questions, start=1):
+            HomeworkQuestion.objects.create(
+                homework=self,
+                question=q,
+                order=order,
+            )
+
+
+class HomeworkQuestion(models.Model):
+    """Snapshot of a question assigned to a quiz-type homework.
+
+    All students receive the same questions in the same order.
+    Created when the teacher saves the homework.
+    """
+
+    homework = models.ForeignKey(
+        Homework,
+        on_delete=models.CASCADE,
+        related_name='homework_questions',
+    )
+    question = models.ForeignKey(
+        'maths.Question',
+        on_delete=models.CASCADE,
+        related_name='homework_assignments',
+    )
+    order = models.PositiveIntegerField()
+
+    class Meta:
+        ordering = ['order']
+        unique_together = [('homework', 'question')]
+
+    def __str__(self):
+        return f'{self.homework.title} — Q{self.order}'
+
 
 class HomeworkSubmission(models.Model):
     """A single submission (attempt) by a student for a homework."""
@@ -139,7 +253,27 @@ class HomeworkSubmission(models.Model):
         null=True,
     )
 
-    # Grading fields (filled by teacher)
+    # ── Quiz type fields ──
+    quiz_session_id = models.CharField(
+        max_length=100,
+        blank=True,
+        default='',
+        help_text='Quiz session UUID for linking back to quiz flow.',
+    )
+    quiz_result = models.ForeignKey(
+        'maths.StudentFinalAnswer',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='homework_submissions',
+        help_text='Direct link to quiz result for score retrieval.',
+    )
+    is_auto_completed = models.BooleanField(
+        default=False,
+        help_text='True when auto-created by quiz completion or mark-as-done.',
+    )
+
+    # Grading fields (filled by teacher or auto-graded for quiz)
     score = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
     max_score = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
     feedback = models.TextField(blank=True)

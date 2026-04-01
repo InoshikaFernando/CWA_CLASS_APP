@@ -7,7 +7,7 @@ from .models import Homework, HomeworkSubmission
 
 
 class HomeworkForm(forms.ModelForm):
-    """Form for creating/editing homework assignments."""
+    """Form for creating/editing homework assignments with type selection."""
 
     PUBLISH_IMMEDIATELY = 'publish'
     SAVE_DRAFT = 'draft'
@@ -25,11 +25,18 @@ class HomeworkForm(forms.ModelForm):
         widget=forms.RadioSelect,
     )
 
+    homework_type = forms.ChoiceField(
+        choices=Homework.TYPE_CHOICES,
+        initial=Homework.TYPE_QUIZ,
+        widget=forms.RadioSelect,
+    )
+
     class Meta:
         model = Homework
         fields = [
-            'title', 'topic', 'description', 'due_date',
+            'title', 'homework_type', 'topic', 'description', 'due_date',
             'max_attempts', 'scheduled_publish_at',
+            'teacher_attachment', 'num_questions', 'min_score_percent',
         ]
         widgets = {
             'title': forms.TextInput(attrs={
@@ -61,6 +68,21 @@ class HomeworkForm(forms.ModelForm):
                     'class': 'w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500',
                 },
             ),
+            'teacher_attachment': forms.ClearableFileInput(attrs={
+                'class': 'w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100',
+                'accept': '.pdf,.doc,.docx,.png,.jpg,.jpeg',
+            }),
+            'num_questions': forms.NumberInput(attrs={
+                'class': 'w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500',
+                'placeholder': 'e.g. 10',
+                'min': '1',
+            }),
+            'min_score_percent': forms.NumberInput(attrs={
+                'class': 'w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500',
+                'placeholder': 'e.g. 70',
+                'min': '0',
+                'max': '100',
+            }),
         }
 
     def __init__(self, *args, classroom=None, **kwargs):
@@ -68,23 +90,27 @@ class HomeworkForm(forms.ModelForm):
         self.classroom = classroom
         if classroom:
             from classroom.models import Topic
-            # Filter topics to class subject/level
             level_ids = classroom.levels.values_list('id', flat=True)
             self.fields['topic'].queryset = Topic.objects.filter(
                 subject=classroom.subject,
                 levels__in=level_ids,
                 is_active=True,
-                parent__isnull=True,  # Top-level topics only
+                parent__isnull=True,
             ).distinct()
         self.fields['topic'].widget.attrs.update({
             'class': 'w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500',
         })
         self.fields['topic'].empty_label = 'Select topic...'
+        self.fields['topic'].required = False
         self.fields['scheduled_publish_at'].required = False
+        self.fields['teacher_attachment'].required = False
+        self.fields['num_questions'].required = False
+        self.fields['min_score_percent'].required = False
 
     def clean(self):
         cleaned = super().clean()
         publish_option = cleaned.get('publish_option')
+        homework_type = cleaned.get('homework_type')
         due_date = cleaned.get('due_date')
         scheduled_at = cleaned.get('scheduled_publish_at')
         now = timezone.now()
@@ -93,7 +119,6 @@ class HomeworkForm(forms.ModelForm):
             self.add_error('due_date', 'Due date must be in the future.')
 
         if publish_option == self.PUBLISH_IMMEDIATELY:
-            # Enforce 7-day rule on immediate publish
             if due_date and due_date > now + timedelta(days=7):
                 self.add_error(
                     'due_date',
@@ -102,27 +127,30 @@ class HomeworkForm(forms.ModelForm):
 
         if publish_option == self.SCHEDULE:
             if not scheduled_at:
-                self.add_error(
-                    'scheduled_publish_at',
-                    'Schedule date is required when scheduling.',
-                )
+                self.add_error('scheduled_publish_at', 'Schedule date is required.')
             elif scheduled_at <= now:
-                self.add_error(
-                    'scheduled_publish_at',
-                    'Schedule date must be in the future.',
-                )
-            # Enforce 7-day rule from scheduled publish date
+                self.add_error('scheduled_publish_at', 'Schedule date must be in the future.')
             if due_date and scheduled_at and due_date > scheduled_at + timedelta(days=7):
-                self.add_error(
-                    'due_date',
-                    'Due date must be within 7 days of the scheduled publish date.',
-                )
+                self.add_error('due_date', 'Due date must be within 7 days of the scheduled publish date.')
+
+        # Type-specific validation
+        if homework_type == Homework.TYPE_PDF:
+            if not cleaned.get('teacher_attachment') and not (self.instance and self.instance.teacher_attachment):
+                self.add_error('teacher_attachment', 'A PDF/file is required for PDF-type homework.')
+
+        if homework_type == Homework.TYPE_NOTE:
+            if not cleaned.get('description'):
+                self.add_error('description', 'A message is required for note-type homework.')
+
+        if homework_type == Homework.TYPE_QUIZ:
+            if not cleaned.get('topic'):
+                self.add_error('topic', 'A topic is required for quiz-type homework.')
 
         return cleaned
 
 
 class HomeworkSubmissionForm(forms.ModelForm):
-    """Form for students submitting homework."""
+    """Form for students submitting homework (PDF type: file upload)."""
 
     class Meta:
         model = HomeworkSubmission
@@ -137,6 +165,24 @@ class HomeworkSubmissionForm(forms.ModelForm):
                 'class': 'w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100',
             }),
         }
+
+
+class PDFSubmissionForm(forms.ModelForm):
+    """Form for PDF-type homework — only file upload, required."""
+
+    class Meta:
+        model = HomeworkSubmission
+        fields = ['attachment']
+        widgets = {
+            'attachment': forms.ClearableFileInput(attrs={
+                'class': 'w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100',
+                'accept': '.pdf,.doc,.docx,.png,.jpg,.jpeg',
+            }),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['attachment'].required = True
 
 
 class GradingForm(forms.Form):
