@@ -257,7 +257,21 @@ class TestParentProgress:
 class TestParentInvoices:
 
     @pytest.fixture(autouse=True)
-    def _setup(self, live_server, page, parent_with_child, school, invoice):
+    def _setup(self, live_server, page, parent_with_child, school, enrolled_student, classroom, db):
+        from decimal import Decimal
+        from datetime import date, timedelta
+        from classroom.models import Invoice
+        # Create an issued invoice so the parent can see it
+        self.issued_invoice = Invoice.objects.create(
+            student=enrolled_student,
+            school=school,
+            invoice_number="INV-PARENT-001",
+            billing_period_start=date.today() - timedelta(days=30),
+            billing_period_end=date.today(),
+            status="issued",
+            amount=Decimal("120.00"),
+            calculated_amount=Decimal("120.00"),
+        )
         self.url = live_server.url
         self.page = page
         do_login(page, self.url, parent_with_child)
@@ -271,4 +285,4 @@ class TestParentInvoices:
         expect(self.page.locator("h1")).to_contain_text("Invoices")
 
     def test_shows_invoice_number(self):
-        expect(self.page.locator("body")).to_contain_text("INV-")
+        expect(self.page.locator("body")).to_contain_text("INV-PARENT-001")

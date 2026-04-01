@@ -500,17 +500,16 @@ class ParentClassesView(RoleRequiredMixin, View):
         from django.utils import timezone
         import datetime
         today = timezone.now().date()
+        enrolled_ids = list(enrollments.values_list('classroom_id', flat=True))
         upcoming = (
             ClassSession.objects.filter(
-                classroom__classstudent__student=child,
-                classroom__school=school,
+                classroom_id__in=enrolled_ids,
                 date__gte=today,
                 date__lte=today + datetime.timedelta(days=14),
                 status__in=['scheduled', 'in_progress'],
             )
             .select_related('classroom')
             .order_by('date', 'start_time')
-            .distinct()
         )
 
         return render(request, 'parent/classes.html', {
