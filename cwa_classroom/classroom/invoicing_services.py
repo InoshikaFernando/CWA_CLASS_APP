@@ -720,6 +720,8 @@ def _send_invoice_email(invoice):
             context=context,
             recipient_user=student,
             notification_type='invoice',
+            school=school,
+            department=primary_dept,
         )
     except Exception as e:
         logger.exception('Failed to send invoice email for %s: %s', invoice.invoice_number, e)

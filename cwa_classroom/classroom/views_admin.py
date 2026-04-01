@@ -417,6 +417,17 @@ class SchoolSettingsView(RoleRequiredMixin, View):
             else:
                 setattr(school, field, request.POST.get(field, '').strip())
 
+        # Validate outgoing_email if provided
+        outgoing_email = request.POST.get('outgoing_email', '').strip()
+        if outgoing_email:
+            from django.core.validators import validate_email
+            from django.core.exceptions import ValidationError as DjangoValidationError
+            try:
+                validate_email(outgoing_email)
+            except DjangoValidationError:
+                messages.error(request, 'Please enter a valid outgoing email address.')
+                return redirect(f"{reverse('admin_school_settings', kwargs={'school_id': school.id})}?tab={tab}")
+
         # Handle logo upload
         if 'logo' in request.FILES:
             school.logo = request.FILES['logo']
