@@ -204,9 +204,13 @@ class TeacherCenterRegisterView(View):
         postal_code = request.POST.get('postal_code', '').strip()
         country = request.POST.get('country', '').strip()
 
+        accept_terms = request.POST.get('accept_terms')
+
         errors = _validate_registration(username, email, password, confirm)
         if not center_name:
             errors.append('School / centre name is required.')
+        if not accept_terms:
+            errors.append('You must accept the Terms and Conditions and Privacy Policy.')
 
         from billing.models import InstitutePlan, InstituteDiscountCode, SchoolSubscription
         plan = None
@@ -247,6 +251,8 @@ class TeacherCenterRegisterView(View):
                 user = CustomUser.objects.create_user(
                     username=username, email=email, password=password,
                 )
+                user.terms_accepted_at = timezone.now()
+                user.save(update_fields=['terms_accepted_at'])
 
                 # 2. Assign Head of Institute role
                 role, _ = Role.objects.get_or_create(
@@ -368,6 +374,7 @@ class SchoolStudentRegisterView(View):
         password = request.POST.get('password', '')
         confirm = request.POST.get('confirm_password', '')
         username = request.POST.get('username', '').strip()
+        accept_terms = request.POST.get('accept_terms')
 
         errors = []
         if not first_name:
@@ -382,6 +389,8 @@ class SchoolStudentRegisterView(View):
             errors.append('Password must be at least 8 characters.')
         if password != confirm:
             errors.append('Passwords do not match.')
+        if not accept_terms:
+            errors.append('You must accept the Terms and Conditions and Privacy Policy.')
 
         # Username: use provided or auto-generate from email
         if username:
@@ -399,6 +408,7 @@ class SchoolStudentRegisterView(View):
             })
 
         try:
+            from django.utils import timezone
             with transaction.atomic():
                 user = CustomUser.objects.create_user(
                     username=username,
@@ -407,6 +417,9 @@ class SchoolStudentRegisterView(View):
                     first_name=first_name,
                     last_name=last_name,
                 )
+                user.terms_accepted_at = timezone.now()
+                user.save(update_fields=['terms_accepted_at'])
+
                 student_role, _ = Role.objects.get_or_create(
                     name=Role.STUDENT,
                     defaults={'display_name': 'Student'},
@@ -462,6 +475,7 @@ class IndividualStudentRegisterView(View):
         confirm = request.POST.get('confirm_password', '')
         package_id = request.POST.get('package_id')
         discount_code_str = request.POST.get('discount_code', '').strip().upper()
+        accept_terms = request.POST.get('accept_terms')
 
         # Personal / address fields (Step 2)
         first_name = request.POST.get('first_name', '').strip()
@@ -474,6 +488,8 @@ class IndividualStudentRegisterView(View):
         country = request.POST.get('country', '').strip()
 
         errors = _validate_registration(username, email, password, confirm)
+        if not accept_terms:
+            errors.append('You must accept the Terms and Conditions and Privacy Policy.')
 
         package = None
         if not package_id:
@@ -516,9 +532,12 @@ class IndividualStudentRegisterView(View):
                     phone=phone, street_address=street_address,
                     city=city, postal_code=postal_code, country=country,
                 )
+                user.terms_accepted_at = timezone.now()
+                update_fields = ['terms_accepted_at']
                 if date_of_birth:
                     user.date_of_birth = date_of_birth
-                    user.save(update_fields=['date_of_birth'])
+                    update_fields.append('date_of_birth')
+                user.save(update_fields=update_fields)
 
                 role, _ = Role.objects.get_or_create(
                     name=Role.INDIVIDUAL_STUDENT,
@@ -662,6 +681,7 @@ class ParentRegisterView(View):
         password = request.POST.get('password', '')
         confirm = request.POST.get('confirm_password', '')
         username = request.POST.get('username', '').strip()
+        accept_terms = request.POST.get('accept_terms')
 
         errors = []
         if not first_name:
@@ -676,6 +696,8 @@ class ParentRegisterView(View):
             errors.append('Password must be at least 8 characters.')
         if password != confirm:
             errors.append('Passwords do not match.')
+        if not accept_terms:
+            errors.append('You must accept the Terms and Conditions and Privacy Policy.')
 
         if username:
             errors.extend(_validate_username(username))
@@ -698,6 +720,9 @@ class ParentRegisterView(View):
                     username=username, email=email, password=password,
                     first_name=first_name, last_name=last_name,
                 )
+                user.terms_accepted_at = timezone.now()
+                user.save(update_fields=['terms_accepted_at'])
+
                 parent_role, _ = Role.objects.get_or_create(
                     name=Role.PARENT,
                     defaults={'display_name': 'Parent'},

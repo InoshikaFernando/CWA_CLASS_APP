@@ -1,0 +1,402 @@
+{% comment %}
+Reusable Terms & Privacy acceptance widget.
+Shows scrollable T&C and Privacy Policy content with scroll-to-bottom
+verification. Checkbox is disabled until both documents are scrolled.
+
+Include in any registration template:
+  {% include "partials/terms_acceptance.html" %}
+{% endcomment %}
+
+<div class="space-y-4" id="terms-acceptance-widget">
+
+  <!-- Terms and Conditions -->
+  <div>
+    <div class="flex items-center justify-between mb-1.5">
+      <h3 class="text-sm font-semibold text-gray-700">Terms and Conditions</h3>
+      <span id="terms-status" class="text-xs text-gray-400 flex items-center gap-1">
+        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 13.5L12 21m0 0l-7.5-7.5M12 21V3"/>
+        </svg>
+        Scroll to read
+      </span>
+    </div>
+    <div id="terms-scroll" class="max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-4 text-xs text-gray-600 leading-relaxed space-y-4">
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">1. Introduction</p>
+        <p>Welcome to the Classroom platform operated by Code Wizard Aotearoa ("we", "us", or "our"). These Terms and Conditions ("Terms") govern your access to and use of our educational platform at <strong>wizardslearninghub.co.nz</strong>.</p>
+        <p class="mt-1">By accessing or using our platform, you agree to be bound by these Terms. If you do not agree to these Terms, please do not use the platform. If you are a parent or guardian registering a child, you agree to these Terms on behalf of your child.</p>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">2. Definitions</p>
+        <ul class="list-disc list-inside space-y-0.5">
+          <li><strong>"Platform"</strong> refers to the Classroom web application and all associated services.</li>
+          <li><strong>"User"</strong> refers to any person who accesses or uses the platform.</li>
+          <li><strong>"School"</strong> refers to an educational institution registered on the platform.</li>
+          <li><strong>"Content"</strong> refers to all educational materials, quizzes, resources, and data.</li>
+          <li><strong>"Account"</strong> refers to a registered user profile on the platform.</li>
+        </ul>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">3. Eligibility</p>
+        <ul class="list-disc list-inside space-y-0.5">
+          <li>The platform is designed for students in Year 1-9 and their parents, teachers, and school administrators.</li>
+          <li>Student accounts must be created by a parent, teacher, or school administrator.</li>
+          <li>Users under the age of 16 must have consent from a parent or guardian.</li>
+          <li>By registering, you confirm that the information you provide is accurate and complete.</li>
+        </ul>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">4. User Accounts</p>
+        <p class="font-semibold text-gray-600 mt-1 mb-0.5">4.1 Account Creation</p>
+        <p>Accounts are created by authorised personnel such as school administrators, teachers, or parents. Each user is assigned a role that determines their access level.</p>
+        <p class="font-semibold text-gray-600 mt-1 mb-0.5">4.2 Account Security</p>
+        <ul class="list-disc list-inside space-y-0.5">
+          <li>You are responsible for maintaining the confidentiality of your login credentials.</li>
+          <li>You must notify us immediately of any unauthorised use of your account.</li>
+          <li>We are not liable for any loss arising from unauthorised use of your account.</li>
+          <li>Sharing account credentials with others is prohibited.</li>
+        </ul>
+        <p class="font-semibold text-gray-600 mt-1 mb-0.5">4.3 Account Suspension</p>
+        <p>We reserve the right to suspend or terminate accounts that violate these Terms, engage in inappropriate behaviour, or at the request of a school administrator.</p>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">5. Acceptable Use</p>
+        <p>When using the platform, you agree <strong>not</strong> to:</p>
+        <ul class="list-disc list-inside space-y-0.5">
+          <li>Use the platform for any unlawful purpose</li>
+          <li>Attempt to gain unauthorised access to any part of the platform</li>
+          <li>Interfere with or disrupt the platform's functionality</li>
+          <li>Upload malicious software or harmful content</li>
+          <li>Impersonate another user or misrepresent your identity</li>
+          <li>Harass, bully, or intimidate other users</li>
+          <li>Copy, distribute, or modify platform content without permission</li>
+          <li>Use automated tools to scrape or extract data from the platform</li>
+          <li>Share confidential student or school information with unauthorised parties</li>
+        </ul>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">6. Educational Content</p>
+        <p>All educational content on the platform is provided for educational purposes only.</p>
+        <ul class="list-disc list-inside space-y-0.5">
+          <li>Content is aligned with the New Zealand curriculum where applicable.</li>
+          <li>We strive to ensure content accuracy but do not guarantee it is error-free.</li>
+          <li>Content may be updated, modified, or removed at any time.</li>
+          <li>Educational materials remain the intellectual property of Code Wizard Aotearoa.</li>
+        </ul>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">7. Billing and Payments</p>
+        <ul class="list-disc list-inside space-y-0.5">
+          <li>Certain features of the platform may require payment.</li>
+          <li>Payments are processed securely through Stripe.</li>
+          <li>All fees are quoted in New Zealand Dollars (NZD) unless otherwise stated.</li>
+          <li>Schools are responsible for managing their billing and invoicing through the platform.</li>
+          <li>Refund requests are handled on a case-by-case basis.</li>
+          <li>We reserve the right to change pricing with reasonable notice.</li>
+        </ul>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">8. Intellectual Property</p>
+        <p>All intellectual property rights in the platform, including its design, code, content, logos, and branding, are owned by Code Wizard Aotearoa.</p>
+        <ul class="list-disc list-inside space-y-0.5">
+          <li>You may not reproduce, distribute, or create derivative works without written permission.</li>
+          <li>The "Code Wizard Aotearoa" and "Classroom" names and logos are our trademarks.</li>
+          <li>User-generated content remains the property of the respective user or school.</li>
+        </ul>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">9. Privacy</p>
+        <p>Your use of the platform is also governed by our Privacy Policy, which explains how we collect, use, and protect your information.</p>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">10. Disclaimer of Warranties</p>
+        <p>The platform is provided on an "as is" and "as available" basis. To the maximum extent permitted by New Zealand law, we disclaim all warranties.</p>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">11. Limitation of Liability</p>
+        <p>To the maximum extent permitted by the NZ Consumer Guarantees Act 1993: we shall not be liable for indirect, incidental, or consequential damages. Our total liability shall not exceed the amount paid in the 12 months preceding the claim.</p>
+        <p class="mt-1">Nothing in these Terms limits liability that cannot be limited under New Zealand law.</p>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">12. Indemnification</p>
+        <p>You agree to indemnify and hold harmless Code Wizard Aotearoa from any claims, losses, or damages arising from your breach of these Terms or misuse of the platform.</p>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">13. Termination</p>
+        <ul class="list-disc list-inside space-y-0.5">
+          <li>You may stop using the platform at any time.</li>
+          <li>We may suspend or terminate your access for violations of these Terms.</li>
+          <li>Schools may request account termination for their staff and students.</li>
+          <li>Upon termination, your right to use the platform ceases immediately.</li>
+        </ul>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">14. Changes to These Terms</p>
+        <p>We may update these Terms from time to time. Continued use after changes constitutes acceptance of the updated Terms.</p>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">15. Governing Law</p>
+        <p>These Terms are governed by and construed in accordance with the laws of New Zealand. Disputes shall be subject to the exclusive jurisdiction of the New Zealand courts.</p>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">16. Contact Us</p>
+        <p>Email: contact@wizardslearninghub.co.nz | Location: Auckland, New Zealand</p>
+      </div>
+
+    </div>
+    <p class="text-xs text-gray-400 mt-1">
+      <a href="{% url 'terms_conditions' %}" target="_blank" class="text-primary underline hover:text-primary-dark">View full Terms and Conditions</a>
+    </p>
+  </div>
+
+  <!-- Privacy Policy -->
+  <div>
+    <div class="flex items-center justify-between mb-1.5">
+      <h3 class="text-sm font-semibold text-gray-700">Privacy Policy</h3>
+      <span id="privacy-status" class="text-xs text-gray-400 flex items-center gap-1">
+        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 13.5L12 21m0 0l-7.5-7.5M12 21V3"/>
+        </svg>
+        Scroll to read
+      </span>
+    </div>
+    <div id="privacy-scroll" class="max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-4 text-xs text-gray-600 leading-relaxed space-y-4">
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">1. Introduction</p>
+        <p>Code Wizard Aotearoa ("we", "us", or "our") operates the Classroom platform (<strong>wizardslearninghub.co.nz</strong>). This Privacy Policy explains how we collect, use, disclose, and safeguard your information.</p>
+        <p class="mt-1">We are committed to protecting the privacy of all users, especially students in Year 1-9 who use our educational services.</p>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">2. Information We Collect</p>
+        <p class="font-semibold text-gray-600 mt-1 mb-0.5">2.1 Personal Information</p>
+        <ul class="list-disc list-inside space-y-0.5">
+          <li>Full name, email address, phone number (optional)</li>
+          <li>School and class information</li>
+          <li>User role (student, parent, teacher, administrator)</li>
+          <li>Profile information</li>
+        </ul>
+        <p class="font-semibold text-gray-600 mt-1 mb-0.5">2.2 Educational Data</p>
+        <ul class="list-disc list-inside space-y-0.5">
+          <li>Quiz results and scores</li>
+          <li>Learning progress and activity data</li>
+          <li>Attendance records and class participation data</li>
+        </ul>
+        <p class="font-semibold text-gray-600 mt-1 mb-0.5">2.3 Automatically Collected Information</p>
+        <ul class="list-disc list-inside space-y-0.5">
+          <li>Browser type, operating system, IP address</li>
+          <li>Pages visited and time spent, referring website</li>
+        </ul>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">3. How We Use Your Information</p>
+        <ul class="list-disc list-inside space-y-0.5">
+          <li>To provide and maintain our educational services</li>
+          <li>To manage user accounts and authentication</li>
+          <li>To track and report on student progress</li>
+          <li>To facilitate communication between parents, teachers, and administrators</li>
+          <li>To process billing and payments</li>
+          <li>To send important notifications and updates</li>
+          <li>To improve and personalise the learning experience</li>
+          <li>To ensure the security of our platform</li>
+          <li>To comply with legal obligations</li>
+        </ul>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">4. Children's Privacy</p>
+        <p>We take the privacy of children very seriously. Our platform is designed for students in Year 1-9.</p>
+        <ul class="list-disc list-inside space-y-0.5">
+          <li>Student accounts are created and managed by parents, teachers, or school administrators.</li>
+          <li>We do not knowingly collect personal information directly from children without consent.</li>
+          <li>Children's data is used solely for educational purposes.</li>
+          <li>Parents and guardians can request to review, modify, or delete their child's information.</li>
+        </ul>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">5. Data Sharing and Disclosure</p>
+        <p>We do not sell your personal information. We may share data:</p>
+        <ul class="list-disc list-inside space-y-0.5">
+          <li><strong>Within your school:</strong> Teachers and administrators can access relevant student data.</li>
+          <li><strong>Parents/Guardians:</strong> Can view their child's progress and activity.</li>
+          <li><strong>Service providers:</strong> Trusted third parties (Stripe, cloud hosting) that process data on our behalf.</li>
+          <li><strong>Legal requirements:</strong> If required by law or to protect our rights and safety.</li>
+        </ul>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">6. Data Security</p>
+        <p>We implement appropriate measures including: encrypted data transmission (HTTPS/SSL), secure password hashing, role-based access controls, regular security reviews, and secure cloud infrastructure.</p>
+        <p class="mt-1">No method of electronic storage or transmission is 100% secure. We cannot guarantee absolute security.</p>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">7. Data Retention</p>
+        <p>We retain personal information for as long as necessary. When data is no longer needed, we will securely delete or anonymise it. You may request deletion at any time.</p>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">8. Cookies</p>
+        <p>Our platform uses essential cookies required for session management and security tokens (CSRF protection). We do not use third-party tracking or advertising cookies.</p>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">9. Your Rights</p>
+        <p>Under the New Zealand Privacy Act 2020, you have the right to:</p>
+        <ul class="list-disc list-inside space-y-0.5">
+          <li>Access your personal information</li>
+          <li>Request correction of inaccurate information</li>
+          <li>Request deletion of your data</li>
+          <li>Object to certain uses of your data</li>
+          <li>Withdraw consent at any time</li>
+          <li>Lodge a complaint with the Privacy Commissioner</li>
+        </ul>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">10. Third-Party Services</p>
+        <ul class="list-disc list-inside space-y-0.5">
+          <li><strong>Stripe:</strong> For secure payment processing.</li>
+          <li><strong>Amazon Web Services (AWS):</strong> For cloud hosting and file storage.</li>
+          <li><strong>Google Fonts:</strong> For typography rendering.</li>
+        </ul>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">11. Changes to This Policy</p>
+        <p>We may update this Privacy Policy from time to time. Continued use after changes constitutes acceptance of the updated policy.</p>
+      </div>
+
+      <div>
+        <p class="font-bold text-gray-700 mb-1">12. Contact Us</p>
+        <p>Email: contact@wizardslearninghub.co.nz | Location: Auckland, New Zealand</p>
+      </div>
+
+    </div>
+    <p class="text-xs text-gray-400 mt-1">
+      <a href="{% url 'privacy_policy' %}" target="_blank" class="text-primary underline hover:text-primary-dark">View full Privacy Policy</a>
+    </p>
+  </div>
+
+  <!-- Acceptance Checkbox (disabled until both scrolled) -->
+  <div class="flex items-start gap-2 pt-2">
+    <input type="checkbox" name="accept_terms" id="accept-terms" disabled
+           class="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-not-allowed" />
+    <label for="accept-terms" class="text-sm text-gray-600" id="accept-terms-label">
+      <span class="text-gray-400" id="accept-terms-text">Please scroll through both documents above to enable this checkbox.</span>
+    </label>
+  </div>
+
+</div>
+
+<script>
+(function() {
+  var termsScrolled = false;
+  var privacyScrolled = false;
+  var termsBox = document.getElementById('terms-scroll');
+  var privacyBox = document.getElementById('privacy-scroll');
+  var checkbox = document.getElementById('accept-terms');
+  var labelText = document.getElementById('accept-terms-text');
+  var termsStatus = document.getElementById('terms-status');
+  var privacyStatus = document.getElementById('privacy-status');
+
+  function isScrolledToBottom(el) {
+    return Math.abs(el.scrollHeight - el.scrollTop - el.clientHeight) < 10;
+  }
+
+  function markRead(statusEl) {
+    statusEl.innerHTML =
+      '<svg class="w-3.5 h-3.5 text-green-600" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">' +
+        '<path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>' +
+      '</svg>' +
+      '<span class="text-green-600">Read</span>';
+  }
+
+  function checkBothRead() {
+    if (termsScrolled && privacyScrolled) {
+      checkbox.disabled = false;
+      checkbox.classList.remove('cursor-not-allowed');
+      checkbox.classList.add('cursor-pointer');
+      labelText.innerHTML = 'I have read and agree to the ' +
+        '<a href="{% url "terms_conditions" %}" target="_blank" class="text-primary underline hover:text-primary-dark">Terms and Conditions</a>' +
+        ' and ' +
+        '<a href="{% url "privacy_policy" %}" target="_blank" class="text-primary underline hover:text-primary-dark">Privacy Policy</a>.';
+    }
+  }
+
+  function isVisible(el) {
+    return el.offsetHeight > 0 && el.offsetWidth > 0;
+  }
+
+  function checkShortContent() {
+    // Only auto-mark as read if the container is visible and content fits without scrolling
+    if (termsBox && !termsScrolled && isVisible(termsBox) && termsBox.scrollHeight <= termsBox.clientHeight + 10) {
+      termsScrolled = true;
+      markRead(termsStatus);
+      checkBothRead();
+    }
+    if (privacyBox && !privacyScrolled && isVisible(privacyBox) && privacyBox.scrollHeight <= privacyBox.clientHeight + 10) {
+      privacyScrolled = true;
+      markRead(privacyStatus);
+      checkBothRead();
+    }
+  }
+
+  if (termsBox) {
+    termsBox.addEventListener('scroll', function() {
+      if (!termsScrolled && isScrolledToBottom(termsBox)) {
+        termsScrolled = true;
+        markRead(termsStatus);
+        checkBothRead();
+      }
+    });
+  }
+
+  if (privacyBox) {
+    privacyBox.addEventListener('scroll', function() {
+      if (!privacyScrolled && isScrolledToBottom(privacyBox)) {
+        privacyScrolled = true;
+        markRead(privacyStatus);
+        checkBothRead();
+      }
+    });
+  }
+
+  // Initial check (for single-step forms where content is already visible)
+  checkShortContent();
+
+  // For multi-step forms: re-check when the widget becomes visible
+  var observer = new MutationObserver(function() {
+    if (isVisible(termsBox || privacyBox)) {
+      checkShortContent();
+    }
+  });
+  var widget = document.getElementById('terms-acceptance-widget');
+  if (widget) {
+    // Observe changes on ancestors (step panels toggling visibility)
+    var parent = widget.closest('.step-panel') || widget.parentElement;
+    if (parent) {
+      observer.observe(parent, { attributes: true, attributeFilter: ['class', 'style'] });
+    }
+  }
+})();
+</script>
