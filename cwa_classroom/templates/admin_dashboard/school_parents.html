@@ -1,7 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Manage Parents — {{ school.name }}{% endblock %}
 {% block content %}
-<div class="max-w-7xl mx-auto" x-data="{ showEditModal: false }">
+<div class="max-w-7xl mx-auto" x-data="{
+  showEditModal: false,
+  openEditModal(url) {
+    fetch(url).then(r => r.text()).then(html => {
+      document.getElementById('parent-edit-modal-content').innerHTML = html;
+      this.showEditModal = true;
+    });
+  }
+}">
 
   <!-- Header -->
   <div class="mb-8">
@@ -80,16 +88,4 @@
 
 </div>
 
-<script>
-document.body.addEventListener('htmx:afterSwap', function(evt) {
-  if (evt.detail.target && evt.detail.target.id === 'parent-edit-modal-content') {
-    var wrapper = document.querySelector('[x-data]');
-    if (wrapper && wrapper.__x) {
-      wrapper.__x.$data.showEditModal = true;
-    } else if (window.Alpine) {
-      Alpine.evaluate(wrapper, 'showEditModal = true');
-    }
-  }
-});
-</script>
 {% endblock %}
