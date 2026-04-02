@@ -49,10 +49,10 @@ class HoDCrossDepartmentTestBase(TestCase):
         self.school = School.objects.create(
             name='Test School', slug='test-school-hod', admin=self.inoshi,
         )
-        SchoolTeacher.objects.create(
+        SchoolTeacher.objects.update_or_create(
             school=self.school, teacher=self.inoshi, is_active=True,
         )
-        SchoolTeacher.objects.create(
+        SchoolTeacher.objects.update_or_create(
             school=self.school, teacher=self.bob, is_active=True,
         )
 

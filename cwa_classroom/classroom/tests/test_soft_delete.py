@@ -66,7 +66,7 @@ def _setup_department(school, head=None):
     DepartmentSubject.objects.create(department=dept, subject=subj)
     if head:
         DepartmentTeacher.objects.create(department=dept, teacher=head)
-        SchoolTeacher.objects.get_or_create(
+        SchoolTeacher.objects.update_or_create(
             school=school, teacher=head,
             defaults={'role': 'head_of_department'},
         )
@@ -78,7 +78,7 @@ def _setup_teacher(school, dept=None, username='teacher1', email='teacher1@test.
         username=username, password='pass12345', email=email,
     )
     _assign_role(teacher, Role.TEACHER)
-    st = SchoolTeacher.objects.create(school=school, teacher=teacher, role='teacher')
+    st = SchoolTeacher.objects.update_or_create(school=school, teacher=teacher, defaults={'role': 'teacher'})
     if dept:
         DepartmentTeacher.objects.create(department=dept, teacher=teacher)
     return teacher, st
@@ -149,9 +149,8 @@ class ClassArchiveRestoreTests(TestCase):
             username='hod_only', password='pass12345', email='hod@test.com',
         )
         _assign_role(hod, Role.HEAD_OF_DEPARTMENT)
-        SchoolTeacher.objects.create(
-            school=self.school, teacher=hod, role='head_of_department',
-        )
+        SchoolTeacher.objects.update_or_create(
+            school=self.school, teacher=hod, defaults={'role': 'head_of_department'})
         dept2 = Department.objects.create(
             school=self.school, name='Science', slug='science', head=hod,
         )
@@ -222,7 +221,7 @@ class DepartmentArchiveRestoreTests(TestCase):
             username='plain_teacher', password='pass12345', email='pt@test.com',
         )
         _assign_role(teacher, Role.TEACHER)
-        SchoolTeacher.objects.create(school=self.school, teacher=teacher, role='teacher')
+        SchoolTeacher.objects.update_or_create(school=self.school, teacher=teacher, defaults={'role': 'teacher'})
         self.client.login(username='plain_teacher', password='pass12345')
 
         url = reverse('admin_department_toggle_active', kwargs={

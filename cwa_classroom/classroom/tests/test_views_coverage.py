@@ -60,7 +60,7 @@ def _setup_department(school, head=None):
     DepartmentSubject.objects.create(department=dept, subject=subj)
     if head:
         DepartmentTeacher.objects.create(department=dept, teacher=head)
-        SchoolTeacher.objects.get_or_create(
+        SchoolTeacher.objects.update_or_create(
             school=school, teacher=head,
             defaults={'role': 'head_of_department'},
         )
@@ -72,7 +72,7 @@ def _setup_teacher(school, dept=None):
         username='teacher1', password='pass12345', email='teacher1@test.com',
     )
     _assign_role(teacher, Role.TEACHER)
-    SchoolTeacher.objects.create(school=school, teacher=teacher, role='teacher')
+    SchoolTeacher.objects.update_or_create(school=school, teacher=teacher, defaults={'role': 'teacher'})
     if dept:
         DepartmentTeacher.objects.create(department=dept, teacher=teacher)
     return teacher
@@ -421,7 +421,7 @@ class AssignTeachersViewTests(TestCase):
         # Create another teacher
         teacher2 = CustomUser.objects.create_user('teacher2', 't2@t.com', 'pass12345')
         _assign_role(teacher2, Role.TEACHER)
-        SchoolTeacher.objects.create(school=self.school, teacher=teacher2, role='teacher')
+        SchoolTeacher.objects.update_or_create(school=self.school, teacher=teacher2, defaults={'role': 'teacher'})
 
         self.client.login(username='testhoi', password='pass12345')
         resp = self.client.post(reverse('assign_teachers', args=[self.classroom.id]), {

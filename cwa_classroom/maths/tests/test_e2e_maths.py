@@ -22,15 +22,12 @@ from accounts.models import CustomUser, Role, UserRole
 from maths.models import (
     Answer,
     BasicFactsResult,
-    ClassRoom,
-    Enrollment,
-    Level,
     Question,
     StudentAnswer,
     StudentFinalAnswer,
     TimeLog,
-    Topic,
 )
+from classroom.models import ClassRoom, Level, Topic
 
 
 def _create_student(username="student1", password="testpass123"):
