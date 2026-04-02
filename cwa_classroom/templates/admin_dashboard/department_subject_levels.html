@@ -106,6 +106,19 @@
               <p class="text-xs text-gray-400 mt-0.5">Moving also moves levels and classes.</p>
             </div>
           </div>
+          {% if global_subjects %}
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Link to Global Subject</label>
+            <select name="global_subject_id"
+                    class="w-full px-3 py-2 border border-blue-200 bg-blue-50 rounded-lg text-sm focus:ring-2 focus:ring-blue-300 focus:border-transparent transition">
+              <option value="">— None —</option>
+              {% for g_subj in global_subjects %}
+              <option value="{{ g_subj.id }}" {% if group.subject.global_subject_id == g_subj.id %}selected{% endif %}>{{ g_subj.name }}</option>
+              {% endfor %}
+            </select>
+            <p class="text-xs text-gray-400 mt-0.5">Links to curriculum content (quizzes, questions).</p>
+          </div>
+          {% endif %}
           <div class="flex items-center gap-2">
             <button type="submit" class="px-3 py-1.5 bg-accent hover:bg-accent-dark text-white text-xs font-semibold rounded-lg transition">Save</button>
             <button @click="editingSubject = false" type="button" class="px-3 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 transition">Cancel</button>

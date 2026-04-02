@@ -117,7 +117,7 @@
         </div>
       {% empty %}
         <div class="px-6 py-12 text-center text-gray-400">
-          {% if search %}No students matching "{{ search }}".{% else %}No students found.{% endif %}
+          {% if q %}No students matching "{{ q }}".{% else %}No students found.{% endif %}
         </div>
       {% endfor %}
     </div>

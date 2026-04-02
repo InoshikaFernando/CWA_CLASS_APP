@@ -45,11 +45,11 @@
     </div>
   </div>
 
-  <!-- Today's Session Bar -->
+  <!-- Upcoming Session Bar -->
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
     <div class="flex items-center justify-between">
       <div>
-        <h2 class="font-bold text-gray-800">Today's Session</h2>
+        <h2 class="font-bold text-gray-800">Upcoming Session</h2>
         <p class="text-sm text-gray-500 mt-0.5">
           {% if classroom.day %}{{ classroom.get_day_display }}{% endif %}
           {% if classroom.start_time %} &middot; {{ classroom.start_time|time:"g:ia" }}{% if classroom.end_time %} – {{ classroom.end_time|time:"g:ia" }}{% endif %}{% endif %}

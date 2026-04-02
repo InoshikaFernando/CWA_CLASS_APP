@@ -35,7 +35,7 @@ class TestStudentSearch:
             f"?q={self.student.username}"
         )
         self.page.wait_for_load_state("networkidle")
-        expect(self.page.locator(f"text=@{self.student.username}")).to_be_visible()
+        expect(self.page.locator(f"text=@{self.student.username}").first).to_be_visible()
 
     def test_search_no_results(self):
         """Searching for nonexistent student shows empty message."""
