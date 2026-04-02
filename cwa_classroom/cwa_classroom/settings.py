@@ -159,9 +159,14 @@ else:
             },
         },
 
-        # Legacy CWA_SCHOOL MySQL database — used only by the
-        # migrate_from_cwa_school management command.
-        'cwa_school_legacy': {
+    }
+
+    # Legacy CWA_SCHOOL MySQL database — used only by the
+    # migrate_from_cwa_school management command.
+    # Excluded during test runs to avoid test DB creation issues.
+    import sys
+    if 'test' not in sys.argv:
+        DATABASES['cwa_school_legacy'] = {
             'ENGINE': 'django.db.backends.mysql',
             'NAME': os.environ.get('SRC_DB_NAME', 'cwa_school'),
             'USER': os.environ.get('SRC_DB_USER', os.environ.get('DB_USER', 'root')),
@@ -171,11 +176,7 @@ else:
             'OPTIONS': {
                 'charset': 'utf8mb4',
             },
-            'TEST': {
-                'NAME': None,
-            },
-        },
-    }
+        }
 
 
 # ---------------------------------------------------------------------------

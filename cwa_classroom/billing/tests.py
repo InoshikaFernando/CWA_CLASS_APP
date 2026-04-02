@@ -24,11 +24,39 @@ from billing.rate_limiting import check_rate_limit, reset_rate_limit
 from classroom.models import School, SchoolStudent, SchoolTeacher, ClassRoom, Department
 
 
+def _ensure_plans_exist():
+    """Create the 4 standard InstitutePlans if they don't exist (e.g. when migrations are skipped)."""
+    PLANS = [
+        {'slug': 'basic', 'name': 'Basic', 'price': Decimal('89.00'), 'class_limit': 5,
+         'student_limit': 100, 'invoice_limit_yearly': 500, 'extra_invoice_rate': Decimal('0.30'), 'order': 0},
+        {'slug': 'silver', 'name': 'Silver', 'price': Decimal('149.00'), 'class_limit': 15,
+         'student_limit': 300, 'invoice_limit_yearly': 1500, 'extra_invoice_rate': Decimal('0.25'), 'order': 1},
+        {'slug': 'gold', 'name': 'Gold', 'price': Decimal('249.00'), 'class_limit': 50,
+         'student_limit': 1000, 'invoice_limit_yearly': 5000, 'extra_invoice_rate': Decimal('0.20'), 'order': 2},
+        {'slug': 'platinum', 'name': 'Platinum', 'price': Decimal('449.00'), 'class_limit': 200,
+         'student_limit': 5000, 'invoice_limit_yearly': 20000, 'extra_invoice_rate': Decimal('0.15'), 'order': 3},
+    ]
+    for p in PLANS:
+        InstitutePlan.objects.get_or_create(slug=p['slug'], defaults=p)
+
+
+def _ensure_packages_exist():
+    """Create standard Packages if they don't exist."""
+    PACKAGES = [
+        {'name': 'Student Plan', 'slug': 'student-plan', 'price': Decimal('0.00'), 'order': 0},
+    ]
+    for p in PACKAGES:
+        Package.objects.get_or_create(slug=p['slug'], defaults=p)
+
+
 class InstitutePlanModelTest(TestCase):
     """Test InstitutePlan seed data and model behavior."""
 
+    def setUp(self):
+        _ensure_plans_exist()
+
     def test_plans_seeded(self):
-        """Four plans should exist from the data migration."""
+        """Four plans should exist."""
         plans = InstitutePlan.objects.all()
         self.assertEqual(plans.count(), 4)
         slugs = list(plans.values_list('slug', flat=True))
@@ -54,6 +82,7 @@ class SchoolSubscriptionTest(TestCase):
     """Test SchoolSubscription model and properties."""
 
     def setUp(self):
+        _ensure_plans_exist()
         self.user = CustomUser.objects.create_user(
             username='testadmin', email='admin@test.com', password='testpass123',
         )
@@ -92,6 +121,7 @@ class EntitlementsTest(TestCase):
     """Test entitlement checking functions."""
 
     def setUp(self):
+        _ensure_plans_exist()
         self.user = CustomUser.objects.create_user(
             username='hoi', email='hoi@test.com', password='testpass123',
         )
@@ -183,6 +213,7 @@ class MultiSchoolEntitlementsTest(TestCase):
     """Test multi-school student entitlement logic."""
 
     def setUp(self):
+        _ensure_plans_exist()
         self.student = CustomUser.objects.create_user(
             username='multistudent', email='multi@test.com', password='testpass123',
         )
@@ -272,6 +303,7 @@ class AccountBlockingTest(TestCase):
     """Test account blocking model fields and middleware behavior."""
 
     def setUp(self):
+        _ensure_plans_exist()
         self.user = CustomUser.objects.create_user(
             username='blocktest', email='block@test.com', password='testpass123',
         )
@@ -361,6 +393,7 @@ class ModuleGatingViewTest(TestCase):
     """Test that module-gated views redirect when module is not subscribed."""
 
     def setUp(self):
+        _ensure_plans_exist()
         self.user = CustomUser.objects.create_user(
             username='gatetest', email='gate@test.com', password='testpass123',
         )
