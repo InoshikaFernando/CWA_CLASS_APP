@@ -387,6 +387,50 @@ def parent_with_child(db, parent_user, enrolled_student, school):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Guardian / bulk-student fixtures
+# ═══════════════════════════════════════════════════════════════════════════
+
+@pytest.fixture
+def guardian(db, enrolled_student, school):
+    """A guardian contact linked to the enrolled student."""
+    from classroom.models import Guardian, StudentGuardian
+
+    g = Guardian.objects.create(
+        school=school,
+        first_name="Jane",
+        last_name="Guardian",
+        email=f"jane.guardian.{_RUN_ID}@test.local",
+        phone="021-555-1234",
+        relationship="mother",
+    )
+    StudentGuardian.objects.create(student=enrolled_student, guardian=g)
+    return g
+
+
+@pytest.fixture
+def many_students(db, school):
+    """Create 30 students for pagination testing."""
+    from classroom.models import SchoolStudent
+    from accounts.models import CustomUser
+
+    students = []
+    for i in range(30):
+        user = CustomUser.objects.create_user(
+            username=f"pag_{_RUN_ID}_{i:03d}",
+            password=TEST_PASSWORD,
+            email=f"pag_{_RUN_ID}_{i:03d}@test.local",
+            first_name=f"Student{i:03d}",
+            last_name=f"Pag{_RUN_ID}",
+            profile_completed=True,
+            must_change_password=False,
+        )
+        _assign_role(user, "student")
+        SchoolStudent.objects.create(school=school, student=user)
+        students.append(user)
+    return students
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Attendance fixtures
 # ═══════════════════════════════════════════════════════════════════════════
 
