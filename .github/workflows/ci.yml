@@ -10,6 +10,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  DB_ENGINE: sqlite
+
 jobs:
   classroom-tests:
     name: Classroom Tests
