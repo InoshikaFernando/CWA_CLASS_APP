@@ -10,10 +10,7 @@ from classroom.models import (
     School, SchoolTeacher, Department, DepartmentTeacher,
     Subject, Level, ClassRoom, ClassTeacher, Topic as ClassroomTopic,
 )
-from maths.models import (
-    Question as MathsQuestion, Answer as MathsAnswer,
-    Level as MathsLevel, Topic as MathsTopic,
-)
+from maths.models import Question as MathsQuestion, Answer as MathsAnswer
 from classroom.views import _get_question_scope, _can_edit_question
 
 
@@ -93,25 +90,17 @@ class ScopedQuestionTestBase(TestCase):
             department=cls.dept, teacher=cls.teacher_user,
         )
 
-        # ── Level (classroom + maths) ────────────────────────
+        # ── Level ────────────────────────────────────────────
         cls.level, _ = Level.objects.get_or_create(
             level_number=4,
             defaults={'display_name': 'Year 4'},
         )
-        cls.maths_level, _ = MathsLevel.objects.get_or_create(
-            level_number=4,
-            defaults={'title': 'Year 4'},
-        )
 
-        # ── Topic (classroom + maths) ────────────────────────
+        # ── Topic ────────────────────────────────────────────
         cls.classroom_topic = ClassroomTopic.objects.create(
             name='Fractions', subject=cls.subject, is_active=True,
         )
         cls.classroom_topic.levels.add(cls.level)
-        cls.maths_topic, _ = MathsTopic.objects.get_or_create(
-            name='Fractions',
-        )
-        cls.maths_topic.levels.add(cls.maths_level)
 
         # ── Classroom ────────────────────────────────────────
         cls.classroom = ClassRoom.objects.create(
@@ -128,7 +117,7 @@ class ScopedQuestionTestBase(TestCase):
     def _create_question(self, school=None, department=None, classroom=None,
                          text='Test question?'):
         q = MathsQuestion.objects.create(
-            level=self.maths_level, topic=self.maths_topic,
+            level=self.level, topic=self.classroom_topic,
             school=school, department=department, classroom=classroom,
             question_text=text, question_type='multiple_choice',
             difficulty=1, points=1,
@@ -412,7 +401,7 @@ class QuestionListScopeTests(ScopedQuestionTestBase):
     def _create_question_cls(cls, school=None, department=None,
                              classroom=None, text='Q'):
         q = MathsQuestion.objects.create(
-            level=cls.maths_level, topic=cls.maths_topic,
+            level=cls.level, topic=cls.classroom_topic,
             school=school, department=department, classroom=classroom,
             question_text=text, question_type='multiple_choice',
             difficulty=1, points=1,
