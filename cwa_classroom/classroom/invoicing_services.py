@@ -662,14 +662,23 @@ def _send_invoice_email(invoice):
         f"{invoice.billing_period_end.strftime('%b %d, %Y')}"
     )
 
+    # Get student ID code
+    school_student = SchoolStudent.objects.filter(
+        student=student, school=school,
+    ).first()
+    student_id_code = school_student.student_id_code if school_student else ''
+
     context = {
         # School header
         'school_name': school.name,
         'school_address': school.address or '',
         'school_phone': school.phone or '',
         'school_email': school.email or '',
+        'abn': eff.get('abn', ''),
+        'gst_number': eff.get('gst_number', ''),
         # Student
         'student_name': f'{student.first_name} {student.last_name}'.strip(),
+        'student_id_code': student_id_code,
         # Invoice details
         'invoice_number': invoice.invoice_number,
         'invoice_date': invoice_date,
