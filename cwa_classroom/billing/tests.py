@@ -192,7 +192,7 @@ class MultiSchoolEntitlementsTest(TestCase):
         UserRole.objects.create(user=self.student, role=student_role)
 
         # School A: has attendance module
-        admin_a = CustomUser.objects.create_user(username='admin_a', password='pass123')
+        admin_a = CustomUser.objects.create_user(username='admin_a', password='pass123', email='admin_a@test.com')
         self.school_a = School.objects.create(name='School A', slug='school-a', admin=admin_a)
         plan = InstitutePlan.objects.get(slug='basic')
         self.sub_a = SchoolSubscription.objects.create(
@@ -204,7 +204,7 @@ class MultiSchoolEntitlementsTest(TestCase):
         SchoolStudent.objects.create(school=self.school_a, student=self.student)
 
         # School B: no modules
-        admin_b = CustomUser.objects.create_user(username='admin_b', password='pass123')
+        admin_b = CustomUser.objects.create_user(username='admin_b', password='pass123', email='admin_b@test.com')
         self.school_b = School.objects.create(name='School B', slug='school-b', admin=admin_b)
         self.sub_b = SchoolSubscription.objects.create(
             school=self.school_b, plan=plan, status=SchoolSubscription.STATUS_ACTIVE,
@@ -344,6 +344,7 @@ class RegistrationSubscriptionTest(TestCase):
             'confirm_password': 'TestPass123!',
             'center_name': 'New Test School',
             'plan_id': basic_plan.id,
+            'accept_terms': 'on',
         })
         self.assertEqual(response.status_code, 302)
 

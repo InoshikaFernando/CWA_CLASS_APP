@@ -217,8 +217,10 @@ class SubjectsHubViewTests(TestCase):
         self.assertIn(resp.status_code, [200, 302])
 
     def test_individual_student_sees_hub(self):
+        from billing.models import Subscription
         user = CustomUser.objects.create_user('is', 'is@t.com', 'pass12345')
         _assign_role(user, Role.INDIVIDUAL_STUDENT)
+        Subscription.objects.create(user=user, status=Subscription.STATUS_ACTIVE)
         self.client.login(username='is', password='pass12345')
         resp = self.client.get(reverse('subjects_hub'))
         self.assertEqual(resp.status_code, 200)

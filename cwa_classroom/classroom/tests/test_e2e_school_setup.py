@@ -263,6 +263,7 @@ class StudentManagementTest(TestCase):
             'username': 'tom_student',
             'password': 'securepass123',
             'confirm_password': 'securepass123',
+            'accept_terms': 'on',
         }
         response = client.post(url, data)
 

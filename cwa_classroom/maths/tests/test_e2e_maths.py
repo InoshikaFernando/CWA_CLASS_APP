@@ -31,13 +31,17 @@ from classroom.models import ClassRoom, Level, Topic
 
 
 def _create_student(username="student1", password="testpass123"):
-    """Helper: create a student user with the individual_student role."""
+    """Helper: create a student user with the individual_student role and active subscription."""
+    from billing.models import Subscription
     user = CustomUser.objects.create_user(username=username, password=password)
     role, _ = Role.objects.get_or_create(
         name=Role.INDIVIDUAL_STUDENT,
         defaults={"display_name": "Individual Student"},
     )
     UserRole.objects.get_or_create(user=user, role=role)
+    Subscription.objects.get_or_create(
+        user=user, defaults={"status": Subscription.STATUS_ACTIVE},
+    )
     return user
 
 
