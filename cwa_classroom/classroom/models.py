@@ -140,6 +140,12 @@ class School(models.Model):
     state_region = models.CharField(max_length=100, blank=True)
     postal_code = models.CharField(max_length=20, blank=True)
     country = models.CharField(max_length=100, blank=True)
+    timezone = models.CharField(
+        max_length=63, blank=True, default='',
+        help_text='IANA timezone (e.g. America/New_York, Pacific/Auckland). '
+                  'Used for scheduling and "today" calculations. '
+                  'Falls back to server TIME_ZONE if blank.',
+    )
     # Branding & email
     logo = models.ImageField(upload_to='school_logos/', blank=True)
     outgoing_email = models.EmailField(
@@ -208,7 +214,7 @@ class School(models.Model):
         'outgoing_email',
         'abn', 'gst_number',
         'street_address', 'city', 'state_region', 'postal_code', 'country',
-        'logo',
+        'logo', 'timezone',
     ]
 
     def get_effective_settings(self, department=None):
@@ -228,6 +234,21 @@ class School(models.Model):
                 elif dept_val != '':
                     result[field] = dept_val
         return result
+
+    def get_local_now(self):
+        """Return the current datetime in the school's timezone."""
+        import zoneinfo
+        from django.utils import timezone as dj_tz
+        tz_name = self.timezone or settings.TIME_ZONE
+        try:
+            tz = zoneinfo.ZoneInfo(tz_name)
+        except (KeyError, Exception):
+            tz = zoneinfo.ZoneInfo(settings.TIME_ZONE)
+        return dj_tz.now().astimezone(tz)
+
+    def get_local_date(self):
+        """Return today's date in the school's timezone."""
+        return self.get_local_now().date()
 
 
 class SchoolTeacher(models.Model):
@@ -292,7 +313,7 @@ class Department(models.Model):
     default_fee = models.DecimalField(
         max_digits=8, decimal_places=2,
         null=True, blank=True,
-        help_text='Default fee (NZD) for all subjects/levels/classes in this department.',
+        help_text='Default fee (USD) for all subjects/levels/classes in this department.',
     )
     # ── Settings overrides (blank = use school default) ──
     bank_name = models.CharField(max_length=100, blank=True)

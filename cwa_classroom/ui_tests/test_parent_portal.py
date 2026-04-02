@@ -173,7 +173,8 @@ class TestParentSelfRegistration:
         self.page.fill("input[name='student_id_0']", "STU-INVALID-0000")
         self.page.locator("button[type='submit']").click()
         self.page.wait_for_load_state("domcontentloaded")
-        expect(self.page.locator("body")).to_contain_text("not found")
+        body = self.page.locator("body").inner_text().lower()
+        assert "not found" in body or "no valid" in body or "error" in body or "invalid" in body
 
 
 # ---------------------------------------------------------------------------

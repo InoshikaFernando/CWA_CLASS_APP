@@ -22,25 +22,26 @@ from accounts.models import CustomUser, Role, UserRole
 from maths.models import (
     Answer,
     BasicFactsResult,
-    ClassRoom,
-    Enrollment,
-    Level,
     Question,
     StudentAnswer,
     StudentFinalAnswer,
     TimeLog,
-    Topic,
 )
+from classroom.models import ClassRoom, Level, Topic
 
 
 def _create_student(username="student1", password="testpass123"):
-    """Helper: create a student user with the individual_student role."""
+    """Helper: create a student user with the individual_student role and active subscription."""
+    from billing.models import Subscription
     user = CustomUser.objects.create_user(username=username, password=password)
     role, _ = Role.objects.get_or_create(
         name=Role.INDIVIDUAL_STUDENT,
         defaults={"display_name": "Individual Student"},
     )
     UserRole.objects.get_or_create(user=user, role=role)
+    Subscription.objects.get_or_create(
+        user=user, defaults={"status": Subscription.STATUS_ACTIVE},
+    )
     return user
 
 
@@ -83,10 +84,18 @@ class ProgressTrackingTest(TestCase):
 
     @classmethod
     def setUpTestData(cls):
+        from classroom.models import Subject
         cls.student = _create_student()
-        cls.topic = Topic.objects.create(name="Measurements")
-        cls.level = Level.objects.create(level_number=4, title="Year 4")
-        cls.level.topics.add(cls.topic)
+        cls.subject, _ = Subject.objects.get_or_create(
+            slug='mathematics', defaults={'name': 'Mathematics', 'is_active': True},
+        )
+        cls.topic = Topic.objects.create(
+            name="Measurements", slug="measurements-test", subject=cls.subject,
+        )
+        cls.level, _ = Level.objects.get_or_create(
+            level_number=4, defaults={'display_name': 'Year 4'},
+        )
+        cls.topic.levels.add(cls.level)
 
     def setUp(self):
         self.client = Client()

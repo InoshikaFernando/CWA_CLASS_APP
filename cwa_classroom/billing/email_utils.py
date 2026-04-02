@@ -15,9 +15,11 @@ DEFAULT_FROM = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@wizardslearningh
 
 def notify_payment_failed(school=None, user=None, detail=None):
     """Send payment failure notification to the school admin or individual user."""
+    from classroom.email_service import _get_email_logo_url
+
     detail = detail or {}
     recipient = None
-    context = {'site_name': SITE_NAME, 'detail': detail}
+    context = {'site_name': SITE_NAME, 'detail': detail, 'email_logo_url': _get_email_logo_url(school)}
 
     if school and school.admin and school.admin.email:
         recipient = school.admin.email
@@ -46,8 +48,10 @@ def notify_payment_failed(school=None, user=None, detail=None):
 
 def notify_subscription_cancelled(school=None, user=None):
     """Send cancellation confirmation email."""
+    from classroom.email_service import _get_email_logo_url
+
     recipient = None
-    context = {'site_name': SITE_NAME}
+    context = {'site_name': SITE_NAME, 'email_logo_url': _get_email_logo_url(school)}
 
     if school and school.admin and school.admin.email:
         recipient = school.admin.email
@@ -75,6 +79,8 @@ def notify_subscription_cancelled(school=None, user=None):
 
 def notify_trial_expiring(school, days_remaining):
     """Send trial expiry warning email to the school admin."""
+    from classroom.email_service import _get_email_logo_url
+
     if not school.admin or not school.admin.email:
         return
 
@@ -83,6 +89,7 @@ def notify_trial_expiring(school, days_remaining):
         'name': school.admin.get_full_name() or school.admin.username,
         'school': school,
         'days_remaining': days_remaining,
+        'email_logo_url': _get_email_logo_url(school),
     }
 
     try:

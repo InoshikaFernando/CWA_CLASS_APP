@@ -2588,7 +2588,11 @@ class HoDOverviewView(RoleRequiredMixin, View):
         from collections import defaultdict
 
         # ── Next classes: check if user also teaches ──
-        today = timezone.localdate()
+        # Use the first school's timezone for "today" if available
+        _first_school = School.objects.filter(
+            id__in=_get_user_school_ids(request.user)
+        ).first()
+        today = _first_school.get_local_date() if _first_school else timezone.localdate()
         week_ahead = today + timedelta(days=7)
 
         my_teaching_classes = ClassRoom.objects.filter(
@@ -2758,7 +2762,7 @@ class HoDOverviewView(RoleRequiredMixin, View):
                     'friday': 4, 'saturday': 5, 'sunday': 6,
                 }
                 today_idx = today.weekday()
-                now_time = timezone.localtime().time()
+                now_time = (_first_school.get_local_now() if _first_school else timezone.localtime()).time()
 
                 def _days_until(day_str, start_time=None):
                     target = DAY_MAP.get(day_str, 7)

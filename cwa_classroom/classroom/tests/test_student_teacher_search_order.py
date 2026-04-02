@@ -69,7 +69,7 @@ def _make_teacher(school, first, last, role='teacher', **kw):
         first_name=first, last_name=last,
     )
     _assign_role(user, Role.TEACHER)
-    SchoolTeacher.objects.create(school=school, teacher=user, role=role, **kw)
+    SchoolTeacher.objects.update_or_create(school=school, teacher=user, defaults={'role': role, **kw})
     return user
 
 

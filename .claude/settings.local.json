@@ -370,7 +370,8 @@
       "Bash(DB_PASSWORD=root python manage.py makemigrations classroom)",
       "Bash(DB_PASSWORD=root python manage.py migrate classroom)",
       "Bash(pip show:*)",
-      "Bash(DB_ENGINE=sqlite python -m pytest ui_tests/test_homework.py -v --tb=short)"
+      "Bash(DB_ENGINE=sqlite python -m pytest ui_tests/test_homework.py -v --tb=short)",
+      "Bash(python -c \"import django; import os; os.environ.setdefault\\(''DJANGO_SETTINGS_MODULE'', ''cwa_classroom.settings''\\); django.setup\\(\\); from classroom.email_service import _get_email_logo_url, resolve_cc_email, send_templated_email; print\\(''OK''\\)\")"
     ]
   }
 }

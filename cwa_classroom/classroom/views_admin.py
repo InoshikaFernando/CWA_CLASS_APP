@@ -378,7 +378,7 @@ class SchoolSettingsView(RoleRequiredMixin, View):
     SETTINGS_FIELDS = [
         # Company details
         'abn', 'gst_number', 'street_address', 'city', 'state_region',
-        'postal_code', 'country',
+        'postal_code', 'country', 'timezone',
         # Contact & email
         'outgoing_email',
         # Banking & invoice
@@ -416,6 +416,17 @@ class SchoolSettingsView(RoleRequiredMixin, View):
                         pass
             else:
                 setattr(school, field, request.POST.get(field, '').strip())
+
+        # Validate outgoing_email if provided
+        outgoing_email = request.POST.get('outgoing_email', '').strip()
+        if outgoing_email:
+            from django.core.validators import validate_email
+            from django.core.exceptions import ValidationError as DjangoValidationError
+            try:
+                validate_email(outgoing_email)
+            except DjangoValidationError:
+                messages.error(request, 'Please enter a valid outgoing email address.')
+                return redirect(f"{reverse('admin_school_settings', kwargs={'school_id': school.id})}?tab={tab}")
 
         # Handle logo upload
         if 'logo' in request.FILES:
@@ -1568,6 +1579,7 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
         school = self._get_school(request, school_id)
         from django.db.models import Count, Q
         show_inactive = request.GET.get('show_inactive') == '1'
+        search = request.GET.get('q', '').strip()
         qs = SchoolStudent.objects.filter(school=school)
         if not show_inactive:
             qs = qs.filter(is_active=True)
@@ -1583,6 +1595,7 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
                     filter=Q(student__class_student_entries__classroom__school=school),
                 )
             )
+            .order_by('student__last_name', 'student__first_name', 'student__id')
         )
 
         # Server-side search
@@ -1611,7 +1624,7 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
 
         paginator = Paginator(qs, 25)
         page = paginator.get_page(request.GET.get('page'))
-        return render(request, 'admin_dashboard/school_students.html', {
+        ctx = {
             'school': school,
             'school_students': page,
             'page': page,
@@ -1619,7 +1632,10 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
             'q': q,
             'order_by': order_by,
             'total_count': paginator.count,
-        })
+        }
+        if request.headers.get('HX-Request'):
+            return render(request, 'admin_dashboard/partials/students_table.html', ctx)
+        return render(request, 'admin_dashboard/school_students.html', ctx)
 
     def post(self, request, school_id):
         school = self._get_school(request, school_id)
@@ -1756,6 +1772,30 @@ class SchoolStudentEditView(RoleRequiredMixin, View):
         )
         messages.success(request, f'{student.get_full_name()} updated.')
         return redirect('admin_school_students', school_id=school.id)
+
+
+class StudentEditModalView(RoleRequiredMixin, View):
+    """Return the student edit modal partial via HTMX."""
+    required_roles = [
+        Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT, Role.TEACHER,
+    ]
+
+    def get(self, request, school_id, student_id):
+        school = SchoolStudentManageView._get_school(self, request, school_id)
+        school_student = get_object_or_404(
+            SchoolStudent, school=school, student_id=student_id
+        )
+        student = school_student.student
+        parent_links = student.student_parent_links.select_related('parent').filter(is_active=True)
+        guardian_links = student.student_guardians.select_related('guardian').all()
+        return render(request, 'admin_dashboard/partials/student_edit_modal.html', {
+            'school': school,
+            'school_student': school_student,
+            'student': student,
+            'parent_links': parent_links,
+            'guardian_links': guardian_links,
+        })
 
 
 class SchoolStudentBatchUpdateView(RoleRequiredMixin, View):

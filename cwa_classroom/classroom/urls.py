@@ -78,6 +78,7 @@ urlpatterns = [
     path('admin-dashboard/manage-departments/', views_admin.ManageDepartmentsRedirectView.as_view(), name='admin_manage_departments'),
     path('admin-dashboard/manage-subjects/', views_admin.ManageSubjectsRedirectView.as_view(), name='admin_manage_subjects'),
     path('admin-dashboard/manage-terms/', views_admin.ManageTermsRedirectView.as_view(), name='admin_manage_terms'),
+    path('admin-dashboard/manage-parents/', views_parent_admin.ManageParentsRedirectView.as_view(), name='admin_manage_parents'),
     path('admin-dashboard/manage-holidays/', views_admin.ManageHolidaysRedirectView.as_view(), name='admin_manage_holidays'),
     path('admin-dashboard/manage-parent-invites/', views_admin.ManageParentInvitesRedirectView.as_view(), name='admin_manage_parent_invites'),
     path('admin-dashboard/schools/<int:school_id>/subjects/', views_admin.SchoolSubjectManageView.as_view(), name='admin_school_subjects'),
@@ -110,11 +111,19 @@ urlpatterns = [
     # Student management (school-level)
     path('admin-dashboard/schools/<int:school_id>/students/', views_admin.SchoolStudentManageView.as_view(), name='admin_school_students'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/edit/', views_admin.SchoolStudentEditView.as_view(), name='admin_school_student_edit'),
+    path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/edit-modal/', views_admin.StudentEditModalView.as_view(), name='admin_school_student_edit_modal'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/remove/', views_admin.SchoolStudentRemoveView.as_view(), name='admin_school_student_remove'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/restore/', views_admin.SchoolStudentRestoreView.as_view(), name='admin_school_student_restore'),
     path('admin-dashboard/schools/<int:school_id>/students/batch-update/', views_admin.SchoolStudentBatchUpdateView.as_view(), name='admin_school_student_batch_update'),
 
-    # Parent management (school-level)
+    # Parent list & edit (school-level)
+    path('admin-dashboard/schools/<int:school_id>/parents/', views_parent_admin.SchoolParentListView.as_view(), name='admin_school_parents'),
+    path('admin-dashboard/schools/<int:school_id>/guardians/<int:guardian_id>/edit-modal/', views_parent_admin.GuardianEditModalView.as_view(), name='admin_guardian_edit_modal'),
+    path('admin-dashboard/schools/<int:school_id>/guardians/<int:guardian_id>/edit/', views_parent_admin.GuardianUpdateView.as_view(), name='admin_guardian_update'),
+    path('admin-dashboard/schools/<int:school_id>/parent-links/<int:link_id>/edit-modal/', views_parent_admin.ParentLinkEditModalView.as_view(), name='admin_parent_link_edit_modal'),
+    path('admin-dashboard/schools/<int:school_id>/parent-links/<int:link_id>/edit/', views_parent_admin.ParentLinkUpdateView.as_view(), name='admin_parent_link_update'),
+
+    # Parent invite management (school-level)
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/invite-parent/', views_parent_admin.ParentInviteCreateView.as_view(), name='invite_parent'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/parents/', views_parent_admin.StudentParentLinksView.as_view(), name='student_parent_links'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/parents/<int:link_id>/remove/', views_parent_admin.ParentStudentUnlinkView.as_view(), name='unlink_parent_student'),

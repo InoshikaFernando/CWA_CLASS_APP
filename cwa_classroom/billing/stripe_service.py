@@ -442,7 +442,7 @@ def sync_plan_to_stripe(plan):
     price = stripe.Price.create(
         product=product.id,
         unit_amount=int(plan.price * 100),
-        currency='nzd',
+        currency=settings.STRIPE_CURRENCY,
         recurring={'interval': 'month'},
     )
 
@@ -483,7 +483,7 @@ def sync_module_to_stripe(module_product):
     price = stripe.Price.create(
         product=product.id,
         unit_amount=int(module_product.price * 100),
-        currency='nzd',
+        currency=settings.STRIPE_CURRENCY,
         recurring={'interval': 'month'},
     )
 

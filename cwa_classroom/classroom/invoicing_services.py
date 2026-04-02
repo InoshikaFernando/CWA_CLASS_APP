@@ -22,6 +22,7 @@ from .models import (
     Invoice, InvoiceLineItem, InvoicePayment, CreditTransaction,
     PaymentReferenceMapping, CSVImport, SchoolStudent,
     SchoolHoliday, PublicHoliday,
+    ParentStudent, StudentGuardian,
 )
 from .fee_utils import get_effective_fee_for_student, get_fee_source_label
 
@@ -662,14 +663,23 @@ def _send_invoice_email(invoice):
         f"{invoice.billing_period_end.strftime('%b %d, %Y')}"
     )
 
+    # Get student ID code
+    school_student = SchoolStudent.objects.filter(
+        student=student, school=school,
+    ).first()
+    student_id_code = school_student.student_id_code if school_student else ''
+
     context = {
         # School header
         'school_name': school.name,
         'school_address': school.address or '',
         'school_phone': school.phone or '',
         'school_email': school.email or '',
+        'abn': eff.get('abn', ''),
+        'gst_number': eff.get('gst_number', ''),
         # Student
         'student_name': f'{student.first_name} {student.last_name}'.strip(),
+        'student_id_code': student_id_code,
         # Invoice details
         'invoice_number': invoice.invoice_number,
         'invoice_date': invoice_date,
@@ -712,17 +722,63 @@ def _send_invoice_email(invoice):
         'notes': invoice.notes or '',
     }
 
+    subject = f'Invoice {invoice.invoice_number} — {school.name}'
+    sent_emails = set()
+
+    # 1. Send to student
     try:
         send_templated_email(
             recipient_email=student.email,
-            subject=f'Invoice {invoice.invoice_number} — {school.name}',
+            subject=subject,
             template_name='email/transactional/invoice_issued.html',
             context=context,
             recipient_user=student,
             notification_type='invoice',
+            school=school,
+            department=primary_dept,
         )
+        sent_emails.add(student.email.lower())
     except Exception as e:
         logger.exception('Failed to send invoice email for %s: %s', invoice.invoice_number, e)
+
+    # 2. Send to parent accounts (ParentStudent links)
+    parent_links = ParentStudent.objects.filter(
+        student=student, school=school, is_active=True,
+    ).select_related('parent')
+    for link in parent_links:
+        if link.parent.email and link.parent.email.lower() not in sent_emails:
+            try:
+                send_templated_email(
+                    recipient_email=link.parent.email,
+                    subject=subject,
+                    template_name='email/transactional/invoice_issued.html',
+                    context=context,
+                    recipient_user=link.parent,
+                    notification_type='invoice',
+                )
+                sent_emails.add(link.parent.email.lower())
+            except Exception as e:
+                logger.exception('Failed to send invoice email to parent %s: %s', link.parent.email, e)
+
+    # 3. Send to guardian contacts (StudentGuardian links)
+    school_student = SchoolStudent.objects.filter(student=student, school=school).first()
+    if school_student:
+        guardian_links = StudentGuardian.objects.filter(
+            student=student,
+        ).select_related('guardian')
+        for sg in guardian_links:
+            if sg.guardian.email and sg.guardian.email.lower() not in sent_emails:
+                try:
+                    send_templated_email(
+                        recipient_email=sg.guardian.email,
+                        subject=subject,
+                        template_name='email/transactional/invoice_issued.html',
+                        context=context,
+                        notification_type='invoice',
+                    )
+                    sent_emails.add(sg.guardian.email.lower())
+                except Exception as e:
+                    logger.exception('Failed to send invoice email to guardian %s: %s', sg.guardian.email, e)
 
 
 # ---------------------------------------------------------------------------

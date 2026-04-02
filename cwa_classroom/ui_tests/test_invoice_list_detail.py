@@ -28,7 +28,7 @@ class TestInvoiceList:
 
     def test_invoice_number_visible(self):
         """Invoice number should appear in the list."""
-        assert_page_has_text(self.page, "INV-0001")
+        assert_page_has_text(self.page, self.invoice.invoice_number)
 
     def test_generate_invoices_button(self):
         """Generate Invoices button should be visible."""
@@ -60,7 +60,7 @@ class TestInvoiceDetail:
         page.wait_for_load_state("domcontentloaded")
 
     def test_invoice_number_displayed(self):
-        assert_page_has_text(self.page, "INV-0001")
+        assert_page_has_text(self.page, self.invoice.invoice_number)
 
     def test_student_name_displayed(self):
         assert_page_has_text(self.page, "Ui Student")

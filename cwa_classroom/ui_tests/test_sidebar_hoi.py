@@ -68,6 +68,10 @@ class TestHoiSidebarLinks:
         click_sidebar_link(self.page, "Students")
         expect(self.page).to_have_url(re.compile(r"/students"))
 
+    def test_parents_link(self):
+        click_sidebar_link(self.page, "Parents")
+        expect(self.page).to_have_url(re.compile(r"/parents"))
+
     def test_enrollments_link(self):
         assert_sidebar_has_link(self.page, "Enrollment")
 
