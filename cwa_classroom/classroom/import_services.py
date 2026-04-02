@@ -464,9 +464,9 @@ def validate_and_preview(data_rows, column_mapping, school):
                 if not any(g['email'] == g_email for g in student['guardians']):
                     student['guardians'].append(guardian_data)
 
-    # Categorise entities as new or existing
+    # Categorise entities as new or existing (case-insensitive email match)
     existing_emails = set(
-        CustomUser.objects.filter(
+        e.lower() for e in CustomUser.objects.filter(
             email__in=students_by_key.keys()
         ).values_list('email', flat=True)
     )
@@ -1189,7 +1189,7 @@ def execute_import(preview_data, school, uploaded_by):
         all_students = preview_data['students_new'] + preview_data['students_existing']
         for sdata in all_students:
             email = sdata['email']
-            is_new = not CustomUser.objects.filter(email=email).exists()
+            is_new = not CustomUser.objects.filter(email__iexact=email).exists()
 
             if is_new:
                 password = get_random_string(10)
@@ -1230,7 +1230,7 @@ def execute_import(preview_data, school, uploaded_by):
                 })
                 counts['students_created'] += 1
             else:
-                user = CustomUser.objects.filter(email=email).first()
+                user = CustomUser.objects.filter(email__iexact=email).first()
                 password = None
 
             # SchoolStudent
@@ -1625,10 +1625,10 @@ def validate_teacher_preview(data_rows, column_mapping, school):
             'row': row_idx,
         }
 
-        # Check if user already exists
-        if CustomUser.objects.filter(email=email).exists():
+        # Check if user already exists (case-insensitive)
+        if CustomUser.objects.filter(email__iexact=email).exists():
             # Check if already linked to this school
-            user = CustomUser.objects.filter(email=email).first()
+            user = CustomUser.objects.filter(email__iexact=email).first()
             already_linked = SchoolTeacher.objects.filter(school=school, teacher=user).exists()
             teacher_data['already_linked'] = already_linked
             if already_linked:
@@ -1697,7 +1697,7 @@ def execute_teacher_import(preview_data, school, imported_by):
             })
             counts['teachers_updated'] = counts.get('teachers_updated', 0) + 1
         else:
-            is_new = not CustomUser.objects.filter(email=email).exists()
+            is_new = not CustomUser.objects.filter(email__iexact=email).exists()
 
         if is_new:
             password = get_random_string(10)
@@ -1742,7 +1742,7 @@ def execute_teacher_import(preview_data, school, imported_by):
             })
             counts['teachers_created'] += 1
         elif not placeholder_st:
-            user = CustomUser.objects.filter(email=email).first()
+            user = CustomUser.objects.filter(email__iexact=email).first()
             password = None
 
         # Link to school (skip if already linked)
@@ -2038,7 +2038,7 @@ def validate_parent_preview(data_rows, column_mapping, school):
 
     # Categorise as new or existing
     existing_emails = set(
-        CustomUser.objects.filter(
+        e.lower() for e in CustomUser.objects.filter(
             email__in=parent_groups.keys()
         ).values_list('email', flat=True)
     )
@@ -2046,7 +2046,7 @@ def validate_parent_preview(data_rows, column_mapping, school):
     parents_new = []
     parents_existing = []
     for email, pdata in parent_groups.items():
-        if email in existing_emails:
+        if email.lower() in existing_emails:
             parents_existing.append(pdata)
         else:
             parents_new.append(pdata)
@@ -2080,7 +2080,7 @@ def execute_parent_import(preview_data, school, imported_by):
         all_parents = preview_data['parents_new'] + preview_data['parents_existing']
         for pdata in all_parents:
             email = pdata['email']
-            is_new = not CustomUser.objects.filter(email=email).exists()
+            is_new = not CustomUser.objects.filter(email__iexact=email).exists()
 
             if is_new:
                 password = get_random_string(10)
@@ -2124,7 +2124,7 @@ def execute_parent_import(preview_data, school, imported_by):
                 })
                 counts['parents_created'] += 1
             else:
-                user = CustomUser.objects.get(email=email)
+                user = CustomUser.objects.filter(email__iexact=email).first()
                 password = None
                 # Ensure parent role assigned
                 UserRole.objects.get_or_create(user=user, role=parent_role)
