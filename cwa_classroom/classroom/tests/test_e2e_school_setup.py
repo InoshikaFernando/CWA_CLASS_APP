@@ -195,7 +195,7 @@ class TeacherManagementTest(TestCase):
 
     def test_add_teacher_to_school(self):
         """Creating a SchoolTeacher links the teacher to the school."""
-        st = SchoolTeacher.objects.update_or_create(
+        st, _ = SchoolTeacher.objects.update_or_create(
             school=self.school,
             teacher=self.teacher_user, defaults={'role': 'teacher'})
         self.assertEqual(st.school, self.school)

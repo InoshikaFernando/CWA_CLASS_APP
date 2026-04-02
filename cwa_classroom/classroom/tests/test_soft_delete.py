@@ -78,7 +78,7 @@ def _setup_teacher(school, dept=None, username='teacher1', email='teacher1@test.
         username=username, password='pass12345', email=email,
     )
     _assign_role(teacher, Role.TEACHER)
-    st = SchoolTeacher.objects.update_or_create(school=school, teacher=teacher, defaults={'role': 'teacher'})
+    st, _ = SchoolTeacher.objects.update_or_create(school=school, teacher=teacher, defaults={'role': 'teacher'})
     if dept:
         DepartmentTeacher.objects.create(department=dept, teacher=teacher)
     return teacher, st

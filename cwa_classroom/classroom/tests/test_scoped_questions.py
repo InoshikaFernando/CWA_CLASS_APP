@@ -90,19 +90,14 @@ class ScopedQuestionTestBase(TestCase):
             level_number=4,
             defaults={'display_name': 'Year 4'},
         )
-        cls.maths_level, _ = MathsLevel.objects.get_or_create(
-            level_number=4,
-            defaults={'title': 'Year 4'},
-        )
+        cls.maths_level = cls.level  # Same model after unification
 
         # ── Topic (classroom + maths) ────────────────────────
         cls.classroom_topic = ClassroomTopic.objects.create(
             name='Fractions', subject=cls.subject, is_active=True,
         )
         cls.classroom_topic.levels.add(cls.level)
-        cls.maths_topic, _ = MathsTopic.objects.get_or_create(
-            name='Fractions',
-        )
+        cls.maths_topic = cls.classroom_topic  # Same model after unification
         cls.maths_topic.levels.add(cls.maths_level)
 
         # ── Classroom ────────────────────────────────────────

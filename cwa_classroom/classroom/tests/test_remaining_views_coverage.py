@@ -66,7 +66,7 @@ def _full_school_setup():
     _assign_role(student, Role.STUDENT)
 
     school = School.objects.create(name='Test School', slug='test-school', admin=hoi)
-    st = SchoolTeacher.objects.update_or_create(school=school, teacher=teacher, defaults={'role': 'teacher'})
+    st, _ = SchoolTeacher.objects.update_or_create(school=school, teacher=teacher, defaults={'role': 'teacher'})
     SchoolStudent.objects.create(school=school, student=student)
 
     subject = Subject.objects.create(name='Maths', slug='maths')
