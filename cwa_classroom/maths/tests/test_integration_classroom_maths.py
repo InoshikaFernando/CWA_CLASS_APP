@@ -293,7 +293,7 @@ class UploadViewTopicResolutionTests(IntegrationBase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.context['upload_results']['failed'], 0)
 
-    def test_upload_unknown_topic_returns_error_message(self):
+    def test_upload_unknown_topic_auto_creates_topic(self):
         self._login(self.superuser)
         payload = self._json_upload_payload(topic='NonExistentTopic', year_level=7)
         f = io.BytesIO(payload)
@@ -302,8 +302,9 @@ class UploadViewTopicResolutionTests(IntegrationBase):
             reverse('upload_questions'),
             {'upload_file': f},
         )
-        # Should redirect back with an error message, not 500
-        self.assertEqual(resp.status_code, 302)
+        # View now auto-creates unknown topics and renders upload results
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('upload_results', resp.context)
 
     def test_upload_unknown_year_level_returns_error_message(self):
         self._login(self.superuser)

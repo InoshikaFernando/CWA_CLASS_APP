@@ -127,7 +127,7 @@ class Payment(models.Model):
     stripe_payment_intent_id = models.CharField(max_length=200, blank=True)
     stripe_checkout_session_id = models.CharField(max_length=200, blank=True)
     amount = models.DecimalField(max_digits=8, decimal_places=2)
-    currency = models.CharField(max_length=10, default='nzd')
+    currency = models.CharField(max_length=10, default='usd')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

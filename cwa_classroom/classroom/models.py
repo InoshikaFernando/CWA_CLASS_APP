@@ -292,7 +292,7 @@ class Department(models.Model):
     default_fee = models.DecimalField(
         max_digits=8, decimal_places=2,
         null=True, blank=True,
-        help_text='Default fee (NZD) for all subjects/levels/classes in this department.',
+        help_text='Default fee (USD) for all subjects/levels/classes in this department.',
     )
     # ── Settings overrides (blank = use school default) ──
     bank_name = models.CharField(max_length=100, blank=True)
@@ -457,6 +457,8 @@ class Term(models.Model):
     start_date = models.DateField()
     end_date = models.DateField()
     order = models.PositiveIntegerField(default=0)
+    is_confirmed = models.BooleanField(default=False)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ['order', 'start_date']
@@ -1445,6 +1447,12 @@ class Invoice(models.Model):
         ('paid', 'Paid'),
         ('cancelled', 'Cancelled'),
     ]
+    PERIOD_TYPE_CHOICES = [
+        ('custom', 'Custom'),
+        ('month', 'Month'),
+        ('term', 'Term'),
+        ('year', 'Year'),
+    ]
 
     invoice_number = models.CharField(max_length=50, unique=True)
     school = models.ForeignKey('School', on_delete=models.CASCADE,
@@ -1456,6 +1464,8 @@ class Invoice(models.Model):
     attendance_mode = models.CharField(max_length=20, choices=ATTENDANCE_MODE_CHOICES)
     billing_type = models.CharField(max_length=20, choices=BILLING_TYPE_CHOICES,
                                      default='post_term')
+    period_type = models.CharField(max_length=10, choices=PERIOD_TYPE_CHOICES,
+                                    default='custom')
     calculated_amount = models.DecimalField(max_digits=10, decimal_places=2,
                                              help_text='System-calculated sum of line items')
     amount = models.DecimalField(max_digits=10, decimal_places=2,

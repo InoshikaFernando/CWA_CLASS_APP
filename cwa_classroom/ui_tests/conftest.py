@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import os
 
-# Force SQLite for UI tests (avoids MySQL connection issues)
-os.environ["DB_ENGINE"] = "sqlite"
+# Default to SQLite for UI tests unless DB_ENGINE is already set
+os.environ.setdefault("DB_ENGINE", "sqlite")
 # Allow synchronous DB operations in Playwright's async event loop
-os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
+os.environ.setdefault("DJANGO_ALLOW_ASYNC_UNSAFE", "true")
 
 import uuid
 from datetime import date, time, timedelta
@@ -36,6 +36,12 @@ def browser_context_args(browser_context_args):
         "viewport": {"width": 1280, "height": 800},
     }
 
+
+# ---------------------------------------------------------------------------
+# Unique prefix for this test session — prevents slug/username collisions
+# when running tests against a persistent database (--keepdb) or in parallel.
+# ---------------------------------------------------------------------------
+_RUN_ID = uuid.uuid4().hex[:6]
 
 # ---------------------------------------------------------------------------
 # Password used for every test user — kept simple for Playwright form-fill
@@ -67,10 +73,12 @@ def _assign_role(user, role_name: str):
 def _make_user(username: str, role_name: str, **extra):
     from accounts.models import CustomUser
 
+    unique_name = f"{username}_{_RUN_ID}"
     user = CustomUser.objects.create_user(
-        username=username,
+        username=unique_name,
         password=TEST_PASSWORD,
-        email=f"{username}@test.local",
+        email=f"{unique_name}@test.local",
+        first_name=extra.pop("first_name", username.replace("_", " ").title()),
         profile_completed=True,
         must_change_password=False,
         **extra,
@@ -200,36 +208,57 @@ def accountant_user(db, roles):
 
 @pytest.fixture
 def school(db, admin_user):
-    """Create a school with an active subscription and admin as SchoolTeacher."""
-    from billing.models import InstitutePlan, SchoolSubscription
+    """Create a school with unique slug, active subscription, modules enabled.
+
+    Uses _RUN_ID for unique slugs so tests can run against a persistent DB
+    (--keepdb) without collisions. School.delete() cascades to all related data.
+    """
+    from billing.models import InstitutePlan, ModuleSubscription, SchoolSubscription
     from classroom.models import School, SchoolTeacher
 
     school = School.objects.create(
-        name="Test School",
-        slug="ui-test-school",
+        name=f"Test School {_RUN_ID}",
+        slug=f"ui-test-school-{_RUN_ID}",
         admin=admin_user,
         is_active=True,
     )
-    plan = InstitutePlan.objects.create(
-        name="Basic",
-        slug="basic-ui-test",
-        price=Decimal("89.00"),
-        stripe_price_id="price_test",
-        class_limit=50,
-        student_limit=500,
-        invoice_limit_yearly=500,
-        extra_invoice_rate=Decimal("0.30"),
+    plan, _ = InstitutePlan.objects.get_or_create(
+        slug=f"basic-ui-{_RUN_ID}",
+        defaults={
+            "name": f"Basic {_RUN_ID}",
+            "price": Decimal("89.00"),
+            "stripe_price_id": "price_test",
+            "class_limit": 50,
+            "student_limit": 500,
+            "invoice_limit_yearly": 500,
+            "extra_invoice_rate": Decimal("0.30"),
+        },
     )
-    SchoolSubscription.objects.create(
+    sub = SchoolSubscription.objects.create(
         school=school, plan=plan, status="active",
     )
+    # Enable all modules so attendance, progress reports etc. work
+    for module_key, _ in ModuleSubscription.MODULE_CHOICES:
+        ModuleSubscription.objects.create(
+            school_subscription=sub,
+            module=module_key,
+            is_active=True,
+        )
     # Admin must also be a SchoolTeacher for sidebar views to work
     SchoolTeacher.objects.get_or_create(
         school=school,
         teacher=admin_user,
         defaults={"role": "head_of_institute"},
     )
-    return school
+
+    yield school
+
+    # Cascade cleanup — deletes departments, classes, sessions, attendance, etc.
+    school.delete()
+    # Clean up the test user accounts too
+    from accounts.models import CustomUser
+    CustomUser.objects.filter(username__endswith=f"_{_RUN_ID}").delete()
+    plan.delete()
 
 
 @pytest.fixture
@@ -257,8 +286,8 @@ def department(db, school, hod_user, subject):
 
     dept = Department.objects.create(
         school=school,
-        name="Mathematics",
-        slug="maths",
+        name=f"Mathematics {_RUN_ID}",
+        slug=f"maths-{_RUN_ID}",
         head=hod_user,
     )
     DepartmentSubject.objects.create(department=dept, subject=subject)
@@ -290,15 +319,15 @@ def topic(db, subject, level):
 
     strand = Topic.objects.create(
         subject=subject,
-        name="Number",
-        slug="number",
+        name=f"Number {_RUN_ID}",
+        slug=f"number-{_RUN_ID}",
         order=1,
     )
     subtopic = Topic.objects.create(
         subject=subject,
         parent=strand,
-        name="Addition",
-        slug="addition",
+        name=f"Addition {_RUN_ID}",
+        slug=f"addition-{_RUN_ID}",
         order=1,
     )
     subtopic.levels.add(level)
@@ -316,7 +345,7 @@ def classroom(db, school, department, subject, level, teacher_user):
         defaults={"role": "teacher"},
     )
     room = ClassRoom.objects.create(
-        name="Year 7 Maths",
+        name=f"Year 7 Maths {_RUN_ID}",
         school=school,
         department=department,
         subject=subject,
@@ -495,6 +524,44 @@ def progress_data(db, enrolled_student, level, topic):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Academic Year / Term fixtures
+# ═══════════════════════════════════════════════════════════════════════════
+
+@pytest.fixture
+def academic_year(db, school):
+    """Current academic year."""
+    from classroom.models import AcademicYear
+
+    today = date.today()
+    return AcademicYear.objects.create(
+        school=school,
+        year=today.year,
+        start_date=date(today.year, 1, 1),
+        end_date=date(today.year, 12, 31),
+        is_current=True,
+    )
+
+
+@pytest.fixture
+def future_term(db, school, academic_year):
+    """A term starting in the future (next month onwards)."""
+    from classroom.models import Term
+
+    today = date.today()
+    # Start 30 days from now, end 90 days from now
+    start = today + timedelta(days=30)
+    end = today + timedelta(days=90)
+    return Term.objects.create(
+        school=school,
+        academic_year=academic_year,
+        name="Term 2",
+        start_date=start,
+        end_date=end,
+        order=2,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Invoice fixtures
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -506,7 +573,7 @@ def invoice(db, enrolled_student, school, classroom):
     inv = Invoice.objects.create(
         student=enrolled_student,
         school=school,
-        invoice_number="INV-0001",
+        invoice_number=f"INV-{_RUN_ID}",
         billing_period_start=date.today() - timedelta(days=30),
         billing_period_end=date.today(),
         status="draft",

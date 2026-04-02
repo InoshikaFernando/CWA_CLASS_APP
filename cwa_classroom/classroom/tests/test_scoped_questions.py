@@ -64,18 +64,12 @@ class ScopedQuestionTestBase(TestCase):
         cls.school = School.objects.create(
             name='Test School', slug='test-school', admin=cls.superuser,
         )
-        SchoolTeacher.objects.create(
-            school=cls.school, teacher=cls.hoi_user,
-            role='head_of_institute',
-        )
-        SchoolTeacher.objects.create(
-            school=cls.school, teacher=cls.hod_user,
-            role='head_of_department',
-        )
-        SchoolTeacher.objects.create(
-            school=cls.school, teacher=cls.teacher_user,
-            role='teacher',
-        )
+        SchoolTeacher.objects.update_or_create(
+            school=cls.school, teacher=cls.hoi_user, defaults={'role': 'head_of_institute'})
+        SchoolTeacher.objects.update_or_create(
+            school=cls.school, teacher=cls.hod_user, defaults={'role': 'head_of_department'})
+        SchoolTeacher.objects.update_or_create(
+            school=cls.school, teacher=cls.teacher_user, defaults={'role': 'teacher'})
 
         # ── Subject & Department ─────────────────────────────
         cls.subject, _ = Subject.objects.get_or_create(
