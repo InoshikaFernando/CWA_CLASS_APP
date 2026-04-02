@@ -712,10 +712,14 @@ def _send_invoice_email(invoice):
         'notes': invoice.notes or '',
     }
 
+    subject = f'Invoice {invoice.invoice_number} — {school.name}'
+    sent_emails = set()
+
+    # 1. Send to student
     try:
         send_templated_email(
             recipient_email=student.email,
-            subject=f'Invoice {invoice.invoice_number} — {school.name}',
+            subject=subject,
             template_name='email/transactional/invoice_issued.html',
             context=context,
             recipient_user=student,
@@ -723,8 +727,50 @@ def _send_invoice_email(invoice):
             school=school,
             department=primary_dept,
         )
+        sent_emails.add(student.email.lower())
     except Exception as e:
         logger.exception('Failed to send invoice email for %s: %s', invoice.invoice_number, e)
+
+    # 2. Send to parent accounts (ParentStudent links)
+    from .models import ParentStudent, StudentGuardian
+    parent_links = ParentStudent.objects.filter(
+        student=student, school=school, is_active=True,
+    ).select_related('parent')
+    for link in parent_links:
+        if link.parent.email and link.parent.email.lower() not in sent_emails:
+            try:
+                send_templated_email(
+                    recipient_email=link.parent.email,
+                    subject=subject,
+                    template_name='email/transactional/invoice_issued.html',
+                    context=context,
+                    recipient_user=link.parent,
+                    notification_type='invoice',
+                )
+                sent_emails.add(link.parent.email.lower())
+            except Exception as e:
+                logger.exception('Failed to send invoice email to parent %s: %s', link.parent.email, e)
+
+    # 3. Send to guardian contacts (StudentGuardian links)
+    from .models import SchoolStudent
+    school_student = SchoolStudent.objects.filter(student=student, school=school).first()
+    if school_student:
+        guardian_links = StudentGuardian.objects.filter(
+            student=student,
+        ).select_related('guardian')
+        for sg in guardian_links:
+            if sg.guardian.email and sg.guardian.email.lower() not in sent_emails:
+                try:
+                    send_templated_email(
+                        recipient_email=sg.guardian.email,
+                        subject=subject,
+                        template_name='email/transactional/invoice_issued.html',
+                        context=context,
+                        notification_type='invoice',
+                    )
+                    sent_emails.add(sg.guardian.email.lower())
+                except Exception as e:
+                    logger.exception('Failed to send invoice email to guardian %s: %s', sg.guardian.email, e)
 
 
 # ---------------------------------------------------------------------------
