@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import os
 
-# Force SQLite for UI tests (avoids MySQL connection issues)
-os.environ["DB_ENGINE"] = "sqlite"
+# Default to SQLite for UI tests unless DB_ENGINE is already set
+os.environ.setdefault("DB_ENGINE", "sqlite")
 # Allow synchronous DB operations in Playwright's async event loop
-os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
+os.environ.setdefault("DJANGO_ALLOW_ASYNC_UNSAFE", "true")
 
 import uuid
 from datetime import date, time, timedelta
@@ -36,6 +36,12 @@ def browser_context_args(browser_context_args):
         "viewport": {"width": 1280, "height": 800},
     }
 
+
+# ---------------------------------------------------------------------------
+# Unique prefix for this test session — prevents slug/username collisions
+# when running tests against a persistent database (--keepdb) or in parallel.
+# ---------------------------------------------------------------------------
+_RUN_ID = uuid.uuid4().hex[:6]
 
 # ---------------------------------------------------------------------------
 # Password used for every test user — kept simple for Playwright form-fill
@@ -64,20 +70,14 @@ def _assign_role(user, role_name: str):
     return role
 
 
-def _uid():
-    """Short unique suffix for parallel-safe names."""
-    return uuid.uuid4().hex[:8]
-
-
 def _make_user(username: str, role_name: str, **extra):
     from accounts.models import CustomUser
 
-    suffix = _uid()
-    unique_username = f"{username}_{suffix}"
+    unique_name = f"{username}_{_RUN_ID}"
     user = CustomUser.objects.create_user(
-        username=unique_username,
+        username=unique_name,
         password=TEST_PASSWORD,
-        email=f"{unique_username}@test.local",
+        email=f"{unique_name}@test.local",
         first_name=extra.pop("first_name", username.replace("_", " ").title()),
         profile_completed=True,
         must_change_password=False,
@@ -173,11 +173,10 @@ def admin_user(db, roles):
 @pytest.fixture
 def superuser(db, roles):
     from accounts.models import CustomUser, Role
-    suffix = _uid()
     user = CustomUser.objects.create_superuser(
-        username=f"ui_superuser_{suffix}",
+        username="ui_superuser",
         password=TEST_PASSWORD,
-        email=f"ui_superuser_{suffix}@test.local",
+        email="ui_superuser@test.local",
         profile_completed=True,
         must_change_password=False,
     )
@@ -209,26 +208,31 @@ def accountant_user(db, roles):
 
 @pytest.fixture
 def school(db, admin_user):
-    """Create a school with an active subscription, modules enabled, and admin as SchoolTeacher."""
+    """Create a school with unique slug, active subscription, modules enabled.
+
+    Uses _RUN_ID for unique slugs so tests can run against a persistent DB
+    (--keepdb) without collisions. School.delete() cascades to all related data.
+    """
     from billing.models import InstitutePlan, ModuleSubscription, SchoolSubscription
     from classroom.models import School, SchoolTeacher
 
-    suffix = _uid()
     school = School.objects.create(
-        name=f"Test School {suffix}",
-        slug=f"ui-test-school-{suffix}",
+        name=f"Test School {_RUN_ID}",
+        slug=f"ui-test-school-{_RUN_ID}",
         admin=admin_user,
         is_active=True,
     )
-    plan = InstitutePlan.objects.create(
-        name=f"Basic {suffix}",
-        slug=f"basic-ui-test-{suffix}",
-        price=Decimal("89.00"),
-        stripe_price_id=f"price_test_{suffix}",
-        class_limit=50,
-        student_limit=500,
-        invoice_limit_yearly=500,
-        extra_invoice_rate=Decimal("0.30"),
+    plan, _ = InstitutePlan.objects.get_or_create(
+        slug=f"basic-ui-{_RUN_ID}",
+        defaults={
+            "name": f"Basic {_RUN_ID}",
+            "price": Decimal("89.00"),
+            "stripe_price_id": "price_test",
+            "class_limit": 50,
+            "student_limit": 500,
+            "invoice_limit_yearly": 500,
+            "extra_invoice_rate": Decimal("0.30"),
+        },
     )
     sub = SchoolSubscription.objects.create(
         school=school, plan=plan, status="active",
@@ -246,7 +250,15 @@ def school(db, admin_user):
         teacher=admin_user,
         defaults={"role": "head_of_institute"},
     )
-    return school
+
+    yield school
+
+    # Cascade cleanup — deletes departments, classes, sessions, attendance, etc.
+    school.delete()
+    # Clean up the test user accounts too
+    from accounts.models import CustomUser
+    CustomUser.objects.filter(username__endswith=f"_{_RUN_ID}").delete()
+    plan.delete()
 
 
 @pytest.fixture
@@ -272,11 +284,10 @@ def department(db, school, hod_user, subject):
         SchoolTeacher,
     )
 
-    suffix = _uid()
     dept = Department.objects.create(
         school=school,
-        name=f"Mathematics {suffix}",
-        slug=f"maths-{suffix}",
+        name=f"Mathematics {_RUN_ID}",
+        slug=f"maths-{_RUN_ID}",
         head=hod_user,
     )
     DepartmentSubject.objects.create(department=dept, subject=subject)
@@ -306,18 +317,17 @@ def topic(db, subject, level):
     """A parent strand + child subtopic for quizzes."""
     from classroom.models import Topic
 
-    suffix = _uid()
     strand = Topic.objects.create(
         subject=subject,
-        name=f"Number {suffix}",
-        slug=f"number-{suffix}",
+        name=f"Number {_RUN_ID}",
+        slug=f"number-{_RUN_ID}",
         order=1,
     )
     subtopic = Topic.objects.create(
         subject=subject,
         parent=strand,
-        name=f"Addition {suffix}",
-        slug=f"addition-{suffix}",
+        name=f"Addition {_RUN_ID}",
+        slug=f"addition-{_RUN_ID}",
         order=1,
     )
     subtopic.levels.add(level)
@@ -335,7 +345,7 @@ def classroom(db, school, department, subject, level, teacher_user):
         defaults={"role": "teacher"},
     )
     room = ClassRoom.objects.create(
-        name=f"Year 7 Maths {_uid()}",
+        name=f"Year 7 Maths {_RUN_ID}",
         school=school,
         department=department,
         subject=subject,
@@ -560,11 +570,10 @@ def invoice(db, enrolled_student, school, classroom):
     """A draft invoice for the enrolled student."""
     from classroom.models import Invoice, InvoiceLineItem
 
-    suffix = _uid()
     inv = Invoice.objects.create(
         student=enrolled_student,
         school=school,
-        invoice_number=f"INV-{suffix}",
+        invoice_number=f"INV-{_RUN_ID}",
         billing_period_start=date.today() - timedelta(days=30),
         billing_period_end=date.today(),
         status="draft",
@@ -581,48 +590,6 @@ def invoice(db, enrolled_student, school, classroom):
         line_amount=Decimal("120.00"),
     )
     return inv
-
-
-@pytest.fixture
-def guardian(db, enrolled_student, school):
-    """A guardian contact linked to the enrolled student."""
-    from classroom.models import Guardian, StudentGuardian
-
-    suffix = _uid()
-    g = Guardian.objects.create(
-        school=school,
-        first_name="Jane",
-        last_name="Guardian",
-        email=f"jane.guardian.{suffix}@test.local",
-        phone="021-555-1234",
-        relationship="mother",
-    )
-    StudentGuardian.objects.create(student=enrolled_student, guardian=g)
-    return g
-
-
-@pytest.fixture
-def many_students(db, school):
-    """Create 30 students for pagination testing."""
-    from classroom.models import SchoolStudent
-    from accounts.models import CustomUser
-
-    suffix = _uid()
-    students = []
-    for i in range(30):
-        user = CustomUser.objects.create_user(
-            username=f"pag_{suffix}_{i:03d}",
-            password=TEST_PASSWORD,
-            email=f"pag_{suffix}_{i:03d}@test.local",
-            first_name=f"Student{i:03d}",
-            last_name=f"Pag{suffix}",
-            profile_completed=True,
-            must_change_password=False,
-        )
-        _assign_role(user, "student")
-        SchoolStudent.objects.create(school=school, student=user)
-        students.append(user)
-    return students
 
 
 # ═══════════════════════════════════════════════════════════════════════════
