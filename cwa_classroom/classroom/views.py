@@ -611,16 +611,20 @@ class ClassDetailView(RoleRequiredMixin, View):
         else:
             classroom = get_object_or_404(ClassRoom, id=class_id, teachers=request.user)
 
-        # Sessions for this class (last 10, with attendance counts)
-        sessions = (
+        # Sessions for this class — soonest upcoming first, paginated
+        from django.core.paginator import Paginator
+        all_sessions = (
             ClassSession.objects.filter(classroom=classroom)
             .annotate(
                 present_count=Count('student_attendance', filter=Q(student_attendance__status='present')),
                 late_count=Count('student_attendance', filter=Q(student_attendance__status='late')),
                 absent_count=Count('student_attendance', filter=Q(student_attendance__status='absent')),
             )
-            .order_by('-date', '-start_time')[:10]
+            .order_by('date', 'start_time')
         )
+        paginator = Paginator(all_sessions, 15)
+        page_number = request.GET.get('page')
+        sessions = paginator.get_page(page_number)
 
         today = timezone.localdate()
         todays_session = ClassSession.objects.filter(classroom=classroom, date=today).first()
@@ -2584,7 +2588,11 @@ class HoDOverviewView(RoleRequiredMixin, View):
         from collections import defaultdict
 
         # ── Next classes: check if user also teaches ──
-        today = timezone.localdate()
+        # Use the first school's timezone for "today" if available
+        _first_school = School.objects.filter(
+            id__in=_get_user_school_ids(request.user)
+        ).first()
+        today = _first_school.get_local_date() if _first_school else timezone.localdate()
         week_ahead = today + timedelta(days=7)
 
         my_teaching_classes = ClassRoom.objects.filter(
@@ -2754,7 +2762,7 @@ class HoDOverviewView(RoleRequiredMixin, View):
                     'friday': 4, 'saturday': 5, 'sunday': 6,
                 }
                 today_idx = today.weekday()
-                now_time = timezone.localtime().time()
+                now_time = (_first_school.get_local_now() if _first_school else timezone.localtime()).time()
 
                 def _days_until(day_str, start_time=None):
                     target = DAY_MAP.get(day_str, 7)

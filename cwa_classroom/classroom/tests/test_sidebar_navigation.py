@@ -57,7 +57,7 @@ def _setup_department(school, head=None):
     DepartmentSubject.objects.create(department=dept, subject=subj)
     if head:
         DepartmentTeacher.objects.create(department=dept, teacher=head)
-        SchoolTeacher.objects.get_or_create(
+        SchoolTeacher.objects.update_or_create(
             school=school, teacher=head,
             defaults={'role': 'head_of_department'},
         )
@@ -94,15 +94,15 @@ class SidebarAdminNavigationTests(TestCase):
 
     def test_admin_sidebar_contains_teachers_link(self):
         resp = self.client.get(reverse('admin_dashboard'))
-        self.assertContains(resp, '/admin-dashboard/teachers/')
+        self.assertContains(resp, '/admin-dashboard/manage-teachers/')
 
     def test_admin_sidebar_contains_students_link(self):
         resp = self.client.get(reverse('admin_dashboard'))
-        self.assertContains(resp, '/admin-dashboard/students/')
+        self.assertContains(resp, '/admin-dashboard/manage-students/')
 
     def test_admin_sidebar_contains_academic_years_link(self):
         resp = self.client.get(reverse('admin_dashboard'))
-        self.assertContains(resp, '/admin-dashboard/academic-years/')
+        self.assertContains(resp, '/admin-dashboard/manage-terms/')
 
     def test_admin_sidebar_contains_school_hierarchy_link(self):
         resp = self.client.get(reverse('admin_dashboard'))
@@ -316,7 +316,7 @@ class SidebarTeacherNavigationTests(TestCase):
             username='sidebar_teacher', password='pass12345', email='sb_teacher@test.com',
         )
         _assign_role(cls.teacher, Role.TEACHER)
-        SchoolTeacher.objects.create(school=cls.school, teacher=cls.teacher, role='teacher')
+        SchoolTeacher.objects.update_or_create(school=cls.school, teacher=cls.teacher, defaults={'role': 'teacher'})
 
     def setUp(self):
         self.client = Client()
@@ -376,9 +376,8 @@ class SidebarSeniorTeacherNavigationTests(TestCase):
             username='sidebar_sr_teacher', password='pass12345', email='sb_sr_teacher@test.com',
         )
         _assign_role(cls.teacher, Role.SENIOR_TEACHER)
-        SchoolTeacher.objects.create(
-            school=cls.school, teacher=cls.teacher, role='senior_teacher',
-        )
+        SchoolTeacher.objects.update_or_create(
+            school=cls.school, teacher=cls.teacher, defaults={'role': 'senior_teacher'})
 
     def setUp(self):
         self.client = Client()

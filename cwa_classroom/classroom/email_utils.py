@@ -37,6 +37,8 @@ def send_staff_welcome_email(
         login_path = getattr(settings, 'LOGIN_URL', '/accounts/login/')
         login_url = f'{site_url}{login_path}'
 
+    from .email_service import _get_email_logo_url
+
     context = {
         'user': user,
         'full_name': user.get_full_name() or user.username,
@@ -47,6 +49,7 @@ def send_staff_welcome_email(
         'department': department,
         'login_url': login_url,
         'site_name': getattr(settings, 'SITE_NAME', 'Classroom'),
+        'email_logo_url': _get_email_logo_url(school, department),
     }
 
     subject = f'Welcome to {school.name} — Your Account is Ready'

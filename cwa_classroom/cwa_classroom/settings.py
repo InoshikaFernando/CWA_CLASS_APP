@@ -73,6 +73,9 @@ INSTALLED_APPS = [
 
     # AI tools
     'ai_import',
+
+    # Homework
+    'homework',
 ]
 
 # ---------------------------------------------------------------------------
@@ -154,11 +157,19 @@ else:
                 'charset': 'utf8mb4',
                 'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
             },
+            'TEST': {
+                'SERIALIZE': False,  # Faster with --keepdb
+            },
         },
 
-        # Legacy CWA_SCHOOL MySQL database — used only by the
-        # migrate_from_cwa_school management command.
-        'cwa_school_legacy': {
+    }
+
+    # Legacy CWA_SCHOOL MySQL database — used only by the
+    # migrate_from_cwa_school management command.
+    # Excluded during test runs to avoid test DB creation issues.
+    import sys
+    if 'test' not in sys.argv:
+        DATABASES['cwa_school_legacy'] = {
             'ENGINE': 'django.db.backends.mysql',
             'NAME': os.environ.get('SRC_DB_NAME', 'cwa_school'),
             'USER': os.environ.get('SRC_DB_USER', os.environ.get('DB_USER', 'root')),
@@ -168,11 +179,7 @@ else:
             'OPTIONS': {
                 'charset': 'utf8mb4',
             },
-            'TEST': {
-                'NAME': None,
-            },
-        },
-    }
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +271,7 @@ else:
 STRIPE_SECRET_KEY = os.environ.get('STRIPE_SECRET_KEY', '')
 STRIPE_PUBLISHABLE_KEY = os.environ.get('STRIPE_PUBLISHABLE_KEY', '')
 STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET', '')
-STRIPE_CURRENCY = os.environ.get('STRIPE_CURRENCY', 'nzd')
+STRIPE_CURRENCY = os.environ.get('STRIPE_CURRENCY', 'usd')
 
 # True when running under `manage.py test` — disables rate limiting in views
 TESTING = 'test' in sys.argv

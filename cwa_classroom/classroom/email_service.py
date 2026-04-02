@@ -13,6 +13,23 @@ BATCH_SIZE = 25
 BATCH_PAUSE_SECONDS = 2
 
 
+def _get_email_logo_url(school=None, department=None):
+    """Resolve the logo URL for emails.
+
+    Priority: department logo > school logo > default CWA logo.
+    Returns an absolute URL suitable for use in email <img> tags.
+    """
+    site_url = getattr(settings, 'SITE_URL', '').rstrip('/')
+
+    if department and department.logo:
+        return f'{site_url}{department.logo.url}'
+    if school and school.logo:
+        return f'{site_url}{school.logo.url}'
+
+    static_url = getattr(settings, 'STATIC_URL', '/static/')
+    return f'{site_url}{static_url}images/logo.png'
+
+
 def resolve_cc_email(school, department=None):
     """Return CC list using school's outgoing_email (with department override).
 
@@ -59,6 +76,7 @@ def send_templated_email(
         'current_year': timezone.now().year,
         'recipient_name': '',
         'unsubscribe_url': '',
+        'email_logo_url': _get_email_logo_url(school, department),
     }
 
     if recipient_user:

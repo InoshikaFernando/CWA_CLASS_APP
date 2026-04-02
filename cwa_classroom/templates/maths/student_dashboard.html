@@ -306,7 +306,7 @@
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px;">
             {% if basic_facts_by_subtopic.Addition %}
             <div class="topic-card" style="margin: 0;">
-                <a href="{% url 'maths:basic_facts_subtopic' 'Addition' %}">
+                <a href="{% url 'basic_facts_select' subtopic='Addition' %}">
                     <h4 style="font-size: 18px;">➕ Addition</h4>
                     <p style="font-size: 14px;">{{ basic_facts_by_subtopic.Addition|length }} levels</p>
                 </a>
@@ -314,7 +314,7 @@
             {% endif %}
             {% if basic_facts_by_subtopic.Subtraction %}
             <div class="topic-card" style="margin: 0;">
-                <a href="{% url 'maths:basic_facts_subtopic' 'Subtraction' %}">
+                <a href="{% url 'basic_facts_select' subtopic='Subtraction' %}">
                     <h4 style="font-size: 18px;">➖ Subtraction</h4>
                     <p style="font-size: 14px;">{{ basic_facts_by_subtopic.Subtraction|length }} levels</p>
                 </a>
@@ -322,7 +322,7 @@
             {% endif %}
             {% if basic_facts_by_subtopic.Multiplication %}
             <div class="topic-card" style="margin: 0;">
-                <a href="{% url 'maths:basic_facts_subtopic' 'Multiplication' %}">
+                <a href="{% url 'basic_facts_select' subtopic='Multiplication' %}">
                     <h4 style="font-size: 18px;">✖️ Multiplication</h4>
                     <p style="font-size: 14px;">{{ basic_facts_by_subtopic.Multiplication|length }} levels</p>
                 </a>
@@ -330,7 +330,7 @@
             {% endif %}
             {% if basic_facts_by_subtopic.Division %}
             <div class="topic-card" style="margin: 0;">
-                <a href="{% url 'maths:basic_facts_subtopic' 'Division' %}">
+                <a href="{% url 'basic_facts_select' subtopic='Division' %}">
                     <h4 style="font-size: 18px;">➗ Division</h4>
                     <p style="font-size: 14px;">{{ basic_facts_by_subtopic.Division|length }} levels</p>
                 </a>
@@ -338,7 +338,7 @@
             {% endif %}
             {% if basic_facts_by_subtopic|lookup:"Place Value Facts" %}
             <div class="topic-card" style="margin: 0;">
-                <a href="{% url 'maths:basic_facts_subtopic' 'Place Value Facts' %}">
+                <a href="{% url 'basic_facts_select' subtopic='Place Value' %}">
                     <h4 style="font-size: 18px;">🔢 Place Value Facts</h4>
                     <p style="font-size: 14px;">{{ basic_facts_by_subtopic|lookup:"Place Value Facts"|length }} levels</p>
                 </a>
@@ -370,7 +370,7 @@
                                 {% endfor %}
                                 <!-- Take Quiz card (same for all years) -->
                                 <div class="topic-card">
-                                    <a href="{% url 'maths:take_quiz' level.level_number %}">
+                                    <a href="{% url 'mixed_quiz' level_number=level.level_number %}">
                                         <h4>Take Quiz</h4>
                                         <p>Random questions from all topics</p>
                                     </a>

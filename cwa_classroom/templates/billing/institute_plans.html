@@ -37,19 +37,19 @@
       <ul class="mt-4 space-y-2 text-sm text-gray-600">
         <li class="flex items-start gap-2">
           <span class="text-primary mt-0.5">&#10003;</span>
-          <span>{{ plan.class_limit }} classes
-            {% if current_classes > plan.class_limit %}<span class="text-red-500 text-xs">(you have {{ current_classes }})</span>{% endif %}
+          <span>{% if plan.class_limit == 0 %}Unlimited{% else %}{{ plan.class_limit }}{% endif %} classes
+            {% if plan.class_limit > 0 and current_classes > plan.class_limit %}<span class="text-red-500 text-xs">(you have {{ current_classes }})</span>{% endif %}
           </span>
         </li>
         <li class="flex items-start gap-2">
           <span class="text-primary mt-0.5">&#10003;</span>
-          <span>{{ plan.student_limit }} students
-            {% if current_students > plan.student_limit %}<span class="text-red-500 text-xs">(you have {{ current_students }})</span>{% endif %}
+          <span>{% if plan.student_limit == 0 %}Unlimited{% else %}{{ plan.student_limit }}{% endif %} students
+            {% if plan.student_limit > 0 and current_students > plan.student_limit %}<span class="text-red-500 text-xs">(you have {{ current_students }})</span>{% endif %}
           </span>
         </li>
         <li class="flex items-start gap-2">
           <span class="text-primary mt-0.5">&#10003;</span>
-          <span>{{ plan.invoice_limit_yearly }} invoices/yr</span>
+          <span>{% if plan.invoice_limit_yearly == 0 %}Unlimited{% else %}{{ plan.invoice_limit_yearly }}{% endif %} invoices/yr</span>
         </li>
         <li class="flex items-start gap-2">
           <span class="text-gray-400 mt-0.5">+</span>
