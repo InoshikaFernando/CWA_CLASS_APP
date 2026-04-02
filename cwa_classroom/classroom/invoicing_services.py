@@ -22,6 +22,7 @@ from .models import (
     Invoice, InvoiceLineItem, InvoicePayment, CreditTransaction,
     PaymentReferenceMapping, CSVImport, SchoolStudent,
     SchoolHoliday, PublicHoliday,
+    ParentStudent, StudentGuardian,
 )
 from .fee_utils import get_effective_fee_for_student, get_fee_source_label
 
@@ -741,7 +742,6 @@ def _send_invoice_email(invoice):
         logger.exception('Failed to send invoice email for %s: %s', invoice.invoice_number, e)
 
     # 2. Send to parent accounts (ParentStudent links)
-    from .models import ParentStudent, StudentGuardian
     parent_links = ParentStudent.objects.filter(
         student=student, school=school, is_active=True,
     ).select_related('parent')
@@ -761,7 +761,6 @@ def _send_invoice_email(invoice):
                 logger.exception('Failed to send invoice email to parent %s: %s', link.parent.email, e)
 
     # 3. Send to guardian contacts (StudentGuardian links)
-    from .models import SchoolStudent
     school_student = SchoolStudent.objects.filter(student=student, school=school).first()
     if school_student:
         guardian_links = StudentGuardian.objects.filter(
