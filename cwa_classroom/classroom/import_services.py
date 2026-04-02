@@ -747,6 +747,17 @@ def _auto_create_teacher(full_name, school, role_teacher, teacher_cache, counts)
 
     t_slug = slugify(f'{first_name}-{last_name}') if last_name else slugify(first_name)
     t_email = f'{t_slug}@teacher.local'
+
+    # Reuse existing placeholder teacher if email already exists
+    existing_user = CustomUser.objects.filter(email__iexact=t_email).first()
+    if existing_user:
+        SchoolTeacher.objects.get_or_create(
+            school=school, teacher=existing_user,
+            defaults={'role': 'teacher', 'is_active': True},
+        )
+        teacher_cache[full_name] = existing_user
+        return existing_user
+
     t_username = t_slug.replace('-', '_')
     suffix = 1
     while CustomUser.objects.filter(username=t_username).exists():
@@ -1001,24 +1012,34 @@ def execute_import(preview_data, school, uploaded_by):
                     first_name, last_name = _split_child_name(csv_name)
                     t_slug = slugify(f'{first_name}-{last_name}') if last_name else slugify(first_name)
                     t_email = f'{t_slug}@teacher.local'
-                    t_username = t_slug.replace('-', '_')
-                    suffix = 1
-                    while CustomUser.objects.filter(username=t_username).exists():
-                        t_username = f'{t_slug.replace("-", "_")}{suffix}'
-                        suffix += 1
-                    t_password = get_random_string(10)
-                    teacher_user = CustomUser.objects.create_user(
-                        username=t_username, email=t_email,
-                        password=t_password,
-                        first_name=first_name, last_name=last_name,
-                    )
-                    UserRole.objects.get_or_create(user=teacher_user, role=role_teacher)
-                    SchoolTeacher.objects.get_or_create(
-                        school=school, teacher=teacher_user,
-                        defaults={'role': 'teacher', 'is_active': True},
-                    )
-                    teacher_cache[csv_name] = teacher_user
-                    counts['teachers_created'] = counts.get('teachers_created', 0) + 1
+
+                    # Reuse existing placeholder teacher if email already exists
+                    existing_teacher = CustomUser.objects.filter(email__iexact=t_email).first()
+                    if existing_teacher:
+                        SchoolTeacher.objects.get_or_create(
+                            school=school, teacher=existing_teacher,
+                            defaults={'role': 'teacher', 'is_active': True},
+                        )
+                        teacher_cache[csv_name] = existing_teacher
+                    else:
+                        t_username = t_slug.replace('-', '_')
+                        suffix = 1
+                        while CustomUser.objects.filter(username=t_username).exists():
+                            t_username = f'{t_slug.replace("-", "_")}{suffix}'
+                            suffix += 1
+                        t_password = get_random_string(10)
+                        teacher_user = CustomUser.objects.create_user(
+                            username=t_username, email=t_email,
+                            password=t_password,
+                            first_name=first_name, last_name=last_name,
+                        )
+                        UserRole.objects.get_or_create(user=teacher_user, role=role_teacher)
+                        SchoolTeacher.objects.get_or_create(
+                            school=school, teacher=teacher_user,
+                            defaults={'role': 'teacher', 'is_active': True},
+                        )
+                        teacher_cache[csv_name] = teacher_user
+                        counts['teachers_created'] = counts.get('teachers_created', 0) + 1
                 else:
                     user = existing_users_by_id.get(int(target))
                     if user:
