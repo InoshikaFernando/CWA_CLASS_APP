@@ -292,7 +292,7 @@ class Department(models.Model):
     default_fee = models.DecimalField(
         max_digits=8, decimal_places=2,
         null=True, blank=True,
-        help_text='Default fee (NZD) for all subjects/levels/classes in this department.',
+        help_text='Default fee (USD) for all subjects/levels/classes in this department.',
     )
     # ── Settings overrides (blank = use school default) ──
     bank_name = models.CharField(max_length=100, blank=True)

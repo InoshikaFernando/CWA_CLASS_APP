@@ -2,6 +2,7 @@
 Parent portal views — read-only access to linked children's data.
 CPP-67 (invoices & payments), CPP-68 (attendance), CPP-69 (progress).
 """
+from django.core.paginator import Paginator
 from django.db.models import Max, Q
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
@@ -135,23 +136,43 @@ class ParentInvoicesView(RoleRequiredMixin, View):
         if not child:
             return render(request, 'parent/invoices.html', {
                 'invoices': [], 'children': _get_parent_children(request.user),
+                'page': None,
             })
 
+        search = request.GET.get('q', '').strip()
+        status_filter = request.GET.get('status', '').strip()
+
+        allowed_statuses = ['issued', 'partially_paid', 'paid']
         invoices = (
-            Invoice.objects.filter(
-                student=child, school=school,
-                status__in=['issued', 'partially_paid', 'paid'],
-            )
+            Invoice.objects.filter(student=child, school=school, status__in=allowed_statuses)
             .select_related('student')
             .order_by('-billing_period_end', '-created_at')
         )
 
-        return render(request, 'parent/invoices.html', {
-            'invoices': invoices,
+        if search:
+            invoices = invoices.filter(
+                Q(invoice_number__icontains=search) |
+                Q(student__first_name__icontains=search) |
+                Q(student__last_name__icontains=search)
+            )
+        if status_filter and status_filter in allowed_statuses:
+            invoices = invoices.filter(status=status_filter)
+
+        paginator = Paginator(invoices, 25)
+        page = paginator.get_page(request.GET.get('page'))
+
+        ctx = {
+            'invoices': page,
+            'page': page,
             'active_child': child,
             'active_school': school,
             'children': _get_parent_children(request.user),
-        })
+            'search': search,
+            'status_filter': status_filter,
+        }
+        if request.headers.get('HX-Request'):
+            return render(request, 'parent/partials/invoice_table.html', ctx)
+        return render(request, 'parent/invoices.html', ctx)
 
 
 class ParentInvoiceDetailView(RoleRequiredMixin, View):

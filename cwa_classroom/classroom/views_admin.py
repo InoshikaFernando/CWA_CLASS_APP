@@ -1524,9 +1524,18 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
         school = self._get_school(request, school_id)
         from django.db.models import Count, Q
         show_inactive = request.GET.get('show_inactive') == '1'
+        search = request.GET.get('q', '').strip()
         qs = SchoolStudent.objects.filter(school=school)
         if not show_inactive:
             qs = qs.filter(is_active=True)
+        if search:
+            qs = qs.filter(
+                Q(student__first_name__icontains=search) |
+                Q(student__last_name__icontains=search) |
+                Q(student__email__icontains=search) |
+                Q(student__username__icontains=search) |
+                Q(student_id_code__icontains=search)
+            )
         school_students = (
             qs.select_related('student')
             .prefetch_related(
@@ -1539,15 +1548,20 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
                     filter=Q(student__class_student_entries__classroom__school=school),
                 )
             )
+            .order_by('student__last_name', 'student__first_name', 'student__id')
         )
         paginator = Paginator(school_students, 25)
         page = paginator.get_page(request.GET.get('page'))
-        return render(request, 'admin_dashboard/school_students.html', {
+        ctx = {
             'school': school,
             'school_students': page,
             'page': page,
             'show_inactive': show_inactive,
-        })
+            'search': search,
+        }
+        if request.headers.get('HX-Request'):
+            return render(request, 'admin_dashboard/partials/students_table.html', ctx)
+        return render(request, 'admin_dashboard/school_students.html', ctx)
 
     def post(self, request, school_id):
         school = self._get_school(request, school_id)
@@ -1684,6 +1698,30 @@ class SchoolStudentEditView(RoleRequiredMixin, View):
         )
         messages.success(request, f'{student.get_full_name()} updated.')
         return redirect('admin_school_students', school_id=school.id)
+
+
+class StudentEditModalView(RoleRequiredMixin, View):
+    """Return the student edit modal partial via HTMX."""
+    required_roles = [
+        Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT, Role.TEACHER,
+    ]
+
+    def get(self, request, school_id, student_id):
+        school = SchoolStudentManageView._get_school(self, request, school_id)
+        school_student = get_object_or_404(
+            SchoolStudent, school=school, student_id=student_id
+        )
+        student = school_student.student
+        parent_links = student.student_parent_links.select_related('parent').filter(is_active=True)
+        guardian_links = student.student_guardians.select_related('guardian').all()
+        return render(request, 'admin_dashboard/partials/student_edit_modal.html', {
+            'school': school,
+            'school_student': school_student,
+            'student': student,
+            'parent_links': parent_links,
+            'guardian_links': guardian_links,
+        })
 
 
 class SchoolStudentBatchUpdateView(RoleRequiredMixin, View):

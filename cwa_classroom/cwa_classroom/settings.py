@@ -263,7 +263,7 @@ else:
 STRIPE_SECRET_KEY = os.environ.get('STRIPE_SECRET_KEY', '')
 STRIPE_PUBLISHABLE_KEY = os.environ.get('STRIPE_PUBLISHABLE_KEY', '')
 STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET', '')
-STRIPE_CURRENCY = os.environ.get('STRIPE_CURRENCY', 'nzd')
+STRIPE_CURRENCY = os.environ.get('STRIPE_CURRENCY', 'usd')
 
 # True when running under `manage.py test` — disables rate limiting in views
 TESTING = 'test' in sys.argv

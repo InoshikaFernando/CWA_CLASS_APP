@@ -64,13 +64,20 @@ def _assign_role(user, role_name: str):
     return role
 
 
+def _uid():
+    """Short unique suffix for parallel-safe names."""
+    return uuid.uuid4().hex[:8]
+
+
 def _make_user(username: str, role_name: str, **extra):
     from accounts.models import CustomUser
 
+    suffix = _uid()
+    unique_username = f"{username}_{suffix}"
     user = CustomUser.objects.create_user(
-        username=username,
+        username=unique_username,
         password=TEST_PASSWORD,
-        email=f"{username}@test.local",
+        email=f"{unique_username}@test.local",
         profile_completed=True,
         must_change_password=False,
         **extra,
@@ -165,10 +172,11 @@ def admin_user(db, roles):
 @pytest.fixture
 def superuser(db, roles):
     from accounts.models import CustomUser, Role
+    suffix = _uid()
     user = CustomUser.objects.create_superuser(
-        username="ui_superuser",
+        username=f"ui_superuser_{suffix}",
         password=TEST_PASSWORD,
-        email="ui_superuser@test.local",
+        email=f"ui_superuser_{suffix}@test.local",
         profile_completed=True,
         must_change_password=False,
     )
@@ -204,17 +212,18 @@ def school(db, admin_user):
     from billing.models import InstitutePlan, SchoolSubscription
     from classroom.models import School, SchoolTeacher
 
+    suffix = _uid()
     school = School.objects.create(
-        name="Test School",
-        slug="ui-test-school",
+        name=f"Test School {suffix}",
+        slug=f"ui-test-school-{suffix}",
         admin=admin_user,
         is_active=True,
     )
     plan = InstitutePlan.objects.create(
-        name="Basic",
-        slug="basic-ui-test",
+        name=f"Basic {suffix}",
+        slug=f"basic-ui-test-{suffix}",
         price=Decimal("89.00"),
-        stripe_price_id="price_test",
+        stripe_price_id=f"price_test_{suffix}",
         class_limit=50,
         student_limit=500,
         invoice_limit_yearly=500,
@@ -255,10 +264,11 @@ def department(db, school, hod_user, subject):
         SchoolTeacher,
     )
 
+    suffix = _uid()
     dept = Department.objects.create(
         school=school,
-        name="Mathematics",
-        slug="maths",
+        name=f"Mathematics {suffix}",
+        slug=f"maths-{suffix}",
         head=hod_user,
     )
     DepartmentSubject.objects.create(department=dept, subject=subject)
@@ -288,17 +298,18 @@ def topic(db, subject, level):
     """A parent strand + child subtopic for quizzes."""
     from classroom.models import Topic
 
+    suffix = _uid()
     strand = Topic.objects.create(
         subject=subject,
-        name="Number",
-        slug="number",
+        name=f"Number {suffix}",
+        slug=f"number-{suffix}",
         order=1,
     )
     subtopic = Topic.objects.create(
         subject=subject,
         parent=strand,
-        name="Addition",
-        slug="addition",
+        name=f"Addition {suffix}",
+        slug=f"addition-{suffix}",
         order=1,
     )
     subtopic.levels.add(level)
@@ -316,7 +327,7 @@ def classroom(db, school, department, subject, level, teacher_user):
         defaults={"role": "teacher"},
     )
     room = ClassRoom.objects.create(
-        name="Year 7 Maths",
+        name=f"Year 7 Maths {_uid()}",
         school=school,
         department=department,
         subject=subject,
@@ -503,10 +514,11 @@ def invoice(db, enrolled_student, school, classroom):
     """A draft invoice for the enrolled student."""
     from classroom.models import Invoice, InvoiceLineItem
 
+    suffix = _uid()
     inv = Invoice.objects.create(
         student=enrolled_student,
         school=school,
-        invoice_number="INV-0001",
+        invoice_number=f"INV-{suffix}",
         billing_period_start=date.today() - timedelta(days=30),
         billing_period_end=date.today(),
         status="draft",
@@ -523,6 +535,48 @@ def invoice(db, enrolled_student, school, classroom):
         line_amount=Decimal("120.00"),
     )
     return inv
+
+
+@pytest.fixture
+def guardian(db, enrolled_student, school):
+    """A guardian contact linked to the enrolled student."""
+    from classroom.models import Guardian, StudentGuardian
+
+    suffix = _uid()
+    g = Guardian.objects.create(
+        school=school,
+        first_name="Jane",
+        last_name="Guardian",
+        email=f"jane.guardian.{suffix}@test.local",
+        phone="021-555-1234",
+        relationship="mother",
+    )
+    StudentGuardian.objects.create(student=enrolled_student, guardian=g)
+    return g
+
+
+@pytest.fixture
+def many_students(db, school):
+    """Create 30 students for pagination testing."""
+    from classroom.models import SchoolStudent
+    from accounts.models import CustomUser
+
+    suffix = _uid()
+    students = []
+    for i in range(30):
+        user = CustomUser.objects.create_user(
+            username=f"pag_{suffix}_{i:03d}",
+            password=TEST_PASSWORD,
+            email=f"pag_{suffix}_{i:03d}@test.local",
+            first_name=f"Student{i:03d}",
+            last_name=f"Pag{suffix}",
+            profile_completed=True,
+            must_change_password=False,
+        )
+        _assign_role(user, "student")
+        SchoolStudent.objects.create(school=school, student=user)
+        students.append(user)
+    return students
 
 
 # ═══════════════════════════════════════════════════════════════════════════
