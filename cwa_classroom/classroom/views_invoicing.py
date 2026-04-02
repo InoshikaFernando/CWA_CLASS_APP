@@ -681,11 +681,21 @@ class InvoiceDetailView(RoleRequiredMixin, View):
         payments = invoice.payments.order_by('-created_at')
         credit_balance = svc.get_credit_balance(invoice.student, invoice.school)
 
+        # Get effective settings (department overrides applied)
+        primary_dept = None
+        for li in line_items:
+            if li.classroom and li.classroom.department:
+                primary_dept = li.classroom.department
+                break
+        effective_settings = school.get_effective_settings(primary_dept)
+
         return render(request, 'invoicing/invoice_detail.html', {
             'invoice': invoice,
+            'school': school,
             'line_items': line_items,
             'payments': payments,
             'credit_balance': credit_balance,
+            'effective_settings': effective_settings,
         })
 
 
