@@ -25,7 +25,7 @@ class TestStudentEditButton:
 
     def test_edit_button_visible(self):
         """Each student row has an edit button."""
-        edit_btn = self.page.locator("button[title='Edit student']").first
+        edit_btn = self.page.locator("button[title='Edit student details']").first
         expect(edit_btn).to_be_visible()
 
 

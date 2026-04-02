@@ -7,7 +7,7 @@ from decimal import Decimal
 import pytest
 from playwright.sync_api import expect
 
-from .conftest import do_login
+from .conftest import do_login, _RUN_ID
 from .helpers import assert_page_has_text
 
 pytestmark = pytest.mark.invoice
@@ -46,7 +46,7 @@ def issued_invoice(db, enrolled_student, school, classroom):
     inv = Invoice.objects.create(
         student=enrolled_student,
         school=school,
-        invoice_number="INV-0002",
+        invoice_number=f"INV-PAY-{_RUN_ID}",
         billing_period_start=date.today() - timedelta(days=30),
         billing_period_end=date.today(),
         status="issued",
