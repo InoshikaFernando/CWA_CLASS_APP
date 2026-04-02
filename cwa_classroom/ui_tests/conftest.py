@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import os
 
-# Default to SQLite for UI tests unless DB_ENGINE is already set
-os.environ.setdefault("DB_ENGINE", "sqlite")
+# Force SQLite for UI tests unless DB_ENGINE was explicitly set before import
+# (os.environ.setdefault won't work because load_dotenv hasn't run yet)
+if "DB_ENGINE" not in os.environ:
+    os.environ["DB_ENGINE"] = "sqlite"
 # Allow synchronous DB operations in Playwright's async event loop
-os.environ.setdefault("DJANGO_ALLOW_ASYNC_UNSAFE", "true")
+os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
 
 import uuid
 from datetime import date, time, timedelta

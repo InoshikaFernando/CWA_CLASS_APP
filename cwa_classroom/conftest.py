@@ -1,13 +1,18 @@
 """
 Root conftest for pytest (Playwright UI tests).
 
-Uses whichever database settings.py configures (MySQL or SQLite).
-For SQLite (DB_ENGINE=sqlite): forces in-memory DB, skips migrations.
-For MySQL: uses existing test DB with --keepdb behaviour.
+Forces SQLite for UI tests by default. Set DB_ENGINE=mysql before running
+to use MySQL instead.
 """
 import os
 
 import pytest
+
+
+# Set DB_ENGINE before Django settings load (conftest.py is loaded first)
+if "DB_ENGINE" not in os.environ:
+    os.environ["DB_ENGINE"] = "sqlite"
+os.environ.setdefault("DJANGO_ALLOW_ASYNC_UNSAFE", "true")
 
 
 @pytest.fixture(scope="session")
@@ -19,10 +24,10 @@ def django_db_modify_db_settings():
     settings.DATABASES.pop("legacy_cwa_school", None)
     settings.DATABASES.pop("cwa_school_legacy", None)
 
-    engine = settings.DATABASES["default"]["ENGINE"]
+    engine = os.environ.get("DB_ENGINE", "sqlite")
 
-    if "sqlite" in engine:
-        # SQLite: use in-memory, skip migrations
+    if engine == "sqlite":
+        # SQLite: use in-memory
         settings.DATABASES["default"] = {
             "ENGINE": "django.db.backends.sqlite3",
             "NAME": ":memory:",
