@@ -41,7 +41,7 @@ class TestSchoolTimezoneSettings:
         self.page.goto(f"{self.url}/admin-dashboard/schools/{self.school.id}/settings/")
         self.page.wait_for_load_state("networkidle")
         self.page.locator("select[name='timezone']").select_option("America/New_York")
-        self.page.locator("button[type='submit']").first.click()
+        self.page.locator("button:has-text('Save')").first.click()
         self.page.wait_for_load_state("networkidle")
         # Reload and verify it stuck
         self.page.goto(f"{self.url}/admin-dashboard/schools/{self.school.id}/settings/")
