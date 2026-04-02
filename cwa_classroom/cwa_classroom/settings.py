@@ -73,6 +73,9 @@ INSTALLED_APPS = [
 
     # AI tools
     'ai_import',
+
+    # Homework
+    'homework',
 ]
 
 # ---------------------------------------------------------------------------
@@ -156,9 +159,14 @@ else:
             },
         },
 
-        # Legacy CWA_SCHOOL MySQL database — used only by the
-        # migrate_from_cwa_school management command.
-        'cwa_school_legacy': {
+    }
+
+    # Legacy CWA_SCHOOL MySQL database — used only by the
+    # migrate_from_cwa_school management command.
+    # Excluded during test runs to avoid test DB creation issues.
+    import sys
+    if 'test' not in sys.argv:
+        DATABASES['cwa_school_legacy'] = {
             'ENGINE': 'django.db.backends.mysql',
             'NAME': os.environ.get('SRC_DB_NAME', 'cwa_school'),
             'USER': os.environ.get('SRC_DB_USER', os.environ.get('DB_USER', 'root')),
@@ -168,11 +176,7 @@ else:
             'OPTIONS': {
                 'charset': 'utf8mb4',
             },
-            'TEST': {
-                'NAME': None,
-            },
-        },
-    }
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -244,13 +248,14 @@ else:
 
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
-DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@wizardslearninghub.co.nz')
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'info@wizardslearninghub.co.nz')
 
 if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
     EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-    EMAIL_HOST = 'smtp.gmail.com'
-    EMAIL_PORT = 587
-    EMAIL_USE_TLS = True
+    EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtpout.secureserver.net')
+    EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '465'))
+    EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'False') == 'True'
+    EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', 'True') == 'True'
 else:
     # No SMTP credentials configured — log emails to console
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'

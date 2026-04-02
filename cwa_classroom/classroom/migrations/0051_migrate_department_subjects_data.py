@@ -5,25 +5,48 @@ from django.db import migrations
 
 def forward(apps, schema_editor):
     """Copy each Department's old subject FK into the new DepartmentSubject M2M."""
-    Department = apps.get_model('classroom', 'Department')
-    DepartmentSubject = apps.get_model('classroom', 'DepartmentSubject')
-    for dept in Department.objects.filter(subject__isnull=False):
-        DepartmentSubject.objects.get_or_create(
-            department=dept,
-            subject=dept.subject,
-            defaults={'order': 0},
+    if schema_editor.connection.vendor != 'mysql':
+        return
+    db_alias = schema_editor.connection.alias
+    # Use raw SQL to avoid model-state issues when running from scratch
+    with schema_editor.connection.cursor() as cursor:
+        # Check if subject_id column exists (may not on fresh test DBs with squashed migrations)
+        cursor.execute(
+            "SELECT COUNT(*) FROM information_schema.columns "
+            "WHERE table_schema = DATABASE() "
+            "AND table_name = 'classroom_department' "
+            "AND column_name = 'subject_id'"
+        )
+        if cursor.fetchone()[0] == 0:
+            return  # Column doesn't exist, nothing to migrate
+
+        cursor.execute(
+            "INSERT IGNORE INTO classroom_departmentsubject (department_id, subject_id, `order`, created_at) "
+            "SELECT id, subject_id, 0, NOW() FROM classroom_department WHERE subject_id IS NOT NULL"
         )
 
 
 def reverse(apps, schema_editor):
     """Reverse: copy first DepartmentSubject back to Department.subject FK."""
-    Department = apps.get_model('classroom', 'Department')
-    DepartmentSubject = apps.get_model('classroom', 'DepartmentSubject')
-    for ds in DepartmentSubject.objects.select_related('department', 'subject').order_by('order'):
-        dept = ds.department
-        if dept.subject is None:
-            dept.subject = ds.subject
-            dept.save(update_fields=['subject'])
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT COUNT(*) FROM information_schema.columns "
+            "WHERE table_schema = DATABASE() "
+            "AND table_name = 'classroom_department' "
+            "AND column_name = 'subject_id'"
+        )
+        if cursor.fetchone()[0] == 0:
+            return
+
+        cursor.execute(
+            "UPDATE classroom_department d "
+            "INNER JOIN ("
+            "  SELECT department_id, subject_id FROM classroom_departmentsubject "
+            "  ORDER BY `order` LIMIT 1"
+            ") ds ON d.id = ds.department_id "
+            "SET d.subject_id = ds.subject_id "
+            "WHERE d.subject_id IS NULL"
+        )
 
 
 class Migration(migrations.Migration):

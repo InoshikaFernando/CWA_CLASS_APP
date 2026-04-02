@@ -78,6 +78,7 @@ def _make_user(username: str, role_name: str, **extra):
         username=unique_username,
         password=TEST_PASSWORD,
         email=f"{unique_username}@test.local",
+        first_name=extra.pop("first_name", username.replace("_", " ").title()),
         profile_completed=True,
         must_change_password=False,
         **extra,
@@ -208,8 +209,8 @@ def accountant_user(db, roles):
 
 @pytest.fixture
 def school(db, admin_user):
-    """Create a school with an active subscription and admin as SchoolTeacher."""
-    from billing.models import InstitutePlan, SchoolSubscription
+    """Create a school with an active subscription, modules enabled, and admin as SchoolTeacher."""
+    from billing.models import InstitutePlan, ModuleSubscription, SchoolSubscription
     from classroom.models import School, SchoolTeacher
 
     suffix = _uid()
@@ -229,9 +230,16 @@ def school(db, admin_user):
         invoice_limit_yearly=500,
         extra_invoice_rate=Decimal("0.30"),
     )
-    SchoolSubscription.objects.create(
+    sub = SchoolSubscription.objects.create(
         school=school, plan=plan, status="active",
     )
+    # Enable all modules so attendance, progress reports etc. work
+    for module_key, _ in ModuleSubscription.MODULE_CHOICES:
+        ModuleSubscription.objects.create(
+            school_subscription=sub,
+            module=module_key,
+            is_active=True,
+        )
     # Admin must also be a SchoolTeacher for sidebar views to work
     SchoolTeacher.objects.get_or_create(
         school=school,
@@ -503,6 +511,44 @@ def progress_data(db, enrolled_student, level, topic):
         },
     )
     return stats
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Academic Year / Term fixtures
+# ═══════════════════════════════════════════════════════════════════════════
+
+@pytest.fixture
+def academic_year(db, school):
+    """Current academic year."""
+    from classroom.models import AcademicYear
+
+    today = date.today()
+    return AcademicYear.objects.create(
+        school=school,
+        year=today.year,
+        start_date=date(today.year, 1, 1),
+        end_date=date(today.year, 12, 31),
+        is_current=True,
+    )
+
+
+@pytest.fixture
+def future_term(db, school, academic_year):
+    """A term starting in the future (next month onwards)."""
+    from classroom.models import Term
+
+    today = date.today()
+    # Start 30 days from now, end 90 days from now
+    start = today + timedelta(days=30)
+    end = today + timedelta(days=90)
+    return Term.objects.create(
+        school=school,
+        academic_year=academic_year,
+        name="Term 2",
+        start_date=start,
+        end_date=end,
+        order=2,
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════

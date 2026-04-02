@@ -18,6 +18,10 @@
           <!-- Header banner -->
           <tr>
             <td style="background-color:#1e293b; padding:28px 32px; text-align:center;">
+              {% if email_logo_url %}
+              <img src="{{ email_logo_url }}" alt="{{ school.name }}" style="max-height:48px; max-width:200px; margin-bottom:12px;" />
+              <br />
+              {% endif %}
               <h1 style="margin:0; font-size:22px; font-weight:700; color:#ffffff; font-family:'Inter','Nunito',Arial,sans-serif;">
                 Welcome to {{ school.name }}
               </h1>

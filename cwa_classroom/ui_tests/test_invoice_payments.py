@@ -1,6 +1,8 @@
 """Tests for payment CSV upload — upload form, column mapping."""
 
 import re
+from datetime import date, timedelta
+from decimal import Decimal
 
 import pytest
 from playwright.sync_api import expect
@@ -32,20 +34,48 @@ class TestPaymentCSVUpload:
 
     def test_upload_button_visible(self):
         """Upload & Map Columns button."""
-        btn = self.page.locator("button[type='submit'], input[type='submit'], button:not([type])")
+        btn = self.page.get_by_role("button", name=re.compile(r"Upload|Map", re.IGNORECASE))
         expect(btn.first).to_be_visible()
 
 
+@pytest.fixture
+def issued_invoice(db, enrolled_student, school, classroom):
+    """An issued invoice for the enrolled student."""
+    from classroom.models import Invoice, InvoiceLineItem
+
+    inv = Invoice.objects.create(
+        student=enrolled_student,
+        school=school,
+        invoice_number="INV-0002",
+        billing_period_start=date.today() - timedelta(days=30),
+        billing_period_end=date.today(),
+        status="issued",
+        amount=Decimal("120.00"),
+        calculated_amount=Decimal("120.00"),
+    )
+    InvoiceLineItem.objects.create(
+        invoice=inv,
+        classroom=classroom,
+        daily_rate=Decimal("10.00"),
+        rate_source="department_default",
+        sessions_held=12,
+        sessions_attended=12,
+        sessions_charged=12,
+        line_amount=Decimal("120.00"),
+    )
+    return inv
+
+
 class TestRecordManualPayment:
-    """Tests for /invoicing/<id>/pay/ — manual payment recording."""
+    """Tests for payment form on invoice detail page (issued invoice)."""
 
     @pytest.fixture(autouse=True)
-    def _setup(self, live_server, page, hoi_user, hoi_school_setup, department, classroom, enrolled_student, invoice):
+    def _setup(self, live_server, page, hoi_user, hoi_school_setup, department, classroom, enrolled_student, issued_invoice):
         self.url = live_server.url
         self.page = page
-        self.invoice = invoice
+        self.invoice = issued_invoice
         do_login(page, self.url, hoi_user)
-        page.goto(f"{self.url}/invoicing/{self.invoice.id}/pay/")
+        page.goto(f"{self.url}/invoicing/{self.invoice.id}/")
         page.wait_for_load_state("domcontentloaded")
 
     def test_page_loads(self):
@@ -67,7 +97,6 @@ class TestRecordManualPayment:
             assert date_inputs.count() >= 1
 
     def test_submit_button(self):
-        """Submit/record button should exist (if page loaded correctly)."""
-        if "/pay/" in self.page.url:
-            btn = self.page.locator("button[type='submit'], input[type='submit'], button:not([type])")
-            assert btn.count() > 0
+        """Submit/record button should be visible."""
+        btn = self.page.get_by_role("button", name=re.compile(r"Record|Pay", re.IGNORECASE))
+        expect(btn.first).to_be_visible()

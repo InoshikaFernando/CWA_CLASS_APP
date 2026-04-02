@@ -45,7 +45,7 @@ class TestBreadcrumbsOnMaths:
         expect(breadcrumb).to_contain_text("Maths")
 
     def test_basic_facts_breadcrumb(self):
-        self.page.goto(f"{self.url}/basic-facts/")
+        self.page.goto(f"{self.url}/maths/basic-facts/")
         self.page.wait_for_load_state("domcontentloaded")
         breadcrumb = self.page.locator("nav[aria-label='Breadcrumb']")
         expect(breadcrumb).to_be_visible()
@@ -54,7 +54,7 @@ class TestBreadcrumbsOnMaths:
         expect(breadcrumb).to_contain_text("Basic Facts")
 
     def test_times_tables_breadcrumb(self):
-        self.page.goto(f"{self.url}/times-tables/")
+        self.page.goto(f"{self.url}/maths/times-tables/")
         self.page.wait_for_load_state("domcontentloaded")
         breadcrumb = self.page.locator("nav[aria-label='Breadcrumb']")
         expect(breadcrumb).to_be_visible()
@@ -82,12 +82,12 @@ class TestBreadcrumbsOnClassPages:
     def test_attendance_breadcrumb(self):
         self.page.goto(f"{self.url}/student/attendance/")
         self.page.wait_for_load_state("networkidle")
-        # Page may redirect if no attendance data — check breadcrumb only if on attendance page
+        # May redirect to billing/module-required if attendance module not subscribed
         if "/attendance" in self.page.url:
             breadcrumb = self.page.locator("nav[aria-label='Breadcrumb']")
             if breadcrumb.count() > 0:
                 expect(breadcrumb).to_contain_text("Hub")
-        expect(breadcrumb).to_contain_text("Attendance")
+                expect(breadcrumb).to_contain_text("Attendance")
 
     def test_progress_breadcrumb(self):
         self.page.goto(f"{self.url}/student-dashboard/")

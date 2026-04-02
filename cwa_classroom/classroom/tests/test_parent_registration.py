@@ -82,6 +82,7 @@ class ParentRegisterViewTest(ParentRegistrationTestBase):
             'email': 'newparent@test.com',
             'password': 'securepass123',
             'confirm_password': 'securepass123',
+            'accept_terms': 'on',
         })
         self.assertEqual(resp.status_code, 302)
 
@@ -109,6 +110,7 @@ class ParentRegisterViewTest(ParentRegistrationTestBase):
             'email': 'newparent@test.com',
             'password': 'securepass123',
             'confirm_password': 'securepass123',
+            'accept_terms': 'on',
         })
         user = CustomUser.objects.get(email='newparent@test.com')
         self.assertTrue(user.username.startswith('newparent'))
@@ -121,6 +123,7 @@ class ParentRegisterViewTest(ParentRegistrationTestBase):
             'email': 'newparent@test.com',
             'password': 'securepass123',
             'confirm_password': 'securepass123',
+            'accept_terms': 'on',
         }, follow=True)
         self.assertTrue(resp.wsgi_request.user.is_authenticated)
 

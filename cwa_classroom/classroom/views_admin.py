@@ -355,6 +355,8 @@ class SchoolDetailView(RoleRequiredMixin, View):
         departments = Department.objects.filter(school=school, is_active=True).select_related('head')
         school_students = SchoolStudent.objects.filter(school=school, is_active=True).select_related('student')
         custom_levels = Level.objects.filter(school=school).order_by('level_number')
+        terms = Term.objects.filter(school=school).select_related('academic_year')
+        holidays = SchoolHoliday.objects.filter(school=school).select_related('academic_year')
         return render(request, 'admin_dashboard/school_detail.html', {
             'school': school,
             'teachers': teachers,
@@ -364,6 +366,8 @@ class SchoolDetailView(RoleRequiredMixin, View):
             'school_students': school_students,
             'student_count': school_students.count(),
             'custom_levels': custom_levels,
+            'terms': terms,
+            'holidays': holidays,
         })
 
 
@@ -412,6 +416,17 @@ class SchoolSettingsView(RoleRequiredMixin, View):
                         pass
             else:
                 setattr(school, field, request.POST.get(field, '').strip())
+
+        # Validate outgoing_email if provided
+        outgoing_email = request.POST.get('outgoing_email', '').strip()
+        if outgoing_email:
+            from django.core.validators import validate_email
+            from django.core.exceptions import ValidationError as DjangoValidationError
+            try:
+                validate_email(outgoing_email)
+            except DjangoValidationError:
+                messages.error(request, 'Please enter a valid outgoing email address.')
+                return redirect(f"{reverse('admin_school_settings', kwargs={'school_id': school.id})}?tab={tab}")
 
         # Handle logo upload
         if 'logo' in request.FILES:
@@ -516,10 +531,36 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
         school = _get_user_school_or_404(request.user, school_id)
         show_inactive = request.GET.get('show_inactive') == '1'
         if show_inactive:
-            school_teachers = SchoolTeacher.objects.filter(school=school).select_related('teacher')
+            qs = SchoolTeacher.objects.filter(school=school).select_related('teacher')
         else:
-            school_teachers = SchoolTeacher.objects.filter(school=school, is_active=True).select_related('teacher')
-        paginator = Paginator(school_teachers, 25)
+            qs = SchoolTeacher.objects.filter(school=school, is_active=True).select_related('teacher')
+
+        # Server-side search
+        q = request.GET.get('q', '').strip()
+        if q:
+            from django.db.models import Q
+            qs = qs.filter(
+                Q(teacher__first_name__icontains=q)
+                | Q(teacher__last_name__icontains=q)
+                | Q(teacher__email__icontains=q)
+                | Q(teacher__username__icontains=q)
+            )
+
+        # Server-side ordering
+        order_by = request.GET.get('order_by', 'name')
+        order_map = {
+            'name': ('teacher__first_name', 'teacher__last_name'),
+            '-name': ('-teacher__first_name', '-teacher__last_name'),
+            'email': ('teacher__email',),
+            '-email': ('-teacher__email',),
+            'role': ('role',),
+            '-role': ('-role',),
+            'joined': ('joined_at',),
+            '-joined': ('-joined_at',),
+        }
+        qs = qs.order_by(*order_map.get(order_by, ('teacher__first_name', 'teacher__last_name')))
+
+        paginator = Paginator(qs, 25)
         page = paginator.get_page(request.GET.get('page'))
         return render(request, 'admin_dashboard/school_teachers.html', {
             'school': school,
@@ -527,6 +568,9 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
             'page': page,
             'role_choices': self._get_role_choices(request.user),
             'show_inactive': show_inactive,
+            'q': q,
+            'order_by': order_by,
+            'total_count': paginator.count,
         })
 
     def post(self, request, school_id):
@@ -1158,6 +1202,17 @@ class AcademicYearEditView(RoleRequiredMixin, View):
                     'number_of_terms': number_of_terms, 'terms_updated': terms_updated},
             request=request,
         )
+        # Sync scheduled sessions with updated term/year dates
+        from . import invoicing_services as svc
+        created, deleted = svc.sync_sessions_for_school(school, created_by=request.user)
+        if created or deleted:
+            parts = []
+            if created:
+                parts.append(f'{created} session(s) created')
+            if deleted:
+                parts.append(f'{deleted} orphaned session(s) removed')
+            messages.info(request, f'Sessions synced: {", ".join(parts)}.')
+
         messages.success(request, f'Academic year {year} updated successfully.')
         return redirect('admin_school_detail', school_id=school.id)
 
@@ -1528,15 +1583,7 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
         qs = SchoolStudent.objects.filter(school=school)
         if not show_inactive:
             qs = qs.filter(is_active=True)
-        if search:
-            qs = qs.filter(
-                Q(student__first_name__icontains=search) |
-                Q(student__last_name__icontains=search) |
-                Q(student__email__icontains=search) |
-                Q(student__username__icontains=search) |
-                Q(student_id_code__icontains=search)
-            )
-        school_students = (
+        qs = (
             qs.select_related('student')
             .prefetch_related(
                 'student__student_guardians__guardian',
@@ -1550,14 +1597,41 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
             )
             .order_by('student__last_name', 'student__first_name', 'student__id')
         )
-        paginator = Paginator(school_students, 25)
+
+        # Server-side search
+        q = request.GET.get('q', '').strip()
+        if q:
+            qs = qs.filter(
+                Q(student__first_name__icontains=q)
+                | Q(student__last_name__icontains=q)
+                | Q(student__email__icontains=q)
+                | Q(student__username__icontains=q)
+            )
+
+        # Server-side ordering
+        order_by = request.GET.get('order_by', 'name')
+        order_map = {
+            'name': ('student__first_name', 'student__last_name'),
+            '-name': ('-student__first_name', '-student__last_name'),
+            'email': ('student__email',),
+            '-email': ('-student__email',),
+            'joined': ('joined_at',),
+            '-joined': ('-joined_at',),
+            'classes': ('class_count',),
+            '-classes': ('-class_count',),
+        }
+        qs = qs.order_by(*order_map.get(order_by, ('student__first_name', 'student__last_name')))
+
+        paginator = Paginator(qs, 25)
         page = paginator.get_page(request.GET.get('page'))
         ctx = {
             'school': school,
             'school_students': page,
             'page': page,
             'show_inactive': show_inactive,
-            'search': search,
+            'q': q,
+            'order_by': order_by,
+            'total_count': paginator.count,
         }
         if request.headers.get('HX-Request'):
             return render(request, 'admin_dashboard/partials/students_table.html', ctx)
@@ -2273,6 +2347,18 @@ class ManageTermsRedirectView(RoleRequiredMixin, View):
         return redirect('admin_school_create')
 
 
+class ManageHolidaysRedirectView(RoleRequiredMixin, View):
+    """Shortcut: redirects to the first school's holidays page."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request):
+        school = _get_user_school(request.user)
+        if school:
+            return redirect('admin_school_holidays', school_id=school.id)
+        messages.info(request, 'Create a school first.')
+        return redirect('admin_school_create')
+
+
 class ManageParentInvitesRedirectView(RoleRequiredMixin, View):
     """Shortcut: redirects to the first school's parent invites page."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
@@ -2375,6 +2461,29 @@ class TermManageView(RoleRequiredMixin, View):
             except Exception as e:
                 messages.error(request, f'Could not update term: {e}')
 
+        elif action == 'confirm':
+            term_id = request.POST.get('term_id')
+            term = get_object_or_404(Term, id=term_id, school=school)
+            from datetime import date, timedelta
+            one_month_from_now = date.today() + timedelta(days=30)
+            if term.start_date <= one_month_from_now:
+                messages.warning(
+                    request,
+                    f'Term "{term.name}" starts on {term.start_date.strftime("%d %b %Y")}. '
+                    f'Dates must be confirmed at least 1 month before the term starts.'
+                )
+            else:
+                term.is_confirmed = True
+                term.confirmed_at = timezone.now()
+                term.save()
+                log_event(
+                    user=request.user, school=school, category='data_change',
+                    action='term_confirmed',
+                    detail={'term_id': term.id, 'term_name': term.name},
+                    request=request,
+                )
+                messages.success(request, f'Term "{term.name}" confirmed.')
+
         elif action == 'delete':
             term_id = request.POST.get('term_id')
             term = get_object_or_404(Term, id=term_id, school=school)
@@ -2387,4 +2496,112 @@ class TermManageView(RoleRequiredMixin, View):
             )
             messages.success(request, f'Term "{term_name}" deleted.')
 
+        # Sync scheduled sessions with updated term dates
+        from . import invoicing_services as svc
+        created, deleted = svc.sync_sessions_for_school(school, created_by=request.user)
+        if created or deleted:
+            parts = []
+            if created:
+                parts.append(f'{created} session(s) created')
+            if deleted:
+                parts.append(f'{deleted} orphaned session(s) removed')
+            messages.info(request, f'Sessions synced: {", ".join(parts)}.')
+
         return redirect('admin_school_terms', school_id=school.id)
+
+
+class HolidayManageView(RoleRequiredMixin, View):
+    """Manage holidays for a school: list, create, edit, delete."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request, school_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        holidays = SchoolHoliday.objects.filter(school=school).select_related('academic_year')
+        academic_years = AcademicYear.objects.filter(school=school)
+        return render(request, 'admin_dashboard/school_holidays.html', {
+            'school': school,
+            'holidays': holidays,
+            'academic_years': academic_years,
+        })
+
+    def post(self, request, school_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        action = request.POST.get('action')
+
+        if action == 'create':
+            name = request.POST.get('name', '').strip()
+            academic_year_id = request.POST.get('academic_year') or None
+            start_date = request.POST.get('start_date')
+            end_date = request.POST.get('end_date')
+
+            if not name or not start_date or not end_date:
+                messages.error(request, 'Name, start date and end date are required.')
+                return redirect('admin_school_holidays', school_id=school.id)
+
+            academic_year = None
+            if academic_year_id:
+                academic_year = AcademicYear.objects.filter(
+                    id=academic_year_id, school=school
+                ).first()
+
+            try:
+                holiday = SchoolHoliday.objects.create(
+                    school=school,
+                    academic_year=academic_year,
+                    name=name,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+                log_event(
+                    user=request.user, school=school, category='data_change',
+                    action='holiday_created',
+                    detail={'holiday_id': holiday.id, 'holiday_name': name},
+                    request=request,
+                )
+                messages.success(request, f'Holiday "{name}" created.')
+            except Exception as e:
+                messages.error(request, f'Could not create holiday: {e}')
+
+        elif action == 'edit':
+            holiday_id = request.POST.get('holiday_id')
+            holiday = get_object_or_404(SchoolHoliday, id=holiday_id, school=school)
+            holiday.name = request.POST.get('name', '').strip() or holiday.name
+            start_date = request.POST.get('start_date')
+            end_date = request.POST.get('end_date')
+            if start_date:
+                holiday.start_date = start_date
+            if end_date:
+                holiday.end_date = end_date
+            academic_year_id = request.POST.get('academic_year')
+            if academic_year_id:
+                holiday.academic_year = AcademicYear.objects.filter(
+                    id=academic_year_id, school=school
+                ).first()
+            else:
+                holiday.academic_year = None
+            try:
+                holiday.save()
+                log_event(
+                    user=request.user, school=school, category='data_change',
+                    action='holiday_edited',
+                    detail={'holiday_id': holiday_id, 'holiday_name': holiday.name},
+                    request=request,
+                )
+                messages.success(request, f'Holiday "{holiday.name}" updated.')
+            except Exception as e:
+                messages.error(request, f'Could not update holiday: {e}')
+
+        elif action == 'delete':
+            holiday_id = request.POST.get('holiday_id')
+            holiday = get_object_or_404(SchoolHoliday, id=holiday_id, school=school)
+            holiday_name = holiday.name
+            holiday.delete()
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='holiday_deleted',
+                detail={'holiday_id': holiday_id, 'holiday_name': holiday_name},
+                request=request,
+            )
+            messages.success(request, f'Holiday "{holiday_name}" deleted.')
+
+        return redirect('admin_school_holidays', school_id=school.id)

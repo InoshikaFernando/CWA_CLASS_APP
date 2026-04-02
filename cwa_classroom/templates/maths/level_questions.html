@@ -893,7 +893,7 @@ bob_wilson,bob@example.com,securepass789</pre>
             <h3>📊 Take Quiz</h3>
             <p>Test your knowledge with a timed quiz.</p>
             <div class="action-buttons">
-                <a href="{% url 'maths:take_quiz' level.level_number %}" class="btn btn-outline">Start Quiz</a>
+                <a href="{% url 'mixed_quiz' level_number=level.level_number %}" class="btn btn-outline">Start Quiz</a>
             </div>
         </div>
     </div>
@@ -1124,7 +1124,7 @@ bob_wilson,bob@example.com,securepass789</pre>
         
         {% if not user.is_teacher and questions.exists %}
             <div class="quiz-actions">
-                <a href="{% url 'maths:take_quiz' level.level_number %}" class="btn btn-success btn-large">Take Quiz</a>
+                <a href="{% url 'mixed_quiz' level_number=level.level_number %}" class="btn btn-success btn-large">Take Quiz</a>
             </div>
         {% endif %}
     {% else %}
@@ -2628,7 +2628,7 @@ window.addEventListener('load', function() {
                                 </a>
                             </div>
                             <div class="topic-card">
-                                <a href="{% url 'maths:take_quiz' level.level_number %}">
+                                <a href="{% url 'mixed_quiz' level_number=level.level_number %}">
                                     <h4>Take Quiz</h4>
                                     <p>Year {{ level.level_number }} - Quiz</p>
                                 </a>
@@ -2642,7 +2642,7 @@ window.addEventListener('load', function() {
                                 </a>
                             </div>
                             <div class="topic-card">
-                                <a href="{% url 'maths:take_quiz' level.level_number %}">
+                                <a href="{% url 'mixed_quiz' level_number=level.level_number %}">
                                     <h4>Take Quiz</h4>
                                     <p>Year {{ level.level_number }} - Quiz</p>
                                 </a>
@@ -2656,7 +2656,7 @@ window.addEventListener('load', function() {
                                 </a>
                             </div>
                             <div class="topic-card">
-                                <a href="{% url 'maths:take_quiz' level.level_number %}">
+                                <a href="{% url 'mixed_quiz' level_number=level.level_number %}">
                                     <h4>Take Quiz</h4>
                                     <p>Year {{ level.level_number }} - Quiz</p>
                                 </a>
