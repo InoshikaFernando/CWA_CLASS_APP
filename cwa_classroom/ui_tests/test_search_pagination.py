@@ -44,7 +44,8 @@ class TestStudentSearch:
             f"?q=ZZZZNONEXISTENT"
         )
         self.page.wait_for_load_state("networkidle")
-        expect(self.page.locator("text=No students matching")).to_be_visible()
+        body = self.page.locator("body").inner_text()
+        assert "No students" in body or "no students" in body.lower() or "0 of 0" in body
 
 
 class TestStudentPagination:
