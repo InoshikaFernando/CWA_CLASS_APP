@@ -80,10 +80,18 @@ class ProgressTrackingTest(TestCase):
 
     @classmethod
     def setUpTestData(cls):
+        from classroom.models import Subject
         cls.student = _create_student()
-        cls.topic = Topic.objects.create(name="Measurements")
-        cls.level = Level.objects.create(level_number=4, title="Year 4")
-        cls.level.topics.add(cls.topic)
+        cls.subject, _ = Subject.objects.get_or_create(
+            slug='mathematics', defaults={'name': 'Mathematics', 'is_active': True},
+        )
+        cls.topic = Topic.objects.create(
+            name="Measurements", slug="measurements-test", subject=cls.subject,
+        )
+        cls.level, _ = Level.objects.get_or_create(
+            level_number=4, defaults={'display_name': 'Year 4'},
+        )
+        cls.topic.levels.add(cls.level)
 
     def setUp(self):
         self.client = Client()

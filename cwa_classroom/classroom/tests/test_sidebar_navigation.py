@@ -94,15 +94,15 @@ class SidebarAdminNavigationTests(TestCase):
 
     def test_admin_sidebar_contains_teachers_link(self):
         resp = self.client.get(reverse('admin_dashboard'))
-        self.assertContains(resp, '/admin-dashboard/teachers/')
+        self.assertContains(resp, '/admin-dashboard/manage-teachers/')
 
     def test_admin_sidebar_contains_students_link(self):
         resp = self.client.get(reverse('admin_dashboard'))
-        self.assertContains(resp, '/admin-dashboard/students/')
+        self.assertContains(resp, '/admin-dashboard/manage-students/')
 
     def test_admin_sidebar_contains_academic_years_link(self):
         resp = self.client.get(reverse('admin_dashboard'))
-        self.assertContains(resp, '/admin-dashboard/academic-years/')
+        self.assertContains(resp, '/admin-dashboard/manage-terms/')
 
     def test_admin_sidebar_contains_school_hierarchy_link(self):
         resp = self.client.get(reverse('admin_dashboard'))
