@@ -51,9 +51,9 @@ class Command(BaseCommand):
             ))
 
     def _search(self, options):
-        query = options.get('query', '').strip()
-        role = options.get('role', '').strip()
-        limit = options.get('limit', 25)
+        query = (options.get('query') or '').strip()
+        role = (options.get('role') or '').strip()
+        limit = options.get('limit') or 25
 
         qs = CustomUser.objects.all()
         if query:
@@ -90,7 +90,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.NOTICE(f'\n  (showing first {limit} — use --limit to see more)'))
 
     def _delete(self, options):
-        username = options.get('username', '').strip()
+        username = (options.get('username') or '').strip()
         user_id = options.get('user_id')
         confirm = options.get('confirm', False)
 
