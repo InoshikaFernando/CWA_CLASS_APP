@@ -373,6 +373,27 @@ def enrolled_student(db, classroom, student_user, school):
 
 
 @pytest.fixture
+def guardian(db, school, enrolled_student):
+    """A Guardian contact linked to the enrolled student."""
+    from classroom.models import Guardian, StudentGuardian
+
+    g = Guardian.objects.create(
+        school=school,
+        first_name="Jane",
+        last_name="Guardian",
+        email=f"jane.guardian.{_RUN_ID}@test.local",
+        phone="021-555-0100",
+        relationship="guardian",
+    )
+    StudentGuardian.objects.create(
+        student=enrolled_student,
+        guardian=g,
+        is_primary=True,
+    )
+    return g
+
+
+@pytest.fixture
 def parent_with_child(db, parent_user, enrolled_student, school):
     """Link parent to student."""
     from classroom.models import ParentStudent
