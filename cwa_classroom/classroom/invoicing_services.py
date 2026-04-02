@@ -22,6 +22,7 @@ from .models import (
     Invoice, InvoiceLineItem, InvoicePayment, CreditTransaction,
     PaymentReferenceMapping, CSVImport, SchoolStudent,
     SchoolHoliday, PublicHoliday,
+    ParentStudent, StudentGuardian,
 )
 from .fee_utils import get_effective_fee_for_student, get_fee_source_label
 
@@ -662,14 +663,23 @@ def _send_invoice_email(invoice):
         f"{invoice.billing_period_end.strftime('%b %d, %Y')}"
     )
 
+    # Get student ID code
+    school_student = SchoolStudent.objects.filter(
+        student=student, school=school,
+    ).first()
+    student_id_code = school_student.student_id_code if school_student else ''
+
     context = {
         # School header
         'school_name': school.name,
         'school_address': school.address or '',
         'school_phone': school.phone or '',
         'school_email': school.email or '',
+        'abn': eff.get('abn', ''),
+        'gst_number': eff.get('gst_number', ''),
         # Student
         'student_name': f'{student.first_name} {student.last_name}'.strip(),
+        'student_id_code': student_id_code,
         # Invoice details
         'invoice_number': invoice.invoice_number,
         'invoice_date': invoice_date,
@@ -732,7 +742,6 @@ def _send_invoice_email(invoice):
         logger.exception('Failed to send invoice email for %s: %s', invoice.invoice_number, e)
 
     # 2. Send to parent accounts (ParentStudent links)
-    from .models import ParentStudent, StudentGuardian
     parent_links = ParentStudent.objects.filter(
         student=student, school=school, is_active=True,
     ).select_related('parent')
@@ -752,7 +761,6 @@ def _send_invoice_email(invoice):
                 logger.exception('Failed to send invoice email to parent %s: %s', link.parent.email, e)
 
     # 3. Send to guardian contacts (StudentGuardian links)
-    from .models import SchoolStudent
     school_student = SchoolStudent.objects.filter(student=student, school=school).first()
     if school_student:
         guardian_links = StudentGuardian.objects.filter(

@@ -20,9 +20,7 @@
       <span class="text-xs text-gray-400">{{ p.children }}</span>
       {% if p.obj_type == 'guardian' %}
       <button type="button"
-              hx-get="{% url 'admin_guardian_edit_modal' school.id p.obj_id %}"
-              hx-target="#parent-edit-modal-content"
-              hx-swap="innerHTML"
+              @click="openEditModal('{% url 'admin_guardian_edit_modal' school.id p.obj_id %}')"
               class="p-1.5 text-gray-400 hover:text-accent hover:bg-accent/10 rounded-lg transition"
               title="Edit">
         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -31,9 +29,7 @@
       </button>
       {% elif p.obj_type == 'parent_student' %}
       <button type="button"
-              hx-get="{% url 'admin_parent_link_edit_modal' school.id p.obj_id %}"
-              hx-target="#parent-edit-modal-content"
-              hx-swap="innerHTML"
+              @click="openEditModal('{% url 'admin_parent_link_edit_modal' school.id p.obj_id %}')"
               class="p-1.5 text-gray-400 hover:text-accent hover:bg-accent/10 rounded-lg transition"
               title="Edit">
         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">

@@ -378,7 +378,7 @@ class SchoolSettingsView(RoleRequiredMixin, View):
     SETTINGS_FIELDS = [
         # Company details
         'abn', 'gst_number', 'street_address', 'city', 'state_region',
-        'postal_code', 'country',
+        'postal_code', 'country', 'timezone',
         # Contact & email
         'outgoing_email',
         # Banking & invoice

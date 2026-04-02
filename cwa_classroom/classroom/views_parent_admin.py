@@ -24,11 +24,11 @@ class ManageParentsRedirectView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request):
-        school = School.objects.filter(admin=request.user, is_active=True).first()
+        from .views_admin import _get_user_school
+        school = _get_user_school(request.user)
         if school:
             return redirect('admin_school_parents', school_id=school.id)
         messages.info(request, 'Create a school first before managing parents.')
-        from .views_admin import _get_user_school
         return redirect('admin_school_create')
 
 
@@ -37,7 +37,8 @@ class SchoolParentListView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def _get_school(self, request, school_id):
-        return get_object_or_404(School, id=school_id, admin=request.user)
+        from .views_admin import _get_user_school_or_404
+        return _get_user_school_or_404(request.user, school_id)
 
     def get(self, request, school_id):
         school = self._get_school(request, school_id)
