@@ -102,6 +102,9 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/terms/', views_admin.TermManageView.as_view(), name='admin_school_terms'),
     path('admin-dashboard/schools/<int:school_id>/holidays/', views_admin.HolidayManageView.as_view(), name='admin_school_holidays'),
 
+    # Platform management (superuser only)
+    path('admin-dashboard/subject-apps/', views_admin.SubjectAppManageView.as_view(), name='admin_subject_apps'),
+
     # Account blocking & school suspension
     path('admin-dashboard/block-user/', views_admin.BlockUserView.as_view(), name='admin_block_user'),
     path('admin-dashboard/unblock-user/', views_admin.UnblockUserView.as_view(), name='admin_unblock_user'),
