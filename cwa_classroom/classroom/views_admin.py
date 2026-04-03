@@ -2605,3 +2605,43 @@ class HolidayManageView(RoleRequiredMixin, View):
             messages.success(request, f'Holiday "{holiday_name}" deleted.')
 
         return redirect('admin_school_holidays', school_id=school.id)
+
+
+class SubjectAppManageView(LoginRequiredMixin, View):
+    """Superuser or HoI view to link SubjectApps to global Subjects."""
+
+    def dispatch(self, request, *args, **kwargs):
+        from django.http import HttpResponseForbidden
+        user = request.user
+        is_hoi = SchoolTeacher.objects.filter(
+            teacher=user, role='head_of_institute', is_active=True,
+        ).exists()
+        if not user.is_superuser and not is_hoi:
+            return HttpResponseForbidden()
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request):
+        from classroom.models import SubjectApp
+        subject_apps = SubjectApp.objects.select_related('subject').order_by('order', 'name')
+        global_subjects = Subject.objects.filter(school__isnull=True, is_active=True).order_by('name')
+        return render(request, 'admin_dashboard/subject_apps.html', {
+            'subject_apps': subject_apps,
+            'global_subjects': global_subjects,
+        })
+
+    def post(self, request):
+        from classroom.models import SubjectApp
+        app_id = request.POST.get('app_id', '').strip()
+        subject_id = request.POST.get('subject_id', '').strip()
+        app = get_object_or_404(SubjectApp, id=app_id)
+        if subject_id:
+            subject = Subject.objects.filter(id=subject_id, school__isnull=True).first()
+            if not subject:
+                messages.error(request, 'Invalid global subject.')
+                return redirect('admin_subject_apps')
+            app.subject = subject
+        else:
+            app.subject = None
+        app.save(update_fields=['subject'])
+        messages.success(request, f'"{app.name}" linked to {app.subject or "no subject"}.')
+        return redirect('admin_subject_apps')

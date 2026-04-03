@@ -4473,8 +4473,49 @@ class SubjectsHubView(LoginRequiredMixin, View):
                     enrolled_classes[cs.classroom.subject_id] = cs.classroom
 
                 # Build per-school sections
+                # Cache all active SubjectApps and global subject names once
+                all_subject_apps = list(SubjectApp.objects.filter(is_active=True).order_by('order'))
+                global_subject_name_map = {
+                    s.id: s.name.lower()
+                    for s in Subject.objects.filter(school__isnull=True, is_active=True)
+                }
+
+                def _find_subject_app(subj):
+                    """Find best SubjectApp for a subject.
+
+                    Resolution order:
+                    1. SubjectApp.subject == this school subject (exact FK)
+                    2. SubjectApp.subject == subj.global_subject (FK via global link)
+                    3. Name-prefix fallback using global subject name (e.g. "Mathematics" ↔ "Maths")
+                    4. Direct name match: subj.name == app.name (case-insensitive)
+                    5. Name-prefix fallback using local subject name
+                    """
+                    for app in all_subject_apps:
+                        if app.subject_id == subj.id:
+                            return app
+                    if subj.global_subject_id:
+                        for app in all_subject_apps:
+                            if app.subject_id == subj.global_subject_id:
+                                return app
+                        gs_name = global_subject_name_map.get(subj.global_subject_id, subj.name.lower())
+                        if len(gs_name) >= 4:
+                            prefix = gs_name[:4]
+                            for app in all_subject_apps:
+                                if app.name.lower()[:4] == prefix:
+                                    return app
+                    subj_name_lower = subj.name.lower()
+                    for app in all_subject_apps:
+                        if app.name.lower() == subj_name_lower:
+                            return app
+                    if len(subj_name_lower) >= 4:
+                        prefix = subj_name_lower[:4]
+                        for app in all_subject_apps:
+                            if app.name.lower()[:4] == prefix:
+                                return app
+                    return None
+
                 school_sections = []
-                covered_subject_ids = set()  # SubjectApp.subject_id values covered by schools
+                covered_app_ids = set()
                 for school in schools:
                     departments = Department.objects.filter(
                         school=school, is_active=True,
@@ -4487,19 +4528,9 @@ class SubjectsHubView(LoginRequiredMixin, View):
                             if enrolled_cr is None:
                                 continue
 
-                            # Track which global subjects are covered by this school
-                            if subj.global_subject_id:
-                                covered_subject_ids.add(subj.global_subject_id)
-                            covered_subject_ids.add(subj.id)
-
-                            # Try to find a matching SubjectApp for icon/color/link
-                            matching_app = SubjectApp.objects.filter(
-                                subject=subj, is_active=True,
-                            ).first()
-                            if not matching_app and subj.global_subject_id:
-                                matching_app = SubjectApp.objects.filter(
-                                    subject_id=subj.global_subject_id, is_active=True,
-                                ).first()
+                            matching_app = _find_subject_app(subj)
+                            if matching_app:
+                                covered_app_ids.add(matching_app.id)
 
                             # Determine link:
                             #   • matching app with external_url → link only when questions exist
@@ -4524,32 +4555,11 @@ class SubjectsHubView(LoginRequiredMixin, View):
                             'subjects': subject_cards,
                         })
 
-                # Global SubjectApps NOT covered by any school
-                global_apps = SubjectApp.objects.filter(
-                    is_active=True, is_coming_soon=False,
-                ).order_by('order')
-                # Also collect covered subject names for fuzzy matching
-                covered_subject_names = set()
-                for section in school_sections:
-                    for card in section['subjects']:
-                        covered_subject_names.add(card['name'].lower())
-
-                uncovered_apps = []
-                for app in global_apps:
-                    app_subject_id = app.subject_id
-                    # Skip if explicitly covered by subject ID
-                    if app_subject_id and app_subject_id in covered_subject_ids:
-                        continue
-                    # Skip if covered by name match (e.g. "Mathematics" covers "Maths")
-                    app_name_lower = app.name.lower()
-                    name_covered = any(
-                        app_name_lower in cname or cname in app_name_lower
-                        for cname in covered_subject_names
-                    )
-                    if name_covered:
-                        continue
-                    uncovered_apps.append(app)
-
+                # Global SubjectApps not already represented by a school subject card
+                uncovered_apps = [
+                    app for app in all_subject_apps
+                    if app.id not in covered_app_ids and not app.is_coming_soon
+                ]
                 global_subjects = _annotate_apps_with_questions(uncovered_apps)
 
                 return render(request, 'hub/home.html', {
