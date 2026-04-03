@@ -60,65 +60,22 @@
     <span>Student Progress Report</span>
   </a>
 
-  <!-- School Hierarchy -->
-  <a href="{% url 'school_hierarchy_auto' %}"
+  <!-- Homework -->
+  <a href="{% url 'teacher_dashboard' %}?tab=homework"
      class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
-            {% if 'school-hierarchy' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
+            {% if '/homework/' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
     <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/>
+      <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z"/>
     </svg>
-    <span>School Hierarchy</span>
+    <span>Homework</span>
   </a>
 
-  <!-- Browse Topics -->
-  <a href="{% url 'topics' %}"
-     class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
-            {% if 'topics' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
-    <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/>
-    </svg>
-    <span>Browse Topics</span>
-  </a>
+  {% include "partials/sidebar_includes/school_hierarchy_link.html" %}
 
-  <!-- Create Questions -->
-  <a href="{% url 'create_question' %}"
-     class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
-            {% if 'create-question' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
-    <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-    </svg>
-    <span>Create Questions</span>
-  </a>
-
-  <!-- Upload Questions -->
-  <a href="{% url 'upload_questions' %}"
-     class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
-            {% if 'upload' in request.path and 'ai-import' not in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
-    <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
-    </svg>
-    <span>Upload Questions</span>
-  </a>
-
-  <!-- AI Question Import -->
-  <a href="{% url 'ai_import:upload' %}"
-     class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
-            {% if 'ai-import' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
-    <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z"/>
-    </svg>
-    <span>AI Import Questions</span>
-  </a>
+  {% include "partials/sidebar_includes/question_links.html" with show_browse_topics=True show_upload_questions=True %}
 
   <div class="flex-1"></div>
 
-  <!-- Profile -->
-  <a href="{% url 'profile' %}"
-     class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/70 font-medium transition hover:bg-white/10 hover:text-white/90">
-    <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>
-    </svg>
-    <span>Profile</span>
-  </a>
+  {% include "partials/sidebar_includes/profile_link.html" %}
 
 </nav>

@@ -51,11 +51,11 @@
     </div>
   </div>
 
-  <!-- Today's Session Bar -->
+  <!-- Upcoming Session Bar -->
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
     <div class="flex items-center justify-between">
       <div>
-        <h2 class="font-bold text-gray-800">Today's Session</h2>
+        <h2 class="font-bold text-gray-800">Upcoming Session</h2>
         <p class="text-sm text-gray-500 mt-0.5">
           {% if classroom.day %}{{ classroom.get_day_display }}{% endif %}
           {% if classroom.start_time %} &middot; {{ classroom.start_time|time:"g:ia" }}{% if classroom.end_time %} – {{ classroom.end_time|time:"g:ia" }}{% endif %}{% endif %}
@@ -279,6 +279,33 @@
         </tbody>
       </table>
     </div>
+    <!-- Pagination -->
+    {% if sessions.has_other_pages %}
+    <div class="flex items-center justify-between px-6 py-4 border-t border-slate-100">
+      <p class="text-xs text-gray-500">
+        Page {{ sessions.number }} of {{ sessions.paginator.num_pages }}
+        ({{ sessions.paginator.count }} sessions)
+      </p>
+      <div class="flex items-center gap-1">
+        {% if sessions.has_previous %}
+          <a href="?page={{ sessions.previous_page_number }}"
+             class="px-3 py-1 text-xs font-medium text-gray-600 bg-slate-100 rounded hover:bg-slate-200 transition">&laquo; Prev</a>
+        {% endif %}
+        {% for num in sessions.paginator.page_range %}
+          {% if num == sessions.number %}
+            <span class="px-3 py-1 text-xs font-bold text-white bg-primary rounded">{{ num }}</span>
+          {% elif num > sessions.number|add:"-3" and num < sessions.number|add:"3" %}
+            <a href="?page={{ num }}"
+               class="px-3 py-1 text-xs font-medium text-gray-600 bg-slate-100 rounded hover:bg-slate-200 transition">{{ num }}</a>
+          {% endif %}
+        {% endfor %}
+        {% if sessions.has_next %}
+          <a href="?page={{ sessions.next_page_number }}"
+             class="px-3 py-1 text-xs font-medium text-gray-600 bg-slate-100 rounded hover:bg-slate-200 transition">Next &raquo;</a>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
     {% else %}
     <div class="p-6 pt-2 text-center">
       <p class="text-sm text-gray-400">No sessions yet. Start a session or create one manually.</p>
