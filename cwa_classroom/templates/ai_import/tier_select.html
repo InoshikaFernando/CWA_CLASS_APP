@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}AI Import Plans{% endblock %}
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+  <div class="text-center">
+    <h1 class="font-display text-3xl text-primary">AI Question Import Plans</h1>
+    <p class="text-gray-400 text-sm mt-2">Upload PDFs and let AI extract, classify, and create questions automatically.</p>
+  </div>
+
+  <!-- Year 1 Discount Banner -->
+  <div class="bg-gradient-to-r from-primary/10 to-accent/10 border border-primary/20 rounded-2xl p-4 text-center">
+    <p class="text-sm font-bold text-primary">50% off your first year on all plans!</p>
+    <p class="text-xs text-gray-500 mt-0.5">Introductory pricing for early adopters. Full price applies after 6 months.</p>
+  </div>
+
+  <!-- Tier Cards -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+    {% for tier in tiers %}
+    <div class="bg-white rounded-2xl border-2 shadow-sm p-6 flex flex-col
+                {% if tier.is_current %}border-primary ring-2 ring-primary/20{% else %}border-slate-200{% endif %}">
+      {% if tier.is_current %}
+      <span class="inline-block px-3 py-1 rounded-full text-[10px] font-bold uppercase bg-primary text-white mb-3 self-start">Current Plan</span>
+      {% endif %}
+
+      <h3 class="font-display text-xl text-gray-800">{{ tier.name }}</h3>
+      <p class="text-gray-400 text-sm mt-1">{{ tier.pages }} pages/month</p>
+
+      <div class="mt-4 mb-6">
+        <div class="flex items-baseline gap-1">
+          <span class="font-display text-4xl text-primary">${{ tier.year1_price }}</span>
+          <span class="text-gray-400 text-sm">/mo</span>
+        </div>
+        <p class="text-xs text-gray-400 mt-0.5"><s>${{ tier.price }}/mo</s> &mdash; first 6 months</p>
+      </div>
+
+      <ul class="space-y-2 text-sm text-gray-600 flex-1">
+        <li class="flex items-start gap-2">
+          <svg class="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
+          </svg>
+          {{ tier.pages }} PDF pages per month
+        </li>
+        <li class="flex items-start gap-2">
+          <svg class="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
+          </svg>
+          AI-powered question extraction
+        </li>
+        <li class="flex items-start gap-2">
+          <svg class="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
+          </svg>
+          Auto-classification (grade, topic, difficulty)
+        </li>
+        <li class="flex items-start gap-2">
+          <svg class="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
+          </svg>
+          Image extraction from PDFs
+        </li>
+        <li class="flex items-start gap-2">
+          <svg class="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
+          </svg>
+          Preview & edit before saving
+        </li>
+      </ul>
+
+      {% if tier.is_current %}
+      <button disabled class="mt-6 w-full px-4 py-2.5 rounded-xl bg-gray-100 text-gray-400 font-semibold cursor-not-allowed">
+        Current Plan
+      </button>
+      {% else %}
+      <a href="{% url 'institute_subscription_dashboard' %}"
+         class="mt-6 w-full px-4 py-2.5 rounded-xl bg-primary text-white font-semibold text-center shadow-sm hover:bg-primary/90 transition block">
+        {% if current_tier %}Switch to {{ tier.name }}{% else %}Get Started{% endif %}
+      </a>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <p class="text-center text-xs text-gray-400">All plans include the same features. Only the monthly page quota differs. Contact support for custom enterprise volumes.</p>
+</div>
+{% endblock %}

@@ -8,6 +8,7 @@ from django.http import Http404
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.views import View
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
 from django.db import transaction
@@ -610,16 +611,20 @@ class ClassDetailView(RoleRequiredMixin, View):
         else:
             classroom = get_object_or_404(ClassRoom, id=class_id, teachers=request.user)
 
-        # Sessions for this class (last 10, with attendance counts)
-        sessions = (
+        # Sessions for this class — soonest upcoming first, paginated
+        from django.core.paginator import Paginator
+        all_sessions = (
             ClassSession.objects.filter(classroom=classroom)
             .annotate(
                 present_count=Count('student_attendance', filter=Q(student_attendance__status='present')),
                 late_count=Count('student_attendance', filter=Q(student_attendance__status='late')),
                 absent_count=Count('student_attendance', filter=Q(student_attendance__status='absent')),
             )
-            .order_by('-date', '-start_time')[:10]
+            .order_by('date', 'start_time')
         )
+        paginator = Paginator(all_sessions, 15)
+        page_number = request.GET.get('page')
+        sessions = paginator.get_page(page_number)
 
         today = timezone.localdate()
         todays_session = ClassSession.objects.filter(classroom=classroom, date=today).first()
@@ -1279,6 +1284,13 @@ class StudentCSVStructureMappingView(RoleRequiredMixin, View):
 
             preview = isvc.validate_and_preview(data_rows, column_mapping, school)
 
+            global_subjects = Subject.objects.filter(
+                school__isnull=True, is_active=True,
+            ).order_by('order', 'name')
+            global_levels = Level.objects.filter(
+                school__isnull=True, level_number__lt=100,
+            ).order_by('level_number')
+
             return render(request, 'admin/csv_student_structure_mapping.html', {
                 'departments': departments,
                 'selected_department': department,
@@ -1290,6 +1302,8 @@ class StudentCSVStructureMappingView(RoleRequiredMixin, View):
                     'guardians_new': len(preview.get('guardians_new', [])),
                 },
                 'school': school,
+                'global_subjects': global_subjects,
+                'global_levels': global_levels,
             })
 
         # Otherwise — user submitted final mapping choices
@@ -1306,6 +1320,8 @@ class StudentCSVStructureMappingView(RoleRequiredMixin, View):
             'level_map': {},
             'class_map': {},
             'teacher_map': {},
+            'global_subject_map': {},  # csv_subject -> global subject id (optional)
+            'global_level_map': {},    # csv_level -> global level id (optional)
             'dummy_subject': False,
             'dummy_level': False,
             'dummy_class': False,
@@ -1316,6 +1332,9 @@ class StudentCSVStructureMappingView(RoleRequiredMixin, View):
             for csv_subj in csv_structure['csv_subjects']:
                 val = request.POST.get(f'subject_map_{csv_subj}', 'create')
                 structure_mapping['subject_map'][csv_subj] = val
+                global_val = request.POST.get(f'global_subject_map_{csv_subj}', 'none')
+                if global_val and global_val != 'none':
+                    structure_mapping['global_subject_map'][csv_subj] = global_val
         elif not csv_structure or not csv_structure['csv_subjects']:
             # No CSV subjects — check if system has subjects
             mapping_ctx = isvc.build_smart_mapping_context(csv_structure or {'csv_subjects': [], 'csv_levels': [], 'csv_classes': [], 'csv_teachers': []}, department)
@@ -1327,6 +1346,9 @@ class StudentCSVStructureMappingView(RoleRequiredMixin, View):
             for csv_lvl in csv_structure['csv_levels']:
                 val = request.POST.get(f'level_map_{csv_lvl}', 'create')
                 structure_mapping['level_map'][csv_lvl] = val
+                global_val = request.POST.get(f'global_level_map_{csv_lvl}', 'none')
+                if global_val and global_val != 'none':
+                    structure_mapping['global_level_map'][csv_lvl] = global_val
         elif not csv_structure or not csv_structure['csv_levels']:
             mapping_ctx = isvc.build_smart_mapping_context(csv_structure or {'csv_subjects': [], 'csv_levels': [], 'csv_classes': [], 'csv_teachers': []}, department)
             if mapping_ctx['level_scenario'] == 'neither':
@@ -1445,15 +1467,18 @@ class StudentCSVConfirmView(RoleRequiredMixin, View):
             request=request,
         )
 
-        # Store credentials for download
+        # Store credentials for download (students + parents combined)
         request.session['csv_student_credentials'] = results['credentials']
+        request.session['csv_parent_credentials'] = results.get('parent_credentials', [])
 
         # Success message for dashboard
         c = results['counts']
+        parents_created = c.get('parents_created', 0)
         messages.success(
             request,
             f"Import complete: {c['students_created']} students created, "
-            f"{c['classes_created']} classes, {c['students_enrolled']} enrollments."
+            f"{c['classes_created']} classes, {c['students_enrolled']} enrollments"
+            + (f", {parents_created} parent accounts created" if parents_created else "") + "."
         )
 
         # Clear CSV data from session
@@ -1476,17 +1501,21 @@ class StudentCSVCredentialsView(RoleRequiredMixin, View):
         import csv as csv_mod
         from django.http import HttpResponse
         credentials = request.session.get('csv_student_credentials', [])
-        if not credentials:
+        parent_credentials = request.session.get('csv_parent_credentials', [])
+        if not credentials and not parent_credentials:
             messages.error(request, 'No credentials available.')
             return redirect('student_csv_upload')
 
         response = HttpResponse(content_type='text/csv')
-        response['Content-Disposition'] = 'attachment; filename="student_credentials.csv"'
+        response['Content-Disposition'] = 'attachment; filename="import_credentials.csv"'
         writer = csv_mod.writer(response)
-        writer.writerow(['Username', 'Email', 'Password', 'First Name', 'Last Name'])
+        writer.writerow(['Role', 'Username', 'Email', 'Password', 'First Name', 'Last Name'])
         for c in credentials:
-            writer.writerow([c['username'], c['email'], c['password'],
-                           c['first_name'], c['last_name']])
+            writer.writerow(['Student', c['username'], c['email'], c['password'],
+                             c['first_name'], c['last_name']])
+        for c in parent_credentials:
+            writer.writerow(['Parent', c['username'], c['email'], c['password'],
+                             c['first_name'], c['last_name']])
         return response
 
 
@@ -1791,6 +1820,159 @@ class TeacherCSVCredentialsView(RoleRequiredMixin, View):
         return response
 
 
+class ParentCSVUploadView(RoleRequiredMixin, View):
+    """Step 1: Upload CSV/XLS and map columns for parent import."""
+    required_roles = IMPORT_ROLES
+
+    def get(self, request):
+        from . import import_services as isvc
+        return render(request, 'admin/csv_parent_upload.html', {
+            'source_presets': isvc.PARENT_PRESETS,
+        })
+
+    def post(self, request):
+        from . import import_services as isvc
+        csv_file = request.FILES.get('csv_file')
+        if not csv_file:
+            messages.error(request, 'Please select a file.')
+            return redirect('parent_csv_upload')
+        if csv_file.size > isvc.MAX_CSV_SIZE:
+            messages.error(request, 'File exceeds 10 MB limit.')
+            return redirect('parent_csv_upload')
+        try:
+            headers, data_rows = isvc.parse_upload_file(csv_file.read(), csv_file.name)
+        except ValueError as e:
+            messages.error(request, str(e))
+            return redirect('parent_csv_upload')
+
+        request.session['csv_parent_headers'] = headers
+        request.session['csv_parent_data'] = data_rows
+
+        # Auto-apply preset if selected
+        source_preset = request.POST.get('source_preset', '')
+        preset_mapping = {}
+        if source_preset and source_preset in isvc.PARENT_PRESETS:
+            preset_mapping = isvc.apply_parent_preset(source_preset, headers)
+
+        return render(request, 'admin/csv_parent_upload.html', {
+            'headers': headers,
+            'preview_rows': data_rows[:5],
+            'column_fields': isvc.PARENT_COLUMN_FIELDS,
+            'source_presets': isvc.PARENT_PRESETS,
+            'selected_preset': source_preset,
+            'preset_mapping': preset_mapping,
+            'show_mapping': True,
+        })
+
+
+class ParentCSVPreviewView(RoleRequiredMixin, View):
+    """Step 2: Validate columns and show parent preview."""
+    required_roles = IMPORT_ROLES
+
+    def _get_school(self, request):
+        school_id = SchoolTeacher.objects.filter(
+            teacher=request.user, is_active=True,
+        ).values_list('school_id', flat=True).first()
+        if not school_id and request.user.is_superuser:
+            school_id = School.objects.first()
+            school_id = school_id.id if school_id else None
+        return School.objects.get(id=school_id) if school_id else None
+
+    def post(self, request):
+        from . import import_services as isvc
+        data_rows = request.session.get('csv_parent_data')
+        if not data_rows:
+            messages.error(request, 'No CSV data. Please upload again.')
+            return redirect('parent_csv_upload')
+
+        school = self._get_school(request)
+        if not school:
+            messages.error(request, 'No school found.')
+            return redirect('parent_csv_upload')
+
+        column_mapping = isvc._build_parent_column_mapping(request.POST)
+        preview = isvc.validate_parent_preview(data_rows, column_mapping, school)
+
+        if preview['errors']:
+            for err in preview['errors']:
+                messages.error(request, err)
+            return redirect('parent_csv_upload')
+
+        request.session['csv_parent_preview'] = preview
+        request.session['csv_parent_school_id'] = school.id
+
+        return render(request, 'admin/csv_parent_preview.html', {
+            'preview': preview,
+            'school': school,
+        })
+
+
+class ParentCSVConfirmView(RoleRequiredMixin, View):
+    """Step 3: Execute parent import and show results."""
+    required_roles = IMPORT_ROLES
+
+    def post(self, request):
+        from . import import_services as isvc
+        preview = request.session.get('csv_parent_preview')
+        school_id = request.session.get('csv_parent_school_id')
+        if not preview or not school_id:
+            messages.error(request, 'Session expired. Please upload again.')
+            return redirect('parent_csv_upload')
+
+        school = School.objects.get(id=school_id)
+
+        try:
+            results = isvc.execute_parent_import(preview, school, request.user)
+        except Exception as e:
+            logger.exception('Parent import failed')
+            messages.error(request, f'Import failed: {e}')
+            return redirect('parent_csv_upload')
+
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='parent_csv_imported',
+            detail={
+                'parents_created': results.get('counts', {}).get('parents_created', 0),
+                'links_created': results.get('counts', {}).get('links_created', 0),
+                'credentials_generated': len(results.get('credentials', [])),
+            },
+            request=request,
+        )
+
+        request.session['csv_parent_credentials'] = results['credentials']
+
+        for key in ('csv_parent_data', 'csv_parent_headers', 'csv_parent_preview',
+                     'csv_parent_school_id'):
+            request.session.pop(key, None)
+
+        return render(request, 'admin/csv_parent_results.html', {
+            'results': results,
+            'school': school,
+        })
+
+
+class ParentCSVCredentialsView(RoleRequiredMixin, View):
+    """Download generated parent credentials as CSV."""
+    required_roles = IMPORT_ROLES
+
+    def get(self, request):
+        import csv as csv_mod
+        from django.http import HttpResponse
+        credentials = request.session.get('csv_parent_credentials', [])
+        if not credentials:
+            messages.error(request, 'No credentials available.')
+            return redirect('parent_csv_upload')
+
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="parent_credentials.csv"'
+        writer = csv_mod.writer(response)
+        writer.writerow(['Username', 'Email', 'Password', 'First Name', 'Last Name', 'Children'])
+        for c in credentials:
+            writer.writerow([c['username'], c['email'], c['password'],
+                           c['first_name'], c['last_name'], c.get('children', '')])
+        return response
+
+
 class UploadQuestionsView(RoleRequiredMixin, View):
     required_roles = [
         Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
@@ -1920,6 +2102,12 @@ class UploadQuestionsView(RoleRequiredMixin, View):
         except ClassroomLevel.DoesNotExist:
             messages.error(request, f'Year level {year_level} not found.')
             return redirect('upload_questions')
+
+        # Link topic and strand to the level so they appear in the topic browser
+        if not maths_topic.levels.filter(pk=maths_level.pk).exists():
+            maths_topic.levels.add(maths_level)
+        if strand_topic and not strand_topic.levels.filter(pk=maths_level.pk).exists():
+            strand_topic.levels.add(maths_level)
 
         # Build image save directory: questions/year<N>/<topic_slug>/
         topic_slug = re.sub(r'\s+', '_', topic_name.lower())
@@ -2122,22 +2310,69 @@ class QuestionListView(LoginRequiredMixin, View):
         })
 
 
+@login_required
+def htmx_topics_for_level(request):
+    """HTMX endpoint: return topic <option> tags filtered by level_number."""
+    from django.http import HttpResponse
+    level_number = request.GET.get('level', '')
+    if not level_number:
+        return HttpResponse('<option value="">-- Select topic --</option>')
+    try:
+        level = Level.objects.get(level_number=int(level_number))
+    except (Level.DoesNotExist, ValueError):
+        return HttpResponse('<option value="">-- Select topic --</option>')
+
+    strands = Topic.objects.filter(levels=level, is_active=True, parent__isnull=True).order_by('name')
+    subtopics = Topic.objects.filter(levels=level, is_active=True, parent__isnull=False).order_by('parent__name', 'name')
+
+    html = '<option value="">-- Select topic --</option>'
+    for strand in strands:
+        children = [t for t in subtopics if t.parent_id == strand.id]
+        if children:
+            html += f'<optgroup label="{strand.name}">'
+            for t in children:
+                html += f'<option value="{t.id}">{t.name}</option>'
+            html += '</optgroup>'
+        else:
+            html += f'<option value="{strand.id}">{strand.name}</option>'
+    return HttpResponse(html)
+
+
 class AddQuestionView(RoleRequiredMixin, View):
+    """Create a question. Works both standalone (/create-question/) and with pre-selected level (/level/<int>/add-question/)."""
     required_roles = [
         Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
         Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER,
         Role.TEACHER, Role.JUNIOR_TEACHER,
     ]
 
-    def _build_context(self, request, level):
+    def _build_context(self, request, level=None):
         from maths.models import Question as MathsQuestion
         school_id, dept_id, classroom_ids = _get_question_scope(request.user)
         ctx = {
             'level': level,
-            'topics': Topic.objects.filter(levels=level, is_active=True),
             'question_types': MathsQuestion.QUESTION_TYPES,
             'difficulty_choices': MathsQuestion.DIFFICULTY_CHOICES,
         }
+
+        # Subjects and levels for standalone mode
+        from classroom.models import Subject
+        ctx['subjects'] = Subject.objects.filter(is_active=True).order_by('name')
+        ctx['levels'] = Level.objects.filter(level_number__lte=12).order_by('level_number')
+
+        # Topics — if level is pre-selected, filter by it; otherwise load all
+        if level:
+            ctx['topics'] = Topic.objects.filter(levels=level, is_active=True).order_by('name')
+            # Strands (parent topics) for this level
+            ctx['strands'] = Topic.objects.filter(
+                levels=level, is_active=True, parent__isnull=True,
+            ).order_by('name')
+        else:
+            ctx['topics'] = Topic.objects.filter(is_active=True).order_by('name')
+            ctx['strands'] = Topic.objects.filter(
+                is_active=True, parent__isnull=True,
+            ).order_by('name')
+
         # Teachers must pick a classroom
         if request.user.is_any_teacher and not (
             request.user.has_role(Role.HEAD_OF_INSTITUTE)
@@ -2147,7 +2382,8 @@ class AddQuestionView(RoleRequiredMixin, View):
             ctx['classrooms'] = ClassRoom.objects.filter(
                 id__in=classroom_ids, is_active=True,
             ).order_by('name')
-        # Scope label for the template
+
+        # Scope label
         if request.user.is_superuser:
             ctx['scope_label'] = 'Global'
         elif request.user.has_role(Role.HEAD_OF_INSTITUTE) or request.user.has_role(Role.INSTITUTE_OWNER):
@@ -2157,17 +2393,30 @@ class AddQuestionView(RoleRequiredMixin, View):
             ctx['scope_label'] = f'Department: {dept.name}' if dept else 'Department'
         else:
             ctx['scope_label'] = 'Class'
+
+        # Standalone mode flag
+        ctx['standalone'] = level is None
         return ctx
 
-    def get(self, request, level_number):
-        level = get_object_or_404(Level, level_number=level_number)
+    def get(self, request, level_number=None):
+        level = get_object_or_404(Level, level_number=level_number) if level_number else None
         return render(request, 'teacher/question_form.html', self._build_context(request, level))
 
-    def post(self, request, level_number):
+    def post(self, request, level_number=None):
         from maths.models import Question as MathsQuestion, Answer as MathsAnswer
-        level = get_object_or_404(Level, level_number=level_number)
-        classroom_topic = get_object_or_404(Topic, id=request.POST.get('topic'))
 
+        # Resolve level — from URL or from form POST
+        if level_number:
+            level = get_object_or_404(Level, level_number=level_number)
+        else:
+            level_num = request.POST.get('level')
+            if not level_num:
+                messages.error(request, 'Please select a year level.')
+                return render(request, 'teacher/question_form.html',
+                              self._build_context(request))
+            level = get_object_or_404(Level, level_number=int(level_num))
+
+        classroom_topic = get_object_or_404(Topic, id=request.POST.get('topic'))
         school_id, dept_id, classroom_ids = _get_question_scope(request.user)
 
         # For teachers, get the selected classroom
@@ -2184,6 +2433,12 @@ class AddQuestionView(RoleRequiredMixin, View):
                               self._build_context(request, level))
             selected_classroom_id = int(selected_classroom_id)
 
+        # Auto-link topic to level
+        if not classroom_topic.levels.filter(pk=level.pk).exists():
+            classroom_topic.levels.add(level)
+        if classroom_topic.parent and not classroom_topic.parent.levels.filter(pk=level.pk).exists():
+            classroom_topic.parent.levels.add(level)
+
         with transaction.atomic():
             question = MathsQuestion.objects.create(
                 topic=classroom_topic, level=level,
@@ -2196,12 +2451,16 @@ class AddQuestionView(RoleRequiredMixin, View):
                 points=int(request.POST.get('points', 1)),
                 explanation=request.POST.get('explanation', ''),
                 image=request.FILES.get('image'),
+                video=request.FILES.get('video'),
             )
-            for i in range(1, 5):
+            # Dynamic answers — support up to 20
+            for i in range(1, 21):
                 text = request.POST.get(f'answer_text_{i}', '').strip()
-                if text:
+                answer_image = request.FILES.get(f'answer_image_{i}')
+                if text or answer_image:
                     MathsAnswer.objects.create(
                         question=question, answer_text=text,
+                        answer_image=answer_image,
                         is_correct=request.POST.get(f'answer_correct_{i}') == 'true',
                         order=int(request.POST.get(f'answer_order_{i}', i)),
                     )
@@ -2210,11 +2469,11 @@ class AddQuestionView(RoleRequiredMixin, View):
             school=School.objects.filter(id=school_id).first() if school_id else None,
             category='data_change',
             action='question_created',
-            detail={'question_id': question.id, 'level_number': level_number},
+            detail={'question_id': question.id, 'level_number': level.level_number},
             request=request,
         )
         messages.success(request, 'Question added.')
-        return redirect('question_list', level_number=level_number)
+        return redirect('question_list', level_number=level.level_number)
 
 
 class EditQuestionView(RoleRequiredMixin, View):
@@ -2336,7 +2595,11 @@ class HoDOverviewView(RoleRequiredMixin, View):
         from collections import defaultdict
 
         # ── Next classes: check if user also teaches ──
-        today = timezone.localdate()
+        # Use the first school's timezone for "today" if available
+        _first_school = School.objects.filter(
+            id__in=_get_user_school_ids(request.user)
+        ).first()
+        today = _first_school.get_local_date() if _first_school else timezone.localdate()
         week_ahead = today + timedelta(days=7)
 
         my_teaching_classes = ClassRoom.objects.filter(
@@ -2477,8 +2740,13 @@ class HoDOverviewView(RoleRequiredMixin, View):
             group_label = 'Department'
         classes_grouped = dict(sorted(classes_grouped.items()))
 
-        # ── Next classes: only show if user teaches classes ──
-        # "My Classes" section only appears for users who are assigned as teachers
+        # ── Next classes: HoI/Owner always sees upcoming school classes ──
+        # If the user doesn't personally teach but owns/manages a school,
+        # show all upcoming classes for that school instead.
+        if next_classes_scope is None and not is_hod_only:
+            next_classes_scope = classes
+            is_teacher_too = True  # enable the upcoming-classes display block
+
         upcoming_sessions = []
         next_classes_from_schedule = []
 
@@ -2501,7 +2769,7 @@ class HoDOverviewView(RoleRequiredMixin, View):
                     'friday': 4, 'saturday': 5, 'sunday': 6,
                 }
                 today_idx = today.weekday()
-                now_time = timezone.localtime().time()
+                now_time = (_first_school.get_local_now() if _first_school else timezone.localtime()).time()
 
                 def _days_until(day_str, start_time=None):
                     target = DAY_MAP.get(day_str, 7)
@@ -2801,6 +3069,28 @@ class HoDOverviewView(RoleRequiredMixin, View):
                 'trend': earnings_trend,
             }
 
+        # ── Next Term Alert ───────────────────────────────────────────
+        next_term_alert = False
+        current_term = None
+        school = None  # for the alert link — use first accessible school
+        if not is_hod_only and my_school_ids:
+            from .models import Term
+            school = School.objects.filter(id__in=my_school_ids).first()
+            current_term = Term.objects.filter(
+                school_id__in=my_school_ids,
+                start_date__lte=today,
+                end_date__gte=today,
+            ).order_by('order').first()
+            if current_term:
+                days_left = (current_term.end_date - today).days
+                if days_left <= 30:
+                    has_next = Term.objects.filter(
+                        school_id__in=my_school_ids,
+                        start_date__gt=current_term.end_date,
+                    ).exists()
+                    if not has_next:
+                        next_term_alert = True
+
         return render(request, 'hod/overview.html', {
             'is_hoi': is_hoi,
             'school_data': school_data,
@@ -2816,6 +3106,9 @@ class HoDOverviewView(RoleRequiredMixin, View):
             'pending_enrollment_count': pending_enrollment_count,
             'classes_no_students': classes_no_students,
             'classes_no_teachers': classes_no_teachers,
+            'next_term_alert': next_term_alert,
+            'current_term': current_term,
+            'school': school,
             'classes_grouped': classes_grouped,
             'group_label': group_label,
             'upcoming_sessions': upcoming_sessions,
@@ -4061,6 +4354,44 @@ class SubjectsHubView(LoginRequiredMixin, View):
             .order_by('date', 'start_time')[:5]
         )
 
+        # Fallback: if no sessions exist yet (e.g. CSV-imported classes),
+        # derive upcoming dates from ClassRoom.day schedule.
+        if not upcoming_classes and enrolled_class_ids:
+            from types import SimpleNamespace
+            from datetime import timedelta as _td
+            _DAY_MAP = {
+                'monday': 0, 'tuesday': 1, 'wednesday': 2,
+                'thursday': 3, 'friday': 4, 'saturday': 5, 'sunday': 6,
+            }
+            _today_idx = now.date().weekday()
+            _now_time = now.time()
+
+            def _days_until_student(day_str, start_time=None):
+                target = _DAY_MAP.get(day_str, 7)
+                diff = (target - _today_idx) % 7
+                if diff == 0:
+                    if start_time and start_time > _now_time:
+                        return 0
+                    return 7
+                return diff
+
+            enrolled_rooms = ClassRoom.objects.filter(
+                id__in=enrolled_class_ids, is_active=True, day__isnull=False,
+            ).exclude(day='')
+            scheduled_rooms = sorted(
+                enrolled_rooms,
+                key=lambda c: (_days_until_student(c.day, c.start_time),
+                               c.start_time or timezone.datetime.min.time()),
+            )
+            for room in scheduled_rooms[:5]:
+                du = _days_until_student(room.day, room.start_time)
+                pseudo = SimpleNamespace(
+                    classroom=room,
+                    date=now.date() + _td(days=du),
+                    start_time=room.start_time,
+                )
+                upcoming_classes.append(pseudo)
+
         # ── Attendance per class ──
         class_attendance = []
         enrolled_entries = (
@@ -4149,8 +4480,49 @@ class SubjectsHubView(LoginRequiredMixin, View):
                     enrolled_classes[cs.classroom.subject_id] = cs.classroom
 
                 # Build per-school sections
+                # Cache all active SubjectApps and global subject names once
+                all_subject_apps = list(SubjectApp.objects.filter(is_active=True).order_by('order'))
+                global_subject_name_map = {
+                    s.id: s.name.lower()
+                    for s in Subject.objects.filter(school__isnull=True, is_active=True)
+                }
+
+                def _find_subject_app(subj):
+                    """Find best SubjectApp for a subject.
+
+                    Resolution order:
+                    1. SubjectApp.subject == this school subject (exact FK)
+                    2. SubjectApp.subject == subj.global_subject (FK via global link)
+                    3. Name-prefix fallback using global subject name (e.g. "Mathematics" ↔ "Maths")
+                    4. Direct name match: subj.name == app.name (case-insensitive)
+                    5. Name-prefix fallback using local subject name
+                    """
+                    for app in all_subject_apps:
+                        if app.subject_id == subj.id:
+                            return app
+                    if subj.global_subject_id:
+                        for app in all_subject_apps:
+                            if app.subject_id == subj.global_subject_id:
+                                return app
+                        gs_name = global_subject_name_map.get(subj.global_subject_id, subj.name.lower())
+                        if len(gs_name) >= 4:
+                            prefix = gs_name[:4]
+                            for app in all_subject_apps:
+                                if app.name.lower()[:4] == prefix:
+                                    return app
+                    subj_name_lower = subj.name.lower()
+                    for app in all_subject_apps:
+                        if app.name.lower() == subj_name_lower:
+                            return app
+                    if len(subj_name_lower) >= 4:
+                        prefix = subj_name_lower[:4]
+                        for app in all_subject_apps:
+                            if app.name.lower()[:4] == prefix:
+                                return app
+                    return None
+
                 school_sections = []
-                covered_subject_ids = set()  # SubjectApp.subject_id values covered by schools
+                covered_app_ids = set()
                 for school in schools:
                     departments = Department.objects.filter(
                         school=school, is_active=True,
@@ -4163,19 +4535,9 @@ class SubjectsHubView(LoginRequiredMixin, View):
                             if enrolled_cr is None:
                                 continue
 
-                            # Track which global subjects are covered by this school
-                            if subj.global_subject_id:
-                                covered_subject_ids.add(subj.global_subject_id)
-                            covered_subject_ids.add(subj.id)
-
-                            # Try to find a matching SubjectApp for icon/color/link
-                            matching_app = SubjectApp.objects.filter(
-                                subject=subj, is_active=True,
-                            ).first()
-                            if not matching_app and subj.global_subject_id:
-                                matching_app = SubjectApp.objects.filter(
-                                    subject_id=subj.global_subject_id, is_active=True,
-                                ).first()
+                            matching_app = _find_subject_app(subj)
+                            if matching_app:
+                                covered_app_ids.add(matching_app.id)
 
                             # Determine link:
                             #   • matching app with external_url → link only when questions exist
@@ -4200,32 +4562,11 @@ class SubjectsHubView(LoginRequiredMixin, View):
                             'subjects': subject_cards,
                         })
 
-                # Global SubjectApps NOT covered by any school
-                global_apps = SubjectApp.objects.filter(
-                    is_active=True, is_coming_soon=False,
-                ).order_by('order')
-                # Also collect covered subject names for fuzzy matching
-                covered_subject_names = set()
-                for section in school_sections:
-                    for card in section['subjects']:
-                        covered_subject_names.add(card['name'].lower())
-
-                uncovered_apps = []
-                for app in global_apps:
-                    app_subject_id = app.subject_id
-                    # Skip if explicitly covered by subject ID
-                    if app_subject_id and app_subject_id in covered_subject_ids:
-                        continue
-                    # Skip if covered by name match (e.g. "Mathematics" covers "Maths")
-                    app_name_lower = app.name.lower()
-                    name_covered = any(
-                        app_name_lower in cname or cname in app_name_lower
-                        for cname in covered_subject_names
-                    )
-                    if name_covered:
-                        continue
-                    uncovered_apps.append(app)
-
+                # Global SubjectApps not already represented by a school subject card
+                uncovered_apps = [
+                    app for app in all_subject_apps
+                    if app.id not in covered_app_ids and not app.is_coming_soon
+                ]
                 global_subjects = _annotate_apps_with_questions(uncovered_apps)
 
                 return render(request, 'hub/home.html', {
@@ -4235,6 +4576,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
                     'school_sections': school_sections,
                     'global_subjects': global_subjects,
                     'is_school_student': True,
+                    'hide_sidebar': True,
                     **hub_extra,
                 })
 

@@ -550,7 +550,8 @@
         </div>
         
         {% if current_question.image %}
-            <img src="{{ current_question.image.url }}" alt="Question diagram" class="question-image{% if 'ruler' in current_question.image.name %} question-image-ruler{% endif %}">
+            <img src="{{ current_question.image.url }}" alt="Question diagram" class="question-image{% if 'ruler' in current_question.image.name %} question-image-ruler{% endif %}"
+                 onload="var r=this.naturalWidth/this.naturalHeight; if(r>1.5){this.style.maxHeight='24rem';this.style.maxWidth='100%'}else if(r>1){this.style.maxHeight='16rem'}else{this.style.maxHeight='12rem'}">
         {% endif %}
         
         <div class="question-text" id="question-text">{{ current_question.question_text|safe }}</div>

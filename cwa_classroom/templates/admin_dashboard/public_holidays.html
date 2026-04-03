@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}Public Holidays — {{ school.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto" x-data="{ showForm: false, editing: null }">
+
+  <!-- Header -->
+  <div class="mb-8 flex items-center justify-between">
+    <div>
+      <a href="{% url 'admin_school_detail' school.id %}" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back to {{ school.name }}</a>
+      <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Public Holidays</h1>
+      <p class="text-gray-500 mt-1">{{ school.name }}</p>
+    </div>
+    <button @click="showForm = !showForm; editing = null"
+            class="px-4 py-2 bg-accent text-white text-sm font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm">
+      + Add Public Holiday
+    </button>
+  </div>
+
+  <!-- Add / Edit Form -->
+  <div x-show="showForm" x-cloak class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-6">
+    <h2 class="text-base font-semibold text-gray-800 mb-4" x-text="editing ? 'Edit Public Holiday' : 'Add Public Holiday'"></h2>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" :value="editing ? 'edit' : 'create'">
+      <input type="hidden" name="holiday_id" :value="editing ? editing.id : ''">
+
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Name *</label>
+          <input type="text" name="name" required :value="editing ? editing.name : ''"
+                 placeholder="e.g. Christmas Day"
+                 class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-semibold text-gray-700 mb-1">Date *</label>
+            <input type="date" name="date" required :value="editing ? editing.date : ''"
+                   class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+          </div>
+          <div>
+            <label class="block text-sm font-semibold text-gray-700 mb-1">Academic Year</label>
+            <select name="academic_year"
+                    class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition bg-white">
+              <option value="">— Any —</option>
+              {% for ay in academic_years %}
+              <option value="{{ ay.id }}">{{ ay.year }}{% if ay.is_current %} (current){% endif %}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
+        <button type="button" @click="showForm = false"
+                class="px-5 py-2.5 text-gray-600 font-semibold rounded-xl hover:bg-gray-100 transition">Cancel</button>
+        <button type="submit"
+                class="px-6 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm"
+                x-text="editing ? 'Save Changes' : 'Add Holiday'"></button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Holidays list -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    {% if holidays %}
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 border-b border-slate-200">
+        <tr>
+          <th class="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
+          <th class="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
+          <th class="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Academic Year</th>
+          <th class="px-5 py-3"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for h in holidays %}
+        <tr class="hover:bg-slate-50 transition">
+          <td class="px-5 py-3 font-medium text-gray-800">{{ h.name }}</td>
+          <td class="px-5 py-3 text-gray-600">{{ h.date|date:"d M Y" }}</td>
+          <td class="px-5 py-3 text-gray-500">{% if h.academic_year %}{{ h.academic_year.year }}{% else %}—{% endif %}</td>
+          <td class="px-5 py-3 text-right">
+            <div class="flex items-center justify-end gap-2">
+              <button @click="editing = { id: {{ h.id }}, name: '{{ h.name|escapejs }}', date: '{{ h.date|date:"Y-m-d" }}' }; showForm = true"
+                      class="text-xs text-accent hover:text-accent-dark font-medium transition">Edit</button>
+              <form method="post" onsubmit="return confirm('Delete this public holiday?')">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="delete">
+                <input type="hidden" name="holiday_id" value="{{ h.id }}">
+                <button type="submit" class="text-xs text-red-500 hover:text-red-700 font-medium transition">Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="px-6 py-12 text-center">
+      <p class="text-gray-400 text-sm">No public holidays defined yet.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Also link to School Holidays -->
+  <div class="mt-4 text-right">
+    <a href="{% url 'admin_school_holidays' school.id %}" class="text-sm text-accent hover:text-accent-dark font-medium transition">
+      Manage School Holidays →
+    </a>
+  </div>
+
+</div>
+{% endblock %}

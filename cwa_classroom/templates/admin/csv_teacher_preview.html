@@ -133,9 +133,9 @@
     </form>
   </div>
 
-  {# ── Loading overlay ── #}
-  <div id="import-loading" class="hidden">
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-lg p-8 text-center max-w-md mx-auto">
+  {# ── Full-page loading overlay ── #}
+  <div id="import-loading" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-lg p-8 text-center max-w-md mx-4">
       <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
         <svg class="w-8 h-8 text-primary animate-spin" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -147,7 +147,7 @@
       <div class="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
         <div class="bg-primary h-1.5 rounded-full animate-pulse" style="width: 100%"></div>
       </div>
-      <p class="text-xs text-gray-400 mt-3">Please don't close this page.</p>
+      <p class="text-xs text-red-500 font-medium mt-3">Please do not refresh or navigate away.</p>
     </div>
   </div>
   {% else %}

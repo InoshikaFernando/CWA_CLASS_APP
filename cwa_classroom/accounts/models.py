@@ -31,6 +31,7 @@ class Role(models.Model):
 
 
 class CustomUser(AbstractUser):
+    email = models.EmailField(unique=True, blank=True, null=True, default=None)
     date_of_birth = models.DateField(null=True, blank=True)
     country = models.CharField(max_length=100, blank=True)
     region = models.CharField(max_length=100, blank=True)
@@ -57,6 +58,9 @@ class CustomUser(AbstractUser):
     # Profile completion
     must_change_password = models.BooleanField(default=False)
     profile_completed = models.BooleanField(default=True)
+
+    # Terms & conditions / privacy policy acceptance
+    terms_accepted_at = models.DateTimeField(null=True, blank=True)
 
     # Account blocking (e.g. unpaid fees, policy violation)
     BLOCK_PAYMENT = 'payment'

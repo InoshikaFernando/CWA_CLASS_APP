@@ -65,6 +65,82 @@
           {% if errors.max_uses %}<p class="text-red-500 text-xs mt-1">{{ errors.max_uses }}</p>{% endif %}
         </div>
 
+        <!-- Duration -->
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-2">Duration</label>
+          {% if discount.stripe_coupon_id %}
+            <p class="text-gray-900">{{ form_data.duration|default:'forever'|capfirst }}
+              {% if form_data.duration == 'repeating' and form_data.duration_in_months %} ({{ form_data.duration_in_months }} months){% endif %}
+              <span class="text-xs text-gray-400">(locked after Stripe sync)</span>
+            </p>
+            <input type="hidden" name="duration" value="{{ form_data.duration|default:'forever' }}">
+            {% if form_data.duration_in_months %}<input type="hidden" name="duration_in_months" value="{{ form_data.duration_in_months }}">{% endif %}
+          {% else %}
+            <div class="flex gap-4 mb-2">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="radio" name="duration" value="forever" {% if form_data.duration == 'forever' or not form_data.duration %}checked{% endif %}
+                       class="text-accent focus:ring-accent" onchange="toggleDuration()">
+                <span class="text-sm text-gray-700">Forever</span>
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="radio" name="duration" value="once" {% if form_data.duration == 'once' %}checked{% endif %}
+                       class="text-accent focus:ring-accent" onchange="toggleDuration()">
+                <span class="text-sm text-gray-700">Once</span>
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="radio" name="duration" value="repeating" {% if form_data.duration == 'repeating' %}checked{% endif %}
+                       class="text-accent focus:ring-accent" onchange="toggleDuration()">
+                <span class="text-sm text-gray-700">Multiple Months</span>
+              </label>
+            </div>
+            <div id="duration_months_wrap" class="{% if form_data.duration != 'repeating' %}hidden{% endif %}">
+              <label for="duration_in_months" class="block text-sm font-medium text-gray-600 mb-1">Number of Months</label>
+              <input type="number" min="1" name="duration_in_months" id="duration_in_months"
+                     value="{{ form_data.duration_in_months|default:'' }}"
+                     class="w-32 px-4 py-2.5 border {% if errors.duration_in_months %}border-red-400{% else %}border-slate-300{% endif %} rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition"
+                     placeholder="12">
+              {% if errors.duration_in_months %}<p class="text-red-500 text-xs mt-1">{{ errors.duration_in_months }}</p>{% endif %}
+            </div>
+            {% if errors.duration %}<p class="text-red-500 text-xs mt-1">{{ errors.duration }}</p>{% endif %}
+          {% endif %}
+        </div>
+
+        <!-- Applicable Plans -->
+        {% if plans %}
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-2">Applicable Plans</label>
+          <p class="text-xs text-gray-400 mb-2">Leave all unchecked to apply to all plans</p>
+          <div class="space-y-2">
+            {% for plan in plans %}
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" name="applicable_plans" value="{{ plan.pk }}"
+                     {% if plan.pk in selected_plans %}checked{% endif %}
+                     class="rounded text-accent focus:ring-accent">
+              <span class="text-sm text-gray-700">{{ plan.name }} (${{ plan.price }}/mo)</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        <!-- Applicable Modules -->
+        {% if modules %}
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-2">Applicable Modules</label>
+          <p class="text-xs text-gray-400 mb-2">Leave all unchecked to apply to all modules</p>
+          <div class="space-y-2">
+            {% for mod in modules %}
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" name="applicable_modules" value="{{ mod.pk }}"
+                     {% if mod.pk in selected_modules %}checked{% endif %}
+                     class="rounded text-accent focus:ring-accent">
+              <span class="text-sm text-gray-700">{{ mod.name }} (${{ mod.price }}/mo)</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
         <!-- Overrides -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
@@ -99,7 +175,7 @@
 
       <!-- Actions -->
       <div class="flex items-center justify-end gap-3 mt-8 pt-6 border-t border-slate-100">
-        <a href="{% url 'billing_admin_discount_list' %}"
+        <a href="{% url 'billing_admin_coupon_list' %}"
            class="px-5 py-2.5 text-gray-600 font-semibold rounded-xl hover:bg-gray-100 transition">Cancel</a>
         <button type="submit"
                 class="px-6 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm">
@@ -110,4 +186,19 @@
   </div>
 
 </div>
+
+<script>
+function toggleDuration() {
+  var duration = document.querySelector('input[name="duration"]:checked');
+  var wrap = document.getElementById('duration_months_wrap');
+  if (wrap && duration) {
+    if (duration.value === 'repeating') {
+      wrap.classList.remove('hidden');
+    } else {
+      wrap.classList.add('hidden');
+    }
+  }
+}
+document.addEventListener('DOMContentLoaded', function() { toggleDuration(); });
+</script>
 {% endblock %}

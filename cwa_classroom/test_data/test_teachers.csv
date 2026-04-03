@@ -1,0 +1,16 @@
+first_name,last_name,email,phone,position,specialty,status,type
+Sarah,Henderson,sarah.henderson@school.example.com,0495822412,Principal Teacher,Mathematics,Active,Teacher
+Mark,Stevens,mark.stevens@school.example.com,0424942603,Admin,,Active,Staff
+Michael,Mitchell,michael.mitchell251@school.example.com,0439958838,Junior Teacher,Science,Active,Teacher
+Lisa,Miller,lisa.miller605@school.example.com,0466629388,Junior Teacher,Mathematics,Active,Teacher
+Michael,Garcia,michael.garcia239@school.example.com,0477827638,Admin,"English,Mathematics",Active,Staff
+Michael,Scott,michael.scott734@school.example.com,0497226012,Admin,"English,Mathematics",Active,Staff
+Frank,Anderson,frank.anderson604@school.example.com,0447338124,Junior Teacher,Mathematics,Active,Teacher
+Nancy,Kim,nancy.kim715@school.example.com,0466722344,Admin,English,Active,Staff
+Kevin,Martinez,kevin.martinez981@school.example.com,0455176955,Admin,Mathematics,Active,Staff
+Richard,Harris,richard.harris368@school.example.com,0456164955,Junior Teacher,"English,Mathematics",Active,Teacher
+Kevin,Kim,kevin.kim748@school.example.com,0471662963,Junior Teacher,"English,Mathematics",Active,Teacher
+Joseph,Silva,joseph.silva81@school.example.com,0484093639,Junior Teacher,English,Active,Teacher
+Margaret,Green,margaret.green592@school.example.com,0435808537,Junior Teacher,Mathematics,Active,Teacher
+David,Nelson,david.nelson792@school.example.com,0448840994,Admin,Mathematics,Active,Staff
+Sandra,Anderson,sandra.anderson390@school.example.com,0447308985,Junior Teacher,"Mathematics,Science",Active,Teacher

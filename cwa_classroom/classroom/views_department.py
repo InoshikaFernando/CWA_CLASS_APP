@@ -2,7 +2,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
 from django.contrib import messages
 from django.core.paginator import Paginator
-from django.db import transaction
+from django.db import transaction, models
 from django.utils.text import slugify
 
 from accounts.models import CustomUser, Role, UserRole
@@ -850,6 +850,31 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
             school=school, is_active=True,
         ).exclude(id=department.id).order_by('name')
 
+        # Global levels already mapped to this department
+        mapped_level_ids = set(dept_levels.values_list('level_id', flat=True))
+
+        # All available global levels (Year 1–9 + subject-specific), excluding BF
+        all_global_levels = (
+            Level.objects.filter(school__isnull=True, level_number__lt=100)
+            .order_by('level_number')
+        )
+
+        # Per-subject: which global levels are not yet mapped
+        for group in subject_groups:
+            subj = group['subject']
+            # Levels with this subject OR the general Year 1-9 global levels
+            subject_global = all_global_levels.filter(
+                models.Q(subject=subj) | models.Q(subject__isnull=True)
+            ).exclude(id__in=mapped_level_ids)
+            group['available_global_levels'] = list(subject_global)
+
+        # For the modal: global levels not yet mapped (used if no subjects yet)
+        unmapped_global_levels = list(all_global_levels.exclude(id__in=mapped_level_ids))
+
+        global_subjects = Subject.objects.filter(
+            school__isnull=True, is_active=True,
+        ).order_by('order', 'name')
+
         return render(request, 'admin_dashboard/department_subject_levels.html', {
             'school': school,
             'department': department,
@@ -857,6 +882,8 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
             'subject_groups': subject_groups,
             'available_subjects': available_subjects,
             'all_departments': all_departments,
+            'unmapped_global_levels': unmapped_global_levels,
+            'global_subjects': global_subjects,
         })
 
     def post(self, request, school_id, dept_id):
@@ -878,7 +905,7 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
                         defaults={'order': DepartmentSubject.objects.filter(department=department).count()},
                     )
                     if created:
-                        # Auto-map global levels for this subject
+                        # Auto-map subject-specific global levels (if any)
                         subj_levels = Level.objects.filter(
                             subject=subj, school__isnull=True,
                         ).exclude(level_number__gte=100, level_number__lt=200)
@@ -964,6 +991,14 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
                 return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
 
             subject = ds.subject
+
+            # Update global subject link
+            global_subject_id = request.POST.get('global_subject_id', '').strip()
+            if global_subject_id:
+                subject.global_subject_id = int(global_subject_id)
+            else:
+                subject.global_subject_id = None
+            subject.save(update_fields=['global_subject'])
 
             # Update subject name
             if new_name and new_name != subject.name:
@@ -1061,6 +1096,27 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
                     messages.error(request, 'Level not found in this department.')
             else:
                 messages.error(request, 'Level name is required.')
+            return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
+
+        # ---- Link existing global level ----
+        if action == 'link_level':
+            global_level_id = request.POST.get('global_level_id', '').strip()
+            subject_id = request.POST.get('subject_id', '').strip()
+            if not global_level_id:
+                messages.error(request, 'Select a global level to link.')
+                return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
+            level = Level.objects.filter(id=global_level_id, school__isnull=True).first()
+            if not level:
+                messages.error(request, 'Invalid level selected.')
+                return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
+            dl, created = DepartmentLevel.objects.get_or_create(
+                department=department, level=level,
+                defaults={'order': level.level_number},
+            )
+            if created:
+                messages.success(request, f'"{level.display_name}" linked to {department.name}.')
+            else:
+                messages.info(request, f'"{level.display_name}" is already linked.')
             return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
 
         # ---- Add Level action (default) ----
