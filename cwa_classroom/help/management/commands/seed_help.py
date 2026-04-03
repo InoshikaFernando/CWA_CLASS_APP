@@ -207,38 +207,288 @@ From the class detail page, find the student and use the **Remove** action. The 
 """,
     },
     {
-        'title': 'Importing Students in Bulk',
+        'title': 'Importing Students via CSV',
         'category': 'Classes & Enrolment',
-        'excerpt': 'How to upload a CSV file to add multiple students at once.',
+        'excerpt': 'Step-by-step guide to bulk importing students using a CSV or Excel file.',
         'module': 'classroom',
-        'roles': ['hoi'],
-        'body': """## Bulk Student Import
+        'page_url_name': 'student_csv_upload',
+        'is_featured': True,
+        'roles': ['hoi', 'hod'],
+        'body': """## Importing Students via CSV
 
-You can import multiple students at once using a CSV file.
+You can add many students at once by uploading a CSV or Excel (.xls/.xlsx) file. The importer supports files up to 10 MB.
 
-### Steps
+### Step 1 — Go to Import Students
 
-1. Go to **Import Students** from the sidebar or admin dashboard.
-2. Download the CSV template to see the required column format.
-3. Fill in the template with your student data.
-4. Upload the CSV file.
-5. Review the **Preview** — check for any errors or mismatched columns.
-6. Map the CSV columns to the correct fields if prompted.
-7. Click **Confirm Import**.
-8. Students will receive an email with their login credentials.
+From the sidebar go to **Import Students** (under the school management section). You can also reach it from your admin dashboard.
 
-### Supported columns
+### Step 2 — Choose a source preset (optional)
 
-- First name, Last name (required)
-- Email address (required — must be unique)
-- Year level
-- Class name(s)
+If you are migrating from another system (e.g. **Teachworks**), select the matching preset from the dropdown. This automatically maps your file's column headers to the correct fields, saving you time.
+
+### Step 3 — Upload your file
+
+Click **Choose File**, select your CSV or Excel file, then click **Upload**.
+
+The first few rows of your file will appear as a preview so you can confirm the data looks correct.
+
+### Step 4 — Map your columns
+
+Match each column in your file to the correct field. Required fields are marked — you must map at least one of these:
+
+| Required | Field |
+|---|---|
+| ✅ | Student First Name |
+| ✅ | Student Last Name |
+| ✅ (or Full Name or Children) | One of these three must be mapped |
+
+**Optional fields you can also map:**
+
+| Field | Notes |
+|---|---|
+| Student Email | Recommended. Auto-generated from parent email if left blank. |
+| Student Full Name | Alternative to First + Last Name columns |
+| Children (full names) | Comma-separated list, e.g. "Jane Smith, Tom Smith" — creates one row per child |
+| Username | Leave blank to auto-generate |
+| Date of Birth | Format: DD/MM/YYYY |
+| Department | Must match an existing department name |
+| Subject | Must match an existing subject |
+| Class Name | Enrols the student in that class |
+| Class Day / Start Time / End Time | Used to match the correct class session |
+| Teacher | Assigns the student to a teacher's class |
+| Parent 1 First Name, Last Name, Email | Creates a linked parent account |
+| Parent 2 First Name, Last Name, Email | Optional second parent/guardian |
+
+### Step 5 — Map school structure (if your school has departments)
+
+If your school uses departments, an extra step will appear asking you to assign imported students to departments, subjects, and classes. Use the dropdowns to match your CSV values to the correct school structure.
+
+### Step 6 — Review the preview
+
+A summary shows:
+- **New students** — will be created
+- **Existing students** — already in the system, will be updated
+- **New parent accounts** — will be created from parent columns
+- **Warnings** — rows with minor issues (e.g. missing email, auto-generated values)
+- **Errors** — rows that cannot be imported
+
+Fix any errors in your CSV and re-upload if needed.
+
+### Step 7 — Confirm the import
+
+Click **Confirm Import**. Students are created immediately.
+
+### Step 8 — Download credentials
+
+After import you can download a credentials sheet with each student's login details. Share these securely with students or parents.
+
+Students also receive an email invitation with a link to set their password.
 
 ### Tips
 
-- Check for duplicate email addresses before importing.
-- Students without an email address can be assigned one during import.
-- If an import fails, review the error messages on the preview page.
+- **No email?** If a student email is blank, the system generates one from the parent email (or a placeholder). You can update it later from the student's profile.
+- **Duplicate emails** are detected automatically — existing accounts are updated rather than duplicated.
+- **Files supported:** `.csv`, `.xls`, `.xlsx` (max 10 MB)
+- **Column headers** don't need to match exactly — use the mapping step to connect your file's headers to the right fields.
+""",
+    },
+    {
+        'title': 'Importing Teachers and Staff via CSV',
+        'category': 'Classes & Enrolment',
+        'excerpt': 'Step-by-step guide to bulk importing teachers and staff using a CSV or Excel file.',
+        'module': 'classroom',
+        'page_url_name': 'teacher_csv_upload',
+        'is_featured': True,
+        'roles': ['hoi'],
+        'body': """## Importing Teachers and Staff via CSV
+
+You can add multiple teachers and staff members at once by uploading a CSV or Excel file.
+
+### Step 1 — Go to Import Teachers
+
+From the sidebar go to **Import Teachers** (under the school management section).
+
+### Step 2 — Choose a source preset (optional)
+
+If you are migrating from **Teachworks**, select the Teachworks preset. This maps your file's column headers automatically.
+
+### Step 3 — Upload your file
+
+Click **Choose File**, select your CSV or Excel file, then click **Upload**.
+
+### Step 4 — Map your columns
+
+Match each column to the correct field. Required fields:
+
+| Required | Field |
+|---|---|
+| ✅ | First Name |
+| ✅ | Last Name |
+| ✅ | Email |
+
+**Optional fields:**
+
+| Field | Notes |
+|---|---|
+| Mobile Phone | Teacher's contact number |
+| Position / Role | Determines the staff role (see table below) |
+| Subjects / Specialty | The subjects this teacher covers |
+| Status | Active/Inactive — inactive staff are not imported |
+| Type | Teacher or Staff |
+
+### Role mapping from Position column
+
+The **Position** column in your CSV determines what role the staff member receives:
+
+| Position value (in CSV) | Role assigned |
+|---|---|
+| Principal Teacher / Principal | Head of Institute |
+| Senior Teacher | Senior Teacher |
+| Junior Teacher | Junior Teacher |
+| Admin / Head Admin | Accountant |
+| (anything else) | Teacher |
+
+### Step 5 — Review the preview
+
+The preview shows new and existing staff members. Existing accounts (matched by email) are updated rather than duplicated.
+
+### Step 6 — Confirm the import
+
+Click **Confirm Import**. Staff accounts are created immediately.
+
+### Step 7 — Download credentials
+
+After import you can download a credentials sheet with each staff member's login details.
+
+Staff also receive an email invitation with a link to set their password.
+
+### Tips
+
+- **Email is required** for all staff — unlike students, there is no auto-generation.
+- Inactive staff (Status = Inactive) are skipped.
+- **Files supported:** `.csv`, `.xls`, `.xlsx` (max 10 MB)
+""",
+    },
+    {
+        'title': 'Importing Parents via CSV',
+        'category': 'Classes & Enrolment',
+        'excerpt': 'How to bulk import parent/guardian accounts and link them to students.',
+        'module': 'classroom',
+        'page_url_name': 'parent_csv_upload',
+        'roles': ['hoi'],
+        'body': """## Importing Parents via CSV
+
+You can import parent/guardian accounts in bulk and link them to existing students.
+
+### Step 1 — Go to Import Parents
+
+From the sidebar go to **Import Parents** (under the school management section).
+
+### Step 2 — Choose a source preset (optional)
+
+Select **Teachworks** if you are migrating from Teachworks Families export.
+
+### Step 3 — Upload your file
+
+Click **Choose File**, select your CSV or Excel file, then click **Upload**.
+
+### Step 4 — Map your columns
+
+Required fields:
+
+| Required | Field |
+|---|---|
+| ✅ | Parent First Name |
+| ✅ | Parent Last Name |
+| ✅ | Parent Email |
+| ✅ (one of these) | Student Email **or** Children (names) |
+
+**Optional fields:**
+
+| Field | Notes |
+|---|---|
+| Phone | Parent contact number |
+| Relationship | e.g. Mother, Father, Guardian |
+| Student Email | Links this parent to an existing student account |
+| Children (names) | Comma-separated list of child names — matches to existing student accounts by name |
+| Address | Street address |
+| City | City |
+| Country | Country |
+
+### Linking parents to students
+
+The importer links parents to students using either:
+- **Student Email** — exact match to an existing student's email address
+- **Children (names)** — matches student names already in the system (e.g. "Jane Smith, Tom Smith")
+
+If no match is found, the parent account is still created but not linked. You can link manually from the student's profile.
+
+### Step 5 — Confirm the import
+
+Review the preview and click **Confirm Import**. Parent accounts are created and linked to their children.
+
+Parents receive an email invitation to set their password.
+
+### Tips
+
+- Existing parent accounts (matched by email) are updated, not duplicated.
+- **Files supported:** `.csv`, `.xls`, `.xlsx` (max 10 MB)
+""",
+    },
+    {
+        'title': 'Importing Account Balances via CSV',
+        'category': 'Billing & Payments',
+        'excerpt': 'How to import opening account balances for parents when migrating from another system.',
+        'module': 'billing',
+        'page_url_name': 'balance_csv_upload',
+        'roles': ['hoi', 'accountant'],
+        'body': """## Importing Account Balances via CSV
+
+When migrating from another system (e.g. Teachworks), you can import existing parent account balances so your financial records carry over.
+
+### Step 1 — Go to Import Balances
+
+From the sidebar go to **Import Balances** (under the billing or school management section).
+
+### Step 2 — Choose a source preset (optional)
+
+Select **Teachworks** to automatically map a Teachworks Customer Balances export.
+
+### Step 3 — Upload your file
+
+Click **Choose File**, select your CSV or Excel file, then click **Upload**.
+
+### Step 4 — Map your columns
+
+Required fields:
+
+| Required | Field |
+|---|---|
+| ✅ | Parent First Name |
+| ✅ | Parent Last Name |
+| ✅ | Balance |
+
+**Optional fields:**
+
+| Field | Notes |
+|---|---|
+| Net Invoices | Total invoiced amount |
+| Net Payments | Total payments received |
+| Customer ID | External reference ID from your previous system |
+| Customer Status | Active/Inactive |
+
+### Step 5 — Review and confirm
+
+The preview shows which parent accounts were matched and what their opening balance will be set to.
+
+Click **Confirm Import** to apply the balances.
+
+### Tips
+
+- Balances are matched to existing parent accounts by name.
+- Only active customers are imported (inactive are skipped).
+- **Files supported:** `.csv`, `.xls`, `.xlsx` (max 10 MB)
+- Run this import **after** importing parents, so all accounts exist before balances are applied.
 """,
     },
     {
