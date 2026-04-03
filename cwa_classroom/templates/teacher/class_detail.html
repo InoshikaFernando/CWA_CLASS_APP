@@ -30,6 +30,12 @@
          class="bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-semibold rounded-xl px-4 py-2.5 transition">
         Edit
       </a>
+      {% if can_edit_fee %}
+      <a href="{% url 'class_settings' class_id=classroom.id %}"
+         class="bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-semibold rounded-xl px-4 py-2.5 transition">
+        Bank / GST Settings
+      </a>
+      {% endif %}
       <a href="{% url 'progress_criteria_list' %}"
          class="bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-semibold rounded-xl px-4 py-2.5 transition">
         Progress Criteria

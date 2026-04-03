@@ -396,16 +396,19 @@ def _send_invoice_email(invoice):
     school = invoice.school
     line_items = invoice.line_items.select_related('classroom', 'classroom__department').all()
 
-    # Determine the primary department for settings overrides
-    # (use the first line item's department if available)
+    # Determine the primary department and classroom for settings overrides
+    # (use the first line item's classroom/department if available)
     primary_dept = None
+    primary_classroom = None
     for li in line_items:
-        if li.classroom and li.classroom.department:
-            primary_dept = li.classroom.department
+        if li.classroom:
+            primary_classroom = li.classroom
+            if li.classroom.department:
+                primary_dept = li.classroom.department
             break
 
-    # Get effective settings (department overrides applied if present)
-    eff = school.get_effective_settings(primary_dept)
+    # Get effective settings (department then classroom overrides applied)
+    eff = school.get_effective_settings(primary_dept, classroom=primary_classroom)
 
     # Format dates
     invoice_date = ''

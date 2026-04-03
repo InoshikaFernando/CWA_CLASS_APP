@@ -211,8 +211,8 @@ class School(models.Model):
         'logo',
     ]
 
-    def get_effective_settings(self, department=None):
-        """Return settings dict, applying department overrides where non-null/non-blank."""
+    def get_effective_settings(self, department=None, classroom=None):
+        """Return settings dict, applying department then classroom overrides where non-null/non-blank."""
         result = {}
         for field in self.SETTINGS_FIELDS:
             result[field] = getattr(self, field)
@@ -227,6 +227,14 @@ class School(models.Model):
                         result[field] = dept_val
                 elif dept_val != '':
                     result[field] = dept_val
+        if classroom:
+            # Apply classroom-level overrides (subset of settings fields)
+            for field in classroom.CLASS_OVERRIDE_FIELDS:
+                cls_val = getattr(classroom, field, None)
+                if cls_val is None:
+                    continue
+                if cls_val != '':
+                    result[field] = cls_val
         return result
 
 
@@ -608,6 +616,18 @@ class ClassRoom(models.Model):
         null=True, blank=True,
         help_text='Fee override for this class. NULL = inherit from level/subject/department.',
     )
+    # ── Settings overrides (blank = use department/school default) ──
+    bank_name = models.CharField(max_length=100, blank=True)
+    bank_bsb = models.CharField('BSB', max_length=20, blank=True)
+    bank_account_number = models.CharField(max_length=30, blank=True)
+    bank_account_name = models.CharField(max_length=200, blank=True)
+    gst_number = models.CharField('GST / VAT Number', max_length=50, blank=True)
+
+    # Fields that can be overridden at class level
+    CLASS_OVERRIDE_FIELDS = [
+        'bank_name', 'bank_bsb', 'bank_account_number', 'bank_account_name',
+        'gst_number',
+    ]
 
     class Meta:
         ordering = ['name']
