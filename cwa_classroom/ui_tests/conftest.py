@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import os
 
-# Default to SQLite for UI tests unless DB_ENGINE is already set
-os.environ.setdefault("DB_ENGINE", "sqlite")
+# Force SQLite for UI tests unless DB_ENGINE was explicitly set before import
+# (os.environ.setdefault won't work because load_dotenv hasn't run yet)
+if "DB_ENGINE" not in os.environ:
+    os.environ["DB_ENGINE"] = "sqlite"
 # Allow synchronous DB operations in Playwright's async event loop
-os.environ.setdefault("DJANGO_ALLOW_ASYNC_UNSAFE", "true")
+os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
 
 import uuid
 from datetime import date, time, timedelta
@@ -370,6 +372,27 @@ def enrolled_student(db, classroom, student_user, school):
         classroom=classroom, student=student_user, is_active=True,
     )
     return student_user
+
+
+@pytest.fixture
+def guardian(db, school, enrolled_student):
+    """A Guardian contact linked to the enrolled student."""
+    from classroom.models import Guardian, StudentGuardian
+
+    g = Guardian.objects.create(
+        school=school,
+        first_name="Jane",
+        last_name="Guardian",
+        email=f"jane.guardian.{_RUN_ID}@test.local",
+        phone="021-555-0100",
+        relationship="guardian",
+    )
+    StudentGuardian.objects.create(
+        student=enrolled_student,
+        guardian=g,
+        is_primary=True,
+    )
+    return g
 
 
 @pytest.fixture
