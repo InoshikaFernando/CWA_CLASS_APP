@@ -159,8 +159,8 @@ class Command(BaseCommand):
                 SchoolStudent.objects.filter(school=school).delete()
 
                 if not keep_users:
-                    student_users.delete()
-                    teacher_users.delete()
+                    CustomUser.objects.filter(id__in=student_users.values('id')).delete()
+                    CustomUser.objects.filter(id__in=teacher_users.values('id')).delete()
 
                 SchoolTeacher.objects.filter(school=school).delete()
                 DepartmentSubject.objects.filter(department__school=school).delete()
