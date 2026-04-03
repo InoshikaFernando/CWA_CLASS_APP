@@ -40,9 +40,9 @@ class TestOpeningBalances:
         assert inputs.count() >= 1
 
     def test_save_button(self):
-        """Save button should exist (may be hidden until changes made)."""
-        btn = self.page.locator("button", has_text=re.compile(r"Save", re.IGNORECASE))
-        assert btn.count() > 0
+        """Save button should exist (hidden until a balance is modified)."""
+        btn = self.page.locator("button[type='submit']", has_text=re.compile(r"Save", re.IGNORECASE))
+        expect(btn.first).to_be_attached()
 
 
 class TestReferenceMappings:

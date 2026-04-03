@@ -59,6 +59,9 @@ class CustomUser(AbstractUser):
     must_change_password = models.BooleanField(default=False)
     profile_completed = models.BooleanField(default=True)
 
+    # Terms & conditions / privacy policy acceptance
+    terms_accepted_at = models.DateTimeField(null=True, blank=True)
+
     # Account blocking (e.g. unpaid fees, policy violation)
     BLOCK_PAYMENT = 'payment'
     BLOCK_MANUAL = 'manual'
