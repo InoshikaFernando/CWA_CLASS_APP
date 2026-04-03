@@ -799,6 +799,10 @@ def execute_import(preview_data, school, uploaded_by):
     role_student, _ = Role.objects.get_or_create(
         name=Role.STUDENT, defaults={'display_name': 'Student'},
     )
+    role_parent, _ = Role.objects.get_or_create(
+        name=Role.PARENT, defaults={'display_name': 'Parent'},
+    )
+    parent_account_cache = {}  # email -> (CustomUser, password_or_None)
 
     structure_mapping = preview_data.get('structure_mapping')
 
@@ -1261,7 +1265,7 @@ def execute_import(preview_data, school, uploaded_by):
                 )
                 counts['students_enrolled'] += 1
 
-            # Guardian links
+            # Guardian links + parent account creation
             for g in sdata.get('guardians', []):
                 guardian = guardian_cache.get(g['email'])
                 if guardian:
@@ -1269,6 +1273,71 @@ def execute_import(preview_data, school, uploaded_by):
                         student=user, guardian=guardian,
                         defaults={'is_primary': g.get('is_primary', False)},
                     )
+
+                # Create a parent user account so the guardian can log in
+                g_email = g['email']
+                if g_email and g_email not in parent_account_cache:
+                    existing_parent = CustomUser.objects.filter(email=g_email).first()
+                    if existing_parent:
+                        parent_user = existing_parent
+                        p_password = None
+                    else:
+                        p_password = get_random_string(10)
+                        p_base = slugify(
+                            f"{g['first_name']}.{g['last_name']}"
+                        ).replace('-', '.')
+                        if not p_base:
+                            p_base = g_email.split('@')[0]
+                        p_username = p_base
+                        p_suffix = 1
+                        while CustomUser.objects.filter(username=p_username).exists():
+                            p_username = f'{p_base}{p_suffix}'
+                            p_suffix += 1
+                        parent_user = CustomUser.objects.create_user(
+                            username=p_username,
+                            email=g_email,
+                            password=p_password,
+                            first_name=g['first_name'],
+                            last_name=g.get('last_name', ''),
+                        )
+                        parent_user.must_change_password = True
+                        if g.get('phone'):
+                            parent_user.phone = g['phone']
+                        if g.get('address'):
+                            parent_user.address_line1 = g['address']
+                        if g.get('city'):
+                            parent_user.city = g['city']
+                        if g.get('country'):
+                            parent_user.country = g['country']
+                        parent_user.save()
+                        counts['parents_created'] = counts.get('parents_created', 0) + 1
+
+                    UserRole.objects.get_or_create(user=parent_user, role=role_parent)
+                    parent_account_cache[g_email] = (parent_user, p_password)
+
+                # Create ParentStudent link
+                if g_email and g_email in parent_account_cache:
+                    parent_user, _ = parent_account_cache[g_email]
+                    ParentStudent.objects.get_or_create(
+                        parent=parent_user, student=user, school=school,
+                        defaults={
+                            'relationship': g.get('relationship', 'guardian'),
+                            'is_active': True,
+                            'created_by': uploaded_by,
+                        },
+                    )
+
+    # Append parent credentials to the credentials list
+    for g_email, (parent_user, p_password) in parent_account_cache.items():
+        if p_password:
+            credentials.append({
+                'username': parent_user.username,
+                'email': g_email,
+                'password': p_password,
+                'first_name': parent_user.first_name,
+                'last_name': parent_user.last_name,
+                'type': 'parent',
+            })
 
     return {
         'counts': counts,
