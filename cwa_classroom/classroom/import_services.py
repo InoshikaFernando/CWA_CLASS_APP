@@ -796,6 +796,7 @@ def execute_import(preview_data, school, uploaded_by):
     from .models import DepartmentLevel
 
     credentials = []
+    parent_credentials = []
     counts = {
         'students_created': 0,
         'students_enrolled': 0,
@@ -804,11 +805,15 @@ def execute_import(preview_data, school, uploaded_by):
         'subjects_created': 0,
         'levels_created': 0,
         'guardians_created': 0,
+        'parents_created': 0,
         'errors': [],
     }
 
     role_student, _ = Role.objects.get_or_create(
         name=Role.STUDENT, defaults={'display_name': 'Student'},
+    )
+    role_parent, _ = Role.objects.get_or_create(
+        name=Role.PARENT, defaults={'display_name': 'Parent'},
     )
 
     structure_mapping = preview_data.get('structure_mapping')
@@ -1184,8 +1189,9 @@ def execute_import(preview_data, school, uploaded_by):
                                 teacher=teacher_user,
                             )
 
-        # 5. Create guardians
+        # 5. Create guardians + parent user accounts
         guardian_cache = {}
+        parent_user_cache = {}  # email → CustomUser for ParentStudent linking later
         for g_data in preview_data['guardians_new']:
             guardian, created = Guardian.objects.get_or_create(
                 school=school, email=g_data['email'],
@@ -1202,6 +1208,44 @@ def execute_import(preview_data, school, uploaded_by):
             guardian_cache[g_data['email']] = guardian
             if created:
                 counts['guardians_created'] += 1
+
+            # Create or reuse a CustomUser account for this guardian
+            g_email = g_data['email']
+            existing_user = CustomUser.objects.filter(email__iexact=g_email).first()
+            if existing_user:
+                # Reuse existing account — just ensure parent role is assigned
+                UserRole.objects.get_or_create(user=existing_user, role=role_parent)
+                parent_user_cache[g_email] = existing_user
+            else:
+                g_password = get_random_string(10)
+                base_username = slugify(
+                    f"{g_data['first_name']}.{g_data['last_name']}"
+                ).replace('-', '.')
+                if not base_username:
+                    base_username = g_email.split('@')[0]
+                g_username = base_username
+                suffix = 1
+                while CustomUser.objects.filter(username=g_username).exists():
+                    g_username = f'{base_username}{suffix}'
+                    suffix += 1
+                parent_user = CustomUser.objects.create_user(
+                    username=g_username,
+                    email=g_email,
+                    password=g_password,
+                    first_name=g_data['first_name'],
+                    last_name=g_data['last_name'],
+                )
+                UserRole.objects.create(user=parent_user, role=role_parent)
+                parent_user_cache[g_email] = parent_user
+                parent_credentials.append({
+                    'username': g_username,
+                    'email': g_email,
+                    'password': g_password,
+                    'first_name': g_data['first_name'],
+                    'last_name': g_data['last_name'],
+                })
+                counts['parents_created'] += 1
+
         # Cache existing guardians
         for g in Guardian.objects.filter(school=school):
             guardian_cache[g.email] = g
@@ -1282,18 +1326,37 @@ def execute_import(preview_data, school, uploaded_by):
                 )
                 counts['students_enrolled'] += 1
 
-            # Guardian links
-            for g in sdata.get('guardians', []):
-                guardian = guardian_cache.get(g['email'])
+            # Guardian links (contact record + ParentStudent user link)
+            guardian_list = sdata.get('guardians', [])
+            for idx, g in enumerate(guardian_list):
+                g_email = g['email']
+                guardian = guardian_cache.get(g_email)
                 if guardian:
                     StudentGuardian.objects.get_or_create(
                         student=user, guardian=guardian,
                         defaults={'is_primary': g.get('is_primary', False)},
                     )
+                parent_user = parent_user_cache.get(g_email)
+                if parent_user:
+                    # Check max 2 active parents per student per school
+                    active_count = ParentStudent.objects.filter(
+                        student=user, school=school, is_active=True,
+                    ).count()
+                    if active_count < 2:
+                        is_primary = (idx == 0)
+                        ParentStudent.objects.get_or_create(
+                            parent=parent_user, student=user, school=school,
+                            defaults={
+                                'relationship': g.get('relationship', 'guardian'),
+                                'is_primary_contact': is_primary,
+                                'created_by': uploaded_by,
+                            },
+                        )
 
     return {
         'counts': counts,
         'credentials': credentials,
+        'parent_credentials': parent_credentials,
     }
 
 

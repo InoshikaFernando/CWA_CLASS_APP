@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Subject App Links{% endblock %}
+{% block content %}
+<div class="max-w-3xl mx-auto">
+
+  <div class="mb-8">
+    <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Subject App Links</h1>
+    <p class="text-gray-500 mt-1">
+      Link each subject app to a global subject so the student hub displays correctly.
+      Once linked, students who are enrolled in a school subject that maps to this global subject
+      will see one clickable card instead of two separate cards.
+    </p>
+  </div>
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="mb-4 px-4 py-3 rounded-xl text-sm font-medium
+        {% if message.tags == 'error' %}bg-red-50 text-red-700 border border-red-200
+        {% else %}bg-green-50 text-green-700 border border-green-200{% endif %}">
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm divide-y divide-slate-100">
+    {% for app in subject_apps %}
+      <div class="px-6 py-5 flex flex-col sm:flex-row sm:items-center gap-4">
+        <div class="flex-1">
+          <div class="flex items-center gap-2">
+            <span class="font-semibold text-gray-900">{{ app.name }}</span>
+            {% if app.is_active %}
+              <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Active</span>
+            {% elif app.is_coming_soon %}
+              <span class="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-medium">Coming Soon</span>
+            {% else %}
+              <span class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium">Inactive</span>
+            {% endif %}
+          </div>
+          <div class="text-sm text-gray-500 mt-0.5">
+            {% if app.subject %}
+              Linked to: <span class="font-medium text-green-700">{{ app.subject.name }}</span>
+            {% else %}
+              <span class="text-amber-600">No global subject linked</span>
+            {% endif %}
+          </div>
+        </div>
+        <form method="post" class="flex items-center gap-2">
+          {% csrf_token %}
+          <input type="hidden" name="app_id" value="{{ app.id }}">
+          <select name="subject_id"
+                  class="px-3 py-2 border border-slate-300 rounded-xl text-gray-700 text-sm focus:ring-2 focus:ring-accent focus:border-accent transition">
+            <option value="">— No link —</option>
+            {% for gs in global_subjects %}
+              <option value="{{ gs.id }}" {% if app.subject_id == gs.id %}selected{% endif %}>{{ gs.name }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit"
+                  class="px-4 py-2 bg-accent text-white text-sm font-semibold rounded-xl hover:bg-blue-600 transition shadow-sm whitespace-nowrap">
+            Save
+          </button>
+        </form>
+      </div>
+    {% empty %}
+      <div class="px-6 py-10 text-center text-gray-400">No subject apps configured.</div>
+    {% endfor %}
+  </div>
+
+</div>
+{% endblock %}
