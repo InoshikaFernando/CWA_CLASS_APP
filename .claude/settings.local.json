@@ -371,7 +371,21 @@
       "Bash(DB_PASSWORD=root python manage.py migrate classroom)",
       "Bash(pip show:*)",
       "Bash(DB_ENGINE=sqlite python -m pytest ui_tests/test_homework.py -v --tb=short)",
-      "Bash(python -c \"import django; import os; os.environ.setdefault\\(''DJANGO_SETTINGS_MODULE'', ''cwa_classroom.settings''\\); django.setup\\(\\); from classroom.email_service import _get_email_logo_url, resolve_cc_email, send_templated_email; print\\(''OK''\\)\")"
+      "Bash(python -c \"import django; import os; os.environ.setdefault\\(''DJANGO_SETTINGS_MODULE'', ''cwa_classroom.settings''\\); django.setup\\(\\); from classroom.email_service import _get_email_logo_url, resolve_cc_email, send_templated_email; print\\(''OK''\\)\")",
+      "Bash(pip install:*)",
+      "Bash(python -m pytest ui_tests/test_xls_upload.py -v --timeout=120)",
+      "Bash(python -m pytest ui_tests/test_xls_upload.py -v)",
+      "Bash(python -m pytest ui_tests/test_xls_upload.py::TestStudentXLSUpload -v)",
+      "Bash(python -m pytest ui_tests/test_xls_upload.py -v --headed)",
+      "Bash(python -m pytest ui_tests/test_xls_upload.py::TestImportedUserLogin::test_imported_parent_login_then_dashboard -v --headed -s)",
+      "Bash(python -m pytest ui_tests/test_xls_upload.py::TestImportedUserLogin::test_imported_parent_login_then_dashboard -v --headed --slowmo 1000)",
+      "Bash(python -m pytest classroom/tests/test_csv_student_import.py -v)",
+      "Bash(git add:*)",
+      "Bash(git push:*)",
+      "Bash(git fetch:*)",
+      "Bash(git merge:*)",
+      "Bash(git stash:*)",
+      "Bash(git rm:*)"
     ]
   }
 }

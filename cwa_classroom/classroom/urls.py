@@ -29,6 +29,7 @@ urlpatterns = [
     path('class/<int:class_id>/assign-students/', views.AssignStudentsView.as_view(), name='assign_students'),
     path('class/<int:class_id>/assign-teachers/', views.AssignTeachersView.as_view(), name='assign_teachers'),
     path('class/<int:class_id>/attendance/', views.ClassAttendanceView.as_view(), name='class_attendance'),
+    path('class/<int:class_id>/settings/', views_department.ClassSettingsView.as_view(), name='class_settings'),
     path('class/progress/', views.ClassProgressListView.as_view(), name='class_progress_list'),
     path('class/manage-teachers/', views.ManageTeachersView.as_view(), name='manage_teachers'),
 
