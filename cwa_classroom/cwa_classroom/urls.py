@@ -69,6 +69,9 @@ urlpatterns = [
     # --- Audit ---
     path('', include('audit.urls')),
 
+    # --- Homework ---
+    path('', include('homework.urls', namespace='homework')),
+
     # --- Subject apps ---
     path('maths/', include('maths.urls', namespace='maths')),
     path('coding/', include('coding.urls', namespace='coding')),

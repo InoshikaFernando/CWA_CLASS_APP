@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}My Homework{% endblock %}
+
+{% block content %}
+<div class="md:ml-64 p-6">
+
+  <div class="mb-6">
+    <h1 class="text-2xl font-display font-bold text-gray-900">My Homework</h1>
+    <p class="text-sm text-gray-500 mt-0.5">Complete your assignments before the due date.</p>
+  </div>
+
+  {% if not rows %}
+  <div class="bg-white rounded-2xl border border-gray-100 p-10 text-center text-gray-400 text-sm">
+    No homework assigned yet. Check back later!
+  </div>
+  {% else %}
+  <div class="space-y-3">
+    {% for row in rows %}
+    {% with hw=row.homework %}
+    <div class="bg-white rounded-xl border shadow-sm p-4
+      {% if row.status == 'late' %}border-red-200{% elif row.status == 'not_submitted' and hw.is_past_due %}border-red-300{% else %}border-gray-100{% endif %}">
+
+      <div class="flex items-start justify-between gap-4">
+        <div class="flex-1 min-w-0">
+          <p class="font-semibold text-gray-900 truncate">{{ hw.title }}</p>
+          <p class="text-xs text-gray-500 mt-0.5">
+            {{ hw.classroom }}
+            &nbsp;·&nbsp; {{ hw.num_questions }} questions
+            &nbsp;·&nbsp;
+            {% if hw.attempts_unlimited %}Unlimited attempts{% else %}{{ hw.max_attempts }} attempt{{ hw.max_attempts|pluralize }}{% endif %}
+          </p>
+          <p class="text-xs mt-1
+            {% if hw.is_past_due %}text-red-500 font-medium{% else %}text-gray-400{% endif %}">
+            Due: {{ hw.due_date|date:"d M Y, H:i" }}
+            {% if hw.is_past_due %} — Closed{% endif %}
+          </p>
+        </div>
+
+        <div class="flex flex-col items-end gap-2 flex-shrink-0">
+          <!-- Status badge -->
+          {% if row.status == 'on_time' %}
+            <span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">Submitted</span>
+          {% elif row.status == 'late' %}
+            <span class="px-2 py-0.5 rounded-full bg-red-100 text-red-600 text-xs font-medium">Late Submission</span>
+          {% elif row.status == 'not_submitted' %}
+            <span class="px-2 py-0.5 rounded-full bg-gray-200 text-gray-600 text-xs font-medium">Overdue — Not Submitted</span>
+          {% else %}
+            <span class="px-2 py-0.5 rounded-full bg-blue-100 text-blue-600 text-xs font-medium">Pending</span>
+          {% endif %}
+
+          <!-- Score -->
+          {% if row.best_submission %}
+          <p class="text-xs text-gray-500">
+            Best: {{ row.best_submission.score }}/{{ row.best_submission.total_questions }}
+            &nbsp;·&nbsp; <span class="font-semibold text-gray-700">{{ row.best_submission.points|floatformat:1 }} pts</span>
+          </p>
+          {% endif %}
+
+          <!-- Action button -->
+          {% if row.can_attempt %}
+          <a href="{% url 'homework:student_take' homework_id=hw.id %}"
+             class="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition">
+            {% if row.attempt_count > 0 %}Retry{% else %}Start{% endif %}
+          </a>
+          {% elif not hw.is_past_due %}
+          <span class="text-xs text-gray-400">No attempts remaining</span>
+          {% endif %}
+        </div>
+      </div>
+
+    </div>
+    {% endwith %}
+    {% endfor %}
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
