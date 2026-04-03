@@ -1467,15 +1467,18 @@ class StudentCSVConfirmView(RoleRequiredMixin, View):
             request=request,
         )
 
-        # Store credentials for download
+        # Store credentials for download (students + parents combined)
         request.session['csv_student_credentials'] = results['credentials']
+        request.session['csv_parent_credentials'] = results.get('parent_credentials', [])
 
         # Success message for dashboard
         c = results['counts']
+        parents_created = c.get('parents_created', 0)
         messages.success(
             request,
             f"Import complete: {c['students_created']} students created, "
-            f"{c['classes_created']} classes, {c['students_enrolled']} enrollments."
+            f"{c['classes_created']} classes, {c['students_enrolled']} enrollments"
+            + (f", {parents_created} parent accounts created" if parents_created else "") + "."
         )
 
         # Clear CSV data from session
@@ -1498,17 +1501,21 @@ class StudentCSVCredentialsView(RoleRequiredMixin, View):
         import csv as csv_mod
         from django.http import HttpResponse
         credentials = request.session.get('csv_student_credentials', [])
-        if not credentials:
+        parent_credentials = request.session.get('csv_parent_credentials', [])
+        if not credentials and not parent_credentials:
             messages.error(request, 'No credentials available.')
             return redirect('student_csv_upload')
 
         response = HttpResponse(content_type='text/csv')
-        response['Content-Disposition'] = 'attachment; filename="student_credentials.csv"'
+        response['Content-Disposition'] = 'attachment; filename="import_credentials.csv"'
         writer = csv_mod.writer(response)
-        writer.writerow(['Username', 'Email', 'Password', 'First Name', 'Last Name'])
+        writer.writerow(['Role', 'Username', 'Email', 'Password', 'First Name', 'Last Name'])
         for c in credentials:
-            writer.writerow([c['username'], c['email'], c['password'],
-                           c['first_name'], c['last_name']])
+            writer.writerow(['Student', c['username'], c['email'], c['password'],
+                             c['first_name'], c['last_name']])
+        for c in parent_credentials:
+            writer.writerow(['Parent', c['username'], c['email'], c['password'],
+                             c['first_name'], c['last_name']])
         return response
 
 
