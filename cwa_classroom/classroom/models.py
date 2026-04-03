@@ -861,6 +861,15 @@ class AbsenceToken(models.Model):
     """Token issued when a student marks themselves absent, redeemable at another
     class covering the same level as a makeup session."""
 
+    STATUS_PENDING = 'pending'
+    STATUS_APPROVED = 'approved'
+    STATUS_REJECTED = 'rejected'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_APPROVED, 'Approved'),
+        (STATUS_REJECTED, 'Rejected'),
+    ]
+
     student = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -886,6 +895,18 @@ class AbsenceToken(models.Model):
     )
     note = models.TextField(blank=True)
 
+    # Approval workflow
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    expires_at = models.DateTimeField(null=True, blank=True)  # None = unlimited
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='absence_tokens_reviewed',
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    rejection_reason = models.TextField(blank=True)
+
     # Redemption fields
     redeemed = models.BooleanField(default=False)
     redeemed_session = models.ForeignKey(
@@ -900,8 +921,15 @@ class AbsenceToken(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        status = 'Used' if self.redeemed else 'Available'
-        return f'AbsenceToken({self.student.username}, {self.original_classroom.name}, {status})'
+        label = 'Used' if self.redeemed else self.get_status_display()
+        return f'AbsenceToken({self.student.username}, {self.original_classroom.name}, {label})'
+
+    @property
+    def is_expired(self):
+        if self.expires_at is None:
+            return False
+        from django.utils import timezone
+        return timezone.now() > self.expires_at
 
 
 class StudentAttendance(models.Model):

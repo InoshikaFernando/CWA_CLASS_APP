@@ -23,6 +23,7 @@ from classroom.views import RoleRequiredMixin
 from classroom.notifications import create_notification
 from classroom.views_progress import _build_hierarchical_criteria
 from audit.services import log_event
+from classroom.models import AbsenceToken
 from .models import ClassSession, StudentAttendance, TeacherAttendance
 
 
@@ -866,3 +867,141 @@ class CancelSessionView(RoleRequiredMixin, View):
             messages.success(request, 'Session cancelled.')
 
         return redirect('class_detail', class_id=session.classroom_id)
+
+
+# ---------------------------------------------------------------------------
+# 15. Absence Token Approval Views (TC-07, TC-08)
+# ---------------------------------------------------------------------------
+
+class AbsenceTokenApprovalListView(RoleRequiredMixin, View):
+    """List pending absence tokens for the teacher's classes."""
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+        Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+    ]
+
+    def get(self, request):
+        current_school = _get_teacher_current_school(request)
+        if not current_school:
+            messages.warning(request, 'Please select a school first.')
+            return redirect('teacher_dashboard')
+
+        my_classes = _get_teacher_classes(request.user, current_school)
+
+        pending_tokens = (
+            AbsenceToken.objects.filter(
+                status=AbsenceToken.STATUS_PENDING,
+                original_classroom__in=my_classes,
+            )
+            .select_related(
+                'student', 'original_classroom', 'original_classroom__subject',
+                'original_session',
+            )
+            .order_by('-created_at')
+        )
+
+        return render(request, 'teacher/absence_token_approvals.html', {
+            'current_school': current_school,
+            'pending_tokens': pending_tokens,
+            'total_pending': pending_tokens.count(),
+        })
+
+
+class AbsenceTokenApproveView(RoleRequiredMixin, View):
+    """Approve a pending absence token, optionally setting an expiry."""
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+        Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+    ]
+
+    def post(self, request, token_id):
+        token = get_object_or_404(
+            AbsenceToken.objects.select_related(
+                'original_classroom', 'original_classroom__school', 'student',
+            ),
+            id=token_id,
+            status=AbsenceToken.STATUS_PENDING,
+        )
+
+        if not _user_can_access_classroom(request.user, token.original_classroom):
+            messages.error(request, 'You do not have access to this class.')
+            return redirect('absence_token_approvals')
+
+        # Optional expiry — blank means unlimited
+        expires_str = request.POST.get('expires_at', '').strip()
+        expires_at = None
+        if expires_str:
+            import datetime
+            try:
+                expires_at = datetime.datetime.fromisoformat(expires_str)
+                if timezone.is_naive(expires_at):
+                    expires_at = timezone.make_aware(expires_at)
+            except (ValueError, TypeError):
+                messages.error(request, 'Invalid expiry date/time format.')
+                return redirect('absence_token_approvals')
+
+        token.status = AbsenceToken.STATUS_APPROVED
+        token.expires_at = expires_at
+        token.reviewed_by = request.user
+        token.reviewed_at = timezone.now()
+        token.save(update_fields=['status', 'expires_at', 'reviewed_by', 'reviewed_at'])
+
+        log_event(
+            user=request.user, school=token.original_classroom.school,
+            category='data_change', action='absence_token_approved',
+            detail={
+                'token_id': token.id,
+                'student': token.student.username,
+                'classroom': token.original_classroom.name,
+                'expires_at': str(expires_at) if expires_at else 'unlimited',
+            },
+            request=request,
+        )
+
+        student_name = token.student.get_full_name() or token.student.username
+        messages.success(request, f'Absence token approved for {student_name}.')
+        return redirect('absence_token_approvals')
+
+
+class AbsenceTokenRejectView(RoleRequiredMixin, View):
+    """Reject a pending absence token."""
+    required_roles = [
+        Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+        Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+    ]
+
+    def post(self, request, token_id):
+        token = get_object_or_404(
+            AbsenceToken.objects.select_related(
+                'original_classroom', 'original_classroom__school', 'student',
+            ),
+            id=token_id,
+            status=AbsenceToken.STATUS_PENDING,
+        )
+
+        if not _user_can_access_classroom(request.user, token.original_classroom):
+            messages.error(request, 'You do not have access to this class.')
+            return redirect('absence_token_approvals')
+
+        reason = request.POST.get('reason', '').strip()
+        token.status = AbsenceToken.STATUS_REJECTED
+        token.rejection_reason = reason
+        token.reviewed_by = request.user
+        token.reviewed_at = timezone.now()
+        token.save(update_fields=['status', 'rejection_reason', 'reviewed_by', 'reviewed_at'])
+
+        log_event(
+            user=request.user, school=token.original_classroom.school,
+            category='data_change', action='absence_token_rejected',
+            detail={
+                'token_id': token.id,
+                'student': token.student.username,
+                'classroom': token.original_classroom.name,
+                'reason': reason,
+            },
+            request=request,
+        )
+
+        student_name = token.student.get_full_name() or token.student.username
+        messages.success(request, f'Absence token rejected for {student_name}.')
+        return redirect('absence_token_approvals')
