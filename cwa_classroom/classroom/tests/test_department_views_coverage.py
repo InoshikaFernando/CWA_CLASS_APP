@@ -65,7 +65,7 @@ class DepartmentListViewTests(DepartmentViewsTestBase):
         teacher = CustomUser.objects.create_user(
             username='t1', password='pass12345', email='t1@test.com',
         )
-        SchoolTeacher.objects.create(school=self.school, teacher=teacher)
+        SchoolTeacher.objects.update_or_create(school=self.school, teacher=teacher)
         DepartmentTeacher.objects.create(department=self.dept, teacher=teacher)
         ClassRoom.objects.create(
             name='Class A', school=self.school, department=self.dept,
@@ -303,7 +303,7 @@ class DepartmentAssignHoDViewTests(DepartmentViewsTestBase):
             first_name='John', last_name='Smith',
         )
         UserRole.objects.create(user=self.teacher, role=_create_role(Role.TEACHER))
-        SchoolTeacher.objects.create(school=self.school, teacher=self.teacher)
+        SchoolTeacher.objects.update_or_create(school=self.school, teacher=self.teacher)
 
     def test_assign_hod_get(self):
         url = reverse('admin_department_assign_hod', kwargs={
@@ -440,8 +440,8 @@ class DepartmentManageTeachersViewTests(DepartmentViewsTestBase):
         self.t2 = CustomUser.objects.create_user(
             username='teach_b', password='pass12345', email='tb@dept.com',
         )
-        SchoolTeacher.objects.create(school=self.school, teacher=self.t1)
-        SchoolTeacher.objects.create(school=self.school, teacher=self.t2)
+        SchoolTeacher.objects.update_or_create(school=self.school, teacher=self.t1)
+        SchoolTeacher.objects.update_or_create(school=self.school, teacher=self.t2)
 
     def test_manage_teachers_get(self):
         url = reverse('admin_department_teachers', kwargs={

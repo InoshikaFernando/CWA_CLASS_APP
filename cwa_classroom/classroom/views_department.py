@@ -872,6 +872,10 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
         # For the modal: global levels not yet mapped (used if no subjects yet)
         unmapped_global_levels = list(all_global_levels.exclude(id__in=mapped_level_ids))
 
+        global_subjects = Subject.objects.filter(
+            school__isnull=True, is_active=True,
+        ).order_by('order', 'name')
+
         return render(request, 'admin_dashboard/department_subject_levels.html', {
             'school': school,
             'department': department,
@@ -880,6 +884,7 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
             'available_subjects': available_subjects,
             'all_departments': all_departments,
             'unmapped_global_levels': unmapped_global_levels,
+            'global_subjects': global_subjects,
         })
 
     def post(self, request, school_id, dept_id):
@@ -987,6 +992,14 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
                 return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
 
             subject = ds.subject
+
+            # Update global subject link
+            global_subject_id = request.POST.get('global_subject_id', '').strip()
+            if global_subject_id:
+                subject.global_subject_id = int(global_subject_id)
+            else:
+                subject.global_subject_id = None
+            subject.save(update_fields=['global_subject'])
 
             # Update subject name
             if new_name and new_name != subject.name:
