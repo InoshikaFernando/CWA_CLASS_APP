@@ -815,7 +815,6 @@ def execute_import(preview_data, school, uploaded_by):
     role_parent, _ = Role.objects.get_or_create(
         name=Role.PARENT, defaults={'display_name': 'Parent'},
     )
-
     structure_mapping = preview_data.get('structure_mapping')
 
     with transaction.atomic():
