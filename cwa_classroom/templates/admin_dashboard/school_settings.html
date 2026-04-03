@@ -107,6 +107,27 @@
                        class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition"
                        placeholder="New Zealand">
               </div>
+              <div>
+                <label for="timezone" class="block text-xs font-medium text-gray-500 mb-1">Timezone</label>
+                <select name="timezone" id="timezone"
+                        class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+                  <option value="">Server Default</option>
+                  <option value="Pacific/Auckland" {% if form_data.timezone == 'Pacific/Auckland' %}selected{% endif %}>Pacific/Auckland (NZ)</option>
+                  <option value="Australia/Sydney" {% if form_data.timezone == 'Australia/Sydney' %}selected{% endif %}>Australia/Sydney</option>
+                  <option value="Australia/Melbourne" {% if form_data.timezone == 'Australia/Melbourne' %}selected{% endif %}>Australia/Melbourne</option>
+                  <option value="Australia/Brisbane" {% if form_data.timezone == 'Australia/Brisbane' %}selected{% endif %}>Australia/Brisbane</option>
+                  <option value="Australia/Perth" {% if form_data.timezone == 'Australia/Perth' %}selected{% endif %}>Australia/Perth</option>
+                  <option value="Asia/Kolkata" {% if form_data.timezone == 'Asia/Kolkata' %}selected{% endif %}>Asia/Kolkata (India)</option>
+                  <option value="Asia/Singapore" {% if form_data.timezone == 'Asia/Singapore' %}selected{% endif %}>Asia/Singapore</option>
+                  <option value="Asia/Tokyo" {% if form_data.timezone == 'Asia/Tokyo' %}selected{% endif %}>Asia/Tokyo</option>
+                  <option value="Europe/London" {% if form_data.timezone == 'Europe/London' %}selected{% endif %}>Europe/London (UK)</option>
+                  <option value="America/New_York" {% if form_data.timezone == 'America/New_York' %}selected{% endif %}>America/New_York (US Eastern)</option>
+                  <option value="America/Chicago" {% if form_data.timezone == 'America/Chicago' %}selected{% endif %}>America/Chicago (US Central)</option>
+                  <option value="America/Denver" {% if form_data.timezone == 'America/Denver' %}selected{% endif %}>America/Denver (US Mountain)</option>
+                  <option value="America/Los_Angeles" {% if form_data.timezone == 'America/Los_Angeles' %}selected{% endif %}>America/Los_Angeles (US Pacific)</option>
+                  <option value="UTC" {% if form_data.timezone == 'UTC' %}selected{% endif %}>UTC</option>
+                </select>
+              </div>
             </div>
           </div>
         </div>

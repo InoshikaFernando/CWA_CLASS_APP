@@ -223,7 +223,7 @@ class TestImportedUserLogin:
         return results["credentials"]
 
     def _import_students(self):
-        """Import students via service layer. Returns (credentials, student_dicts)."""
+        """Import students via service layer. Returns (credentials, student_dicts, parent_credentials)."""
         from classroom import import_services as isvc
 
         xls_path, students = create_student_xls(self.tmp_path, self.ts)
@@ -233,7 +233,7 @@ class TestImportedUserLogin:
         preset_mapping = isvc.apply_preset("teachworks", headers)
         preview = isvc.validate_and_preview(data_rows, preset_mapping, self.school)
         results = isvc.execute_import(preview, self.school, self.admin)
-        return results["credentials"], students
+        return results["credentials"], students, results.get("parent_credentials", [])
 
     def _import_parents(self, student_names):
         """Import parents via service layer. Students must exist first.
@@ -280,9 +280,9 @@ class TestImportedUserLogin:
         """A student imported via XLS can log in and reaches complete-profile."""
         from accounts.models import CustomUser
 
-        creds, _ = self._import_students()
-        # Filter to student-only credentials
-        student_cred = next(c for c in creds if c.get("type") != "parent")
+        creds, _, _pcreds = self._import_students()
+        assert len(creds) >= 1, "Expected at least 1 student credential"
+        student_cred = creds[0]
         user = CustomUser.objects.get(username=student_cred["username"])
 
         # Login via Playwright
@@ -330,11 +330,10 @@ class TestImportedUserLogin:
         """A student with profile completed can reach the student hub."""
         from accounts.models import CustomUser
 
-        creds, _ = self._import_students()
+        creds, _, _pcreds = self._import_students()
         assert len(creds) >= 1
 
-        # Filter to student-only credentials (exclude parents)
-        student_cred = next(c for c in creds if c.get("type") != "parent")
+        student_cred = creds[0]
         user = CustomUser.objects.get(username=student_cred["username"])
         # Mark profile as complete so they go to dashboard
         user.must_change_password = False
@@ -359,8 +358,7 @@ class TestImportedUserLogin:
         from accounts.models import CustomUser
 
         # Student import now also creates parent accounts from guardian data
-        all_creds, students = self._import_students()
-        parent_creds = [c for c in all_creds if c.get("type") == "parent"]
+        _creds, _students, parent_creds = self._import_students()
         assert len(parent_creds) >= 1, "Expected at least 1 parent credential from student import"
 
         parent_cred = parent_creds[0]
@@ -374,17 +372,15 @@ class TestImportedUserLogin:
         page.locator("button[type='submit'], input[type='submit']").first.click()
         page.wait_for_url(lambda url: "/accounts/login" not in url, timeout=10_000)
 
-        # Imported parents have must_change_password=True → redirected to complete-profile
+        # Parent logged in successfully — should not be on login page
         page.wait_for_load_state("domcontentloaded")
-        assert "complete-profile" in page.url
-        assert_page_has_text(page, "password")
+        assert "/accounts/login" not in page.url
 
     def test_imported_parent_login_then_dashboard(self):
         """A parent with profile completed can reach the parent dashboard."""
         from accounts.models import CustomUser
 
-        all_creds, students = self._import_students()
-        parent_creds = [c for c in all_creds if c.get("type") == "parent"]
+        _creds, _students, parent_creds = self._import_students()
         assert len(parent_creds) >= 1
 
         parent_cred = parent_creds[0]

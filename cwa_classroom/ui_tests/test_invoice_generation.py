@@ -42,7 +42,7 @@ class TestGenerateInvoices:
 
     def test_submit_button(self):
         """Generate/preview button should be visible."""
-        btn = self.page.locator("button[type='submit'], input[type='submit'], button:not([type])")
+        btn = self.page.get_by_role("button", name=re.compile(r"Generate|Preview", re.IGNORECASE))
         expect(btn.first).to_be_visible()
 
     def test_back_link(self):

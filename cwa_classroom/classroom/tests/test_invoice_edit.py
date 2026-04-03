@@ -327,7 +327,7 @@ class InvoiceEditViewTests(TestCase):
         """Accountant role can access the edit page for their school."""
         accountant = _create_user('accountant1', first_name='Acc', last_name='User')
         _assign_role(accountant, Role.ACCOUNTANT)
-        SchoolTeacher.objects.create(
+        SchoolTeacher.objects.update_or_create(
             school=self.school, teacher=accountant, is_active=True,
         )
         acc_client = Client()

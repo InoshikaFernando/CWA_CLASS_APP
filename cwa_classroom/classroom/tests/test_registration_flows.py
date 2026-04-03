@@ -68,6 +68,7 @@ class InstituteRegistrationCompanyDetailsTest(TestCase):
             'state_region': 'Auckland',
             'postal_code': '1010',
             'country': 'New Zealand',
+            'accept_terms': 'on',
         })
         self.assertEqual(resp.status_code, 302)  # Redirect on success
 
@@ -97,6 +98,7 @@ class InstituteRegistrationCompanyDetailsTest(TestCase):
             'password': 'testpass123',
             'confirm_password': 'testpass123',
             'plan_id': plan.id,
+            'accept_terms': 'on',
         })
         self.assertEqual(resp.status_code, 302)
         school = School.objects.get(name='Minimal School')
@@ -157,6 +159,7 @@ class IndividualStudentAddressTest(TestCase):
             'city': 'Christchurch',
             'postal_code': '8011',
             'country': 'New Zealand',
+            'accept_terms': 'on',
         })
         self.assertEqual(resp.status_code, 302)
 
@@ -177,6 +180,7 @@ class IndividualStudentAddressTest(TestCase):
             'password': 'testpass123',
             'confirm_password': 'testpass123',
             'package_id': self.package.id,
+            'accept_terms': 'on',
         })
         user = CustomUser.objects.get(username='studentsub')
         self.assertTrue(hasattr(user, 'subscription'))

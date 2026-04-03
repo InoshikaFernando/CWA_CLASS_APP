@@ -464,9 +464,9 @@ def validate_and_preview(data_rows, column_mapping, school):
                 if not any(g['email'] == g_email for g in student['guardians']):
                     student['guardians'].append(guardian_data)
 
-    # Categorise entities as new or existing
+    # Categorise entities as new or existing (case-insensitive email match)
     existing_emails = set(
-        CustomUser.objects.filter(
+        e.lower() for e in CustomUser.objects.filter(
             email__in=students_by_key.keys()
         ).values_list('email', flat=True)
     )
@@ -747,6 +747,17 @@ def _auto_create_teacher(full_name, school, role_teacher, teacher_cache, counts)
 
     t_slug = slugify(f'{first_name}-{last_name}') if last_name else slugify(first_name)
     t_email = f'{t_slug}@teacher.local'
+
+    # Reuse existing placeholder teacher if email already exists
+    existing_user = CustomUser.objects.filter(email__iexact=t_email).first()
+    if existing_user:
+        SchoolTeacher.objects.get_or_create(
+            school=school, teacher=existing_user,
+            defaults={'role': 'teacher', 'is_active': True},
+        )
+        teacher_cache[full_name] = existing_user
+        return existing_user
+
     t_username = t_slug.replace('-', '_')
     suffix = 1
     while CustomUser.objects.filter(username=t_username).exists():
@@ -785,6 +796,7 @@ def execute_import(preview_data, school, uploaded_by):
     from .models import DepartmentLevel
 
     credentials = []
+    parent_credentials = []
     counts = {
         'students_created': 0,
         'students_enrolled': 0,
@@ -793,6 +805,7 @@ def execute_import(preview_data, school, uploaded_by):
         'subjects_created': 0,
         'levels_created': 0,
         'guardians_created': 0,
+        'parents_created': 0,
         'errors': [],
     }
 
@@ -802,8 +815,6 @@ def execute_import(preview_data, school, uploaded_by):
     role_parent, _ = Role.objects.get_or_create(
         name=Role.PARENT, defaults={'display_name': 'Parent'},
     )
-    parent_account_cache = {}  # email -> (CustomUser, password_or_None)
-
     structure_mapping = preview_data.get('structure_mapping')
 
     with transaction.atomic():
@@ -1005,24 +1016,34 @@ def execute_import(preview_data, school, uploaded_by):
                     first_name, last_name = _split_child_name(csv_name)
                     t_slug = slugify(f'{first_name}-{last_name}') if last_name else slugify(first_name)
                     t_email = f'{t_slug}@teacher.local'
-                    t_username = t_slug.replace('-', '_')
-                    suffix = 1
-                    while CustomUser.objects.filter(username=t_username).exists():
-                        t_username = f'{t_slug.replace("-", "_")}{suffix}'
-                        suffix += 1
-                    t_password = get_random_string(10)
-                    teacher_user = CustomUser.objects.create_user(
-                        username=t_username, email=t_email,
-                        password=t_password,
-                        first_name=first_name, last_name=last_name,
-                    )
-                    UserRole.objects.get_or_create(user=teacher_user, role=role_teacher)
-                    SchoolTeacher.objects.get_or_create(
-                        school=school, teacher=teacher_user,
-                        defaults={'role': 'teacher', 'is_active': True},
-                    )
-                    teacher_cache[csv_name] = teacher_user
-                    counts['teachers_created'] = counts.get('teachers_created', 0) + 1
+
+                    # Reuse existing placeholder teacher if email already exists
+                    existing_teacher = CustomUser.objects.filter(email__iexact=t_email).first()
+                    if existing_teacher:
+                        SchoolTeacher.objects.get_or_create(
+                            school=school, teacher=existing_teacher,
+                            defaults={'role': 'teacher', 'is_active': True},
+                        )
+                        teacher_cache[csv_name] = existing_teacher
+                    else:
+                        t_username = t_slug.replace('-', '_')
+                        suffix = 1
+                        while CustomUser.objects.filter(username=t_username).exists():
+                            t_username = f'{t_slug.replace("-", "_")}{suffix}'
+                            suffix += 1
+                        t_password = get_random_string(10)
+                        teacher_user = CustomUser.objects.create_user(
+                            username=t_username, email=t_email,
+                            password=t_password,
+                            first_name=first_name, last_name=last_name,
+                        )
+                        UserRole.objects.get_or_create(user=teacher_user, role=role_teacher)
+                        SchoolTeacher.objects.get_or_create(
+                            school=school, teacher=teacher_user,
+                            defaults={'role': 'teacher', 'is_active': True},
+                        )
+                        teacher_cache[csv_name] = teacher_user
+                        counts['teachers_created'] = counts.get('teachers_created', 0) + 1
                 else:
                     user = existing_users_by_id.get(int(target))
                     if user:
@@ -1167,8 +1188,9 @@ def execute_import(preview_data, school, uploaded_by):
                                 teacher=teacher_user,
                             )
 
-        # 5. Create guardians
+        # 5. Create guardians + parent user accounts
         guardian_cache = {}
+        parent_user_cache = {}  # email → CustomUser for ParentStudent linking later
         for g_data in preview_data['guardians_new']:
             guardian, created = Guardian.objects.get_or_create(
                 school=school, email=g_data['email'],
@@ -1185,6 +1207,44 @@ def execute_import(preview_data, school, uploaded_by):
             guardian_cache[g_data['email']] = guardian
             if created:
                 counts['guardians_created'] += 1
+
+            # Create or reuse a CustomUser account for this guardian
+            g_email = g_data['email']
+            existing_user = CustomUser.objects.filter(email__iexact=g_email).first()
+            if existing_user:
+                # Reuse existing account — just ensure parent role is assigned
+                UserRole.objects.get_or_create(user=existing_user, role=role_parent)
+                parent_user_cache[g_email] = existing_user
+            else:
+                g_password = get_random_string(10)
+                base_username = slugify(
+                    f"{g_data['first_name']}.{g_data['last_name']}"
+                ).replace('-', '.')
+                if not base_username:
+                    base_username = g_email.split('@')[0]
+                g_username = base_username
+                suffix = 1
+                while CustomUser.objects.filter(username=g_username).exists():
+                    g_username = f'{base_username}{suffix}'
+                    suffix += 1
+                parent_user = CustomUser.objects.create_user(
+                    username=g_username,
+                    email=g_email,
+                    password=g_password,
+                    first_name=g_data['first_name'],
+                    last_name=g_data['last_name'],
+                )
+                UserRole.objects.create(user=parent_user, role=role_parent)
+                parent_user_cache[g_email] = parent_user
+                parent_credentials.append({
+                    'username': g_username,
+                    'email': g_email,
+                    'password': g_password,
+                    'first_name': g_data['first_name'],
+                    'last_name': g_data['last_name'],
+                })
+                counts['parents_created'] += 1
+
         # Cache existing guardians
         for g in Guardian.objects.filter(school=school):
             guardian_cache[g.email] = g
@@ -1193,7 +1253,7 @@ def execute_import(preview_data, school, uploaded_by):
         all_students = preview_data['students_new'] + preview_data['students_existing']
         for sdata in all_students:
             email = sdata['email']
-            is_new = not CustomUser.objects.filter(email=email).exists()
+            is_new = not CustomUser.objects.filter(email__iexact=email).exists()
 
             if is_new:
                 password = get_random_string(10)
@@ -1234,7 +1294,7 @@ def execute_import(preview_data, school, uploaded_by):
                 })
                 counts['students_created'] += 1
             else:
-                user = CustomUser.objects.filter(email=email).first()
+                user = CustomUser.objects.filter(email__iexact=email).first()
                 password = None
 
             # SchoolStudent
@@ -1265,83 +1325,37 @@ def execute_import(preview_data, school, uploaded_by):
                 )
                 counts['students_enrolled'] += 1
 
-            # Guardian links + parent account creation
-            for g in sdata.get('guardians', []):
-                guardian = guardian_cache.get(g['email'])
+            # Guardian links (contact record + ParentStudent user link)
+            guardian_list = sdata.get('guardians', [])
+            for idx, g in enumerate(guardian_list):
+                g_email = g['email']
+                guardian = guardian_cache.get(g_email)
                 if guardian:
                     StudentGuardian.objects.get_or_create(
                         student=user, guardian=guardian,
                         defaults={'is_primary': g.get('is_primary', False)},
                     )
-
-                # Create a parent user account so the guardian can log in
-                g_email = g['email']
-                if g_email and g_email not in parent_account_cache:
-                    existing_parent = CustomUser.objects.filter(email=g_email).first()
-                    if existing_parent:
-                        parent_user = existing_parent
-                        p_password = None
-                    else:
-                        p_password = get_random_string(10)
-                        p_base = slugify(
-                            f"{g['first_name']}.{g['last_name']}"
-                        ).replace('-', '.')
-                        if not p_base:
-                            p_base = g_email.split('@')[0]
-                        p_username = p_base
-                        p_suffix = 1
-                        while CustomUser.objects.filter(username=p_username).exists():
-                            p_username = f'{p_base}{p_suffix}'
-                            p_suffix += 1
-                        parent_user = CustomUser.objects.create_user(
-                            username=p_username,
-                            email=g_email,
-                            password=p_password,
-                            first_name=g['first_name'],
-                            last_name=g.get('last_name', ''),
+                parent_user = parent_user_cache.get(g_email)
+                if parent_user:
+                    # Check max 2 active parents per student per school
+                    active_count = ParentStudent.objects.filter(
+                        student=user, school=school, is_active=True,
+                    ).count()
+                    if active_count < 2:
+                        is_primary = (idx == 0)
+                        ParentStudent.objects.get_or_create(
+                            parent=parent_user, student=user, school=school,
+                            defaults={
+                                'relationship': g.get('relationship', 'guardian'),
+                                'is_primary_contact': is_primary,
+                                'created_by': uploaded_by,
+                            },
                         )
-                        parent_user.must_change_password = True
-                        if g.get('phone'):
-                            parent_user.phone = g['phone']
-                        if g.get('address'):
-                            parent_user.address_line1 = g['address']
-                        if g.get('city'):
-                            parent_user.city = g['city']
-                        if g.get('country'):
-                            parent_user.country = g['country']
-                        parent_user.save()
-                        counts['parents_created'] = counts.get('parents_created', 0) + 1
-
-                    UserRole.objects.get_or_create(user=parent_user, role=role_parent)
-                    parent_account_cache[g_email] = (parent_user, p_password)
-
-                # Create ParentStudent link
-                if g_email and g_email in parent_account_cache:
-                    parent_user, _ = parent_account_cache[g_email]
-                    ParentStudent.objects.get_or_create(
-                        parent=parent_user, student=user, school=school,
-                        defaults={
-                            'relationship': g.get('relationship', 'guardian'),
-                            'is_active': True,
-                            'created_by': uploaded_by,
-                        },
-                    )
-
-    # Append parent credentials to the credentials list
-    for g_email, (parent_user, p_password) in parent_account_cache.items():
-        if p_password:
-            credentials.append({
-                'username': parent_user.username,
-                'email': g_email,
-                'password': p_password,
-                'first_name': parent_user.first_name,
-                'last_name': parent_user.last_name,
-                'type': 'parent',
-            })
 
     return {
         'counts': counts,
         'credentials': credentials,
+        'parent_credentials': parent_credentials,
     }
 
 
@@ -1694,10 +1708,10 @@ def validate_teacher_preview(data_rows, column_mapping, school):
             'row': row_idx,
         }
 
-        # Check if user already exists
-        if CustomUser.objects.filter(email=email).exists():
+        # Check if user already exists (case-insensitive)
+        if CustomUser.objects.filter(email__iexact=email).exists():
             # Check if already linked to this school
-            user = CustomUser.objects.filter(email=email).first()
+            user = CustomUser.objects.filter(email__iexact=email).first()
             already_linked = SchoolTeacher.objects.filter(school=school, teacher=user).exists()
             teacher_data['already_linked'] = already_linked
             if already_linked:
@@ -1766,7 +1780,7 @@ def execute_teacher_import(preview_data, school, imported_by):
             })
             counts['teachers_updated'] = counts.get('teachers_updated', 0) + 1
         else:
-            is_new = not CustomUser.objects.filter(email=email).exists()
+            is_new = not CustomUser.objects.filter(email__iexact=email).exists()
 
         if is_new:
             password = get_random_string(10)
@@ -1811,7 +1825,7 @@ def execute_teacher_import(preview_data, school, imported_by):
             })
             counts['teachers_created'] += 1
         elif not placeholder_st:
-            user = CustomUser.objects.filter(email=email).first()
+            user = CustomUser.objects.filter(email__iexact=email).first()
             password = None
 
         # Link to school (skip if already linked)
@@ -2107,7 +2121,7 @@ def validate_parent_preview(data_rows, column_mapping, school):
 
     # Categorise as new or existing
     existing_emails = set(
-        CustomUser.objects.filter(
+        e.lower() for e in CustomUser.objects.filter(
             email__in=parent_groups.keys()
         ).values_list('email', flat=True)
     )
@@ -2115,7 +2129,7 @@ def validate_parent_preview(data_rows, column_mapping, school):
     parents_new = []
     parents_existing = []
     for email, pdata in parent_groups.items():
-        if email in existing_emails:
+        if email.lower() in existing_emails:
             parents_existing.append(pdata)
         else:
             parents_new.append(pdata)
@@ -2149,7 +2163,7 @@ def execute_parent_import(preview_data, school, imported_by):
         all_parents = preview_data['parents_new'] + preview_data['parents_existing']
         for pdata in all_parents:
             email = pdata['email']
-            is_new = not CustomUser.objects.filter(email=email).exists()
+            is_new = not CustomUser.objects.filter(email__iexact=email).exists()
 
             if is_new:
                 password = get_random_string(10)
@@ -2193,7 +2207,7 @@ def execute_parent_import(preview_data, school, imported_by):
                 })
                 counts['parents_created'] += 1
             else:
-                user = CustomUser.objects.get(email=email)
+                user = CustomUser.objects.filter(email__iexact=email).first()
                 password = None
                 # Ensure parent role assigned
                 UserRole.objects.get_or_create(user=user, role=parent_role)
