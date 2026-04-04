@@ -221,6 +221,15 @@ class School(models.Model):
         help_text='Outgoing email address used for invoices and communications.',
     )
 
+    # Currency
+    default_currency = models.ForeignKey(
+        'Currency',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='schools',
+        help_text='Default currency for invoices. Null = USD system default.',
+    )
+
     # Suspension
     is_suspended = models.BooleanField(default=False)
     suspended_at = models.DateTimeField(null=True, blank=True)
@@ -326,6 +335,19 @@ class School(models.Model):
         """Return today's date in the school's timezone."""
         return self.get_local_now().date()
 
+    def get_effective_currency(self):
+        """Return the effective Currency for this school.
+
+        Returns ``default_currency`` if set, otherwise falls back to USD.
+        If USD is not seeded, returns ``None``.
+        """
+        if self.default_currency_id:
+            return self.default_currency
+        try:
+            return Currency.objects.get(code='USD')
+        except Currency.DoesNotExist:
+            return None
+
 
 class SchoolTeacher(models.Model):
     """Through table: links a teacher to a school with a seniority role."""
@@ -407,6 +429,13 @@ class Department(models.Model):
     postal_code = models.CharField(max_length=20, blank=True)
     country = models.CharField(max_length=100, blank=True)
     logo = models.ImageField(upload_to='department_logos/', blank=True)
+    currency_override = models.ForeignKey(
+        'Currency',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='departments',
+        help_text='Currency override for this department. Null = inherit from school.',
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -417,6 +446,15 @@ class Department(models.Model):
 
     def __str__(self):
         return f'{self.name} — {self.school.name}'
+
+    def get_effective_currency(self):
+        """Return the effective Currency for this department.
+
+        Resolution: ``currency_override`` → ``school.get_effective_currency()``.
+        """
+        if self.currency_override_id:
+            return self.currency_override
+        return self.school.get_effective_currency()
 
     @property
     def primary_subject(self):
@@ -707,6 +745,13 @@ class ClassRoom(models.Model):
         null=True, blank=True,
         help_text='Fee override for this class. NULL = inherit from level/subject/department.',
     )
+    currency_override = models.ForeignKey(
+        'Currency',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='classes',
+        help_text='Currency override for this class. Null = inherit from department.',
+    )
     # ── Settings overrides (blank = use department/school default) ──
     bank_name = models.CharField(max_length=100, blank=True)
     bank_bsb = models.CharField('BSB', max_length=20, blank=True)
@@ -725,6 +770,29 @@ class ClassRoom(models.Model):
 
     def __str__(self):
         return f'{self.name} ({self.code})'
+
+    def get_effective_currency(self):
+        """Return the effective Currency for this class.
+
+        Resolution chain::
+
+            ClassRoom.currency_override
+            → Department.currency_override
+            → School.default_currency
+            → USD (system default)
+
+        Returns ``None`` only if USD is not seeded.
+        """
+        if self.currency_override_id:
+            return self.currency_override
+        if self.department_id:
+            return self.department.get_effective_currency()
+        if self.school_id:
+            return self.school.get_effective_currency()
+        try:
+            return Currency.objects.get(code='USD')
+        except Currency.DoesNotExist:
+            return None
 
     def save(self, *args, **kwargs):
         if not self.code:
