@@ -6,6 +6,11 @@ from django.contrib import messages
 from django.db import transaction
 from django.utils.text import slugify
 from django.utils import timezone
+from django.http import StreamingHttpResponse, HttpResponseForbidden
+from django.conf import settings as django_settings
+import subprocess
+import shutil
+import os
 
 from django.core.paginator import Paginator
 from django.db.models import Count, Q
@@ -2508,6 +2513,75 @@ class TermManageView(RoleRequiredMixin, View):
             messages.info(request, f'Sessions synced: {", ".join(parts)}.')
 
         return redirect('admin_school_terms', school_id=school.id)
+
+
+class DatabaseBackupView(LoginRequiredMixin, View):
+    """Superuser-only page to download a full MySQL database backup."""
+
+    def _check_superuser(self, request):
+        if not request.user.is_superuser:
+            return HttpResponseForbidden("Access denied.")
+        return None
+
+    def get(self, request):
+        denied = self._check_superuser(request)
+        if denied:
+            return denied
+        return render(request, 'admin_dashboard/database_backup.html')
+
+    def post(self, request):
+        denied = self._check_superuser(request)
+        if denied:
+            return denied
+
+        mysqldump = shutil.which('mysqldump')
+        if not mysqldump:
+            candidates = [
+                r'C:\Program Files\MySQL\MySQL Server 8.0\bin\mysqldump.exe',
+                r'C:\Program Files\MySQL\MySQL Server 5.7\bin\mysqldump.exe',
+                r'C:\xampp\mysql\bin\mysqldump.exe',
+            ]
+            for c in candidates:
+                if os.path.isfile(c):
+                    mysqldump = c
+                    break
+
+        if not mysqldump:
+            messages.error(request, 'mysqldump not found on this server.')
+            return redirect('database_backup')
+
+        db = django_settings.DATABASES['default']
+        db_name = db.get('NAME', 'cwa_classroom')
+        db_user = db.get('USER', 'root')
+        db_password = db.get('PASSWORD', '')
+        db_host = db.get('HOST', '127.0.0.1')
+        db_port = db.get('PORT', '3306')
+
+        from datetime import datetime
+        filename = f"cwa_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql"
+
+        cmd = [mysqldump, '--single-transaction', '--routines', '--triggers',
+               f'--host={db_host}', f'--port={db_port}',
+               f'--user={db_user}']
+        if db_password:
+            cmd.append(f'--password={db_password}')
+        cmd.append(db_name)
+
+        try:
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except Exception as e:
+            messages.error(request, f'Failed to start backup: {e}')
+            return redirect('database_backup')
+
+        def stream_output():
+            for chunk in iter(lambda: process.stdout.read(8192), b''):
+                yield chunk
+            process.stdout.close()
+            process.wait()
+
+        response = StreamingHttpResponse(stream_output(), content_type='application/octet-stream')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
 
 
 class HolidayManageView(RoleRequiredMixin, View):

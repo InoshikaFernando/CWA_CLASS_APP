@@ -329,6 +329,7 @@ def validate_and_preview(data_rows, column_mapping, school):
 
     # Collect student data grouped by a unique key
     students_by_key = {}
+    _generated_email_counts = {}  # base_email -> count, for collision numbering
     for row_idx, row in enumerate(data_rows, start=2):  # row 2 = first data row
         # Determine student name
         if children_mode:
@@ -363,17 +364,34 @@ def validate_and_preview(data_rows, column_mapping, school):
         email = _get_cell(row, column_mapping.get('email')).lower()
         parent_email = _get_cell(row, column_mapping.get('parent1_email')).lower()
 
+        # If student email is the same as parent email (common in Teachworks exports),
+        # treat it as missing — generate a unique student placeholder instead.
+        if email and email == parent_email:
+            email = ''
+
         if not email:
-            if parent_email:
-                # Auto-generate student email from parent email
+            child_slug = slugify(first_name) if first_name else slugify(f'{first_name}-{last_name}')
+            if parent_email and '@' in parent_email:
+                # Use plus-addressing: parent+firstName@domain
+                # e.g. test@example.com -> test+ryan@example.com
+                # Delivers to parent inbox, unique per child, works for siblings
                 prefix = parent_email.split('@')[0]
-                domain = parent_email.split('@')[1] if '@' in parent_email else 'local'
-                child_slug = slugify(f'{first_name}-{last_name}') if last_name else slugify(first_name)
-                email = f'{child_slug}.{prefix}@{domain}'.lower()
+                domain = parent_email.split('@')[1]
+                base_email = f'{prefix}+{child_slug}@{domain}'.lower()
             else:
-                # Generate a placeholder email from student name
-                child_slug = slugify(f'{first_name}-{last_name}') if last_name else slugify(first_name)
-                email = f'{child_slug}@student.local'.lower()
+                base_email = f'{child_slug}@student.local'.lower()
+
+            # Handle collisions: if the same base was already generated, append 1, 2, ...
+            if base_email not in _generated_email_counts:
+                _generated_email_counts[base_email] = 0
+                email = base_email
+            else:
+                _generated_email_counts[base_email] += 1
+                n = _generated_email_counts[base_email]
+                # Insert the number before the @: test+joanna1@example.com
+                local, domain_part = base_email.split('@', 1)
+                email = f'{local}{n}@{domain_part}'
+
             warnings.append(
                 f'Row {row_idx}: No student email — generated "{email}".'
             )
