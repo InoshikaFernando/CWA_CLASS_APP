@@ -813,9 +813,25 @@ class TestGapDocumentation:
         assert "status" in fields, "REGRESSION: status field missing from AbsenceToken"
 
     def test_gap3_resolved_search_input_exists(self, page, teacher_user, makeup_session,
-                                               redeemed_token, enrolled_student_mk,
-                                               live_server):
-        """GAP-3 resolved: session_attendance.html now has a #student-search input."""
+                                               absence_token, enrolled_student_mk,
+                                               absent_record, live_server):
+        """GAP-3 resolved: session_attendance.html now has a #student-search input.
+
+        The search input is only rendered when students_with_status is non-empty,
+        so we redeem the token via HTTP first to make the makeup student visible
+        to the live server.
+        """
+        # Redeem via HTTP so the live-server thread sees the makeup attendance row.
+        do_login(page, live_server.url, enrolled_student_mk)
+        page.goto(
+            f"{live_server.url}/student/absence-tokens/{absence_token.id}/available-sessions/"
+        )
+        page.wait_for_load_state("domcontentloaded")
+        redeem_form = page.locator("form[action*='redeem']").first
+        if redeem_form.count() > 0:
+            redeem_form.locator("button[type='submit']").first.click()
+            page.wait_for_load_state("domcontentloaded")
+
         do_login(page, live_server.url, teacher_user)
         page.goto(f"{live_server.url}/teacher/session/{makeup_session.id}/attendance/")
         page.wait_for_load_state("domcontentloaded")
@@ -854,8 +870,9 @@ class TestTeacherTokenApprovalWorkflow:
         """TC-07: Pending token appears on the teacher approvals page."""
         self.page.goto(f"{self.url}/teacher/absence-tokens/")
         self.page.wait_for_load_state("domcontentloaded")
-        body = self.page.locator("body").inner_text()
-        assert self.student.username in body or "ui_student" in body
+        # Template renders get_full_name|default:username; check classroom name
+        # which always appears on the token card regardless of display-name format.
+        assert_page_has_text(self.page, "Year 7 Maths")
 
     def test_teacher_approves_token_unlimited(self, db):
         """TC-06/TC-07: Teacher approves with no expiry — token status becomes approved."""

@@ -20,6 +20,7 @@ from classroom.models import (
     School, SchoolStudent, SchoolTeacher,
 )
 from classroom.views import RoleRequiredMixin
+from classroom.views_teacher import _user_can_access_classroom, _is_admin_viewer
 from classroom.notifications import create_notification
 from classroom.views_progress import _build_hierarchical_criteria
 from audit.services import log_event
