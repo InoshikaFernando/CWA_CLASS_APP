@@ -74,6 +74,13 @@ def user_role(request):
         ctx['user_schools'] = all_schools
         ctx['current_school'] = school
 
+    # Whether student has any class enrollments (controls sidebar links)
+    if active_role in (Role.STUDENT, Role.INDIVIDUAL_STUDENT):
+        from classroom.models import ClassStudent
+        ctx['student_has_classes'] = ClassStudent.objects.filter(
+            student=user, is_active=True,
+        ).exists()
+
     # Trial / promo info for all students (sidebar banner)
     trial_info = {'is_trialing': False, 'is_promo': False, 'days_remaining': 0}
     if active_role in (Role.STUDENT, Role.INDIVIDUAL_STUDENT):

@@ -17,6 +17,12 @@
       {% if school_email %}
         <p style="margin:2px 0 0;color:#64748b;font-size:13px;">{{ school_email }}</p>
       {% endif %}
+      {% if abn %}
+        <p style="margin:4px 0 0;color:#64748b;font-size:12px;">ABN: {{ abn }}</p>
+      {% endif %}
+      {% if gst_number %}
+        <p style="margin:2px 0 0;color:#64748b;font-size:12px;">GST: {{ gst_number }}</p>
+      {% endif %}
     </td>
   </tr>
 </table>
@@ -115,7 +121,11 @@
       <p style="margin:0 0 2px;color:#334155;font-size:13px;">Name - {{ bank_account_name }}</p>
       {% if bank_bsb %}<p style="margin:0 0 2px;color:#334155;font-size:13px;">BSB - {{ bank_bsb }}</p>{% endif %}
       {% if bank_account_number %}<p style="margin:0 0 2px;color:#334155;font-size:13px;">AC - {{ bank_account_number }}</p>{% endif %}
-      {% if bank_name %}<p style="margin:0;color:#334155;font-size:13px;">{{ bank_name }}</p>{% endif %}
+      {% if bank_name %}<p style="margin:0 0 2px;color:#334155;font-size:13px;">{{ bank_name }}</p>{% endif %}
+      <p style="margin:10px 0 0;padding-top:8px;border-top:1px solid #e2e8f0;color:#1e293b;font-size:13px;font-weight:700;">
+        Reference: {% if student_id_code %}{{ student_id_code }} - {% endif %}{{ student_name }}
+      </p>
+      <p style="margin:2px 0 0;color:#64748b;font-size:11px;">Please use this reference when making bank transfers.</p>
     </td>
   </tr>
 </table>

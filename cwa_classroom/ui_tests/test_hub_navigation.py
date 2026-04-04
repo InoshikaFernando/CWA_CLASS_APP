@@ -46,7 +46,8 @@ class TestHubQuickActionNavigation:
         self._go_hub()
         card = self.page.locator("main a", has_text="Attendance").first
         card.click()
-        expect(self.page).to_have_url(re.compile(r"/student/attendance|/attendance"))
+        # May redirect to billing/module-required if attendance module not subscribed
+        expect(self.page).to_have_url(re.compile(r"/attendance|/billing/module-required"))
 
     def test_click_profile_card(self):
         self._go_hub()

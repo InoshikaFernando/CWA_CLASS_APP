@@ -319,6 +319,106 @@
       </div>
     </div>
 
+    <!-- Academic Years section -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm lg:col-span-2">
+      <div class="flex items-center justify-between p-6 border-b border-slate-100">
+        <h2 class="text-lg font-semibold text-gray-900">Academic Calendar</h2>
+        <div class="flex items-center gap-3">
+          <a href="{% url 'admin_school_terms' school.id %}"
+             class="inline-flex items-center gap-1.5 text-sm text-accent hover:text-accent-dark font-medium transition">
+            Manage Terms
+          </a>
+          <a href="{% url 'admin_school_holidays' school.id %}"
+             class="inline-flex items-center gap-1.5 text-sm text-accent hover:text-accent-dark font-medium transition">
+            Manage Holidays
+          </a>
+          <a href="{% url 'admin_academic_year_create' school.id %}"
+             class="inline-flex items-center gap-1.5 text-sm text-accent hover:text-accent-dark font-medium transition">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+            </svg>
+            Add Year
+          </a>
+        </div>
+      </div>
+      <div class="p-6">
+        {% if academic_years %}
+          {% for ay in academic_years %}
+            <div class="{% if not forloop.first %}mt-8 pt-8 border-t border-slate-100{% endif %}">
+              <!-- Year Header -->
+              <div class="flex items-center gap-3 mb-4">
+                <h3 class="text-lg font-bold text-gray-900">{{ ay.year }}</h3>
+                {% if ay.is_current %}
+                  <span class="text-xs font-medium px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700">Current</span>
+                {% else %}
+                  <span class="text-xs font-medium px-2.5 py-1 rounded-full bg-gray-100 text-gray-500">Past</span>
+                {% endif %}
+                <span class="text-sm text-gray-500">{{ ay.start_date|date:"d M Y" }} — {{ ay.end_date|date:"d M Y" }}</span>
+              </div>
+
+              <!-- Terms for this year -->
+              <div class="mb-4">
+                <h4 class="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-2">Terms</h4>
+                {% with ay_terms=ay.terms.all %}
+                {% if ay_terms %}
+                  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {% for term in ay_terms %}
+                      <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                        <div class="flex items-center gap-2 mb-1">
+                          <p class="text-sm font-semibold text-gray-900">{{ term.name }}</p>
+                          {% if term.is_confirmed %}
+                            <span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Confirmed</span>
+                          {% else %}
+                            <span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">Unconfirmed</span>
+                          {% endif %}
+                        </div>
+                        <p class="text-xs text-gray-500">{{ term.start_date|date:"d M" }} — {{ term.end_date|date:"d M Y" }}</p>
+                      </div>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <p class="text-sm text-gray-400">No terms defined for this year.</p>
+                {% endif %}
+                {% endwith %}
+              </div>
+
+              <!-- Holidays for this year -->
+              <div>
+                <h4 class="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-2">Holidays</h4>
+                {% with ay_holidays=ay.school_holidays.all %}
+                {% if ay_holidays %}
+                  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {% for holiday in ay_holidays %}
+                      <div class="p-3 bg-orange-50 rounded-xl border border-orange-100">
+                        <p class="text-sm font-semibold text-gray-900">{{ holiday.name }}</p>
+                        <p class="text-xs text-gray-500">{{ holiday.start_date|date:"d M" }} — {{ holiday.end_date|date:"d M Y" }}</p>
+                      </div>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <p class="text-sm text-gray-400">No holidays defined for this year.</p>
+                {% endif %}
+                {% endwith %}
+              </div>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="text-center py-8">
+            <svg class="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5"/>
+            </svg>
+            <p class="text-sm text-gray-400 mb-3">No academic years created yet.</p>
+            <a href="{% url 'admin_academic_year_create' school.id %}"
+               class="inline-flex items-center gap-1.5 text-sm text-accent hover:text-accent-dark font-medium transition">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+              </svg>
+              Create Academic Year
+            </a>
+          </div>
+        {% endif %}
+      </div>
+    </div>
 
   </div>
 
