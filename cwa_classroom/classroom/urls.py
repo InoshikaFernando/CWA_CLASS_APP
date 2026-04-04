@@ -195,6 +195,7 @@ urlpatterns = [
     path('parent/progress/', views_parent.ParentProgressView.as_view(), name='parent_progress'),
     path('parent/add-child/', views_parent.ParentAddChildView.as_view(), name='parent_add_child'),
     path('parent/classes/', views_parent.ParentClassesView.as_view(), name='parent_classes'),
+    path('parent/become-parent/', views_parent.BecomeParentView.as_view(), name='become_parent'),
 
     # Student enrollment & classes
     path('student/join/', views_student.JoinClassByCodeView.as_view(), name='student_join_class'),

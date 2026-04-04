@@ -2,6 +2,9 @@
 Parent portal views — read-only access to linked children's data.
 CPP-67 (invoices & payments), CPP-68 (attendance), CPP-69 (progress).
 """
+from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.paginator import Paginator
 from django.db.models import Max, Q
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
@@ -10,7 +13,7 @@ from accounts.models import Role
 from .models import (
     ParentStudent, ClassStudent, ClassSession, StudentAttendance,
     Invoice, InvoicePayment, ProgressRecord, ParentLinkRequest,
-    ProgressCriteria,
+    ProgressCriteria, SchoolStudent, ClassRoom,
 )
 from .views import RoleRequiredMixin
 
@@ -164,23 +167,43 @@ class ParentInvoicesView(RoleRequiredMixin, View):
         if not child:
             return render(request, 'parent/invoices.html', {
                 'invoices': [], 'children': _get_parent_children(request.user),
+                'page': None,
             })
 
+        search = request.GET.get('q', '').strip()
+        status_filter = request.GET.get('status', '').strip()
+
+        allowed_statuses = ['issued', 'partially_paid', 'paid']
         invoices = (
-            Invoice.objects.filter(
-                student=child, school=school,
-                status__in=['issued', 'partially_paid', 'paid'],
-            )
+            Invoice.objects.filter(student=child, school=school, status__in=allowed_statuses)
             .select_related('student')
             .order_by('-billing_period_end', '-created_at')
         )
 
-        return render(request, 'parent/invoices.html', {
-            'invoices': invoices,
+        if search:
+            invoices = invoices.filter(
+                Q(invoice_number__icontains=search) |
+                Q(student__first_name__icontains=search) |
+                Q(student__last_name__icontains=search)
+            )
+        if status_filter and status_filter in allowed_statuses:
+            invoices = invoices.filter(status=status_filter)
+
+        paginator = Paginator(invoices, 25)
+        page = paginator.get_page(request.GET.get('page'))
+
+        ctx = {
+            'invoices': page,
+            'page': page,
             'active_child': child,
             'active_school': school,
             'children': _get_parent_children(request.user),
-        })
+            'search': search,
+            'status_filter': status_filter,
+        }
+        if request.headers.get('HX-Request'):
+            return render(request, 'parent/partials/invoice_table.html', ctx)
+        return render(request, 'parent/invoices.html', ctx)
 
 
 class ParentInvoiceDetailView(RoleRequiredMixin, View):
@@ -419,3 +442,284 @@ class ParentProgressView(RoleRequiredMixin, View):
             'active_school': school,
             'children': _get_parent_children(request.user),
         })
+
+
+# ---------------------------------------------------------------------------
+# Add Child (logged-in parent links another student via Student ID)
+# ---------------------------------------------------------------------------
+
+class ParentAddChildView(RoleRequiredMixin, View):
+    required_roles = [Role.PARENT]
+    RELATIONSHIP_CHOICES = [
+        ('mother', 'Mother'),
+        ('father', 'Father'),
+        ('guardian', 'Guardian'),
+        ('other', 'Other'),
+    ]
+
+    def get(self, request):
+        return render(request, 'parent/add_child.html', {
+            'children': _get_parent_children(request.user),
+            'relationship_choices': self.RELATIONSHIP_CHOICES,
+        })
+
+    def post(self, request):
+        student_id_code = request.POST.get('student_id', '').strip().upper()
+        relationship = request.POST.get('relationship', 'guardian').strip()
+        errors = {}
+
+        if not student_id_code:
+            errors['student_id'] = 'Student ID is required.'
+        else:
+            school_student = SchoolStudent.objects.filter(
+                student_id_code=student_id_code, is_active=True,
+            ).select_related('school', 'student').first()
+
+            if not school_student:
+                errors['student_id'] = f'Student ID "{student_id_code}" was not found. Please check and try again.'
+            else:
+                # Already linked?
+                if ParentStudent.objects.filter(
+                    parent=request.user,
+                    student=school_student.student,
+                    school=school_student.school,
+                ).exists():
+                    errors['student_id'] = 'You are already linked to this student.'
+                else:
+                    # Max 2 parents per student
+                    parent_count = ParentStudent.objects.filter(
+                        student=school_student.student,
+                        school=school_student.school,
+                        is_active=True,
+                    ).count()
+                    if parent_count >= 2:
+                        errors['student_id'] = (
+                            f'{school_student.student.first_name} already has the '
+                            f'maximum number of parent accounts linked.'
+                        )
+
+        if errors:
+            return render(request, 'parent/add_child.html', {
+                'errors': errors,
+                'children': _get_parent_children(request.user),
+                'relationship_choices': self.RELATIONSHIP_CHOICES,
+                'form_data': {'student_id': student_id_code, 'relationship': relationship},
+            })
+
+        existing_count = ParentStudent.objects.filter(
+            student=school_student.student,
+            school=school_student.school,
+            is_active=True,
+        ).count()
+        link = ParentStudent.objects.create(
+            parent=request.user,
+            student=school_student.student,
+            school=school_student.school,
+            relationship=relationship,
+            is_primary_contact=(existing_count == 0),
+            created_by=request.user,
+        )
+
+        # Switch to newly added child
+        request.session['active_child_id'] = school_student.student_id
+
+        from audit.services import log_event
+        log_event(
+            user=request.user, school=school_student.school,
+            category='data_change', action='parent_linked_child',
+            detail={'student_id_code': student_id_code, 'relationship': relationship},
+            request=request,
+        )
+
+        from django.contrib import messages
+        messages.success(
+            request,
+            f'{school_student.student.first_name} {school_student.student.last_name} '
+            f'has been linked to your account.'
+        )
+        return redirect('parent_dashboard')
+
+
+# ---------------------------------------------------------------------------
+# Classes / Schedule
+# ---------------------------------------------------------------------------
+
+class ParentClassesView(RoleRequiredMixin, View):
+    required_roles = [Role.PARENT]
+
+    def get(self, request):
+        child, school, _ = _get_active_child(request)
+        if not child:
+            return render(request, 'parent/classes.html', {
+                'children': _get_parent_children(request.user),
+                'enrollments': [],
+            })
+
+        enrollments = (
+            ClassStudent.objects.filter(
+                student=child, classroom__school=school, is_active=True,
+            )
+            .select_related(
+                'classroom', 'classroom__department',
+            )
+            .prefetch_related('classroom__class_teachers__teacher')
+            .order_by('classroom__day', 'classroom__start_time', 'classroom__name')
+        )
+
+        # Upcoming sessions (next 14 days)
+        from django.utils import timezone
+        import datetime
+        today = timezone.now().date()
+        enrolled_ids = list(enrollments.values_list('classroom_id', flat=True))
+        upcoming = (
+            ClassSession.objects.filter(
+                classroom_id__in=enrolled_ids,
+                date__gte=today,
+                date__lte=today + datetime.timedelta(days=14),
+                status__in=['scheduled', 'in_progress'],
+            )
+            .select_related('classroom')
+            .order_by('date', 'start_time')
+        )
+
+        return render(request, 'parent/classes.html', {
+            'enrollments': enrollments,
+            'upcoming_sessions': upcoming,
+            'active_child': child,
+            'active_school': school,
+            'children': _get_parent_children(request.user),
+        })
+
+
+# ---------------------------------------------------------------------------
+# Become a Parent (for existing users — teachers, HoI, etc.)
+# ---------------------------------------------------------------------------
+
+class BecomeParentView(LoginRequiredMixin, View):
+    """
+    Allow any authenticated user (e.g. a teacher whose child attends the school)
+    to register as a parent without creating a new account.
+
+    Flow:
+    1. User fills in their child's Student ID and relationship.
+    2. A ParentLinkRequest is created (pending teacher/HoI approval).
+    3. The PARENT role is added to their existing account immediately so they can
+       see the parent dashboard (with a "pending" state).
+    4. active_role in session is set to 'parent' so they land on the parent UI.
+    5. The topbar role-switcher automatically appears (multi-role user).
+    6. When approved, the ParentStudent link is created by the existing
+       ParentLinkApproveView — no further changes needed there.
+    """
+
+    RELATIONSHIP_CHOICES = [
+        ('mother', 'Mother'),
+        ('father', 'Father'),
+        ('guardian', 'Guardian'),
+        ('other', 'Other'),
+    ]
+
+    def get(self, request):
+        if request.user.has_role(Role.PARENT):
+            return redirect('parent_dashboard')
+        return render(request, 'parent/become_parent.html', {
+            'relationship_choices': self.RELATIONSHIP_CHOICES,
+        })
+
+    def post(self, request):
+        if request.user.has_role(Role.PARENT):
+            return redirect('parent_dashboard')
+
+        student_id_code = request.POST.get('student_id', '').strip().upper()
+        relationship = request.POST.get('relationship', 'guardian').strip()
+        errors = {}
+
+        if not student_id_code:
+            errors['student_id'] = 'Student ID is required.'
+        else:
+            school_student = SchoolStudent.objects.filter(
+                student_id_code=student_id_code, is_active=True,
+            ).select_related('school', 'student').first()
+
+            if not school_student:
+                errors['student_id'] = (
+                    f'Student ID "{student_id_code}" was not found. '
+                    'Please check the ID and try again.'
+                )
+            else:
+                # Already have a pending or approved request?
+                if ParentLinkRequest.objects.filter(
+                    parent=request.user,
+                    school_student=school_student,
+                    status__in=[ParentLinkRequest.STATUS_PENDING,
+                                 ParentLinkRequest.STATUS_APPROVED],
+                ).exists():
+                    errors['student_id'] = 'You already have an active request for this student.'
+                # Already directly linked?
+                elif ParentStudent.objects.filter(
+                    parent=request.user,
+                    student=school_student.student,
+                ).exists():
+                    errors['student_id'] = 'You are already linked to this student.'
+                # Max 2 parents per student
+                else:
+                    parent_count = ParentStudent.objects.filter(
+                        student=school_student.student,
+                        school=school_student.school,
+                        is_active=True,
+                    ).count()
+                    if parent_count >= 2:
+                        errors['student_id'] = (
+                            f'{school_student.student.first_name} already has the '
+                            'maximum number of parent accounts linked.'
+                        )
+
+        if errors:
+            return render(request, 'parent/become_parent.html', {
+                'errors': errors,
+                'relationship_choices': self.RELATIONSHIP_CHOICES,
+                'form_data': {'student_id': student_id_code, 'relationship': relationship},
+            })
+
+        from accounts.models import UserRole
+        from django.db import transaction
+
+        with transaction.atomic():
+            # Add PARENT role to the existing account if not already there
+            parent_role, _ = Role.objects.get_or_create(
+                name=Role.PARENT,
+                defaults={'display_name': 'Parent'},
+            )
+            UserRole.objects.get_or_create(user=request.user, role=parent_role)
+
+            # Create the pending link request (requires teacher/HoI approval)
+            ParentLinkRequest.objects.create(
+                parent=request.user,
+                school_student=school_student,
+                relationship=relationship,
+                status=ParentLinkRequest.STATUS_PENDING,
+            )
+
+        # Switch active role so they land on the parent dashboard
+        request.session['active_role'] = Role.PARENT
+
+        try:
+            from audit.services import log_event
+            log_event(
+                user=request.user, school=school_student.school,
+                category='data_change', action='user_added_parent_role',
+                detail={
+                    'student_id_code': student_id_code,
+                    'relationship': relationship,
+                },
+                request=request,
+            )
+        except Exception:
+            pass
+
+        messages.success(
+            request,
+            f'Your request to link with '
+            f'{school_student.student.first_name} {school_student.student.last_name} '
+            f'has been submitted. You will be notified once a teacher approves it.'
+        )
+        return redirect('parent_dashboard')
