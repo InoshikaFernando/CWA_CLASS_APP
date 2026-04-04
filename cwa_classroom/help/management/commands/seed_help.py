@@ -526,7 +526,7 @@ Use the checkboxes to select multiple requests and approve or decline them toget
         'category': 'Attendance',
         'excerpt': 'How to mark and submit attendance for your class sessions.',
         'module': 'attendance',
-        'roles': ['teacher'],
+        'roles': ['teacher', 'hoi', 'hod'],
         'body': """## Recording Attendance
 
 ### Starting an attendance session
@@ -571,6 +571,63 @@ Go to **Attendance** in the sidebar. You'll see a summary of your child's attend
 ### If something looks wrong
 
 Contact your child's teacher or school directly to correct any attendance errors.
+""",
+    },
+    {
+        'title': 'Viewing Your Attendance',
+        'category': 'Attendance',
+        'excerpt': 'How to check your own attendance record and report an absence.',
+        'module': 'attendance',
+        'roles': ['student'],
+        'body': """## Your Attendance Record
+
+### Where to find it
+
+Go to **Attendance** in the sidebar. You'll see your attendance history across all classes.
+
+### Understanding the records
+
+- **Present** — you were marked present for that session
+- **Absent** — you were marked absent
+- **Late** — you were marked as arriving late
+- **Pending** — the session hasn't been marked yet
+
+### Reporting an absence
+
+If you know you'll be absent, you can self-report using an absence token. Your school sends these by email before or after a missed session. Click the link in the email to submit your absence reason.
+
+### If something looks wrong
+
+Contact your teacher or school if you believe your attendance has been recorded incorrectly.
+""",
+    },
+    {
+        'title': 'Monitoring Attendance Across Your School',
+        'category': 'Attendance',
+        'excerpt': 'How HoIs and HoDs can view and manage attendance across classes.',
+        'module': 'attendance',
+        'roles': ['hoi', 'hod'],
+        'body': """## School-Wide Attendance Monitoring
+
+### Viewing attendance records
+
+Go to **Attendance** in the sidebar to see attendance across all classes in your school (HoI) or department (HoD).
+
+### Filtering records
+
+Use the filters to narrow by class, teacher, date range, or student to find the records you need.
+
+### Editing attendance
+
+If a teacher has submitted an incorrect record and the edit window has closed, you can edit it directly. Find the session in the attendance list and click **Edit**.
+
+### Absence tokens
+
+The system can automatically send absence tokens to students who are marked absent, allowing them to self-report their absence reason. This reduces admin for teachers.
+
+### Exporting attendance
+
+Use the **Export** button to download attendance records as a CSV for reporting or analysis.
 """,
     },
 
