@@ -95,7 +95,10 @@ class CreatePaymentIntentViewTest(TestCase):
 
     def test_free_package_returns_400(self):
         free_pkg = _create_package(name='Free', price=Decimal('0.00'))
-        resp = self.client.post(reverse('create_payment_intent', args=[free_pkg.id]))
+        resp = self.client.post(
+            reverse('create_payment_intent', args=[free_pkg.id]),
+            data=json.dumps({}), content_type='application/json',
+        )
         self.assertEqual(resp.status_code, 400)
         data = json.loads(resp.content)
         self.assertIn('error', data)
@@ -105,7 +108,10 @@ class CreatePaymentIntentViewTest(TestCase):
     def test_creates_customer_and_intent(self, mock_cust, mock_intent):
         mock_cust.return_value = MagicMock(id='cus_test123')
         mock_intent.return_value = MagicMock(client_secret='pi_secret_test')
-        resp = self.client.post(reverse('create_payment_intent', args=[self.package.id]))
+        resp = self.client.post(
+            reverse('create_payment_intent', args=[self.package.id]),
+            data=json.dumps({}), content_type='application/json',
+        )
         self.assertEqual(resp.status_code, 200)
         data = json.loads(resp.content)
         self.assertEqual(data['client_secret'], 'pi_secret_test')
@@ -117,7 +123,10 @@ class CreatePaymentIntentViewTest(TestCase):
             user=self.user, package=self.package, stripe_customer_id='cus_existing',
         )
         mock_intent.return_value = MagicMock(client_secret='pi_secret_existing')
-        resp = self.client.post(reverse('create_payment_intent', args=[self.package.id]))
+        resp = self.client.post(
+            reverse('create_payment_intent', args=[self.package.id]),
+            data=json.dumps({}), content_type='application/json',
+        )
         self.assertEqual(resp.status_code, 200)
         data = json.loads(resp.content)
         self.assertEqual(data['client_secret'], 'pi_secret_existing')
@@ -128,7 +137,10 @@ class CreatePaymentIntentViewTest(TestCase):
         mock_cust.return_value = MagicMock(id='cus_test')
         import stripe as stripe_mod
         mock_intent.side_effect = stripe_mod.error.StripeError('fail')
-        resp = self.client.post(reverse('create_payment_intent', args=[self.package.id]))
+        resp = self.client.post(
+            reverse('create_payment_intent', args=[self.package.id]),
+            data=json.dumps({}), content_type='application/json',
+        )
         self.assertEqual(resp.status_code, 400)
 
 

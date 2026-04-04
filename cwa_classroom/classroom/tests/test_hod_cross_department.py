@@ -45,14 +45,18 @@ class HoDCrossDepartmentTestBase(TestCase):
         )
         UserRole.objects.create(user=self.bob, role=self.teacher_role)
 
-        # School
+        # School — use a separate admin so Inoshi doesn't get auto-promoted to HoI
+        self.school_admin = CustomUser.objects.create_user(
+            username='schooladmin', email='schooladmin@test.com', password='testpass123',
+        )
         self.school = School.objects.create(
-            name='Test School', slug='test-school-hod', admin=self.inoshi,
+            name='Test School', slug='test-school-hod', admin=self.school_admin,
         )
-        SchoolTeacher.objects.create(
-            school=self.school, teacher=self.inoshi, is_active=True,
+        SchoolTeacher.objects.update_or_create(
+            school=self.school, teacher=self.inoshi,
+            defaults={'is_active': True, 'role': 'head_of_department'},
         )
-        SchoolTeacher.objects.create(
+        SchoolTeacher.objects.update_or_create(
             school=self.school, teacher=self.bob, is_active=True,
         )
 

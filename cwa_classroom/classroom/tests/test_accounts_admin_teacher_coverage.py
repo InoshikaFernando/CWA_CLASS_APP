@@ -14,6 +14,7 @@ from django.utils import timezone
 from accounts.models import CustomUser, Role, UserRole
 from billing.models import (
     InstitutePlan, SchoolSubscription, ModuleSubscription, Package,
+    Subscription,
 )
 from classroom.models import (
     School, Department, ClassRoom, SchoolTeacher, SchoolStudent,
@@ -63,7 +64,7 @@ def _setup_teacher(school, username='teacher1', email='teacher1@test.com',
         username=username, password='pass12345', email=email,
     )
     _assign_role(teacher, role_name)
-    SchoolTeacher.objects.create(school=school, teacher=teacher, role=st_role)
+    SchoolTeacher.objects.update_or_create(school=school, teacher=teacher, defaults={'role': st_role})
     return teacher
 
 
@@ -215,6 +216,9 @@ class SelectClassesViewTests(TestCase):
         )
         self.user.package = self.pkg
         self.user.save(update_fields=['package'])
+        Subscription.objects.create(
+            user=self.user, package=self.pkg, status=Subscription.STATUS_ACTIVE,
+        )
         self.client.login(username='indstudent', password='pass12345')
         # Create a classroom to join
         self.admin, self.school = _setup_school()
@@ -326,6 +330,9 @@ class ChangePackageViewTests(TestCase):
         )
         self.user.package = self.pkg
         self.user.save(update_fields=['package'])
+        Subscription.objects.create(
+            user=self.user, package=self.pkg, status=Subscription.STATUS_ACTIVE,
+        )
         self.client.login(username='indstudent2', password='pass12345')
 
     def test_get_shows_packages(self):
@@ -398,6 +405,7 @@ class ParentInviteViewTests(TestCase):
                 'password': 'pass12345',
                 'confirm_password': 'pass12345',
                 'username': 'janeparent',
+                'accept_terms': 'on',
             },
         )
         self.assertEqual(resp.status_code, 302)

@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block title %}Grade — {{ submission.student.get_full_name|default:submission.student.username }}{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-6">
+
+  <a href="{% url 'homework:submissions' hw_id=homework.pk %}" class="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+    Back to Submissions
+  </a>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+    <!-- Left: Submission content -->
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+      <div>
+        <h2 class="font-bold text-gray-900 text-lg">{{ submission.student.get_full_name|default:submission.student.username }}</h2>
+        <p class="text-sm text-gray-500">
+          Attempt {{ submission.attempt_number }}
+          {% if submission.homework.max_attempts > 0 %} of {{ submission.homework.max_attempts }}{% endif %}
+        </p>
+        <p class="text-sm text-gray-500">Submitted: {{ submission.submitted_at|date:"M j, g:i A" }}</p>
+        {% if submission.is_late %}
+        <p class="text-sm font-semibold text-red-600 mt-1">Late submission</p>
+        {% endif %}
+      </div>
+
+      <hr class="border-gray-100">
+
+      <div class="prose prose-sm max-w-none">
+        {% if submission.content %}
+          {{ submission.content|linebreaksbr }}
+        {% else %}
+          <p class="text-gray-400 italic">No text content submitted.</p>
+        {% endif %}
+      </div>
+
+      {% if submission.attachment %}
+      <div class="pt-2">
+        <a href="{{ submission.attachment.url }}" target="_blank" class="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:underline">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+          View attachment
+        </a>
+      </div>
+      {% endif %}
+
+      {% if all_submissions.count > 1 %}
+      <hr class="border-gray-100">
+      <h3 class="font-semibold text-gray-700 text-sm">Previous Attempts</h3>
+      <div class="space-y-2">
+        {% for sub in all_submissions %}
+        {% if sub.pk != submission.pk %}
+        <div class="text-sm text-gray-500 flex items-center gap-2">
+          <span>Attempt {{ sub.attempt_number }}</span>
+          <span>&middot;</span>
+          <span>{{ sub.submitted_at|date:"M j, g:i A" }}</span>
+          {% if sub.is_late %}<span class="text-xs font-semibold text-red-600">Late</span>{% endif %}
+          {% if sub.is_graded %}<span>&middot;</span><span>{{ sub.score|floatformat:1 }}/{{ sub.max_score|floatformat:1 }}</span>{% endif %}
+        </div>
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Right: Grading form -->
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+      <h2 class="font-bold text-gray-900 text-lg">Grading</h2>
+
+      <form method="post" class="space-y-4">
+        {% csrf_token %}
+
+        <div class="flex items-center gap-2">
+          <div>
+            <label class="block text-sm font-semibold text-gray-700 mb-1">Score</label>
+            {{ form.score }}
+          </div>
+          <span class="text-gray-400 font-bold mt-6">/</span>
+          <div>
+            <label class="block text-sm font-semibold text-gray-700 mb-1">Max</label>
+            {{ form.max_score }}
+          </div>
+        </div>
+        {% if form.score.errors %}<p class="text-red-500 text-xs">{{ form.score.errors.0 }}</p>{% endif %}
+
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Feedback</label>
+          {{ form.feedback }}
+        </div>
+
+        <div class="flex gap-3 pt-2">
+          <button type="submit" name="save" class="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition">Save Draft</button>
+          <button type="submit" name="publish" class="px-4 py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 transition">Save & Publish</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
