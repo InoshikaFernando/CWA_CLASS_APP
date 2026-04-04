@@ -218,10 +218,10 @@ class StudentClassDetailView(LoginRequiredMixin, View):
             )
             return redirect('student_my_classes')
 
-        # Fetch sessions for this class, most recent first
+        # Fetch sessions for this class, upcoming first (ascending)
         sessions = (
             ClassSession.objects.filter(classroom=classroom)
-            .order_by('-date', '-start_time')
+            .order_by('date', 'start_time')
         )
 
         # Fetch this student's attendance records for every session in the class
@@ -231,7 +231,7 @@ class StudentClassDetailView(LoginRequiredMixin, View):
                 student=request.user,
             )
             .select_related('session')
-            .order_by('-session__date', '-session__start_time')
+            .order_by('session__date', 'session__start_time')
         )
 
         # Build a lookup: session_id -> attendance record for template convenience

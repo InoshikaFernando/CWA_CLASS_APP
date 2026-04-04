@@ -2,6 +2,7 @@ import uuid
 import json
 import time
 from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.utils import timezone
@@ -353,14 +354,14 @@ class TimesTablesAnswerView(LoginRequiredMixin, View):
 
         next_url = None
         if is_last:
-            next_url = f'/times-tables/submit/{session_id}/'
+            next_url = reverse('times_tables_submit', kwargs={'session_id': session_id})
 
         return render(request, 'quiz/partials/tt_feedback.html', {
             'is_correct': is_correct,
             'correct_answer': q['answer'],
             'is_last_question': is_last,
             'next_url': next_url,
-            'next_question_url': f'/api/tt-next/{session_id}/' if not is_last else None,
+            'next_question_url': reverse('api_tt_next', kwargs={'session_id': session_id}) if not is_last else None,
             'session_id': session_id,
         })
 
@@ -376,7 +377,7 @@ class TimesTablesNextView(LoginRequiredMixin, View):
         questions = session_data['questions']
         current = session_data['current']
         if current >= len(questions):
-            return redirect(f'/times-tables/submit/{session_id}/')
+            return redirect(reverse('times_tables_submit', kwargs={'session_id': session_id}))
 
         q = questions[current]
         return render(request, 'quiz/partials/tt_question.html', {
@@ -757,7 +758,10 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             )
             request.session[f'tq_result_{q.topic.id}_{session_data["level_number"]}'] = result.id
             request.session.pop(session_key, None)
-            next_url = f'/level/{session_data["level_number"]}/topic/{q.topic.id}/results/'
+            next_url = reverse('topic_results', kwargs={
+                'level_number': session_data['level_number'],
+                'topic_id': q.topic.id,
+            })
 
             # Update topic-level statistics (mean/sigma)
             from maths.models import TopicLevelStatistics
@@ -785,7 +789,10 @@ class TopicNextQuestionView(LoginRequiredMixin, View):
         current = session_data['current']
         questions = session_data['questions']
         if current >= len(questions):
-            return redirect(f'/level/{session_data["level_number"]}/topic/{session_data["topic_id"]}/results/')
+            return redirect(reverse('topic_results', kwargs={
+                'level_number': session_data['level_number'],
+                'topic_id': session_data['topic_id'],
+            }))
 
         q_info = questions[current]
         from maths.models import Question

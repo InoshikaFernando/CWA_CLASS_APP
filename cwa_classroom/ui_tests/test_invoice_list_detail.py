@@ -28,12 +28,12 @@ class TestInvoiceList:
 
     def test_invoice_number_visible(self):
         """Invoice number should appear in the list."""
-        assert_page_has_text(self.page, "INV-0001")
+        assert_page_has_text(self.page, self.invoice.invoice_number)
 
     def test_generate_invoices_button(self):
-        """Generate Invoices link/button should exist."""
-        btn = self.page.locator("a, button", has_text=re.compile(r"Generate", re.IGNORECASE))
-        assert btn.count() > 0
+        """Generate Invoices button should be visible."""
+        btn = self.page.get_by_role("link", name=re.compile(r"Generate Invoices", re.IGNORECASE))
+        expect(btn.first).to_be_visible()
 
     def test_search_bar_visible(self):
         """Search input for filtering invoices."""
@@ -60,12 +60,10 @@ class TestInvoiceDetail:
         page.wait_for_load_state("domcontentloaded")
 
     def test_invoice_number_displayed(self):
-        assert_page_has_text(self.page, "INV-0001")
+        assert_page_has_text(self.page, self.invoice.invoice_number)
 
     def test_student_name_displayed(self):
-        body = self.page.locator("body").inner_text()
-        # May show username or first/last name
-        assert "ui_student" in body or "Student" in body or "INV" in body
+        assert_page_has_text(self.page, "Ui Student")
 
     def test_status_badge_displayed(self):
         """Status badge (draft) should be visible."""

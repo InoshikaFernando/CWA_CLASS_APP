@@ -69,7 +69,7 @@ def _setup_department(school, head=None):
     DepartmentSubject.objects.create(department=dept, subject=subj)
     if head:
         DepartmentTeacher.objects.create(department=dept, teacher=head)
-        SchoolTeacher.objects.get_or_create(
+        SchoolTeacher.objects.update_or_create(
             school=school, teacher=head,
             defaults={'role': 'head_of_department'},
         )
@@ -681,9 +681,8 @@ class AccountantAccessTests(TestCase):
             'accountant1', 'acc@test.com', 'pass12345',
         )
         _assign_role(self.accountant, Role.ACCOUNTANT)
-        SchoolTeacher.objects.create(
-            school=self.school, teacher=self.accountant, role='accountant',
-        )
+        SchoolTeacher.objects.update_or_create(
+            school=self.school, teacher=self.accountant, defaults={'role': 'accountant'})
         self.client = Client()
         self.client.login(username='accountant1', password='pass12345')
 
@@ -713,7 +712,7 @@ class ClassDetailViewTests(TestCase):
             'teacher_cd', 'tcd@test.com', 'pass12345',
         )
         _assign_role(self.teacher, Role.TEACHER)
-        SchoolTeacher.objects.create(school=self.school, teacher=self.teacher, role='teacher')
+        SchoolTeacher.objects.update_or_create(school=self.school, teacher=self.teacher, defaults={'role': 'teacher'})
         self.classroom = _setup_classroom(self.school, self.dept, self.subj)
         ClassTeacher.objects.create(classroom=self.classroom, teacher=self.teacher)
         self.student = _setup_student(self.school)
@@ -736,7 +735,7 @@ class ClassDetailViewTests(TestCase):
         self.dept.head = hod
         self.dept.save()
         DepartmentTeacher.objects.create(department=self.dept, teacher=hod)
-        SchoolTeacher.objects.create(school=self.school, teacher=hod, role='head_of_department')
+        SchoolTeacher.objects.update_or_create(school=self.school, teacher=hod, defaults={'role': 'head_of_department'})
         self.client.login(username='hod_cd', password='pass12345')
         resp = self.client.get(reverse('class_detail', args=[self.classroom.id]))
         self.assertEqual(resp.status_code, 200)
@@ -831,7 +830,7 @@ class HoDOverviewViewTests(TestCase):
         self.dept.head = hod
         self.dept.save()
         DepartmentTeacher.objects.create(department=self.dept, teacher=hod)
-        SchoolTeacher.objects.create(school=self.school, teacher=hod, role='head_of_department')
+        SchoolTeacher.objects.update_or_create(school=self.school, teacher=hod, defaults={'role': 'head_of_department'})
         self.client.login(username='hod_ov', password='pass12345')
         resp = self.client.get(reverse('hod_overview'))
         self.assertEqual(resp.status_code, 200)
@@ -862,7 +861,7 @@ class HoDManageClassesViewTests(TestCase):
         self.dept.head = hod
         self.dept.save()
         DepartmentTeacher.objects.create(department=self.dept, teacher=hod)
-        SchoolTeacher.objects.create(school=self.school, teacher=hod, role='head_of_department')
+        SchoolTeacher.objects.update_or_create(school=self.school, teacher=hod, defaults={'role': 'head_of_department'})
         self.client.login(username='hod_mc', password='pass12345')
         resp = self.client.get(reverse('hod_manage_classes'))
         self.assertEqual(resp.status_code, 200)

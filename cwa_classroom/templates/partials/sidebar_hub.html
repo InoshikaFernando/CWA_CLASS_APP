@@ -72,6 +72,14 @@ Subject-specific nav lives inside each subject's own pages.
   </a>
   {% endif %}
 
+  <!-- Help -->
+  <a href="{% url 'help:help_centre' %}"
+     class="flex items-center gap-3 px-4 py-3 rounded-2xl font-bold transition hover:bg-white/15 hover:scale-[1.01]
+            {% if 'help/' in request.path %}bg-white/20 text-white{% else %}text-white/90{% endif %}">
+    <span class="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-white/20 text-lg">&#10067;</span>
+    <span>Help</span>
+  </a>
+
   <!-- Profile -->
   <a href="{% url 'profile' %}"
      class="flex items-center gap-3 px-4 py-3 rounded-2xl text-white/90 font-bold transition hover:bg-white/15 hover:scale-[1.01]">

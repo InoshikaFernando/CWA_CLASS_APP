@@ -1,6 +1,7 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
 from django.contrib import messages
+from django.http import Http404
 from django.core.paginator import Paginator
 from django.db import transaction, models
 from django.utils.text import slugify
@@ -871,6 +872,10 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
         # For the modal: global levels not yet mapped (used if no subjects yet)
         unmapped_global_levels = list(all_global_levels.exclude(id__in=mapped_level_ids))
 
+        global_subjects = Subject.objects.filter(
+            school__isnull=True, is_active=True,
+        ).order_by('order', 'name')
+
         return render(request, 'admin_dashboard/department_subject_levels.html', {
             'school': school,
             'department': department,
@@ -879,6 +884,7 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
             'available_subjects': available_subjects,
             'all_departments': all_departments,
             'unmapped_global_levels': unmapped_global_levels,
+            'global_subjects': global_subjects,
         })
 
     def post(self, request, school_id, dept_id):
@@ -986,6 +992,14 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
                 return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
 
             subject = ds.subject
+
+            # Update global subject link
+            global_subject_id = request.POST.get('global_subject_id', '').strip()
+            if global_subject_id:
+                subject.global_subject_id = int(global_subject_id)
+            else:
+                subject.global_subject_id = None
+            subject.save(update_fields=['global_subject'])
 
             # Update subject name
             if new_name and new_name != subject.name:
@@ -1367,3 +1381,78 @@ class DepartmentSettingsView(RoleRequiredMixin, View):
         )
         messages.success(request, f'Settings for "{department.name}" saved successfully.')
         return redirect('admin_department_settings', school_id=school.id, dept_id=department.id)
+
+
+class ClassSettingsView(RoleRequiredMixin, View):
+    """Manage class-level settings overrides (banking, GST) for invoices."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.ACCOUNTANT, Role.HEAD_OF_DEPARTMENT]
+
+    OVERRIDE_FIELDS = ClassRoom.CLASS_OVERRIDE_FIELDS
+
+    @staticmethod
+    def _is_field_set(value):
+        if value is None:
+            return False
+        if isinstance(value, str) and value == '':
+            return False
+        return True
+
+    def _build_form_data(self, classroom, effective_dept_settings):
+        """Build form data showing class overrides and effective dept/school defaults."""
+        data = {}
+        for field in self.OVERRIDE_FIELDS:
+            cls_val = getattr(classroom, field, '')
+            is_set = self._is_field_set(cls_val)
+            data[field] = {
+                'value': cls_val if is_set else '',
+                'effective_default': effective_dept_settings.get(field, ''),
+                'is_overridden': is_set,
+            }
+        return data
+
+    def _get_classroom(self, request, class_id):
+        from django.db.models import Q
+        user = request.user
+        if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
+            return get_object_or_404(ClassRoom, id=class_id, school__admin=user)
+        elif user.has_role(Role.HEAD_OF_DEPARTMENT):
+            classroom = ClassRoom.objects.filter(
+                Q(department__head=user) | Q(teachers=user),
+                id=class_id,
+            ).distinct().first()
+            if not classroom:
+                raise Http404
+            return classroom
+        raise Http404
+
+    def get(self, request, class_id):
+        classroom = self._get_classroom(request, class_id)
+        school = classroom.school
+        eff_dept = school.get_effective_settings(classroom.department)
+        return render(request, 'admin_dashboard/class_settings.html', {
+            'school': school,
+            'classroom': classroom,
+            'form_data': self._build_form_data(classroom, eff_dept),
+        })
+
+    def post(self, request, class_id):
+        classroom = self._get_classroom(request, class_id)
+        school = classroom.school
+
+        for field in self.OVERRIDE_FIELDS:
+            override_key = f'override_{field}'
+            is_overridden = request.POST.get(override_key) == '1'
+            if is_overridden:
+                setattr(classroom, field, request.POST.get(field, '').strip())
+            else:
+                setattr(classroom, field, '')
+
+        classroom.save()
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='class_settings_updated',
+            detail={'classroom_id': classroom.id, 'classroom': classroom.name},
+            request=request,
+        )
+        messages.success(request, f'Settings for "{classroom.name}" saved successfully.')
+        return redirect('class_settings', class_id=classroom.id)

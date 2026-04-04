@@ -165,18 +165,12 @@ class _BaseAttendanceProgressTest(TestCase):
         cls.classroom.levels.add(cls.level)
 
         # --- SchoolTeacher memberships ---
-        SchoolTeacher.objects.create(
+        SchoolTeacher.objects.update_or_create(
             school=cls.school,
-            teacher=cls.admin_user,
-            role='head_of_institute',
-            is_active=True,
-        )
-        SchoolTeacher.objects.create(
+            teacher=cls.admin_user, defaults={'role': 'head_of_institute', 'is_active': True})
+        SchoolTeacher.objects.update_or_create(
             school=cls.school,
-            teacher=cls.teacher_user,
-            role='senior_teacher',
-            is_active=True,
-        )
+            teacher=cls.teacher_user, defaults={'role': 'senior_teacher', 'is_active': True})
 
         # --- Assign teacher to classroom ---
         ClassTeacher.objects.create(classroom=cls.classroom, teacher=cls.teacher_user)
@@ -418,9 +412,8 @@ class ProgressCriteriaTest(_BaseAttendanceProgressTest):
         # Create a plain teacher (not senior)
         plain_teacher = _create_user('plain_teacher', first_name='Junior', last_name='T')
         _assign_role(plain_teacher, Role.TEACHER)
-        SchoolTeacher.objects.create(
-            school=self.school, teacher=plain_teacher, role='teacher', is_active=True,
-        )
+        SchoolTeacher.objects.update_or_create(
+            school=self.school, teacher=plain_teacher, defaults={'role': 'teacher', 'is_active': True})
         ClassTeacher.objects.create(classroom=self.classroom, teacher=plain_teacher)
 
         self.client.force_login(plain_teacher)
