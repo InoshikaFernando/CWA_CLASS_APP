@@ -60,14 +60,14 @@ urlpatterns = [
     # --- Help & Documentation ---
     path('help/', include('help.urls', namespace='help')),
 
-    # --- Homework ---
-    path('homework/', include('homework.urls')),
-
     # --- Core apps ---
     path('', include('classroom.urls')),
-    path('', include('number_puzzles.urls')),
+    path('', include('number_puzzles.urls')),  # before quiz — quiz has catch-all basic-facts/<str>/
     path('maths/', include('quiz.urls')),  # quiz is maths-only content
     path('', include('progress.urls')),
+
+    # --- Homework ---
+    path('', include('homework.urls', namespace='homework')),
 
     # --- Billing ---
     path('', include('billing.urls')),
