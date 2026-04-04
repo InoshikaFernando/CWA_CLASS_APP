@@ -31,7 +31,7 @@
   </a>
 
   <!-- Homework -->
-  <a href="{% url 'homework:dashboard' %}" class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl
+  <a href="{% url 'homework:student_list' %}" class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl
                      {% if '/homework/' in request.path %}text-emerald-600{% else %}text-gray-400 hover:text-emerald-500{% endif %} transition">
     <span class="text-lg leading-none">📝</span>
     <span class="text-xs font-bold">Homework</span>
