@@ -35,7 +35,7 @@ class TestParentSidebarLink:
     def test_hoi_has_parents_link(self, hoi_user, hoi_school_setup):
         do_login(self.page, self.url, hoi_user)
         self.page.goto(f"{self.url}/dashboard/")
-        self.page.wait_for_load_state("domcontentloaded")
+        self.page.wait_for_load_state("networkidle")
         assert_sidebar_has_link(self.page, "Parents")
 
 
