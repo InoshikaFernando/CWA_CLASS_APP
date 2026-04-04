@@ -12,6 +12,7 @@ from . import views_salaries
 from . import views_parent
 from . import views_parent_admin
 from attendance import views_student as attendance_views_student
+from attendance import views_teacher as attendance_views_teacher
 
 urlpatterns = [
     # NOTE: The old HomeView at '/' has been replaced by PublicHomeView + SubjectsHubView
@@ -203,6 +204,10 @@ urlpatterns = [
     path('student/absence-tokens/request/', attendance_views_student.RequestAbsenceTokenView.as_view(), name='student_request_absence_token'),
     path('student/absence-tokens/<int:token_id>/available-sessions/', attendance_views_student.AvailableMakeupSessionsView.as_view(), name='student_available_makeup_sessions'),
     path('student/absence-tokens/<int:token_id>/redeem/', attendance_views_student.RedeemAbsenceTokenView.as_view(), name='student_redeem_absence_token'),
+    # Teacher absence token approval routes
+    path('teacher/absence-tokens/', attendance_views_teacher.AbsenceTokenApprovalListView.as_view(), name='absence_token_approvals'),
+    path('teacher/absence-tokens/<int:token_id>/approve/', attendance_views_teacher.AbsenceTokenApproveView.as_view(), name='absence_token_approve'),
+    path('teacher/absence-tokens/<int:token_id>/reject/', attendance_views_teacher.AbsenceTokenRejectView.as_view(), name='absence_token_reject'),
 
     # Progress criteria & tracking
     path('progress/criteria/', views_progress.ProgressCriteriaListView.as_view(), name='progress_criteria_list'),
