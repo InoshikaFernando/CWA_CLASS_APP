@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load classroom_extras %}
 
 {% block title %}Invoice {{ invoice.invoice_number }}{% endblock %}
 
@@ -82,11 +83,11 @@
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
             <p class="text-xs font-medium text-gray-500 uppercase">Calculated</p>
-            <p class="text-lg font-semibold text-gray-900">${{ invoice.calculated_amount }}</p>
+            <p class="text-lg font-semibold text-gray-900">{{ invoice.calculated_amount|format_currency:effective_currency }}</p>
           </div>
           <div>
             <p class="text-xs font-medium text-gray-500 uppercase">Final Amount</p>
-            <p class="text-lg font-semibold text-gray-900">${{ invoice.amount }}</p>
+            <p class="text-lg font-semibold text-gray-900">{{ invoice.amount|format_currency:effective_currency }}</p>
           </div>
           <div>
             <p class="text-xs font-medium text-gray-500 uppercase">Mode</p>
@@ -141,14 +142,14 @@
                   <td class="px-6 py-3 text-sm text-gray-600 text-right">{{ line.sessions_attended }}</td>
                   <td class="px-6 py-3 text-sm text-gray-600 text-right">{{ line.sessions_charged }}</td>
                 {% endif %}
-                <td class="px-6 py-3 text-sm font-medium text-gray-900 text-right">${{ line.line_amount }}</td>
+                <td class="px-6 py-3 text-sm font-medium text-gray-900 text-right">{{ line.line_amount|format_currency:effective_currency }}</td>
               </tr>
             {% endfor %}
           </tbody>
           <tfoot>
             <tr class="bg-slate-50 border-t border-slate-200">
               <td colspan="6" class="px-6 py-3 text-sm font-semibold text-gray-900 text-right">Total</td>
-              <td class="px-6 py-3 text-sm font-bold text-gray-900 text-right">${{ invoice.calculated_amount }}</td>
+              <td class="px-6 py-3 text-sm font-bold text-gray-900 text-right">{{ invoice.calculated_amount|format_currency:effective_currency }}</td>
             </tr>
           </tfoot>
         </table>

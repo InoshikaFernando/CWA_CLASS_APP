@@ -1457,15 +1457,33 @@ class ClassSettingsView(RoleRequiredMixin, View):
         classroom = self._get_classroom(request, class_id)
         school = classroom.school
         eff_dept = school.get_effective_settings(classroom.department)
+        dept_effective_currency = (
+            classroom.department.get_effective_currency()
+            if classroom.department_id
+            else (school.get_effective_currency() if school else None)
+        )
         return render(request, 'admin_dashboard/class_settings.html', {
             'school': school,
             'classroom': classroom,
             'form_data': self._build_form_data(classroom, eff_dept),
+            'active_currencies': Currency.objects.filter(is_active=True).order_by('code'),
+            'dept_effective_currency': dept_effective_currency,
         })
 
     def post(self, request, class_id):
         classroom = self._get_classroom(request, class_id)
         school = classroom.school
+
+        # Handle currency_override FK
+        if 'currency_override' in request.POST:
+            code = request.POST.get('currency_override', '').strip()
+            if not code:
+                classroom.currency_override = None
+            else:
+                try:
+                    classroom.currency_override = Currency.objects.get(code=code, is_active=True)
+                except Currency.DoesNotExist:
+                    pass
 
         for field in self.OVERRIDE_FIELDS:
             override_key = f'override_{field}'

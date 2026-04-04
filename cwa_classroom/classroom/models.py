@@ -143,6 +143,44 @@ class Currency(models.Model):
     def __str__(self):
         return f'{self.code} - {self.name}'
 
+    def get_references(self):
+        """Return lists of schools/departments/classes that reference this currency.
+
+        Used by guard-rail logic to prevent deactivating an in-use currency.
+        Returns a dict with keys 'schools', 'departments', 'classes'.
+        """
+        # Import here to avoid circular import at module load
+        schools = list(School.objects.filter(default_currency=self).values_list('name', flat=True))
+        departments = list(Department.objects.filter(currency_override=self).values_list('name', flat=True))
+        classes = list(ClassRoom.objects.filter(currency_override=self).values_list('name', flat=True))
+        return {'schools': schools, 'departments': departments, 'classes': classes}
+
+    def clean(self):
+        """Block deactivation if any school/department/class still references this currency."""
+        from django.core.exceptions import ValidationError
+        if not self.is_active:
+            # Check if this record already exists and was previously active
+            if self.pk:
+                try:
+                    original = Currency.objects.get(pk=self.pk)
+                except Currency.DoesNotExist:
+                    return
+                if original.is_active:
+                    # Being set to inactive — check references
+                    refs = self.get_references()
+                    messages_parts = []
+                    if refs['schools']:
+                        messages_parts.append(f"Schools: {', '.join(refs['schools'])}")
+                    if refs['departments']:
+                        messages_parts.append(f"Departments: {', '.join(refs['departments'])}")
+                    if refs['classes']:
+                        messages_parts.append(f"Classes: {', '.join(refs['classes'])}")
+                    if messages_parts:
+                        raise ValidationError(
+                            f"Cannot deactivate {self.code}: it is still in use. "
+                            + " | ".join(messages_parts)
+                        )
+
     def format_amount(self, value) -> str:
         """Return *value* formatted as a currency string using this currency's rules.
 

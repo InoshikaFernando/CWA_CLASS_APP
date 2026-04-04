@@ -128,6 +128,26 @@
       {% endwith %}
     </div>
 
+    <!-- ═══ CURRENCY OVERRIDE ═══ -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 mb-6">
+      <h2 class="text-lg font-display font-bold text-gray-900 mb-2">Currency Override</h2>
+      <p class="text-sm text-gray-500 mb-5">
+        Set a different invoice currency for this class.
+        Leave as <em>Use department default</em> to inherit from the department or school setting.
+      </p>
+      <select name="currency_override"
+              class="w-full md:w-80 px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+        <option value="">
+          Use department default{% if dept_effective_currency %} ({{ dept_effective_currency.code }}){% endif %}
+        </option>
+        {% for cur in active_currencies %}
+        <option value="{{ cur.code }}" {% if classroom.currency_override_id == cur.code %}selected{% endif %}>
+          {{ cur.code }} — {{ cur.name }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+
     <!-- Actions -->
     <div class="flex items-center justify-end gap-3">
       <a href="{% url 'class_detail' class_id=classroom.id %}"

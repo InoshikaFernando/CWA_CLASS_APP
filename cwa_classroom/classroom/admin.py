@@ -24,9 +24,19 @@ from .models import (
 class CurrencyAdmin(admin.ModelAdmin):
     list_display = ('code', 'name', 'symbol', 'symbol_position', 'decimal_places', 'is_active')
     list_filter = ('is_active', 'symbol_position')
-    list_editable = ('is_active',)
     search_fields = ('code', 'name')
     ordering = ('code',)
+
+    def save_model(self, request, obj, form, change):
+        """Block deactivation of a currency that is still referenced by schools/depts/classes."""
+        from django.core.exceptions import ValidationError
+        try:
+            obj.full_clean()
+        except ValidationError as exc:
+            from django.contrib import messages as dj_messages
+            dj_messages.error(request, '; '.join(exc.messages))
+            return  # abort save
+        super().save_model(request, obj, form, change)
 
 
 # ---------------------------------------------------------------------------
