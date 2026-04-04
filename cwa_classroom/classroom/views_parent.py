@@ -2,6 +2,8 @@
 Parent portal views — read-only access to linked children's data.
 CPP-67 (invoices & payments), CPP-68 (attendance), CPP-69 (progress).
 """
+from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
 from django.db.models import Max, Q
 from django.shortcuts import render, redirect, get_object_or_404
@@ -587,3 +589,137 @@ class ParentClassesView(RoleRequiredMixin, View):
             'active_school': school,
             'children': _get_parent_children(request.user),
         })
+
+
+# ---------------------------------------------------------------------------
+# Become a Parent (for existing users — teachers, HoI, etc.)
+# ---------------------------------------------------------------------------
+
+class BecomeParentView(LoginRequiredMixin, View):
+    """
+    Allow any authenticated user (e.g. a teacher whose child attends the school)
+    to register as a parent without creating a new account.
+
+    Flow:
+    1. User fills in their child's Student ID and relationship.
+    2. A ParentLinkRequest is created (pending teacher/HoI approval).
+    3. The PARENT role is added to their existing account immediately so they can
+       see the parent dashboard (with a "pending" state).
+    4. active_role in session is set to 'parent' so they land on the parent UI.
+    5. The topbar role-switcher automatically appears (multi-role user).
+    6. When approved, the ParentStudent link is created by the existing
+       ParentLinkApproveView — no further changes needed there.
+    """
+
+    RELATIONSHIP_CHOICES = [
+        ('mother', 'Mother'),
+        ('father', 'Father'),
+        ('guardian', 'Guardian'),
+        ('other', 'Other'),
+    ]
+
+    def get(self, request):
+        if request.user.has_role(Role.PARENT):
+            return redirect('parent_dashboard')
+        return render(request, 'parent/become_parent.html', {
+            'relationship_choices': self.RELATIONSHIP_CHOICES,
+        })
+
+    def post(self, request):
+        if request.user.has_role(Role.PARENT):
+            return redirect('parent_dashboard')
+
+        student_id_code = request.POST.get('student_id', '').strip().upper()
+        relationship = request.POST.get('relationship', 'guardian').strip()
+        errors = {}
+
+        if not student_id_code:
+            errors['student_id'] = 'Student ID is required.'
+        else:
+            school_student = SchoolStudent.objects.filter(
+                student_id_code=student_id_code, is_active=True,
+            ).select_related('school', 'student').first()
+
+            if not school_student:
+                errors['student_id'] = (
+                    f'Student ID "{student_id_code}" was not found. '
+                    'Please check the ID and try again.'
+                )
+            else:
+                # Already have a pending or approved request?
+                if ParentLinkRequest.objects.filter(
+                    parent=request.user,
+                    school_student=school_student,
+                    status__in=[ParentLinkRequest.STATUS_PENDING,
+                                 ParentLinkRequest.STATUS_APPROVED],
+                ).exists():
+                    errors['student_id'] = 'You already have an active request for this student.'
+                # Already directly linked?
+                elif ParentStudent.objects.filter(
+                    parent=request.user,
+                    student=school_student.student,
+                ).exists():
+                    errors['student_id'] = 'You are already linked to this student.'
+                # Max 2 parents per student
+                else:
+                    parent_count = ParentStudent.objects.filter(
+                        student=school_student.student,
+                        school=school_student.school,
+                        is_active=True,
+                    ).count()
+                    if parent_count >= 2:
+                        errors['student_id'] = (
+                            f'{school_student.student.first_name} already has the '
+                            'maximum number of parent accounts linked.'
+                        )
+
+        if errors:
+            return render(request, 'parent/become_parent.html', {
+                'errors': errors,
+                'relationship_choices': self.RELATIONSHIP_CHOICES,
+                'form_data': {'student_id': student_id_code, 'relationship': relationship},
+            })
+
+        from accounts.models import UserRole
+        from django.db import transaction
+
+        with transaction.atomic():
+            # Add PARENT role to the existing account if not already there
+            parent_role, _ = Role.objects.get_or_create(
+                name=Role.PARENT,
+                defaults={'display_name': 'Parent'},
+            )
+            UserRole.objects.get_or_create(user=request.user, role=parent_role)
+
+            # Create the pending link request (requires teacher/HoI approval)
+            ParentLinkRequest.objects.create(
+                parent=request.user,
+                school_student=school_student,
+                relationship=relationship,
+                status=ParentLinkRequest.STATUS_PENDING,
+            )
+
+        # Switch active role so they land on the parent dashboard
+        request.session['active_role'] = Role.PARENT
+
+        try:
+            from audit.services import log_event
+            log_event(
+                user=request.user, school=school_student.school,
+                category='data_change', action='user_added_parent_role',
+                detail={
+                    'student_id_code': student_id_code,
+                    'relationship': relationship,
+                },
+                request=request,
+            )
+        except Exception:
+            pass
+
+        messages.success(
+            request,
+            f'Your request to link with '
+            f'{school_student.student.first_name} {school_student.student.last_name} '
+            f'has been submitted. You will be notified once a teacher approves it.'
+        )
+        return redirect('parent_dashboard')
