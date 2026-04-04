@@ -1,0 +1,45 @@
+{# Question management links. Pass show_browse_topics=True and show_upload_questions=True to control which links appear. #}
+
+{% if show_browse_topics %}
+<!-- Browse Topics -->
+<a href="{% url 'topics' %}"
+   class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
+          {% if request.path == '/topics/' or 'topic/' in request.path %}bg-white/15{% else %}hover:bg-white/10{% endif %}">
+  <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z"/>
+  </svg>
+  <span>Browse Topics</span>
+</a>
+{% endif %}
+
+{% if show_upload_questions %}
+<!-- Upload Questions -->
+<a href="{% url 'upload_questions' %}"
+   class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
+          {% if 'upload-questions' in request.path %}bg-white/15{% else %}hover:bg-white/10{% endif %}">
+  <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+  </svg>
+  <span>Upload Questions</span>
+</a>
+{% endif %}
+
+<!-- Create Questions -->
+<a href="{% url 'create_question' %}"
+   class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
+          {% if 'create-question' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
+  <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+  </svg>
+  <span>Create Questions</span>
+</a>
+
+<!-- AI Import Questions -->
+<a href="{% url 'ai_import:upload' %}"
+   class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
+          {% if 'ai-import' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
+  <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z"/>
+  </svg>
+  <span>AI Import Questions</span>
+</a>

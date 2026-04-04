@@ -60,17 +60,17 @@ urlpatterns = [
     # --- Core apps ---
     path('', include('classroom.urls')),
     path('', include('number_puzzles.urls')),  # before quiz — quiz has catch-all basic-facts/<str>/
-    path('', include('quiz.urls')),
+    path('maths/', include('quiz.urls')),  # quiz is maths-only content
     path('', include('progress.urls')),
+
+    # --- Homework ---
+    path('', include('homework.urls', namespace='homework')),
 
     # --- Billing ---
     path('', include('billing.urls')),
 
     # --- Audit ---
     path('', include('audit.urls')),
-
-    # --- Homework ---
-    path('', include('homework.urls', namespace='homework')),
 
     # --- Subject apps ---
     path('maths/', include('maths.urls', namespace='maths')),
