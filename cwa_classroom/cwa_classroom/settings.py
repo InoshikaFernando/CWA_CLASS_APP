@@ -70,12 +70,13 @@ INSTALLED_APPS = [
 
     # Activity apps
     'number_puzzles',
+    'homework',
 
     # AI tools
     'ai_import',
 
-    # Homework
-    'homework',
+    # Help & Documentation
+    'help',
 ]
 
 # ---------------------------------------------------------------------------
@@ -120,6 +121,7 @@ TEMPLATES = [
                 'classroom.context_processors.subject_apps',
                 'classroom.context_processors.subject_sidebar_context',
                 'classroom.context_processors.breadcrumbs_context',
+                'help.context_processors.help_context',
             ],
         },
     },

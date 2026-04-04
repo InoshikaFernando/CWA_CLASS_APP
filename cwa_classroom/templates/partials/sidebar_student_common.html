@@ -42,7 +42,7 @@ student_has_classes is True (set by accounts context processor).
 
 {% if student_has_classes %}
 <!-- Homework -->
-<a href="{% url 'homework:dashboard' %}"
+<a href="{% url 'homework:student_list' %}"
    class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
           {% if '/homework/' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
   <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -87,6 +87,16 @@ student_has_classes is True (set by accounts context processor).
     <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z"/>
   </svg>
   <span>Billing</span>
+</a>
+
+<!-- Help -->
+<a href="{% url 'help:help_centre' %}"
+   class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
+          {% if 'help/' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
+  <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z"/>
+  </svg>
+  <span>Help</span>
 </a>
 
 {% include "partials/sidebar_includes/profile_link.html" %}
