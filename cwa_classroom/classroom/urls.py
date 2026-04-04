@@ -106,6 +106,9 @@ urlpatterns = [
     # Platform management (superuser only)
     path('admin-dashboard/subject-apps/', views_admin.SubjectAppManageView.as_view(), name='admin_subject_apps'),
 
+    # Database backup (superuser only)
+    path('admin-dashboard/database-backup/', views_admin.DatabaseBackupView.as_view(), name='database_backup'),
+
     # Account blocking & school suspension
     path('admin-dashboard/block-user/', views_admin.BlockUserView.as_view(), name='admin_block_user'),
     path('admin-dashboard/unblock-user/', views_admin.UnblockUserView.as_view(), name='admin_unblock_user'),
