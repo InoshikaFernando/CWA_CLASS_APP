@@ -78,12 +78,16 @@ class ParentSelfJoinView(View):
 
         form_data['student_entries'] = list(zip(student_ids, relationships))
 
+        accept_terms = request.POST.get('accept_terms')
+
         # --- Validation ---
 
         if not first_name:
             errors['first_name'] = 'First name is required.'
         if not last_name:
             errors['last_name'] = 'Last name is required.'
+        if not accept_terms:
+            errors['accept_terms'] = 'You must accept the Terms and Conditions and Privacy Policy.'
 
         # Email validation
         if not email:
@@ -179,6 +183,7 @@ class ParentSelfJoinView(View):
         # --- Create account and pending link requests ---
         try:
             with transaction.atomic():
+                from django.utils import timezone
                 user = CustomUser.objects.create_user(
                     username=username,
                     email=email,
@@ -186,6 +191,8 @@ class ParentSelfJoinView(View):
                     first_name=first_name,
                     last_name=last_name,
                 )
+                user.terms_accepted_at = timezone.now()
+                user.save(update_fields=['terms_accepted_at'])
 
                 # Assign PARENT role
                 parent_role, _created = Role.objects.get_or_create(

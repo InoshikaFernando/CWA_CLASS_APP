@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load tz %}
 {% block title %}Terms — {{ school.name }}{% endblock %}
 {% block content %}
 <div class="max-w-4xl mx-auto">
@@ -80,14 +81,36 @@
             <!-- Display Mode -->
             <div x-show="!editing" class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div class="min-w-0">
-                <p class="font-medium text-gray-900">{{ term.name }}</p>
+                <div class="flex items-center gap-2">
+                  <p class="font-medium text-gray-900">{{ term.name }}</p>
+                  {% if term.is_confirmed %}
+                    <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Confirmed</span>
+                  {% else %}
+                    <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Unconfirmed</span>
+                  {% endif %}
+                </div>
                 <p class="text-sm text-gray-500">
                   {{ term.start_date|date:"M d, Y" }} — {{ term.end_date|date:"M d, Y" }}
                   {% if term.academic_year %}<span class="ml-2 text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full">{{ term.academic_year.year }}</span>{% endif %}
                   <span class="ml-2 text-xs text-gray-400">Order: {{ term.order }}</span>
                 </p>
+                {% if term.is_confirmed and term.confirmed_at %}
+                  <p class="text-xs text-gray-400 mt-0.5">Confirmed on {{ term.confirmed_at|date:"M d, Y H:i" }}</p>
+                {% endif %}
               </div>
               <div class="flex items-center gap-2 flex-shrink-0">
+                {% if not term.is_confirmed %}
+                  <form method="post" class="inline">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="confirm">
+                    <input type="hidden" name="term_id" value="{{ term.id }}">
+                    <button type="submit"
+                            class="px-3 py-1.5 text-emerald-600 hover:bg-emerald-50 text-sm font-medium rounded-lg transition"
+                            onclick="return confirm('Confirm term &quot;{{ term.name }}&quot;? This locks in the dates.')">
+                      Confirm
+                    </button>
+                  </form>
+                {% endif %}
                 <button @click="editing = true"
                         class="px-3 py-1.5 text-accent hover:bg-blue-50 text-sm font-medium rounded-lg transition">
                   Edit

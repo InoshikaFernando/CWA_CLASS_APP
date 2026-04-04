@@ -64,6 +64,7 @@ class InstituteRegistrationTest(TestCase):
             'password': 'securepass1',
             'confirm_password': 'securepass1',
             'plan_id': self.plan_basic.id,
+            'accept_terms': 'on',
         })
         self.assertEqual(resp.status_code, 302)  # redirect on success
 
@@ -88,6 +89,7 @@ class InstituteRegistrationTest(TestCase):
             'password': 'securepass1',
             'confirm_password': 'securepass1',
             'plan_id': self.plan_silver.id,
+            'accept_terms': 'on',
         })
         user = CustomUser.objects.get(username='silveradmin')
         from classroom.models import School
@@ -104,6 +106,7 @@ class InstituteRegistrationTest(TestCase):
             'email': 'admin@test.com',
             'password': 'securepass1',
             'confirm_password': 'securepass1',
+            'accept_terms': 'on',
         })
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'select a plan')
@@ -115,6 +118,7 @@ class InstituteRegistrationTest(TestCase):
             'password': 'securepass1',
             'confirm_password': 'securepass1',
             'plan_id': self.plan_basic.id,
+            'accept_terms': 'on',
         })
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'centre name is required')
@@ -127,6 +131,7 @@ class InstituteRegistrationTest(TestCase):
             'password': 'securepass1',
             'confirm_password': 'different',
             'plan_id': self.plan_basic.id,
+            'accept_terms': 'on',
         })
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'match')
@@ -140,6 +145,7 @@ class InstituteRegistrationTest(TestCase):
             'password': 'securepass1',
             'confirm_password': 'securepass1',
             'plan_id': self.plan_basic.id,
+            'accept_terms': 'on',
         })
         self.assertEqual(resp.status_code, 200)
 
@@ -151,6 +157,7 @@ class InstituteRegistrationTest(TestCase):
             'password': 'securepass1',
             'confirm_password': 'securepass1',
             'plan_id': '99999',
+            'accept_terms': 'on',
         })
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'select a plan')
@@ -175,6 +182,7 @@ class SchoolStudentRegistrationTest(TestCase):
             'username': 'johndoe',
             'password': 'securepass1',
             'confirm_password': 'securepass1',
+            'accept_terms': 'on',
         })
         self.assertEqual(resp.status_code, 302)
         user = CustomUser.objects.get(username='johndoe')
@@ -187,6 +195,7 @@ class SchoolStudentRegistrationTest(TestCase):
             'username': 'johndoe',
             'password': 'securepass1',
             'confirm_password': 'securepass1',
+            'accept_terms': 'on',
         })
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'First name')
@@ -199,6 +208,7 @@ class SchoolStudentRegistrationTest(TestCase):
             'username': 'johndoe',
             'password': 'short',
             'confirm_password': 'short',
+            'accept_terms': 'on',
         })
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'at least 8')
@@ -211,7 +221,7 @@ class SchoolStudentRegistrationTest(TestCase):
 
 
 class IndividualStudentRegistrationTest(TestCase):
-    """Test IndividualStudentRegisterView — 3-step with package selection."""
+    """Test IndividualStudentRegisterView — multi-step with package selection."""
 
     @classmethod
     def setUpTestData(cls):
@@ -242,6 +252,7 @@ class IndividualStudentRegistrationTest(TestCase):
             'password': 'securepass1',
             'confirm_password': 'securepass1',
             'package_id': self.free_pkg.id,
+            'accept_terms': 'on',
         })
         self.assertEqual(resp.status_code, 302)
         user = CustomUser.objects.get(username='freestudent')
@@ -257,6 +268,7 @@ class IndividualStudentRegistrationTest(TestCase):
             'password': 'securepass1',
             'confirm_password': 'securepass1',
             'package_id': self.basic_pkg.id,
+            'accept_terms': 'on',
         })
         # Paid package redirects to checkout
         self.assertEqual(resp.status_code, 302)
@@ -271,6 +283,7 @@ class IndividualStudentRegistrationTest(TestCase):
             'email': 'nopack@test.com',
             'password': 'securepass1',
             'confirm_password': 'securepass1',
+            'accept_terms': 'on',
         })
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'package')
@@ -318,6 +331,7 @@ class InstituteDiscountCodeTest(TestCase):
             'confirm_password': 'securepass1',
             'plan_id': self.plan.id,
             'discount_code': code,
+            'accept_terms': 'on',
         }
 
     def test_100_percent_code_activates_immediately(self):
@@ -494,6 +508,7 @@ class StripeTrialRegistrationTest(TestCase):
             'password': 'securepass1',
             'confirm_password': 'securepass1',
             'plan_id': self.plan_no_stripe.id,
+            'accept_terms': 'on',
         })
         self.assertEqual(resp.status_code, 302)
         self.assertIn('/hub/', resp.url)
@@ -507,6 +522,7 @@ class StripeTrialRegistrationTest(TestCase):
             'password': 'securepass1',
             'confirm_password': 'securepass1',
             'plan_id': self.plan_no_stripe.id,
+            'accept_terms': 'on',
         })
         from classroom.models import School
         school = School.objects.get(name='Trial School')
@@ -527,6 +543,7 @@ class StripeTrialRegistrationTest(TestCase):
             'confirm_password': 'securepass1',
             'plan_id': self.plan_with_stripe.id,
             'discount_code': 'SKIPSTRIPE',
+            'accept_terms': 'on',
         })
         self.assertEqual(resp.status_code, 302)
         self.assertIn('/hub/', resp.url)
@@ -535,3 +552,174 @@ class StripeTrialRegistrationTest(TestCase):
         sub = SchoolSubscription.objects.get(school=school)
         self.assertEqual(sub.status, SchoolSubscription.STATUS_ACTIVE)
         self.assertFalse(sub.has_used_trial)
+
+
+# ═══════════════════════════════════════════════════════════════
+# Terms & Conditions / Privacy Policy Acceptance Tests (CPP-92)
+# ═══════════════════════════════════════════════════════════════
+
+class TermsAcceptanceInstituteTest(TestCase):
+    """Test that institute registration requires T&C acceptance."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.plan, _ = InstitutePlan.objects.get_or_create(
+            slug='basic', defaults={
+                'name': 'Basic', 'price': 89, 'class_limit': 5,
+                'student_limit': 100, 'invoice_limit_yearly': 500,
+                'extra_invoice_rate': 0.30, 'trial_days': 14, 'order': 1,
+            },
+        )
+
+    def setUp(self):
+        self.client = Client()
+        self.url = reverse('register_teacher_center')
+
+    def _base_data(self, accept=False):
+        data = {
+            'center_name': 'Terms School',
+            'username': 'termsuser',
+            'email': 'terms@test.com',
+            'password': 'securepass1',
+            'confirm_password': 'securepass1',
+            'plan_id': self.plan.id,
+        }
+        if accept:
+            data['accept_terms'] = 'on'
+        return data
+
+    def test_fails_without_accept_terms(self):
+        resp = self.client.post(self.url, self._base_data(accept=False))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Terms and Conditions')
+
+    def test_succeeds_with_accept_terms(self):
+        resp = self.client.post(self.url, self._base_data(accept=True))
+        self.assertEqual(resp.status_code, 302)
+        user = CustomUser.objects.get(username='termsuser')
+        self.assertIsNotNone(user.terms_accepted_at)
+
+    def test_get_shows_terms_acceptance_widget(self):
+        resp = self.client.get(self.url)
+        self.assertContains(resp, 'accept-terms')
+        self.assertContains(resp, 'terms-scroll')
+        self.assertContains(resp, 'privacy-scroll')
+
+
+class TermsAcceptanceSchoolStudentTest(TestCase):
+    """Test that school student registration requires T&C acceptance."""
+
+    def setUp(self):
+        self.client = Client()
+        self.url = reverse('register_school_student')
+
+    def _base_data(self, accept=False):
+        data = {
+            'first_name': 'Jane',
+            'last_name': 'Doe',
+            'email': 'jane@test.com',
+            'username': 'janedoe',
+            'password': 'securepass1',
+            'confirm_password': 'securepass1',
+        }
+        if accept:
+            data['accept_terms'] = 'on'
+        return data
+
+    def test_fails_without_accept_terms(self):
+        resp = self.client.post(self.url, self._base_data(accept=False))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Terms and Conditions')
+
+    def test_succeeds_with_accept_terms(self):
+        resp = self.client.post(self.url, self._base_data(accept=True))
+        self.assertEqual(resp.status_code, 302)
+        user = CustomUser.objects.get(username='janedoe')
+        self.assertIsNotNone(user.terms_accepted_at)
+
+    def test_get_shows_terms_acceptance_widget(self):
+        resp = self.client.get(self.url)
+        self.assertContains(resp, 'accept-terms')
+        self.assertContains(resp, 'terms-scroll')
+        self.assertContains(resp, 'privacy-scroll')
+
+
+class TermsAcceptanceIndividualStudentTest(TestCase):
+    """Test that individual student registration requires T&C acceptance."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.pkg = Package.objects.create(
+            name='Test Pkg', class_limit=1, price=0, trial_days=7, order=1,
+        )
+
+    def setUp(self):
+        self.client = Client()
+        self.url = reverse('register_individual_student')
+
+    def _base_data(self, accept=False):
+        data = {
+            'username': 'indstudent',
+            'email': 'ind@test.com',
+            'password': 'securepass1',
+            'confirm_password': 'securepass1',
+            'package_id': self.pkg.id,
+        }
+        if accept:
+            data['accept_terms'] = 'on'
+        return data
+
+    def test_fails_without_accept_terms(self):
+        resp = self.client.post(self.url, self._base_data(accept=False))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Terms and Conditions')
+
+    def test_succeeds_with_accept_terms(self):
+        resp = self.client.post(self.url, self._base_data(accept=True))
+        self.assertEqual(resp.status_code, 302)
+        user = CustomUser.objects.get(username='indstudent')
+        self.assertIsNotNone(user.terms_accepted_at)
+
+    def test_get_shows_terms_acceptance_widget(self):
+        resp = self.client.get(self.url)
+        self.assertContains(resp, 'accept-terms')
+        self.assertContains(resp, 'terms-scroll')
+        self.assertContains(resp, 'privacy-scroll')
+
+
+class TermsFooterLinksTest(TestCase):
+    """Test that T&C and Privacy Policy links appear on key pages."""
+
+    def setUp(self):
+        self.client = Client()
+
+    def test_login_page_has_legal_links(self):
+        resp = self.client.get(reverse('login'))
+        self.assertContains(resp, 'Terms and Conditions')
+        self.assertContains(resp, 'Privacy Policy')
+
+    def test_school_student_register_has_legal_links(self):
+        resp = self.client.get(reverse('register_school_student'))
+        self.assertContains(resp, '/terms/')
+        self.assertContains(resp, '/privacy/')
+
+    def test_institute_register_has_legal_links(self):
+        resp = self.client.get(reverse('register_teacher_center'))
+        self.assertContains(resp, '/terms/')
+        self.assertContains(resp, '/privacy/')
+
+    def test_individual_student_register_has_legal_links(self):
+        resp = self.client.get(reverse('register_individual_student'))
+        self.assertContains(resp, '/terms/')
+        self.assertContains(resp, '/privacy/')
+
+    def test_dashboard_has_legal_footer(self):
+        user = CustomUser.objects.create_user('dashuser', 'dash@t.com', 'pass1234')
+        admin_role, _ = Role.objects.get_or_create(
+            name=Role.ADMIN, defaults={'display_name': 'Admin'},
+        )
+        user.roles.add(admin_role)
+        self.client.force_login(user)
+        resp = self.client.get(reverse('admin_dashboard'))
+        self.assertContains(resp, 'Terms and Conditions')
+        self.assertContains(resp, 'Privacy Policy')
