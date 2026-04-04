@@ -1,5 +1,6 @@
 from django.contrib import admin
 from .models import (
+    Currency,
     Subject, Level, Topic, ClassRoom, ClassTeacher, ClassStudent,
     StudentLevelEnrollment, SubjectApp, ContactMessage,
     School, SchoolStudent, SchoolTeacher, AcademicYear, TopicLevel, SubTopic,
@@ -13,6 +14,19 @@ from .models import (
     SalarySlip, SalarySlipLineItem, SalaryPayment,
     ParentStudent, ParentInvite, Term,
 )
+
+
+# ---------------------------------------------------------------------------
+# Currency
+# ---------------------------------------------------------------------------
+
+@admin.register(Currency)
+class CurrencyAdmin(admin.ModelAdmin):
+    list_display = ('code', 'name', 'symbol', 'symbol_position', 'decimal_places', 'is_active')
+    list_filter = ('is_active', 'symbol_position')
+    list_editable = ('is_active',)
+    search_fields = ('code', 'name')
+    ordering = ('code',)
 
 
 # ---------------------------------------------------------------------------
