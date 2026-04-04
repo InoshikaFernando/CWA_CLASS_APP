@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}Homework — {{ classroom.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-display font-bold text-gray-900">{{ classroom.name }}</h1>
+      <p class="text-sm text-gray-500">{{ classroom.subject.name|default:"" }} &middot; {{ student_count }} student{{ student_count|pluralize }}</p>
+    </div>
+    <a href="{% url 'homework:create' class_id=classroom.pk %}" class="px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition">
+      + Assign New
+    </a>
+  </div>
+
+  <!-- Tabs -->
+  <div class="flex gap-1 border-b border-gray-200">
+    <a href="?tab=active" class="px-4 py-2 text-sm font-medium border-b-2 transition {% if tab == 'active' %}border-blue-600 text-blue-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">Active</a>
+    <a href="?tab=drafts" class="px-4 py-2 text-sm font-medium border-b-2 transition {% if tab == 'drafts' %}border-blue-600 text-blue-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">Scheduled / Draft</a>
+    <a href="?tab=past" class="px-4 py-2 text-sm font-medium border-b-2 transition {% if tab == 'past' %}border-blue-600 text-blue-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">Past</a>
+  </div>
+
+  <!-- Homework cards -->
+  {% if homeworks %}
+  <div class="space-y-4">
+    {% for hw in homeworks %}
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-3">
+      <div class="flex items-start justify-between">
+        <div>
+          <h3 class="font-bold text-gray-900">{{ hw.title }}</h3>
+          <p class="text-sm text-gray-500 mt-0.5">
+            {{ hw.topic.name }}
+            &middot; Due: {{ hw.due_date|date:"M j, g:i A" }}
+          </p>
+        </div>
+        <div>
+          {% if hw.status == 'active' %}
+            {% if hw.is_overdue %}
+              <span class="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-700">Closed</span>
+            {% elif hw.is_due_soon %}
+              <span class="px-2 py-0.5 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">Due soon!</span>
+            {% else %}
+              <span class="px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-700">Active</span>
+            {% endif %}
+          {% elif hw.status == 'scheduled' %}
+            <span class="px-2 py-0.5 text-xs font-semibold rounded-full bg-amber-100 text-amber-700">Scheduled</span>
+          {% elif hw.status == 'draft' %}
+            <span class="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-600">Draft</span>
+          {% elif hw.status == 'closed' %}
+            <span class="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-700">Closed</span>
+          {% endif %}
+        </div>
+      </div>
+
+      {% if hw.status == 'scheduled' and hw.scheduled_publish_at %}
+      <p class="text-xs text-amber-600">Publishes: {{ hw.scheduled_publish_at|date:"M j, g:i A" }}</p>
+      {% endif %}
+
+      <p class="text-sm text-gray-500">
+        {{ hw.submission_count }}/{{ student_count }} submitted
+        &middot; {{ hw.graded_count }} graded
+        &middot; {{ hw.published_count }} published
+      </p>
+
+      <div class="flex items-center gap-2 pt-1">
+        <a href="{% url 'homework:submissions' hw_id=hw.pk %}" class="px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition">View Submissions</a>
+        {% if hw.can_edit %}
+        <a href="{% url 'homework:edit' hw_id=hw.pk %}" class="px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition">Edit</a>
+        {% endif %}
+        {% if hw.status == 'draft' or hw.status == 'scheduled' %}
+        <form method="post" action="{% url 'homework:publish' hw_id=hw.pk %}" class="inline">
+          {% csrf_token %}
+          <button type="submit" class="px-3 py-1.5 text-xs font-medium text-green-600 border border-green-200 rounded-lg hover:bg-green-50 transition">Publish Now</button>
+        </form>
+        {% endif %}
+        <form method="post" action="{% url 'homework:delete' hw_id=hw.pk %}" class="inline" onsubmit="return confirm('Delete this homework? All submissions will be hidden.')">
+          {% csrf_token %}
+          <button type="submit" class="px-3 py-1.5 text-xs font-medium text-red-500 border border-red-200 rounded-lg hover:bg-red-50 transition">Delete</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="text-center py-12 text-gray-400">
+    <p class="text-lg">No homework {% if tab == 'active' %}assigned{% elif tab == 'drafts' %}in draft{% else %}in archive{% endif %} yet.</p>
+    <a href="{% url 'homework:create' class_id=classroom.pk %}" class="mt-3 inline-block text-blue-600 hover:underline text-sm">Assign your first homework</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
