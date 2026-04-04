@@ -151,7 +151,16 @@
                 onclick="window.location='{% url 'invoice_detail' invoice_id=invoice.id %}'">
               <td class="px-6 py-4 font-mono text-sm text-indigo-600">{{ invoice.invoice_number }}</td>
               <td class="px-6 py-4 font-medium text-gray-900">{{ invoice.student.first_name }} {{ invoice.student.last_name }}</td>
-              <td class="px-6 py-4 text-sm text-gray-600">{{ invoice.billing_period_start|date:"M d" }} &ndash; {{ invoice.billing_period_end|date:"M d, Y" }}</td>
+              <td class="px-6 py-4 text-sm text-gray-600">
+                {{ invoice.billing_period_start|date:"M d" }} &ndash; {{ invoice.billing_period_end|date:"M d, Y" }}
+                {% if invoice.period_type and invoice.period_type != 'custom' %}
+                  <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full
+                    {% if invoice.period_type == 'month' %}bg-indigo-100 text-indigo-700
+                    {% elif invoice.period_type == 'term' %}bg-emerald-100 text-emerald-700
+                    {% elif invoice.period_type == 'year' %}bg-purple-100 text-purple-700
+                    {% endif %}">{{ invoice.get_period_type_display }}</span>
+                {% endif %}
+              </td>
               <td class="px-6 py-4 text-right font-semibold text-gray-900">${{ invoice.amount }}</td>
               <td class="px-6 py-4 text-center">
                 <span class="text-xs font-medium px-2.5 py-1 rounded-full

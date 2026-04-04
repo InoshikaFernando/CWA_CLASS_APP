@@ -324,7 +324,7 @@ def handle_payment_succeeded(event_data):
         detail={
             'stripe_subscription_id': stripe_sub_id,
             'amount_cents': amount,
-            'currency': invoice.get('currency', 'nzd'),
+            'currency': invoice.get('currency', 'usd'),
         },
     )
 
@@ -355,7 +355,7 @@ def handle_payment_failed(event_data):
             'stripe_subscription_id': stripe_sub_id,
             'stripe_customer_id': customer_id,
             'amount_cents': amount,
-            'currency': invoice.get('currency', 'nzd'),
+            'currency': invoice.get('currency', 'usd'),
         },
     )
 
@@ -381,7 +381,7 @@ def handle_payment_failed(event_data):
                     pass
         notify_payment_failed(school=school, user=user, detail={
             'amount_cents': amount,
-            'currency': invoice.get('currency', 'nzd'),
+            'currency': invoice.get('currency', 'usd'),
         })
     except Exception:
         logger.exception('Failed to send payment failure notification')

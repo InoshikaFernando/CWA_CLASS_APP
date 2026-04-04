@@ -6,6 +6,7 @@
        modifiedIds: new Set(),
        expanded: {},
        showAddModal: false,
+       showEditModal: false,
        saving: false,
        get hasChanges() { return this.modifiedIds.size > 0 },
        markModified(id) { this.modifiedIds.add(id); document.getElementById('student_ids').value = [...this.modifiedIds].join(',') },
@@ -16,6 +17,12 @@
            const f = document.getElementById('student-action-form');
            f.action = url; f.submit();
          }
+       },
+       openEditModal(url) {
+         fetch(url).then(r => r.text()).then(html => {
+           document.getElementById('edit-modal-content').innerHTML = html;
+           this.showEditModal = true;
+         });
        }
      }"
      x-init="window.addEventListener('beforeunload', (e) => { if (hasChanges && !saving) e.preventDefault() })">
@@ -48,7 +55,7 @@
           </svg>
         </div>
         <div>
-          <p class="text-2xl font-bold text-gray-900">{{ school_students|length }}</p>
+          <p class="text-2xl font-bold text-gray-900">{{ total_count }}</p>
           <p class="text-sm text-gray-500">Total Students</p>
         </div>
       </div>
@@ -148,16 +155,38 @@
   </div>
 
   {% if school_students %}
-    <div x-data="{ search: '' }">
-      <div class="mb-6">
-        <div class="relative">
+    <div>
+      <form method="get" class="flex flex-col sm:flex-row gap-3 mb-6">
+        {% if show_inactive %}<input type="hidden" name="show_inactive" value="1">{% endif %}
+        <div class="flex-1 relative">
           <svg class="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
           </svg>
-          <input type="text" x-model="search" placeholder="Search students..."
+          <input type="text" name="q" value="{{ q }}" placeholder="Search students by name, email, username..."
                  class="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
         </div>
-      </div>
+        <select name="order_by"
+                class="px-4 py-2.5 border border-slate-300 rounded-xl text-sm text-gray-700 focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
+          <option value="name" {% if order_by == 'name' %}selected{% endif %}>Name A-Z</option>
+          <option value="-name" {% if order_by == '-name' %}selected{% endif %}>Name Z-A</option>
+          <option value="email" {% if order_by == 'email' %}selected{% endif %}>Email A-Z</option>
+          <option value="-email" {% if order_by == '-email' %}selected{% endif %}>Email Z-A</option>
+          <option value="-classes" {% if order_by == '-classes' %}selected{% endif %}>Most Classes</option>
+          <option value="classes" {% if order_by == 'classes' %}selected{% endif %}>Fewest Classes</option>
+          <option value="-joined" {% if order_by == '-joined' %}selected{% endif %}>Newest First</option>
+          <option value="joined" {% if order_by == 'joined' %}selected{% endif %}>Oldest First</option>
+        </select>
+        <button type="submit"
+                class="px-5 py-2.5 bg-accent text-white text-sm font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm">
+          Search
+        </button>
+        {% if q %}
+        <a href="{% url 'admin_school_students' school.id %}{% if show_inactive %}?show_inactive=1{% endif %}"
+           class="px-4 py-2.5 text-sm font-medium text-gray-600 hover:text-gray-800 border border-slate-300 rounded-xl transition inline-flex items-center">
+          Clear
+        </a>
+        {% endif %}
+      </form>
 
       <!-- Batch edit form -->
       <form method="post" action="{% url 'admin_school_student_batch_update' school.id %}"
@@ -170,7 +199,7 @@
             {% for ss in page %}
               <div class="transition-all duration-200"
                    :class="modifiedIds.has({{ ss.student.id }}) ? 'bg-accent/5 border-l-4 border-l-accent' : ''"
-                   x-show="search === '' || '{{ ss.student.get_full_name|default:ss.student.username|escapejs }}'.toLowerCase().includes(search.toLowerCase())">
+>
 
                 <!-- Collapsed: read-only summary -->
                 <div class="flex items-center justify-between px-6 py-4 cursor-pointer" @click="toggle({{ ss.student.id }})">
@@ -208,6 +237,13 @@
                       </p>
                     </div>
                   </div>
+                  <button type="button" @click.stop="openEditModal('{% url 'admin_school_student_edit_modal' school.id ss.student.id %}')"
+                          class="p-1.5 text-gray-400 hover:text-accent hover:bg-accent/10 rounded-lg transition flex-shrink-0"
+                          title="Edit student details">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"/>
+                    </svg>
+                  </button>
                   <svg class="w-4 h-4 text-gray-400 transition-transform duration-200 flex-shrink-0"
                        :class="expanded[{{ ss.student.id }}] ? 'rotate-180' : ''"
                        fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
@@ -267,6 +303,10 @@
                   </div>
                 </div>
               </div>
+            {% empty %}
+              <div class="px-6 py-12 text-center text-gray-400">
+                {% if q %}No students matching "{{ q }}".{% else %}No students found.{% endif %}
+              </div>
             {% endfor %}
           </div>
         </div>
@@ -305,6 +345,16 @@
       <p class="text-gray-500 mb-4">Use the form above to add your first student.</p>
     </div>
   {% endif %}
+
+  <!-- Student Edit Modal -->
+  <div x-show="showEditModal" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center"
+       @keydown.escape.window="showEditModal = false">
+    <div class="fixed inset-0 bg-black/50 backdrop-blur-sm" @click="showEditModal = false"></div>
+    <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6 max-h-[90vh] overflow-y-auto" @click.stop
+         id="edit-modal-content">
+    </div>
+  </div>
 
   <!-- Shared action form for remove/restore — lives OUTSIDE the batch edit form to avoid nested-form issues -->
   <form id="student-action-form" method="post" action="">

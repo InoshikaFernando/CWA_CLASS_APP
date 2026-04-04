@@ -52,10 +52,8 @@ class CSVImportTestBase(TestCase):
         cls.school = School.objects.create(
             name='Test School', slug='test-school', admin=cls.superuser,
         )
-        SchoolTeacher.objects.create(
-            school=cls.school, teacher=cls.hoi_user,
-            role='head_of_institute',
-        )
+        SchoolTeacher.objects.update_or_create(
+            school=cls.school, teacher=cls.hoi_user, defaults={'role': 'head_of_institute'})
 
         # A level for matching
         cls.level7, _ = Level.objects.get_or_create(

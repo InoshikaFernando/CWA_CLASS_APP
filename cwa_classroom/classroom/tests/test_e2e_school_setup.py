@@ -195,11 +195,9 @@ class TeacherManagementTest(TestCase):
 
     def test_add_teacher_to_school(self):
         """Creating a SchoolTeacher links the teacher to the school."""
-        st = SchoolTeacher.objects.create(
+        st, _ = SchoolTeacher.objects.update_or_create(
             school=self.school,
-            teacher=self.teacher_user,
-            role='teacher',
-        )
+            teacher=self.teacher_user, defaults={'role': 'teacher'})
         self.assertEqual(st.school, self.school)
         self.assertEqual(st.teacher, self.teacher_user)
         self.assertEqual(st.role, 'teacher')
@@ -208,9 +206,8 @@ class TeacherManagementTest(TestCase):
     def test_add_teacher_to_department(self):
         """Creating a DepartmentTeacher links the teacher to a department."""
         # First link teacher to school
-        SchoolTeacher.objects.create(
-            school=self.school, teacher=self.teacher_user, role='teacher',
-        )
+        SchoolTeacher.objects.update_or_create(
+            school=self.school, teacher=self.teacher_user, defaults={'role': 'teacher'})
         dt = DepartmentTeacher.objects.create(
             department=self.department, teacher=self.teacher_user,
         )
@@ -266,6 +263,7 @@ class StudentManagementTest(TestCase):
             'username': 'tom_student',
             'password': 'securepass123',
             'confirm_password': 'securepass123',
+            'accept_terms': 'on',
         }
         response = client.post(url, data)
 
