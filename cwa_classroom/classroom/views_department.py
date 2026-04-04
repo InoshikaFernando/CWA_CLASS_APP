@@ -9,7 +9,7 @@ from django.utils.text import slugify
 from accounts.models import CustomUser, Role, UserRole
 from accounts.views import _validate_username, _generate_username_suggestion
 from audit.services import log_event
-from .models import School, SchoolTeacher, Department, DepartmentTeacher, DepartmentLevel, DepartmentSubject, ClassRoom, Subject, Level
+from .models import School, SchoolTeacher, Department, DepartmentTeacher, DepartmentLevel, DepartmentSubject, ClassRoom, Subject, Level, Currency
 from .views import RoleRequiredMixin
 from .email_utils import send_staff_welcome_email
 
@@ -1333,18 +1333,46 @@ class DepartmentSettingsView(RoleRequiredMixin, View):
         from .views_admin import _get_user_school_or_404
         return _get_user_school_or_404(user, school_id)
 
+    def _is_hoi(self, user, school):
+        """Return True if the user has Head-of-Institute (or higher) access."""
+        if user.is_superuser:
+            return True
+        if school.admin_id and school.admin_id == user.pk:
+            return True
+        return SchoolTeacher.objects.filter(
+            school=school,
+            teacher=user,
+            role__in=['head_of_institute', 'institute_owner'],
+            is_active=True,
+        ).exists()
+
     def get(self, request, school_id, dept_id):
         school = self._get_school(request.user, school_id)
         department = get_object_or_404(Department, id=dept_id, school=school)
+        school_effective = school.get_effective_currency()
         return render(request, 'admin_dashboard/department_settings.html', {
             'school': school,
             'department': department,
             'form_data': self._build_form_data(department, school),
+            'is_hoi': self._is_hoi(request.user, school),
+            'active_currencies': Currency.objects.filter(is_active=True).order_by('code'),
+            'school_effective_currency': school_effective,
         })
 
     def post(self, request, school_id, dept_id):
         school = self._get_school(request.user, school_id)
         department = get_object_or_404(Department, id=dept_id, school=school)
+
+        # Handle currency_override FK (HoI-only)
+        if self._is_hoi(request.user, school) and 'currency_override' in request.POST:
+            code = request.POST.get('currency_override', '').strip()
+            if not code:
+                department.currency_override = None
+            else:
+                try:
+                    department.currency_override = Currency.objects.get(code=code, is_active=True)
+                except Currency.DoesNotExist:
+                    pass
 
         for field in self.OVERRIDE_FIELDS:
             override_key = f'override_{field}'
