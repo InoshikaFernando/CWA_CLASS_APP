@@ -2,15 +2,12 @@
 Playwright UI tests for the Homework module (CPP-74).
 
 Covers:
-  - Teacher: sidebar link, create homework, class list, publish, submissions, grade
-  - Student: sidebar link, dashboard, detail page, submit, late badge
-  - Parent: sidebar link, read-only dashboard
-  - Access control: student can't see drafts, unenrolled blocked
+  - Teacher: sidebar link (single), create form, monitor page
+  - Student: sidebar link, homework list page
+  - Access control: student blocked from teacher create URL
 """
 
-import re
 from datetime import timedelta
-from decimal import Decimal
 
 import pytest
 from django.utils import timezone
@@ -25,13 +22,13 @@ from .conftest import do_login
 
 @pytest.fixture
 def homework_topic(db, subject, level):
-    """A top-level topic linked to the level for homework creation."""
+    """A top-level topic linked to the level."""
     from classroom.models import Topic
 
     t = Topic.objects.create(
         subject=subject,
         name="Algebra",
-        slug="algebra-hw",
+        slug="algebra-hw-ui",
         order=10,
     )
     t.levels.add(level)
@@ -40,67 +37,19 @@ def homework_topic(db, subject, level):
 
 @pytest.fixture
 def active_homework(db, classroom, homework_topic, teacher_user):
-    """An active homework assignment."""
+    """A homework assignment due in 3 days."""
     from homework.models import Homework
 
-    return Homework.objects.create(
+    hw = Homework.objects.create(
         classroom=classroom,
-        topic=homework_topic,
+        created_by=teacher_user,
         title="Algebra Practice Week 1",
-        description="Complete exercises 1-10.",
-        assigned_by=teacher_user,
+        homework_type="topic",
+        num_questions=5,
         due_date=timezone.now() + timedelta(days=3),
-        status=Homework.STATUS_ACTIVE,
-        published_at=timezone.now(),
     )
-
-
-@pytest.fixture
-def draft_homework(db, classroom, homework_topic, teacher_user):
-    """A draft homework (invisible to students)."""
-    from homework.models import Homework
-
-    return Homework.objects.create(
-        classroom=classroom,
-        topic=homework_topic,
-        title="Secret Draft HW",
-        assigned_by=teacher_user,
-        due_date=timezone.now() + timedelta(days=5),
-        status=Homework.STATUS_DRAFT,
-    )
-
-
-@pytest.fixture
-def student_submission(db, active_homework, enrolled_student):
-    """A submission by the enrolled student."""
-    from homework.models import HomeworkSubmission
-
-    return HomeworkSubmission.objects.create(
-        homework=active_homework,
-        student=enrolled_student,
-        attempt_number=1,
-        content="My algebra answers",
-    )
-
-
-@pytest.fixture
-def graded_submission(db, active_homework, enrolled_student, teacher_user):
-    """A graded and published submission."""
-    from homework.models import HomeworkSubmission
-
-    return HomeworkSubmission.objects.create(
-        homework=active_homework,
-        student=enrolled_student,
-        attempt_number=1,
-        content="My work",
-        score=Decimal("85"),
-        max_score=Decimal("100"),
-        feedback="Good work!",
-        is_graded=True,
-        is_published=True,
-        graded_by=teacher_user,
-        graded_at=timezone.now(),
-    )
+    hw.topics.add(homework_topic)
+    return hw
 
 
 # ===========================================================================
@@ -113,10 +62,23 @@ class TestTeacherHomeworkUI:
     def test_sidebar_has_homework_link(
         self, page: Page, live_server, teacher_user, classroom
     ):
-        """Teacher sidebar shows 'Homework' nav item."""
+        """Teacher sidebar shows exactly one 'Homework' nav item."""
         do_login(page, live_server.url, teacher_user)
         sidebar = page.locator("aside")
-        expect(sidebar.get_by_text("Homework")).to_be_visible()
+        # Count to ensure there is exactly one link
+        links = sidebar.get_by_role("link", name="Homework")
+        expect(links.first).to_be_visible()
+        assert links.count() == 1, f"Expected 1 Homework link in sidebar, found {links.count()}"
+
+    @pytest.mark.django_db(transaction=True)
+    def test_monitor_page_loads(
+        self, page: Page, live_server, teacher_user, classroom
+    ):
+        """Teacher can load the homework monitor page."""
+        do_login(page, live_server.url, teacher_user)
+        page.goto(f"{live_server.url}/homework/monitor/")
+        page.wait_for_load_state("networkidle")
+        expect(page.get_by_role("heading", name="Homework Monitor")).to_be_visible()
 
     @pytest.mark.django_db(transaction=True)
     def test_create_homework_form_loads(
@@ -124,104 +86,48 @@ class TestTeacherHomeworkUI:
     ):
         """Teacher can navigate to create homework form."""
         do_login(page, live_server.url, teacher_user)
-        page.goto(f"{live_server.url}/homework/create/{classroom.pk}/")
+        page.goto(f"{live_server.url}/homework/class/{classroom.pk}/create/")
         page.wait_for_load_state("networkidle")
         expect(page.get_by_role("heading", name="Assign Homework")).to_be_visible()
         expect(page.locator("#id_title")).to_be_visible()
-        expect(page.locator("#id_topic")).to_be_visible()
+        expect(page.locator("#id_due_date")).to_be_visible()
 
     @pytest.mark.django_db(transaction=True)
-    def test_create_and_publish_homework(
+    def test_create_homework_submit(
         self, page: Page, live_server, teacher_user, classroom, homework_topic
     ):
-        """Teacher can create and immediately publish homework."""
-        from homework.models import Homework
-
+        """Teacher can submit create homework form and is redirected to monitor."""
         do_login(page, live_server.url, teacher_user)
-        page.goto(f"{live_server.url}/homework/create/{classroom.pk}/")
+        page.goto(f"{live_server.url}/homework/class/{classroom.pk}/create/")
         page.wait_for_load_state("networkidle")
 
         page.locator("#id_title").fill("UI Test Homework")
-        page.locator("#id_topic").select_option(str(homework_topic.pk))
         due = (timezone.now() + timedelta(days=2)).strftime("%Y-%m-%dT%H:%M")
         page.locator("#id_due_date").fill(due)
-        # "Publish immediately" should be default
         page.get_by_role("button", name="Assign Homework").click()
-        page.wait_for_url(lambda url: "/homework/class/" in url, timeout=10_000)
-
-        assert Homework.objects.filter(title="UI Test Homework", status="active").exists()
+        page.wait_for_load_state("networkidle")
+        # After submit, redirected to monitor
+        assert "/homework/monitor/" in page.url
 
     @pytest.mark.django_db(transaction=True)
-    def test_class_homework_list(
-        self, page: Page, live_server, teacher_user, classroom,
-        homework_topic, active_homework
+    def test_monitor_shows_homework_for_class(
+        self, page: Page, live_server, teacher_user, classroom, active_homework
     ):
-        """Teacher sees homework in class list view."""
+        """Homework card appears on monitor when class is selected."""
         do_login(page, live_server.url, teacher_user)
-        page.goto(f"{live_server.url}/homework/class/{classroom.pk}/")
+        page.goto(f"{live_server.url}/homework/monitor/?class_id={classroom.pk}")
         page.wait_for_load_state("networkidle")
         expect(page.get_by_text("Algebra Practice Week 1")).to_be_visible()
-        expect(page.get_by_text("Active", exact=True).first).to_be_visible()
 
     @pytest.mark.django_db(transaction=True)
-    def test_draft_tab_shows_drafts(
-        self, page: Page, live_server, teacher_user, classroom,
-        homework_topic, draft_homework
+    def test_homework_detail_page_loads(
+        self, page: Page, live_server, teacher_user, classroom, active_homework
     ):
-        """Draft tab shows draft homework."""
+        """Teacher can view homework detail page."""
         do_login(page, live_server.url, teacher_user)
-        page.goto(f"{live_server.url}/homework/class/{classroom.pk}/?tab=drafts")
+        page.goto(f"{live_server.url}/homework/{active_homework.pk}/")
         page.wait_for_load_state("networkidle")
-        expect(page.get_by_text("Secret Draft HW")).to_be_visible()
-        expect(page.get_by_text("Draft", exact=True).first).to_be_visible()
-
-    @pytest.mark.django_db(transaction=True)
-    def test_submissions_list(
-        self, page: Page, live_server, teacher_user, classroom,
-        active_homework, student_submission, enrolled_student
-    ):
-        """Teacher sees student submission in submissions list."""
-        do_login(page, live_server.url, teacher_user)
-        page.goto(f"{live_server.url}/homework/{active_homework.pk}/submissions/")
-        page.wait_for_load_state("networkidle")
-        expect(page.get_by_text("1 submitted")).to_be_visible()
-
-    @pytest.mark.django_db(transaction=True)
-    def test_grade_submission(
-        self, page: Page, live_server, teacher_user, classroom,
-        active_homework, student_submission
-    ):
-        """Teacher can grade a submission."""
-        do_login(page, live_server.url, teacher_user)
-        page.goto(
-            f"{live_server.url}/homework/{active_homework.pk}"
-            f"/grade/{student_submission.pk}/"
-        )
-        page.wait_for_load_state("networkidle")
-        expect(page.get_by_text("Grading")).to_be_visible()
-
-        page.locator("input[name='score']").fill("90")
-        page.locator("input[name='max_score']").fill("100")
-        page.locator("textarea[name='feedback']").fill("Excellent")
-        page.locator("button[name='publish']").click()
-        page.wait_for_url(lambda url: "/submissions/" in url, timeout=10_000)
-
-        student_submission.refresh_from_db()
-        assert student_submission.is_graded
-        assert student_submission.is_published
-        assert student_submission.score == Decimal("90")
-
-    @pytest.mark.django_db(transaction=True)
-    def test_csv_export(
-        self, page: Page, live_server, teacher_user, classroom,
-        active_homework, student_submission
-    ):
-        """CSV export link returns a downloadable CSV."""
-        do_login(page, live_server.url, teacher_user)
-        page.goto(f"{live_server.url}/homework/{active_homework.pk}/submissions/")
-        page.wait_for_load_state("networkidle")
-        export_link = page.get_by_text("Export CSV")
-        expect(export_link).to_be_visible()
+        expect(page.get_by_text("Algebra Practice Week 1")).to_be_visible()
 
 
 # ===========================================================================
@@ -232,89 +138,34 @@ class TestStudentHomeworkUI:
 
     @pytest.mark.django_db(transaction=True)
     def test_sidebar_has_homework_link(
-        self, page: Page, live_server, enrolled_student, classroom,
-        homework_topic
+        self, page: Page, live_server, enrolled_student, classroom
     ):
         """Student sidebar shows 'Homework' nav item."""
         do_login(page, live_server.url, enrolled_student)
-        # Navigate to a page where sidebar is visible
         page.goto(f"{live_server.url}/homework/")
         page.wait_for_load_state("networkidle")
         sidebar = page.locator("aside")
-        expect(sidebar.get_by_text("Homework")).to_be_visible()
+        expect(sidebar.get_by_role("link", name="Homework").first).to_be_visible()
 
     @pytest.mark.django_db(transaction=True)
-    def test_dashboard_shows_stats(
-        self, page: Page, live_server, enrolled_student, active_homework
+    def test_list_page_loads(
+        self, page: Page, live_server, enrolled_student
     ):
-        """Student homework dashboard shows stats bar."""
+        """Student homework list page loads with correct heading."""
         do_login(page, live_server.url, enrolled_student)
         page.goto(f"{live_server.url}/homework/")
         page.wait_for_load_state("networkidle")
-        expect(page.get_by_text("My Homework")).to_be_visible()
-        expect(page.get_by_text("To Do")).to_be_visible()
+        expect(page.get_by_role("heading", name="My Homework")).to_be_visible()
 
     @pytest.mark.django_db(transaction=True)
-    def test_dashboard_shows_active_homework(
+    def test_list_shows_assigned_homework(
         self, page: Page, live_server, enrolled_student, active_homework
     ):
-        """Active homework appears on student dashboard."""
+        """Assigned homework appears on student list."""
         do_login(page, live_server.url, enrolled_student)
         page.goto(f"{live_server.url}/homework/")
         page.wait_for_load_state("networkidle")
         expect(page.get_by_text("Algebra Practice Week 1")).to_be_visible()
-
-    @pytest.mark.django_db(transaction=True)
-    def test_dashboard_hides_draft(
-        self, page: Page, live_server, enrolled_student, draft_homework
-    ):
-        """Draft homework is NOT visible to students."""
-        do_login(page, live_server.url, enrolled_student)
-        page.goto(f"{live_server.url}/homework/")
-        page.wait_for_load_state("networkidle")
-        expect(page.get_by_text("Secret Draft HW")).not_to_be_visible()
-
-    @pytest.mark.django_db(transaction=True)
-    def test_detail_shows_submit_form(
-        self, page: Page, live_server, enrolled_student,
-        homework_topic, active_homework
-    ):
-        """Student sees quiz start button or submission form on homework detail page."""
-        do_login(page, live_server.url, enrolled_student)
-        page.goto(f"{live_server.url}/homework/{active_homework.pk}/")
-        page.wait_for_load_state("networkidle")
-        # Default homework_type is 'quiz' — should show Start Quiz button
-        body = page.locator("body").inner_text()
-        assert "Start Quiz" in body or "Upload" in body or "Submit" in body or "Mark as Done" in body, \
-            f"Expected quiz/submit action on detail page. Got: {body[:200]}"
-
-    @pytest.mark.django_db(transaction=True)
-    def test_submit_homework(
-        self, page: Page, live_server, enrolled_student, active_homework
-    ):
-        """Student can start a quiz homework."""
-        do_login(page, live_server.url, enrolled_student)
-        page.goto(f"{live_server.url}/homework/{active_homework.pk}/")
-        page.wait_for_load_state("networkidle")
-
-        # Default homework_type is 'quiz' — click Start Quiz
-        start_btn = page.locator("a, button", has_text=re.compile(r"Start Quiz|Upload|Submit|Mark as Done"))
-        if start_btn.count() > 0:
-            start_btn.first.click()
-            page.wait_for_load_state("networkidle")
-            # Should navigate to quiz page or show success
-            assert "/homework/" in page.url
-
-    @pytest.mark.django_db(transaction=True)
-    def test_published_score_visible(
-        self, page: Page, live_server, enrolled_student,
-        active_homework, graded_submission
-    ):
-        """Published score and feedback visible to student."""
-        do_login(page, live_server.url, enrolled_student)
-        page.goto(f"{live_server.url}/homework/{active_homework.pk}/")
-        page.wait_for_load_state("networkidle")
-        expect(page.get_by_text("85")).to_be_visible()
 
     @pytest.mark.django_db(transaction=True)
     def test_bottom_nav_has_homework(
@@ -322,7 +173,6 @@ class TestStudentHomeworkUI:
     ):
         """Mobile bottom nav shows Homework link for students."""
         do_login(page, live_server.url, enrolled_student)
-        # Switch to mobile viewport
         page.set_viewport_size({"width": 375, "height": 812})
         page.goto(f"{live_server.url}/homework/")
         page.wait_for_load_state("networkidle")
@@ -342,21 +192,10 @@ class TestParentHomeworkUI:
     ):
         """Parent sidebar shows 'Homework' nav item."""
         do_login(page, live_server.url, parent_with_child)
-        sidebar = page.locator("aside")
-        expect(sidebar.get_by_text("Homework")).to_be_visible()
-
-    @pytest.mark.django_db(transaction=True)
-    def test_parent_dashboard_read_only(
-        self, page: Page, live_server, parent_with_child,
-        homework_topic, active_homework
-    ):
-        """Parent homework dashboard shows homework (read-only, no submit button)."""
-        do_login(page, live_server.url, parent_with_child)
-        page.goto(f"{live_server.url}/homework/parent/")
+        page.goto(f"{live_server.url}/parent/")
         page.wait_for_load_state("networkidle")
-        expect(page.get_by_role("heading", name="Homework")).to_be_visible()
-        # Should NOT have a submit form
-        expect(page.locator("textarea[name='content']")).not_to_be_visible()
+        sidebar = page.locator("aside")
+        expect(sidebar.get_by_role("link", name="Homework").first).to_be_visible()
 
 
 # ===========================================================================
@@ -367,7 +206,7 @@ class TestHomeworkAccessControlUI:
 
     @pytest.mark.django_db(transaction=True)
     def test_unauthenticated_redirect(self, page: Page, live_server):
-        """Unauthenticated user redirected to login from homework dashboard."""
+        """Unauthenticated user redirected to login from homework list."""
         page.goto(f"{live_server.url}/homework/")
         page.wait_for_load_state("networkidle")
         assert "/accounts/login" in page.url
@@ -378,7 +217,7 @@ class TestHomeworkAccessControlUI:
     ):
         """Student is redirected when trying to access teacher create form."""
         do_login(page, live_server.url, enrolled_student)
-        page.goto(f"{live_server.url}/homework/create/{classroom.pk}/")
+        page.goto(f"{live_server.url}/homework/class/{classroom.pk}/create/")
         page.wait_for_load_state("networkidle")
         # Should be redirected away (not on the create page)
-        assert "/homework/create/" not in page.url
+        assert f"/homework/class/{classroom.pk}/create/" not in page.url
