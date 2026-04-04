@@ -131,11 +131,26 @@
           </button>
         </div>
 
-        <button type="submit"
+        <!-- Terms & Privacy Policy -->
+        <div class="border-t border-gray-100 pt-5">
+          {% include "partials/terms_acceptance.html" %}
+        </div>
+
+        <button type="submit" id="btn-submit"
                 class="w-full bg-violet-600 hover:bg-violet-700 text-white font-semibold rounded-xl px-5 py-3 transition text-base">
           Create Account
         </button>
       </form>
+
+<script>
+document.getElementById('btn-submit').closest('form').addEventListener('submit', function(e) {
+  var cb = document.getElementById('accept-terms');
+  if (!cb || !cb.checked) {
+    e.preventDefault();
+    alert('Please scroll through both documents and accept the Terms and Conditions and Privacy Policy.');
+  }
+});
+</script>
 
       <div class="mt-6 text-center text-sm text-gray-500">
         Already have an account?

@@ -1,0 +1,149 @@
+<div class="flex items-center justify-between mb-5">
+  <h2 class="text-lg font-semibold text-gray-900">
+    {% if edit_type == 'guardian' %}Edit Guardian{% else %}Edit Parent Link{% endif %}
+  </h2>
+  <button @click="showEditModal = false" type="button" class="text-gray-400 hover:text-gray-600 transition">
+    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+    </svg>
+  </button>
+</div>
+
+{% if edit_type == 'guardian' %}
+<form method="post" action="{% url 'admin_guardian_update' school.id guardian.id %}">
+  {% csrf_token %}
+  <div class="space-y-4">
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">First Name *</label>
+        <input type="text" name="first_name" required value="{{ guardian.first_name }}"
+               class="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent focus:border-accent transition">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Last Name *</label>
+        <input type="text" name="last_name" required value="{{ guardian.last_name }}"
+               class="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent focus:border-accent transition">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+        <input type="email" name="email" value="{{ guardian.email }}"
+               class="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent focus:border-accent transition">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+        <input type="text" name="phone" value="{{ guardian.phone }}"
+               class="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent focus:border-accent transition">
+      </div>
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">Relationship</label>
+      <select name="relationship"
+              class="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent focus:border-accent transition">
+        <option value="mother" {% if guardian.relationship == 'mother' %}selected{% endif %}>Mother</option>
+        <option value="father" {% if guardian.relationship == 'father' %}selected{% endif %}>Father</option>
+        <option value="guardian" {% if guardian.relationship == 'guardian' %}selected{% endif %}>Guardian</option>
+        <option value="other" {% if guardian.relationship == 'other' %}selected{% endif %}>Other</option>
+      </select>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Address</label>
+        <input type="text" name="address" value="{{ guardian.address }}"
+               class="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent focus:border-accent transition">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">City</label>
+        <input type="text" name="city" value="{{ guardian.city }}"
+               class="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent focus:border-accent transition">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Country</label>
+        <input type="text" name="country" value="{{ guardian.country }}"
+               class="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent focus:border-accent transition">
+      </div>
+    </div>
+  </div>
+
+  <!-- Children (read-only) -->
+  {% if children %}
+  <div class="mt-6 pt-4 border-t border-slate-100">
+    <h3 class="text-sm font-semibold text-gray-700 mb-3">Children <span class="text-xs text-gray-400 font-normal">(read-only)</span></h3>
+    <div class="space-y-2">
+      {% for sg in children %}
+      <div class="flex items-center gap-3 bg-emerald-50 rounded-lg px-3 py-2">
+        <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-emerald-200 text-emerald-700 text-xs font-bold">
+          {{ sg.student.first_name|slice:":1"|upper }}{{ sg.student.last_name|slice:":1"|upper }}
+        </span>
+        <p class="text-sm font-medium text-gray-800">{{ sg.student.get_full_name }} <span class="text-xs text-gray-400">@{{ sg.student.username }}</span></p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
+    <button type="button" @click="showEditModal = false"
+            class="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 transition">Cancel</button>
+    <button type="submit"
+            class="px-6 py-2 bg-accent text-white text-sm font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm">
+      Save Changes
+    </button>
+  </div>
+</form>
+
+{% else %}
+{# parent_student link edit #}
+<form method="post" action="{% url 'admin_parent_link_update' school.id parent_link.id %}">
+  {% csrf_token %}
+  <div class="space-y-4">
+    <!-- Parent info (read-only) -->
+    <div class="bg-blue-50 rounded-lg px-4 py-3">
+      <p class="text-sm font-semibold text-gray-800">{{ parent_link.parent.get_full_name }}</p>
+      <p class="text-xs text-gray-500">{{ parent_link.parent.email }} &middot; Account User</p>
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">Relationship</label>
+      <select name="relationship"
+              class="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent focus:border-accent transition">
+        <option value="mother" {% if parent_link.relationship == 'mother' %}selected{% endif %}>Mother</option>
+        <option value="father" {% if parent_link.relationship == 'father' %}selected{% endif %}>Father</option>
+        <option value="guardian" {% if parent_link.relationship == 'guardian' %}selected{% endif %}>Guardian</option>
+        <option value="other" {% if parent_link.relationship == 'other' %}selected{% endif %}>Other</option>
+      </select>
+    </div>
+    <div class="flex items-center gap-2">
+      <input type="checkbox" name="is_primary_contact" id="is_primary_contact"
+             {% if parent_link.is_primary_contact %}checked{% endif %}
+             class="rounded border-gray-300 text-accent focus:ring-accent">
+      <label for="is_primary_contact" class="text-sm text-gray-700">Primary Contact</label>
+    </div>
+  </div>
+
+  <!-- Children (read-only) -->
+  {% if children %}
+  <div class="mt-6 pt-4 border-t border-slate-100">
+    <h3 class="text-sm font-semibold text-gray-700 mb-3">Children <span class="text-xs text-gray-400 font-normal">(read-only)</span></h3>
+    <div class="space-y-2">
+      {% for link in children %}
+      <div class="flex items-center gap-3 bg-emerald-50 rounded-lg px-3 py-2">
+        <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-emerald-200 text-emerald-700 text-xs font-bold">
+          {{ link.student.first_name|slice:":1"|upper }}{{ link.student.last_name|slice:":1"|upper }}
+        </span>
+        <p class="text-sm font-medium text-gray-800">{{ link.student.get_full_name }} <span class="text-xs text-gray-400">@{{ link.student.username }}</span></p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
+    <button type="button" @click="showEditModal = false"
+            class="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 transition">Cancel</button>
+    <button type="submit"
+            class="px-6 py-2 bg-accent text-white text-sm font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm">
+      Save Changes
+    </button>
+  </div>
+</form>
+{% endif %}

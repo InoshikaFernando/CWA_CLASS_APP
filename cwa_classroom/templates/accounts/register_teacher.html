@@ -17,9 +17,9 @@
     Set up a Classroom account for your school or centre.
   </p>
 
-  <!-- Step indicator (3 steps) -->
+  <!-- Step indicator (4 steps) -->
   <div class="flex items-center justify-center gap-2 mb-8" id="step-indicator">
-    {% for i in "123" %}
+    {% for i in "1234" %}
     <div class="step-dot flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold
                 {% if forloop.first %}bg-primary text-white{% else %}bg-gray-200 text-gray-400{% endif %}"
          data-step="{{ forloop.counter }}">
@@ -138,13 +138,29 @@
         </button>
         <button type="button" onclick="goStep(3)"
                 class="flex-1 bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-5 py-3 transition">
+          Next: Terms &amp; Privacy &rarr;
+        </button>
+      </div>
+    </div>
+
+    <!-- Step 3: Terms & Privacy Policy -->
+    <div id="step-3" class="step-panel hidden space-y-4">
+      <h2 class="font-bold text-lg text-gray-800 text-center">Terms &amp; Privacy</h2>
+      {% include "partials/terms_acceptance.html" %}
+      <div class="flex gap-3 pt-2">
+        <button type="button" onclick="goStep(2)"
+                class="flex-1 bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl px-5 py-3 hover:bg-gray-50 transition">
+          &larr; Back
+        </button>
+        <button type="button" onclick="validateStep3Terms()"
+                class="flex-1 bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-5 py-3 transition">
           Next: Choose Plan &rarr;
         </button>
       </div>
     </div>
 
-    <!-- Step 3: Plan Selection -->
-    <div id="step-3" class="step-panel hidden space-y-4">
+    <!-- Step 4: Plan Selection -->
+    <div id="step-4" class="step-panel hidden space-y-4">
       <p class="text-sm text-gray-500 text-center">All plans include a <strong class="text-primary">14-day free trial</strong>.</p>
 
       <div class="grid grid-cols-2 gap-3">
@@ -179,7 +195,7 @@
       </div>
 
       <div class="flex gap-3 pt-2">
-        <button type="button" onclick="goStep(2)"
+        <button type="button" onclick="goStep(3)"
                 class="flex-1 bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl px-5 py-3 hover:bg-gray-50 transition">
           &larr; Back
         </button>
@@ -194,7 +210,7 @@
 
   {% if errors %}
   <script>
-    document.addEventListener('DOMContentLoaded', () => goStep(3));
+    document.addEventListener('DOMContentLoaded', () => goStep(4));
   </script>
   {% endif %}
 
@@ -251,6 +267,15 @@
     if (password !== confirm) msgs.push('Passwords do not match.');
     if (msgs.length) { alert(msgs.join('\n')); return; }
     goStep(2);
+  }
+
+  function validateStep3Terms() {
+    const cb = document.getElementById('accept-terms');
+    if (!cb || !cb.checked) {
+      alert('Please scroll through both documents and accept the Terms and Conditions and Privacy Policy.');
+      return;
+    }
+    goStep(4);
   }
 
   // Validate plan selected before submit

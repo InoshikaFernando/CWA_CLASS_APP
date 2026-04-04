@@ -37,6 +37,8 @@ def send_staff_welcome_email(
         login_path = getattr(settings, 'LOGIN_URL', '/accounts/login/')
         login_url = f'{site_url}{login_path}'
 
+    from .email_service import _get_email_logo_url
+
     context = {
         'user': user,
         'full_name': user.get_full_name() or user.username,
@@ -47,6 +49,7 @@ def send_staff_welcome_email(
         'department': department,
         'login_url': login_url,
         'site_name': getattr(settings, 'SITE_NAME', 'Classroom'),
+        'email_logo_url': _get_email_logo_url(school, department),
     }
 
     subject = f'Welcome to {school.name} — Your Account is Ready'
@@ -58,12 +61,16 @@ def send_staff_welcome_email(
         settings, 'DEFAULT_FROM_EMAIL', 'noreply@wizardslearninghub.co.nz'
     )
 
+    from .email_service import resolve_cc_email
+    cc = resolve_cc_email(school, department)
+
     try:
         msg = EmailMultiAlternatives(
             subject=subject,
             body=text_body,
             from_email=from_email,
             to=[user.email],
+            cc=cc,
         )
         msg.attach_alternative(html_body, 'text/html')
         msg.send(fail_silently=True)
