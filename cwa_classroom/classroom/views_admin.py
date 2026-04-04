@@ -166,10 +166,12 @@ class SchoolEditView(RoleRequiredMixin, View):
         teachers = SchoolTeacher.objects.filter(
             school=school, is_active=True,
         ).select_related('teacher').order_by('role', 'teacher__first_name')
+        departments = Department.objects.filter(school=school, is_active=True).order_by('name')
         return {
             'school': school,
             'form_data': form_data,
             'teachers': teachers,
+            'departments': departments,
             'current_hoi_id': school.admin_id,
         }
 
@@ -211,11 +213,19 @@ class SchoolEditView(RoleRequiredMixin, View):
 
         # Handle HoI change
         new_hoi_id = request.POST.get('new_hoi', '')
-        old_hoi_role = request.POST.get('old_hoi_role', 'teacher')
+        old_hoi_role = request.POST.get('old_hoi_role', 'senior_teacher')
+        old_hoi_department_id = request.POST.get('old_hoi_department', '')
         hoi_changed = new_hoi_id and int(new_hoi_id) != school.admin_id
         old_admin_id = school.admin_id
 
         if hoi_changed:
+            # Validate new HoI has first and last name
+            new_hoi_user = CustomUser.objects.filter(id=int(new_hoi_id)).first()
+            if not new_hoi_user or not new_hoi_user.first_name or not new_hoi_user.last_name:
+                messages.error(request, 'The new Head of Institute must have a first and last name set before being assigned.')
+                return render(request, 'admin_dashboard/school_form.html', self._get_context(
+                    school, {'name': name, 'address': address, 'phone': phone, 'email': email},
+                ))
             school.admin_id = int(new_hoi_id)
 
         school.save()
@@ -234,6 +244,18 @@ class SchoolEditView(RoleRequiredMixin, View):
                 SchoolTeacher.objects.filter(
                     school=school, teacher_id=old_admin_id,
                 ).update(role=old_hoi_role)
+
+                # Assign old HoI to a department if specified
+                if old_hoi_department_id:
+                    dept = Department.objects.filter(
+                        id=int(old_hoi_department_id), school=school,
+                    ).first()
+                    if dept:
+                        old_hoi_user = CustomUser.objects.filter(id=old_admin_id).first()
+                        if old_hoi_user:
+                            DepartmentTeacher.objects.get_or_create(
+                                department=dept, teacher=old_hoi_user,
+                            )
 
             # Clean up HoI UserRole if not HoI at any other school
             still_hoi = SchoolTeacher.objects.filter(
