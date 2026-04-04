@@ -2,7 +2,6 @@
 Parent portal views — read-only access to linked children's data.
 CPP-67 (invoices & payments), CPP-68 (attendance), CPP-69 (progress).
 """
-from django.core.paginator import Paginator
 from django.db.models import Max, Q
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
@@ -10,7 +9,8 @@ from django.views import View
 from accounts.models import Role
 from .models import (
     ParentStudent, ClassStudent, ClassSession, StudentAttendance,
-    Invoice, InvoicePayment, ProgressRecord, SchoolStudent, ClassRoom,
+    Invoice, InvoicePayment, ProgressRecord, ParentLinkRequest,
+    ProgressCriteria,
 )
 from .views import RoleRequiredMixin
 
@@ -54,6 +54,25 @@ def _verify_parent_access(user, student_id):
 # ---------------------------------------------------------------------------
 # Child Switcher
 # ---------------------------------------------------------------------------
+
+class ParentChildrenView(RoleRequiredMixin, View):
+    """List all linked children (and pending requests) for the parent."""
+    required_roles = [Role.PARENT]
+
+    def get(self, request):
+        children = _get_parent_children(request.user)
+        pending_requests = (
+            ParentLinkRequest.objects.filter(
+                parent=request.user,
+                status=ParentLinkRequest.STATUS_PENDING,
+            )
+            .select_related('school_student', 'school_student__student', 'school_student__school')
+        )
+        return render(request, 'parent/children.html', {
+            'children': children,
+            'pending_requests': pending_requests,
+        })
+
 
 class ParentSwitchChildView(RoleRequiredMixin, View):
     required_roles = [Role.PARENT]
@@ -116,11 +135,20 @@ class ParentDashboardView(RoleRequiredMixin, View):
                 'outstanding_invoices': outstanding,
             })
 
+        pending_requests = (
+            ParentLinkRequest.objects.filter(
+                parent=request.user,
+                status=ParentLinkRequest.STATUS_PENDING,
+            )
+            .select_related('school_student', 'school_student__student', 'school_student__school')
+        )
+
         return render(request, 'parent/dashboard.html', {
             'children': children,
             'child_summaries': child_summaries,
             'active_child': child,
             'active_school': school,
+            'pending_requests': pending_requests,
         })
 
 
@@ -136,43 +164,23 @@ class ParentInvoicesView(RoleRequiredMixin, View):
         if not child:
             return render(request, 'parent/invoices.html', {
                 'invoices': [], 'children': _get_parent_children(request.user),
-                'page': None,
             })
 
-        search = request.GET.get('q', '').strip()
-        status_filter = request.GET.get('status', '').strip()
-
-        allowed_statuses = ['issued', 'partially_paid', 'paid']
         invoices = (
-            Invoice.objects.filter(student=child, school=school, status__in=allowed_statuses)
+            Invoice.objects.filter(
+                student=child, school=school,
+                status__in=['issued', 'partially_paid', 'paid'],
+            )
             .select_related('student')
             .order_by('-billing_period_end', '-created_at')
         )
 
-        if search:
-            invoices = invoices.filter(
-                Q(invoice_number__icontains=search) |
-                Q(student__first_name__icontains=search) |
-                Q(student__last_name__icontains=search)
-            )
-        if status_filter and status_filter in allowed_statuses:
-            invoices = invoices.filter(status=status_filter)
-
-        paginator = Paginator(invoices, 25)
-        page = paginator.get_page(request.GET.get('page'))
-
-        ctx = {
-            'invoices': page,
-            'page': page,
+        return render(request, 'parent/invoices.html', {
+            'invoices': invoices,
             'active_child': child,
             'active_school': school,
             'children': _get_parent_children(request.user),
-            'search': search,
-            'status_filter': status_filter,
-        }
-        if request.headers.get('HX-Request'):
-            return render(request, 'parent/partials/invoice_table.html', ctx)
-        return render(request, 'parent/invoices.html', ctx)
+        })
 
 
 class ParentInvoiceDetailView(RoleRequiredMixin, View):
@@ -331,211 +339,82 @@ class ParentProgressView(RoleRequiredMixin, View):
                 'children': _get_parent_children(request.user),
             })
 
-        # Get latest progress record per criteria for this student
+        # All approved criteria for this school
+        approved_criteria = (
+            ProgressCriteria.objects.filter(
+                school=school,
+                status='approved',
+            )
+            .select_related('subject', 'level')
+            .order_by('subject__name', 'level__level_number', 'order')
+        )
+
+        # Latest progress record per criteria for this student at this school
         latest_ids = (
-            ProgressRecord.objects.filter(student=child)
+            ProgressRecord.objects.filter(
+                student=child,
+                criteria__school=school,
+                criteria__status='approved',
+            )
             .values('criteria_id')
             .annotate(latest_id=Max('id'))
             .values_list('latest_id', flat=True)
         )
-
-        records = (
-            ProgressRecord.objects.filter(id__in=latest_ids)
-            .select_related(
-                'criteria', 'criteria__subject', 'criteria__level',
-                'recorded_by',
+        records_by_criteria = {
+            rec.criteria_id: rec
+            for rec in ProgressRecord.objects.filter(id__in=latest_ids).select_related(
+                'criteria', 'recorded_by', 'session', 'session__classroom',
             )
-            .order_by(
-                'criteria__subject__name',
-                'criteria__level__level_number',
-                'criteria__order',
-            )
-        )
+        }
 
-        # Group by (subject, level)
+        # Group criteria by (subject, level), merging in student records
         grouped = {}
-        for rec in records:
-            key = (rec.criteria.subject_id, rec.criteria.level_id)
+        for criteria in approved_criteria:
+            key = (criteria.subject_id, criteria.level_id)
             if key not in grouped:
                 grouped[key] = {
-                    'subject': rec.criteria.subject,
-                    'level': rec.criteria.level,
-                    'records': [],
+                    'subject': criteria.subject,
+                    'level': criteria.level,
+                    'entries': [],
                 }
-            grouped[key]['records'].append(rec)
+            rec = records_by_criteria.get(criteria.id)
+            grouped[key]['entries'].append({
+                'criteria': criteria,
+                'status': rec.status if rec else 'not_assessed',
+                'notes': rec.notes if rec else '',
+                'recorded_at': rec.recorded_at if rec else None,
+                'recorded_by': rec.recorded_by if rec else None,
+                'classroom': rec.session.classroom if (rec and rec.session_id) else None,
+            })
 
-        # Calculate stats per group
+        # Sort and compute stats
         grouped_progress = []
-        overall = {'total': 0, 'achieved': 0, 'in_progress': 0, 'not_started': 0}
+        overall = {'total': 0, 'achieved': 0, 'in_progress': 0, 'not_started': 0, 'not_assessed': 0}
         for group in sorted(grouped.values(), key=lambda g: (
             g['subject'].name if g['subject'] else '',
             g['level'].level_number if g['level'] else 0,
         )):
-            recs = group['records']
-            total = len(recs)
-            achieved = sum(1 for r in recs if r.status == 'achieved')
-            in_progress = sum(1 for r in recs if r.status == 'in_progress')
-            not_started = total - achieved - in_progress
+            entries = group['entries']
+            total = len(entries)
+            achieved = sum(1 for e in entries if e['status'] == 'achieved')
+            in_progress = sum(1 for e in entries if e['status'] == 'in_progress')
+            not_assessed = sum(1 for e in entries if e['status'] == 'not_assessed')
+            not_started = total - achieved - in_progress - not_assessed
             group['total'] = total
             group['achieved'] = achieved
             group['in_progress'] = in_progress
             group['not_started'] = not_started
+            group['not_assessed'] = not_assessed
             grouped_progress.append(group)
             overall['total'] += total
             overall['achieved'] += achieved
             overall['in_progress'] += in_progress
             overall['not_started'] += not_started
+            overall['not_assessed'] += not_assessed
 
         return render(request, 'parent/progress.html', {
             'grouped_progress': grouped_progress,
             'overall': overall,
-            'active_child': child,
-            'active_school': school,
-            'children': _get_parent_children(request.user),
-        })
-
-
-# ---------------------------------------------------------------------------
-# Add Child (logged-in parent links another student via Student ID)
-# ---------------------------------------------------------------------------
-
-class ParentAddChildView(RoleRequiredMixin, View):
-    required_roles = [Role.PARENT]
-    RELATIONSHIP_CHOICES = [
-        ('mother', 'Mother'),
-        ('father', 'Father'),
-        ('guardian', 'Guardian'),
-        ('other', 'Other'),
-    ]
-
-    def get(self, request):
-        return render(request, 'parent/add_child.html', {
-            'children': _get_parent_children(request.user),
-            'relationship_choices': self.RELATIONSHIP_CHOICES,
-        })
-
-    def post(self, request):
-        student_id_code = request.POST.get('student_id', '').strip().upper()
-        relationship = request.POST.get('relationship', 'guardian').strip()
-        errors = {}
-
-        if not student_id_code:
-            errors['student_id'] = 'Student ID is required.'
-        else:
-            school_student = SchoolStudent.objects.filter(
-                student_id_code=student_id_code, is_active=True,
-            ).select_related('school', 'student').first()
-
-            if not school_student:
-                errors['student_id'] = f'Student ID "{student_id_code}" was not found. Please check and try again.'
-            else:
-                # Already linked?
-                if ParentStudent.objects.filter(
-                    parent=request.user,
-                    student=school_student.student,
-                    school=school_student.school,
-                ).exists():
-                    errors['student_id'] = 'You are already linked to this student.'
-                else:
-                    # Max 2 parents per student
-                    parent_count = ParentStudent.objects.filter(
-                        student=school_student.student,
-                        school=school_student.school,
-                        is_active=True,
-                    ).count()
-                    if parent_count >= 2:
-                        errors['student_id'] = (
-                            f'{school_student.student.first_name} already has the '
-                            f'maximum number of parent accounts linked.'
-                        )
-
-        if errors:
-            return render(request, 'parent/add_child.html', {
-                'errors': errors,
-                'children': _get_parent_children(request.user),
-                'relationship_choices': self.RELATIONSHIP_CHOICES,
-                'form_data': {'student_id': student_id_code, 'relationship': relationship},
-            })
-
-        existing_count = ParentStudent.objects.filter(
-            student=school_student.student,
-            school=school_student.school,
-            is_active=True,
-        ).count()
-        link = ParentStudent.objects.create(
-            parent=request.user,
-            student=school_student.student,
-            school=school_student.school,
-            relationship=relationship,
-            is_primary_contact=(existing_count == 0),
-            created_by=request.user,
-        )
-
-        # Switch to newly added child
-        request.session['active_child_id'] = school_student.student_id
-
-        from audit.services import log_event
-        log_event(
-            user=request.user, school=school_student.school,
-            category='data_change', action='parent_linked_child',
-            detail={'student_id_code': student_id_code, 'relationship': relationship},
-            request=request,
-        )
-
-        from django.contrib import messages
-        messages.success(
-            request,
-            f'{school_student.student.first_name} {school_student.student.last_name} '
-            f'has been linked to your account.'
-        )
-        return redirect('parent_dashboard')
-
-
-# ---------------------------------------------------------------------------
-# Classes / Schedule
-# ---------------------------------------------------------------------------
-
-class ParentClassesView(RoleRequiredMixin, View):
-    required_roles = [Role.PARENT]
-
-    def get(self, request):
-        child, school, _ = _get_active_child(request)
-        if not child:
-            return render(request, 'parent/classes.html', {
-                'children': _get_parent_children(request.user),
-                'enrollments': [],
-            })
-
-        enrollments = (
-            ClassStudent.objects.filter(
-                student=child, classroom__school=school, is_active=True,
-            )
-            .select_related(
-                'classroom', 'classroom__department',
-            )
-            .prefetch_related('classroom__class_teachers__teacher')
-            .order_by('classroom__day', 'classroom__start_time', 'classroom__name')
-        )
-
-        # Upcoming sessions (next 14 days)
-        from django.utils import timezone
-        import datetime
-        today = timezone.now().date()
-        enrolled_ids = list(enrollments.values_list('classroom_id', flat=True))
-        upcoming = (
-            ClassSession.objects.filter(
-                classroom_id__in=enrolled_ids,
-                date__gte=today,
-                date__lte=today + datetime.timedelta(days=14),
-                status__in=['scheduled', 'in_progress'],
-            )
-            .select_related('classroom')
-            .order_by('date', 'start_time')
-        )
-
-        return render(request, 'parent/classes.html', {
-            'enrollments': enrollments,
-            'upcoming_sessions': upcoming,
             'active_child': child,
             'active_school': school,
             'children': _get_parent_children(request.user),

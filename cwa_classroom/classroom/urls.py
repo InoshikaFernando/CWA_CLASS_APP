@@ -172,6 +172,9 @@ urlpatterns = [
     path('teacher/attendance/<int:attendance_id>/approve/', views_teacher.StudentAttendanceApproveView.as_view(), name='attendance_approve'),
     path('teacher/attendance/<int:attendance_id>/reject/', views_teacher.StudentAttendanceRejectView.as_view(), name='attendance_reject'),
     path('teacher/attendance/bulk-approve/', views_teacher.StudentAttendanceBulkApproveView.as_view(), name='attendance_bulk_approve'),
+    path('teacher/parent-link-requests/', views_teacher.ParentLinkRequestsView.as_view(), name='parent_link_requests'),
+    path('teacher/parent-link-requests/<int:request_id>/approve/', views_teacher.ParentLinkApproveView.as_view(), name='parent_link_approve'),
+    path('teacher/parent-link-requests/<int:request_id>/reject/', views_teacher.ParentLinkRejectView.as_view(), name='parent_link_reject'),
 
     # Session management
     path('teacher/class/<int:class_id>/start-session/', views_teacher.StartSessionView.as_view(), name='start_session'),
@@ -182,10 +185,12 @@ urlpatterns = [
 
     # Parent portal
     path('parent/', views_parent.ParentDashboardView.as_view(), name='parent_dashboard'),
+    path('parent/children/', views_parent.ParentChildrenView.as_view(), name='my_children'),
     path('parent/switch-child/<int:student_id>/', views_parent.ParentSwitchChildView.as_view(), name='parent_switch_child'),
     path('parent/invoices/', views_parent.ParentInvoicesView.as_view(), name='parent_invoices'),
     path('parent/invoices/<int:invoice_id>/', views_parent.ParentInvoiceDetailView.as_view(), name='parent_invoice_detail'),
     path('parent/payments/', views_parent.ParentPaymentHistoryView.as_view(), name='parent_payment_history'),
+    path('parent/billing/', views_parent.ParentPaymentHistoryView.as_view(), name='parent_billing'),
     path('parent/attendance/', views_parent.ParentAttendanceView.as_view(), name='parent_attendance'),
     path('parent/progress/', views_parent.ParentProgressView.as_view(), name='parent_progress'),
     path('parent/add-child/', views_parent.ParentAddChildView.as_view(), name='parent_add_child'),
