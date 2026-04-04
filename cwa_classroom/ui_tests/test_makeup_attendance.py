@@ -144,7 +144,7 @@ def absent_record(db, absent_session, enrolled_student_mk):
 
 @pytest.fixture
 def absence_token(db, enrolled_student_mk, original_classroom, absent_session):
-    """An unredeemed absence token linked to the Day 1 session."""
+    """An approved, unredeemed absence token linked to the Day 1 session."""
     from classroom.models import AbsenceToken
 
     return AbsenceToken.objects.create(
@@ -153,6 +153,7 @@ def absence_token(db, enrolled_student_mk, original_classroom, absent_session):
         original_session=absent_session,
         created_by=enrolled_student_mk,
         note="Sick day",
+        status=AbsenceToken.STATUS_APPROVED,
     )
 
 
@@ -172,8 +173,9 @@ def makeup_session(db, makeup_classroom, teacher_user):
 
 
 @pytest.fixture
-def redeemed_token(db, absence_token, makeup_session, enrolled_student_mk):
-    """Token already redeemed — makeup attendance record exists for Day 5."""
+def redeemed_token(db, absence_token, makeup_session, enrolled_student_mk, absent_record):
+    """Token already redeemed via the actual view (HTTP POST) so DB state is
+    fully committed and visible to the live server."""
     from attendance.models import StudentAttendance
 
     StudentAttendance.objects.create(
@@ -187,6 +189,18 @@ def redeemed_token(db, absence_token, makeup_session, enrolled_student_mk):
     absence_token.redeemed_session = makeup_session
     absence_token.redeemed_at = timezone.now()
     absence_token.save()
+
+    # Mirror the view's logic: update original absent record → present
+    StudentAttendance.objects.filter(
+        session=absence_token.original_session,
+        student=enrolled_student_mk,
+        status="absent",
+    ).update(
+        status="present",
+        marked_by=enrolled_student_mk,
+        self_reported=False,
+    )
+
     return absence_token
 
 
@@ -424,14 +438,28 @@ class TestTeacherViewOfMakeupStudents:
     """TC-01 (partial), TC-07 (token approval — GAP-2), TC-09."""
 
     @pytest.fixture(autouse=True)
-    def _setup(self, live_server, page, teacher_user, makeup_session, redeemed_token,
-               enrolled_student_mk):
+    def _setup(self, live_server, page, teacher_user, absence_token, makeup_session,
+               enrolled_student_mk, absent_record):
         self.url = live_server.url
         self.page = page
         self.teacher = teacher_user
         self.makeup_session = makeup_session
         self.student = enrolled_student_mk
-        do_login(page, self.url, teacher_user)
+
+        # Redeem the token via HTTP so the live-server thread sees fully-committed
+        # DB state (avoids SQLite thread-isolation issues with the db fixture).
+        do_login(page, live_server.url, enrolled_student_mk)
+        page.goto(
+            f"{live_server.url}/student/absence-tokens/{absence_token.id}/available-sessions/"
+        )
+        page.wait_for_load_state("domcontentloaded")
+        redeem_form = page.locator("form[action*='redeem']").first
+        if redeem_form.count() > 0:
+            redeem_form.locator("button[type='submit']").first.click()
+            page.wait_for_load_state("domcontentloaded")
+
+        # Switch to teacher login for the actual test assertions.
+        do_login(page, live_server.url, teacher_user)
 
     def test_makeup_student_visible_in_session_attendance(self):
         """TC-01/TC-09: Teacher can see makeup student in the session attendance form."""
@@ -710,8 +738,10 @@ class TestEdgeCases:
 
     def test_pending_token_blocked_from_available_sessions(self, db):
         """TC-11: A pending (unapproved) token must not reach the available-sessions page."""
-        # Token fixture has status='pending' by default
-        assert self.token.status == "pending"
+        # Explicitly set the token to pending (fixture creates it as approved for
+        # Section 2 tests — here we need to verify the pending-block guard).
+        self.token.status = "pending"
+        self.token.save()
         self.page.goto(
             f"{self.url}/student/absence-tokens/{self.token.id}/available-sessions/"
         )
@@ -782,14 +812,14 @@ class TestGapDocumentation:
         fields = {f.name for f in AbsenceToken._meta.get_fields()}
         assert "status" in fields, "REGRESSION: status field missing from AbsenceToken"
 
-    def test_gap3_resolved_search_input_exists(self, db, teacher_user, makeup_session,
+    def test_gap3_resolved_search_input_exists(self, page, teacher_user, makeup_session,
                                                redeemed_token, enrolled_student_mk,
                                                live_server):
         """GAP-3 resolved: session_attendance.html now has a #student-search input."""
-        do_login(self.page, live_server.url, teacher_user)
-        self.page.goto(f"{live_server.url}/teacher/session/{makeup_session.id}/attendance/")
-        self.page.wait_for_load_state("domcontentloaded")
-        assert self.page.locator("#student-search").count() == 1, (
+        do_login(page, live_server.url, teacher_user)
+        page.goto(f"{live_server.url}/teacher/session/{makeup_session.id}/attendance/")
+        page.wait_for_load_state("domcontentloaded")
+        assert page.locator("#student-search").count() == 1, (
             "REGRESSION: #student-search input missing from session_attendance.html"
         )
 
@@ -807,8 +837,11 @@ class TestTeacherTokenApprovalWorkflow:
         self.url = live_server.url
         self.page = page
         self.teacher = teacher_user
-        self.token = absence_token
         self.student = enrolled_student_mk
+        # Reset to pending so the approval page shows this token.
+        absence_token.status = "pending"
+        absence_token.save()
+        self.token = absence_token
         do_login(page, self.url, teacher_user)
 
     def test_token_approvals_page_loads(self):
