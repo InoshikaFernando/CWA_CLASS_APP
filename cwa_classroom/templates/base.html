@@ -118,6 +118,10 @@
     {% include "partials/bottom_nav.html" %}
   </div>
 
+  {% if request.user.is_authenticated %}
+  {% include "help/partials/help_widget.html" %}
+  {% endif %}
+
   {% block extra_js %}{% endblock %}
 </body>
 </html>
