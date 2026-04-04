@@ -1360,7 +1360,7 @@ class ParentLinkRequestsView(RoleRequiredMixin, View):
             ParentLinkRequest.objects.filter(
                 school_student__school__in=schools,
                 status=ParentLinkRequest.STATUS_PENDING,
-            )
+            ).exclude(parent=request.user)  # Teachers cannot approve their own requests
             .select_related(
                 'parent', 'school_student', 'school_student__student',
                 'school_student__school',
@@ -1385,6 +1385,11 @@ class ParentLinkApproveView(RoleRequiredMixin, View):
             ParentLinkRequest, id=request_id, status=ParentLinkRequest.STATUS_PENDING,
         )
         school = link_request.school_student.school
+
+        # Prevent self-approval — a teacher cannot approve their own link request
+        if link_request.parent == request.user:
+            messages.error(request, 'You cannot approve your own parent link request.')
+            return redirect('parent_link_requests')
 
         # Verify teacher belongs to this school
         if not SchoolTeacher.objects.filter(

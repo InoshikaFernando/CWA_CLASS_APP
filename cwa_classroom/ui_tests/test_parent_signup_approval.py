@@ -163,13 +163,18 @@ class TestParentSignupPendingFlow:
         page.fill("input[name='password']", TEST_PASSWORD)
         page.fill("input[name='confirm_password']", TEST_PASSWORD)
         page.fill("input[name='student_id_0']", self.ss.student_id_code)
+        # The terms checkbox is disabled until scrolled — force-enable and check it
+        page.evaluate(
+            "const cb = document.getElementById('accept-terms');"
+            "cb.removeAttribute('disabled'); cb.checked = true;"
+        )
 
         page.locator("button[type='submit']").click()
         page.wait_for_url(re.compile(r"/parent/"), timeout=10_000)
         page.wait_for_load_state("domcontentloaded")
 
         # Pending banner must appear
-        expect(page.get_by_text(re.compile("Pending", re.I))).to_be_visible()
+        expect(page.get_by_text(re.compile("Pending", re.I)).first).to_be_visible()
 
     def test_no_child_card_before_approval(self):
         """Child data card must NOT appear before teacher approves."""
@@ -183,6 +188,10 @@ class TestParentSignupPendingFlow:
         page.fill("input[name='password']", TEST_PASSWORD)
         page.fill("input[name='confirm_password']", TEST_PASSWORD)
         page.fill("input[name='student_id_0']", self.ss.student_id_code)
+        page.evaluate(
+            "const cb = document.getElementById('accept-terms');"
+            "cb.removeAttribute('disabled'); cb.checked = true;"
+        )
 
         page.locator("button[type='submit']").click()
         page.wait_for_url(re.compile(r"/parent/"), timeout=10_000)
@@ -274,7 +283,7 @@ class TestApprovalFlow:
 
         # Child card must appear
         expect(self.page.locator('[data-testid="child-card"]')).to_have_count(1)
-        expect(self.page.get_by_text("Zara Smith")).to_be_visible()
+        expect(self.page.get_by_text("Zara Smith").first).to_be_visible()
 
 
 # ---------------------------------------------------------------------------
@@ -346,7 +355,7 @@ class TestApprovedParentStudentVisibility:
         expect(self.page.locator('[data-testid="child-card"]')).to_have_count(1)
 
     def test_student_name_in_card(self):
-        expect(self.page.get_by_text("Zara Smith")).to_be_visible()
+        expect(self.page.get_by_text("Zara Smith").first).to_be_visible()
 
     def test_no_pending_banner(self):
         """No pending banner when all requests are resolved."""
