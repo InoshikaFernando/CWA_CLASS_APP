@@ -457,6 +457,8 @@ class Term(models.Model):
     start_date = models.DateField()
     end_date = models.DateField()
     order = models.PositiveIntegerField(default=0)
+    is_confirmed = models.BooleanField(default=False)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ['order', 'start_date']

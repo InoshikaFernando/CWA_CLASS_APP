@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.views import View
@@ -2261,10 +2263,14 @@ class TermManageView(RoleRequiredMixin, View):
         school = _get_user_school_or_404(request.user, school_id)
         terms = Term.objects.filter(school=school).select_related('academic_year')
         academic_years = AcademicYear.objects.filter(school=school)
+        today = date.today()
         return render(request, 'admin_dashboard/school_terms.html', {
             'school': school,
             'terms': terms,
             'academic_years': academic_years,
+            'today': today,
+            'confirm_window_end': today + timedelta(days=30),
+            'can_force_confirm': request.user.is_admin_user or request.user.is_institute_owner or request.user.is_head_of_institute,
         })
 
     def post(self, request, school_id):
@@ -2348,5 +2354,43 @@ class TermManageView(RoleRequiredMixin, View):
                 request=request,
             )
             messages.success(request, f'Term "{term_name}" deleted.')
+
+        elif action == 'confirm':
+            term_id = request.POST.get('term_id')
+            term = get_object_or_404(Term, id=term_id, school=school)
+            today = date.today()
+            window_end = today + timedelta(days=30)
+            if not (today <= term.start_date <= window_end):
+                messages.error(
+                    request,
+                    f'Term "{term.name}" can only be confirmed within the 1-month window before it starts '
+                    f'({today.strftime("%d %b %Y")} – {window_end.strftime("%d %b %Y")}). '
+                    f'Use Force Confirm to bypass this window.'
+                )
+            else:
+                term.is_confirmed = True
+                term.confirmed_at = timezone.now()
+                term.save()
+                log_event(
+                    user=request.user, school=school, category='data_change',
+                    action='term_confirmed',
+                    detail={'term_id': term.id, 'term_name': term.name},
+                    request=request,
+                )
+                messages.success(request, f'Term "{term.name}" confirmed.')
+
+        elif action == 'force_confirm':
+            term_id = request.POST.get('term_id')
+            term = get_object_or_404(Term, id=term_id, school=school)
+            term.is_confirmed = True
+            term.confirmed_at = timezone.now()
+            term.save()
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='term_force_confirmed',
+                detail={'term_id': term.id, 'term_name': term.name, 'forced': True},
+                request=request,
+            )
+            messages.success(request, f'Term "{term.name}" force-confirmed outside the standard window.')
 
         return redirect('admin_school_terms', school_id=school.id)
