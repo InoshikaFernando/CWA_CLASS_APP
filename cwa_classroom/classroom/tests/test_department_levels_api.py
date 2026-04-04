@@ -24,9 +24,8 @@ class DepartmentLevelsAPITestBase(TestCase):
         cls.school = School.objects.create(
             name='Test School', slug='test-school', admin=cls.admin_user,
         )
-        SchoolTeacher.objects.create(
-            school=cls.school, teacher=cls.admin_user, role='admin',
-        )
+        SchoolTeacher.objects.update_or_create(
+            school=cls.school, teacher=cls.admin_user, defaults={'role': 'admin'})
 
         cls.maths = Subject.objects.get_or_create(
             slug='mathematics',

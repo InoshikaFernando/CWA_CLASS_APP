@@ -135,7 +135,7 @@ class InvoiceCreationTest(TestCase):
         # Teacher
         cls.teacher = _create_user('teacher_inv', first_name='Teacher', last_name='One')
         _assign_role(cls.teacher, Role.TEACHER)
-        SchoolTeacher.objects.create(school=cls.school, teacher=cls.teacher, role='teacher')
+        SchoolTeacher.objects.update_or_create(school=cls.school, teacher=cls.teacher, defaults={'role': 'teacher'})
 
         # Department, subject, level
         cls.subject = Subject.objects.create(name='Maths', slug='maths', school=cls.school)
@@ -438,7 +438,7 @@ class PaymentRecordingTest(TestCase):
 
         cls.teacher = _create_user('teacher_pay', first_name='Teacher', last_name='Pay')
         _assign_role(cls.teacher, Role.TEACHER)
-        SchoolTeacher.objects.create(school=cls.school, teacher=cls.teacher, role='teacher')
+        SchoolTeacher.objects.update_or_create(school=cls.school, teacher=cls.teacher, defaults={'role': 'teacher'})
         ClassTeacher.objects.create(classroom=cls.classroom, teacher=cls.teacher)
 
         cls.student = _create_user('student_pay', first_name='Dana', last_name='Pay')
@@ -576,7 +576,7 @@ class ParentPortalTest(TestCase):
         # Teacher
         cls.teacher = _create_user('teacher_parent', first_name='Teacher', last_name='PT')
         _assign_role(cls.teacher, Role.TEACHER)
-        SchoolTeacher.objects.create(school=cls.school, teacher=cls.teacher, role='teacher')
+        SchoolTeacher.objects.update_or_create(school=cls.school, teacher=cls.teacher, defaults={'role': 'teacher'})
 
         # Department, subject
         cls.subject = Subject.objects.create(name='Art', slug='art', school=cls.school)
@@ -768,7 +768,7 @@ class InvoiceNotificationTest(TestCase):
 
         cls.teacher = _create_user('teacher_notif', first_name='Teacher', last_name='Notif')
         _assign_role(cls.teacher, Role.TEACHER)
-        SchoolTeacher.objects.create(school=cls.school, teacher=cls.teacher, role='teacher')
+        SchoolTeacher.objects.update_or_create(school=cls.school, teacher=cls.teacher, defaults={'role': 'teacher'})
 
         cls.subject = Subject.objects.create(name='History', slug='history', school=cls.school)
         cls.department = Department.objects.create(

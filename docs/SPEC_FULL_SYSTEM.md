@@ -335,7 +335,7 @@ Constants: `ADMIN`, `SENIOR_TEACHER`, `TEACHER`, `JUNIOR_TEACHER`, `STUDENT`, `I
 - **Individual students:** Own `Subscription` object, independent of school subs
 
 ### 6.4 Template Tag
-`{% school_has_module "module_slug" %}` — hides sidebar navigation links for unsubscribed modules
+`{% raw %}{% school_has_module "module_slug" %}{% endraw %}` — hides sidebar navigation links for unsubscribed modules
 
 ---
 
@@ -526,7 +526,7 @@ The webhook endpoint is CSRF exempt (correct) but has no rate limiting or IP all
 The audit app has `views.py` with only `from django.shortcuts import render`. No admin dashboard views for viewing audit logs or risk reports.
 
 #### U. Template Tags `billing_tags.py` Not Analyzed
-The `{% school_has_module %}` template tag exists but its exact implementation wasn't included in the spec.
+The `{% raw %}{% school_has_module %}{% endraw %}` template tag exists but its exact implementation wasn't included in the spec.
 
 #### V. Welcome Email Sends Username in Plaintext
 `emails/welcome_staff.html` and `.txt` templates appear to send the username (and possibly temporary password) via email.
