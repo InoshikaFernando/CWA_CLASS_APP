@@ -24,6 +24,7 @@ from .models import (
 class CurrencyAdmin(admin.ModelAdmin):
     list_display = ('code', 'name', 'symbol', 'symbol_position', 'decimal_places', 'is_active')
     list_filter = ('is_active', 'symbol_position')
+    list_editable = ('is_active',)
     search_fields = ('code', 'name')
     ordering = ('code',)
 
