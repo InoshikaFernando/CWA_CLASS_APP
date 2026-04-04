@@ -88,7 +88,7 @@ class HelpSearchView(LoginRequiredMixin, View):
     def get(self, request):
         role_group = get_role_group(getattr(request, 'session', {}).get('active_role') or
                                    (request.user.primary_role if request.user.is_authenticated else None))
-        query = request.GET.get('q', '').strip()
+        query = request.GET.get('help_q', request.GET.get('q', '')).strip()
         results = []
 
         if len(query) >= 2:
