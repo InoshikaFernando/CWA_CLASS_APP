@@ -101,6 +101,74 @@ class Topic(models.Model):
 
 
 # ---------------------------------------------------------------------------
+# Currency (reference / lookup table)
+# ---------------------------------------------------------------------------
+
+class Currency(models.Model):
+    """ISO 4217 currency reference table. Active currencies appear in dropdowns."""
+
+    SYMBOL_BEFORE = 'before'
+    SYMBOL_AFTER = 'after'
+    SYMBOL_POSITION_CHOICES = [
+        (SYMBOL_BEFORE, 'Before amount'),
+        (SYMBOL_AFTER, 'After amount'),
+    ]
+
+    code = models.CharField(
+        max_length=3,
+        primary_key=True,
+        help_text='ISO 4217 three-letter currency code (e.g. NZD, USD).',
+    )
+    name = models.CharField(max_length=100, help_text='e.g. "New Zealand Dollar"')
+    symbol = models.CharField(max_length=5, help_text='e.g. "$", "£", "€"')
+    symbol_position = models.CharField(
+        max_length=6,
+        choices=SYMBOL_POSITION_CHOICES,
+        default=SYMBOL_BEFORE,
+    )
+    decimal_places = models.PositiveSmallIntegerField(
+        default=2,
+        help_text='Number of decimal places (typically 2; 0 for JPY, KRW).',
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text='Only active currencies are shown in dropdowns.',
+    )
+
+    class Meta:
+        ordering = ['code']
+        verbose_name = 'Currency'
+        verbose_name_plural = 'Currencies'
+
+    def __str__(self):
+        return f'{self.code} - {self.name}'
+
+    def format_amount(self, value) -> str:
+        """Return *value* formatted as a currency string using this currency's rules.
+
+        Examples::
+
+            nzd.format_amount(Decimal("99.50"))  → "$99.50"
+            jpy.format_amount(Decimal("1500"))   → "¥1500"
+            sek.format_amount(Decimal("250.00")) → "250.00\xa0kr"
+        """
+        from decimal import Decimal as _Decimal, ROUND_HALF_UP
+
+        quantize_str = '1' if self.decimal_places == 0 else '0.' + '0' * self.decimal_places
+        amount = _Decimal(str(value)).quantize(_Decimal(quantize_str), rounding=ROUND_HALF_UP)
+        formatted = f'{amount:,f}'
+        # Strip trailing zeros beyond desired decimal places then re-pad
+        if self.decimal_places == 0:
+            formatted = str(int(amount))
+        else:
+            formatted = f'{amount:.{self.decimal_places}f}'
+
+        if self.symbol_position == self.SYMBOL_BEFORE:
+            return f'{self.symbol}{formatted}'
+        return f'{formatted}\u00a0{self.symbol}'
+
+
+# ---------------------------------------------------------------------------
 # School & Multi-tenancy
 # ---------------------------------------------------------------------------
 
