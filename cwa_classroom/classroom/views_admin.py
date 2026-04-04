@@ -2494,29 +2494,6 @@ class TermManageView(RoleRequiredMixin, View):
             except Exception as e:
                 messages.error(request, f'Could not update term: {e}')
 
-        elif action == 'confirm':
-            term_id = request.POST.get('term_id')
-            term = get_object_or_404(Term, id=term_id, school=school)
-            from datetime import date, timedelta
-            one_month_from_now = date.today() + timedelta(days=30)
-            if term.start_date <= one_month_from_now:
-                messages.warning(
-                    request,
-                    f'Term "{term.name}" starts on {term.start_date.strftime("%d %b %Y")}. '
-                    f'Dates must be confirmed at least 1 month before the term starts.'
-                )
-            else:
-                term.is_confirmed = True
-                term.confirmed_at = timezone.now()
-                term.save()
-                log_event(
-                    user=request.user, school=school, category='data_change',
-                    action='term_confirmed',
-                    detail={'term_id': term.id, 'term_name': term.name},
-                    request=request,
-                )
-                messages.success(request, f'Term "{term.name}" confirmed.')
-
         elif action == 'delete':
             term_id = request.POST.get('term_id')
             term = get_object_or_404(Term, id=term_id, school=school)
