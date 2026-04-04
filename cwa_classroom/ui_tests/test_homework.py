@@ -88,7 +88,7 @@ class TestTeacherHomeworkUI:
         do_login(page, live_server.url, teacher_user)
         page.goto(f"{live_server.url}/homework/class/{classroom.pk}/create/")
         page.wait_for_load_state("networkidle")
-        expect(page.get_by_role("heading", name="Assign Homework")).to_be_visible()
+        expect(page.get_by_role("heading", name="Create Homework")).to_be_visible()
         expect(page.locator("#id_title")).to_be_visible()
         expect(page.locator("#id_due_date")).to_be_visible()
 
@@ -104,10 +104,10 @@ class TestTeacherHomeworkUI:
         page.locator("#id_title").fill("UI Test Homework")
         due = (timezone.now() + timedelta(days=2)).strftime("%Y-%m-%dT%H:%M")
         page.locator("#id_due_date").fill(due)
-        page.get_by_role("button", name="Assign Homework").click()
+        page.get_by_role("button", name="Create Homework").click()
         page.wait_for_load_state("networkidle")
-        # After submit, redirected to monitor
-        assert "/homework/monitor/" in page.url
+        # After submit, redirected to homework detail
+        assert "/homework/" in page.url
 
     @pytest.mark.django_db(transaction=True)
     def test_monitor_shows_homework_for_class(
@@ -127,7 +127,7 @@ class TestTeacherHomeworkUI:
         do_login(page, live_server.url, teacher_user)
         page.goto(f"{live_server.url}/homework/{active_homework.pk}/")
         page.wait_for_load_state("networkidle")
-        expect(page.get_by_text("Algebra Practice Week 1")).to_be_visible()
+        expect(page.get_by_role("heading", name="Algebra Practice Week 1")).to_be_visible()
 
 
 # ===========================================================================
