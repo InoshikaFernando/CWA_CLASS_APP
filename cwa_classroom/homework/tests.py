@@ -917,3 +917,201 @@ class HomeworkSidebarNavigationTest(HomeworkTestBase):
         with open(os.path.normpath(sidebar_path)) as f:
             content = f.read()
         self.assertIn("homework:teacher_monitor", content)
+
+
+# ---------------------------------------------------------------------------
+# Homework Monitor → New Homework button flow tests  (CPP-137)
+# ---------------------------------------------------------------------------
+
+class HomeworkMonitorFlowTest(HomeworkTestBase):
+    """
+    Tests for the sidebar → monitor → New Homework button flow.
+
+    Flow:
+      1. Teacher clicks Homework in sidebar → /homework/monitor/
+      2. Monitor auto-selects first classroom (no ?classroom= param needed)
+      3. "+ New Homework" button is visible and href = /homework/class/<id>/create/
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.client.force_login(self.teacher)
+
+    def test_monitor_auto_selects_first_classroom_without_param(self):
+        """Monitor selects first classroom automatically when no ?classroom= param."""
+        resp = self.client.get(reverse('homework:teacher_monitor'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNotNone(resp.context['selected_classroom'])
+        self.assertEqual(resp.context['selected_classroom'], self.classroom)
+
+    def test_new_homework_button_visible_without_classroom_param(self):
+        """New Homework button is visible on the monitor page without a query param."""
+        resp = self.client.get(reverse('homework:teacher_monitor'))
+        self.assertContains(resp, 'New Homework')
+
+    def test_new_homework_button_href_contains_create_url(self):
+        """New Homework button href points to the correct /homework/class/<id>/create/ URL."""
+        resp = self.client.get(reverse('homework:teacher_monitor'))
+        expected_url = reverse(
+            'homework:teacher_create', kwargs={'classroom_id': self.classroom.id}
+        )
+        self.assertContains(resp, f'href="{expected_url}"')
+
+    def test_new_homework_button_href_with_explicit_classroom_param(self):
+        """Explicitly selecting ?classroom=<id> still produces the correct button href."""
+        resp = self.client.get(
+            reverse('homework:teacher_monitor') + f'?classroom={self.classroom.id}'
+        )
+        expected_url = reverse(
+            'homework:teacher_create', kwargs={'classroom_id': self.classroom.id}
+        )
+        self.assertContains(resp, f'href="{expected_url}"')
+
+    def test_new_homework_button_absent_when_teacher_has_no_classrooms(self):
+        """Teacher with no classrooms assigned sees no New Homework button."""
+        self.client.force_login(self.other_teacher)
+        resp = self.client.get(reverse('homework:teacher_monitor'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, 'New Homework')
+        self.assertIsNone(resp.context['selected_classroom'])
+
+    def test_class_dropdown_shows_teacher_classroom_name(self):
+        """Class dropdown lists the teacher's classroom."""
+        resp = self.client.get(reverse('homework:teacher_monitor'))
+        self.assertContains(resp, self.classroom.name)
+
+    def test_create_url_resolves_correctly(self):
+        """The URL the button links to resolves to the teacher_create view."""
+        from django.urls import resolve
+        url = reverse(
+            'homework:teacher_create', kwargs={'classroom_id': self.classroom.id}
+        )
+        self.assertEqual(resolve(url).view_name, 'homework:teacher_create')
+
+
+# ---------------------------------------------------------------------------
+# Timezone fix regression tests (CPP-74 QA comment — Issue #1)
+# ---------------------------------------------------------------------------
+
+class HomeworkFormTimezoneTest(HomeworkTestBase):
+    """
+    Regression tests for timezone handling in HomeworkCreateForm.clean_due_date.
+
+    CPP-74 comment flagged that datetime-local inputs submit naive datetimes
+    while timezone.now() is TZ-aware (USE_TZ=True, TIME_ZONE='Pacific/Auckland').
+    Comparing naive vs. aware datetimes raises TypeError in Python 3.
+    The fix: make_aware() is called on naive due_date values before comparison.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.client.force_login(self.teacher)
+        self.url = reverse('homework:teacher_create', kwargs={'classroom_id': self.classroom.id})
+
+    def _post_due(self, due_str, num_questions=3):
+        return self.client.post(self.url, {
+            'title': 'TZ Test HW',
+            'homework_type': 'topic',
+            'topics': [self.topic.id],
+            'num_questions': num_questions,
+            'due_date': due_str,
+            'max_attempts': 1,
+        })
+
+    def test_naive_future_due_date_is_accepted(self):
+        """A naive future datetime string (from datetime-local input) must be accepted."""
+        # datetime-local format — no timezone suffix, Django receives it as naive
+        future = (timezone.now() + timedelta(days=2)).strftime('%Y-%m-%dT%H:%M')
+        resp = self._post_due(future)
+        # Successful create → redirect to detail page
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(Homework.objects.filter(title='TZ Test HW').exists())
+
+    def test_naive_past_due_date_is_rejected(self):
+        """A naive past datetime string must be rejected with a validation error."""
+        past = (timezone.now() - timedelta(days=1)).strftime('%Y-%m-%dT%H:%M')
+        resp = self._post_due(past)
+        # Re-renders form (200) and no homework created
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(Homework.objects.filter(title='TZ Test HW').exists())
+        self.assertContains(resp, 'future')
+
+    def test_due_date_stored_as_aware_datetime(self):
+        """Saved due_date must be timezone-aware (not naive)."""
+        from django.utils.timezone import is_aware
+        future = (timezone.now() + timedelta(days=2)).strftime('%Y-%m-%dT%H:%M')
+        self._post_due(future)
+        hw = Homework.objects.filter(title='TZ Test HW').first()
+        self.assertIsNotNone(hw)
+        self.assertTrue(is_aware(hw.due_date), 'due_date should be TZ-aware after save')
+
+    def test_is_past_due_uses_aware_comparison(self):
+        """is_past_due property must return False for a future homework."""
+        future = (timezone.now() + timedelta(days=2)).strftime('%Y-%m-%dT%H:%M')
+        self._post_due(future)
+        hw = Homework.objects.get(title='TZ Test HW')
+        self.assertFalse(hw.is_past_due)
+
+
+# ---------------------------------------------------------------------------
+# Missing created_by_id column regression tests (CPP-137 Avinesh comment)
+# ---------------------------------------------------------------------------
+
+class HomeworkCreatedByColumnTest(HomeworkTestBase):
+    """
+    Regression tests for the missing created_by_id column bug reported by
+    Avinesh: OperationalError (1054, "Unknown column 'homework_homework.
+    created_by_id' in 'field list'") at /homework/monitor/.
+
+    Root cause: the column was added to the model after the initial migration
+    was deployed, but no new migration was created, so manage.py migrate
+    skipped it.  0002_add_created_by_nullable.py fixes this.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.client.force_login(self.teacher)
+
+    def test_created_by_is_nullable_in_model(self):
+        """created_by field must be nullable so rows without it are valid."""
+        field = Homework._meta.get_field('created_by')
+        self.assertTrue(field.null, 'created_by must have null=True')
+        self.assertTrue(field.blank, 'created_by must have blank=True')
+
+    def test_homework_can_be_created_without_created_by(self):
+        """A Homework row must save successfully even when created_by is None."""
+        hw = Homework.objects.create(
+            classroom=self.classroom,
+            created_by=None,
+            title='No-owner HW',
+            homework_type='topic',
+            num_questions=3,
+            due_date=timezone.now() + timedelta(days=2),
+        )
+        self.assertIsNone(hw.created_by)
+        self.assertEqual(Homework.objects.filter(title='No-owner HW').count(), 1)
+
+    def test_monitor_page_returns_200_with_nullable_created_by(self):
+        """Monitor page must not crash when created_by is NULL on homework rows."""
+        # Create homework with no owner (simulates old rows in Avinesh's DB)
+        Homework.objects.create(
+            classroom=self.classroom,
+            created_by=None,
+            title='Legacy HW no owner',
+            homework_type='topic',
+            num_questions=3,
+            due_date=timezone.now() + timedelta(days=2),
+        )
+        resp = self.client.get(reverse('homework:teacher_monitor'))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_migration_0002_exists(self):
+        """0002_add_created_by_nullable migration file must be present."""
+        import os
+        migrations_dir = os.path.join(os.path.dirname(__file__), 'migrations')
+        migration_files = os.listdir(migrations_dir)
+        self.assertIn(
+            '0002_add_created_by_nullable.py',
+            migration_files,
+            'Missing migration 0002_add_created_by_nullable.py',
+        )
