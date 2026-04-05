@@ -427,6 +427,166 @@ class JoinClassByCodeViewTests(TestCase):
         self.assertEqual(enrollment.status, 'pending')
 
 
+# ===========================================================================
+# ENROLLMENT NOTIFICATION LINK TESTS
+# ===========================================================================
+
+class EnrollmentRequestNotificationLinkTests(TestCase):
+    """Teacher/HoD/HoI notifications must link to the enrollment-requests page."""
+
+    def setUp(self):
+        self.data = _full_school_setup()
+        self.client = Client()
+        self.client.login(username='student1', password='pass12345')
+
+    def _join_new_class(self):
+        """Create a fresh class and have student1 submit a join request."""
+        classroom2 = ClassRoom.objects.create(
+            name='Notify Class', school=self.data['school'],
+            subject=self.data['subject'],
+            department=self.data['dept'],
+        )
+        ClassTeacher.objects.create(classroom=classroom2, teacher=self.data['teacher'])
+        self.client.post(reverse('student_join_class'), {'code': classroom2.code})
+        return classroom2
+
+    def test_teacher_notification_link_points_to_enrollment_requests(self):
+        classroom2 = self._join_new_class()
+        notif = Notification.objects.filter(
+            user=self.data['teacher'],
+            notification_type='enrollment_request',
+        ).last()
+        self.assertIsNotNone(notif, 'No enrollment_request notification created for teacher')
+        self.assertEqual(notif.link, reverse('enrollment_requests'))
+
+    def test_hod_notification_link_points_to_enrollment_requests(self):
+        """HoD of the department gets a notification with the correct link."""
+        # Make the hoi also a department head so we have an HoD
+        hod = _create_user('hod_test', email='hod@test.com')
+        _assign_role(hod, Role.HEAD_OF_DEPARTMENT)
+        self.data['dept'].head = hod
+        self.data['dept'].save()
+
+        self._join_new_class()
+
+        notif = Notification.objects.filter(
+            user=hod,
+            notification_type='enrollment_request',
+        ).last()
+        self.assertIsNotNone(notif, 'No enrollment_request notification created for HoD')
+        self.assertEqual(notif.link, reverse('enrollment_requests'))
+
+    def test_hoi_notification_link_points_to_enrollment_requests(self):
+        """School admin (HoI) gets a notification with the correct link."""
+        self._join_new_class()
+        notif = Notification.objects.filter(
+            user=self.data['hoi'],
+            notification_type='enrollment_request',
+        ).last()
+        self.assertIsNotNone(notif, 'No enrollment_request notification created for HoI')
+        self.assertEqual(notif.link, reverse('enrollment_requests'))
+
+    def test_re_request_notification_link_also_correct(self):
+        """Re-submitted join request also produces the correct link."""
+        classroom2 = ClassRoom.objects.create(
+            name='Re-request Class', school=self.data['school'],
+            subject=self.data['subject'],
+        )
+        ClassTeacher.objects.create(classroom=classroom2, teacher=self.data['teacher'])
+        # First rejection
+        Enrollment.objects.create(
+            classroom=classroom2, student=self.data['student'], status='rejected',
+        )
+        # Re-submit
+        self.client.post(reverse('student_join_class'), {'code': classroom2.code})
+        notif = Notification.objects.filter(
+            user=self.data['teacher'],
+            notification_type='enrollment_request',
+        ).last()
+        self.assertIsNotNone(notif)
+        self.assertEqual(notif.link, reverse('enrollment_requests'))
+
+
+class EnrollmentApproveNotificationLinkTests(TestCase):
+    """Student notification after approval must link to the class detail page."""
+
+    def setUp(self):
+        self.data = _full_school_setup()
+        self.enrollment = Enrollment.objects.create(
+            classroom=self.data['classroom'],
+            student=self.data['student'],
+            status='pending',
+        )
+        self.client = Client()
+        self.client.login(username='teacher1', password='pass12345')
+
+    def test_approval_creates_notification_with_class_detail_link(self):
+        self.client.post(reverse('enrollment_approve', args=[self.enrollment.id]))
+        notif = Notification.objects.filter(
+            user=self.data['student'],
+            notification_type='enrollment_approved',
+        ).last()
+        self.assertIsNotNone(notif, 'No enrollment_approved notification created')
+        expected_link = reverse('student_class_detail', kwargs={'class_id': self.data['classroom'].id})
+        self.assertEqual(notif.link, expected_link)
+
+    def test_approval_notification_link_is_not_empty(self):
+        self.client.post(reverse('enrollment_approve', args=[self.enrollment.id]))
+        notif = Notification.objects.filter(
+            user=self.data['student'],
+            notification_type='enrollment_approved',
+        ).last()
+        self.assertTrue(notif.link, 'Approval notification link must not be empty')
+
+
+class EnrollmentRejectNotificationLinkTests(TestCase):
+    """Student notification after rejection must link to the join-class page."""
+
+    def setUp(self):
+        self.data = _full_school_setup()
+        self.enrollment = Enrollment.objects.create(
+            classroom=self.data['classroom'],
+            student=self.data['student'],
+            status='pending',
+        )
+        self.client = Client()
+        self.client.login(username='teacher1', password='pass12345')
+
+    def test_rejection_creates_notification_with_join_class_link(self):
+        self.client.post(
+            reverse('enrollment_reject', args=[self.enrollment.id]),
+            {'rejection_reason': 'Class is full'},
+        )
+        notif = Notification.objects.filter(
+            user=self.data['student'],
+            notification_type='enrollment_rejected',
+        ).last()
+        self.assertIsNotNone(notif, 'No enrollment_rejected notification created')
+        self.assertEqual(notif.link, reverse('student_join_class'))
+
+    def test_rejection_notification_link_is_not_empty(self):
+        self.client.post(
+            reverse('enrollment_reject', args=[self.enrollment.id]),
+            {'rejection_reason': ''},
+        )
+        notif = Notification.objects.filter(
+            user=self.data['student'],
+            notification_type='enrollment_rejected',
+        ).last()
+        self.assertTrue(notif.link, 'Rejection notification link must not be empty')
+
+    def test_rejection_with_no_reason_still_has_correct_link(self):
+        self.client.post(
+            reverse('enrollment_reject', args=[self.enrollment.id]),
+            {'rejection_reason': ''},
+        )
+        notif = Notification.objects.filter(
+            user=self.data['student'],
+            notification_type='enrollment_rejected',
+        ).last()
+        self.assertEqual(notif.link, reverse('student_join_class'))
+
+
 class MyClassesViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
