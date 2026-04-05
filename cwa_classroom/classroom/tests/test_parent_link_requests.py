@@ -131,6 +131,7 @@ class ParentSelfJoinViewTest(ParentLinkRequestTestBase):
             'confirm_password': 'securepass123',
             'student_id_0': student_id_code or self.school_student.student_id_code,
             'relationship_0': 'mother',
+            'accept_terms': 'on',
         }
         data.update(overrides)
         return self.client.post(reverse('register_parent_join'), data)
