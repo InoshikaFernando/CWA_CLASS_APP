@@ -71,7 +71,7 @@ urlpatterns = [
 
     # --- Core apps ---
     path('', include('classroom.urls')),
-    path('', include('number_puzzles.urls')),
+    path('maths/', include('number_puzzles.urls')),
     path('', include('progress.urls')),
     path('', include('quiz.subject_urls')),  # /<subject>/level/<n>/topic/<id>/quiz/ etc.
 
