@@ -139,7 +139,17 @@ class ClassRoomCurrencyFKTest(TestCase):
 # School.get_effective_currency() (CPP-159)
 # ---------------------------------------------------------------------------
 
+_USD_DEFAULTS = dict(
+    name='US Dollar', symbol='$', symbol_position='before', decimal_places=2,
+)
+
+
 class SchoolGetEffectiveCurrencyTest(TestCase):
+
+    @classmethod
+    def setUpTestData(cls):
+        # Ensure USD exists whether or not the seed migration has run
+        Currency.objects.get_or_create(code='USD', defaults=_USD_DEFAULTS)
 
     def test_returns_own_currency_when_set(self):
         cur = _currency(_A)
@@ -174,6 +184,10 @@ class SchoolGetEffectiveCurrencyTest(TestCase):
 
 class DepartmentGetEffectiveCurrencyTest(TestCase):
 
+    @classmethod
+    def setUpTestData(cls):
+        Currency.objects.get_or_create(code='USD', defaults=_USD_DEFAULTS)
+
     def test_returns_own_override_when_set(self):
         own = _currency(_A)
         school_cur = _currency(_B)
@@ -207,6 +221,10 @@ class DepartmentGetEffectiveCurrencyTest(TestCase):
 # ---------------------------------------------------------------------------
 
 class ClassRoomGetEffectiveCurrencyTest(TestCase):
+
+    @classmethod
+    def setUpTestData(cls):
+        Currency.objects.get_or_create(code='USD', defaults=_USD_DEFAULTS)
 
     def test_returns_own_override_when_set(self):
         cls_cur = _currency(_A)
