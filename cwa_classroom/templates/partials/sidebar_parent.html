@@ -50,7 +50,7 @@
       Dashboard
     </a>
 
-    <a href="{% url 'my_children' %}"
+    <a href="{% url 'parent_dashboard' %}"
        class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition
               {% if 'children' in request.path %}bg-white/20 text-white{% else %}text-white/70 hover:bg-white/10 hover:text-white{% endif %}">
       <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -95,7 +95,7 @@
       Progress
     </a>
 
-    <a href="{% url 'parent_billing' %}"
+    <a href="{% url 'parent_payment_history' %}"
        class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition
               {% if 'billing' in request.path %}bg-white/20 text-white{% else %}text-white/70 hover:bg-white/10 hover:text-white{% endif %}">
       <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
