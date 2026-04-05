@@ -665,6 +665,7 @@ class ClassDetailView(RoleRequiredMixin, View):
             'student_fee_data': student_fee_data,
             'class_effective_fee': class_effective_fee,
             'can_edit_fee': can_edit_fee,
+            'effective_currency': classroom.get_effective_currency(),
         })
 
 
@@ -767,6 +768,7 @@ class EditClassView(RoleRequiredMixin, View):
             'parent_fee': parent_fee,
             'fee_source': fee_source,
             'can_edit_fee': can_edit_fee,
+            'effective_currency': classroom.get_effective_currency(),
         })
 
     def post(self, request, class_id):

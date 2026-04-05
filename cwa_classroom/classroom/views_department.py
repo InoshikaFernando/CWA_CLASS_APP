@@ -220,6 +220,7 @@ class DepartmentDetailView(RoleRequiredMixin, View):
         return render(request, 'admin_dashboard/department_detail.html', {
             'school': school,
             'department': department,
+            'effective_currency': department.get_effective_currency(),
             'department_subjects': department_subjects,
             'dept_teachers': dept_teachers,
             'classes': classes,
@@ -879,6 +880,7 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
         return render(request, 'admin_dashboard/department_subject_levels.html', {
             'school': school,
             'department': department,
+            'effective_currency': department.get_effective_currency(),
             'dept_subjects': dept_subjects,
             'subject_groups': subject_groups,
             'available_subjects': available_subjects,
