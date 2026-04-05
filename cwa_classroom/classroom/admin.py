@@ -5,7 +5,7 @@ from .models import (
     StudentLevelEnrollment, SubjectApp, ContactMessage,
     School, SchoolStudent, SchoolTeacher, AcademicYear, TopicLevel, SubTopic,
     ClassSession, Enrollment, StudentAttendance, TeacherAttendance,
-    ProgressCriteria, ProgressRecord, Notification, DepartmentLevel,
+    ProgressCriteria, ProgressRecord, Notification, Department, DepartmentLevel,
     EmailCampaign, EmailLog, EmailPreference,
     DepartmentFee, StudentFeeOverride, InvoiceNumberSequence,
     Invoice, InvoiceLineItem, CSVColumnTemplate, CSVImport,
@@ -27,6 +27,17 @@ class CurrencyAdmin(admin.ModelAdmin):
     list_editable = ('is_active',)
     search_fields = ('code', 'name')
     ordering = ('code',)
+
+    def save_model(self, request, obj, form, change):
+        """Block deactivation of a currency that is still referenced by schools/depts/classes."""
+        from django.core.exceptions import ValidationError
+        try:
+            obj.full_clean()
+        except ValidationError as exc:
+            from django.contrib import messages as dj_messages
+            dj_messages.error(request, '; '.join(exc.messages))
+            return  # abort save
+        super().save_model(request, obj, form, change)
 
 
 # ---------------------------------------------------------------------------
@@ -70,11 +81,20 @@ class ClassSessionInline(admin.TabularInline):
 
 @admin.register(School)
 class SchoolAdmin(admin.ModelAdmin):
-    list_display = ('name', 'slug', 'admin', 'is_active', 'created_at')
-    list_filter = ('is_active',)
+    list_display = ('name', 'slug', 'admin', 'default_currency', 'is_active', 'created_at')
+    list_filter = ('is_active', 'default_currency')
     search_fields = ('name', 'slug')
     prepopulated_fields = {'slug': ('name',)}
+    autocomplete_fields = ('default_currency',)
     inlines = [SchoolTeacherInline]
+
+
+@admin.register(Department)
+class DepartmentAdmin(admin.ModelAdmin):
+    list_display = ('name', 'school', 'currency_override', 'is_active')
+    list_filter = ('is_active', 'school', 'currency_override')
+    search_fields = ('name', 'school__name')
+    autocomplete_fields = ('currency_override',)
 
 
 @admin.register(SchoolTeacher)
@@ -158,13 +178,13 @@ class SubTopicAdmin(admin.ModelAdmin):
 
 @admin.register(ClassRoom)
 class ClassRoomAdmin(admin.ModelAdmin):
-    list_display = ('name', 'code', 'school', 'subject', 'created_by', 'is_active', 'student_count', 'created_at')
-    list_filter = ('is_active', 'school', 'subject', 'levels')
+    list_display = ('name', 'code', 'school', 'subject', 'currency_override', 'created_by', 'is_active', 'student_count', 'created_at')
+    list_filter = ('is_active', 'school', 'subject', 'levels', 'currency_override')
     search_fields = ('name', 'code')
     inlines = [ClassTeacherInline, ClassStudentInline, ClassSessionInline]
     filter_horizontal = ('levels',)
     readonly_fields = ('code',)
-    autocomplete_fields = ('subject',)
+    autocomplete_fields = ('subject', 'currency_override')
 
     def student_count(self, obj):
         return obj.students.count()

@@ -104,8 +104,8 @@ def do_login(page: Page, live_server_url: str, user) -> None:
     page.locator("button[type='submit'], input[type='submit']").first.click()
     # Wait until we leave the login page
     page.wait_for_url(lambda url: "/accounts/login" not in url, timeout=10_000)
-    # Wait for page + Tailwind to fully load after redirect
-    page.wait_for_load_state("networkidle")
+    # Wait for DOM to be ready after redirect (networkidle can hang on CDN resources)
+    page.wait_for_load_state("domcontentloaded")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
