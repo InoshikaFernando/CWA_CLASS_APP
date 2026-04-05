@@ -90,14 +90,14 @@ class TestMathsSidebarOnQuizPages:
         do_login(page, self.url, enrolled_student)
 
     def test_basic_facts_page_has_maths_sidebar(self):
-        self.page.goto(f"{self.url}/basic-facts/")
+        self.page.goto(f"{self.url}/maths/basic-facts/")
         self.page.wait_for_load_state("domcontentloaded")
         assert_sidebar_has_link(self.page, "Topic Quizzes")
         assert_sidebar_has_link(self.page, "Basic Facts")
         assert_sidebar_has_link(self.page, "Times Tables")
 
     def test_times_tables_page_has_maths_sidebar(self):
-        self.page.goto(f"{self.url}/times-tables/")
+        self.page.goto(f"{self.url}/maths/times-tables/")
         self.page.wait_for_load_state("domcontentloaded")
         assert_sidebar_has_link(self.page, "Topic Quizzes")
         assert_sidebar_has_link(self.page, "Times Tables")

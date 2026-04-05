@@ -32,7 +32,7 @@ class TestPaymentCSVUpload:
 
     def test_upload_button_visible(self):
         """Upload & Map Columns button."""
-        btn = self.page.locator("button[type='submit'], input[type='submit'], button:not([type])")
+        btn = self.page.locator("main").locator("button[type='submit'], input[type='submit'], button:not([type])")
         expect(btn.first).to_be_visible()
 
 
@@ -40,12 +40,12 @@ class TestRecordManualPayment:
     """Tests for /invoicing/<id>/pay/ — manual payment recording."""
 
     @pytest.fixture(autouse=True)
-    def _setup(self, live_server, page, hoi_user, hoi_school_setup, department, classroom, enrolled_student, invoice):
+    def _setup(self, live_server, page, hoi_user, hoi_school_setup, department, classroom, enrolled_student, issued_invoice):
         self.url = live_server.url
         self.page = page
-        self.invoice = invoice
+        self.invoice = issued_invoice
         do_login(page, self.url, hoi_user)
-        page.goto(f"{self.url}/invoicing/{self.invoice.id}/pay/")
+        page.goto(f"{self.url}/invoicing/{self.invoice.id}/")
         page.wait_for_load_state("domcontentloaded")
 
     def test_page_loads(self):
@@ -56,18 +56,17 @@ class TestRecordManualPayment:
     def test_amount_input(self):
         """Amount input should be present (if page loaded correctly)."""
         inputs = self.page.locator("input[type='number'], input[name*='amount']")
-        # May not be present if invoice is draft and view restricts
-        if "/pay/" in self.page.url:
+        if f"/invoicing/{self.invoice.id}/" in self.page.url:
             assert inputs.count() >= 1
 
     def test_date_input(self):
         """Payment date input should be present (if page loaded correctly)."""
-        if "/pay/" in self.page.url:
+        if f"/invoicing/{self.invoice.id}/" in self.page.url:
             date_inputs = self.page.locator("input[type='date']")
             assert date_inputs.count() >= 1
 
     def test_submit_button(self):
         """Submit/record button should exist (if page loaded correctly)."""
-        if "/pay/" in self.page.url:
-            btn = self.page.locator("button[type='submit'], input[type='submit'], button:not([type])")
+        if f"/invoicing/{self.invoice.id}/" in self.page.url:
+            btn = self.page.locator("button[type='submit'], input[type='submit']")
             assert btn.count() > 0

@@ -129,7 +129,7 @@ def roles(db):
 @pytest.fixture
 def student_user(db, roles):
     from accounts.models import Role
-    return _make_user("ui_student", Role.STUDENT)
+    return _make_user("ui_student", Role.STUDENT, first_name="ui_student")
 
 
 @pytest.fixture
@@ -220,9 +220,19 @@ def school(db, admin_user):
         invoice_limit_yearly=500,
         extra_invoice_rate=Decimal("0.30"),
     )
-    SchoolSubscription.objects.create(
+    sub = SchoolSubscription.objects.create(
         school=school, plan=plan, status="active",
     )
+    # Enable all modules so module-gated views work in tests
+    from billing.models import ModuleSubscription
+    for module in [
+        ModuleSubscription.MODULE_STUDENTS_ATTENDANCE,
+        ModuleSubscription.MODULE_PROGRESS_REPORTS,
+        ModuleSubscription.MODULE_TEACHERS_ATTENDANCE,
+    ]:
+        ModuleSubscription.objects.create(
+            school_subscription=sub, module=module, is_active=True,
+        )
     # Admin must also be a SchoolTeacher for sidebar views to work
     SchoolTeacher.objects.get_or_create(
         school=school,
@@ -510,6 +520,33 @@ def invoice(db, enrolled_student, school, classroom):
         billing_period_start=date.today() - timedelta(days=30),
         billing_period_end=date.today(),
         status="draft",
+        amount=Decimal("120.00"),
+        calculated_amount=Decimal("120.00"),
+    )
+    InvoiceLineItem.objects.create(
+        invoice=inv,
+        classroom=classroom,
+        daily_rate=Decimal("10.00"),
+        sessions_held=12,
+        sessions_attended=12,
+        sessions_charged=12,
+        line_amount=Decimal("120.00"),
+    )
+    return inv
+
+
+@pytest.fixture
+def issued_invoice(db, enrolled_student, school, classroom):
+    """An issued invoice for the enrolled student (payment form is visible)."""
+    from classroom.models import Invoice, InvoiceLineItem
+
+    inv = Invoice.objects.create(
+        student=enrolled_student,
+        school=school,
+        invoice_number="INV-0002",
+        billing_period_start=date.today() - timedelta(days=30),
+        billing_period_end=date.today(),
+        status="issued",
         amount=Decimal("120.00"),
         calculated_amount=Decimal("120.00"),
     )

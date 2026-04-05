@@ -71,10 +71,14 @@ class TestParentChildSwitcher:
 
     def test_child_switcher_button_visible(self):
         # The child switcher is the first button inside the sidebar
-        switcher = self.page.locator("aside button, nav button").first
+        from .helpers import _ensure_sidebar_visible
+        _ensure_sidebar_visible(self.page)
+        switcher = self.page.locator("aside#sidebar button").first
         expect(switcher).to_be_visible()
 
     def test_child_switcher_shows_child_name(self):
         # The switcher should show the active child's name
-        sidebar = self.page.locator("aside, nav").first
+        from .helpers import _ensure_sidebar_visible
+        _ensure_sidebar_visible(self.page)
+        sidebar = self.page.locator("aside#sidebar").first
         expect(sidebar).to_contain_text("ui_student")

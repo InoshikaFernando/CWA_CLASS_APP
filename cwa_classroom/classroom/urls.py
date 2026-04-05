@@ -163,6 +163,8 @@ urlpatterns = [
 
     # Parent portal
     path('parent/', views_parent.ParentDashboardView.as_view(), name='parent_dashboard'),
+    path('parent/children/', views_parent.ParentMyChildrenView.as_view(), name='my_children'),
+    path('parent/billing/', views_parent.ParentBillingView.as_view(), name='parent_billing'),
     path('parent/switch-child/<int:student_id>/', views_parent.ParentSwitchChildView.as_view(), name='parent_switch_child'),
     path('parent/invoices/', views_parent.ParentInvoicesView.as_view(), name='parent_invoices'),
     path('parent/invoices/<int:invoice_id>/', views_parent.ParentInvoiceDetailView.as_view(), name='parent_invoice_detail'),

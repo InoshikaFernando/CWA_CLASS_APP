@@ -124,6 +124,35 @@ class ParentDashboardView(RoleRequiredMixin, View):
 
 
 # ---------------------------------------------------------------------------
+# My Children
+# ---------------------------------------------------------------------------
+
+class ParentMyChildrenView(RoleRequiredMixin, View):
+    required_roles = [Role.PARENT]
+
+    def get(self, request):
+        children = _get_parent_children(request.user)
+        child, school, _ = _get_active_child(request)
+        return render(request, 'parent/dashboard.html', {
+            'children': children,
+            'child_summaries': [],
+            'active_child': child,
+            'active_school': school,
+        })
+
+
+# ---------------------------------------------------------------------------
+# Billing (redirect to billing history)
+# ---------------------------------------------------------------------------
+
+class ParentBillingView(RoleRequiredMixin, View):
+    required_roles = [Role.PARENT]
+
+    def get(self, request):
+        return redirect('billing_history')
+
+
+# ---------------------------------------------------------------------------
 # Invoices (CPP-67)
 # ---------------------------------------------------------------------------
 

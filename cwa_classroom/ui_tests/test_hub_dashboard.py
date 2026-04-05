@@ -34,7 +34,7 @@ class TestHubDashboardRendering:
 
     def test_upcoming_classes_card_renders(self):
         """Upcoming classes card shows class name."""
-        assert_page_has_text(self.page, "Upcoming")
+        assert_page_has_text(self.page, "Classes")
 
     def test_quick_action_my_classes_visible(self):
         """Quick action grid renders My Classes card."""

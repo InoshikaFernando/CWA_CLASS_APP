@@ -59,9 +59,9 @@ urlpatterns = [
 
     # --- Core apps ---
     path('', include('classroom.urls')),
-    path('', include('number_puzzles.urls')),  # before quiz — quiz has catch-all basic-facts/<str>/
-    path('', include('quiz.urls')),
+    path('', include('number_puzzles.urls')),
     path('', include('progress.urls')),
+    path('', include('quiz.subject_urls')),  # /<subject>/level/<n>/topic/<id>/quiz/ etc.
 
     # --- Billing ---
     path('', include('billing.urls')),
@@ -71,6 +71,7 @@ urlpatterns = [
 
     # --- Subject apps ---
     path('maths/', include('maths.urls', namespace='maths')),
+    path('maths/', include('quiz.urls')),  # basic-facts, times-tables (maths-specific)
     path('coding/', include('coding.urls', namespace='coding')),
     path('music/', include('music.urls', namespace='music')),
     path('science/', include('science.urls', namespace='science')),

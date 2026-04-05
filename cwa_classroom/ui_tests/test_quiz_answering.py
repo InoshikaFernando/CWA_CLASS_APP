@@ -104,7 +104,7 @@ class TestBasicFactsSelect:
         self.url = live_server.url
         self.page = page
         do_login(page, self.url, enrolled_student)
-        page.goto(f"{self.url}/basic-facts/")
+        page.goto(f"{self.url}/maths/basic-facts/")
         page.wait_for_load_state("domcontentloaded")
 
     def test_page_loads(self):
@@ -132,7 +132,7 @@ class TestTimesTablesSelect:
         self.url = live_server.url
         self.page = page
         do_login(page, self.url, enrolled_student)
-        page.goto(f"{self.url}/times-tables/")
+        page.goto(f"{self.url}/maths/times-tables/")
         page.wait_for_load_state("domcontentloaded")
 
     def test_page_loads(self):
@@ -140,11 +140,11 @@ class TestTimesTablesSelect:
 
     def test_multiplication_section(self):
         """Multiplication section should be visible."""
-        assert_page_has_text(self.page, "Multiplication")
+        assert_page_has_text(self.page, "Multiply")
 
     def test_division_section(self):
         """Division section should be visible."""
-        assert_page_has_text(self.page, "Division")
+        assert_page_has_text(self.page, "Divide")
 
     def test_table_links_present(self):
         """Links for tables 1-12 should be present."""

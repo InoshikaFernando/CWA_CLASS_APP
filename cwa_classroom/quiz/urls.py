@@ -17,11 +17,5 @@ urlpatterns = [
     path('times-tables/submit/<str:session_id>/', views.TimesTablesSubmitView.as_view(), name='times_tables_submit'),
     path('times-tables/results/<str:session_id>/', views.TimesTablesResultsView.as_view(), name='times_tables_results_view'),
 
-    # Topic Quiz
-    path('level/<int:level_number>/topic/<int:topic_id>/quiz/', views.TopicQuizView.as_view(), name='topic_quiz'),
-    path('level/<int:level_number>/topic/<int:topic_id>/results/', views.TopicResultsView.as_view(), name='topic_results'),
-
-    # Mixed Quiz
-    path('level/<int:level_number>/quiz/', views.MixedQuizView.as_view(), name='mixed_quiz'),
-    path('level/<int:level_number>/quiz/results/', views.MixedResultsView.as_view(), name='mixed_results'),
 ]
+# Topic and Mixed Quiz routes live in subject_urls.py (mounted at root with /<subject>/ prefix)
