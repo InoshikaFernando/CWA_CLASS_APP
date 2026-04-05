@@ -20,6 +20,8 @@
             class="flex-1 px-4 py-2 text-sm font-semibold rounded-lg transition">Contact & Email</button>
     <button @click="tab = 'banking'" :class="tab === 'banking' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'"
             class="flex-1 px-4 py-2 text-sm font-semibold rounded-lg transition">Banking & Invoice</button>
+    <button @click="tab = 'payments'" :class="tab === 'payments' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'"
+            class="flex-1 px-4 py-2 text-sm font-semibold rounded-lg transition">Payments</button>
   </div>
 
   <form method="post" enctype="multipart/form-data">
@@ -300,6 +302,36 @@
                       placeholder="e.g. Payment is due within 30 days of invoice date...">{{ form_data.invoice_terms|default:'' }}</textarea>
           </div>
         </div>
+      </div>
+
+      <div class="flex justify-end mt-8 pt-6 border-t border-slate-100">
+        <button type="submit" class="px-6 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm">Save Changes</button>
+      </div>
+    </div>
+
+    <!-- ═══ PAYMENTS TAB ═══ -->
+    <div x-show="tab === 'payments'" x-transition class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8">
+      <h2 class="text-lg font-display font-bold text-gray-900 mb-2">Online Payments</h2>
+      <p class="text-sm text-gray-500 mb-6">Configure a Stripe Payment Link so parents can pay fees online. Individual departments and invoices can override this with their own link.</p>
+
+      <div class="space-y-6">
+        <div>
+          <label for="stripe_payment_link" class="block text-sm font-semibold text-gray-700 mb-1.5">Default Stripe Payment Link</label>
+          <input type="url" name="stripe_payment_link" id="stripe_payment_link"
+                 value="{{ form_data.stripe_payment_link|default:'' }}"
+                 class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition"
+                 placeholder="https://buy.stripe.com/...">
+          <p class="text-xs text-gray-400 mt-1">Parents will see a "Pay Now" button on their invoices linking to this URL. Leave blank to disable online payments.</p>
+        </div>
+
+        {% if form_data.stripe_payment_link %}
+          <div class="flex items-center gap-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm">
+            <svg class="w-4 h-4 text-emerald-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            <span class="text-emerald-700">Stripe Payment Link is active. Parents will see a <strong>Pay Now</strong> button on their invoices.</span>
+          </div>
+        {% endif %}
       </div>
 
       <div class="flex justify-end mt-8 pt-6 border-t border-slate-100">

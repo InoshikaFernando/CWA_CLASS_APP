@@ -257,6 +257,7 @@ class DepartmentEditView(RoleRequiredMixin, View):
                 'name': department.name,
                 'description': department.description,
                 'selected_subject_ids': [str(sid) for sid in current_subject_ids],
+                'stripe_payment_link': department.stripe_payment_link,
             },
             'editing': True,
         })
@@ -339,6 +340,7 @@ class DepartmentEditView(RoleRequiredMixin, View):
 
         department.name = name
         department.description = description
+        department.stripe_payment_link = request.POST.get('stripe_payment_link', '').strip()
         department.save()
         log_event(
             user=request.user, school=school, category='data_change',

@@ -176,7 +176,7 @@ class ParentInvoicesView(RoleRequiredMixin, View):
         allowed_statuses = ['issued', 'partially_paid', 'paid']
         invoices = (
             Invoice.objects.filter(student=child, school=school, status__in=allowed_statuses)
-            .select_related('student')
+            .select_related('student', 'school')
             .order_by('-billing_period_end', '-created_at')
         )
 
@@ -191,6 +191,13 @@ class ParentInvoicesView(RoleRequiredMixin, View):
 
         paginator = Paginator(invoices, 25)
         page = paginator.get_page(request.GET.get('page'))
+
+        # Annotate resolved Stripe links to avoid N+1 in template
+        for inv in page.object_list:
+            if inv.status in ('issued', 'partially_paid'):
+                inv.resolved_stripe_link = inv.get_stripe_payment_link()
+            else:
+                inv.resolved_stripe_link = None
 
         ctx = {
             'invoices': page,
@@ -236,6 +243,7 @@ class ParentInvoiceDetailView(RoleRequiredMixin, View):
             'active_child': child,
             'active_school': school,
             'effective_settings': effective_settings,
+            'stripe_payment_link': invoice.get_stripe_payment_link(),
             'children': _get_parent_children(request.user),
         })
 
