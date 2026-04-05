@@ -33,8 +33,13 @@ class HomeworkCreateForm(forms.ModelForm):
 
     def clean_due_date(self):
         due_date = self.cleaned_data.get('due_date')
-        if due_date and due_date <= timezone.now():
-            raise forms.ValidationError('Due date must be in the future.')
+        if due_date:
+            # datetime-local input returns a naive datetime; make it TZ-aware
+            # using the server's current timezone before comparing with now().
+            if timezone.is_naive(due_date):
+                due_date = timezone.make_aware(due_date)
+            if due_date <= timezone.now():
+                raise forms.ValidationError('Due date must be in the future.')
         return due_date
 
     def clean_num_questions(self):
