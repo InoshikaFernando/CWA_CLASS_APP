@@ -11,6 +11,12 @@
               title="Click to copy class code">
           Code: {{ classroom.code }}
         </span>
+        {% if classroom.currency_override_id %}
+          <span class="bg-amber-100 text-amber-700 rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                title="Currency override: {{ classroom.currency_override_id }}">
+            {{ classroom.currency_override_id }}
+          </span>
+        {% endif %}
         {% for level in classroom.levels.all %}
           <span class="bg-accent-light text-yellow-800 rounded-full px-2.5 py-0.5 text-xs font-semibold">{{ level.display_name }}</span>
         {% endfor %}
