@@ -1301,6 +1301,9 @@ class Notification(models.Model):
         ('enrollment_approved', 'Enrollment Approved'),
         ('enrollment_rejected', 'Enrollment Rejected'),
         ('attendance', 'Attendance'),
+        ('parent_link_request', 'Parent Link Request'),
+        ('parent_link_approved', 'Parent Link Approved'),
+        ('parent_link_rejected', 'Parent Link Rejected'),
         ('general', 'General'),
     ]
     user = models.ForeignKey(
@@ -1421,6 +1424,60 @@ class ParentInvite(models.Model):
     def is_valid(self):
         from django.utils import timezone
         return self.status == 'pending' and self.expires_at > timezone.now()
+
+
+# ---------------------------------------------------------------------------
+# Parent Link Request — approval workflow for self-join parents
+# ---------------------------------------------------------------------------
+
+class ParentLinkRequest(models.Model):
+    """
+    Pending request from a self-registered parent to be linked to a student.
+    Created when a parent registers via /register/parent-join/.
+    A teacher/HoI must approve before ParentStudent is created.
+    """
+    STATUS_PENDING = 'pending'
+    STATUS_APPROVED = 'approved'
+    STATUS_REJECTED = 'rejected'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_APPROVED, 'Approved'),
+        (STATUS_REJECTED, 'Rejected'),
+    ]
+
+    RELATIONSHIP_CHOICES = ParentStudent.RELATIONSHIP_CHOICES
+
+    parent = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='parent_link_requests',
+    )
+    school_student = models.ForeignKey(
+        'SchoolStudent', on_delete=models.CASCADE,
+        related_name='parent_link_requests',
+    )
+    relationship = models.CharField(
+        max_length=30, choices=RELATIONSHIP_CHOICES, blank=True,
+    )
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING,
+    )
+    requested_at = models.DateTimeField(auto_now_add=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+    )
+    rejection_reason = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['-requested_at']
+        unique_together = ('parent', 'school_student')
+
+    def __str__(self):
+        return (
+            f'{self.parent.username} → {self.school_student.student.username} '
+            f'@ {self.school_student.school.name} ({self.status})'
+        )
 
 
 # ---------------------------------------------------------------------------

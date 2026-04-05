@@ -9,10 +9,38 @@
     <p class="text-violet-500 text-sm mt-1 font-semibold">Your children's overview</p>
   </div>
 
+  {% if pending_requests %}
+    <div class="bg-amber-50 border border-amber-200 rounded-2xl p-5 space-y-3">
+      <div class="flex items-center gap-2 mb-1">
+        <svg class="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        <h2 class="text-sm font-bold text-amber-800">Pending Approval</h2>
+      </div>
+      {% for req in pending_requests %}
+        <div class="flex items-center justify-between bg-white rounded-xl px-4 py-3 border border-amber-100">
+          <div>
+            <p class="text-sm font-semibold text-gray-800">
+              {{ req.school_student.student.get_full_name|default:req.school_student.student.username }}
+            </p>
+            <p class="text-xs text-gray-400">{{ req.school_student.school.name }} &middot; Awaiting teacher approval</p>
+          </div>
+          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">
+            <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/>
+            </svg>
+            Pending
+          </span>
+        </div>
+      {% endfor %}
+      <p class="text-xs text-amber-700 mt-1">You'll be notified by email and in-app once approved.</p>
+    </div>
+  {% endif %}
+
   {% if child_summaries %}
     <div class="grid gap-4 sm:grid-cols-2">
       {% for item in child_summaries %}
-        <div class="bg-white rounded-2xl border border-violet-100 shadow-sm p-6 hover:shadow-md transition">
+        <div class="bg-white rounded-2xl border border-violet-100 shadow-sm p-6 hover:shadow-md transition" data-testid="child-card">
           <div class="flex items-center gap-3 mb-4">
             <span class="w-11 h-11 rounded-full bg-gradient-to-br from-violet-500 to-purple-500 flex items-center justify-center text-white font-bold text-sm">
               {{ item.link.student.first_name|slice:":1" }}{{ item.link.student.last_name|slice:":1" }}
@@ -51,7 +79,7 @@
         </div>
       {% endfor %}
     </div>
-  {% else %}
+  {% elif not pending_requests %}
     <div class="bg-white rounded-2xl border border-violet-100 shadow-sm p-12 text-center">
       <div class="inline-flex items-center justify-center w-14 h-14 bg-violet-100 rounded-2xl mb-4">
         <svg class="w-7 h-7 text-violet-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
