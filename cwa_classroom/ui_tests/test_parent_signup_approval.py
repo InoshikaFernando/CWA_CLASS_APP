@@ -283,7 +283,7 @@ class TestApprovalFlow:
 
         # Child card must appear
         expect(self.page.locator('[data-testid="child-card"]')).to_have_count(1)
-        expect(self.page.get_by_text("Zara Smith").first).to_be_visible()
+        expect(self.page.locator('[data-testid="child-card"]').get_by_text("Zara Smith")).to_be_visible()
 
 
 # ---------------------------------------------------------------------------
@@ -355,7 +355,7 @@ class TestApprovedParentStudentVisibility:
         expect(self.page.locator('[data-testid="child-card"]')).to_have_count(1)
 
     def test_student_name_in_card(self):
-        expect(self.page.get_by_text("Zara Smith").first).to_be_visible()
+        expect(self.page.locator('[data-testid="child-card"]').get_by_text("Zara Smith")).to_be_visible()
 
     def test_no_pending_banner(self):
         """No pending banner when all requests are resolved."""
