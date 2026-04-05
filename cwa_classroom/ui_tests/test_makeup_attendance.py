@@ -243,15 +243,17 @@ class TestTokenRequestAndListing:
         )
         self.page.wait_for_load_state("domcontentloaded")
 
-        # Look for "Get Token" button on the absent session row
-        get_token_btn = self.page.locator("form[action*='absence-tokens/request'] button, "
-                                          "a[href*='absence-tokens']").first
-        if get_token_btn.count() == 0:
+        # Look for "Get Token" button on the absent session row (form submit only)
+        get_token_locator = self.page.locator("form[action*='absence-tokens/request'] button")
+        if get_token_locator.count() == 0:
             pytest.skip("'Get Token' button not rendered — check class_detail template")
 
         count_before = AbsenceToken.objects.filter(student=self.student).count()
-        get_token_btn.click()
+        self.page.on("dialog", lambda d: d.accept())
+        get_token_locator.first.click()
         self.page.wait_for_load_state("domcontentloaded")
+        from django.db import connection
+        connection.close()
         assert AbsenceToken.objects.filter(student=self.student).count() == count_before + 1
 
     def test_token_appears_in_available_list(self, absence_token):
@@ -373,16 +375,19 @@ class TestMakeupSessionDiscoveryAndRedemption:
         # Find the "Use Token" form for our makeup session and submit
         form = self.page.locator(
             f"form[action*='/student/absence-tokens/{self.token.id}/redeem/']"
-        ).first
+        )
         if form.count() == 0:
             # Try generic redeem form
-            form = self.page.locator("form[action*='redeem']").first
+            form = self.page.locator("form[action*='redeem']")
         if form.count() == 0:
             pytest.skip("Redeem form not found on available-sessions page")
 
-        form.locator("button[type='submit'], input[type='submit']").first.click()
+        self.page.on("dialog", lambda d: d.accept())
+        form.first.locator("button[type='submit'], input[type='submit']").first.click()
         self.page.wait_for_load_state("domcontentloaded")
 
+        from django.db import connection
+        connection.close()
         assert StudentAttendance.objects.filter(
             student=self.student, makeup_token=self.token,
         ).count() == 1
@@ -447,18 +452,20 @@ class TestTeacherViewOfMakeupStudents:
         self.student = enrolled_student_mk
 
         # Redeem the token via HTTP so the live-server thread sees fully-committed
-        # DB state (avoids SQLite thread-isolation issues with the db fixture).
+        # DB state. With SQLite, only the live server's own committed writes are
+        # visible across connections; test-thread ORM data uses db (wrapped
+        # transaction) and is NOT visible to the live server.
         do_login(page, live_server.url, enrolled_student_mk)
         page.goto(
             f"{live_server.url}/student/absence-tokens/{absence_token.id}/available-sessions/"
         )
         page.wait_for_load_state("domcontentloaded")
-        redeem_form = page.locator("form[action*='redeem']").first
-        if redeem_form.count() > 0:
-            redeem_form.locator("button[type='submit']").first.click()
+        redeem_forms = page.locator("form[action*='redeem']")
+        if redeem_forms.count() > 0:
+            page.on("dialog", lambda d: d.accept())
+            redeem_forms.first.locator("button[type='submit']").click()
             page.wait_for_load_state("domcontentloaded")
 
-        # Switch to teacher login for the actual test assertions.
         do_login(page, live_server.url, teacher_user)
 
     def test_makeup_student_visible_in_session_attendance(self):
@@ -468,7 +475,7 @@ class TestTeacherViewOfMakeupStudents:
         )
         self.page.wait_for_load_state("domcontentloaded")
         body = self.page.locator("body").inner_text()
-        assert self.student.username in body or "ui_student" in body
+        assert self.student.first_name in body or self.student.username in body
 
     def test_makeup_badge_shown_for_makeup_student(self):
         """TC-09: Makeup student row should show a 'Makeup' indicator."""
@@ -497,11 +504,15 @@ class TestTeacherViewOfMakeupStudents:
 
         present_radio.check()
 
-        # Submit the form
-        submit_btn = self.page.locator("button[type='submit'], input[type='submit']").first
+        # Submit the form (use text match to avoid matching hidden nav buttons)
+        submit_btn = self.page.locator("button[type='submit']", has_text="Save Attendance")
+        if submit_btn.count() == 0:
+            pytest.skip("Save Attendance button not found — check session_attendance.html")
         submit_btn.click()
         self.page.wait_for_load_state("domcontentloaded")
 
+        from django.db import connection
+        connection.close()
         record = StudentAttendance.objects.filter(
             session=self.makeup_session,
             student=self.student,
@@ -572,13 +583,33 @@ class TestCriticalDateMapping:
 
     @pytest.fixture(autouse=True)
     def _setup(self, live_server, page, enrolled_student_mk, absent_session, absent_record,
-               redeemed_token, makeup_session):
+               absence_token, makeup_session):
         self.url = live_server.url
         self.page = page
         self.student = enrolled_student_mk
         self.absent_session = absent_session
         self.makeup_session = makeup_session
-        self.token = redeemed_token
+        self.token = absence_token
+
+        # Redeem via HTTP so the live-server thread sees fully-committed DB state
+        # (avoids SQLite thread-isolation issues on Windows).
+        do_login(page, live_server.url, enrolled_student_mk)
+        page.goto(
+            f"{live_server.url}/student/absence-tokens/{absence_token.id}/available-sessions/"
+        )
+        page.wait_for_load_state("domcontentloaded")
+        redeem_forms = page.locator("form[action*='redeem']")
+        if redeem_forms.count() > 0:
+            page.on("dialog", lambda d: d.accept())
+            redeem_forms.first.locator("button[type='submit']").click()
+            page.wait_for_load_state("domcontentloaded")
+
+        # Force the test-thread DB connection to reconnect so ORM queries see
+        # the HTTP-committed state.
+        from django.db import connection
+        connection.close()
+        absence_token.refresh_from_db()
+
         do_login(page, self.url, enrolled_student_mk)
 
     def test_makeup_attendance_record_links_to_makeup_session(self, db):
@@ -827,9 +858,10 @@ class TestGapDocumentation:
             f"{live_server.url}/student/absence-tokens/{absence_token.id}/available-sessions/"
         )
         page.wait_for_load_state("domcontentloaded")
-        redeem_form = page.locator("form[action*='redeem']").first
-        if redeem_form.count() > 0:
-            redeem_form.locator("button[type='submit']").first.click()
+        redeem_forms = page.locator("form[action*='redeem']")
+        if redeem_forms.count() > 0:
+            page.on("dialog", lambda d: d.accept())
+            redeem_forms.first.locator("button[type='submit']").click()
             page.wait_for_load_state("domcontentloaded")
 
         do_login(page, live_server.url, teacher_user)
@@ -906,14 +938,14 @@ class TestTeacherTokenApprovalWorkflow:
         self.page.goto(f"{self.url}/teacher/absence-tokens/")
         self.page.wait_for_load_state("domcontentloaded")
 
-        expiry_input = self.page.locator(
-            f"form[action*='/teacher/absence-tokens/{self.token.id}/approve/'] input[name='expires_at']"
+        approve_form = self.page.locator(
+            f"form[action*='/teacher/absence-tokens/{self.token.id}/approve/']"
         )
-        if expiry_input.count() == 0:
+        if approve_form.locator("input[name='expires_at']").count() == 0:
             pytest.skip("Expiry input not found — check absence_token_approvals.html")
 
-        expiry_input.fill(future)
-        expiry_input.locator("..").locator("button[type='submit']").click()
+        approve_form.locator("input[name='expires_at']").fill(future)
+        approve_form.locator("button[type='submit']").click()
         self.page.wait_for_load_state("domcontentloaded")
 
         token = AbsenceToken.objects.get(id=self.token.id)

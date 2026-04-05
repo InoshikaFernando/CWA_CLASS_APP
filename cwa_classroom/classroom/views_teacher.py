@@ -598,7 +598,24 @@ class SessionAttendanceView(RoleRequiredMixin, ModuleRequiredMixin, View):
                 'current_status': record.get('status', ''),
                 'self_reported': record.get('self_reported', False),
                 'approved': record.get('approved_by') is not None,
+                'is_makeup': False,
             })
+
+        # Include makeup students (not enrolled but attending via absence token)
+        makeup_records = StudentAttendance.objects.filter(
+            session=session, makeup_token__isnull=False,
+        ).select_related('student', 'makeup_token', 'makeup_token__original_classroom')
+        enrolled_ids = set(active_ids)
+        for sa in makeup_records:
+            if sa.student_id not in enrolled_ids:
+                students_with_status.append({
+                    'student': sa.student,
+                    'current_status': sa.status,
+                    'self_reported': sa.self_reported,
+                    'approved': sa.approved_by is not None,
+                    'is_makeup': True,
+                    'makeup_from': sa.makeup_token.original_classroom.name,
+                })
 
         # Teacher's own attendance for this session
         teacher_attendance = TeacherAttendance.objects.filter(
@@ -673,6 +690,23 @@ class SessionAttendanceView(RoleRequiredMixin, ModuleRequiredMixin, View):
                     'approved_at': None,
                 },
             )
+            saved_count += 1
+
+        # Also save attendance for makeup students (not enrolled but in the form)
+        enrolled_ids = set(active_ids)
+        makeup_records = StudentAttendance.objects.filter(
+            session=session, makeup_token__isnull=False,
+        ).select_related('student')
+        for sa in makeup_records:
+            if sa.student_id in enrolled_ids:
+                continue
+            status = request.POST.get(f'status_{sa.student_id}', '').strip()
+            if status not in ('present', 'absent', 'late'):
+                continue
+            sa.status = status
+            sa.marked_by = request.user
+            sa.self_reported = False
+            sa.save(update_fields=['status', 'marked_by', 'self_reported'])
             saved_count += 1
 
         # ----- Save Progress Records -----
