@@ -20,6 +20,7 @@ from .models import (
     Enrollment, StudentAttendance, TeacherAttendance, Notification,
     ClassStudent, Department, SchoolStudent,
     ProgressCriteria, ProgressRecord, ParentLinkRequest, ParentStudent,
+    SchoolHoliday, PublicHoliday,
 )
 from .views_progress import _build_hierarchical_criteria
 
@@ -203,7 +204,8 @@ class TeacherDashboardView(RoleRequiredMixin, View):
             session__classroom__in=classes,
         ).count()
 
-        # Upcoming sessions in the next 7 days
+        # Upcoming sessions in the next 7 days, excluding holidays
+        from django.db.models import Exists, OuterRef
         today = timezone.localdate()
         week_ahead = today + timedelta(days=7)
         upcoming_sessions = ClassSession.objects.filter(
@@ -211,6 +213,17 @@ class TeacherDashboardView(RoleRequiredMixin, View):
             date__gte=today,
             date__lte=week_ahead,
             status='scheduled',
+        ).exclude(
+            Exists(SchoolHoliday.objects.filter(
+                school=OuterRef('classroom__school'),
+                start_date__lte=OuterRef('date'),
+                end_date__gte=OuterRef('date'),
+            ))
+        ).exclude(
+            Exists(PublicHoliday.objects.filter(
+                school=OuterRef('classroom__school'),
+                date=OuterRef('date'),
+            ))
         ).select_related('classroom').order_by('date', 'start_time')
 
         # Today's sessions per class (for Start Session feature)
