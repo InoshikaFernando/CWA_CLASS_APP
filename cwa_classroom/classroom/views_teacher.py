@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from django.core.paginator import Paginator
 from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
@@ -387,6 +388,7 @@ class EnrollmentApproveView(RoleRequiredMixin, View):
             user=enrollment.student,
             message=f'Your enrollment in "{enrollment.classroom.name}" has been approved.',
             notification_type='enrollment_approved',
+            link=reverse('student_class_detail', kwargs={'class_id': enrollment.classroom_id}),
         )
 
         log_event(
@@ -443,6 +445,7 @@ class EnrollmentRejectView(RoleRequiredMixin, View):
             user=enrollment.student,
             message=notification_message,
             notification_type='enrollment_rejected',
+            link=reverse('student_join_class'),
         )
 
         log_event(
