@@ -2,6 +2,8 @@
 Parent portal views — read-only access to linked children's data.
 CPP-67 (invoices & payments), CPP-68 (attendance), CPP-69 (progress).
 """
+from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
 from django.db.models import Max, Q
 from django.shortcuts import render, redirect, get_object_or_404
@@ -10,7 +12,8 @@ from django.views import View
 from accounts.models import Role
 from .models import (
     ParentStudent, ClassStudent, ClassSession, StudentAttendance,
-    Invoice, InvoicePayment, ProgressRecord, SchoolStudent, ClassRoom,
+    Invoice, InvoicePayment, ProgressRecord, ParentLinkRequest,
+    ProgressCriteria, SchoolStudent, ClassRoom,
 )
 from .views import RoleRequiredMixin
 
@@ -54,6 +57,25 @@ def _verify_parent_access(user, student_id):
 # ---------------------------------------------------------------------------
 # Child Switcher
 # ---------------------------------------------------------------------------
+
+class ParentChildrenView(RoleRequiredMixin, View):
+    """List all linked children (and pending requests) for the parent."""
+    required_roles = [Role.PARENT]
+
+    def get(self, request):
+        children = _get_parent_children(request.user)
+        pending_requests = (
+            ParentLinkRequest.objects.filter(
+                parent=request.user,
+                status=ParentLinkRequest.STATUS_PENDING,
+            )
+            .select_related('school_student', 'school_student__student', 'school_student__school')
+        )
+        return render(request, 'parent/children.html', {
+            'children': children,
+            'pending_requests': pending_requests,
+        })
+
 
 class ParentSwitchChildView(RoleRequiredMixin, View):
     required_roles = [Role.PARENT]
@@ -116,11 +138,20 @@ class ParentDashboardView(RoleRequiredMixin, View):
                 'outstanding_invoices': outstanding,
             })
 
+        pending_requests = (
+            ParentLinkRequest.objects.filter(
+                parent=request.user,
+                status=ParentLinkRequest.STATUS_PENDING,
+            )
+            .select_related('school_student', 'school_student__student', 'school_student__school')
+        )
+
         return render(request, 'parent/dashboard.html', {
             'children': children,
             'child_summaries': child_summaries,
             'active_child': child,
             'active_school': school,
+            'pending_requests': pending_requests,
         })
 
 
@@ -331,60 +362,78 @@ class ParentProgressView(RoleRequiredMixin, View):
                 'children': _get_parent_children(request.user),
             })
 
-        # Get latest progress record per criteria for this student
+        # All approved criteria for this school
+        approved_criteria = (
+            ProgressCriteria.objects.filter(
+                school=school,
+                status='approved',
+            )
+            .select_related('subject', 'level')
+            .order_by('subject__name', 'level__level_number', 'order')
+        )
+
+        # Latest progress record per criteria for this student at this school
         latest_ids = (
-            ProgressRecord.objects.filter(student=child)
+            ProgressRecord.objects.filter(
+                student=child,
+                criteria__school=school,
+                criteria__status='approved',
+            )
             .values('criteria_id')
             .annotate(latest_id=Max('id'))
             .values_list('latest_id', flat=True)
         )
-
-        records = (
-            ProgressRecord.objects.filter(id__in=latest_ids)
-            .select_related(
-                'criteria', 'criteria__subject', 'criteria__level',
-                'recorded_by',
+        records_by_criteria = {
+            rec.criteria_id: rec
+            for rec in ProgressRecord.objects.filter(id__in=latest_ids).select_related(
+                'criteria', 'recorded_by', 'session', 'session__classroom',
             )
-            .order_by(
-                'criteria__subject__name',
-                'criteria__level__level_number',
-                'criteria__order',
-            )
-        )
+        }
 
-        # Group by (subject, level)
+        # Group criteria by (subject, level), merging in student records
         grouped = {}
-        for rec in records:
-            key = (rec.criteria.subject_id, rec.criteria.level_id)
+        for criteria in approved_criteria:
+            key = (criteria.subject_id, criteria.level_id)
             if key not in grouped:
                 grouped[key] = {
-                    'subject': rec.criteria.subject,
-                    'level': rec.criteria.level,
-                    'records': [],
+                    'subject': criteria.subject,
+                    'level': criteria.level,
+                    'entries': [],
                 }
-            grouped[key]['records'].append(rec)
+            rec = records_by_criteria.get(criteria.id)
+            grouped[key]['entries'].append({
+                'criteria': criteria,
+                'status': rec.status if rec else 'not_assessed',
+                'notes': rec.notes if rec else '',
+                'recorded_at': rec.recorded_at if rec else None,
+                'recorded_by': rec.recorded_by if rec else None,
+                'classroom': rec.session.classroom if (rec and rec.session_id) else None,
+            })
 
-        # Calculate stats per group
+        # Sort and compute stats
         grouped_progress = []
-        overall = {'total': 0, 'achieved': 0, 'in_progress': 0, 'not_started': 0}
+        overall = {'total': 0, 'achieved': 0, 'in_progress': 0, 'not_started': 0, 'not_assessed': 0}
         for group in sorted(grouped.values(), key=lambda g: (
             g['subject'].name if g['subject'] else '',
             g['level'].level_number if g['level'] else 0,
         )):
-            recs = group['records']
-            total = len(recs)
-            achieved = sum(1 for r in recs if r.status == 'achieved')
-            in_progress = sum(1 for r in recs if r.status == 'in_progress')
-            not_started = total - achieved - in_progress
+            entries = group['entries']
+            total = len(entries)
+            achieved = sum(1 for e in entries if e['status'] == 'achieved')
+            in_progress = sum(1 for e in entries if e['status'] == 'in_progress')
+            not_assessed = sum(1 for e in entries if e['status'] == 'not_assessed')
+            not_started = total - achieved - in_progress - not_assessed
             group['total'] = total
             group['achieved'] = achieved
             group['in_progress'] = in_progress
             group['not_started'] = not_started
+            group['not_assessed'] = not_assessed
             grouped_progress.append(group)
             overall['total'] += total
             overall['achieved'] += achieved
             overall['in_progress'] += in_progress
             overall['not_started'] += not_started
+            overall['not_assessed'] += not_assessed
 
         return render(request, 'parent/progress.html', {
             'grouped_progress': grouped_progress,
@@ -540,3 +589,137 @@ class ParentClassesView(RoleRequiredMixin, View):
             'active_school': school,
             'children': _get_parent_children(request.user),
         })
+
+
+# ---------------------------------------------------------------------------
+# Become a Parent (for existing users — teachers, HoI, etc.)
+# ---------------------------------------------------------------------------
+
+class BecomeParentView(LoginRequiredMixin, View):
+    """
+    Allow any authenticated user (e.g. a teacher whose child attends the school)
+    to register as a parent without creating a new account.
+
+    Flow:
+    1. User fills in their child's Student ID and relationship.
+    2. A ParentLinkRequest is created (pending teacher/HoI approval).
+    3. The PARENT role is added to their existing account immediately so they can
+       see the parent dashboard (with a "pending" state).
+    4. active_role in session is set to 'parent' so they land on the parent UI.
+    5. The topbar role-switcher automatically appears (multi-role user).
+    6. When approved, the ParentStudent link is created by the existing
+       ParentLinkApproveView — no further changes needed there.
+    """
+
+    RELATIONSHIP_CHOICES = [
+        ('mother', 'Mother'),
+        ('father', 'Father'),
+        ('guardian', 'Guardian'),
+        ('other', 'Other'),
+    ]
+
+    def get(self, request):
+        if request.user.has_role(Role.PARENT):
+            return redirect('parent_dashboard')
+        return render(request, 'parent/become_parent.html', {
+            'relationship_choices': self.RELATIONSHIP_CHOICES,
+        })
+
+    def post(self, request):
+        if request.user.has_role(Role.PARENT):
+            return redirect('parent_dashboard')
+
+        student_id_code = request.POST.get('student_id', '').strip().upper()
+        relationship = request.POST.get('relationship', 'guardian').strip()
+        errors = {}
+
+        if not student_id_code:
+            errors['student_id'] = 'Student ID is required.'
+        else:
+            school_student = SchoolStudent.objects.filter(
+                student_id_code=student_id_code, is_active=True,
+            ).select_related('school', 'student').first()
+
+            if not school_student:
+                errors['student_id'] = (
+                    f'Student ID "{student_id_code}" was not found. '
+                    'Please check the ID and try again.'
+                )
+            else:
+                # Already have a pending or approved request?
+                if ParentLinkRequest.objects.filter(
+                    parent=request.user,
+                    school_student=school_student,
+                    status__in=[ParentLinkRequest.STATUS_PENDING,
+                                 ParentLinkRequest.STATUS_APPROVED],
+                ).exists():
+                    errors['student_id'] = 'You already have an active request for this student.'
+                # Already directly linked?
+                elif ParentStudent.objects.filter(
+                    parent=request.user,
+                    student=school_student.student,
+                ).exists():
+                    errors['student_id'] = 'You are already linked to this student.'
+                # Max 2 parents per student
+                else:
+                    parent_count = ParentStudent.objects.filter(
+                        student=school_student.student,
+                        school=school_student.school,
+                        is_active=True,
+                    ).count()
+                    if parent_count >= 2:
+                        errors['student_id'] = (
+                            f'{school_student.student.first_name} already has the '
+                            'maximum number of parent accounts linked.'
+                        )
+
+        if errors:
+            return render(request, 'parent/become_parent.html', {
+                'errors': errors,
+                'relationship_choices': self.RELATIONSHIP_CHOICES,
+                'form_data': {'student_id': student_id_code, 'relationship': relationship},
+            })
+
+        from accounts.models import UserRole
+        from django.db import transaction
+
+        with transaction.atomic():
+            # Add PARENT role to the existing account if not already there
+            parent_role, _ = Role.objects.get_or_create(
+                name=Role.PARENT,
+                defaults={'display_name': 'Parent'},
+            )
+            UserRole.objects.get_or_create(user=request.user, role=parent_role)
+
+            # Create the pending link request (requires teacher/HoI approval)
+            ParentLinkRequest.objects.create(
+                parent=request.user,
+                school_student=school_student,
+                relationship=relationship,
+                status=ParentLinkRequest.STATUS_PENDING,
+            )
+
+        # Switch active role so they land on the parent dashboard
+        request.session['active_role'] = Role.PARENT
+
+        try:
+            from audit.services import log_event
+            log_event(
+                user=request.user, school=school_student.school,
+                category='data_change', action='user_added_parent_role',
+                detail={
+                    'student_id_code': student_id_code,
+                    'relationship': relationship,
+                },
+                request=request,
+            )
+        except Exception:
+            pass
+
+        messages.success(
+            request,
+            f'Your request to link with '
+            f'{school_student.student.first_name} {school_student.student.last_name} '
+            f'has been submitted. You will be notified once a teacher approves it.'
+        )
+        return redirect('parent_dashboard')

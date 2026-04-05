@@ -19,7 +19,7 @@ from .models import (
     School, SchoolTeacher, ClassRoom, ClassSession, ClassTeacher,
     Enrollment, StudentAttendance, TeacherAttendance, Notification,
     ClassStudent, Department, SchoolStudent,
-    ProgressCriteria, ProgressRecord,
+    ProgressCriteria, ProgressRecord, ParentLinkRequest, ParentStudent,
     SchoolHoliday, PublicHoliday,
 )
 from .views_progress import _build_hierarchical_criteria
@@ -1348,3 +1348,201 @@ class CancelSessionView(RoleRequiredMixin, View):
             messages.success(request, 'Session cancelled.')
 
         return redirect('class_detail', class_id=session.classroom_id)
+
+
+# ---------------------------------------------------------------------------
+# Parent Link Requests — teacher approval workflow
+# ---------------------------------------------------------------------------
+
+def _get_teacher_schools(user):
+    """Return queryset of schools where user is an active teacher/admin."""
+    return School.objects.filter(
+        school_teachers__teacher=user,
+        school_teachers__is_active=True,
+    )
+
+
+class ParentLinkRequestsView(RoleRequiredMixin, View):
+    """List pending parent link requests for schools where user is a teacher."""
+    required_roles = [
+        Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER, Role.TEACHER,
+        Role.JUNIOR_TEACHER, Role.ADMIN,
+    ]
+
+    def get(self, request):
+        schools = _get_teacher_schools(request.user)
+        pending_requests = (
+            ParentLinkRequest.objects.filter(
+                school_student__school__in=schools,
+                status=ParentLinkRequest.STATUS_PENDING,
+            ).exclude(parent=request.user)  # Teachers cannot approve their own requests
+            .select_related(
+                'parent', 'school_student', 'school_student__student',
+                'school_student__school',
+            )
+            .order_by('-requested_at')
+        )
+        return render(request, 'teacher/parent_link_requests.html', {
+            'pending_requests': pending_requests,
+        })
+
+
+class ParentLinkApproveView(RoleRequiredMixin, View):
+    """Approve a parent link request — creates the ParentStudent link."""
+    required_roles = [
+        Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER, Role.TEACHER,
+        Role.JUNIOR_TEACHER, Role.ADMIN,
+    ]
+
+    def post(self, request, request_id):
+        link_request = get_object_or_404(
+            ParentLinkRequest, id=request_id, status=ParentLinkRequest.STATUS_PENDING,
+        )
+        school = link_request.school_student.school
+
+        # Prevent self-approval — a teacher cannot approve their own link request
+        if link_request.parent == request.user:
+            messages.error(request, 'You cannot approve your own parent link request.')
+            return redirect('parent_link_requests')
+
+        # Verify teacher belongs to this school
+        if not SchoolTeacher.objects.filter(
+            school=school, teacher=request.user, is_active=True,
+        ).exists() and not request.user.is_staff:
+            messages.error(request, 'You do not have permission to approve this request.')
+            return redirect('parent_link_requests')
+
+        # Check max 2 parents per student
+        student = link_request.school_student.student
+        existing_count = ParentStudent.objects.filter(
+            student=student, school=school, is_active=True,
+        ).count()
+        if existing_count >= 2:
+            link_request.status = ParentLinkRequest.STATUS_REJECTED
+            link_request.reviewed_at = timezone.now()
+            link_request.reviewed_by = request.user
+            link_request.rejection_reason = 'Student already has the maximum number of linked parents.'
+            link_request.save()
+            create_notification(
+                user=link_request.parent,
+                message=(
+                    f'Your request to link to {student.get_full_name() or student.username} '
+                    f'at {school.name} could not be approved: student already has 2 linked parents.'
+                ),
+                notification_type='parent_link_rejected',
+                link='/parent/',
+            )
+            messages.warning(request, 'Student already has the maximum number of parents linked. Request rejected.')
+            return redirect('parent_link_requests')
+
+        # Approve: create ParentStudent link
+        ParentStudent.objects.get_or_create(
+            parent=link_request.parent,
+            student=student,
+            school=school,
+            defaults={
+                'relationship': link_request.relationship,
+                'is_primary_contact': (existing_count == 0),
+                'created_by': request.user,
+            },
+        )
+
+        link_request.status = ParentLinkRequest.STATUS_APPROVED
+        link_request.reviewed_at = timezone.now()
+        link_request.reviewed_by = request.user
+        link_request.save()
+
+        create_notification(
+            user=link_request.parent,
+            message=(
+                f'Your request to link to {student.get_full_name() or student.username} '
+                f'at {school.name} has been approved. You can now view their data.'
+            ),
+            notification_type='parent_link_approved',
+            link='/parent/',
+        )
+
+        log_event(
+            user=request.user,
+            school=school,
+            category='data_change',
+            action='parent_link_approved',
+            detail={
+                'request_id': link_request.id,
+                'parent': link_request.parent.username,
+                'student': student.username,
+                'school': school.name,
+            },
+            request=request,
+        )
+        messages.success(
+            request,
+            f'{link_request.parent.get_full_name() or link_request.parent.username} '
+            f'has been linked to {student.get_full_name() or student.username}.',
+        )
+        return redirect('parent_link_requests')
+
+
+class ParentLinkRejectView(RoleRequiredMixin, View):
+    """Reject a parent link request."""
+    required_roles = [
+        Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER, Role.TEACHER,
+        Role.JUNIOR_TEACHER, Role.ADMIN,
+    ]
+
+    def post(self, request, request_id):
+        link_request = get_object_or_404(
+            ParentLinkRequest, id=request_id, status=ParentLinkRequest.STATUS_PENDING,
+        )
+        school = link_request.school_student.school
+
+        if not SchoolTeacher.objects.filter(
+            school=school, teacher=request.user, is_active=True,
+        ).exists() and not request.user.is_staff:
+            messages.error(request, 'You do not have permission to reject this request.')
+            return redirect('parent_link_requests')
+
+        reason = request.POST.get('rejection_reason', '').strip()
+        link_request.status = ParentLinkRequest.STATUS_REJECTED
+        link_request.reviewed_at = timezone.now()
+        link_request.reviewed_by = request.user
+        link_request.rejection_reason = reason
+        link_request.save()
+
+        student = link_request.school_student.student
+        notification_message = (
+            f'Your request to link to {student.get_full_name() or student.username} '
+            f'at {school.name} has been declined.'
+        )
+        if reason:
+            notification_message += f' Reason: {reason}'
+
+        create_notification(
+            user=link_request.parent,
+            message=notification_message,
+            notification_type='parent_link_rejected',
+            link='/parent/',
+        )
+
+        log_event(
+            user=request.user,
+            school=school,
+            category='data_change',
+            action='parent_link_rejected',
+            detail={
+                'request_id': link_request.id,
+                'parent': link_request.parent.username,
+                'student': student.username,
+                'school': school.name,
+                'reason': reason,
+            },
+            request=request,
+        )
+        messages.success(
+            request,
+            f'Request from {link_request.parent.get_full_name() or link_request.parent.username} has been rejected.',
+        )
+        return redirect('parent_link_requests')
