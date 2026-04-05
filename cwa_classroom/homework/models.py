@@ -17,6 +17,7 @@ class Homework(models.Model):
         null=True, blank=True, related_name='created_homework'
     )
     title = models.CharField(max_length=200)
+    description = models.TextField(blank=True, default='')
     homework_type = models.CharField(max_length=20, choices=HOMEWORK_TYPE_CHOICES, default='topic')
     topics = models.ManyToManyField('classroom.Topic', related_name='homework_assignments', blank=True)
     num_questions = models.PositiveIntegerField(default=10)

@@ -19,9 +19,23 @@
       {% csrf_token %}
 
       {% if students_with_status %}
-        <div class="divide-y divide-slate-50">
+        <!-- Student search -->
+        <div class="px-6 pt-4 pb-2">
+          <input type="text"
+                 id="student-search"
+                 placeholder="Search student by name…"
+                 autocomplete="off"
+                 class="w-full sm:max-w-xs text-sm border border-slate-200 rounded-xl px-4 py-2
+                        focus:outline-none focus:ring-2 focus:ring-accent/30 placeholder-gray-400">
+        </div>
+        <div id="no-student-match" class="hidden px-6 py-4 text-sm text-gray-400">
+          No students match your search.
+        </div>
+
+        <div class="divide-y divide-slate-50" id="student-list">
           {% for item in students_with_status %}
-            <div class="flex items-center justify-between px-6 py-4">
+            <div class="flex items-center justify-between px-6 py-4 student-row"
+                 data-student-name="{{ item.student.get_full_name|default:item.student.username|lower }} {{ item.student.username|lower }}">
               <div class="flex items-center gap-3">
                 <span class="inline-flex items-center justify-center w-9 h-9 rounded-full bg-accent text-white text-xs font-bold">
                   {{ item.student.username|slice:":2"|upper }}
@@ -58,6 +72,7 @@
             </div>
           {% endfor %}
         </div>
+        </div>{# /student-list #}
       {% else %}
         <div class="p-8 text-center">
           <p class="text-gray-400">No students enrolled in this class.</p>
@@ -217,4 +232,25 @@
   </div>
 
 </div>
+
+<script>
+(function () {
+  const input = document.getElementById('student-search');
+  if (!input) return;
+  const noMatch = document.getElementById('no-student-match');
+  const rows = document.querySelectorAll('.student-row');
+
+  input.addEventListener('input', function () {
+    const q = this.value.trim().toLowerCase();
+    let visible = 0;
+    rows.forEach(function (row) {
+      const name = row.dataset.studentName || '';
+      const show = !q || name.includes(q);
+      row.style.display = show ? '' : 'none';
+      if (show) visible++;
+    });
+    noMatch.classList.toggle('hidden', visible > 0 || !q);
+  });
+})();
+</script>
 {% endblock %}

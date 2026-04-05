@@ -248,12 +248,18 @@ class MyAbsenceTokensView(LoginRequiredMixin, View):
             .order_by('-created_at')
         )
 
-        available_tokens = [t for t in tokens if not t.redeemed]
+        pending_tokens = [t for t in tokens if t.status == AbsenceToken.STATUS_PENDING and not t.redeemed]
+        approved_tokens = [t for t in tokens if t.status == AbsenceToken.STATUS_APPROVED and not t.redeemed and not t.is_expired]
+        rejected_tokens = [t for t in tokens if t.status == AbsenceToken.STATUS_REJECTED]
         used_tokens = [t for t in tokens if t.redeemed]
 
         return render(request, 'student/absence_tokens.html', {
-            'available_tokens': available_tokens,
+            'pending_tokens': pending_tokens,
+            'approved_tokens': approved_tokens,
+            'rejected_tokens': rejected_tokens,
             'used_tokens': used_tokens,
+            # Keep backwards-compatible name so existing template still works if not updated
+            'available_tokens': approved_tokens,
         })
 
 
@@ -266,7 +272,12 @@ class AvailableMakeupSessionsView(LoginRequiredMixin, View):
             id=token_id,
             student=request.user,
             redeemed=False,
+            status=AbsenceToken.STATUS_APPROVED,
         )
+
+        if token.is_expired:
+            messages.error(request, 'This token has expired and can no longer be used.')
+            return redirect('student_absence_tokens')
 
         original_class = token.original_classroom
         # Find levels covered by the original class
@@ -319,7 +330,12 @@ class RedeemAbsenceTokenView(LoginRequiredMixin, View):
             id=token_id,
             student=request.user,
             redeemed=False,
+            status=AbsenceToken.STATUS_APPROVED,
         )
+
+        if token.is_expired:
+            messages.error(request, 'This token has expired and can no longer be used.')
+            return redirect('student_absence_tokens')
 
         session_id = request.POST.get('session_id')
         session = get_object_or_404(
@@ -363,6 +379,20 @@ class RedeemAbsenceTokenView(LoginRequiredMixin, View):
         token.redeemed_session = session
         token.redeemed_at = timezone.now()
         token.save(update_fields=['redeemed', 'redeemed_session', 'redeemed_at'])
+
+        # Update the original absent record → present so the correct date is credited
+        if token.original_session:
+            StudentAttendance.objects.filter(
+                session=token.original_session,
+                student=request.user,
+                status='absent',
+            ).update(
+                status='present',
+                marked_by=request.user,
+                self_reported=False,
+                approved_by=None,
+                approved_at=None,
+            )
 
         log_event(
             user=request.user, school=session.classroom.school,

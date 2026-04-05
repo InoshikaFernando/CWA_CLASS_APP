@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}My Children{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-8">
+
+  <div>
+    <h1 class="font-display text-3xl text-gray-800">My Children</h1>
+    <p class="text-violet-500 text-sm mt-1 font-semibold">All linked and pending children</p>
+  </div>
+
+  {% if pending_requests %}
+    <div class="bg-amber-50 border border-amber-200 rounded-2xl p-5 space-y-3">
+      <h2 class="text-sm font-bold text-amber-800">Pending Approval</h2>
+      {% for req in pending_requests %}
+        <div class="flex items-center justify-between bg-white rounded-xl px-4 py-3 border border-amber-100">
+          <div>
+            <p class="text-sm font-semibold text-gray-800">
+              {{ req.school_student.student.get_full_name|default:req.school_student.student.username }}
+            </p>
+            <p class="text-xs text-gray-400">{{ req.school_student.school.name }} &middot; Awaiting teacher approval</p>
+          </div>
+          <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">Pending</span>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% if children %}
+    <div class="grid gap-4 sm:grid-cols-2">
+      {% for link in children %}
+        <div class="bg-white rounded-2xl border border-violet-100 shadow-sm p-6" data-testid="child-card">
+          <div class="flex items-center gap-3">
+            <span class="w-11 h-11 rounded-full bg-gradient-to-br from-violet-500 to-purple-500 flex items-center justify-center text-white font-bold text-sm">
+              {{ link.student.first_name|slice:":1" }}{{ link.student.last_name|slice:":1" }}
+            </span>
+            <div>
+              <p class="font-semibold text-gray-800">{{ link.student.first_name }} {{ link.student.last_name }}</p>
+              <p class="text-xs text-gray-400">{{ link.school.name }} &middot; {{ link.get_relationship_display }}</p>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% elif not pending_requests %}
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center">
+      <p class="text-gray-400">No children linked yet.</p>
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}
