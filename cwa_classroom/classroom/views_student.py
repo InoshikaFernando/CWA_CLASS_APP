@@ -291,12 +291,16 @@ class StudentAttendanceHistoryView(LoginRequiredMixin, ModuleRequiredMixin, View
         ).values_list('classroom_id', flat=True)
 
         # Fetch all attendance records for this student across enrolled classes
+        # Also include makeup attendance records (student not enrolled in that class)
+        from django.db.models import Q
         attendance_records = (
             StudentAttendance.objects.filter(
                 student=request.user,
-                session__classroom_id__in=enrolled_class_ids,
+            ).filter(
+                Q(session__classroom_id__in=enrolled_class_ids) |
+                Q(makeup_token__isnull=False)
             )
-            .select_related('session', 'session__classroom')
+            .select_related('session', 'session__classroom', 'makeup_token')
             .order_by('-session__date', '-session__start_time')
         )
 

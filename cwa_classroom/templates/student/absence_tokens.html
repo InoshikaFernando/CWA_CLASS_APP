@@ -10,12 +10,46 @@
     <p class="text-emerald-500 text-sm mt-1 font-semibold">Use tokens to attend a makeup class at the same level.</p>
   </div>
 
-  <!-- Available Tokens -->
-  {% if available_tokens %}
+  <!-- Pending Tokens -->
+  {% if pending_tokens %}
+  <div>
+    <h2 class="font-bold text-xl text-gray-800 mb-4">Awaiting Approval</h2>
+    <div class="space-y-3">
+      {% for token in pending_tokens %}
+      <div class="bg-white rounded-2xl border border-amber-100 shadow-sm p-5">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="font-bold text-gray-800">{{ token.original_classroom.name }}</h3>
+            {% if token.original_classroom.subject %}
+              <p class="text-xs text-emerald-500 font-semibold">{{ token.original_classroom.subject.name }}</p>
+            {% endif %}
+            {% if token.original_session %}
+              <p class="text-xs text-gray-400 mt-1">
+                Absent from: {{ token.original_session.date|date:"D, d M Y" }}
+                {{ token.original_session.start_time|time:"H:i" }}&ndash;{{ token.original_session.end_time|time:"H:i" }}
+              </p>
+            {% endif %}
+            {% if token.note %}
+              <p class="text-xs text-gray-500 mt-1 italic">{{ token.note }}</p>
+            {% endif %}
+            <p class="text-xs text-gray-400 mt-1">Requested: {{ token.created_at|date:"d M Y, H:i" }}</p>
+          </div>
+          <span class="text-xs font-semibold px-3 py-1 rounded-full bg-amber-100 text-amber-700">
+            Pending Approval
+          </span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Approved / Available Tokens -->
+  {% if approved_tokens %}
   <div>
     <h2 class="font-bold text-xl text-gray-800 mb-4">Available Tokens</h2>
     <div class="space-y-3">
-      {% for token in available_tokens %}
+      {% for token in approved_tokens %}
       <div class="bg-white rounded-2xl border border-emerald-100 shadow-sm p-5">
         <div class="flex items-center justify-between">
           <div>
@@ -32,12 +66,47 @@
             {% if token.note %}
               <p class="text-xs text-gray-500 mt-1 italic">{{ token.note }}</p>
             {% endif %}
-            <p class="text-xs text-gray-400 mt-1">Issued: {{ token.created_at|date:"d M Y, H:i" }}</p>
+            <p class="text-xs text-gray-400 mt-1">Approved: {{ token.reviewed_at|date:"d M Y, H:i" }}</p>
+            {% if token.expires_at %}
+              <p class="text-xs text-amber-600 font-semibold mt-1">Expires: {{ token.expires_at|date:"d M Y, H:i" }}</p>
+            {% else %}
+              <p class="text-xs text-gray-400 mt-1">No expiry</p>
+            {% endif %}
           </div>
           <a href="{% url 'student_available_makeup_sessions' token_id=token.id %}"
              class="px-4 py-2 bg-emerald-500 text-white text-sm font-semibold rounded-xl hover:bg-emerald-600 transition shadow-sm">
             Find Makeup Class
           </a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Rejected Tokens -->
+  {% if rejected_tokens %}
+  <div>
+    <h2 class="font-bold text-xl text-gray-800 mb-4">Rejected Tokens</h2>
+    <div class="space-y-3">
+      {% for token in rejected_tokens %}
+      <div class="bg-white rounded-2xl border border-red-100 shadow-sm p-5 opacity-75">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="font-bold text-gray-700">{{ token.original_classroom.name }}</h3>
+            {% if token.original_session %}
+              <p class="text-xs text-gray-400">
+                Absent from: {{ token.original_session.date|date:"D, d M Y" }}
+              </p>
+            {% endif %}
+            {% if token.rejection_reason %}
+              <p class="text-xs text-red-500 mt-1">Reason: {{ token.rejection_reason }}</p>
+            {% endif %}
+            <p class="text-xs text-gray-400 mt-1">Reviewed: {{ token.reviewed_at|date:"d M Y, H:i" }}</p>
+          </div>
+          <span class="text-xs font-semibold px-3 py-1 rounded-full bg-red-100 text-red-600">
+            Rejected
+          </span>
         </div>
       </div>
       {% endfor %}
@@ -75,7 +144,7 @@
   </div>
   {% endif %}
 
-  {% if not available_tokens and not used_tokens %}
+  {% if not pending_tokens and not approved_tokens and not rejected_tokens and not used_tokens %}
   <div class="bg-white rounded-2xl p-12 border border-emerald-100 text-center">
     <p class="text-5xl mb-4">🎟</p>
     <h3 class="text-lg font-semibold text-gray-700 mb-2">No absence tokens</h3>
