@@ -106,14 +106,22 @@
              x-show="(search === '' || '{{ item.department.name|escapejs }}'.toLowerCase().includes(search.toLowerCase())) && (statusFilter === 'all' || (statusFilter === 'active' && {{ item.department.is_active|yesno:'true,false' }}) || (statusFilter === 'inactive' && !{{ item.department.is_active|yesno:'true,false' }}))"
              class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:shadow-md hover:border-accent/30 transition group">
 
-            <!-- Top row: initials + status badge -->
+            <!-- Top row: initials + badges -->
             <div class="flex items-start justify-between mb-4">
               <div class="w-10 h-10 bg-primary rounded-xl flex items-center justify-center">
                 <span class="text-white font-bold text-sm">{{ item.department.name|slice:":2"|upper }}</span>
               </div>
-              <span class="text-xs font-medium px-2.5 py-1 rounded-full {% if item.department.is_active %}bg-emerald-100 text-emerald-700{% else %}bg-gray-100 text-gray-500{% endif %}">
-                {% if item.department.is_active %}Active{% else %}Inactive{% endif %}
-              </span>
+              <div class="flex items-center gap-1.5">
+                {% if item.department.currency_override_id %}
+                <span class="text-xs font-medium px-2 py-1 rounded-full bg-amber-100 text-amber-700"
+                      title="Currency override: {{ item.department.currency_override_id }}">
+                  {{ item.department.currency_override_id }}
+                </span>
+                {% endif %}
+                <span class="text-xs font-medium px-2.5 py-1 rounded-full {% if item.department.is_active %}bg-emerald-100 text-emerald-700{% else %}bg-gray-100 text-gray-500{% endif %}">
+                  {% if item.department.is_active %}Active{% else %}Inactive{% endif %}
+                </span>
+              </div>
             </div>
 
             <!-- Name + description -->

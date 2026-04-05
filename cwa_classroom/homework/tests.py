@@ -840,3 +840,80 @@ class StudentResultUITest(HomeworkTestBase):
         sub = self._make_submission_with_answers(attempt_number=2)
         resp = self.client.get(reverse('homework:student_result', kwargs={'submission_id': sub.id}))
         self.assertNotContains(resp, 'Try Again')
+
+
+# ---------------------------------------------------------------------------
+# Sidebar navigation & layout tests
+# ---------------------------------------------------------------------------
+
+class HomeworkSidebarNavigationTest(HomeworkTestBase):
+    """
+    Regression tests for CPP-137 sidebar homework link.
+
+    The teacher sidebar must link to homework:teacher_monitor and the monitor
+    page must render with status 200 when the teacher navigates to it.
+    Previously the homework pages had an extra md:ml-64 on their root div
+    which caused the content to be pushed off-screen (appearing blank).
+    """
+
+    def test_monitor_url_resolves(self):
+        url = reverse('homework:teacher_monitor')
+        self.assertEqual(url, '/homework/monitor/')
+
+    def test_monitor_returns_200_for_teacher(self):
+        self.client.force_login(self.teacher)
+        resp = self.client.get(reverse('homework:teacher_monitor'))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_monitor_redirects_unauthenticated_to_login(self):
+        resp = self.client.get(reverse('homework:teacher_monitor'))
+        self.assertRedirects(resp, f'/accounts/login/?next=/homework/monitor/', fetch_redirect_response=False)
+
+    def test_monitor_renders_heading(self):
+        self.client.force_login(self.teacher)
+        resp = self.client.get(reverse('homework:teacher_monitor'))
+        self.assertContains(resp, 'Homework Monitor')
+
+    def test_monitor_page_has_no_double_margin_class(self):
+        """Content div must NOT have 'md:ml-64 p-6' (base.html already applies md:ml-64)."""
+        self.client.force_login(self.teacher)
+        resp = self.client.get(reverse('homework:teacher_monitor'))
+        # The specific wrong pattern is class="md:ml-64 p-6" on the content wrapper div.
+        # base.html's <main> already provides md:ml-64; a second one pushes content off-screen.
+        self.assertNotContains(resp, 'class="md:ml-64 p-6"')
+
+    def test_monitor_student_redirected_to_public_home(self):
+        """Students must not access the teacher monitor page."""
+        self.client.force_login(self.student)
+        resp = self.client.get(reverse('homework:teacher_monitor'))
+        self.assertEqual(resp.status_code, 302)
+
+    def test_student_list_page_has_no_double_margin_class(self):
+        """Student homework list must not have the double md:ml-64 layout bug."""
+        self.client.force_login(self.student)
+        resp = self.client.get(reverse('homework:student_list'))
+        self.assertNotContains(resp, 'class="md:ml-64 p-6"')
+
+    def test_sidebar_teacher_template_contains_homework_link(self):
+        """sidebar_teacher.html must contain exactly one link to teacher_monitor."""
+        import os
+        sidebar_path = os.path.join(
+            os.path.dirname(__file__),
+            '..', 'templates', 'partials', 'sidebar_teacher.html'
+        )
+        with open(os.path.normpath(sidebar_path)) as f:
+            content = f.read()
+        self.assertIn("homework:teacher_monitor", content)
+        # Ensure there is only ONE homework:teacher_monitor reference (no duplicate)
+        self.assertEqual(content.count("homework:teacher_monitor"), 1)
+
+    def test_sidebar_senior_teacher_template_contains_homework_link(self):
+        """sidebar_senior_teacher.html must also link to teacher_monitor."""
+        import os
+        sidebar_path = os.path.join(
+            os.path.dirname(__file__),
+            '..', 'templates', 'partials', 'sidebar_senior_teacher.html'
+        )
+        with open(os.path.normpath(sidebar_path)) as f:
+            content = f.read()
+        self.assertIn("homework:teacher_monitor", content)
