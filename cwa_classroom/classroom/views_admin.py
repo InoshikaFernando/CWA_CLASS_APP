@@ -413,6 +413,8 @@ class SchoolSettingsView(RoleRequiredMixin, View):
         # Banking & invoice
         'bank_name', 'bank_bsb', 'bank_account_number', 'bank_account_name',
         'invoice_terms', 'invoice_due_days',
+        # Payments
+        'stripe_payment_link',
     ]
 
     def _build_form_data(self, school):
