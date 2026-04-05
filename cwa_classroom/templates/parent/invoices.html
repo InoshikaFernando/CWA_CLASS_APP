@@ -9,57 +9,40 @@
     <p class="text-violet-500 text-sm mt-1 font-semibold">{{ active_child.first_name }} {{ active_child.last_name }} &middot; {{ active_school.name }}</p>
   </div>
 
-  {% if invoices %}
-    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      <table class="w-full text-sm">
-        <thead>
-          <tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
-            <th class="px-6 py-3 text-left">Invoice #</th>
-            <th class="px-6 py-3 text-left">Period</th>
-            <th class="px-6 py-3 text-right">Amount</th>
-            <th class="px-6 py-3 text-center">Status</th>
-            <th class="px-6 py-3 text-left">Due</th>
-            <th class="px-6 py-3 text-center"></th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-gray-100">
-          {% for inv in invoices %}
-            <tr class="hover:bg-violet-50/30 transition">
-              <td class="px-6 py-4">
-                <a href="{% url 'parent_invoice_detail' inv.id %}" class="text-violet-600 hover:text-violet-700 font-medium">
-                  {{ inv.invoice_number }}
-                </a>
-              </td>
-              <td class="px-6 py-4 text-gray-600">{{ inv.billing_period_start|date:"d M" }} — {{ inv.billing_period_end|date:"d M Y" }}</td>
-              <td class="px-6 py-4 text-right font-medium text-gray-800">${{ inv.amount|floatformat:2 }}</td>
-              <td class="px-6 py-4 text-center">
-                {% if inv.status == 'paid' %}
-                  <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">Paid</span>
-                {% elif inv.status == 'partially_paid' %}
-                  <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">Partial</span>
-                {% else %}
-                  <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">Issued</span>
-                {% endif %}
-              </td>
-              <td class="px-6 py-4 text-gray-500">{{ inv.due_date|date:"d M Y"|default:"—" }}</td>
-              <td class="px-6 py-4 text-center">
-                {% if inv.resolved_stripe_link %}
-                  <a href="{{ inv.resolved_stripe_link }}" target="_blank" rel="noopener noreferrer"
-                     class="inline-flex items-center px-3 py-1.5 bg-violet-600 text-white text-xs font-semibold rounded-lg hover:bg-violet-700 transition">
-                    Pay Now
-                  </a>
-                {% endif %}
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+  <!-- Search & Filter -->
+  <div class="flex flex-col sm:flex-row gap-3">
+    <div class="relative flex-1">
+      <svg class="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+      </svg>
+      <input type="text" name="q" value="{{ search }}"
+             hx-get="{% url 'parent_invoices' %}"
+             hx-trigger="keyup changed delay:300ms"
+             hx-target="#results-table"
+             hx-swap="innerHTML"
+             hx-include="[name='status']"
+             hx-push-url="true"
+             placeholder="Search invoices..."
+             class="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-violet-200 focus:border-violet-400 transition">
     </div>
-  {% else %}
-    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center">
-      <p class="text-gray-400">No invoices yet for {{ active_child.first_name }}.</p>
-    </div>
-  {% endif %}
+    <select name="status"
+            hx-get="{% url 'parent_invoices' %}"
+            hx-trigger="change"
+            hx-target="#results-table"
+            hx-swap="innerHTML"
+            hx-include="[name='q']"
+            hx-push-url="true"
+            class="px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-violet-200 focus:border-violet-400 transition">
+      <option value="">All Statuses</option>
+      <option value="issued" {% if status_filter == 'issued' %}selected{% endif %}>Issued</option>
+      <option value="partially_paid" {% if status_filter == 'partially_paid' %}selected{% endif %}>Partially Paid</option>
+      <option value="paid" {% if status_filter == 'paid' %}selected{% endif %}>Paid</option>
+    </select>
+  </div>
+
+  <div id="results-table">
+    {% include "parent/partials/invoice_table.html" %}
+  </div>
 
 </div>
 {% endblock %}

@@ -1,6 +1,7 @@
 from django.core.paginator import Paginator
 from django.http import Http404
 from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
@@ -126,6 +127,8 @@ def _notify_class_teachers(classroom, student, is_re_request=False):
     action = 're-requested' if is_re_request else 'requested'
     notified_ids = set()
 
+    enrollment_requests_url = reverse('enrollment_requests')
+
     # Notify class teachers
     for teacher in classroom.teachers.all():
         create_notification(
@@ -135,7 +138,7 @@ def _notify_class_teachers(classroom, student, is_re_request=False):
                 f'"{classroom.name}" ({classroom.code}).'
             ),
             notification_type='enrollment_request',
-            link='/teacher/enrollment-requests/',
+            link=enrollment_requests_url,
         )
         notified_ids.add(teacher.id)
 
@@ -152,7 +155,7 @@ def _notify_class_teachers(classroom, student, is_re_request=False):
                     f'"{classroom.name}" ({classroom.code}).'
                 ),
                 notification_type='enrollment_request',
-                link='/teacher/enrollment-requests/',
+                link=enrollment_requests_url,
             )
             notified_ids.add(dept.head_id)
 
@@ -165,7 +168,7 @@ def _notify_class_teachers(classroom, student, is_re_request=False):
                 f'"{classroom.name}" ({classroom.code}).'
             ),
             notification_type='enrollment_request',
-            link='/teacher/enrollment-requests/',
+            link=enrollment_requests_url,
         )
 
 
@@ -215,10 +218,10 @@ class StudentClassDetailView(LoginRequiredMixin, View):
             )
             return redirect('student_my_classes')
 
-        # Fetch sessions for this class, most recent first
+        # Fetch sessions for this class, upcoming first (ascending)
         sessions = (
             ClassSession.objects.filter(classroom=classroom)
-            .order_by('-date', '-start_time')
+            .order_by('date', 'start_time')
         )
 
         # Fetch this student's attendance records for every session in the class
@@ -228,7 +231,7 @@ class StudentClassDetailView(LoginRequiredMixin, View):
                 student=request.user,
             )
             .select_related('session')
-            .order_by('-session__date', '-session__start_time')
+            .order_by('session__date', 'session__start_time')
         )
 
         # Build a lookup: session_id -> attendance record for template convenience

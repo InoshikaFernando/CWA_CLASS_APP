@@ -30,11 +30,11 @@
     <span class="text-xs font-bold">Progress</span>
   </a>
 
-  <!-- Profile -->
-  <a href="{% url 'profile' %}" class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl
-                     {% if 'profile' in request.path %}text-emerald-600{% else %}text-gray-400 hover:text-emerald-500{% endif %} transition">
-    <span class="text-lg leading-none">👤</span>
-    <span class="text-xs font-bold">Profile</span>
+  <!-- Homework -->
+  <a href="{% url 'homework:student_list' %}" class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl
+                     {% if '/homework/' in request.path %}text-emerald-600{% else %}text-gray-400 hover:text-emerald-500{% endif %} transition">
+    <span class="text-lg leading-none">📝</span>
+    <span class="text-xs font-bold">Homework</span>
   </a>
 
 </nav>

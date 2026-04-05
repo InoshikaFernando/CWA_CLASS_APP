@@ -29,6 +29,7 @@ urlpatterns = [
     path('class/<int:class_id>/assign-students/', views.AssignStudentsView.as_view(), name='assign_students'),
     path('class/<int:class_id>/assign-teachers/', views.AssignTeachersView.as_view(), name='assign_teachers'),
     path('class/<int:class_id>/attendance/', views.ClassAttendanceView.as_view(), name='class_attendance'),
+    path('class/<int:class_id>/settings/', views_department.ClassSettingsView.as_view(), name='class_settings'),
     path('class/progress/', views.ClassProgressListView.as_view(), name='class_progress_list'),
     path('class/manage-teachers/', views.ManageTeachersView.as_view(), name='manage_teachers'),
 
@@ -78,6 +79,8 @@ urlpatterns = [
     path('admin-dashboard/manage-departments/', views_admin.ManageDepartmentsRedirectView.as_view(), name='admin_manage_departments'),
     path('admin-dashboard/manage-subjects/', views_admin.ManageSubjectsRedirectView.as_view(), name='admin_manage_subjects'),
     path('admin-dashboard/manage-terms/', views_admin.ManageTermsRedirectView.as_view(), name='admin_manage_terms'),
+    path('admin-dashboard/manage-parents/', views_parent_admin.ManageParentsRedirectView.as_view(), name='admin_manage_parents'),
+    path('admin-dashboard/manage-holidays/', views_admin.ManageHolidaysRedirectView.as_view(), name='admin_manage_holidays'),
     path('admin-dashboard/manage-parent-invites/', views_admin.ManageParentInvitesRedirectView.as_view(), name='admin_manage_parent_invites'),
     path('admin-dashboard/schools/<int:school_id>/subjects/', views_admin.SchoolSubjectManageView.as_view(), name='admin_school_subjects'),
     path('admin-dashboard/schools/<int:school_id>/', views_admin.SchoolDetailView.as_view(), name='admin_school_detail'),
@@ -98,6 +101,13 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/holidays/', views_admin.SchoolHolidayManageView.as_view(), name='admin_school_holidays'),
     path('admin-dashboard/schools/<int:school_id>/public-holidays/', views_admin.PublicHolidayManageView.as_view(), name='admin_public_holidays'),
     path('admin-dashboard/schools/<int:school_id>/terms/', views_admin.TermManageView.as_view(), name='admin_school_terms'),
+    path('admin-dashboard/schools/<int:school_id>/holidays/', views_admin.HolidayManageView.as_view(), name='admin_school_holidays'),
+
+    # Platform management (superuser only)
+    path('admin-dashboard/subject-apps/', views_admin.SubjectAppManageView.as_view(), name='admin_subject_apps'),
+
+    # Database backup (superuser only)
+    path('admin-dashboard/database-backup/', views_admin.DatabaseBackupView.as_view(), name='database_backup'),
 
     # Account blocking & school suspension
     path('admin-dashboard/block-user/', views_admin.BlockUserView.as_view(), name='admin_block_user'),
@@ -108,11 +118,19 @@ urlpatterns = [
     # Student management (school-level)
     path('admin-dashboard/schools/<int:school_id>/students/', views_admin.SchoolStudentManageView.as_view(), name='admin_school_students'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/edit/', views_admin.SchoolStudentEditView.as_view(), name='admin_school_student_edit'),
+    path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/edit-modal/', views_admin.StudentEditModalView.as_view(), name='admin_school_student_edit_modal'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/remove/', views_admin.SchoolStudentRemoveView.as_view(), name='admin_school_student_remove'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/restore/', views_admin.SchoolStudentRestoreView.as_view(), name='admin_school_student_restore'),
     path('admin-dashboard/schools/<int:school_id>/students/batch-update/', views_admin.SchoolStudentBatchUpdateView.as_view(), name='admin_school_student_batch_update'),
 
-    # Parent management (school-level)
+    # Parent list & edit (school-level)
+    path('admin-dashboard/schools/<int:school_id>/parents/', views_parent_admin.SchoolParentListView.as_view(), name='admin_school_parents'),
+    path('admin-dashboard/schools/<int:school_id>/guardians/<int:guardian_id>/edit-modal/', views_parent_admin.GuardianEditModalView.as_view(), name='admin_guardian_edit_modal'),
+    path('admin-dashboard/schools/<int:school_id>/guardians/<int:guardian_id>/edit/', views_parent_admin.GuardianUpdateView.as_view(), name='admin_guardian_update'),
+    path('admin-dashboard/schools/<int:school_id>/parent-links/<int:link_id>/edit-modal/', views_parent_admin.ParentLinkEditModalView.as_view(), name='admin_parent_link_edit_modal'),
+    path('admin-dashboard/schools/<int:school_id>/parent-links/<int:link_id>/edit/', views_parent_admin.ParentLinkUpdateView.as_view(), name='admin_parent_link_update'),
+
+    # Parent invite management (school-level)
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/invite-parent/', views_parent_admin.ParentInviteCreateView.as_view(), name='invite_parent'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/parents/', views_parent_admin.StudentParentLinksView.as_view(), name='student_parent_links'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/parents/<int:link_id>/remove/', views_parent_admin.ParentStudentUnlinkView.as_view(), name='unlink_parent_student'),
@@ -153,6 +171,9 @@ urlpatterns = [
     path('teacher/attendance/<int:attendance_id>/approve/', views_teacher.StudentAttendanceApproveView.as_view(), name='attendance_approve'),
     path('teacher/attendance/<int:attendance_id>/reject/', views_teacher.StudentAttendanceRejectView.as_view(), name='attendance_reject'),
     path('teacher/attendance/bulk-approve/', views_teacher.StudentAttendanceBulkApproveView.as_view(), name='attendance_bulk_approve'),
+    path('teacher/parent-link-requests/', views_teacher.ParentLinkRequestsView.as_view(), name='parent_link_requests'),
+    path('teacher/parent-link-requests/<int:request_id>/approve/', views_teacher.ParentLinkApproveView.as_view(), name='parent_link_approve'),
+    path('teacher/parent-link-requests/<int:request_id>/reject/', views_teacher.ParentLinkRejectView.as_view(), name='parent_link_reject'),
 
     # Session management
     path('teacher/class/<int:class_id>/start-session/', views_teacher.StartSessionView.as_view(), name='start_session'),
@@ -163,12 +184,17 @@ urlpatterns = [
 
     # Parent portal
     path('parent/', views_parent.ParentDashboardView.as_view(), name='parent_dashboard'),
+    path('parent/children/', views_parent.ParentChildrenView.as_view(), name='my_children'),
     path('parent/switch-child/<int:student_id>/', views_parent.ParentSwitchChildView.as_view(), name='parent_switch_child'),
     path('parent/invoices/', views_parent.ParentInvoicesView.as_view(), name='parent_invoices'),
     path('parent/invoices/<int:invoice_id>/', views_parent.ParentInvoiceDetailView.as_view(), name='parent_invoice_detail'),
     path('parent/payments/', views_parent.ParentPaymentHistoryView.as_view(), name='parent_payment_history'),
+    path('parent/billing/', views_parent.ParentPaymentHistoryView.as_view(), name='parent_billing'),
     path('parent/attendance/', views_parent.ParentAttendanceView.as_view(), name='parent_attendance'),
     path('parent/progress/', views_parent.ParentProgressView.as_view(), name='parent_progress'),
+    path('parent/add-child/', views_parent.ParentAddChildView.as_view(), name='parent_add_child'),
+    path('parent/classes/', views_parent.ParentClassesView.as_view(), name='parent_classes'),
+    path('parent/become-parent/', views_parent.BecomeParentView.as_view(), name='become_parent'),
 
     # Student enrollment & classes
     path('student/join/', views_student.JoinClassByCodeView.as_view(), name='student_join_class'),

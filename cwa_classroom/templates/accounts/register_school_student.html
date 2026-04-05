@@ -64,11 +64,26 @@
              class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
     </div>
 
-    <button type="submit"
+    <!-- Terms & Privacy Policy -->
+    <div class="border-t border-gray-100 pt-5">
+      {% include "partials/terms_acceptance.html" %}
+    </div>
+
+    <button type="submit" id="btn-submit"
             class="w-full bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-5 py-3 transition text-base">
       Create Account &rarr;
     </button>
   </form>
+
+<script>
+document.getElementById('btn-submit').closest('form').addEventListener('submit', function(e) {
+  var cb = document.getElementById('accept-terms');
+  if (!cb || !cb.checked) {
+    e.preventDefault();
+    alert('Please scroll through both documents and accept the Terms and Conditions and Privacy Policy.');
+  }
+});
+</script>
 {% endblock %}
 
 {% block footer_links %}

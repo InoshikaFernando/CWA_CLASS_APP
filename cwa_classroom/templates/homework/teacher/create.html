@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title %}{% if editing %}Edit{% else %}Assign{% endif %} Homework{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+
+  <a href="{% url 'homework:teacher_monitor' %}" class="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+    Back to Monitor
+  </a>
+
+  <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-6">
+    <div>
+      <h1 class="text-xl font-display font-bold text-gray-900">
+        {% if editing %}Edit Homework{% else %}Assign Homework{% endif %}
+      </h1>
+      <p class="text-sm text-gray-500 mt-1">{{ classroom.name }}{% if classroom.subject %} &middot; {{ classroom.subject.name }}{% endif %}</p>
+    </div>
+
+    <form method="post" class="space-y-5">
+      {% csrf_token %}
+
+      <!-- Title -->
+      <div>
+        <label for="id_title" class="block text-sm font-semibold text-gray-700 mb-1">Title</label>
+        {{ form.title }}
+        {% if form.title.errors %}<p class="text-red-500 text-xs mt-1">{{ form.title.errors.0 }}</p>{% endif %}
+      </div>
+
+      <!-- Homework Type -->
+      <div>
+        <label for="id_homework_type" class="block text-sm font-semibold text-gray-700 mb-1">Homework Type</label>
+        {{ form.homework_type }}
+        {% if form.homework_type.errors %}<p class="text-red-500 text-xs mt-1">{{ form.homework_type.errors.0 }}</p>{% endif %}
+      </div>
+
+      <!-- Topics -->
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-2">Topics</label>
+        <div class="space-y-1 max-h-48 overflow-y-auto border border-gray-200 rounded-lg p-3">
+          {% for checkbox in form.topics %}
+            <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              {{ checkbox.tag }}
+              <span>{{ checkbox.choice_label }}</span>
+            </label>
+          {% empty %}
+            <p class="text-sm text-gray-400">No topics available for this class.</p>
+          {% endfor %}
+        </div>
+        {% if form.topics.errors %}<p class="text-red-500 text-xs mt-1">{{ form.topics.errors.0 }}</p>{% endif %}
+      </div>
+
+      <!-- Number of Questions -->
+      <div>
+        <label for="id_num_questions" class="block text-sm font-semibold text-gray-700 mb-1">Number of Questions</label>
+        {{ form.num_questions }}
+        {% if form.num_questions.errors %}<p class="text-red-500 text-xs mt-1">{{ form.num_questions.errors.0 }}</p>{% endif %}
+      </div>
+
+      <!-- Due date & Max attempts -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label for="id_due_date" class="block text-sm font-semibold text-gray-700 mb-1">Due Date</label>
+          {{ form.due_date }}
+          {% if form.due_date.errors %}<p class="text-red-500 text-xs mt-1">{{ form.due_date.errors.0 }}</p>{% endif %}
+        </div>
+        <div>
+          <label for="id_max_attempts" class="block text-sm font-semibold text-gray-700 mb-1">Max Attempts <span class="font-normal text-gray-400">(optional)</span></label>
+          {{ form.max_attempts }}
+        </div>
+      </div>
+
+      {% if form.non_field_errors %}
+      <div class="text-red-500 text-sm">
+        {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="flex items-center justify-end gap-3 pt-2">
+        <a href="{% url 'homework:teacher_monitor' %}" class="px-4 py-2 text-sm font-medium text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition">Cancel</a>
+        <button type="submit" class="px-5 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition">
+          {% if editing %}Save Changes{% else %}Assign Homework{% endif %}
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
