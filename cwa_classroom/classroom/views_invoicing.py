@@ -573,7 +573,23 @@ class InvoiceDetailView(RoleRequiredMixin, View):
             'line_items': line_items,
             'payments': payments,
             'credit_balance': credit_balance,
+            'resolved_stripe_link': invoice.get_stripe_payment_link(),
         })
+
+    def post(self, request, invoice_id):
+        """Update the invoice-level Stripe Payment Link (any status)."""
+        school = _get_single_school(request.user)
+        invoice = get_object_or_404(Invoice, id=invoice_id, school=school)
+        invoice.stripe_payment_link = request.POST.get('stripe_payment_link', '').strip()
+        invoice.save(update_fields=['stripe_payment_link', 'updated_at'])
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='invoice_stripe_link_updated',
+            detail={'invoice_id': invoice.id, 'invoice_number': invoice.invoice_number},
+            request=request,
+        )
+        messages.success(request, 'Stripe Payment Link updated.')
+        return redirect('invoice_detail', invoice_id=invoice.id)
 
 
 class InvoiceEditView(RoleRequiredMixin, View):
@@ -685,11 +701,12 @@ class InvoiceEditView(RoleRequiredMixin, View):
                 invoice.due_date = None
 
             invoice.notes = notes
+            invoice.stripe_payment_link = request.POST.get('stripe_payment_link', '').strip()
 
             # Recalculate totals from line items
             self._recalculate_totals(invoice)
             invoice.save(update_fields=[
-                'due_date', 'notes', 'amount', 'calculated_amount', 'updated_at',
+                'due_date', 'notes', 'stripe_payment_link', 'amount', 'calculated_amount', 'updated_at',
             ])
 
         log_event(

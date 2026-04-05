@@ -140,6 +140,11 @@ class School(models.Model):
     state_region = models.CharField(max_length=100, blank=True)
     postal_code = models.CharField(max_length=20, blank=True)
     country = models.CharField(max_length=100, blank=True)
+    # Stripe payment
+    stripe_payment_link = models.URLField(
+        blank=True,
+        help_text='Default Stripe Payment Link for this institute. Parents see a Pay Now button linking here.',
+    )
     # Branding & email
     logo = models.ImageField(upload_to='school_logos/', blank=True)
     outgoing_email = models.EmailField(
@@ -310,6 +315,10 @@ class Department(models.Model):
     postal_code = models.CharField(max_length=20, blank=True)
     country = models.CharField(max_length=100, blank=True)
     logo = models.ImageField(upload_to='department_logos/', blank=True)
+    stripe_payment_link = models.URLField(
+        blank=True,
+        help_text='Stripe Payment Link override for this department. Overrides the institute default.',
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1464,6 +1473,10 @@ class Invoice(models.Model):
     issued_at = models.DateTimeField(null=True, blank=True)
     due_date = models.DateField(null=True, blank=True)
     notes = models.TextField(blank=True)
+    stripe_payment_link = models.URLField(
+        blank=True,
+        help_text='Stripe Payment Link override for this invoice. Overrides department and institute defaults.',
+    )
     cancelled_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
                                       null=True, blank=True, related_name='+')
     cancelled_at = models.DateTimeField(null=True, blank=True)
@@ -1478,6 +1491,19 @@ class Invoice(models.Model):
 
     def __str__(self):
         return f'{self.invoice_number} — {self.student} (${self.amount})'
+
+    def get_stripe_payment_link(self):
+        """Resolve Stripe Payment Link using fallback chain: invoice → department → institute."""
+        if self.stripe_payment_link:
+            return self.stripe_payment_link
+        first_li = self.line_items.select_related('department').filter(
+            department__stripe_payment_link__gt='',
+        ).first()
+        if first_li:
+            return first_li.department.stripe_payment_link
+        if self.school_id and self.school.stripe_payment_link:
+            return self.school.stripe_payment_link
+        return None
 
     @property
     def amount_paid(self):

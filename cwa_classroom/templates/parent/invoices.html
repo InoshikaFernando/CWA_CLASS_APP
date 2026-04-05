@@ -19,6 +19,7 @@
             <th class="px-6 py-3 text-right">Amount</th>
             <th class="px-6 py-3 text-center">Status</th>
             <th class="px-6 py-3 text-left">Due</th>
+            <th class="px-6 py-3 text-center"></th>
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
@@ -41,6 +42,14 @@
                 {% endif %}
               </td>
               <td class="px-6 py-4 text-gray-500">{{ inv.due_date|date:"d M Y"|default:"—" }}</td>
+              <td class="px-6 py-4 text-center">
+                {% if inv.resolved_stripe_link %}
+                  <a href="{{ inv.resolved_stripe_link }}" target="_blank" rel="noopener noreferrer"
+                     class="inline-flex items-center px-3 py-1.5 bg-violet-600 text-white text-xs font-semibold rounded-lg hover:bg-violet-700 transition">
+                    Pay Now
+                  </a>
+                {% endif %}
+              </td>
             </tr>
           {% endfor %}
         </tbody>

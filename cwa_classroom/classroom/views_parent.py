@@ -137,14 +137,21 @@ class ParentInvoicesView(RoleRequiredMixin, View):
                 'invoices': [], 'children': _get_parent_children(request.user),
             })
 
-        invoices = (
+        invoices = list(
             Invoice.objects.filter(
                 student=child, school=school,
                 status__in=['issued', 'partially_paid', 'paid'],
             )
-            .select_related('student')
+            .select_related('student', 'school')
             .order_by('-billing_period_end', '-created_at')
         )
+
+        # Pre-compute resolved Stripe links and annotate invoices to avoid N+1 in template
+        for inv in invoices:
+            if inv.status in ('issued', 'partially_paid'):
+                inv.resolved_stripe_link = inv.get_stripe_payment_link()
+            else:
+                inv.resolved_stripe_link = None
 
         return render(request, 'parent/invoices.html', {
             'invoices': invoices,
@@ -184,6 +191,7 @@ class ParentInvoiceDetailView(RoleRequiredMixin, View):
             'active_child': child,
             'active_school': school,
             'effective_settings': effective_settings,
+            'stripe_payment_link': invoice.get_stripe_payment_link(),
             'children': _get_parent_children(request.user),
         })
 

@@ -267,6 +267,29 @@
           <p class="text-sm text-red-700">{{ invoice.cancellation_reason }}</p>
         </div>
       {% endif %}
+
+      <!-- Stripe Payment Link -->
+      {% if invoice.status != 'cancelled' %}
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+          <h3 class="text-base font-semibold text-gray-900 mb-1">Stripe Payment Link</h3>
+          <p class="text-xs text-gray-500 mb-3">Override the Stripe link for this invoice. Leave blank to use the department or institute default.</p>
+          {% if resolved_stripe_link %}
+            <div class="mb-3 p-2 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-700 truncate">
+              Active: <a href="{{ resolved_stripe_link }}" target="_blank" rel="noopener noreferrer" class="underline">{{ resolved_stripe_link }}</a>
+            </div>
+          {% endif %}
+          <form method="post" action="{% url 'invoice_detail' invoice_id=invoice.id %}" class="space-y-2">
+            {% csrf_token %}
+            <input type="url" name="stripe_payment_link" value="{{ invoice.stripe_payment_link }}"
+              placeholder="https://buy.stripe.com/..."
+              class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+            <button type="submit"
+              class="w-full px-4 py-2 text-sm bg-slate-700 text-white rounded-lg hover:bg-slate-800 transition font-medium">
+              Save Link
+            </button>
+          </form>
+        </div>
+      {% endif %}
     </div>
 
   </div>
