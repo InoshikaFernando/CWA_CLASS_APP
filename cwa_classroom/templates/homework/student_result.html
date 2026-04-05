@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Result — {{ submission.homework.title }}{% endblock %}
+
+{% block content %}
+<div class="p-6">
+  <div class="max-w-3xl mx-auto">
+
+    <!-- Score card -->
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-6 text-center">
+      <p class="text-sm font-medium text-gray-500 mb-1">{{ submission.homework.title }}</p>
+      <p class="text-sm text-gray-400 mb-4">Attempt {{ submission.attempt_number }}</p>
+
+      <div class="inline-flex items-center justify-center w-24 h-24 rounded-full mb-4
+        {% if submission.percentage >= 80 %}bg-green-100 text-green-700
+        {% elif submission.percentage >= 50 %}bg-yellow-100 text-yellow-700
+        {% else %}bg-red-100 text-red-600{% endif %}">
+        <span class="text-3xl font-bold">{{ submission.percentage }}%</span>
+      </div>
+
+      <p class="text-lg font-semibold text-gray-800">
+        {{ submission.score }} / {{ submission.total_questions }} correct
+      </p>
+      <p class="text-sm text-gray-500 mt-1">
+        Points earned: <span class="font-semibold text-gray-700">{{ submission.points|floatformat:1 }}</span>
+        &nbsp;·&nbsp; Time: {{ submission.time_taken_seconds }}s
+      </p>
+
+      <!-- Submission status -->
+      <div class="mt-4">
+        {% if submission.submission_status == 'on_time' %}
+        <span class="px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-semibold">Submitted On Time</span>
+        {% else %}
+        <span class="px-3 py-1 rounded-full bg-red-100 text-red-600 text-xs font-semibold">Late Submission</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Answer review -->
+    <h2 class="text-lg font-display font-bold text-gray-800 mb-3">Answer Review</h2>
+    <div class="space-y-4">
+      {% for ans in answers %}
+      {% with q=ans.question %}
+      <div class="bg-white rounded-xl border shadow-sm p-4
+        {% if ans.is_correct %}border-green-200{% else %}border-red-200{% endif %}">
+
+        <div class="flex items-start gap-3">
+          <div class="flex-shrink-0 mt-0.5">
+            {% if ans.is_correct %}
+            <svg class="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            {% else %}
+            <svg class="w-5 h-5 text-red-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            {% endif %}
+          </div>
+          <div class="flex-1">
+            <p class="text-sm font-medium text-gray-800 mb-2">{{ q.question_text }}</p>
+
+            {% if ans.selected_answer %}
+              <p class="text-xs text-gray-500">Your answer:
+                <span class="font-medium {% if ans.is_correct %}text-green-700{% else %}text-red-600{% endif %}">
+                  {{ ans.selected_answer.answer_text }}
+                </span>
+              </p>
+            {% elif ans.text_answer %}
+              <p class="text-xs text-gray-500">Your answer:
+                <span class="font-medium {% if ans.is_correct %}text-green-700{% else %}text-red-600{% endif %}">
+                  {{ ans.text_answer }}
+                </span>
+              </p>
+            {% else %}
+              <p class="text-xs text-gray-400 italic">No answer given</p>
+            {% endif %}
+
+            {% if not ans.is_correct %}
+              {% with correct=q.answers.all %}
+              {% for a in correct %}{% if a.is_correct %}
+              <p class="text-xs text-green-700 mt-1">Correct answer: <span class="font-medium">{{ a.answer_text }}</span></p>
+              {% endif %}{% endfor %}
+              {% endwith %}
+            {% endif %}
+
+            {% if q.explanation %}
+            <p class="text-xs text-gray-400 mt-1 italic">{{ q.explanation }}</p>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endwith %}
+      {% endfor %}
+    </div>
+
+    <div class="mt-6 flex gap-3">
+      <a href="{% url 'homework:student_list' %}"
+         class="px-5 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">
+        Back to Homework
+      </a>
+      {% with hw=submission.homework %}
+      {% if not hw.is_past_due %}
+        {% if hw.attempts_unlimited or submission.attempt_number < hw.max_attempts %}
+        <a href="{% url 'homework:student_take' homework_id=hw.id %}"
+           class="px-5 py-2.5 bg-gray-100 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-200 transition">
+          Try Again
+        </a>
+        {% endif %}
+      {% endif %}
+      {% endwith %}
+    </div>
+
+  </div>
+</div>
+{% endblock %}

@@ -66,11 +66,17 @@ urlpatterns = [
     # --- AI tools (before core apps — core apps use root prefix) ---
     path('ai-import/', include('ai_import.urls', namespace='ai_import')),
 
+    # --- Help & Documentation ---
+    path('help/', include('help.urls', namespace='help')),
+
     # --- Core apps ---
     path('', include('classroom.urls')),
     path('', include('number_puzzles.urls')),
     path('', include('progress.urls')),
     path('', include('quiz.subject_urls')),  # /<subject>/level/<n>/topic/<id>/quiz/ etc.
+
+    # --- Homework ---
+    path('', include('homework.urls', namespace='homework')),
 
     # --- Billing ---
     path('', include('billing.urls')),

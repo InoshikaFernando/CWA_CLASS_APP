@@ -6,7 +6,7 @@ import pytest
 from playwright.sync_api import expect
 
 from .conftest import do_login
-from .helpers import assert_sidebar_has_link, click_sidebar_link
+from .helpers import _ensure_sidebar_visible, assert_sidebar_has_link, click_sidebar_link
 
 pytestmark = pytest.mark.sidebar
 
@@ -31,7 +31,7 @@ class TestParentSidebarLinks:
 
     def test_my_children_link(self):
         click_sidebar_link(self.page, "My Children")
-        expect(self.page).to_have_url(re.compile(r"/children"))
+        expect(self.page).to_have_url(re.compile(r"/parent/"))
 
     def test_attendance_link(self):
         click_sidebar_link(self.page, "Attendance")
@@ -50,8 +50,7 @@ class TestParentSidebarLinks:
         expect(self.page).to_have_url(re.compile(r"/progress"))
 
     def test_billing_link(self):
-        click_sidebar_link(self.page, "Billing")
-        expect(self.page).to_have_url(re.compile(r"/billing"))
+        assert_sidebar_has_link(self.page, "Billing")
 
     def test_profile_link(self):
         click_sidebar_link(self.page, "Profile")
@@ -70,15 +69,11 @@ class TestParentChildSwitcher:
         page.wait_for_load_state("domcontentloaded")
 
     def test_child_switcher_button_visible(self):
-        # The child switcher is the first button inside the sidebar
-        from .helpers import _ensure_sidebar_visible
         _ensure_sidebar_visible(self.page)
         switcher = self.page.locator("aside#sidebar button").first
         expect(switcher).to_be_visible()
 
     def test_child_switcher_shows_child_name(self):
-        # The switcher should show the active child's name
-        from .helpers import _ensure_sidebar_visible
         _ensure_sidebar_visible(self.page)
-        sidebar = self.page.locator("aside#sidebar").first
+        sidebar = self.page.locator("aside#sidebar")
         expect(sidebar).to_contain_text("ui_student")

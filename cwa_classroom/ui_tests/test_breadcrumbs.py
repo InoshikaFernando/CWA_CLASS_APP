@@ -82,7 +82,7 @@ class TestBreadcrumbsOnClassPages:
     def test_attendance_breadcrumb(self):
         self.page.goto(f"{self.url}/student/attendance/")
         self.page.wait_for_load_state("networkidle")
-        # Page may redirect if no attendance data — check breadcrumb only if on attendance page
+        # May redirect to billing/module-required if attendance module not subscribed
         if "/attendance" in self.page.url:
             breadcrumb = self.page.locator("nav[aria-label='Breadcrumb']")
             if breadcrumb.count() > 0:

@@ -75,6 +75,18 @@
         {% endif %}
       </div>
 
+        <!-- Stripe Payment Link -->
+        {% if editing %}
+        <div>
+          <label for="stripe_payment_link" class="block text-sm font-semibold text-gray-700 mb-1.5">Stripe Payment Link <span class="text-gray-400 font-normal">(optional)</span></label>
+          <input type="url" name="stripe_payment_link" id="stripe_payment_link"
+                 value="{{ form_data.stripe_payment_link|default:'' }}"
+                 placeholder="https://buy.stripe.com/..."
+                 class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
+          <p class="text-xs text-gray-400 mt-1">Overrides the institute default. Leave blank to fall back to the institute Stripe link.</p>
+        </div>
+        {% endif %}
+
       <div class="flex items-center justify-end gap-3 mt-6 pt-6 border-t border-slate-100">
         <a href="{% url 'admin_school_departments' school.id %}"
            class="px-4 py-2.5 text-sm font-semibold text-gray-600 hover:text-gray-800 transition">Cancel</a>

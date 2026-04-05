@@ -1,11 +1,13 @@
 """Tests for payment CSV upload — upload form, column mapping."""
 
 import re
+from datetime import date, timedelta
+from decimal import Decimal
 
 import pytest
 from playwright.sync_api import expect
 
-from .conftest import do_login
+from .conftest import do_login, _RUN_ID
 from .helpers import assert_page_has_text
 
 pytestmark = pytest.mark.invoice
@@ -32,12 +34,40 @@ class TestPaymentCSVUpload:
 
     def test_upload_button_visible(self):
         """Upload & Map Columns button."""
-        btn = self.page.locator("main").locator("button[type='submit'], input[type='submit'], button:not([type])")
+        btn = self.page.get_by_role("button", name=re.compile(r"Upload|Map", re.IGNORECASE))
         expect(btn.first).to_be_visible()
 
 
+@pytest.fixture
+def issued_invoice(db, enrolled_student, school, classroom):
+    """An issued invoice for the enrolled student."""
+    from classroom.models import Invoice, InvoiceLineItem
+
+    inv = Invoice.objects.create(
+        student=enrolled_student,
+        school=school,
+        invoice_number=f"INV-PAY-{_RUN_ID}",
+        billing_period_start=date.today() - timedelta(days=30),
+        billing_period_end=date.today(),
+        status="issued",
+        amount=Decimal("120.00"),
+        calculated_amount=Decimal("120.00"),
+    )
+    InvoiceLineItem.objects.create(
+        invoice=inv,
+        classroom=classroom,
+        daily_rate=Decimal("10.00"),
+        rate_source="department_default",
+        sessions_held=12,
+        sessions_attended=12,
+        sessions_charged=12,
+        line_amount=Decimal("120.00"),
+    )
+    return inv
+
+
 class TestRecordManualPayment:
-    """Tests for /invoicing/<id>/pay/ — manual payment recording."""
+    """Tests for payment form on invoice detail page (issued invoice)."""
 
     @pytest.fixture(autouse=True)
     def _setup(self, live_server, page, hoi_user, hoi_school_setup, department, classroom, enrolled_student, issued_invoice):
@@ -66,7 +96,6 @@ class TestRecordManualPayment:
             assert date_inputs.count() >= 1
 
     def test_submit_button(self):
-        """Submit/record button should exist (if page loaded correctly)."""
-        if f"/invoicing/{self.invoice.id}/" in self.page.url:
-            btn = self.page.locator("button[type='submit'], input[type='submit']")
-            assert btn.count() > 0
+        """Submit/record button should be visible."""
+        btn = self.page.get_by_role("button", name=re.compile(r"Record|Pay", re.IGNORECASE))
+        expect(btn.first).to_be_visible()

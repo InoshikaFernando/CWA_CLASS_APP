@@ -33,10 +33,12 @@ def _ensure_sidebar_visible(page: Page) -> None:
         if (aside) {
             aside.style.display = 'flex';
             aside.style.flexDirection = 'column';
-            // Expand only collapsible nav sections (not dropdowns outside nav)
+            // Force collapsible nav sections visible (Alpine x-show sets display:none)
+            // Only expand sections that contain links, not dropdowns
             aside.querySelectorAll('nav [x-show]').forEach(el => {
-                el.style.display = 'flex';
-                el.style.flexDirection = 'column';
+                if (el.querySelector('a')) {
+                    el.style.setProperty('display', 'flex', 'important');
+                }
             });
         }
     }""")

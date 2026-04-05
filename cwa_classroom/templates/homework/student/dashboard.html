@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}My Homework{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+
+  <h1 class="text-2xl font-display font-bold text-gray-900">My Homework</h1>
+
+  <!-- Stats bar -->
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+    <div class="bg-emerald-50 rounded-xl p-3 text-center">
+      <p class="text-2xl font-bold text-emerald-700">{{ todo_count }}</p>
+      <p class="text-xs font-semibold text-emerald-600">To Do</p>
+    </div>
+    <div class="bg-emerald-50 rounded-xl p-3 text-center">
+      <p class="text-2xl font-bold text-emerald-700">{{ completed_count }}</p>
+      <p class="text-xs font-semibold text-emerald-600">Done</p>
+    </div>
+    <div class="bg-red-50 rounded-xl p-3 text-center">
+      <p class="text-2xl font-bold text-red-600">{{ overdue_count }}</p>
+      <p class="text-xs font-semibold text-red-500">Overdue</p>
+    </div>
+    <div class="bg-emerald-50 rounded-xl p-3 text-center">
+      <p class="text-2xl font-bold text-emerald-700">{% if avg_score is not None %}{{ avg_score|floatformat:0 }}%{% else %}—{% endif %}</p>
+      <p class="text-xs font-semibold text-emerald-600">Avg Score</p>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="flex gap-1 border-b border-gray-200">
+    <a href="?tab=assigned" class="px-4 py-2 text-sm font-medium border-b-2 transition {% if tab == 'assigned' %}border-emerald-600 text-emerald-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">Assigned</a>
+    <a href="?tab=completed" class="px-4 py-2 text-sm font-medium border-b-2 transition {% if tab == 'completed' %}border-emerald-600 text-emerald-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">Completed</a>
+    <a href="?tab=overdue" class="px-4 py-2 text-sm font-medium border-b-2 transition {% if tab == 'overdue' %}border-emerald-600 text-emerald-600{% else %}border-transparent text-gray-500 hover:text-gray-700{% endif %}">Overdue</a>
+  </div>
+
+  <!-- Grouped homework -->
+  {% if grouped_homeworks %}
+    {% for subject, homeworks in grouped_homeworks.items %}
+    <div class="space-y-3">
+      <h2 class="font-bold text-gray-700 flex items-center gap-2">
+        {% if subject.slug == 'maths' %}🔢{% elif subject.slug == 'coding' %}💻{% elif subject.slug == 'music' %}🎵{% elif subject.slug == 'science' %}🔬{% else %}📚{% endif %}
+        {{ subject.name }}
+      </h2>
+
+      {% for hw in homeworks %}
+      <a href="{% url 'homework:detail' hw_id=hw.pk %}"
+         class="block bg-white rounded-2xl border {% if tab == 'overdue' %}border-red-300 bg-red-50{% else %}border-gray-100{% endif %} shadow-sm p-5 hover:shadow-md transition">
+        <div class="flex items-start justify-between">
+          <div>
+            <h3 class="font-bold text-gray-900">{{ hw.title }}</h3>
+            <p class="text-sm text-gray-500 mt-0.5">
+              {{ hw.classroom.name }} &middot; Due: {{ hw.due_date|date:"M j, g:i A" }}
+            </p>
+          </div>
+          <div class="flex items-center gap-2">
+            {% if hw.is_due_soon %}
+              <span class="px-2 py-0.5 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">Due soon!</span>
+            {% endif %}
+            {% if hw.best_score is not None %}
+              <span class="px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-700">{{ hw.best_score|floatformat:0 }}{% if hw.best_max_score %}/{{ hw.best_max_score|floatformat:0 }}{% endif %}</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="flex items-center justify-between mt-3">
+          <p class="text-sm text-gray-500">
+            Attempts: {{ hw.student_attempts }}{% if hw.max_attempts > 0 %}/{{ hw.max_attempts }}{% else %}/∞{% endif %}
+          </p>
+          <span class="text-xs font-semibold text-emerald-600">
+            {% if hw.student_attempts > 0 %}
+              {% if hw.max_attempts > 0 and hw.student_attempts >= hw.max_attempts %}View{% else %}Retry →{% endif %}
+            {% else %}
+              Start →
+            {% endif %}
+          </span>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  {% else %}
+  <div class="text-center py-12 text-gray-400">
+    <p class="text-lg">
+      {% if tab == 'assigned' %}No homework assigned yet.
+      {% elif tab == 'completed' %}No completed homework yet.
+      {% elif tab == 'overdue' %}No overdue homework — great job!
+      {% endif %}
+    </p>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

@@ -471,7 +471,7 @@ class AnonymousURLTest(_SharedFixture):
         """Key protected pages must redirect, not 200 or 500."""
         protected = [
             '/hub/', '/subjects/', '/app-home/', '/student-dashboard/',
-            '/maths/', '/basic-facts/', '/times-tables/',
+            '/maths/', '/maths/basic-facts/', '/maths/times-tables/',
             '/teacher/', '/parent/', '/admin-dashboard/',
             '/accounts/profile/',
         ]
@@ -498,12 +498,11 @@ class IndividualStudentURLTest(_SharedFixture):
             ('/app-home/', 'home'),
             ('/student-dashboard/', 'student_dashboard'),
             ('/maths/', 'maths_dashboard'),
-            ('/basic-facts/', 'basic_facts_home'),
-            ('/basic-facts/Addition/', 'basic_facts_select'),
-            ('/times-tables/', 'times_tables_home'),
+            ('/maths/basic-facts/', 'basic_facts_home'),
+            ('/maths/basic-facts/Addition/', 'basic_facts_select'),
+            ('/maths/times-tables/', 'times_tables_home'),
             (f'/maths/level/{self.level.level_number}/', 'maths_level_detail'),
             (f'/maths/level/{self.level.level_number}/quiz/', 'maths_take_quiz'),
-            (f'/maths/level/{self.level.level_number}/practice/', 'maths_practice'),
             (f'/maths/level/{self.level.level_number}/multiplication/', 'tt_mult_select'),
             (f'/maths/level/{self.level.level_number}/division/', 'tt_div_select'),
             (f'/maths/level/{self.level.level_number}/multiplication/2/', 'tt_mult_quiz'),

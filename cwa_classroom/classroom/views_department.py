@@ -1,6 +1,7 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
 from django.contrib import messages
+from django.http import Http404
 from django.core.paginator import Paginator
 from django.db import transaction, models
 from django.utils.text import slugify
@@ -8,7 +9,7 @@ from django.utils.text import slugify
 from accounts.models import CustomUser, Role, UserRole
 from accounts.views import _validate_username, _generate_username_suggestion
 from audit.services import log_event
-from .models import School, SchoolTeacher, Department, DepartmentTeacher, DepartmentLevel, DepartmentSubject, ClassRoom, Subject, Level
+from .models import School, SchoolTeacher, Department, DepartmentTeacher, DepartmentLevel, DepartmentSubject, ClassRoom, Subject, Level, Currency
 from .views import RoleRequiredMixin
 from .email_utils import send_staff_welcome_email
 
@@ -219,6 +220,7 @@ class DepartmentDetailView(RoleRequiredMixin, View):
         return render(request, 'admin_dashboard/department_detail.html', {
             'school': school,
             'department': department,
+            'effective_currency': department.get_effective_currency(),
             'department_subjects': department_subjects,
             'dept_teachers': dept_teachers,
             'classes': classes,
@@ -256,6 +258,7 @@ class DepartmentEditView(RoleRequiredMixin, View):
                 'name': department.name,
                 'description': department.description,
                 'selected_subject_ids': [str(sid) for sid in current_subject_ids],
+                'stripe_payment_link': department.stripe_payment_link,
             },
             'editing': True,
         })
@@ -338,6 +341,7 @@ class DepartmentEditView(RoleRequiredMixin, View):
 
         department.name = name
         department.description = description
+        department.stripe_payment_link = request.POST.get('stripe_payment_link', '').strip()
         department.save()
         log_event(
             user=request.user, school=school, category='data_change',
@@ -871,14 +875,20 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
         # For the modal: global levels not yet mapped (used if no subjects yet)
         unmapped_global_levels = list(all_global_levels.exclude(id__in=mapped_level_ids))
 
+        global_subjects = Subject.objects.filter(
+            school__isnull=True, is_active=True,
+        ).order_by('order', 'name')
+
         return render(request, 'admin_dashboard/department_subject_levels.html', {
             'school': school,
             'department': department,
+            'effective_currency': department.get_effective_currency(),
             'dept_subjects': dept_subjects,
             'subject_groups': subject_groups,
             'available_subjects': available_subjects,
             'all_departments': all_departments,
             'unmapped_global_levels': unmapped_global_levels,
+            'global_subjects': global_subjects,
         })
 
     def post(self, request, school_id, dept_id):
@@ -986,6 +996,14 @@ class DepartmentSubjectLevelsView(RoleRequiredMixin, View):
                 return redirect('admin_department_subject_levels', school_id=school.id, dept_id=department.id)
 
             subject = ds.subject
+
+            # Update global subject link
+            global_subject_id = request.POST.get('global_subject_id', '').strip()
+            if global_subject_id:
+                subject.global_subject_id = int(global_subject_id)
+            else:
+                subject.global_subject_id = None
+            subject.save(update_fields=['global_subject'])
 
             # Update subject name
             if new_name and new_name != subject.name:
@@ -1319,18 +1337,46 @@ class DepartmentSettingsView(RoleRequiredMixin, View):
         from .views_admin import _get_user_school_or_404
         return _get_user_school_or_404(user, school_id)
 
+    def _is_hoi(self, user, school):
+        """Return True if the user has Head-of-Institute (or higher) access."""
+        if user.is_superuser:
+            return True
+        if school.admin_id and school.admin_id == user.pk:
+            return True
+        return SchoolTeacher.objects.filter(
+            school=school,
+            teacher=user,
+            role__in=['head_of_institute', 'institute_owner'],
+            is_active=True,
+        ).exists()
+
     def get(self, request, school_id, dept_id):
         school = self._get_school(request.user, school_id)
         department = get_object_or_404(Department, id=dept_id, school=school)
+        school_effective = school.get_effective_currency()
         return render(request, 'admin_dashboard/department_settings.html', {
             'school': school,
             'department': department,
             'form_data': self._build_form_data(department, school),
+            'is_hoi': self._is_hoi(request.user, school),
+            'active_currencies': Currency.objects.filter(is_active=True).order_by('code'),
+            'school_effective_currency': school_effective,
         })
 
     def post(self, request, school_id, dept_id):
         school = self._get_school(request.user, school_id)
         department = get_object_or_404(Department, id=dept_id, school=school)
+
+        # Handle currency_override FK (HoI-only)
+        if self._is_hoi(request.user, school) and 'currency_override' in request.POST:
+            code = request.POST.get('currency_override', '').strip()
+            if not code:
+                department.currency_override = None
+            else:
+                try:
+                    department.currency_override = Currency.objects.get(code=code, is_active=True)
+                except Currency.DoesNotExist:
+                    pass
 
         for field in self.OVERRIDE_FIELDS:
             override_key = f'override_{field}'
@@ -1367,3 +1413,96 @@ class DepartmentSettingsView(RoleRequiredMixin, View):
         )
         messages.success(request, f'Settings for "{department.name}" saved successfully.')
         return redirect('admin_department_settings', school_id=school.id, dept_id=department.id)
+
+
+class ClassSettingsView(RoleRequiredMixin, View):
+    """Manage class-level settings overrides (banking, GST) for invoices."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.ACCOUNTANT, Role.HEAD_OF_DEPARTMENT]
+
+    OVERRIDE_FIELDS = ClassRoom.CLASS_OVERRIDE_FIELDS
+
+    @staticmethod
+    def _is_field_set(value):
+        if value is None:
+            return False
+        if isinstance(value, str) and value == '':
+            return False
+        return True
+
+    def _build_form_data(self, classroom, effective_dept_settings):
+        """Build form data showing class overrides and effective dept/school defaults."""
+        data = {}
+        for field in self.OVERRIDE_FIELDS:
+            cls_val = getattr(classroom, field, '')
+            is_set = self._is_field_set(cls_val)
+            data[field] = {
+                'value': cls_val if is_set else '',
+                'effective_default': effective_dept_settings.get(field, ''),
+                'is_overridden': is_set,
+            }
+        return data
+
+    def _get_classroom(self, request, class_id):
+        from django.db.models import Q
+        user = request.user
+        if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
+            return get_object_or_404(ClassRoom, id=class_id, school__admin=user)
+        elif user.has_role(Role.HEAD_OF_DEPARTMENT):
+            classroom = ClassRoom.objects.filter(
+                Q(department__head=user) | Q(teachers=user),
+                id=class_id,
+            ).distinct().first()
+            if not classroom:
+                raise Http404
+            return classroom
+        raise Http404
+
+    def get(self, request, class_id):
+        classroom = self._get_classroom(request, class_id)
+        school = classroom.school
+        eff_dept = school.get_effective_settings(classroom.department)
+        dept_effective_currency = (
+            classroom.department.get_effective_currency()
+            if classroom.department_id
+            else (school.get_effective_currency() if school else None)
+        )
+        return render(request, 'admin_dashboard/class_settings.html', {
+            'school': school,
+            'classroom': classroom,
+            'form_data': self._build_form_data(classroom, eff_dept),
+            'active_currencies': Currency.objects.filter(is_active=True).order_by('code'),
+            'dept_effective_currency': dept_effective_currency,
+        })
+
+    def post(self, request, class_id):
+        classroom = self._get_classroom(request, class_id)
+        school = classroom.school
+
+        # Handle currency_override FK
+        if 'currency_override' in request.POST:
+            code = request.POST.get('currency_override', '').strip()
+            if not code:
+                classroom.currency_override = None
+            else:
+                try:
+                    classroom.currency_override = Currency.objects.get(code=code, is_active=True)
+                except Currency.DoesNotExist:
+                    pass
+
+        for field in self.OVERRIDE_FIELDS:
+            override_key = f'override_{field}'
+            is_overridden = request.POST.get(override_key) == '1'
+            if is_overridden:
+                setattr(classroom, field, request.POST.get(field, '').strip())
+            else:
+                setattr(classroom, field, '')
+
+        classroom.save()
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='class_settings_updated',
+            detail={'classroom_id': classroom.id, 'classroom': classroom.name},
+            request=request,
+        )
+        messages.success(request, f'Settings for "{classroom.name}" saved successfully.')
+        return redirect('class_settings', class_id=classroom.id)

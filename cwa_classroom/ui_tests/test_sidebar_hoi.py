@@ -68,6 +68,10 @@ class TestHoiSidebarLinks:
         click_sidebar_link(self.page, "Students")
         expect(self.page).to_have_url(re.compile(r"/students"))
 
+    def test_parents_link(self):
+        click_sidebar_link(self.page, "Parents")
+        expect(self.page).to_have_url(re.compile(r"/parents"))
+
     def test_enrollments_link(self):
         assert_sidebar_has_link(self.page, "Enrollment")
 
@@ -139,16 +143,16 @@ class TestHoiSidebarLinks:
         from .helpers import _ensure_sidebar_visible
         _ensure_sidebar_visible(self.page)
         toggle = self.page.locator("aside#sidebar button", has_text="Institution Setup")
-        expect(toggle).to_be_visible()
+        expect(toggle.first).to_be_visible()
 
     def test_invoicing_section_toggle(self):
         from .helpers import _ensure_sidebar_visible
         _ensure_sidebar_visible(self.page)
         toggle = self.page.locator("aside#sidebar button", has_text="Invoicing")
-        expect(toggle).to_be_visible()
+        expect(toggle.first).to_be_visible()
 
     def test_salaries_section_toggle(self):
         from .helpers import _ensure_sidebar_visible
         _ensure_sidebar_visible(self.page)
         toggle = self.page.locator("aside#sidebar button", has_text="Salaries")
-        expect(toggle).to_be_visible()
+        expect(toggle.first).to_be_visible()
