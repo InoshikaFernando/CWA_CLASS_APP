@@ -13,7 +13,8 @@ class Homework(models.Model):
         'classroom.ClassRoom', on_delete=models.CASCADE, related_name='homework_assignments'
     )
     created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='created_homework'
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='created_homework'
     )
     title = models.CharField(max_length=200)
     homework_type = models.CharField(max_length=20, choices=HOMEWORK_TYPE_CHOICES, default='topic')
