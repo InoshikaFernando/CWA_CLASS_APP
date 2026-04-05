@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.views import View
@@ -166,10 +168,12 @@ class SchoolEditView(RoleRequiredMixin, View):
         teachers = SchoolTeacher.objects.filter(
             school=school, is_active=True,
         ).select_related('teacher').order_by('role', 'teacher__first_name')
+        departments = Department.objects.filter(school=school, is_active=True).order_by('name')
         return {
             'school': school,
             'form_data': form_data,
             'teachers': teachers,
+            'departments': departments,
             'current_hoi_id': school.admin_id,
         }
 
@@ -211,11 +215,19 @@ class SchoolEditView(RoleRequiredMixin, View):
 
         # Handle HoI change
         new_hoi_id = request.POST.get('new_hoi', '')
-        old_hoi_role = request.POST.get('old_hoi_role', 'teacher')
+        old_hoi_role = request.POST.get('old_hoi_role', 'senior_teacher')
+        old_hoi_department_id = request.POST.get('old_hoi_department', '')
         hoi_changed = new_hoi_id and int(new_hoi_id) != school.admin_id
         old_admin_id = school.admin_id
 
         if hoi_changed:
+            # Validate new HoI has first and last name
+            new_hoi_user = CustomUser.objects.filter(id=int(new_hoi_id)).first()
+            if not new_hoi_user or not new_hoi_user.first_name or not new_hoi_user.last_name:
+                messages.error(request, 'The new Head of Institute must have a first and last name set before being assigned.')
+                return render(request, 'admin_dashboard/school_form.html', self._get_context(
+                    school, {'name': name, 'address': address, 'phone': phone, 'email': email},
+                ))
             school.admin_id = int(new_hoi_id)
 
         school.save()
@@ -234,6 +246,18 @@ class SchoolEditView(RoleRequiredMixin, View):
                 SchoolTeacher.objects.filter(
                     school=school, teacher_id=old_admin_id,
                 ).update(role=old_hoi_role)
+
+                # Assign old HoI to a department if specified
+                if old_hoi_department_id:
+                    dept = Department.objects.filter(
+                        id=int(old_hoi_department_id), school=school,
+                    ).first()
+                    if dept:
+                        old_hoi_user = CustomUser.objects.filter(id=old_admin_id).first()
+                        if old_hoi_user:
+                            DepartmentTeacher.objects.get_or_create(
+                                department=dept, teacher=old_hoi_user,
+                            )
 
             # Clean up HoI UserRole if not HoI at any other school
             still_hoi = SchoolTeacher.objects.filter(
@@ -2390,10 +2414,14 @@ class TermManageView(RoleRequiredMixin, View):
         school = _get_user_school_or_404(request.user, school_id)
         terms = Term.objects.filter(school=school).select_related('academic_year')
         academic_years = AcademicYear.objects.filter(school=school)
+        today = date.today()
         return render(request, 'admin_dashboard/school_terms.html', {
             'school': school,
             'terms': terms,
             'academic_years': academic_years,
+            'today': today,
+            'confirm_window_end': today + timedelta(days=30),
+            'can_force_confirm': request.user.is_admin_user or request.user.is_institute_owner or request.user.is_head_of_institute,
         })
 
     def post(self, request, school_id):
@@ -2466,16 +2494,29 @@ class TermManageView(RoleRequiredMixin, View):
             except Exception as e:
                 messages.error(request, f'Could not update term: {e}')
 
+        elif action == 'delete':
+            term_id = request.POST.get('term_id')
+            term = get_object_or_404(Term, id=term_id, school=school)
+            term_name = term.name
+            term.delete()
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='term_deleted', detail={'term_id': term_id, 'term_name': term_name},
+                request=request,
+            )
+            messages.success(request, f'Term "{term_name}" deleted.')
+
         elif action == 'confirm':
             term_id = request.POST.get('term_id')
             term = get_object_or_404(Term, id=term_id, school=school)
-            from datetime import date, timedelta
-            one_month_from_now = date.today() + timedelta(days=30)
-            if term.start_date <= one_month_from_now:
-                messages.warning(
+            today = date.today()
+            window_end = today + timedelta(days=30)
+            if not (today <= term.start_date <= window_end):
+                messages.error(
                     request,
-                    f'Term "{term.name}" starts on {term.start_date.strftime("%d %b %Y")}. '
-                    f'Dates must be confirmed at least 1 month before the term starts.'
+                    f'Term "{term.name}" can only be confirmed within the 1-month window before it starts '
+                    f'({today.strftime("%d %b %Y")} – {window_end.strftime("%d %b %Y")}). '
+                    f'Use Force Confirm to bypass this window.'
                 )
             else:
                 term.is_confirmed = True
@@ -2489,17 +2530,19 @@ class TermManageView(RoleRequiredMixin, View):
                 )
                 messages.success(request, f'Term "{term.name}" confirmed.')
 
-        elif action == 'delete':
+        elif action == 'force_confirm':
             term_id = request.POST.get('term_id')
             term = get_object_or_404(Term, id=term_id, school=school)
-            term_name = term.name
-            term.delete()
+            term.is_confirmed = True
+            term.confirmed_at = timezone.now()
+            term.save()
             log_event(
                 user=request.user, school=school, category='data_change',
-                action='term_deleted', detail={'term_id': term_id, 'term_name': term_name},
+                action='term_force_confirmed',
+                detail={'term_id': term.id, 'term_name': term.name, 'forced': True},
                 request=request,
             )
-            messages.success(request, f'Term "{term_name}" deleted.')
+            messages.success(request, f'Term "{term.name}" force-confirmed outside the standard window.')
 
         # Sync scheduled sessions with updated term dates
         from . import invoicing_services as svc
