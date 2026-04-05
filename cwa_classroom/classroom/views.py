@@ -4281,6 +4281,106 @@ def _annotate_apps_with_questions(apps):
     return app_list
 
 
+def _compute_subject_progress(user, subject_ids, school=None):
+    """
+    Return progress dict for a subject viewed by *user*.
+
+    subject_ids: list of Subject PKs to include (typically [local_id, global_id]
+                 or just [global_id] for a standalone global subject).
+    school:      if set, school-local questions (school=school) are included in
+                 addition to global ones; if None, only global questions count.
+
+    Returns: {'completed': int, 'total': int, 'pct': int}
+
+    "Shared global progress" falls out naturally: a StudentAnswer is tied to a
+    Question object, so correctly answering a GlobalQuestion once registers as
+    completed regardless of which LocalSubject inherits from the same parent.
+    """
+    from maths.models import Question, StudentAnswer
+    from django.db.models import Q as DQ
+
+    q_school_filter = DQ(school__isnull=True)
+    ans_school_filter = DQ(question__school__isnull=True)
+    if school is not None:
+        q_school_filter |= DQ(school=school)
+        ans_school_filter |= DQ(question__school=school)
+
+    total = (
+        Question.objects
+        .filter(DQ(level__subject_id__in=subject_ids) & q_school_filter)
+        .values('id').distinct().count()
+    )
+
+    if total == 0:
+        return {'completed': 0, 'total': 0, 'pct': 0}
+
+    completed = (
+        StudentAnswer.objects
+        .filter(
+            DQ(student=user) &
+            DQ(question__level__subject_id__in=subject_ids) &
+            DQ(is_correct=True) &
+            ans_school_filter,
+        )
+        .values('question_id').distinct().count()
+    )
+
+    pct = round(completed / total * 100) if total > 0 else 0
+    return {'completed': completed, 'total': total, 'pct': pct}
+
+
+def _annotate_apps_with_progress(apps, user):
+    """
+    Annotate each SubjectApp in *apps* with a ``progress`` dict.
+
+    Progress is computed for global questions only (school=None).  Uses two
+    bulk queries to avoid N+1.
+
+    Each app receives:
+        app.progress = {'completed': int, 'total': int, 'pct': int}
+    """
+    from maths.models import Question, StudentAnswer
+    from django.db.models import Q as DQ, Count
+
+    app_list = list(apps)
+    subject_ids = [app.subject_id for app in app_list if app.subject_id]
+
+    if subject_ids:
+        # Total global questions per subject
+        totals = dict(
+            Question.objects
+            .filter(level__subject_id__in=subject_ids, school__isnull=True)
+            .values('level__subject_id')
+            .annotate(cnt=Count('id', distinct=True))
+            .values_list('level__subject_id', 'cnt')
+        )
+        # Correctly answered global questions per subject
+        completed_map = dict(
+            StudentAnswer.objects
+            .filter(
+                student=user,
+                question__level__subject_id__in=subject_ids,
+                question__school__isnull=True,
+                is_correct=True,
+            )
+            .values('question__level__subject_id')
+            .annotate(cnt=Count('question_id', distinct=True))
+            .values_list('question__level__subject_id', 'cnt')
+        )
+    else:
+        totals = {}
+        completed_map = {}
+
+    for app in app_list:
+        sid = app.subject_id
+        total = totals.get(sid, 0)
+        completed = completed_map.get(sid, 0)
+        pct = round(completed / total * 100) if total > 0 else 0
+        app.progress = {'completed': completed, 'total': total, 'pct': pct}
+
+    return app_list
+
+
 class SubjectsHubView(LoginRequiredMixin, View):
     """
     Authenticated home -- shows greeting + subject cards.
@@ -4523,17 +4623,20 @@ class SubjectsHubView(LoginRequiredMixin, View):
 
                 school_sections = []
                 covered_app_ids = set()
+                # Track already-shown subjects per school to deduplicate across depts
                 for school in schools:
                     departments = Department.objects.filter(
                         school=school, is_active=True,
                     ).prefetch_related('subjects')
                     subject_cards = []
+                    seen_subj_ids = set()
                     for dept in departments:
                         for subj in dept.subjects.filter(is_active=True):
-                            # Only show subjects the student is enrolled in
-                            enrolled_cr = enrolled_classes.get(subj.id)
-                            if enrolled_cr is None:
+                            if subj.id in seen_subj_ids:
                                 continue
+                            seen_subj_ids.add(subj.id)
+
+                            is_enrolled = subj.id in enrolled_classes
 
                             matching_app = _find_subject_app(subj)
                             if matching_app:
@@ -4547,13 +4650,22 @@ class SubjectsHubView(LoginRequiredMixin, View):
                             else:
                                 link = None
 
+                            # Progress: global + school-local questions for this subject
+                            subject_ids_for_progress = [subj.id]
+                            if subj.global_subject_id:
+                                subject_ids_for_progress.append(subj.global_subject_id)
+                            progress = _compute_subject_progress(
+                                user, subject_ids_for_progress, school=school,
+                            )
+
                             subject_cards.append({
                                 'name': subj.name,
                                 'description': matching_app.description if matching_app else '',
                                 'icon_name': matching_app.icon_name if matching_app else '',
                                 'color': matching_app.color if matching_app else '#16a34a',
                                 'link': link,
-                                'is_enrolled': True,
+                                'is_enrolled': is_enrolled,
+                                'progress': progress,
                             })
 
                     if subject_cards:
@@ -4562,12 +4674,15 @@ class SubjectsHubView(LoginRequiredMixin, View):
                             'subjects': subject_cards,
                         })
 
-                # Global SubjectApps not already represented by a school subject card
+                # Global SubjectApps not already represented by a school subject card.
+                # Global subjects are always shown regardless of school coverage so
+                # students can always access the global question pool.
                 uncovered_apps = [
                     app for app in all_subject_apps
                     if app.id not in covered_app_ids and not app.is_coming_soon
                 ]
                 global_subjects = _annotate_apps_with_questions(uncovered_apps)
+                global_subjects = _annotate_apps_with_progress(global_subjects, user)
 
                 return render(request, 'hub/home.html', {
                     'greeting_tod': greeting_tod,
@@ -4591,6 +4706,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
             )
             if app.has_questions
         ]
+        global_subjects = _annotate_apps_with_progress(global_subjects, user)
         subjects = global_subjects
 
         return render(request, 'hub/home.html', {
