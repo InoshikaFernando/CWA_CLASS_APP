@@ -2,6 +2,7 @@ import uuid
 import json
 import time
 from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.utils import timezone
@@ -761,7 +762,7 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             )
             request.session[f'tq_result_{q.topic.id}_{session_data["level_number"]}'] = result.id
             request.session.pop(session_key, None)
-            next_url = f'/level/{session_data["level_number"]}/topic/{q.topic.id}/results/'
+            next_url = reverse("topic_results", kwargs={"level_number": session_data["level_number"], "topic_id": q.topic.id})
 
             # Update topic-level statistics (mean/sigma)
             from maths.models import TopicLevelStatistics
@@ -789,7 +790,7 @@ class TopicNextQuestionView(LoginRequiredMixin, View):
         current = session_data['current']
         questions = session_data['questions']
         if current >= len(questions):
-            return redirect(f'/level/{session_data["level_number"]}/topic/{session_data["topic_id"]}/results/')
+            return redirect(reverse("topic_results", kwargs={"level_number": session_data["level_number"], "topic_id": session_data["topic_id"]}))
 
         q_info = questions[current]
         from maths.models import Question
