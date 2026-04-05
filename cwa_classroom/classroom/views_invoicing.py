@@ -689,6 +689,15 @@ class InvoiceDetailView(RoleRequiredMixin, View):
                 break
         effective_settings = school.get_effective_settings(primary_dept)
 
+        # Resolve effective currency (class → dept → school → USD)
+        effective_currency = None
+        for li in line_items:
+            if li.classroom:
+                effective_currency = li.classroom.get_effective_currency()
+                break
+        if effective_currency is None:
+            effective_currency = school.get_effective_currency()
+
         return render(request, 'invoicing/invoice_detail.html', {
             'invoice': invoice,
             'school': school,
@@ -696,6 +705,7 @@ class InvoiceDetailView(RoleRequiredMixin, View):
             'payments': payments,
             'credit_balance': credit_balance,
             'effective_settings': effective_settings,
+            'effective_currency': effective_currency,
         })
 
 

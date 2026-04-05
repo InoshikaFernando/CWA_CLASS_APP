@@ -22,7 +22,7 @@ from accounts.views import _validate_username, _generate_username_suggestion
 from .models import (
     School, SchoolTeacher, AcademicYear, ClassRoom, ClassSession, Department,
     DepartmentTeacher, SchoolStudent, Level, Subject, Term, ClassStudent,
-    SchoolHoliday, PublicHoliday,
+    SchoolHoliday, PublicHoliday, Currency,
 )
 from .views import RoleRequiredMixin
 from .email_utils import send_staff_welcome_email
@@ -421,6 +421,19 @@ class SchoolSettingsView(RoleRequiredMixin, View):
             data[field] = getattr(school, field, '')
         return data
 
+    def _is_hoi(self, user, school):
+        """Return True if the user has Head-of-Institute (or higher) access."""
+        if user.is_superuser:
+            return True
+        if school.admin_id and school.admin_id == user.pk:
+            return True
+        return SchoolTeacher.objects.filter(
+            school=school,
+            teacher=user,
+            role__in=['head_of_institute', 'institute_owner'],
+            is_active=True,
+        ).exists()
+
     def get(self, request, school_id):
         school = _get_user_school_or_404(request.user, school_id)
         tab = request.GET.get('tab', 'company')
@@ -428,6 +441,8 @@ class SchoolSettingsView(RoleRequiredMixin, View):
             'school': school,
             'form_data': self._build_form_data(school),
             'active_tab': tab,
+            'is_hoi': self._is_hoi(request.user, school),
+            'active_currencies': Currency.objects.filter(is_active=True).order_by('code'),
         })
 
     def post(self, request, school_id):
@@ -456,6 +471,17 @@ class SchoolSettingsView(RoleRequiredMixin, View):
             except DjangoValidationError:
                 messages.error(request, 'Please enter a valid outgoing email address.')
                 return redirect(f"{reverse('admin_school_settings', kwargs={'school_id': school.id})}?tab={tab}")
+
+        # Handle default_currency FK (HoI-only)
+        if self._is_hoi(request.user, school) and 'default_currency' in request.POST:
+            code = request.POST.get('default_currency', '').strip()
+            if not code:
+                school.default_currency = None
+            else:
+                try:
+                    school.default_currency = Currency.objects.get(code=code, is_active=True)
+                except Currency.DoesNotExist:
+                    pass
 
         # Handle logo upload
         if 'logo' in request.FILES:
