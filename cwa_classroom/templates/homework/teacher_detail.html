@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}{{ homework.title }} — Results{% endblock %}
+
+{% block content %}
+<div class="p-6">
+
+  <!-- Header -->
+  <nav class="text-sm text-gray-500 mb-4">
+    <a href="{% url 'homework:teacher_monitor' %}" class="hover:text-gray-700">Homework</a>
+    <span class="mx-2">/</span>
+    <span class="text-gray-700">{{ homework.title }}</span>
+  </nav>
+
+  <div class="flex items-start justify-between mb-6">
+    <div>
+      <h1 class="text-2xl font-display font-bold text-gray-900">{{ homework.title }}</h1>
+      <p class="text-sm text-gray-500 mt-0.5">
+        {{ homework.classroom }}
+        &nbsp;·&nbsp; {{ homework.num_questions }} questions
+        &nbsp;·&nbsp; Due {{ homework.due_date|date:"d M Y, H:i" }}
+        &nbsp;·&nbsp; {% if homework.attempts_unlimited %}Unlimited attempts{% else %}{{ homework.max_attempts }} attempt{{ homework.max_attempts|pluralize }}{% endif %}
+      </p>
+    </div>
+    {% if not homework.is_past_due %}
+    <span class="px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-semibold">Open</span>
+    {% else %}
+    <span class="px-3 py-1 rounded-full bg-gray-100 text-gray-500 text-xs font-semibold">Closed</span>
+    {% endif %}
+  </div>
+
+  <!-- Summary cards -->
+  {% with total=student_rows|length %}
+  {% with on_time=student_rows|dictsort:"status" %}
+  <div class="grid grid-cols-3 gap-4 mb-6">
+    <div class="bg-white rounded-xl border border-gray-100 p-4 text-center">
+      <p class="text-2xl font-bold text-gray-900">{{ total }}</p>
+      <p class="text-xs text-gray-500 mt-0.5">Total Students</p>
+    </div>
+    <div class="bg-green-50 rounded-xl border border-green-100 p-4 text-center">
+      <p class="text-2xl font-bold text-green-700">
+        {% with count=0 %}{% for r in student_rows %}{% if r.status == 'on_time' %}{% with count=count|add:1 %}{% endwith %}{% endif %}{% endfor %}
+        {% for r in student_rows %}{% if r.status == 'on_time' %}1{% endif %}{% endfor %}&zwnj;
+        {% endwith %}
+        {{ student_rows|dictsort:"status"|length }}
+      </p>
+      <p class="text-xs text-gray-500 mt-0.5">Submitted</p>
+    </div>
+    <div class="bg-red-50 rounded-xl border border-red-100 p-4 text-center">
+      <p class="text-2xl font-bold text-red-600">
+        {% for r in student_rows %}{% if r.status == 'not_submitted' %}x{% endif %}{% endfor %}&zwnj;
+      </p>
+      <p class="text-xs text-gray-500 mt-0.5">Overdue</p>
+    </div>
+  </div>
+  {% endwith %}
+  {% endwith %}
+
+  <!-- Student table -->
+  <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 border-b border-gray-100">
+        <tr>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600">Student</th>
+          <th class="text-center px-4 py-3 font-semibold text-gray-600">Status</th>
+          <th class="text-center px-4 py-3 font-semibold text-gray-600">Attempts</th>
+          <th class="text-center px-4 py-3 font-semibold text-gray-600">Best Score</th>
+          <th class="text-center px-4 py-3 font-semibold text-gray-600">Best Points</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for row in student_rows %}
+        <tr class="hover:bg-gray-50/50">
+          <td class="px-4 py-3 font-medium text-gray-800">
+            {{ row.student.get_full_name|default:row.student.username }}
+          </td>
+          <td class="px-4 py-3 text-center">
+            {% if row.status == 'on_time' %}
+              <span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">On Time</span>
+            {% elif row.status == 'late' %}
+              <span class="px-2 py-0.5 rounded-full bg-red-100 text-red-600 text-xs font-medium">Late</span>
+            {% elif row.status == 'not_submitted' %}
+              <span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 text-xs font-medium">Overdue</span>
+            {% else %}
+              <span class="px-2 py-0.5 rounded-full bg-blue-100 text-blue-600 text-xs font-medium">Pending</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 text-center text-gray-600">{{ row.attempt_count }}</td>
+          <td class="px-4 py-3 text-center text-gray-600">
+            {% if row.best_submission %}
+              {{ row.best_submission.score }}/{{ row.best_submission.total_questions }}
+              ({{ row.best_submission.percentage }}%)
+            {% else %}—{% endif %}
+          </td>
+          <td class="px-4 py-3 text-center font-semibold text-gray-800">
+            {% if row.best_submission %}{{ row.best_submission.points|floatformat:1 }}{% else %}—{% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="5" class="px-4 py-8 text-center text-gray-400">No students enrolled in this class.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+</div>
+{% endblock %}
