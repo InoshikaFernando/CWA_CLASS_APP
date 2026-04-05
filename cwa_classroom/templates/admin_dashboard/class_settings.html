@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+
+{% block title %}Settings — {{ classroom.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto" x-data="{
+  overrides: {
+    {% for field, info in form_data.items %}
+    '{{ field }}': {{ info.is_overridden|yesno:'true,false' }},
+    {% endfor %}
+  },
+  toggleGroup(fields, val) {
+    fields.forEach(f => this.overrides[f] = val);
+  }
+}">
+
+  <!-- Header -->
+  <div class="mb-6">
+    <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Settings — {{ classroom.name }}</h1>
+    <p class="text-sm text-gray-500 mt-1">Override bank account and GST details for this class. These take precedence over department and school settings on invoices. Unchecked fields use the department/school default.</p>
+  </div>
+
+  <form method="post">
+    {% csrf_token %}
+
+    <!-- ═══ BANKING OVERRIDES ═══ -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 mb-6">
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-lg font-display font-bold text-gray-900">Banking Details</h2>
+        <button type="button"
+                @click="toggleGroup(['bank_name','bank_bsb','bank_account_number','bank_account_name'], !overrides.bank_name)"
+                class="text-xs font-semibold text-accent hover:text-accent-dark transition">
+          <span x-text="overrides.bank_name ? 'Clear All Overrides' : 'Override All'"></span>
+        </button>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {% with field='bank_name' info=form_data.bank_name %}
+        <div>
+          <div class="flex items-center gap-2 mb-1.5">
+            <input type="checkbox" name="override_{{ field }}" value="1"
+                   x-model="overrides['{{ field }}']"
+                   class="rounded border-slate-300 text-accent focus:ring-accent">
+            <label class="text-sm font-semibold text-gray-700">Bank Name</label>
+          </div>
+          <input type="text" name="{{ field }}"
+                 value="{{ info.value|default:'' }}"
+                 :disabled="!overrides['{{ field }}']"
+                 :class="overrides['{{ field }}'] ? 'border-slate-300 text-gray-900' : 'border-slate-200 text-gray-400 bg-slate-50'"
+                 class="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-accent focus:border-accent transition"
+                 placeholder="Default: {{ info.effective_default|default:'Not set' }}">
+        </div>
+        {% endwith %}
+
+        {% with field='bank_account_name' info=form_data.bank_account_name %}
+        <div>
+          <div class="flex items-center gap-2 mb-1.5">
+            <input type="checkbox" name="override_{{ field }}" value="1"
+                   x-model="overrides['{{ field }}']"
+                   class="rounded border-slate-300 text-accent focus:ring-accent">
+            <label class="text-sm font-semibold text-gray-700">Account Name</label>
+          </div>
+          <input type="text" name="{{ field }}"
+                 value="{{ info.value|default:'' }}"
+                 :disabled="!overrides['{{ field }}']"
+                 :class="overrides['{{ field }}'] ? 'border-slate-300 text-gray-900' : 'border-slate-200 text-gray-400 bg-slate-50'"
+                 class="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-accent focus:border-accent transition"
+                 placeholder="Default: {{ info.effective_default|default:'Not set' }}">
+        </div>
+        {% endwith %}
+
+        {% with field='bank_bsb' info=form_data.bank_bsb %}
+        <div>
+          <div class="flex items-center gap-2 mb-1.5">
+            <input type="checkbox" name="override_{{ field }}" value="1"
+                   x-model="overrides['{{ field }}']"
+                   class="rounded border-slate-300 text-accent focus:ring-accent">
+            <label class="text-sm font-semibold text-gray-700">BSB / Sort Code</label>
+          </div>
+          <input type="text" name="{{ field }}"
+                 value="{{ info.value|default:'' }}"
+                 :disabled="!overrides['{{ field }}']"
+                 :class="overrides['{{ field }}'] ? 'border-slate-300 text-gray-900' : 'border-slate-200 text-gray-400 bg-slate-50'"
+                 class="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-accent focus:border-accent transition"
+                 placeholder="Default: {{ info.effective_default|default:'Not set' }}">
+        </div>
+        {% endwith %}
+
+        {% with field='bank_account_number' info=form_data.bank_account_number %}
+        <div>
+          <div class="flex items-center gap-2 mb-1.5">
+            <input type="checkbox" name="override_{{ field }}" value="1"
+                   x-model="overrides['{{ field }}']"
+                   class="rounded border-slate-300 text-accent focus:ring-accent">
+            <label class="text-sm font-semibold text-gray-700">Account Number</label>
+          </div>
+          <input type="text" name="{{ field }}"
+                 value="{{ info.value|default:'' }}"
+                 :disabled="!overrides['{{ field }}']"
+                 :class="overrides['{{ field }}'] ? 'border-slate-300 text-gray-900' : 'border-slate-200 text-gray-400 bg-slate-50'"
+                 class="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-accent focus:border-accent transition"
+                 placeholder="Default: {{ info.effective_default|default:'Not set' }}">
+        </div>
+        {% endwith %}
+      </div>
+    </div>
+
+    <!-- ═══ GST OVERRIDE ═══ -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 mb-6">
+      <h2 class="text-lg font-display font-bold text-gray-900 mb-6">Tax Details</h2>
+
+      {% with field='gst_number' info=form_data.gst_number %}
+      <div>
+        <div class="flex items-center gap-2 mb-1.5">
+          <input type="checkbox" name="override_{{ field }}" value="1"
+                 x-model="overrides['{{ field }}']"
+                 class="rounded border-slate-300 text-accent focus:ring-accent">
+          <label class="text-sm font-semibold text-gray-700">GST / VAT Number</label>
+        </div>
+        <input type="text" name="{{ field }}"
+               value="{{ info.value|default:'' }}"
+               :disabled="!overrides['{{ field }}']"
+               :class="overrides['{{ field }}'] ? 'border-slate-300 text-gray-900' : 'border-slate-200 text-gray-400 bg-slate-50'"
+               class="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-accent focus:border-accent transition"
+               placeholder="Default: {{ info.effective_default|default:'Not set' }}">
+      </div>
+      {% endwith %}
+    </div>
+
+    <!-- ═══ CURRENCY OVERRIDE ═══ -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 mb-6">
+      <h2 class="text-lg font-display font-bold text-gray-900 mb-2">Currency Override</h2>
+      <p class="text-sm text-gray-500 mb-5">
+        Set a different invoice currency for this class.
+        Leave as <em>Use department default</em> to inherit from the department or school setting.
+      </p>
+      <select name="currency_override"
+              class="w-full md:w-80 px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+        <option value="">
+          Use department default{% if dept_effective_currency %} ({{ dept_effective_currency.code }}){% endif %}
+        </option>
+        {% for cur in active_currencies %}
+        <option value="{{ cur.code }}" {% if classroom.currency_override_id == cur.code %}selected{% endif %}>
+          {{ cur.code }} — {{ cur.name }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- Actions -->
+    <div class="flex items-center justify-end gap-3">
+      <a href="{% url 'class_detail' class_id=classroom.id %}"
+         class="px-5 py-2.5 text-gray-600 font-semibold rounded-xl hover:bg-gray-100 transition">Cancel</a>
+      <button type="submit"
+              class="px-6 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm">
+        Save Overrides
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}

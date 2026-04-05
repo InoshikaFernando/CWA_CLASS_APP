@@ -11,7 +11,7 @@
                     <p>{{ level.title }}</p>
                 </a>
                 <div class="level-actions">
-                    <a href="{% url 'maths:take_quiz' level.level_number %}" class="btn btn-quiz">
+                    <a href="{% url 'mixed_quiz' level_number=level.level_number %}" class="btn btn-quiz">
                         Take Quiz
                     </a>
                 </div>

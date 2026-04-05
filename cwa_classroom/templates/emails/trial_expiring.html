@@ -6,6 +6,9 @@
 <tr><td align="center">
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px; background:#fff; border-radius:16px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
   <tr><td style="background-color:#f59e0b; padding:24px 32px; text-align:center;">
+    {% if email_logo_url %}
+    <img src="{{ email_logo_url }}" alt="{{ site_name }}" style="max-height:48px; max-width:200px; margin-bottom:12px;" /><br />
+    {% endif %}
     <h1 style="margin:0; font-size:20px; color:#fff;">Trial Expiring Soon</h1>
   </td></tr>
   <tr><td style="padding:32px;">

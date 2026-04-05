@@ -56,7 +56,7 @@ class TestAccountantSidebarLinks:
         expect(self.page).to_have_url(re.compile(r"/opening-balances"))
 
     def test_upload_payments_link(self):
-        click_sidebar_link(self.page, "Upload Payments")
+        click_sidebar_link(self.page, "Upload Bank Statements")
         expect(self.page).to_have_url(re.compile(r"/invoicing/csv"))
 
     def test_reference_mappings_link(self):
