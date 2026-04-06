@@ -4,7 +4,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.mail import send_mail
 from django.core.paginator import Paginator
-from django.http import Http404
+from django.http import Http404, HttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.views import View
@@ -34,6 +34,7 @@ from .models import (
     School, SchoolTeacher, SchoolStudent, ClassSession, StudentAttendance,
     TeacherAttendance, Department, DepartmentLevel, DepartmentSubject, Enrollment,
     Invoice, InvoicePayment, InvoiceLineItem, SalarySlip, SalarySlipLineItem,
+    SchoolHoliday, PublicHoliday,
 )
 
 logger = logging.getLogger(__name__)
@@ -665,6 +666,7 @@ class ClassDetailView(RoleRequiredMixin, View):
             'student_fee_data': student_fee_data,
             'class_effective_fee': class_effective_fee,
             'can_edit_fee': can_edit_fee,
+            'effective_currency': classroom.get_effective_currency(),
         })
 
 
@@ -767,6 +769,7 @@ class EditClassView(RoleRequiredMixin, View):
             'parent_fee': parent_fee,
             'fee_source': fee_source,
             'can_edit_fee': can_edit_fee,
+            'effective_currency': classroom.get_effective_currency(),
         })
 
     def post(self, request, class_id):
@@ -1511,11 +1514,11 @@ class StudentCSVCredentialsView(RoleRequiredMixin, View):
         writer = csv_mod.writer(response)
         writer.writerow(['Role', 'Username', 'Email', 'Password', 'First Name', 'Last Name'])
         for c in credentials:
-            writer.writerow(['Student', c['username'], c['email'], c['password'],
-                             c['first_name'], c['last_name']])
+            writer.writerow(['Student', c['username'], c.get('email', ''), c['password'],
+                             c.get('first_name', ''), c.get('last_name', '')])
         for c in parent_credentials:
-            writer.writerow(['Parent', c['username'], c['email'], c['password'],
-                             c['first_name'], c['last_name']])
+            writer.writerow(['Parent', c['username'], c.get('email', ''), c['password'],
+                             c.get('first_name', ''), c.get('last_name', '')])
         return response
 
 
@@ -1815,8 +1818,8 @@ class TeacherCSVCredentialsView(RoleRequiredMixin, View):
         writer = csv_mod.writer(response)
         writer.writerow(['Username', 'Email', 'Password', 'First Name', 'Last Name', 'Role'])
         for c in credentials:
-            writer.writerow([c['username'], c['email'], c['password'],
-                           c['first_name'], c['last_name'], c['role']])
+            writer.writerow([c['username'], c.get('email', ''), c['password'],
+                             c.get('first_name', ''), c.get('last_name', ''), c.get('role', '')])
         return response
 
 
@@ -1968,8 +1971,8 @@ class ParentCSVCredentialsView(RoleRequiredMixin, View):
         writer = csv_mod.writer(response)
         writer.writerow(['Username', 'Email', 'Password', 'First Name', 'Last Name', 'Children'])
         for c in credentials:
-            writer.writerow([c['username'], c['email'], c['password'],
-                           c['first_name'], c['last_name'], c.get('children', '')])
+            writer.writerow([c['username'], c.get('email', ''), c['password'],
+                             c.get('first_name', ''), c.get('last_name', ''), c.get('children', '')])
         return response
 
 
@@ -2751,43 +2754,28 @@ class HoDOverviewView(RoleRequiredMixin, View):
         next_classes_from_schedule = []
 
         if is_teacher_too:
+            from django.db.models import Exists, OuterRef
             upcoming_sessions = list(ClassSession.objects.filter(
                 classroom__in=next_classes_scope,
                 date__gte=today,
                 date__lte=week_ahead,
                 status='scheduled',
+            ).exclude(
+                Exists(SchoolHoliday.objects.filter(
+                    school=OuterRef('classroom__school'),
+                    start_date__lte=OuterRef('date'),
+                    end_date__gte=OuterRef('date'),
+                ))
+            ).exclude(
+                Exists(PublicHoliday.objects.filter(
+                    school=OuterRef('classroom__school'),
+                    date=OuterRef('date'),
+                ))
             ).select_related(
                 'classroom', 'classroom__department', 'classroom__subject',
             ).prefetch_related(
                 'classroom__teachers', 'classroom__students',
             ).order_by('date', 'start_time')[:5])
-
-            # Fallback: derive from ClassRoom.day if no sessions exist
-            if not upcoming_sessions:
-                DAY_MAP = {
-                    'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
-                    'friday': 4, 'saturday': 5, 'sunday': 6,
-                }
-                today_idx = today.weekday()
-                now_time = (_first_school.get_local_now() if _first_school else timezone.localtime()).time()
-
-                def _days_until(day_str, start_time=None):
-                    target = DAY_MAP.get(day_str, 7)
-                    diff = (target - today_idx) % 7
-                    if diff == 0:
-                        if start_time and start_time > now_time:
-                            return 0
-                        return 7
-                    return diff
-
-                scheduled = sorted(
-                    [c for c in next_classes_scope if c.day],
-                    key=lambda c: (_days_until(c.day, c.start_time), c.start_time or timezone.datetime.min.time()),
-                )
-                for c in scheduled[:5]:
-                    du = _days_until(c.day, c.start_time)
-                    c.next_date = today + timedelta(days=du)
-                next_classes_from_schedule = scheduled[:5]
 
         # ── Report widgets data ────────────────────────────────────
         import json
@@ -2863,7 +2851,7 @@ class HoDOverviewView(RoleRequiredMixin, View):
         revenue_data = []
         revenue_table = []
         for row in revenue_by_class:
-            name = row['classroom__name'] or 'Unknown'
+            name = row['classroom__name'] or 'Other / Deleted Class'
             amount = row['total'] or Decimal('0')
             revenue_labels.append(name)
             revenue_data.append(float(amount))
@@ -4439,7 +4427,8 @@ class SubjectsHubView(LoginRequiredMixin, View):
         time_daily = _format_seconds(time_log.daily_seconds)
         time_weekly = _format_seconds(time_log.weekly_seconds)
 
-        # ── Upcoming classes (next 5 scheduled sessions) ──
+        # ── Upcoming classes (next 5 scheduled sessions, excluding holidays) ──
+        from django.db.models import Exists, OuterRef
         enrolled_class_ids = list(
             ClassStudent.objects.filter(
                 student=user, is_active=True,
@@ -4450,47 +4439,20 @@ class SubjectsHubView(LoginRequiredMixin, View):
                 classroom_id__in=enrolled_class_ids,
                 status='scheduled',
                 date__gte=now.date(),
+            ).exclude(
+                Exists(SchoolHoliday.objects.filter(
+                    school=OuterRef('classroom__school'),
+                    start_date__lte=OuterRef('date'),
+                    end_date__gte=OuterRef('date'),
+                ))
+            ).exclude(
+                Exists(PublicHoliday.objects.filter(
+                    school=OuterRef('classroom__school'),
+                    date=OuterRef('date'),
+                ))
             ).select_related('classroom')
             .order_by('date', 'start_time')[:5]
         )
-
-        # Fallback: if no sessions exist yet (e.g. CSV-imported classes),
-        # derive upcoming dates from ClassRoom.day schedule.
-        if not upcoming_classes and enrolled_class_ids:
-            from types import SimpleNamespace
-            from datetime import timedelta as _td
-            _DAY_MAP = {
-                'monday': 0, 'tuesday': 1, 'wednesday': 2,
-                'thursday': 3, 'friday': 4, 'saturday': 5, 'sunday': 6,
-            }
-            _today_idx = now.date().weekday()
-            _now_time = now.time()
-
-            def _days_until_student(day_str, start_time=None):
-                target = _DAY_MAP.get(day_str, 7)
-                diff = (target - _today_idx) % 7
-                if diff == 0:
-                    if start_time and start_time > _now_time:
-                        return 0
-                    return 7
-                return diff
-
-            enrolled_rooms = ClassRoom.objects.filter(
-                id__in=enrolled_class_ids, is_active=True, day__isnull=False,
-            ).exclude(day='')
-            scheduled_rooms = sorted(
-                enrolled_rooms,
-                key=lambda c: (_days_until_student(c.day, c.start_time),
-                               c.start_time or timezone.datetime.min.time()),
-            )
-            for room in scheduled_rooms[:5]:
-                du = _days_until_student(room.day, room.start_time)
-                pseudo = SimpleNamespace(
-                    classroom=room,
-                    date=now.date() + _td(days=du),
-                    start_time=room.start_time,
-                )
-                upcoming_classes.append(pseudo)
 
         # ── Attendance per class ──
         class_attendance = []

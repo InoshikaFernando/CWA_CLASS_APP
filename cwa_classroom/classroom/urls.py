@@ -12,6 +12,7 @@ from . import views_salaries
 from . import views_parent
 from . import views_parent_admin
 from attendance import views_student as attendance_views_student
+from attendance import views_teacher as attendance_views_teacher
 
 urlpatterns = [
     # NOTE: The old HomeView at '/' has been replaced by PublicHomeView + SubjectsHubView
@@ -171,6 +172,9 @@ urlpatterns = [
     path('teacher/attendance/<int:attendance_id>/approve/', views_teacher.StudentAttendanceApproveView.as_view(), name='attendance_approve'),
     path('teacher/attendance/<int:attendance_id>/reject/', views_teacher.StudentAttendanceRejectView.as_view(), name='attendance_reject'),
     path('teacher/attendance/bulk-approve/', views_teacher.StudentAttendanceBulkApproveView.as_view(), name='attendance_bulk_approve'),
+    path('teacher/parent-link-requests/', views_teacher.ParentLinkRequestsView.as_view(), name='parent_link_requests'),
+    path('teacher/parent-link-requests/<int:request_id>/approve/', views_teacher.ParentLinkApproveView.as_view(), name='parent_link_approve'),
+    path('teacher/parent-link-requests/<int:request_id>/reject/', views_teacher.ParentLinkRejectView.as_view(), name='parent_link_reject'),
 
     # Session management
     path('teacher/class/<int:class_id>/start-session/', views_teacher.StartSessionView.as_view(), name='start_session'),
@@ -181,14 +185,17 @@ urlpatterns = [
 
     # Parent portal
     path('parent/', views_parent.ParentDashboardView.as_view(), name='parent_dashboard'),
+    path('parent/children/', views_parent.ParentChildrenView.as_view(), name='my_children'),
     path('parent/switch-child/<int:student_id>/', views_parent.ParentSwitchChildView.as_view(), name='parent_switch_child'),
     path('parent/invoices/', views_parent.ParentInvoicesView.as_view(), name='parent_invoices'),
     path('parent/invoices/<int:invoice_id>/', views_parent.ParentInvoiceDetailView.as_view(), name='parent_invoice_detail'),
     path('parent/payments/', views_parent.ParentPaymentHistoryView.as_view(), name='parent_payment_history'),
+    path('parent/billing/', views_parent.ParentPaymentHistoryView.as_view(), name='parent_billing'),
     path('parent/attendance/', views_parent.ParentAttendanceView.as_view(), name='parent_attendance'),
     path('parent/progress/', views_parent.ParentProgressView.as_view(), name='parent_progress'),
     path('parent/add-child/', views_parent.ParentAddChildView.as_view(), name='parent_add_child'),
     path('parent/classes/', views_parent.ParentClassesView.as_view(), name='parent_classes'),
+    path('parent/become-parent/', views_parent.BecomeParentView.as_view(), name='become_parent'),
 
     # Student enrollment & classes
     path('student/join/', views_student.JoinClassByCodeView.as_view(), name='student_join_class'),
@@ -203,6 +210,10 @@ urlpatterns = [
     path('student/absence-tokens/request/', attendance_views_student.RequestAbsenceTokenView.as_view(), name='student_request_absence_token'),
     path('student/absence-tokens/<int:token_id>/available-sessions/', attendance_views_student.AvailableMakeupSessionsView.as_view(), name='student_available_makeup_sessions'),
     path('student/absence-tokens/<int:token_id>/redeem/', attendance_views_student.RedeemAbsenceTokenView.as_view(), name='student_redeem_absence_token'),
+    # Teacher absence token approval routes
+    path('teacher/absence-tokens/', attendance_views_teacher.AbsenceTokenApprovalListView.as_view(), name='absence_token_approvals'),
+    path('teacher/absence-tokens/<int:token_id>/approve/', attendance_views_teacher.AbsenceTokenApproveView.as_view(), name='absence_token_approve'),
+    path('teacher/absence-tokens/<int:token_id>/reject/', attendance_views_teacher.AbsenceTokenRejectView.as_view(), name='absence_token_reject'),
 
     # Progress criteria & tracking
     path('progress/criteria/', views_progress.ProgressCriteriaListView.as_view(), name='progress_criteria_list'),
@@ -255,6 +266,8 @@ urlpatterns = [
     path('invoicing/fees/class/<int:classroom_id>/set/', views_invoicing.SetClassroomFeeView.as_view(), name='set_classroom_fee'),
     path('invoicing/fees/batch-update/', views_invoicing.BatchClassroomFeeView.as_view(), name='batch_classroom_fee'),
     path('invoicing/fees/student-override/add/', views_invoicing.AddStudentFeeOverrideView.as_view(), name='add_student_fee_override'),
+    path('invoicing/api/scope/classes/', views_invoicing.InvoicingClassesForScopeView.as_view(), name='invoicing_scope_classes'),
+    path('invoicing/api/scope/students/', views_invoicing.InvoicingStudentsForScopeView.as_view(), name='invoicing_scope_students'),
     path('invoicing/generate/', views_invoicing.GenerateInvoicesView.as_view(), name='generate_invoices'),
     path('invoicing/preview/', views_invoicing.InvoicePreviewView.as_view(), name='invoice_preview'),
     path('invoicing/issue/', views_invoicing.IssueInvoicesView.as_view(), name='issue_invoices'),

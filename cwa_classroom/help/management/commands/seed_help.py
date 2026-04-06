@@ -10,9 +10,12 @@ CATEGORIES = [
     {'name': 'Quizzes & Questions', 'description': 'Creating, assigning, and completing quizzes.', 'order': 3},
     {'name': 'Attendance', 'description': 'Recording and reviewing attendance.', 'order': 4},
     {'name': 'Progress & Reports', 'description': 'Viewing and understanding progress data.', 'order': 5},
-    {'name': 'Billing & Payments', 'description': 'Subscriptions, invoices, and payment history.', 'order': 6},
-    {'name': 'Account & Profile', 'description': 'Managing your account settings and profile.', 'order': 7},
-    {'name': 'Troubleshooting', 'description': 'Common issues and how to resolve them.', 'order': 8},
+    {'name': 'Homework', 'description': 'Assigning, submitting, and grading homework.', 'order': 6},
+    {'name': 'School Administration', 'description': 'Academic years, departments, subjects, and school settings.', 'order': 7},
+    {'name': 'Salary & Payroll', 'description': 'Salary rates, slip generation, and payment records.', 'order': 8},
+    {'name': 'Billing & Payments', 'description': 'Subscriptions, invoices, and payment history.', 'order': 9},
+    {'name': 'Account & Profile', 'description': 'Managing your account settings and profile.', 'order': 10},
+    {'name': 'Troubleshooting', 'description': 'Common issues and how to resolve them.', 'order': 11},
 ]
 
 ARTICLES = [
@@ -526,7 +529,7 @@ Use the checkboxes to select multiple requests and approve or decline them toget
         'category': 'Attendance',
         'excerpt': 'How to mark and submit attendance for your class sessions.',
         'module': 'attendance',
-        'roles': ['teacher'],
+        'roles': ['teacher', 'hoi', 'hod'],
         'body': """## Recording Attendance
 
 ### Starting an attendance session
@@ -571,6 +574,63 @@ Go to **Attendance** in the sidebar. You'll see a summary of your child's attend
 ### If something looks wrong
 
 Contact your child's teacher or school directly to correct any attendance errors.
+""",
+    },
+    {
+        'title': 'Viewing Your Attendance',
+        'category': 'Attendance',
+        'excerpt': 'How to check your own attendance record and report an absence.',
+        'module': 'attendance',
+        'roles': ['student'],
+        'body': """## Your Attendance Record
+
+### Where to find it
+
+Go to **Attendance** in the sidebar. You'll see your attendance history across all classes.
+
+### Understanding the records
+
+- **Present** — you were marked present for that session
+- **Absent** — you were marked absent
+- **Late** — you were marked as arriving late
+- **Pending** — the session hasn't been marked yet
+
+### Reporting an absence
+
+If you know you'll be absent, you can self-report using an absence token. Your school sends these by email before or after a missed session. Click the link in the email to submit your absence reason.
+
+### If something looks wrong
+
+Contact your teacher or school if you believe your attendance has been recorded incorrectly.
+""",
+    },
+    {
+        'title': 'Monitoring Attendance Across Your School',
+        'category': 'Attendance',
+        'excerpt': 'How HoIs and HoDs can view and manage attendance across classes.',
+        'module': 'attendance',
+        'roles': ['hoi', 'hod'],
+        'body': """## School-Wide Attendance Monitoring
+
+### Viewing attendance records
+
+Go to **Attendance** in the sidebar to see attendance across all classes in your school (HoI) or department (HoD).
+
+### Filtering records
+
+Use the filters to narrow by class, teacher, date range, or student to find the records you need.
+
+### Editing attendance
+
+If a teacher has submitted an incorrect record and the edit window has closed, you can edit it directly. Find the session in the attendance list and click **Edit**.
+
+### Absence tokens
+
+The system can automatically send absence tokens to students who are marked absent, allowing them to self-report their absence reason. This reduces admin for teachers.
+
+### Exporting attendance
+
+Use the **Export** button to download attendance records as a CSV for reporting or analysis.
 """,
     },
 
@@ -767,6 +827,442 @@ Contact your school's Head of Institute, or use the **Contact** form to reach th
 If your account was created by your school, your administrator can reset your password from the school management page.
 """,
     },
+    # ── School Administration ─────────────────────────────────────────────────
+    {
+        'title': 'Setting Up Academic Years and Terms',
+        'category': 'School Administration',
+        'excerpt': 'How to create and manage academic years and terms for your school.',
+        'module': 'classroom',
+        'is_featured': True,
+        'roles': ['hoi'],
+        'body': """## Setting Up Academic Years and Terms
+
+Academic years define the operating period for your school, and terms divide that year into teaching blocks.
+
+### Creating an academic year
+
+1. Go to **Admin Dashboard** → your school → **Academic Year**.
+2. Click **Create Academic Year**.
+3. Enter:
+   - **Year** (e.g. 2026)
+   - **Start Date** and **End Date**
+   - **Number of Terms** (1–6)
+4. Click **Save**.
+
+Only one academic year can be marked as **current** at a time. The current year is used when generating class sessions and salary slips.
+
+### Setting up terms
+
+After creating an academic year:
+
+1. Click **Term Setup** on the academic year page.
+2. For each term, enter the **Start Date** and **End Date**.
+3. Save each term.
+
+Terms appear on reports and help organise class scheduling across the year.
+
+### Editing an existing academic year
+
+Click **Edit** on the academic year to update dates or the number of terms. Changing dates does not retroactively affect existing sessions.
+""",
+    },
+    {
+        'title': 'Creating and Managing Departments',
+        'category': 'School Administration',
+        'excerpt': 'How to set up departments and assign a Head of Department.',
+        'module': 'classroom',
+        'roles': ['hoi'],
+        'body': """## Creating and Managing Departments
+
+Departments group related subjects and classes together under a Head of Department (HoD).
+
+### Creating a department
+
+1. Go to **Admin Dashboard** → your school → **Departments**.
+2. Click **Create Department**.
+3. Enter:
+   - **Department Name** (e.g. Mathematics, Science)
+   - **Description** (optional)
+   - **Subjects** — select which subjects belong to this department
+4. Click **Save**.
+
+### Assigning a Head of Department
+
+1. Open the department.
+2. Click **Assign HoD**.
+3. Select the teacher to assign as HoD.
+4. Click **Save**.
+
+The HoD can then manage classes, view progress, and oversee teachers within their department.
+
+### Adding teachers to a department
+
+1. Open the department → **Manage Teachers**.
+2. Search for and add teachers to the department.
+
+### Department-level settings
+
+Each department can override school-level invoicing settings such as bank account details and GST number. Go to the department → **Settings** to configure these.
+""",
+    },
+    {
+        'title': 'Managing Subjects',
+        'category': 'School Administration',
+        'excerpt': 'How subjects are structured and assigned to departments.',
+        'module': 'classroom',
+        'roles': ['hoi', 'hod'],
+        'body': """## Managing Subjects
+
+Subjects define the areas of study offered by your school (e.g. Maths, Science, Coding, Music).
+
+### How subjects work
+
+- **Platform subjects** (e.g. Maths, Coding) are provided by CWA and come with a built-in question bank and curriculum levels.
+- **School-specific subjects** can be created for custom areas not covered by platform subjects.
+
+### Assigning subjects to departments
+
+Subjects are assigned to departments when you create or edit a department. Each department can have multiple subjects.
+
+### Curriculum levels
+
+Each subject has curriculum levels (e.g. Year 1–8). When creating a class, you select which levels the class covers. Students are then matched to appropriate quiz content based on their level.
+
+### Viewing school subjects
+
+Go to **Admin Dashboard** → your school → **Subjects** to see all subjects available to your school.
+""",
+    },
+    {
+        'title': 'Creating and Managing Classes',
+        'category': 'Classes & Enrolment',
+        'excerpt': 'How to create a class, set its schedule, and assign teachers and students.',
+        'module': 'classroom',
+        'is_featured': True,
+        'roles': ['hoi', 'hod', 'teacher'],
+        'body': """## Creating and Managing Classes
+
+Classes are the core unit of the platform — they connect teachers, students, subjects, and sessions.
+
+### Creating a class
+
+1. Click **Create Class** from your dashboard or sidebar.
+2. Enter:
+   - **Class Name**
+   - **Department** and **Subject**
+   - **Curriculum Levels** (e.g. Year 4, Year 5)
+   - **Day of Week**, **Start Time**, **End Time**
+3. Click **Save**.
+
+A unique **class code** is generated automatically. Students can use this code to self-enrol via **Join Class**.
+
+### Assigning teachers
+
+1. Open the class → **Assign Teachers**.
+2. Search for and add the teacher(s) for this class.
+
+### Enrolling students
+
+**Option 1 — Self-enrolment:** Share the class code with students. They go to **Join Class** and enter the code.
+
+**Option 2 — Direct enrolment:** Open the class → **Assign Students** → search for and add students.
+
+### Class settings
+
+Each class can override the school-level fee, bank account, and GST settings. Go to the class → **Settings**.
+
+### Deactivating a class
+
+If a class is no longer running, deactivate it from the class settings. Deactivated classes are hidden from students but data is retained.
+""",
+    },
+    {
+        'title': 'Creating and Assigning Quizzes',
+        'category': 'Quizzes & Questions',
+        'excerpt': 'How teachers assign quizzes and how students take them.',
+        'module': 'quiz',
+        'roles': ['teacher', 'hoi', 'hod'],
+        'body': """## Creating and Assigning Quizzes
+
+Quizzes can be assigned to students as homework or taken independently from the subject dashboard.
+
+### Assigning a quiz as homework
+
+1. Go to your class → **Homework** → **Create**.
+2. Set the **Type** to **Quiz**.
+3. Select:
+   - **Topics** to include
+   - **Curriculum Level**
+   - **Number of Questions**
+   - **Due Date**
+4. Save as **Draft** or **Publish** to make it live.
+
+Students will see the quiz in their homework list once published.
+
+### Independent quizzes (student-initiated)
+
+Students can take topic quizzes any time from the subject dashboard (e.g. **Maths** → **Topic Quizzes**). These are not graded by the teacher but contribute to the student's progress data.
+
+### Basic Facts and Times Tables
+
+These are rapid-fire drills available from the **Maths** sidebar. Students can practise at any time. Results are tracked and visible on the progress dashboard.
+
+### Viewing quiz results
+
+Go to **Progress** → select a student to see their quiz history, scores, and improvement over time.
+""",
+    },
+    {
+        'title': 'Taking a Quiz as a Student',
+        'category': 'Quizzes & Questions',
+        'excerpt': 'How to find and complete quizzes assigned by your teacher or explore topic quizzes.',
+        'module': 'quiz',
+        'roles': ['student'],
+        'body': """## Taking a Quiz
+
+### Assigned quizzes (homework)
+
+Quizzes assigned by your teacher appear in your **Homework** list.
+
+1. Click the homework item to open it.
+2. Click **Start Quiz**.
+3. Answer each question and click **Next**.
+4. Submit when done.
+
+Your teacher will publish your result once they have reviewed submissions.
+
+### Topic quizzes (self-study)
+
+You can practise any topic at any time:
+
+1. Go to the subject (e.g. **Maths**) from the sidebar.
+2. Click **Topic Quizzes**.
+3. Select a topic and level.
+4. Start the quiz and answer the questions.
+
+Results from self-study quizzes appear on your **Progress** page.
+
+### Basic Facts and Times Tables
+
+Available from the **Maths** sidebar. These are short timed drills to practise arithmetic. Try to beat your previous score!
+""",
+    },
+
+    # ── Homework ──────────────────────────────────────────────────────────────
+    {
+        'title': 'Creating and Managing Homework',
+        'category': 'Homework',
+        'excerpt': 'How to create, publish, and grade homework assignments for your class.',
+        'module': 'homework',
+        'is_featured': True,
+        'roles': ['teacher', 'hoi', 'hod'],
+        'body': """## Creating and Managing Homework
+
+### Creating a homework assignment
+
+1. Go to your class → **Homework** → **Create**.
+2. Choose the **Type**:
+   - **Quiz** — students complete a quiz drawn from the question bank
+   - **PDF Upload** — upload a worksheet for students to download and submit
+   - **Note / Message** — a text-only message with no submission required
+3. Fill in the details:
+   - **Title** and **Instructions**
+   - **Due Date**
+   - **Max Attempts** (for quizzes)
+4. Choose when to make it available:
+   - **Save as Draft** — only you can see it
+   - **Schedule** — set a publish date/time
+   - **Publish Now** — immediately visible to students
+
+### Viewing submissions
+
+Go to the homework → **Submissions** to see which students have submitted and their responses.
+
+### Grading
+
+- **Quiz type:** Marks are auto-calculated. Click **Publish Grades** to release results to students.
+- **PDF type:** Open each submission, review the uploaded file, enter a mark and feedback, then publish.
+
+### Closing homework
+
+Once the due date passes, homework is automatically closed. Students can no longer submit.
+""",
+    },
+    {
+        'title': 'Completing Homework as a Student',
+        'category': 'Homework',
+        'excerpt': 'How to find, complete, and submit homework assigned by your teacher.',
+        'module': 'homework',
+        'roles': ['student'],
+        'body': """## Completing Your Homework
+
+### Finding your homework
+
+Go to **Homework** in the sidebar. You'll see:
+- **Due Soon** — homework due in the next 7 days
+- **Overdue** — past the due date
+- **Submitted** — work you've already handed in
+
+### Completing a quiz homework
+
+1. Click the homework item.
+2. Click **Start Quiz**.
+3. Answer each question and submit.
+4. Your teacher will publish your result after reviewing.
+
+### Submitting a PDF / worksheet
+
+1. Click the homework item.
+2. Download the worksheet (if attached).
+3. Complete the work.
+4. Upload your answer file (PDF, image, or document).
+5. Click **Submit**.
+
+### Viewing your results
+
+Once your teacher publishes grades, you'll see your mark and feedback on the homework page.
+""",
+    },
+    {
+        'title': 'Viewing Your Child\'s Homework',
+        'category': 'Homework',
+        'excerpt': 'How parents can see homework assigned to their child.',
+        'module': 'homework',
+        'roles': ['parent'],
+        'body': """## Your Child's Homework
+
+### Where to find it
+
+Go to **Homework** in the sidebar. You'll see all active and recent homework assignments for your child.
+
+### What you can see
+
+- **Title and Instructions** — what the homework involves
+- **Due Date** — when it must be submitted
+- **Status** — whether your child has submitted
+- **Result** — marks and feedback once published by the teacher
+
+### If your child has missed a deadline
+
+Contact the teacher directly. Teachers can extend due dates or accept late submissions on a case-by-case basis.
+""",
+    },
+
+    # ── Salary & Payroll ──────────────────────────────────────────────────────
+    {
+        'title': 'Configuring Salary Rates',
+        'category': 'Salary & Payroll',
+        'excerpt': 'How to set the school default hourly rate and individual teacher rate overrides.',
+        'module': 'salaries',
+        'roles': ['hoi', 'accountant'],
+        'body': """## Configuring Salary Rates
+
+### Setting the school default rate
+
+1. Go to **Salaries** → **Rate Configuration**.
+2. Click **Set Default Rate**.
+3. Enter:
+   - **Hourly Rate**
+   - **Effective From** date
+4. Click **Save**.
+
+All teachers without an individual override will use this rate.
+
+### Adding a teacher rate override
+
+1. Go to **Salaries** → **Rate Configuration** → **Add Teacher Override**.
+2. Select the teacher.
+3. Enter their specific hourly rate and the date it takes effect.
+4. Optionally add a reason (e.g. "Senior pay grade").
+5. Click **Save**.
+
+### Batch updating rates
+
+To update multiple teachers at once, use **Batch Update Rates** on the rate configuration page.
+""",
+    },
+    {
+        'title': 'Generating and Issuing Salary Slips',
+        'category': 'Salary & Payroll',
+        'excerpt': 'How to generate salary slips for a billing period and issue them to teachers.',
+        'module': 'salaries',
+        'roles': ['hoi', 'accountant'],
+        'body': """## Generating Salary Slips
+
+### Before you start
+
+Make sure all teacher attendance is marked for the period you're generating slips for. The system will warn you if any sessions are unmarked.
+
+### Generating slips
+
+1. Go to **Salaries** → **Generate**.
+2. Select the **Billing Period** (start and end dates).
+3. Optionally filter by **Department**.
+4. Click **Preview** to review the calculated hours and amounts.
+5. If correct, click **Issue** to finalise.
+
+The system calculates pay as: **hours attended × hourly rate = slip total**.
+
+### After issuing
+
+Issued salary slips appear in the **Salaries** list. Each teacher's slip shows:
+- The billing period
+- Hours worked
+- Rate applied
+- Total amount
+
+### Recording a payment
+
+1. Open a salary slip.
+2. Click **Record Payment**.
+3. Enter the payment method, date, and amount.
+4. Save.
+
+### Cancelling a slip
+
+If a slip was issued in error, click **Cancel** on the slip detail page. Cancelled slips are retained for audit purposes.
+""",
+    },
+
+    # ── School Settings ───────────────────────────────────────────────────────
+    {
+        'title': 'Configuring School Settings',
+        'category': 'School Administration',
+        'excerpt': 'How to set up your school\'s company details, banking, and invoice settings.',
+        'module': 'classroom',
+        'roles': ['hoi', 'accountant'],
+        'body': """## School Settings
+
+School settings control how your school appears on invoices and how payments are processed.
+
+### Accessing settings
+
+Go to **Admin Dashboard** → your school → **Settings**.
+
+### Company Details tab
+
+- **Business Registration Number** (ABN/NZBN)
+- **GST / VAT Number**
+- **Street Address, City, State, Postal Code, Country**
+- **Timezone** — used for scheduling and session times
+
+### Contact & Email tab
+
+- **Outgoing Email** — the "from" address used for invoices and notifications
+- **School Logo** — appears on invoices and emails
+
+### Banking & Invoice tab
+
+- **Bank Name, BSB, Account Number, Account Name** — shown on invoices for direct payment
+- **Invoice Terms** — terms and conditions text printed on invoices
+- **Invoice Due Days** — how many days after issue invoices are due (default 30)
+
+### Overriding at department or class level
+
+Individual departments and classes can override the bank account and GST details. This is useful if different departments invoice under different entities.
+""",
+    },
+
     {
         'title': 'Configuring School Email (SMTP)',
         'category': 'Account & Profile',

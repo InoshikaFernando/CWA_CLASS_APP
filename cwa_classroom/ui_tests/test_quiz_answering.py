@@ -139,14 +139,12 @@ class TestTimesTablesSelect:
         assert_page_has_text(self.page, "Times Tables")
 
     def test_multiplication_section(self):
-        """Multiplication links should be visible."""
-        body = self.page.locator("body").inner_text().lower()
-        assert "multiplication" in body or "×" in body or "times" in body
+        """Multiplication section should be visible."""
+        assert_page_has_text(self.page, "Multiply")
 
     def test_division_section(self):
-        """Division links should be visible."""
-        body = self.page.locator("body").inner_text().lower()
-        assert "division" in body or "÷" in body or "times" in body
+        """Division section should be visible."""
+        assert_page_has_text(self.page, "Divide")
 
     def test_table_links_present(self):
         """Links for tables 1-12 should be present."""

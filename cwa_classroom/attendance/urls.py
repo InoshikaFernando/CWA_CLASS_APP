@@ -30,4 +30,8 @@ urlpatterns = [
     path('student/absence-tokens/request/', views_student.RequestAbsenceTokenView.as_view(), name='student_request_absence_token'),
     path('student/absence-tokens/<int:token_id>/available-sessions/', views_student.AvailableMakeupSessionsView.as_view(), name='student_available_makeup_sessions'),
     path('student/absence-tokens/<int:token_id>/redeem/', views_student.RedeemAbsenceTokenView.as_view(), name='student_redeem_absence_token'),
+    # Teacher absence token approvals
+    path('teacher/absence-tokens/', views_teacher.AbsenceTokenApprovalListView.as_view(), name='absence_token_approvals'),
+    path('teacher/absence-tokens/<int:token_id>/approve/', views_teacher.AbsenceTokenApproveView.as_view(), name='absence_token_approve'),
+    path('teacher/absence-tokens/<int:token_id>/reject/', views_teacher.AbsenceTokenRejectView.as_view(), name='absence_token_reject'),
 ]

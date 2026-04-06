@@ -1,0 +1,4 @@
+<option value="">All Classes</option>
+{% for classroom in classrooms %}
+<option value="{{ classroom.id }}">{{ classroom.name }}</option>
+{% endfor %}

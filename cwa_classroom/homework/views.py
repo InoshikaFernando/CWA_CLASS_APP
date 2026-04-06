@@ -29,6 +29,41 @@ def _teacher_classrooms(user):
     return ClassRoom.objects.filter(id__in=class_ids, is_active=True)
 
 
+def _build_topic_groups(topics_qs):
+    """
+    Return an ordered list of (strand, [subtopics]) tuples for the template.
+
+    Topics with no parent are "strands" — shown as group headers.
+    Topics with a parent are "subtopics" — shown indented under their strand.
+    Orphaned subtopics whose parent is not in the queryset fall into a
+    "Other" catch-all group at the end.
+
+    Each item in the subtopics list is the original Topic instance so the
+    template can access .id, .name, etc.
+    """
+    from collections import OrderedDict
+
+    strands = OrderedDict()   # {strand_id: (strand_topic, [subtopics])}
+    orphans = []
+
+    for topic in topics_qs:
+        if topic.parent_id is None:
+            # This topic IS a strand
+            if topic.pk not in strands:
+                strands[topic.pk] = (topic, [])
+        else:
+            parent = topic.parent
+            if parent.pk not in strands:
+                strands[parent.pk] = (parent, [])
+            strands[parent.pk][1].append(topic)
+
+    # Filter out strands that have no subtopics (they're not selectable as
+    # homework topics — only subtopics should be selected)
+    result = [(strand, subs) for strand, subs in strands.values() if subs]
+
+    return result
+
+
 def _select_and_save_questions(homework, topics, num_questions):
     """
     Select a stratified random set of questions from the given topics and
@@ -63,24 +98,28 @@ class HomeworkCreateView(RoleRequiredMixin, View):
     def get(self, request, classroom_id):
         classroom = get_object_or_404(ClassRoom, id=classroom_id)
         _check_teacher_owns_class(request, classroom)
-        # Build topic queryset scoped to the classroom's subjects/levels
-        topics = Topic.objects.filter(is_active=True).select_related('subject').order_by('subject__name', 'name')
+        topics = Topic.objects.filter(is_active=True).select_related('subject', 'parent').order_by('subject__name', 'parent__name', 'name')
         form = HomeworkCreateForm()
         form.fields['topics'].queryset = topics
         return render(request, self.template_name, {
             'form': form,
             'classroom': classroom,
+            'topic_groups': _build_topic_groups(topics),
         })
 
     def post(self, request, classroom_id):
         classroom = get_object_or_404(ClassRoom, id=classroom_id)
         _check_teacher_owns_class(request, classroom)
-        topics = Topic.objects.filter(is_active=True).select_related('subject').order_by('subject__name', 'name')
+        topics = Topic.objects.filter(is_active=True).select_related('subject', 'parent').order_by('subject__name', 'parent__name', 'name')
         form = HomeworkCreateForm(request.POST)
         form.fields['topics'].queryset = topics
 
         if not form.is_valid():
-            return render(request, self.template_name, {'form': form, 'classroom': classroom})
+            return render(request, self.template_name, {
+                'form': form,
+                'classroom': classroom,
+                'topic_groups': _build_topic_groups(topics),
+            })
 
         with transaction.atomic():
             homework = form.save(commit=False)
@@ -122,7 +161,9 @@ class HomeworkMonitorView(RoleRequiredMixin, View):
             homework_list = (
                 Homework.objects
                 .filter(classroom=selected_classroom)
-                .prefetch_related('topics')
+                .prefetch_related(
+                    Prefetch('topics', queryset=Topic.objects.select_related('subject', 'parent'))
+                )
                 .order_by('-created_at')
             )
 
@@ -193,7 +234,9 @@ class StudentHomeworkListView(LoginRequiredMixin, View):
         homework_qs = (
             Homework.objects
             .filter(classroom_id__in=class_ids)
-            .prefetch_related('topics')
+            .prefetch_related(
+                Prefetch('topics', queryset=Topic.objects.select_related('subject', 'parent'))
+            )
             .order_by('due_date')
         )
 

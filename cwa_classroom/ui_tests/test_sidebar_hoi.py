@@ -41,7 +41,7 @@ class TestHoiSidebarLinks:
 
     def test_subjects_link(self):
         click_sidebar_link(self.page, "Subjects")
-        expect(self.page).to_have_url(re.compile(r"/subject"))
+        expect(self.page).to_have_url(re.compile(r"/subjects|/subject-levels"))
 
     def test_academic_levels_link(self):
         click_sidebar_link(self.page, "Academic Levels")

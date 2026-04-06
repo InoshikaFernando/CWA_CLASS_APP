@@ -32,6 +32,7 @@ def _ensure_sidebar_visible(page: Page) -> None:
         const aside = document.querySelector('aside#sidebar');
         if (aside) {
             aside.style.display = 'flex';
+            aside.style.flexDirection = 'column';
             // Force collapsible nav sections visible (Alpine x-show sets display:none)
             // Only expand sections that contain links, not dropdowns
             aside.querySelectorAll('nav [x-show]').forEach(el => {
