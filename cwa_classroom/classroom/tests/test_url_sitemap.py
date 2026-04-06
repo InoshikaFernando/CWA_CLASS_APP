@@ -639,6 +639,10 @@ class TestAllURLsSitemap(FullHierarchyMixin, TestCase):
                     "package_id",
                     # absence token available sessions — student may have none
                     "token_id",
+                    # pk is a stub (maps to admin user id); billing edit views use pk
+                    # to look up DiscountCode/ModuleProduct/PromoCode which won't
+                    # share the same id → expected 404
+                    "pk",
                 }
                 if not any(p in placeholder_params for p in params):
                     failures.append(f"404 {full_name!r} → {url}")
