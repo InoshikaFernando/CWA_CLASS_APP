@@ -271,7 +271,7 @@ class FullHierarchyMixin:
             return u
 
         # ── Users ──────────────────────────────────────────────────────────
-        cls.admin      = make_user("url_admin",      Role.ADMIN, is_staff=True)
+        cls.admin      = make_user("url_admin",      Role.ADMIN, is_staff=True, is_superuser=True)
         cls.teacher    = make_user("url_teacher",    Role.TEACHER)
         cls.s_teacher  = make_user("url_steacher",   Role.SENIOR_TEACHER)
         cls.student    = make_user("url_student",    Role.STUDENT)
@@ -450,7 +450,7 @@ class FullHierarchyMixin:
             classroom=cls.classroom,
             created_by=cls.teacher,
             title=f"Homework {RUN}",
-            homework_type="quiz",
+            homework_type="topic",
             num_questions=5,
             due_date=tz.now() + timedelta(days=7),
         )
