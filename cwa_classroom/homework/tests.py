@@ -60,6 +60,7 @@ class HomeworkTestBase(TestCase):
         cls.level, _ = Level.objects.get_or_create(
             level_number=501, defaults={'display_name': 'HW Test Level'},
         )
+        cls.classroom.levels.add(cls.level)
         cls.topic = Topic.objects.create(
             subject=subject, name='Fractions HW', slug='fractions-hw',
         )
@@ -600,6 +601,73 @@ class HomeworkCreateUITest(HomeworkTestBase):
         })
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'future')  # error message text
+
+
+class HomeworkTopicLevelFilterTest(HomeworkTestBase):
+    """
+    Topics shown on the create-homework form must be restricted to those
+    that have at least one Question at the classroom's configured levels.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='teacher1', password='pass1234')
+        self.url = reverse('homework:teacher_create', kwargs={'classroom_id': self.classroom.id})
+
+    def test_topic_with_questions_at_classroom_level_is_shown(self):
+        """'Fractions HW' has questions at cls.level which is on the classroom → must appear."""
+        resp = self.client.get(self.url)
+        self.assertContains(resp, 'Fractions HW')
+
+    def test_topic_without_questions_at_classroom_level_is_hidden(self):
+        """
+        Create a topic whose only questions are at a *different* level.
+        That topic must NOT appear in the form.
+        """
+        other_level, _ = Level.objects.get_or_create(
+            level_number=502, defaults={'display_name': 'Other Level'}
+        )
+        other_topic = Topic.objects.create(
+            subject=self.topic.subject,
+            name='Other Level Topic',
+            slug='other-level-topic-hw',
+        )
+        Question.objects.create(
+            level=other_level,
+            topic=other_topic,
+            question_text='Only at other level?',
+            question_type=Question.MULTIPLE_CHOICE,
+            difficulty=1,
+        )
+        resp = self.client.get(self.url)
+        self.assertNotContains(resp, 'Other Level Topic')
+
+    def test_topic_with_no_questions_at_all_is_hidden(self):
+        """A topic with zero questions must not appear regardless of level."""
+        empty_topic = Topic.objects.create(
+            subject=self.topic.subject,
+            name='Empty Topic HW',
+            slug='empty-topic-hw',
+        )
+        resp = self.client.get(self.url)
+        self.assertNotContains(resp, 'Empty Topic HW')
+
+    def test_classroom_with_no_levels_shows_topics_with_any_questions(self):
+        """
+        If the classroom has no levels configured, fall back to showing all
+        topics that have at least one question (any level).
+        """
+        # Create a fresh classroom with no levels
+        from classroom.models import ClassTeacher as CT
+        unlevel_classroom = ClassRoom.objects.create(
+            name='No Level Class', code='NOLVL01', school=self.school,
+        )
+        CT.objects.create(classroom=unlevel_classroom, teacher=self.teacher)
+
+        url = reverse('homework:teacher_create', kwargs={'classroom_id': unlevel_classroom.id})
+        resp = self.client.get(url)
+        # cls.topic has questions → should appear even without level config
+        self.assertContains(resp, 'Fractions HW')
 
 
 class HomeworkMonitorUITest(HomeworkTestBase):
@@ -1188,10 +1256,11 @@ class HomeworkE2EWorkflowTest(TestCase):
         cls.student_b = CustomUser.objects.create_user('e2e_student_b', 'eb@test.com', 'pass1234')
         cls.student_b.roles.add(student_role)
 
-        # Class
+        # Class — assign the level so topic filtering works correctly
         cls.classroom = ClassRoom.objects.create(
             name='E2E Maths Class', code='E2EHWCLS', school=cls.school,
         )
+        cls.classroom.levels.add(cls.level)
         ClassTeacher.objects.create(classroom=cls.classroom, teacher=cls.teacher)
         ClassStudent.objects.create(classroom=cls.classroom, student=cls.student_a, is_active=True)
         ClassStudent.objects.create(classroom=cls.classroom, student=cls.student_b, is_active=True)
