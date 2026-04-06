@@ -22,6 +22,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 load_dotenv(BASE_DIR / '.env', override=True)
 
+# ---------------------------------------------------------------------------
+# App Version  (SemVer — bump manually on each release)
+# ---------------------------------------------------------------------------
+APP_VERSION       = '1.0.0'          # MAJOR.MINOR.PATCH
+APP_VERSION_DATE  = '2026-04-07'     # ISO date of this release
+
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
@@ -122,6 +128,7 @@ TEMPLATES = [
                 'classroom.context_processors.subject_sidebar_context',
                 'classroom.context_processors.breadcrumbs_context',
                 'help.context_processors.help_context',
+                'cwa_classroom.context_processors.app_version',
             ],
         },
     },

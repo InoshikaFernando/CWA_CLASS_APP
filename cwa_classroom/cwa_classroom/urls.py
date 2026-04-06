@@ -9,6 +9,8 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.views.generic import RedirectView
 
+from cwa_classroom.views import health_check
+
 from classroom.views import (
     PublicHomeView,
     SubjectsHubView,
@@ -82,6 +84,14 @@ urlpatterns = [
     path('science/', include('science.urls', namespace='science')),
 
     # --- API ---
+    # Health / version check (no auth required)
+    path('api/health/', health_check, name='api_health'),
+
+    # v1 versioned endpoints (new canonical paths)
+    path('api/v1/', include('quiz.api_urls')),
+    path('api/v1/', include('progress.api_urls')),
+
+    # Legacy unversioned endpoints — kept for backwards compatibility
     path('api/', include('quiz.api_urls')),
     path('api/', include('progress.api_urls')),
 ]
