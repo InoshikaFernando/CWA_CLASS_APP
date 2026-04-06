@@ -52,6 +52,7 @@
 
           <div class="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-72 overflow-y-auto">
             {% for strand, subtopics in topic_groups %}
+            {% if subtopics %}
             <details class="group" open>
               <!-- Strand header -->
               <summary class="flex items-center justify-between px-3 py-2 cursor-pointer select-none bg-gray-50 hover:bg-gray-100 transition">
@@ -75,6 +76,19 @@
                 {% endfor %}
               </div>
             </details>
+            {% else %}
+            <!-- Standalone topic (no subtopics) — flat checkbox -->
+            <div class="px-3 py-2">
+              <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer hover:text-gray-900 py-0.5">
+                <input type="checkbox"
+                       name="topics"
+                       value="{{ strand.id }}"
+                       class="topic-checkbox rounded text-blue-600 focus:ring-blue-500"
+                       {% if strand.id in form.topics.value %}checked{% endif %}>
+                <span>{{ strand.name }}</span>
+              </label>
+            </div>
+            {% endif %}
             {% empty %}
             <p class="px-3 py-4 text-sm text-gray-400 text-center">No active topics found.</p>
             {% endfor %}

@@ -57,9 +57,10 @@ def _build_topic_groups(topics_qs):
                 strands[parent.pk] = (parent, [])
             strands[parent.pk][1].append(topic)
 
-    # Filter out strands that have no subtopics (they're not selectable as
-    # homework topics — only subtopics should be selected)
-    result = [(strand, subs) for strand, subs in strands.values() if subs]
+    # Strands that have subtopics → accordion group.
+    # Standalone topics (no parent, no subtopics) → shown as flat checkboxes
+    # by passing an empty list so the template can distinguish.
+    result = [(strand, subs) for strand, subs in strands.values()]
 
     return result
 
