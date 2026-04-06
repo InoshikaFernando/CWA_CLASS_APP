@@ -289,6 +289,64 @@ class AddStudentFeeOverrideView(RoleRequiredMixin, View):
 
 
 # ===========================================================================
+# Invoice Generation — Cascade API (HTMX partials)
+# ===========================================================================
+
+class InvoicingClassesForScopeView(RoleRequiredMixin, View):
+    """
+    HTMX partial: return <option> tags for classrooms that belong to the
+    selected department (or all departments if none selected).
+    GET /invoicing/api/scope/classes/?department_id=X
+    """
+    required_roles = INVOICING_ROLES
+
+    def get(self, request):
+        school = _get_single_school(request.user)
+        if not school:
+            from django.http import HttpResponse
+            return HttpResponse('')
+
+        dept_id = request.GET.get('department_id')
+        qs = ClassRoom.objects.filter(school=school, is_active=True).order_by('name')
+        if dept_id:
+            qs = qs.filter(department_id=dept_id)
+
+        return render(request, 'invoicing/partials/class_options.html', {'classrooms': qs})
+
+
+class InvoicingStudentsForScopeView(RoleRequiredMixin, View):
+    """
+    HTMX partial: return checkbox rows for students enrolled in the selected
+    classroom (or all school students if no classroom selected).
+    GET /invoicing/api/scope/students/?classroom_id=X
+    """
+    required_roles = INVOICING_ROLES
+
+    def get(self, request):
+        school = _get_single_school(request.user)
+        if not school:
+            from django.http import HttpResponse
+            return HttpResponse('')
+
+        classroom_id = request.GET.get('classroom_id')
+        if classroom_id:
+            student_ids = ClassStudent.objects.filter(
+                classroom_id=classroom_id,
+                classroom__school=school,
+                is_active=True,
+            ).values_list('student_id', flat=True)
+            students = SchoolStudent.objects.filter(
+                school=school, student_id__in=student_ids, is_active=True,
+            ).select_related('student').order_by('student__first_name', 'student__last_name')
+        else:
+            students = SchoolStudent.objects.filter(
+                school=school, is_active=True,
+            ).select_related('student').order_by('student__first_name', 'student__last_name')
+
+        return render(request, 'invoicing/partials/student_checkboxes.html', {'students': students})
+
+
+# ===========================================================================
 # Invoice Generation
 # ===========================================================================
 
@@ -302,6 +360,7 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
             return redirect('subjects_hub')
 
         departments = Department.objects.filter(school=school, is_active=True)
+        classrooms  = ClassRoom.objects.filter(school=school, is_active=True).order_by('name')
         terms = Term.objects.filter(school=school).select_related('academic_year')
 
         # Compute period options for quick-select
@@ -332,6 +391,7 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
         return render(request, 'invoicing/generate_invoices.html', {
             'school': school,
             'departments': departments,
+            'classrooms': classrooms,
             'terms': terms,
             'next_month_start': next_month_start.isoformat(),
             'next_month_end': next_month_end.isoformat(),
@@ -352,6 +412,8 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
         billing_type = request.POST.get('billing_type', 'post_term')
         period_type = request.POST.get('period_type', 'custom')
         dept_id = request.POST.get('department_id')
+        classroom_id = request.POST.get('classroom_id')
+        student_ids = request.POST.getlist('student_ids')  # [] means all
 
         if not start or not end:
             messages.error(request, 'Both start and end dates are required.')
@@ -401,10 +463,31 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
                 logger.info('Auto-created %d sessions for %s (%s to %s)',
                             sessions_created, school, start, end)
 
-        # Get students in scope
+        # Get students in scope ─────────────────────────────────────────────
+        # Cascade: school → department → classroom → specific students
         students_qs = SchoolStudent.objects.filter(
             school=school, is_active=True,
         ).select_related('student')
+
+        if student_ids:
+            # Explicit student selection — overrides class/dept filter
+            students_qs = students_qs.filter(student_id__in=student_ids)
+        elif classroom_id:
+            # Limit to students enrolled in the chosen class
+            enrolled_ids = ClassStudent.objects.filter(
+                classroom_id=classroom_id,
+                classroom__school=school,
+                is_active=True,
+            ).values_list('student_id', flat=True)
+            students_qs = students_qs.filter(student_id__in=enrolled_ids)
+        elif dept_id:
+            # Limit to students enrolled in any class in the chosen department
+            enrolled_ids = ClassStudent.objects.filter(
+                classroom__school=school,
+                classroom__department_id=dept_id,
+                is_active=True,
+            ).values_list('student_id', flat=True)
+            students_qs = students_qs.filter(student_id__in=enrolled_ids)
 
         student_data = []
         all_warnings = []
