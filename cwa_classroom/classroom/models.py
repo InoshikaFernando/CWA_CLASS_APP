@@ -97,6 +97,8 @@ class Topic(models.Model):
         unique_together = ('subject', 'slug')
 
     def __str__(self):
+        if self.parent_id:
+            return f'{self.subject.name} — {self.parent.name} › {self.name}'
         return f'{self.subject.name} — {self.name}'
 
 

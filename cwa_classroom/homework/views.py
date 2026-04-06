@@ -64,7 +64,7 @@ class HomeworkCreateView(RoleRequiredMixin, View):
         classroom = get_object_or_404(ClassRoom, id=classroom_id)
         _check_teacher_owns_class(request, classroom)
         # Build topic queryset scoped to the classroom's subjects/levels
-        topics = Topic.objects.filter(is_active=True).select_related('subject').order_by('subject__name', 'name')
+        topics = Topic.objects.filter(is_active=True).select_related('subject', 'parent').order_by('subject__name', 'parent__name', 'name')
         form = HomeworkCreateForm()
         form.fields['topics'].queryset = topics
         return render(request, self.template_name, {
@@ -75,7 +75,7 @@ class HomeworkCreateView(RoleRequiredMixin, View):
     def post(self, request, classroom_id):
         classroom = get_object_or_404(ClassRoom, id=classroom_id)
         _check_teacher_owns_class(request, classroom)
-        topics = Topic.objects.filter(is_active=True).select_related('subject').order_by('subject__name', 'name')
+        topics = Topic.objects.filter(is_active=True).select_related('subject', 'parent').order_by('subject__name', 'parent__name', 'name')
         form = HomeworkCreateForm(request.POST)
         form.fields['topics'].queryset = topics
 
@@ -122,7 +122,9 @@ class HomeworkMonitorView(RoleRequiredMixin, View):
             homework_list = (
                 Homework.objects
                 .filter(classroom=selected_classroom)
-                .prefetch_related('topics')
+                .prefetch_related(
+                    Prefetch('topics', queryset=Topic.objects.select_related('subject', 'parent'))
+                )
                 .order_by('-created_at')
             )
 
@@ -193,7 +195,9 @@ class StudentHomeworkListView(LoginRequiredMixin, View):
         homework_qs = (
             Homework.objects
             .filter(classroom_id__in=class_ids)
-            .prefetch_related('topics')
+            .prefetch_related(
+                Prefetch('topics', queryset=Topic.objects.select_related('subject', 'parent'))
+            )
             .order_by('due_date')
         )
 
