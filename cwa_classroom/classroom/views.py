@@ -1514,11 +1514,11 @@ class StudentCSVCredentialsView(RoleRequiredMixin, View):
         writer = csv_mod.writer(response)
         writer.writerow(['Role', 'Username', 'Email', 'Password', 'First Name', 'Last Name'])
         for c in credentials:
-            writer.writerow(['Student', c['username'], c['email'], c['password'],
-                             c['first_name'], c['last_name']])
+            writer.writerow(['Student', c['username'], c.get('email', ''), c['password'],
+                             c.get('first_name', ''), c.get('last_name', '')])
         for c in parent_credentials:
-            writer.writerow(['Parent', c['username'], c['email'], c['password'],
-                             c['first_name'], c['last_name']])
+            writer.writerow(['Parent', c['username'], c.get('email', ''), c['password'],
+                             c.get('first_name', ''), c.get('last_name', '')])
         return response
 
 
@@ -1818,8 +1818,8 @@ class TeacherCSVCredentialsView(RoleRequiredMixin, View):
         writer = csv_mod.writer(response)
         writer.writerow(['Username', 'Email', 'Password', 'First Name', 'Last Name', 'Role'])
         for c in credentials:
-            writer.writerow([c['username'], c['email'], c['password'],
-                           c['first_name'], c['last_name'], c['role']])
+            writer.writerow([c['username'], c.get('email', ''), c['password'],
+                             c.get('first_name', ''), c.get('last_name', ''), c.get('role', '')])
         return response
 
 
@@ -1971,8 +1971,8 @@ class ParentCSVCredentialsView(RoleRequiredMixin, View):
         writer = csv_mod.writer(response)
         writer.writerow(['Username', 'Email', 'Password', 'First Name', 'Last Name', 'Children'])
         for c in credentials:
-            writer.writerow([c['username'], c['email'], c['password'],
-                           c['first_name'], c['last_name'], c.get('children', '')])
+            writer.writerow([c['username'], c.get('email', ''), c['password'],
+                             c.get('first_name', ''), c.get('last_name', ''), c.get('children', '')])
         return response
 
 
