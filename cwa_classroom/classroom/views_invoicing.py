@@ -408,24 +408,81 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
 
         student_data = []
         all_warnings = []
-        skipped_overlap = []
+        skipped_fully_covered = []   # issued invoices cover the full period → skip
         skipped_no_enrollment = []
+        replaced_draft_count  = 0    # draft invoices cancelled + regenerated
+        gap_invoiced_names    = []   # students who got supplementary gap invoices
 
         for ss in students_qs:
             student = ss.student
+            display_name = student.get_full_name() or student.username
 
             overlaps = svc.check_overlapping_invoices(student, school, start, end)
-            if overlaps.exists():
-                skipped_overlap.append(student.get_full_name() or student.username)
-                continue
 
+            if overlaps.exists():
+                issued_overlaps = overlaps.exclude(status='draft')
+                draft_overlaps  = overlaps.filter(status='draft')
+
+                if issued_overlaps.exists():
+                    # ── Issued invoices overlap ──────────────────────────────
+                    # Find sessions not yet covered by any issued invoice.
+                    uncovered = svc.find_uncovered_date_ranges(issued_overlaps, start, end)
+
+                    if not uncovered:
+                        # Issued invoices fully cover the period — nothing to bill
+                        skipped_fully_covered.append(display_name)
+                        continue
+
+                    # Cancel any draft invoices for this period so we don't
+                    # create duplicates alongside the gap invoice
+                    if draft_overlaps.exists():
+                        replaced_draft_count += draft_overlaps.update(
+                            status='cancelled',
+                            cancelled_by=request.user,
+                            cancelled_at=timezone.now(),
+                        )
+
+                    # Build lines for every uncovered sub-period and merge
+                    gap_lines = []
+                    for gap_start, gap_end in uncovered:
+                        sub_lines, sub_warnings = svc.calculate_invoice_lines(
+                            student, school, gap_start, gap_end, mode,
+                            billing_type=billing_type,
+                        )
+                        gap_lines.extend(sub_lines)
+                        all_warnings.extend(sub_warnings)
+
+                    if gap_lines:
+                        gap_invoiced_names.append(display_name)
+                        student_data.append({
+                            'student':      student,
+                            'lines':        gap_lines,
+                            # Keep the original requested period on the invoice
+                            # so the teacher can see what term it relates to
+                            'period_start': start,
+                            'period_end':   end,
+                        })
+                    continue  # processed above; skip normal flow below
+
+                else:
+                    # ── Draft-only overlap ───────────────────────────────────
+                    # Cancel the draft(s) and regenerate a fresh invoice for
+                    # the full requested period (mirrors Xero/MYOB behaviour).
+                    replaced_draft_count += draft_overlaps.update(
+                        status='cancelled',
+                        cancelled_by=request.user,
+                        cancelled_at=timezone.now(),
+                    )
+                    # Fall through to normal invoice generation below
+
+            # ── No overlap (or drafts cancelled above) ───────────────────────
             # Check if student has any active class enrollments
             active_enrollments = ClassStudent.objects.filter(
                 classroom__school=school, student=student, is_active=True,
                 classroom__is_active=True,
             ).exists()
             if not active_enrollments:
-                skipped_no_enrollment.append(student.get_full_name() or student.username)
+                skipped_no_enrollment.append(display_name)
 
             lines, warnings = svc.calculate_invoice_lines(
                 student, school, start, end, mode, billing_type=billing_type
@@ -435,8 +492,24 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
             if lines:
                 student_data.append({
                     'student': student,
-                    'lines': lines,
+                    'lines':   lines,
                 })
+
+        # ── Informational messages for non-blocking outcomes ─────────────────
+        if replaced_draft_count:
+            messages.info(
+                request,
+                f'{replaced_draft_count} existing draft invoice(s) were replaced with fresh ones.',
+            )
+        if gap_invoiced_names:
+            n = len(gap_invoiced_names)
+            messages.info(
+                request,
+                f'Supplementary invoices generated for {n} student(s) covering sessions '
+                f'not yet included in any existing invoice: '
+                f'{", ".join(sorted(gap_invoiced_names)[:5])}'
+                f'{"..." if n > 5 else ""}',
+            )
 
         if not student_data:
             reasons = []
@@ -446,11 +519,11 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
                 messages.warning(request, 'No invoices generated — no active students found in this school.')
                 return redirect('generate_invoices')
 
-            if skipped_overlap:
+            if skipped_fully_covered:
                 reasons.append(
-                    f'{len(skipped_overlap)} student(s) already have invoices for this period: '
-                    f'{", ".join(sorted(skipped_overlap)[:5])}'
-                    f'{"..." if len(skipped_overlap) > 5 else ""}'
+                    f'{len(skipped_fully_covered)} student(s) are already fully invoiced for this period: '
+                    f'{", ".join(sorted(skipped_fully_covered)[:5])}'
+                    f'{"..." if len(skipped_fully_covered) > 5 else ""}'
                 )
 
             if skipped_no_enrollment:
