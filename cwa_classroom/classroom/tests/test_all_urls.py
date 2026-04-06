@@ -507,7 +507,7 @@ class IndividualStudentURLTest(_SharedFixture):
             (f'/maths/level/{self.level.level_number}/division/', 'tt_div_select'),
             (f'/maths/level/{self.level.level_number}/multiplication/2/', 'tt_mult_quiz'),
             (f'/maths/level/{self.level.level_number}/division/2/', 'tt_div_quiz'),
-            ('/basic-facts/number-puzzles/', 'number_puzzles_home'),
+            ('/maths/basic-facts/number-puzzles/', 'number_puzzles_home'),
             ('/accounts/profile/', 'profile'),
             ('/accounts/complete-profile/', 'complete_profile'),
             ('/accounts/select-classes/', 'select_classes'),
