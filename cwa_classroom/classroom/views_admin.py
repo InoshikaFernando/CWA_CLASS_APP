@@ -1619,7 +1619,10 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
 
     def _get_school(self, request, school_id):
         user = request.user
-        if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER) or user.has_role(Role.ADMIN):
+        # Superusers (ADMIN role) can access any school
+        if user.is_superuser or user.has_role(Role.ADMIN):
+            return get_object_or_404(School, id=school_id)
+        if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
             return get_object_or_404(School, id=school_id, admin=user)
         if user.has_role(Role.HEAD_OF_DEPARTMENT):
             school = get_object_or_404(School, id=school_id)
@@ -2005,7 +2008,10 @@ class SchoolLevelManageView(RoleRequiredMixin, View):
 
     def _get_school(self, request, school_id):
         user = request.user
-        if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER) or user.has_role(Role.ADMIN):
+        # Superusers (ADMIN role) can access any school
+        if user.is_superuser or user.has_role(Role.ADMIN):
+            return get_object_or_404(School, id=school_id)
+        if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
             return get_object_or_404(School, id=school_id, admin=user)
         if user.has_role(Role.HEAD_OF_DEPARTMENT):
             school = get_object_or_404(School, id=school_id)
