@@ -184,11 +184,43 @@ SKIP_PREFIXES = (
 )
 
 SKIP_PATTERNS = (
-    r"^accounts/api/",  # JSON API
+    r"^accounts/api/",  # JSON API — tested in test_api_endpoints_no_500
     r"^api/",
+    r"^invoicing/api/",
+    r"^salaries/api/",
     r"<uuid:token>",    # UUID registration tokens
     r"<uidb64>",        # password reset
 )
+
+# POST-only URLs that cannot be meaningfully tested with an empty POST
+# (external services, dangerous side effects, or require prior wizard session).
+# Everything in SKIP_EXACT *not* in this set will be POSTed to in
+# test_post_actions_no_500.
+POST_ALWAYS_SKIP = frozenset({
+    # External payment processors — require signed Stripe payload
+    "stripe_webhook", "create_payment_intent", "confirm_payment",
+    "apply_promo_code", "stripe_billing_portal", "institute_checkout",
+    # Requires valid signed uidb64+token pair
+    "password_reset_confirm",
+    # CSV wizard steps — require data from prior wizard step in session
+    "student_csv_preview", "student_csv_structure_mapping", "student_csv_confirm",
+    "balance_csv_preview", "balance_csv_confirm",
+    "teacher_csv_preview", "teacher_csv_confirm",
+    "parent_csv_preview", "parent_csv_confirm",
+    "csv_column_mapping", "csv_review_matches", "confirm_csv_payments",
+    # CSV credential views — GET but need session; tested in test_csv_credentials_no_500
+    "student_csv_credentials", "teacher_csv_credentials", "parent_csv_credentials",
+    # DB backup — dangerous, irreversible side effects
+    "database_backup",
+    # AI import wizard — tested separately in test_ai_import_wizard_no_500
+    "ai_import:preview", "ai_import:confirm", "ai_import:export", "ai_import:upload_image",
+    # Logout changes auth state for the test client
+    "logout",
+    # number_puzzles_results requires a UUID from an active live puzzle session
+    "number_puzzles_results",
+    # HTMX partial — requires HTMX headers and prior context
+    "htmx_topics_for_level",
+})
 
 
 # ---------------------------------------------------------------------------
@@ -212,6 +244,7 @@ class FullHierarchyMixin:
             School, SchoolStudent, SchoolTeacher,
             Subject, Term, Topic,
         )
+        from ai_import.models import AIImportSession
         from homework.models import Homework, HomeworkSubmission
         from maths.models import Answer, Question
 
@@ -459,6 +492,16 @@ class FullHierarchyMixin:
             parent=cls.parent, student=cls.student, school=cls.school,
         ).first()
 
+        # ── AI Import Session (owned by admin so client auth passes) ───────
+        cls.ai_session = AIImportSession.objects.create(
+            user=cls.admin,
+            school=cls.school,
+            pdf_filename="test_import.pdf",
+            extracted_data={"questions": []},
+            page_count=1,
+            is_confirmed=False,
+        )
+
     # ── Kwargs resolver ────────────────────────────────────────────────────
 
     def _build_kwargs(self, params):
@@ -614,3 +657,226 @@ class TestAllURLsSitemap(FullHierarchyMixin, TestCase):
             )
         else:
             print(summary)  # visible with -s flag
+
+    # ── Known URL parameter names (for POST + API tests) ──────────────────
+
+    _KNOWN_PARAMS = frozenset({
+        "school_id", "dept_id", "class_id", "classroom_id", "session_id",
+        "student_id", "teacher_id", "topic_id", "level_number", "level_id",
+        "invoice_id", "slip_id", "homework_id", "submission_id", "criteria_id",
+        "invite_id", "request_id", "link_id", "guardian_id", "academic_year_id",
+        "question_id", "token_id", "attendance_id", "subject", "subtopic",
+        "table", "package_id", "payment_id", "import_id", "enrollment_id",
+        "campaign_id", "pk", "id", "slug", "app_label", "content_type_id",
+        "object_id", "token", "uidb64",
+    })
+
+    def _can_build_url(self, full_name, route, params):
+        """Return True if all URL params can be resolved and no skip patterns match."""
+        if full_name.startswith(SKIP_PREFIXES):
+            return False
+        for pat in SKIP_PATTERNS:
+            if re.search(pat, route):
+                return False
+        return all(p in self._KNOWN_PARAMS for p in params)
+
+    # ── POST actions ───────────────────────────────────────────────────────
+
+    def test_post_actions_no_500(self):
+        """POST to action-only URLs with empty data — must not return 500.
+
+        Views that are POST-only but handle missing/invalid form data gracefully
+        should return 302/400/403/200 — never 500.
+        """
+        name_to_info = {
+            fn: (route, params)
+            for fn, route, params in _collect_patterns()
+        }
+        failures = []
+        tested = 0
+
+        # Iterate SKIP_EXACT entries that aren't in POST_ALWAYS_SKIP
+        for full_name in sorted(SKIP_EXACT - POST_ALWAYS_SKIP):
+            if full_name not in name_to_info:
+                continue
+            route, params = name_to_info[full_name]
+            if not self._can_build_url(full_name, route, params):
+                continue
+            kwargs = self._build_kwargs(params)
+            if len(kwargs) < len(params):
+                continue
+            try:
+                url = reverse(full_name, kwargs=kwargs)
+            except NoReverseMatch:
+                continue
+
+            c = self._client_for(full_name)
+            try:
+                resp = c.post(url, data={}, follow=True)
+            except Exception as exc:
+                failures.append(f"Exception POST {full_name!r}: {exc}")
+                continue
+
+            if resp.status_code == 500:
+                failures.append(f"500 POST {full_name!r} → {url}")
+            tested += 1
+
+        summary = f"\nPOST tested: {tested}"
+        if failures:
+            self.fail(
+                f"{len(failures)} POST URL(s) failed (of {tested} tested):{summary}\n\n"
+                + "\n".join(f"  • {f}" for f in failures)
+            )
+        else:
+            print(summary)
+
+    # ── AI Import wizard ───────────────────────────────────────────────────
+
+    def test_ai_import_wizard_no_500(self):
+        """AI import wizard views must not 500 when called with a real session."""
+        # Use one client logged in as admin (who owns cls.ai_session)
+        c = self._client_for("ai_import:preview")
+        sid = self.ai_session.id
+        ai_views = [
+            ("ai_import:preview",      {"session_id": sid}, "GET"),
+            ("ai_import:confirm",      {"session_id": sid}, "GET"),
+            ("ai_import:export",       {"session_id": sid}, "GET"),
+            ("ai_import:upload_image", {"session_id": sid}, "POST"),
+        ]
+        failures = []
+        for full_name, kwargs, method in ai_views:
+            try:
+                url = reverse(full_name, kwargs=kwargs)
+            except NoReverseMatch as exc:
+                failures.append(f"NoReverseMatch {full_name!r}: {exc}")
+                continue
+            try:
+                if method == "POST":
+                    resp = c.post(url, data={}, follow=True)
+                else:
+                    resp = c.get(url, follow=True)
+            except Exception as exc:
+                failures.append(f"Exception {full_name!r}: {exc}")
+                continue
+            if resp.status_code == 500:
+                failures.append(f"500 {method} {full_name!r} → {url}")
+
+        if failures:
+            self.fail(
+                f"{len(failures)} AI import URL(s) failed:\n\n"
+                + "\n".join(f"  • {f}" for f in failures)
+            )
+
+    # ── JSON API endpoints ─────────────────────────────────────────────────
+
+    def test_api_endpoints_no_500(self):
+        """GET-accessible JSON API endpoints must not 500."""
+        api_route_prefixes = (
+            "accounts/api/",
+            "api/",
+            "invoicing/api/",
+            "salaries/api/",
+        )
+        api_patterns = [
+            (fn, route, params)
+            for fn, route, params in _collect_patterns()
+            if any(route.startswith(p) for p in api_route_prefixes)
+            and not re.search(r"<uuid:token>|<uidb64>", route)
+        ]
+        failures = []
+        tested = 0
+
+        for full_name, route, params in api_patterns:
+            # Don't use _can_build_url here — it re-applies SKIP_PATTERNS
+            if full_name.startswith(SKIP_PREFIXES):
+                continue
+            if not all(p in self._KNOWN_PARAMS for p in params):
+                continue
+            kwargs = self._build_kwargs(params)
+            if len(kwargs) < len(params):
+                continue
+            try:
+                url = reverse(full_name, kwargs=kwargs)
+            except NoReverseMatch:
+                continue
+
+            c = self._client_for(full_name)
+            try:
+                # Append common search/query params for search endpoints
+                resp = c.get(
+                    url + "?q=test&username=testuser",
+                    HTTP_ACCEPT="application/json",
+                    HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                    follow=True,
+                )
+            except Exception as exc:
+                failures.append(f"Exception API {full_name!r}: {exc}")
+                continue
+
+            if resp.status_code == 500:
+                failures.append(f"500 API {full_name!r} → {url}")
+            tested += 1
+
+        summary = f"\nAPI tested: {tested}"
+        if failures:
+            self.fail(
+                f"{len(failures)} API URL(s) failed (of {tested} tested):{summary}\n\n"
+                + "\n".join(f"  • {f}" for f in failures)
+            )
+        else:
+            print(summary)
+
+    # ── CSV credential download views ──────────────────────────────────────
+
+    def test_csv_credentials_no_500(self):
+        """CSV credential download views (GET with injected session) must not 500."""
+        base_cred = {
+            "username": "testuser",
+            "email": "testuser@test.local",
+            "password": "TestPass1!",
+            "first_name": "Test",
+            "last_name": "User",
+        }
+        student_cred = {**base_cred}
+        teacher_cred = {**base_cred, "role": "teacher"}
+        parent_cred  = {**base_cred, "children": "Student One"}
+        cred_views = {
+            "student_csv_credentials": {
+                "csv_student_credentials": [student_cred],
+                "csv_parent_credentials":  [parent_cred],
+            },
+            "teacher_csv_credentials": {
+                "csv_teacher_credentials": [teacher_cred],
+            },
+            "parent_csv_credentials": {
+                "csv_parent_credentials": [parent_cred],
+            },
+        }
+        failures = []
+
+        for url_name, session_data in cred_views.items():
+            try:
+                url = reverse(url_name)
+            except NoReverseMatch:
+                continue
+
+            c = self._client_for(url_name)
+            # Inject the expected session keys
+            sess = c.session
+            sess.update(session_data)
+            sess.save()
+
+            try:
+                resp = c.get(url, follow=True)
+            except Exception as exc:
+                failures.append(f"Exception {url_name!r}: {exc}")
+                continue
+
+            if resp.status_code == 500:
+                failures.append(f"500 {url_name!r} → {url}")
+
+        if failures:
+            self.fail(
+                f"{len(failures)} CSV credential URL(s) failed:\n\n"
+                + "\n".join(f"  • {f}" for f in failures)
+            )
