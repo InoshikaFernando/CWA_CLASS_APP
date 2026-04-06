@@ -21,7 +21,7 @@ import re
 import pytest
 from playwright.sync_api import expect
 
-from .conftest import do_login, _make_user, TEST_PASSWORD
+from .conftest import do_login, do_logout, _make_user, TEST_PASSWORD
 from .helpers import _ensure_sidebar_visible, assert_page_has_text
 
 pytestmark = pytest.mark.parent_portal
@@ -310,7 +310,7 @@ class TestBecomeParentApprovalFlow:
         self.page.wait_for_load_state("domcontentloaded")
 
         # Switch to teacher-parent account
-        self.page.goto(f"{self.url}/accounts/logout/")
+        do_logout(self.page, self.url)
         do_login(self.page, self.url, self.teacher)
 
         # Set active_role to parent via the switch-role mechanism

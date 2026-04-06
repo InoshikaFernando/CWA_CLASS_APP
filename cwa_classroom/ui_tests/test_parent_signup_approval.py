@@ -15,7 +15,7 @@ import re
 import pytest
 from playwright.sync_api import expect
 
-from .conftest import do_login, TEST_PASSWORD, _make_user, _assign_role
+from .conftest import do_login, do_logout, TEST_PASSWORD, _make_user, _assign_role
 
 pytestmark = pytest.mark.parent_approval
 
@@ -276,7 +276,7 @@ class TestApprovalFlow:
         self.page.wait_for_load_state("domcontentloaded")
 
         # Now log in as parent
-        self.page.goto(f"{self.url}/accounts/logout/")
+        do_logout(self.page, self.url)
         do_login(self.page, self.url, self.parent)
         self.page.goto(f"{self.url}/parent/")
         self.page.wait_for_load_state("domcontentloaded")
@@ -326,7 +326,7 @@ class TestRejectionFlow:
         self.page.wait_for_load_state("domcontentloaded")
 
         # Log in as parent
-        self.page.goto(f"{self.url}/accounts/logout/")
+        do_logout(self.page, self.url)
         do_login(self.page, self.url, self.parent)
         self.page.goto(f"{self.url}/parent/")
         self.page.wait_for_load_state("domcontentloaded")

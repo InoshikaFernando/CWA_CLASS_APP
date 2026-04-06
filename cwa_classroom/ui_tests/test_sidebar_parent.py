@@ -76,4 +76,4 @@ class TestParentChildSwitcher:
     def test_child_switcher_shows_child_name(self):
         _ensure_sidebar_visible(self.page)
         sidebar = self.page.locator("aside#sidebar")
-        expect(sidebar).to_contain_text("ui_student")
+        expect(sidebar).to_contain_text("Ui Student")

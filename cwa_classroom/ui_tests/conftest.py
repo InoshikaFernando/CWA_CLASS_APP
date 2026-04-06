@@ -108,6 +108,24 @@ def do_login(page: Page, live_server_url: str, user) -> None:
     page.wait_for_load_state("domcontentloaded")
 
 
+def do_logout(page: Page, live_server_url: str) -> None:
+    """POST to the logout URL (Django 5 removed GET-based logout support)."""
+    page.evaluate(f"""() => {{
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '{live_server_url}/accounts/logout/';
+        const csrf = document.createElement('input');
+        csrf.type = 'hidden';
+        csrf.name = 'csrfmiddlewaretoken';
+        const match = document.cookie.match(/csrftoken=([^;]+)/);
+        csrf.value = match ? match[1] : '';
+        form.appendChild(csrf);
+        document.body.appendChild(form);
+        form.submit();
+    }}""")
+    page.wait_for_load_state("domcontentloaded")
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Role fixtures  (function-scoped → cleaned up after each test)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -139,7 +157,7 @@ def roles(db):
 @pytest.fixture
 def student_user(db, roles):
     from accounts.models import Role
-    return _make_user("ui_student", Role.STUDENT, first_name="ui_student")
+    return _make_user("ui_student", Role.STUDENT, first_name="Ui Student")
 
 
 @pytest.fixture
