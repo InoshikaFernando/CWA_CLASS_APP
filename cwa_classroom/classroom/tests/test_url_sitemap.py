@@ -271,7 +271,7 @@ class FullHierarchyMixin:
             return u
 
         # ── Users ──────────────────────────────────────────────────────────
-        cls.admin      = make_user("url_admin",      Role.ADMIN, is_staff=True)
+        cls.admin      = make_user("url_admin",      Role.ADMIN, is_staff=True, is_superuser=True)
         cls.teacher    = make_user("url_teacher",    Role.TEACHER)
         cls.s_teacher  = make_user("url_steacher",   Role.SENIOR_TEACHER)
         cls.student    = make_user("url_student",    Role.STUDENT)
@@ -450,7 +450,7 @@ class FullHierarchyMixin:
             classroom=cls.classroom,
             created_by=cls.teacher,
             title=f"Homework {RUN}",
-            homework_type="quiz",
+            homework_type="topic",
             num_questions=5,
             due_date=tz.now() + timedelta(days=7),
         )
@@ -639,6 +639,10 @@ class TestAllURLsSitemap(FullHierarchyMixin, TestCase):
                     "package_id",
                     # absence token available sessions — student may have none
                     "token_id",
+                    # pk is a stub (maps to admin user id); billing edit views use pk
+                    # to look up DiscountCode/ModuleProduct/PromoCode which won't
+                    # share the same id → expected 404
+                    "pk",
                 }
                 if not any(p in placeholder_params for p in params):
                     failures.append(f"404 {full_name!r} → {url}")

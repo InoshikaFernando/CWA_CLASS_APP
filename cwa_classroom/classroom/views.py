@@ -2851,7 +2851,7 @@ class HoDOverviewView(RoleRequiredMixin, View):
         revenue_data = []
         revenue_table = []
         for row in revenue_by_class:
-            name = row['classroom__name'] or 'Unknown'
+            name = row['classroom__name'] or 'Other / Deleted Class'
             amount = row['total'] or Decimal('0')
             revenue_labels.append(name)
             revenue_data.append(float(amount))
