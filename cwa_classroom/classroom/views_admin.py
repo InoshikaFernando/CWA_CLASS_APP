@@ -35,8 +35,9 @@ def _get_user_school(user, school_id=None):
     If school_id is given, returns that specific school or None.
     If school_id is None, returns the user's first accessible school or None.
     """
-    # Superusers can access any school
-    if user.is_superuser:
+    from accounts.models import Role as _Role
+    # Superusers and ADMIN-role users can access any school
+    if user.is_superuser or user.has_role(_Role.ADMIN):
         if school_id:
             return School.objects.filter(id=school_id).first()
         return School.objects.first()
@@ -59,7 +60,8 @@ def _get_user_school(user, school_id=None):
 
 def _get_user_schools(user):
     """Get all schools the user can manage."""
-    if user.is_superuser:
+    from accounts.models import Role as _Role
+    if user.is_superuser or user.has_role(_Role.ADMIN):
         return School.objects.filter(is_active=True)
 
     admin_schools = School.objects.filter(admin=user, is_active=True)

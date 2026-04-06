@@ -11,6 +11,7 @@ from accounts.views import _validate_username, _generate_username_suggestion
 from audit.services import log_event
 from .models import School, SchoolTeacher, Department, DepartmentTeacher, DepartmentLevel, DepartmentSubject, ClassRoom, Subject, Level, Currency
 from .views import RoleRequiredMixin
+from .views_admin import _get_user_school_or_404
 from .email_utils import send_staff_welcome_email
 
 
@@ -19,7 +20,7 @@ class DepartmentListView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request, school_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         show_inactive = request.GET.get('show_inactive') == '1'
         departments = Department.objects.filter(school=school).select_related('head')
         if not show_inactive:
@@ -63,7 +64,7 @@ class DepartmentCreateView(RoleRequiredMixin, View):
         ).order_by('order', 'name')
 
     def get(self, request, school_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         subjects = self._get_subjects(school)
         return render(request, 'admin_dashboard/department_form.html', {
             'school': school,
@@ -71,7 +72,7 @@ class DepartmentCreateView(RoleRequiredMixin, View):
         })
 
     def post(self, request, school_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         name = request.POST.get('name', '').strip()
         description = request.POST.get('description', '').strip()
         subject_ids = request.POST.getlist('subjects')  # Multi-select
@@ -160,7 +161,7 @@ class DepartmentDetailView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request, school_id, dept_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         department = get_object_or_404(Department, id=dept_id, school=school)
         dept_teachers = DepartmentTeacher.objects.filter(
             department=department
@@ -243,7 +244,7 @@ class DepartmentEditView(RoleRequiredMixin, View):
         ).order_by('order', 'name')
 
     def get(self, request, school_id, dept_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         department = get_object_or_404(Department, id=dept_id, school=school)
         subjects = self._get_subjects(school)
         current_subject_ids = list(
@@ -264,7 +265,7 @@ class DepartmentEditView(RoleRequiredMixin, View):
         })
 
     def post(self, request, school_id, dept_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         department = get_object_or_404(Department, id=dept_id, school=school)
         name = request.POST.get('name', '').strip()
         description = request.POST.get('description', '').strip()
@@ -358,7 +359,7 @@ class DepartmentAssignHoDView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request, school_id, dept_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         department = get_object_or_404(Department, id=dept_id, school=school)
         # Get teachers already at this school who could be HoD
         school_teachers = SchoolTeacher.objects.filter(
@@ -371,7 +372,7 @@ class DepartmentAssignHoDView(RoleRequiredMixin, View):
         })
 
     def post(self, request, school_id, dept_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         department = get_object_or_404(Department, id=dept_id, school=school)
         action = request.POST.get('action', '')
 
@@ -522,7 +523,7 @@ class DepartmentManageTeachersView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request, school_id, dept_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         department = get_object_or_404(Department, id=dept_id, school=school)
         # All school teachers
         school_teachers = SchoolTeacher.objects.filter(
@@ -543,7 +544,7 @@ class DepartmentManageTeachersView(RoleRequiredMixin, View):
         })
 
     def post(self, request, school_id, dept_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         department = get_object_or_404(Department, id=dept_id, school=school)
         selected_teacher_ids = request.POST.getlist('teacher_ids')
 
@@ -607,7 +608,7 @@ class DepartmentAssignClassesView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request, school_id, dept_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         department = get_object_or_404(Department, id=dept_id, school=school)
         # All active classes in this school
         all_classes = ClassRoom.objects.filter(
@@ -625,7 +626,7 @@ class DepartmentAssignClassesView(RoleRequiredMixin, View):
         })
 
     def post(self, request, school_id, dept_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         department = get_object_or_404(Department, id=dept_id, school=school)
         selected_class_ids = request.POST.getlist('class_ids')
 
@@ -1243,7 +1244,7 @@ class DepartmentToggleActiveView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def post(self, request, school_id, dept_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         department = get_object_or_404(Department, id=dept_id, school=school)
         department.is_active = not department.is_active
         department.save(update_fields=['is_active'])
@@ -1264,7 +1265,7 @@ class DepartmentDeleteView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def post(self, request, school_id, dept_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         department = get_object_or_404(Department, id=dept_id, school=school)
 
         class_count = department.classrooms.filter(is_active=True).count()

@@ -17,6 +17,7 @@ from django.db.models import Q
 
 from .models import School, SchoolStudent, ParentStudent, ParentInvite, Guardian, StudentGuardian
 from .views import RoleRequiredMixin
+from .views_admin import _get_user_school_or_404
 
 
 class ManageParentsRedirectView(RoleRequiredMixin, View):
@@ -118,7 +119,7 @@ class GuardianEditModalView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request, school_id, guardian_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         guardian = get_object_or_404(Guardian, id=guardian_id, school=school)
         children = StudentGuardian.objects.filter(
             guardian=guardian,
@@ -136,7 +137,7 @@ class GuardianUpdateView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def post(self, request, school_id, guardian_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         guardian = get_object_or_404(Guardian, id=guardian_id, school=school)
 
         guardian.first_name = request.POST.get('first_name', guardian.first_name).strip()
@@ -168,7 +169,7 @@ class ParentLinkEditModalView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request, school_id, link_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         link = get_object_or_404(
             ParentStudent, id=link_id, school=school, is_active=True,
         )
@@ -189,7 +190,7 @@ class ParentLinkUpdateView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def post(self, request, school_id, link_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         link = get_object_or_404(
             ParentStudent, id=link_id, school=school, is_active=True,
         )
@@ -215,7 +216,7 @@ class ParentInviteCreateView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request, school_id, student_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         from accounts.models import CustomUser
         student = get_object_or_404(CustomUser, id=student_id)
 
@@ -236,7 +237,7 @@ class ParentInviteCreateView(RoleRequiredMixin, View):
         })
 
     def post(self, request, school_id, student_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         from accounts.models import CustomUser
         student = get_object_or_404(CustomUser, id=student_id)
 
@@ -391,7 +392,7 @@ class ParentInviteListView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request, school_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         invites = (
             ParentInvite.objects.filter(school=school)
             .select_related('student', 'invited_by')
@@ -409,7 +410,7 @@ class ParentInviteRevokeView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def post(self, request, school_id, invite_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         invite = get_object_or_404(
             ParentInvite, id=invite_id, school=school, status='pending',
         )
@@ -430,7 +431,7 @@ class StudentParentLinksView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request, school_id, student_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         from accounts.models import CustomUser
         student = get_object_or_404(CustomUser, id=student_id)
 
@@ -450,7 +451,7 @@ class ParentStudentUnlinkView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def post(self, request, school_id, student_id, link_id):
-        school = get_object_or_404(School, id=school_id, admin=request.user)
+        school = _get_user_school_or_404(request.user, school_id)
         link = get_object_or_404(
             ParentStudent, id=link_id, school=school, student_id=student_id,
         )
