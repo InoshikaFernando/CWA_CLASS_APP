@@ -362,6 +362,8 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
             submission.points = pts
             submission.save(update_fields=['score', 'points'])
 
+        if request.POST.get('action') == 'save_exit':
+            return redirect('homework:student_list')
         return redirect('homework:student_result', submission_id=submission.id)
 
 
