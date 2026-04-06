@@ -80,17 +80,17 @@ class URLResolutionTest(TestCase):
 
     def test_number_puzzles_home_resolves(self):
         url = reverse('number_puzzles_home')
-        self.assertEqual(url, '/basic-facts/number-puzzles/')
+        self.assertEqual(url, '/maths/basic-facts/number-puzzles/')
 
     def test_number_puzzles_play_resolves(self):
         url = reverse('number_puzzles_play', kwargs={'slug': 'beginner'})
-        self.assertEqual(url, '/basic-facts/number-puzzles/play/beginner/')
+        self.assertEqual(url, '/maths/basic-facts/number-puzzles/play/beginner/')
 
     def test_number_puzzles_results_resolves(self):
         import uuid
         test_id = uuid.uuid4()
         url = reverse('number_puzzles_results', kwargs={'session_id': test_id})
-        self.assertIn('/basic-facts/number-puzzles/results/', url)
+        self.assertIn('/maths/basic-facts/number-puzzles/results/', url)
 
 
 # ── Link Validation Tests ───────────────────────────────────────────────────
@@ -110,15 +110,15 @@ class SidebarLinkTest(NumberPuzzlesTestBase):
 
     def test_basic_facts_page_contains_number_puzzles_link(self):
         """The Basic Facts page should contain a link to Number Puzzles."""
-        response = self.client.get('/basic-facts/', follow=True)
+        response = self.client.get('/maths/basic-facts/', follow=True)
         if response.status_code == 200:
-            self.assertContains(response, '/basic-facts/number-puzzles/')
+            self.assertContains(response, '/maths/basic-facts/number-puzzles/')
 
     def test_basic_facts_home_contains_number_puzzles_card(self):
         """The Basic Facts home should have a Number Puzzles card."""
-        response = self.client.get('/basic-facts/', follow=True)
+        response = self.client.get('/maths/basic-facts/', follow=True)
         if response.status_code == 200:
-            self.assertContains(response, '/basic-facts/number-puzzles/')
+            self.assertContains(response, '/maths/basic-facts/number-puzzles/')
             self.assertContains(response, 'Number Puzzles')
 
 

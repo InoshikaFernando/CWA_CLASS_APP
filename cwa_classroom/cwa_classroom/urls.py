@@ -8,6 +8,8 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from django.views.generic import RedirectView
+from django.contrib.sitemaps.views import sitemap
+from .sitemaps import StaticViewSitemap, AuthenticatedViewSitemap
 
 from classroom.views import (
     PublicHomeView,
@@ -21,6 +23,12 @@ from classroom.views import (
 from classroom.views_email import UnsubscribeView
 
 
+sitemaps = {
+    "static": StaticViewSitemap,
+    "authenticated": AuthenticatedViewSitemap,
+}
+
+
 def robots_txt(request):
     lines = [
         "User-Agent: *",
@@ -32,6 +40,7 @@ def robots_txt(request):
 
 urlpatterns = [
     # --- Bare-root files requested by browsers / crawlers ---
+    path('sitemap.xml', sitemap, {'sitemaps': sitemaps}, name='django.contrib.sitemaps.views.sitemap'),
     path('robots.txt', robots_txt, name='robots_txt'),
     path('favicon.ico', RedirectView.as_view(url=settings.STATIC_URL + 'images/logo.png', permanent=True)),
 
@@ -62,9 +71,9 @@ urlpatterns = [
 
     # --- Core apps ---
     path('', include('classroom.urls')),
-    path('', include('number_puzzles.urls')),  # before quiz — quiz has catch-all basic-facts/<str>/
-    path('maths/', include('quiz.urls')),  # quiz is maths-only content
+    path('maths/', include('number_puzzles.urls')),
     path('', include('progress.urls')),
+    path('', include('quiz.subject_urls')),  # /<subject>/level/<n>/topic/<id>/quiz/ etc.
 
     # --- Homework ---
     path('', include('homework.urls', namespace='homework')),
@@ -77,6 +86,8 @@ urlpatterns = [
 
     # --- Subject apps ---
     path('maths/', include('maths.urls', namespace='maths')),
+    path('maths/', include('quiz.urls')),          # basic-facts, times-tables (maths-specific)
+    path('maths/', include('quiz.level_urls')),    # level/<n>/... quiz routes under maths/
     path('coding/', include('coding.urls', namespace='coding')),
     path('music/', include('music.urls', namespace='music')),
     path('science/', include('science.urls', namespace='science')),

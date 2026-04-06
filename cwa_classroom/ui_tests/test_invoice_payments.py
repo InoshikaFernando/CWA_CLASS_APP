@@ -86,13 +86,12 @@ class TestRecordManualPayment:
     def test_amount_input(self):
         """Amount input should be present (if page loaded correctly)."""
         inputs = self.page.locator("input[type='number'], input[name*='amount']")
-        # May not be present if invoice is draft and view restricts
-        if "/pay/" in self.page.url:
+        if f"/invoicing/{self.invoice.id}/" in self.page.url:
             assert inputs.count() >= 1
 
     def test_date_input(self):
         """Payment date input should be present (if page loaded correctly)."""
-        if "/pay/" in self.page.url:
+        if f"/invoicing/{self.invoice.id}/" in self.page.url:
             date_inputs = self.page.locator("input[type='date']")
             assert date_inputs.count() >= 1
 
