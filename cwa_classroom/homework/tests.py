@@ -60,6 +60,7 @@ class HomeworkTestBase(TestCase):
         cls.level, _ = Level.objects.get_or_create(
             level_number=501, defaults={'display_name': 'HW Test Level'},
         )
+        cls.classroom.levels.add(cls.level)
         cls.topic = Topic.objects.create(
             subject=subject, name='Fractions HW', slug='fractions-hw',
         )
@@ -602,6 +603,73 @@ class HomeworkCreateUITest(HomeworkTestBase):
         self.assertContains(resp, 'future')  # error message text
 
 
+class HomeworkTopicLevelFilterTest(HomeworkTestBase):
+    """
+    Topics shown on the create-homework form must be restricted to those
+    that have at least one Question at the classroom's configured levels.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='teacher1', password='pass1234')
+        self.url = reverse('homework:teacher_create', kwargs={'classroom_id': self.classroom.id})
+
+    def test_topic_with_questions_at_classroom_level_is_shown(self):
+        """'Fractions HW' has questions at cls.level which is on the classroom → must appear."""
+        resp = self.client.get(self.url)
+        self.assertContains(resp, 'Fractions HW')
+
+    def test_topic_without_questions_at_classroom_level_is_hidden(self):
+        """
+        Create a topic whose only questions are at a *different* level.
+        That topic must NOT appear in the form.
+        """
+        other_level, _ = Level.objects.get_or_create(
+            level_number=502, defaults={'display_name': 'Other Level'}
+        )
+        other_topic = Topic.objects.create(
+            subject=self.topic.subject,
+            name='Other Level Topic',
+            slug='other-level-topic-hw',
+        )
+        Question.objects.create(
+            level=other_level,
+            topic=other_topic,
+            question_text='Only at other level?',
+            question_type=Question.MULTIPLE_CHOICE,
+            difficulty=1,
+        )
+        resp = self.client.get(self.url)
+        self.assertNotContains(resp, 'Other Level Topic')
+
+    def test_topic_with_no_questions_at_all_is_hidden(self):
+        """A topic with zero questions must not appear regardless of level."""
+        empty_topic = Topic.objects.create(
+            subject=self.topic.subject,
+            name='Empty Topic HW',
+            slug='empty-topic-hw',
+        )
+        resp = self.client.get(self.url)
+        self.assertNotContains(resp, 'Empty Topic HW')
+
+    def test_classroom_with_no_levels_shows_topics_with_any_questions(self):
+        """
+        If the classroom has no levels configured, fall back to showing all
+        topics that have at least one question (any level).
+        """
+        # Create a fresh classroom with no levels
+        from classroom.models import ClassTeacher as CT
+        unlevel_classroom = ClassRoom.objects.create(
+            name='No Level Class', code='NOLVL01', school=self.school,
+        )
+        CT.objects.create(classroom=unlevel_classroom, teacher=self.teacher)
+
+        url = reverse('homework:teacher_create', kwargs={'classroom_id': unlevel_classroom.id})
+        resp = self.client.get(url)
+        # cls.topic has questions → should appear even without level config
+        self.assertContains(resp, 'Fractions HW')
+
+
 class HomeworkMonitorUITest(HomeworkTestBase):
     """Assert the monitor page renders class selector and homework cards."""
 
@@ -1114,4 +1182,325 @@ class HomeworkCreatedByColumnTest(HomeworkTestBase):
             '0002_add_created_by_nullable.py',
             migration_files,
             'Missing migration 0002_add_created_by_nullable.py',
+        )
+
+
+# ---------------------------------------------------------------------------
+# End-to-end workflow tests
+# ---------------------------------------------------------------------------
+
+class HomeworkE2EWorkflowTest(TestCase):
+    """
+    Full end-to-end workflow:
+      1. School with department, maths subject, class, teacher, students
+      2. Teacher creates homework via POST
+      3. Student takes homework and submits (Submit Homework → result page)
+      4. Student takes homework and submits (Save & Exit → student list)
+      5. Teacher views detail page and sees correct student status/score
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from classroom.models import Department
+
+        teacher_role, _ = Role.objects.get_or_create(
+            name='teacher', defaults={'display_name': 'Teacher'}
+        )
+        student_role, _ = Role.objects.get_or_create(
+            name='student', defaults={'display_name': 'Student'}
+        )
+
+        # Owner / school
+        cls.owner = CustomUser.objects.create_user('e2e_owner', 'e2e_owner@test.com', 'pass1234')
+        cls.school = School.objects.create(
+            name='E2E School', slug='e2e-school', admin=cls.owner, is_active=True
+        )
+
+        # Department
+        cls.dept = Department.objects.create(
+            name='Maths Dept', school=cls.school
+        )
+
+        # Subject and topic
+        cls.subject = Subject.objects.create(name='E2E Maths', slug='e2e-maths')
+        cls.topic = Topic.objects.create(
+            subject=cls.subject, name='Fractions E2E', slug='fractions-e2e'
+        )
+
+        # Level
+        cls.level, _ = Level.objects.get_or_create(
+            level_number=601, defaults={'display_name': 'E2E Level'}
+        )
+
+        # Questions (5 MCQ, all with a correct and a wrong answer)
+        cls.questions = []
+        for i in range(5):
+            q = Question.objects.create(
+                level=cls.level, topic=cls.topic,
+                question_text=f'E2E Question {i + 1}?',
+                question_type=Question.MULTIPLE_CHOICE,
+                difficulty=1,
+            )
+            Answer.objects.create(question=q, answer_text='Right', is_correct=True, order=0)
+            Answer.objects.create(question=q, answer_text='Wrong', is_correct=False, order=1)
+            cls.questions.append(q)
+
+        # Teacher
+        cls.teacher = CustomUser.objects.create_user('e2e_teacher', 'e2e_teacher@test.com', 'pass1234')
+        cls.teacher.roles.add(teacher_role)
+        SchoolTeacher.objects.create(school=cls.school, teacher=cls.teacher, role='teacher')
+
+        # Students
+        cls.student_a = CustomUser.objects.create_user('e2e_student_a', 'ea@test.com', 'pass1234')
+        cls.student_a.roles.add(student_role)
+        cls.student_b = CustomUser.objects.create_user('e2e_student_b', 'eb@test.com', 'pass1234')
+        cls.student_b.roles.add(student_role)
+
+        # Class — assign the level so topic filtering works correctly
+        cls.classroom = ClassRoom.objects.create(
+            name='E2E Maths Class', code='E2EHWCLS', school=cls.school,
+        )
+        cls.classroom.levels.add(cls.level)
+        ClassTeacher.objects.create(classroom=cls.classroom, teacher=cls.teacher)
+        ClassStudent.objects.create(classroom=cls.classroom, student=cls.student_a, is_active=True)
+        ClassStudent.objects.create(classroom=cls.classroom, student=cls.student_b, is_active=True)
+
+    # ── helpers ─────────────────────────────────────────────────────────────
+
+    def _teacher_client(self):
+        c = Client()
+        c.login(username='e2e_teacher', password='pass1234')
+        return c
+
+    def _student_a_client(self):
+        c = Client()
+        c.login(username='e2e_student_a', password='pass1234')
+        return c
+
+    def _student_b_client(self):
+        c = Client()
+        c.login(username='e2e_student_b', password='pass1234')
+        return c
+
+    def _create_homework(self, teacher_client):
+        """Teacher POSTs to create-homework view and returns the Homework object."""
+        url = reverse('homework:teacher_create', kwargs={'classroom_id': self.classroom.id})
+        due = (timezone.now() + timedelta(days=7)).strftime('%Y-%m-%dT%H:%M')
+        resp = teacher_client.post(url, {
+            'title': 'E2E Homework',
+            'description': 'An e2e test homework',
+            'homework_type': 'topic',
+            'topics': [self.topic.id],
+            'num_questions': 5,
+            'due_date': due,
+            'max_attempts': 3,
+        })
+        # Should redirect to detail page on success
+        self.assertEqual(resp.status_code, 302, f'Create homework POST failed: {resp.status_code}')
+        hw = Homework.objects.filter(title='E2E Homework', classroom=self.classroom).first()
+        self.assertIsNotNone(hw, 'Homework was not created')
+        return hw
+
+    def _build_answer_post(self, hw, all_correct=True):
+        """Build POST data dict with answers for all questions in homework."""
+        data = {'time_taken_seconds': '90'}
+        for hwq in hw.homework_questions.select_related('question').prefetch_related('question__answers'):
+            q = hwq.question
+            if all_correct:
+                ans = q.answers.get(is_correct=True)
+            else:
+                ans = q.answers.get(is_correct=False)
+            data[f'answer_{q.id}'] = str(ans.id)
+        return data
+
+    # ── Step 1: Teacher creates homework ────────────────────────────────────
+
+    def test_teacher_can_create_homework(self):
+        tc = self._teacher_client()
+        hw = self._create_homework(tc)
+        self.assertEqual(hw.homework_questions.count(), 5)
+        self.assertEqual(hw.classroom, self.classroom)
+
+    def test_created_homework_has_correct_topic(self):
+        tc = self._teacher_client()
+        hw = self._create_homework(tc)
+        self.assertIn(self.topic, hw.topics.all())
+
+    # ── Step 2: Student takes and submits (Submit Homework) ─────────────────
+
+    def test_student_can_submit_and_gets_redirected_to_result(self):
+        """Submit Homework → result page."""
+        tc = self._teacher_client()
+        hw = self._create_homework(tc)
+
+        sc = self._student_a_client()
+        url = reverse('homework:student_take', kwargs={'homework_id': hw.id})
+        data = self._build_answer_post(hw, all_correct=True)
+        resp = sc.post(url, data)
+
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/homework/result/', resp['Location'])
+
+    def test_student_submission_recorded_with_correct_score(self):
+        tc = self._teacher_client()
+        hw = self._create_homework(tc)
+
+        sc = self._student_a_client()
+        url = reverse('homework:student_take', kwargs={'homework_id': hw.id})
+        data = self._build_answer_post(hw, all_correct=True)
+        sc.post(url, data)
+
+        sub = HomeworkSubmission.objects.filter(homework=hw, student=self.student_a).first()
+        self.assertIsNotNone(sub, 'Submission not created')
+        self.assertEqual(sub.score, 5)
+        self.assertEqual(sub.total_questions, 5)
+
+    def test_student_submission_creates_answer_records(self):
+        tc = self._teacher_client()
+        hw = self._create_homework(tc)
+
+        sc = self._student_a_client()
+        url = reverse('homework:student_take', kwargs={'homework_id': hw.id})
+        data = self._build_answer_post(hw, all_correct=True)
+        sc.post(url, data)
+
+        sub = HomeworkSubmission.objects.get(homework=hw, student=self.student_a)
+        self.assertEqual(sub.answers.count(), 5)
+        self.assertTrue(all(a.is_correct for a in sub.answers.all()))
+
+    def test_result_page_shows_full_score(self):
+        tc = self._teacher_client()
+        hw = self._create_homework(tc)
+
+        sc = self._student_a_client()
+        url = reverse('homework:student_take', kwargs={'homework_id': hw.id})
+        data = self._build_answer_post(hw, all_correct=True)
+        resp = sc.post(url, data)
+
+        result_url = resp['Location']
+        result_resp = sc.get(result_url)
+        self.assertEqual(result_resp.status_code, 200)
+        self.assertContains(result_resp, '100%')
+
+    # ── Step 3: Save & Exit saves submission and redirects to list ───────────
+
+    def test_save_and_exit_redirects_to_student_list(self):
+        """Save & Exit → student list (not result page)."""
+        tc = self._teacher_client()
+        hw = self._create_homework(tc)
+
+        sc = self._student_b_client()
+        url = reverse('homework:student_take', kwargs={'homework_id': hw.id})
+        data = self._build_answer_post(hw, all_correct=False)
+        data['action'] = 'save_exit'
+        resp = sc.post(url, data)
+
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/homework/', resp['Location'])
+        self.assertNotIn('/result/', resp['Location'])
+
+    def test_save_and_exit_still_saves_submission(self):
+        """Save & Exit must persist the submission to DB."""
+        tc = self._teacher_client()
+        hw = self._create_homework(tc)
+
+        sc = self._student_b_client()
+        url = reverse('homework:student_take', kwargs={'homework_id': hw.id})
+        data = self._build_answer_post(hw, all_correct=False)
+        data['action'] = 'save_exit'
+        sc.post(url, data)
+
+        sub = HomeworkSubmission.objects.filter(homework=hw, student=self.student_b).first()
+        self.assertIsNotNone(sub, 'Save & Exit did not persist the submission')
+        self.assertEqual(sub.total_questions, 5)
+
+    def test_save_and_exit_saves_answer_records(self):
+        tc = self._teacher_client()
+        hw = self._create_homework(tc)
+
+        sc = self._student_b_client()
+        url = reverse('homework:student_take', kwargs={'homework_id': hw.id})
+        data = self._build_answer_post(hw, all_correct=True)
+        data['action'] = 'save_exit'
+        sc.post(url, data)
+
+        sub = HomeworkSubmission.objects.get(homework=hw, student=self.student_b)
+        self.assertEqual(sub.answers.count(), 5)
+
+    # ── Step 4: Teacher checks student status ────────────────────────────────
+
+    def test_teacher_detail_shows_student_submission(self):
+        """Teacher detail page reflects submission created by the student."""
+        tc = self._teacher_client()
+        hw = self._create_homework(tc)
+
+        sc = self._student_a_client()
+        url = reverse('homework:student_take', kwargs={'homework_id': hw.id})
+        data = self._build_answer_post(hw, all_correct=True)
+        sc.post(url, data)
+
+        detail_url = reverse('homework:teacher_detail', kwargs={'homework_id': hw.id})
+        resp = tc.get(detail_url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, '5/5')
+
+    def test_teacher_detail_shows_on_time_status(self):
+        tc = self._teacher_client()
+        hw = self._create_homework(tc)
+
+        sc = self._student_a_client()
+        url = reverse('homework:student_take', kwargs={'homework_id': hw.id})
+        data = self._build_answer_post(hw, all_correct=True)
+        sc.post(url, data)
+
+        detail_url = reverse('homework:teacher_detail', kwargs={'homework_id': hw.id})
+        resp = tc.get(detail_url)
+        self.assertContains(resp, 'On Time')
+
+    def test_teacher_detail_shows_pending_for_non_submitted_student(self):
+        """student_b hasn't submitted → teacher sees Pending."""
+        tc = self._teacher_client()
+        hw = self._create_homework(tc)
+
+        # Only student_a submits
+        sc = self._student_a_client()
+        url = reverse('homework:student_take', kwargs={'homework_id': hw.id})
+        data = self._build_answer_post(hw, all_correct=True)
+        sc.post(url, data)
+
+        detail_url = reverse('homework:teacher_detail', kwargs={'homework_id': hw.id})
+        resp = tc.get(detail_url)
+        self.assertContains(resp, 'Pending')  # student_b not yet submitted
+
+    def test_teacher_detail_attempt_count_increments(self):
+        """After two submissions, attempt count should show 2."""
+        tc = self._teacher_client()
+        hw = self._create_homework(tc)
+
+        sc = self._student_a_client()
+        url = reverse('homework:student_take', kwargs={'homework_id': hw.id})
+        data = self._build_answer_post(hw, all_correct=True)
+        sc.post(url, data)
+        sc.post(url, data)  # second attempt
+
+        detail_url = reverse('homework:teacher_detail', kwargs={'homework_id': hw.id})
+        resp = tc.get(detail_url)
+        self.assertContains(resp, '2')  # attempt count column
+
+    def test_two_students_both_submitted_shown_on_detail(self):
+        """Both students submit; teacher sees both rows with scores."""
+        tc = self._teacher_client()
+        hw = self._create_homework(tc)
+
+        for student_client in (self._student_a_client(), self._student_b_client()):
+            url = reverse('homework:student_take', kwargs={'homework_id': hw.id})
+            data = self._build_answer_post(hw, all_correct=True)
+            student_client.post(url, data)
+
+        detail_url = reverse('homework:teacher_detail', kwargs={'homework_id': hw.id})
+        resp = tc.get(detail_url)
+        # Both should appear as On Time
+        self.assertContains(resp, 'On Time')
+        self.assertEqual(
+            HomeworkSubmission.objects.filter(homework=hw).count(), 2
         )
