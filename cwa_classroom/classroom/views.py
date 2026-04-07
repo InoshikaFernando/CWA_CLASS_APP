@@ -940,11 +940,18 @@ class AssignTeachersView(LoginRequiredMixin, View):
         selected_ids = set(request.POST.getlist('teachers'))
         # Add newly selected teachers
         added = 0
+        teacher_role, _ = Role.objects.get_or_create(
+            name=Role.TEACHER, defaults={'display_name': 'Teacher'},
+        )
         for tid in selected_ids:
             teacher = get_object_or_404(CustomUser, id=tid)
             _, created = ClassTeacher.objects.get_or_create(classroom=classroom, teacher=teacher)
             if created:
                 added += 1
+            # HoD (or any role) assigned to a class also gets the Teacher role
+            # so they can access teacher-specific views (sessions, attendance, etc.)
+            from accounts.models import UserRole as _UserRole
+            _UserRole.objects.get_or_create(user=teacher, role=teacher_role)
         # Remove unchecked teachers
         removed = ClassTeacher.objects.filter(
             classroom=classroom
