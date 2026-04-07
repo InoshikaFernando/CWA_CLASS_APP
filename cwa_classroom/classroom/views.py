@@ -3885,7 +3885,9 @@ class UpdateStudentFeeView(RoleRequiredMixin, View):
         if fee_str:
             from decimal import Decimal, InvalidOperation
             try:
-                cs.fee_override = Decimal(fee_str)
+                fee_val = Decimal(fee_str)
+                # 0 means "clear override" — fall through to inherited fee
+                cs.fee_override = fee_val if fee_val > 0 else None
             except InvalidOperation:
                 messages.error(request, 'Invalid fee amount.')
                 return redirect('class_detail', class_id=class_id)
