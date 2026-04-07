@@ -16,6 +16,7 @@ import pytest
 from playwright.sync_api import expect
 
 from .conftest import do_login, do_logout, TEST_PASSWORD, _make_user, _assign_role
+from .helpers import wait_for_network_idle
 
 pytestmark = pytest.mark.parent_approval
 
@@ -273,16 +274,17 @@ class TestApprovalFlow:
         self.page.goto(f"{self.url}/teacher/parent-link-requests/")
         self.page.wait_for_load_state("domcontentloaded")
         self.page.get_by_role("button", name="Approve").click()
-        self.page.wait_for_load_state("domcontentloaded")
+        # Wait for the POST redirect to fully complete and "Jane Doe" to leave the list
+        expect(self.page.get_by_text("Jane Doe")).to_have_count(0, timeout=10_000)
 
         # Now log in as parent
         do_logout(self.page, self.url)
         do_login(self.page, self.url, self.parent)
         self.page.goto(f"{self.url}/parent/")
-        self.page.wait_for_load_state("domcontentloaded")
+        wait_for_network_idle(self.page, timeout=10_000)
 
         # Child card must appear
-        expect(self.page.locator('[data-testid="child-card"]')).to_have_count(1)
+        expect(self.page.locator('[data-testid="child-card"]')).to_have_count(1, timeout=10_000)
         expect(self.page.locator('[data-testid="child-card"]').get_by_text("Zara Smith")).to_be_visible()
 
 
