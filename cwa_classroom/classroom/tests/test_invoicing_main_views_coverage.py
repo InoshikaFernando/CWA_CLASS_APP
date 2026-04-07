@@ -153,6 +153,136 @@ class InvoiceListViewTests(TestCase):
         # Should redirect since user has no school
         self.assertIn(resp.status_code, [200, 302])
 
+    # ------------------------------------------------------------------ #
+    # Department / Class filter tests                                      #
+    # ------------------------------------------------------------------ #
+
+    def _setup_dept_class_invoice(self):
+        """
+        Creates dept_a → class_a → student_a with an issued invoice
+        and dept_b → class_b → student_b with an issued invoice.
+        Returns (dept_a, class_a, student_a, dept_b, class_b, student_b).
+        """
+        subj, _ = Subject.objects.get_or_create(
+            slug='list-filter-subj', defaults={'name': 'Filter Subj', 'is_active': True}
+        )
+        dept_a = Department.objects.create(
+            school=self.school, name='Filter Dept A', slug='filter-dept-a'
+        )
+        dept_b = Department.objects.create(
+            school=self.school, name='Filter Dept B', slug='filter-dept-b'
+        )
+        class_a = ClassRoom.objects.create(
+            name='Filter Class A', school=self.school,
+            department=dept_a, subject=subj,
+        )
+        class_b = ClassRoom.objects.create(
+            name='Filter Class B', school=self.school,
+            department=dept_b, subject=subj,
+        )
+        student_a = _setup_student(self.school, username='filter_student_a')
+        student_b = _setup_student(self.school, username='filter_student_b')
+        ClassStudent.objects.create(classroom=class_a, student=student_a, is_active=True)
+        ClassStudent.objects.create(classroom=class_b, student=student_b, is_active=True)
+
+        inv_a = Invoice.objects.create(
+            invoice_number='INV-FILTER-A',
+            school=self.school, student=student_a,
+            billing_period_start=datetime.date(2025, 1, 1),
+            billing_period_end=datetime.date(2025, 1, 31),
+            attendance_mode='all_class_days',
+            calculated_amount=Decimal('100.00'),
+            amount=Decimal('100.00'),
+            status='issued',
+            created_by=self.owner,
+        )
+        InvoiceLineItem.objects.create(
+            invoice=inv_a, classroom=class_a, department=dept_a,
+            daily_rate=Decimal('100.00'), rate_source='class_default',
+            sessions_held=1, sessions_attended=1, sessions_charged=1,
+            line_amount=Decimal('100.00'),
+        )
+        inv_b = Invoice.objects.create(
+            invoice_number='INV-FILTER-B',
+            school=self.school, student=student_b,
+            billing_period_start=datetime.date(2025, 1, 1),
+            billing_period_end=datetime.date(2025, 1, 31),
+            attendance_mode='all_class_days',
+            calculated_amount=Decimal('150.00'),
+            amount=Decimal('150.00'),
+            status='issued',
+            created_by=self.owner,
+        )
+        InvoiceLineItem.objects.create(
+            invoice=inv_b, classroom=class_b, department=dept_b,
+            daily_rate=Decimal('150.00'), rate_source='class_default',
+            sessions_held=1, sessions_attended=1, sessions_charged=1,
+            line_amount=Decimal('150.00'),
+        )
+        return dept_a, class_a, student_a, dept_b, class_b, student_b
+
+    def test_list_view_department_filter_shows_only_dept_invoices(self):
+        """Filtering by dept_a returns only invoices with line items in dept_a."""
+        dept_a, class_a, student_a, dept_b, class_b, student_b = \
+            self._setup_dept_class_invoice()
+
+        resp = self.client.get(reverse('invoice_list') + f'?department={dept_a.id}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'INV-FILTER-A')
+        self.assertNotContains(resp, 'INV-FILTER-B')
+
+    def test_list_view_department_filter_excludes_other_dept(self):
+        """Filtering by dept_b excludes dept_a invoices."""
+        dept_a, class_a, student_a, dept_b, class_b, student_b = \
+            self._setup_dept_class_invoice()
+
+        resp = self.client.get(reverse('invoice_list') + f'?department={dept_b.id}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'INV-FILTER-B')
+        self.assertNotContains(resp, 'INV-FILTER-A')
+
+    def test_list_view_class_filter_shows_only_class_invoices(self):
+        """Filtering by class_a returns only invoices with line items in class_a."""
+        dept_a, class_a, student_a, dept_b, class_b, student_b = \
+            self._setup_dept_class_invoice()
+
+        resp = self.client.get(reverse('invoice_list') + f'?classroom={class_a.id}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'INV-FILTER-A')
+        self.assertNotContains(resp, 'INV-FILTER-B')
+
+    def test_list_view_class_filter_excludes_other_class(self):
+        """Filtering by class_b excludes class_a invoices."""
+        dept_a, class_a, student_a, dept_b, class_b, student_b = \
+            self._setup_dept_class_invoice()
+
+        resp = self.client.get(reverse('invoice_list') + f'?classroom={class_b.id}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'INV-FILTER-B')
+        self.assertNotContains(resp, 'INV-FILTER-A')
+
+    def test_list_view_department_and_class_combined_filter(self):
+        """Dept + class filters combined return only matching invoices."""
+        dept_a, class_a, student_a, dept_b, class_b, student_b = \
+            self._setup_dept_class_invoice()
+
+        resp = self.client.get(
+            reverse('invoice_list') + f'?department={dept_a.id}&classroom={class_a.id}'
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'INV-FILTER-A')
+        self.assertNotContains(resp, 'INV-FILTER-B')
+
+    def test_list_view_clear_filters_returns_all(self):
+        """Empty department and classroom params return all invoices."""
+        dept_a, class_a, student_a, dept_b, class_b, student_b = \
+            self._setup_dept_class_invoice()
+
+        resp = self.client.get(reverse('invoice_list') + '?department=&classroom=')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'INV-FILTER-A')
+        self.assertContains(resp, 'INV-FILTER-B')
+
 
 class InvoiceDetailViewTests(TestCase):
     def setUp(self):

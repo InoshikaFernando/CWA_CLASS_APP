@@ -59,7 +59,12 @@ class TestCleanupMigrationLogic(TransactionTestCase):
 
     Skipped on SQLite — uses MySQL-specific ALTER TABLE MODIFY syntax
     to temporarily allow NULL on NOT NULL columns.
+
+    serialized_rollback=True: TransactionTestCase truncates all tables on
+    teardown; this flag serializes the DB state before each test and
+    restores it afterward, preventing data loss for other tests in the suite.
     """
+    serialized_rollback = True
 
     def setUp(self):
         self.subject = _make_subject()
