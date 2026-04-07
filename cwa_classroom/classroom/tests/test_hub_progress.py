@@ -46,8 +46,8 @@ def _create_role(name):
 def _make_user(username, role_name, **extra):
     user = CustomUser.objects.create_user(
         username=username,
-        password='testpass',
-        email=f'{username}@test.local',
+        password='password1!',
+        email=f'wlhtestmails+{username}@gmail.com',
         profile_completed=True,
         must_change_password=False,
         **extra,
@@ -75,7 +75,7 @@ class HubProgressBase(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.admin = CustomUser.objects.create_superuser(
-            'hub_prog_admin', 'hub_prog_admin@test.local', 'pass',
+            'hub_prog_admin', 'wlhtestmails+hub_prog_admin@gmail.com', 'pass',
         )
 
         # ── Schools ────────────────────────────────────────────────────────

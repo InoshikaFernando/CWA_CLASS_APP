@@ -37,26 +37,26 @@ class ScopedQuestionTestBase(TestCase):
 
         # ── Users ────────────────────────────────────────────
         cls.superuser = CustomUser.objects.create_superuser(
-            'superadmin', 'super@test.com', 'pass1234',
+            'superadmin', 'wlhtestmails+super@gmail.com', 'password1!',
         )
 
         cls.hoi_user = CustomUser.objects.create_user(
-            'hoi', 'hoi@test.com', 'pass1234',
+            'hoi', 'wlhtestmails+hoi@gmail.com', 'password1!',
         )
         cls.hoi_user.roles.add(cls.role_hoi)
 
         cls.hod_user = CustomUser.objects.create_user(
-            'hod', 'hod@test.com', 'pass1234',
+            'hod', 'wlhtestmails+hod@gmail.com', 'password1!',
         )
         cls.hod_user.roles.add(cls.role_hod)
 
         cls.teacher_user = CustomUser.objects.create_user(
-            'teacher', 'teacher@test.com', 'pass1234',
+            'teacher', 'wlhtestmails+teacher@gmail.com', 'password1!',
         )
         cls.teacher_user.roles.add(cls.role_teacher)
 
         cls.student_user = CustomUser.objects.create_user(
-            'student', 'student@test.com', 'pass1234',
+            'student', 'wlhtestmails+student@gmail.com', 'password1!',
         )
         cls.student_user.roles.add(cls.role_student)
 
@@ -233,35 +233,35 @@ class CanEditQuestionTests(ScopedQuestionTestBase):
 class AddQuestionAccessTests(ScopedQuestionTestBase):
 
     def test_student_cannot_access(self):
-        self.client.login(username='student', password='pass1234')
+        self.client.login(username='student', password='password1!')
         resp = self.client.get(
             reverse('add_question', args=[self.level.level_number]),
         )
         self.assertEqual(resp.status_code, 302)
 
     def test_teacher_can_access(self):
-        self.client.login(username='teacher', password='pass1234')
+        self.client.login(username='teacher', password='password1!')
         resp = self.client.get(
             reverse('add_question', args=[self.level.level_number]),
         )
         self.assertEqual(resp.status_code, 200)
 
     def test_hod_can_access(self):
-        self.client.login(username='hod', password='pass1234')
+        self.client.login(username='hod', password='password1!')
         resp = self.client.get(
             reverse('add_question', args=[self.level.level_number]),
         )
         self.assertEqual(resp.status_code, 200)
 
     def test_hoi_can_access(self):
-        self.client.login(username='hoi', password='pass1234')
+        self.client.login(username='hoi', password='password1!')
         resp = self.client.get(
             reverse('add_question', args=[self.level.level_number]),
         )
         self.assertEqual(resp.status_code, 200)
 
     def test_form_shows_classroom_selector_for_teacher(self):
-        self.client.login(username='teacher', password='pass1234')
+        self.client.login(username='teacher', password='password1!')
         resp = self.client.get(
             reverse('add_question', args=[self.level.level_number]),
         )
@@ -269,14 +269,14 @@ class AddQuestionAccessTests(ScopedQuestionTestBase):
         self.assertContains(resp, self.classroom.name)
 
     def test_form_hides_classroom_selector_for_hod(self):
-        self.client.login(username='hod', password='pass1234')
+        self.client.login(username='hod', password='password1!')
         resp = self.client.get(
             reverse('add_question', args=[self.level.level_number]),
         )
         self.assertNotContains(resp, 'name="classroom"')
 
     def test_form_shows_scope_badge(self):
-        self.client.login(username='hoi', password='pass1234')
+        self.client.login(username='hoi', password='password1!')
         resp = self.client.get(
             reverse('add_question', args=[self.level.level_number]),
         )
@@ -286,7 +286,7 @@ class AddQuestionAccessTests(ScopedQuestionTestBase):
 class AddQuestionScopeTests(ScopedQuestionTestBase):
 
     def test_superuser_creates_global_question(self):
-        self.client.login(username='superadmin', password='pass1234')
+        self.client.login(username='superadmin', password='password1!')
         self.client.post(
             reverse('add_question', args=[self.level.level_number]),
             self._post_question_data(),
@@ -298,7 +298,7 @@ class AddQuestionScopeTests(ScopedQuestionTestBase):
         self.assertIsNone(q.classroom_id)
 
     def test_hoi_creates_school_scoped_question(self):
-        self.client.login(username='hoi', password='pass1234')
+        self.client.login(username='hoi', password='password1!')
         self.client.post(
             reverse('add_question', args=[self.level.level_number]),
             self._post_question_data(),
@@ -310,7 +310,7 @@ class AddQuestionScopeTests(ScopedQuestionTestBase):
         self.assertIsNone(q.classroom_id)
 
     def test_hod_creates_department_scoped_question(self):
-        self.client.login(username='hod', password='pass1234')
+        self.client.login(username='hod', password='password1!')
         self.client.post(
             reverse('add_question', args=[self.level.level_number]),
             self._post_question_data(),
@@ -322,7 +322,7 @@ class AddQuestionScopeTests(ScopedQuestionTestBase):
         self.assertIsNone(q.classroom_id)
 
     def test_teacher_creates_class_scoped_question(self):
-        self.client.login(username='teacher', password='pass1234')
+        self.client.login(username='teacher', password='password1!')
         self.client.post(
             reverse('add_question', args=[self.level.level_number]),
             self._post_question_data({'classroom': self.classroom.id}),
@@ -334,7 +334,7 @@ class AddQuestionScopeTests(ScopedQuestionTestBase):
         self.assertEqual(q.classroom_id, self.classroom.id)
 
     def test_teacher_must_select_classroom(self):
-        self.client.login(username='teacher', password='pass1234')
+        self.client.login(username='teacher', password='password1!')
         resp = self.client.post(
             reverse('add_question', args=[self.level.level_number]),
             self._post_question_data(),  # no classroom
@@ -347,7 +347,7 @@ class AddQuestionScopeTests(ScopedQuestionTestBase):
         )
 
     def test_teacher_cannot_use_invalid_classroom(self):
-        self.client.login(username='teacher', password='pass1234')
+        self.client.login(username='teacher', password='password1!')
         resp = self.client.post(
             reverse('add_question', args=[self.level.level_number]),
             self._post_question_data({'classroom': 99999}),
@@ -359,7 +359,7 @@ class AddQuestionScopeTests(ScopedQuestionTestBase):
         )
 
     def test_answers_are_created(self):
-        self.client.login(username='hoi', password='pass1234')
+        self.client.login(username='hoi', password='password1!')
         self.client.post(
             reverse('add_question', args=[self.level.level_number]),
             self._post_question_data(),
@@ -406,7 +406,7 @@ class QuestionListScopeTests(ScopedQuestionTestBase):
         return q
 
     def test_hoi_sees_global_and_all_school_questions(self):
-        self.client.login(username='hoi', password='pass1234')
+        self.client.login(username='hoi', password='password1!')
         resp = self.client.get(
             reverse('question_list', args=[self.level.level_number]),
         )
@@ -416,7 +416,7 @@ class QuestionListScopeTests(ScopedQuestionTestBase):
         self.assertContains(resp, 'Class Q')
 
     def test_hod_sees_global_school_and_dept_questions(self):
-        self.client.login(username='hod', password='pass1234')
+        self.client.login(username='hod', password='password1!')
         resp = self.client.get(
             reverse('question_list', args=[self.level.level_number]),
         )
@@ -427,7 +427,7 @@ class QuestionListScopeTests(ScopedQuestionTestBase):
         self.assertNotContains(resp, 'Class Q')
 
     def test_teacher_sees_global_school_dept_and_class_questions(self):
-        self.client.login(username='teacher', password='pass1234')
+        self.client.login(username='teacher', password='password1!')
         resp = self.client.get(
             reverse('question_list', args=[self.level.level_number]),
         )
@@ -437,7 +437,7 @@ class QuestionListScopeTests(ScopedQuestionTestBase):
         self.assertContains(resp, 'Class Q')
 
     def test_scope_badges_render(self):
-        self.client.login(username='hoi', password='pass1234')
+        self.client.login(username='hoi', password='password1!')
         resp = self.client.get(
             reverse('question_list', args=[self.level.level_number]),
         )
@@ -456,13 +456,13 @@ class EditQuestionPermissionTests(ScopedQuestionTestBase):
 
     def test_hoi_can_edit_school_question(self):
         q = self._create_question(school=self.school, text='School edit me')
-        self.client.login(username='hoi', password='pass1234')
+        self.client.login(username='hoi', password='password1!')
         resp = self.client.get(reverse('edit_question', args=[q.id]))
         self.assertEqual(resp.status_code, 200)
 
     def test_hoi_cannot_edit_global_question(self):
         q = self._create_question(text='Global no edit')
-        self.client.login(username='hoi', password='pass1234')
+        self.client.login(username='hoi', password='password1!')
         resp = self.client.get(reverse('edit_question', args=[q.id]))
         self.assertEqual(resp.status_code, 302)
 
@@ -471,7 +471,7 @@ class EditQuestionPermissionTests(ScopedQuestionTestBase):
             school=self.school, department=self.dept,
             classroom=self.classroom, text='Class edit me',
         )
-        self.client.login(username='teacher', password='pass1234')
+        self.client.login(username='teacher', password='password1!')
         resp = self.client.get(reverse('edit_question', args=[q.id]))
         self.assertEqual(resp.status_code, 200)
 
@@ -480,7 +480,7 @@ class EditQuestionPermissionTests(ScopedQuestionTestBase):
             school=self.school, department=self.dept,
             text='Dept no edit',
         )
-        self.client.login(username='teacher', password='pass1234')
+        self.client.login(username='teacher', password='password1!')
         resp = self.client.get(reverse('edit_question', args=[q.id]))
         self.assertEqual(resp.status_code, 302)
 
@@ -495,7 +495,7 @@ class DeleteQuestionPermissionTests(ScopedQuestionTestBase):
         q = self._create_question(
             school=self.school, department=self.dept, text='Dept del me',
         )
-        self.client.login(username='hod', password='pass1234')
+        self.client.login(username='hod', password='password1!')
         resp = self.client.post(reverse('delete_question', args=[q.id]))
         self.assertEqual(resp.status_code, 302)
         self.assertFalse(MathsQuestion.objects.filter(id=q.id).exists())
@@ -504,7 +504,7 @@ class DeleteQuestionPermissionTests(ScopedQuestionTestBase):
         q = self._create_question(
             school=self.school, department=self.dept, text='Dept no del',
         )
-        self.client.login(username='teacher', password='pass1234')
+        self.client.login(username='teacher', password='password1!')
         resp = self.client.post(reverse('delete_question', args=[q.id]))
         self.assertEqual(resp.status_code, 302)
         self.assertTrue(MathsQuestion.objects.filter(id=q.id).exists())
@@ -514,14 +514,14 @@ class DeleteQuestionPermissionTests(ScopedQuestionTestBase):
             school=self.school, department=self.dept,
             classroom=self.classroom, text='Class del me',
         )
-        self.client.login(username='teacher', password='pass1234')
+        self.client.login(username='teacher', password='password1!')
         resp = self.client.post(reverse('delete_question', args=[q.id]))
         self.assertEqual(resp.status_code, 302)
         self.assertFalse(MathsQuestion.objects.filter(id=q.id).exists())
 
     def test_student_cannot_delete(self):
         q = self._create_question(school=self.school, text='No del')
-        self.client.login(username='student', password='pass1234')
+        self.client.login(username='student', password='password1!')
         resp = self.client.post(reverse('delete_question', args=[q.id]))
         self.assertEqual(resp.status_code, 302)
         self.assertTrue(MathsQuestion.objects.filter(id=q.id).exists())

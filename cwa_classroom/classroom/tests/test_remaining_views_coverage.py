@@ -39,11 +39,11 @@ def _create_role(name):
     return role
 
 
-def _create_user(username, password='pass12345', **kwargs):
+def _create_user(username, password='password1!', **kwargs):
     return CustomUser.objects.create_user(
         username=username,
         password=password,
-        email=kwargs.pop('email', f'{username}@test.com'),
+        email=kwargs.pop('email', f'wlhtestmails+{username}@gmail.com'),
         **kwargs,
     )
 
@@ -56,13 +56,13 @@ def _assign_role(user, role_name):
 
 def _full_school_setup():
     """Create complete school with HoI, teacher, student, department, class."""
-    hoi = _create_user('hoi', email='hoi@test.com')
+    hoi = _create_user('hoi', email='wlhtestmails+hoi@gmail.com')
     _assign_role(hoi, Role.HEAD_OF_INSTITUTE)
 
-    teacher = _create_user('teacher1', email='t@test.com', first_name='John', last_name='Doe')
+    teacher = _create_user('teacher1', email='wlhtestmails+t@gmail.com', first_name='John', last_name='Doe')
     _assign_role(teacher, Role.TEACHER)
 
-    student = _create_user('student1', email='s@test.com', first_name='Jane', last_name='Smith')
+    student = _create_user('student1', email='wlhtestmails+s@gmail.com', first_name='Jane', last_name='Smith')
     _assign_role(student, Role.STUDENT)
 
     school = School.objects.create(name='Test School', slug='test-school', admin=hoi)
@@ -115,14 +115,14 @@ class TeacherDashboardViewTests(TestCase):
         self.client = Client()
 
     def test_teacher_dashboard_get(self):
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
         resp = self.client.get(reverse('teacher_dashboard'))
         self.assertEqual(resp.status_code, 200)
 
     def test_teacher_dashboard_no_school(self):
         teacher2 = _create_user('teacher_no_school')
         _assign_role(teacher2, Role.TEACHER)
-        self.client.login(username='teacher_no_school', password='pass12345')
+        self.client.login(username='teacher_no_school', password='password1!')
         resp = self.client.get(reverse('teacher_dashboard'))
         self.assertEqual(resp.status_code, 200)
 
@@ -135,7 +135,7 @@ class StartSessionViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
 
     def test_start_session_creates_session(self):
         url = reverse('start_session', args=[self.data['classroom'].id])
@@ -174,7 +174,7 @@ class StartSessionViewTests(TestCase):
     def test_start_session_no_access(self):
         teacher2 = _create_user('teacher2')
         _assign_role(teacher2, Role.TEACHER)
-        self.client.login(username='teacher2', password='pass12345')
+        self.client.login(username='teacher2', password='password1!')
         url = reverse('start_session', args=[self.data['classroom'].id])
         resp = self.client.post(url)
         self.assertEqual(resp.status_code, 302)
@@ -184,7 +184,7 @@ class CreateSessionViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
 
     def test_create_session_get(self):
         url = reverse('create_session', args=[self.data['classroom'].id])
@@ -232,7 +232,7 @@ class CreateSessionViewTests(TestCase):
     def test_create_session_no_access(self):
         teacher2 = _create_user('teacher_noaccess')
         _assign_role(teacher2, Role.TEACHER)
-        self.client.login(username='teacher_noaccess', password='pass12345')
+        self.client.login(username='teacher_noaccess', password='password1!')
         url = reverse('create_session', args=[self.data['classroom'].id])
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 302)
@@ -255,7 +255,7 @@ class CompleteSessionViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
         self.session = ClassSession.objects.create(
             classroom=self.data['classroom'],
             date=timezone.localdate(),
@@ -280,7 +280,7 @@ class CompleteSessionViewTests(TestCase):
     def test_complete_session_no_access(self):
         teacher2 = _create_user('teacher_complete_noaccess')
         _assign_role(teacher2, Role.TEACHER)
-        self.client.login(username='teacher_complete_noaccess', password='pass12345')
+        self.client.login(username='teacher_complete_noaccess', password='password1!')
         url = reverse('complete_session', args=[self.session.id])
         resp = self.client.post(url)
         self.assertEqual(resp.status_code, 302)
@@ -290,7 +290,7 @@ class CancelSessionViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
         self.session = ClassSession.objects.create(
             classroom=self.data['classroom'],
             date=timezone.localdate(),
@@ -320,7 +320,7 @@ class DeleteSessionViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
         self.session = ClassSession.objects.create(
             classroom=self.data['classroom'],
             date=timezone.localdate(),
@@ -339,7 +339,7 @@ class EnrollmentRequestsViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
         Enrollment.objects.create(
             classroom=self.data['classroom'],
             student=self.data['student'],
@@ -358,7 +358,7 @@ class EnrollmentRequestsViewTests(TestCase):
         self.assertEqual(enrollment.status, 'approved')
 
     def test_enrollment_requests_as_hoi(self):
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
         resp = self.client.get(reverse('enrollment_requests'))
         self.assertEqual(resp.status_code, 200)
 
@@ -371,7 +371,7 @@ class JoinClassByCodeViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='student1', password='pass12345')
+        self.client.login(username='student1', password='password1!')
 
     def test_join_class_get(self):
         resp = self.client.get(reverse('student_join_class'))
@@ -437,7 +437,7 @@ class EnrollmentRequestNotificationLinkTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='student1', password='pass12345')
+        self.client.login(username='student1', password='password1!')
 
     def _join_new_class(self):
         """Create a fresh class and have student1 submit a join request."""
@@ -462,7 +462,7 @@ class EnrollmentRequestNotificationLinkTests(TestCase):
     def test_hod_notification_link_points_to_enrollment_requests(self):
         """HoD of the department gets a notification with the correct link."""
         # Make the hoi also a department head so we have an HoD
-        hod = _create_user('hod_test', email='hod@test.com')
+        hod = _create_user('hod_test', email='wlhtestmails+hod@gmail.com')
         _assign_role(hod, Role.HEAD_OF_DEPARTMENT)
         self.data['dept'].head = hod
         self.data['dept'].save()
@@ -518,7 +518,7 @@ class EnrollmentApproveNotificationLinkTests(TestCase):
             status='pending',
         )
         self.client = Client()
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
 
     def test_approval_creates_notification_with_class_detail_link(self):
         self.client.post(reverse('enrollment_approve', args=[self.enrollment.id]))
@@ -550,7 +550,7 @@ class EnrollmentRejectNotificationLinkTests(TestCase):
             status='pending',
         )
         self.client = Client()
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
 
     def test_rejection_creates_notification_with_join_class_link(self):
         self.client.post(
@@ -591,7 +591,7 @@ class MyClassesViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='student1', password='pass12345')
+        self.client.login(username='student1', password='password1!')
 
     def test_my_classes_get(self):
         resp = self.client.get(reverse('student_my_classes'))
@@ -602,7 +602,7 @@ class StudentClassDetailViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='student1', password='pass12345')
+        self.client.login(username='student1', password='password1!')
 
     def test_class_detail_get(self):
         url = reverse('student_class_detail', args=[self.data['classroom'].id])
@@ -640,7 +640,7 @@ class StudentAttendanceHistoryViewTests(TestCase):
         self.data = _full_school_setup()
         _enable_module(self.data['sub'], ModuleSubscription.MODULE_STUDENTS_ATTENDANCE)
         self.client = Client()
-        self.client.login(username='student1', password='pass12345')
+        self.client.login(username='student1', password='password1!')
 
     def test_attendance_history_get(self):
         resp = self.client.get(reverse('student_attendance_history'))
@@ -652,7 +652,7 @@ class StudentSelfMarkAttendanceViewTests(TestCase):
         self.data = _full_school_setup()
         _enable_module(self.data['sub'], ModuleSubscription.MODULE_STUDENTS_ATTENDANCE)
         self.client = Client()
-        self.client.login(username='student1', password='pass12345')
+        self.client.login(username='student1', password='password1!')
         self.session = ClassSession.objects.create(
             classroom=self.data['classroom'],
             date=timezone.localdate(),
@@ -711,7 +711,7 @@ class EnrollGlobalClassViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='student1', password='pass12345')
+        self.client.login(username='student1', password='password1!')
         self.global_class = ClassRoom.objects.create(
             name='Global Class', school=None,
             subject=self.data['subject'],
@@ -742,7 +742,7 @@ class DepartmentListViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
 
     def test_department_list_get(self):
         url = reverse('admin_school_departments', args=[self.data['school'].id])
@@ -755,7 +755,7 @@ class DepartmentCreateViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
 
     def test_create_department_get(self):
         url = reverse('admin_department_create', args=[self.data['school'].id])
@@ -794,7 +794,7 @@ class DepartmentDetailViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
 
     def test_department_detail_get(self):
         url = reverse('admin_department_detail', args=[
@@ -808,7 +808,7 @@ class DepartmentEditViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
 
     def test_department_edit_get(self):
         url = reverse('admin_department_edit', args=[
@@ -826,7 +826,7 @@ class EmailDashboardViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
 
     def test_email_dashboard_get(self):
         resp = self.client.get(reverse('email_dashboard'))
@@ -835,7 +835,7 @@ class EmailDashboardViewTests(TestCase):
     def test_email_dashboard_no_school(self):
         user = _create_user('noadmin')
         _assign_role(user, Role.HEAD_OF_INSTITUTE)
-        self.client.login(username='noadmin', password='pass12345')
+        self.client.login(username='noadmin', password='password1!')
         resp = self.client.get(reverse('email_dashboard'))
         self.assertEqual(resp.status_code, 302)
 
@@ -844,7 +844,7 @@ class EmailComposeViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
 
     def test_compose_get(self):
         resp = self.client.get(reverse('email_compose'))
@@ -898,7 +898,7 @@ class EmailCampaignListViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
 
     def test_campaign_list_get(self):
         resp = self.client.get(reverse('email_campaign_list'))
@@ -909,7 +909,7 @@ class EmailCampaignDetailViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
         self.campaign = EmailCampaign.objects.create(
             name='Test', subject='Test', html_body='<p>Test</p>',
             school=self.data['school'], created_by=self.data['hoi'],
@@ -944,7 +944,7 @@ class SalaryRateConfigurationViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
 
     def test_rate_config_get(self):
         resp = self.client.get(reverse('salary_rate_configuration'))
@@ -953,7 +953,7 @@ class SalaryRateConfigurationViewTests(TestCase):
     def test_rate_config_no_school(self):
         user = _create_user('norateuser')
         _assign_role(user, Role.HEAD_OF_INSTITUTE)
-        self.client.login(username='norateuser', password='pass12345')
+        self.client.login(username='norateuser', password='password1!')
         resp = self.client.get(reverse('salary_rate_configuration'))
         self.assertEqual(resp.status_code, 302)
 
@@ -962,7 +962,7 @@ class SetSchoolDefaultRateViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
 
     def test_set_default_rate(self):
         resp = self.client.post(reverse('set_school_default_rate'), {
@@ -996,7 +996,7 @@ class AddTeacherRateOverrideViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
 
     def test_add_override(self):
         resp = self.client.post(reverse('add_teacher_rate_override'), {
@@ -1024,7 +1024,7 @@ class SalarySlipListViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
 
     def test_salary_slip_list_get(self):
         resp = self.client.get(reverse('salary_slip_list'))
@@ -1042,7 +1042,7 @@ class SalarySlipDetailViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
         self.slip = SalarySlip.objects.create(
             slip_number='SAL-001',
             school=self.data['school'],
@@ -1065,7 +1065,7 @@ class CancelSalarySlipViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
 
     def _create_slip(self, status='issued'):
         return SalarySlip.objects.create(
@@ -1114,7 +1114,7 @@ class RecordSalaryPaymentViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
         self.slip = SalarySlip.objects.create(
             slip_number='SAL-PAY-001',
             school=self.data['school'],
@@ -1162,7 +1162,7 @@ class GenerateSalarySlipsViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
 
     def test_generate_salary_slips_get(self):
         resp = self.client.get(reverse('generate_salary_slips'))
@@ -1187,7 +1187,7 @@ class TeacherSearchAPIViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
 
     def test_teacher_search(self):
         resp = self.client.get(reverse('teacher_search_api'), {'q': 'John'})
@@ -1210,7 +1210,7 @@ class FeeConfigurationViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
 
     def test_fee_config_get(self):
         resp = self.client.get(reverse('fee_configuration'))
@@ -1221,7 +1221,7 @@ class InvoiceListViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
 
     def test_invoice_list_get(self):
         resp = self.client.get(reverse('invoice_list'))
@@ -1239,7 +1239,7 @@ class InvoiceDetailViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
         self.invoice = Invoice.objects.create(
             invoice_number='INV-001',
             school=self.data['school'],
@@ -1263,7 +1263,7 @@ class CancelInvoiceViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
 
     def _create_invoice(self, status='issued'):
         return Invoice.objects.create(
@@ -1313,7 +1313,7 @@ class GenerateInvoicesViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
 
     def test_generate_invoices_get(self):
         resp = self.client.get(reverse('generate_invoices'))
@@ -1338,7 +1338,7 @@ class SetClassroomFeeViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
 
     def test_set_classroom_fee(self):
         url = reverse('set_classroom_fee', args=[self.data['classroom'].id])
@@ -1371,7 +1371,7 @@ class ProgressCriteriaListViewTests(TestCase):
         self.data = _full_school_setup()
         _enable_module(self.data['sub'], ModuleSubscription.MODULE_PROGRESS_REPORTS)
         self.client = Client()
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
 
     def test_criteria_list_get(self):
         resp = self.client.get(reverse('progress_criteria_list'))
@@ -1406,7 +1406,7 @@ class ProgressCriteriaListViewTests(TestCase):
     def test_criteria_list_no_school(self):
         teacher2 = _create_user('teacher_no_school_progress')
         _assign_role(teacher2, Role.TEACHER)
-        self.client.login(username='teacher_no_school_progress', password='pass12345')
+        self.client.login(username='teacher_no_school_progress', password='password1!')
         resp = self.client.get(reverse('progress_criteria_list'))
         self.assertEqual(resp.status_code, 302)
 
@@ -1416,7 +1416,7 @@ class ProgressCriteriaCreateViewTests(TestCase):
         self.data = _full_school_setup()
         _enable_module(self.data['sub'], ModuleSubscription.MODULE_PROGRESS_REPORTS)
         self.client = Client()
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
 
     def test_criteria_create_get(self):
         resp = self.client.get(reverse('progress_criteria_create'))
@@ -1458,7 +1458,7 @@ class ProgressCriteriaWorkflowTests(TestCase):
         )
 
     def test_submit_criteria(self):
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
         url = reverse('progress_criteria_submit', args=[self.criteria.id])
         resp = self.client.post(url)
         self.assertEqual(resp.status_code, 302)
@@ -1468,7 +1468,7 @@ class ProgressCriteriaWorkflowTests(TestCase):
     def test_submit_non_draft_fails(self):
         self.criteria.status = 'approved'
         self.criteria.save()
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
         url = reverse('progress_criteria_submit', args=[self.criteria.id])
         resp = self.client.post(url)
         self.assertEqual(resp.status_code, 302)
@@ -1478,14 +1478,14 @@ class ProgressCriteriaWorkflowTests(TestCase):
     def test_approval_list(self):
         self.criteria.status = 'pending_approval'
         self.criteria.save()
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
         resp = self.client.get(reverse('progress_criteria_approvals'))
         self.assertEqual(resp.status_code, 200)
 
     def test_approve_criteria(self):
         self.criteria.status = 'pending_approval'
         self.criteria.save()
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
         url = reverse('progress_criteria_approve', args=[self.criteria.id])
         resp = self.client.post(url)
         self.assertEqual(resp.status_code, 302)
@@ -1495,7 +1495,7 @@ class ProgressCriteriaWorkflowTests(TestCase):
     def test_reject_criteria(self):
         self.criteria.status = 'pending_approval'
         self.criteria.save()
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
         url = reverse('progress_criteria_reject', args=[self.criteria.id])
         resp = self.client.post(url)
         self.assertEqual(resp.status_code, 302)
@@ -1505,7 +1505,7 @@ class ProgressCriteriaWorkflowTests(TestCase):
     def test_approve_non_pending_fails(self):
         self.criteria.status = 'draft'
         self.criteria.save()
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
         url = reverse('progress_criteria_approve', args=[self.criteria.id])
         resp = self.client.post(url)
         self.assertEqual(resp.status_code, 302)
@@ -1518,7 +1518,7 @@ class RecordProgressViewTests(TestCase):
         self.data = _full_school_setup()
         _enable_module(self.data['sub'], ModuleSubscription.MODULE_PROGRESS_REPORTS)
         self.client = Client()
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
         self.criteria = ProgressCriteria.objects.create(
             school=self.data['school'],
             subject=self.data['subject'],
@@ -1550,7 +1550,7 @@ class StudentProgressViewTests(TestCase):
         self.data = _full_school_setup()
         _enable_module(self.data['sub'], ModuleSubscription.MODULE_PROGRESS_REPORTS)
         self.client = Client()
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
         self.criteria = ProgressCriteria.objects.create(
             school=self.data['school'],
             subject=self.data['subject'],
@@ -1580,7 +1580,7 @@ class StudentProgressReportViewTests(TestCase):
         self.client = Client()
         # HoI needs to see the report
         _assign_role(self.data['hoi'], Role.INSTITUTE_OWNER)
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
 
     def test_progress_report_get(self):
         resp = self.client.get(reverse('student_progress_report'))
@@ -1602,7 +1602,7 @@ class BatchTeacherRateViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
 
     def test_batch_teacher_rate(self):
         tid = self.data['teacher'].id
@@ -1631,7 +1631,7 @@ class DeleteDraftSalarySlipsViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
         self.slip = SalarySlip.objects.create(
             slip_number='SAL-DRAFT-001',
             school=self.data['school'],
@@ -1657,7 +1657,7 @@ class BatchClassroomFeeViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
 
     def test_batch_classroom_fee(self):
         cid = self.data['classroom'].id
@@ -1686,7 +1686,7 @@ class AddStudentFeeOverrideViewTests(TestCase):
     def setUp(self):
         self.data = _full_school_setup()
         self.client = Client()
-        self.client.login(username='hoi', password='pass12345')
+        self.client.login(username='hoi', password='password1!')
 
     def test_add_student_fee_override(self):
         resp = self.client.post(reverse('add_student_fee_override'), {

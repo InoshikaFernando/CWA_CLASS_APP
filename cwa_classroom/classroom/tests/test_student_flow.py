@@ -24,11 +24,11 @@ def _create_role(name, display_name=None):
     return role
 
 
-def _create_user(username, password='testpass123', **kwargs):
+def _create_user(username, password='password1!', **kwargs):
     return CustomUser.objects.create_user(
         username=username,
         password=password,
-        email=kwargs.pop('email', f'{username}@example.com'),
+        email=kwargs.pop('email', f'wlhtestmails+{username}@gmail.com'),
         **kwargs,
     )
 
@@ -85,11 +85,11 @@ class StudentCreationTest(TestCase):
         resp = self.client.post(url, {
             'first_name': 'John',
             'last_name': 'Doe',
-            'email': 'john@example.com',
+            'email': 'wlhtestmails+john@gmail.com',
             'password': 'temppass123',
         })
         self.assertEqual(resp.status_code, 302)
-        student = CustomUser.objects.get(email='john@example.com')
+        student = CustomUser.objects.get(email='wlhtestmails+john@gmail.com')
         self.assertTrue(student.must_change_password)
         self.assertFalse(student.profile_completed)
 
@@ -99,10 +99,10 @@ class StudentCreationTest(TestCase):
         self.client.post(url, {
             'first_name': 'Jane',
             'last_name': 'Doe',
-            'email': 'jane@example.com',
+            'email': 'wlhtestmails+jane@gmail.com',
             'password': 'temppass123',
         })
-        student = CustomUser.objects.get(email='jane@example.com')
+        student = CustomUser.objects.get(email='wlhtestmails+jane@gmail.com')
         self.assertTrue(student.has_role(Role.STUDENT))
 
     def test_create_student_linked_to_school(self):
@@ -111,10 +111,10 @@ class StudentCreationTest(TestCase):
         self.client.post(url, {
             'first_name': 'Bob',
             'last_name': 'Smith',
-            'email': 'bob@example.com',
+            'email': 'wlhtestmails+bob@gmail.com',
             'password': 'temppass123',
         })
-        student = CustomUser.objects.get(email='bob@example.com')
+        student = CustomUser.objects.get(email='wlhtestmails+bob@gmail.com')
         self.assertTrue(
             SchoolStudent.objects.filter(school=self.school, student=student).exists()
         )
@@ -126,7 +126,7 @@ class StudentCreationTest(TestCase):
         self.client.post(url, {
             'first_name': 'Alice',
             'last_name': 'Wonder',
-            'email': 'alice@example.com',
+            'email': 'wlhtestmails+alice@gmail.com',
             'password': 'temppass123',
         })
         mock_email.assert_called_once()
@@ -262,7 +262,7 @@ class StudentSubscriptionEnforcementTest(TestCase):
     def test_student_blocked_when_school_subscription_expired(self):
         """Students should be blocked when their school subscription has expired."""
         school = self._setup_expired_school()
-        student = _create_user('blocked_student', password='pass12345')
+        student = _create_user('blocked_student', password='password1!')
         _assign_role(student, Role.STUDENT)
         SchoolStudent.objects.create(school=school, student=student)
 
@@ -277,7 +277,7 @@ class StudentSubscriptionEnforcementTest(TestCase):
         hoi = _create_user('hoi_active', first_name='Head', last_name='Active')
         _assign_role(hoi, Role.HEAD_OF_INSTITUTE)
         school = _setup_school_with_subscription(hoi, status='active')
-        student = _create_user('active_student', password='pass12345')
+        student = _create_user('active_student', password='password1!')
         _assign_role(student, Role.STUDENT)
         SchoolStudent.objects.create(school=school, student=student)
 
@@ -321,8 +321,8 @@ class EmailLoginTest(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.user = _create_user(
-            'logintest', password='testpass123',
-            email='logintest@example.com',
+            'logintest', password='password1!',
+            email='wlhtestmails+logintest@gmail.com',
             first_name='Login', last_name='Test',
         )
 
@@ -331,7 +331,7 @@ class EmailLoginTest(TestCase):
         client = Client()
         resp = client.post(reverse('login'), {
             'username': 'logintest',
-            'password': 'testpass123',
+            'password': 'password1!',
         })
         self.assertEqual(resp.status_code, 302)
         self.assertNotIn('login', resp.url)
@@ -340,8 +340,8 @@ class EmailLoginTest(TestCase):
         """Should be able to login with email address."""
         client = Client()
         resp = client.post(reverse('login'), {
-            'username': 'logintest@example.com',
-            'password': 'testpass123',
+            'username': 'wlhtestmails+logintest@gmail.com',
+            'password': 'password1!',
         })
         self.assertEqual(resp.status_code, 302)
         self.assertNotIn('login', resp.url)
@@ -350,7 +350,7 @@ class EmailLoginTest(TestCase):
         """Wrong password should fail."""
         client = Client()
         resp = client.post(reverse('login'), {
-            'username': 'logintest@example.com',
+            'username': 'wlhtestmails+logintest@gmail.com',
             'password': 'wrongpassword',
         })
         self.assertEqual(resp.status_code, 200)  # Re-renders login page
@@ -359,8 +359,8 @@ class EmailLoginTest(TestCase):
         """Non-existent email should fail gracefully."""
         client = Client()
         resp = client.post(reverse('login'), {
-            'username': 'nobody@example.com',
-            'password': 'testpass123',
+            'username': 'wlhtestmails+nobody@gmail.com',
+            'password': 'password1!',
         })
         self.assertEqual(resp.status_code, 200)  # Re-renders login page
 
@@ -388,12 +388,12 @@ class TeacherProfileCompletionTest(TestCase):
         self.client.post(url, {
             'first_name': 'New',
             'last_name': 'Teacher',
-            'email': 'newteacher@example.com',
+            'email': 'wlhtestmails+newteacher@gmail.com',
             'password': 'temppass123',
             'role': 'teacher',
             'specialty': '',
         })
-        teacher = CustomUser.objects.get(email='newteacher@example.com')
+        teacher = CustomUser.objects.get(email='wlhtestmails+newteacher@gmail.com')
         self.assertTrue(teacher.must_change_password)
         self.assertFalse(teacher.profile_completed)
 

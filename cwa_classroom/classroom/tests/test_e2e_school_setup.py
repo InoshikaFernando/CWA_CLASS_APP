@@ -24,12 +24,12 @@ def _create_role(name, display_name=None):
     return role
 
 
-def _create_user(username, password='testpass123', **kwargs):
+def _create_user(username, password='password1!', **kwargs):
     """Helper: create a CustomUser."""
     return CustomUser.objects.create_user(
         username=username,
         password=password,
-        email=kwargs.pop('email', f'{username}@example.com'),
+        email=kwargs.pop('email', f'wlhtestmails+{username}@gmail.com'),
         **kwargs,
     )
 
@@ -259,7 +259,7 @@ class StudentManagementTest(TestCase):
         data = {
             'first_name': 'Tom',
             'last_name': 'Student',
-            'email': 'tom.student@example.com',
+            'email': 'wlhtestmails+tom.student@gmail.com',
             'username': 'tom_student',
             'password': 'securepass123',
             'confirm_password': 'securepass123',
@@ -425,7 +425,7 @@ class HoIChangeFlowTest(TestCase):
     def setUpTestData(cls):
         # Old HoI — the original school owner
         cls.old_hoi = _create_user(
-            'old_hoi', password='testpass123',
+            'old_hoi', password='password1!',
             first_name='Alice', last_name='Owner',
         )
         _assign_role(cls.old_hoi, Role.HEAD_OF_INSTITUTE)
@@ -433,7 +433,7 @@ class HoIChangeFlowTest(TestCase):
 
         # New HoI — a teacher who will be promoted
         cls.new_hoi = _create_user(
-            'new_hoi', password='testpass123',
+            'new_hoi', password='password1!',
             first_name='Bob', last_name='Principal',
         )
         _assign_role(cls.new_hoi, Role.TEACHER)

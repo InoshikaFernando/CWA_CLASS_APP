@@ -40,7 +40,7 @@ class ParentProgressTestBase(TestCase):
 
         # Teacher / school admin
         cls.teacher = CustomUser.objects.create_user(
-            'prog_teacher', 'prog_teacher@test.com', 'pass1234',
+            'prog_teacher', 'wlhtestmails+prog_teacher@gmail.com', 'password1!',
             first_name='Alice', last_name='Teacher',
         )
         cls.teacher.roles.add(cls.teacher_role)
@@ -52,7 +52,7 @@ class ParentProgressTestBase(TestCase):
 
         # Student
         cls.student = CustomUser.objects.create_user(
-            'prog_student', 'prog_student@test.com', 'pass1234',
+            'prog_student', 'wlhtestmails+prog_student@gmail.com', 'password1!',
             first_name='Bobby', last_name='Learner',
         )
         cls.student.roles.add(cls.student_role)
@@ -60,7 +60,7 @@ class ParentProgressTestBase(TestCase):
 
         # Parent
         cls.parent = CustomUser.objects.create_user(
-            'prog_parent', 'prog_parent@test.com', 'pass1234',
+            'prog_parent', 'wlhtestmails+prog_parent@gmail.com', 'password1!',
             first_name='Carol', last_name='Parent',
         )
         cls.parent.roles.add(cls.parent_role)
@@ -120,7 +120,7 @@ class ParentProgressTestBase(TestCase):
 
         # Second school with criteria (should NOT appear)
         cls.other_teacher = CustomUser.objects.create_user(
-            'other_teacher_prog', 'other_t_prog@test.com', 'pass1234',
+            'other_teacher_prog', 'wlhtestmails+other_t_prog@gmail.com', 'password1!',
         )
         cls.other_school = School.objects.create(
             name='Other School Prog', slug='other-school-prog', admin=cls.other_teacher,
@@ -302,7 +302,7 @@ class ParentProgressViewNoChildTest(TestCase):
             name=Role.PARENT, defaults={'display_name': 'Parent'},
         )
         cls.parent = CustomUser.objects.create_user(
-            'no_child_parent_prog', 'no_child_prog@test.com', 'pass1234',
+            'no_child_parent_prog', 'wlhtestmails+no_child_prog@gmail.com', 'password1!',
         )
         cls.parent.roles.add(cls.parent_role)
 

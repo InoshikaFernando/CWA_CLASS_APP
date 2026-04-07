@@ -56,8 +56,8 @@ def _role(name):
 
 def _user(username, role_name, **kw):
     u = CustomUser.objects.create_user(
-        username=username, password='pass1234',
-        email=f'{username}@test.local', **kw
+        username=username, password='password1!',
+        email=f'wlhtestmails+{username}@gmail.com', **kw
     )
     UserRole.objects.create(user=u, role=_role(role_name))
     return u
@@ -160,7 +160,7 @@ class InvoiceScopeTestCase(TestCase):
 
     def _client(self):
         c = Client()
-        c.login(username='inv_owner', password='pass1234')
+        c.login(username='inv_owner', password='password1!')
         return c
 
     def _post(self, client, extra=None):

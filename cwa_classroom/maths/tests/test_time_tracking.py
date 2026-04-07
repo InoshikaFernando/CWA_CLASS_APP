@@ -16,9 +16,9 @@ from maths.models import TimeLog
 from maths.views import get_or_create_time_log
 
 
-def _make_student(username='timestudent', email='time@test.com'):
+def _make_student(username='timestudent', email='wlhtestmails+time@gmail.com'):
     """Create a student user with the student role."""
-    user = CustomUser.objects.create_user(username, email, 'pass1234')
+    user = CustomUser.objects.create_user(username, email, 'password1!')
     role, _ = Role.objects.get_or_create(
         name=Role.STUDENT, defaults={'display_name': 'Student'},
     )
@@ -84,8 +84,8 @@ class HeartbeatViewTest(TestCase):
     """Tests for the UpdateTimeLogView (heartbeat API)."""
 
     def setUp(self):
-        self.student = _make_student('hbstudent', 'hb@test.com')
-        self.client.login(username='hbstudent', password='pass1234')
+        self.student = _make_student('hbstudent', 'wlhtestmails+hb@gmail.com')
+        self.client.login(username='hbstudent', password='password1!')
 
     def _heartbeat(self, seconds=30):
         """Send a single heartbeat."""

@@ -39,11 +39,11 @@ def _create_role(name):
     return role
 
 
-def _create_user(username, password='testpass123', **kwargs):
+def _create_user(username, password='password1!', **kwargs):
     return CustomUser.objects.create_user(
         username=username,
         password=password,
-        email=kwargs.pop('email', f'{username}@example.com'),
+        email=kwargs.pop('email', f'wlhtestmails+{username}@gmail.com'),
         **kwargs,
     )
 
@@ -203,7 +203,7 @@ class SchoolSettingsStripeTests(TestCase):
         self.hoi = _create_user('hoi_settings')
         _assign_role(self.hoi, Role.HEAD_OF_INSTITUTE)
         self.school = _setup_school(self.hoi, school_name='Settings School', slug='settings-school')
-        self.client.login(username='hoi_settings', password='testpass123')
+        self.client.login(username='hoi_settings', password='password1!')
 
     def _url(self):
         return reverse('admin_school_settings', kwargs={'school_id': self.school.id})
@@ -259,7 +259,7 @@ class DepartmentEditStripeTests(TestCase):
         _assign_role(self.hoi, Role.HEAD_OF_INSTITUTE)
         self.school = _setup_school(self.hoi, school_name='Dept School', slug='dept-school')
         self.dept = _create_department(self.school)
-        self.client.login(username='hoi_dept', password='testpass123')
+        self.client.login(username='hoi_dept', password='password1!')
 
     def _url(self):
         return reverse('admin_department_edit', kwargs={
@@ -324,7 +324,7 @@ class InvoiceEditStripeTests(TestCase):
         SchoolStudent.objects.create(school=self.school, student=self.student)
         self.invoice = _create_invoice(self.school, self.student, self.hoi)
         _add_line_item(self.invoice)
-        self.client.login(username='hoi_inv_edit', password='testpass123')
+        self.client.login(username='hoi_inv_edit', password='password1!')
 
     def _url(self):
         return reverse('invoice_edit', kwargs={'invoice_id': self.invoice.id})
@@ -385,7 +385,7 @@ class InvoiceDetailStripeTests(TestCase):
             self.school, self.student, self.hoi, status='issued',
         )
         _add_line_item(self.invoice)
-        self.client.login(username='hoi_inv_detail', password='testpass123')
+        self.client.login(username='hoi_inv_detail', password='password1!')
 
     def _url(self):
         return reverse('invoice_detail', kwargs={'invoice_id': self.invoice.id})
@@ -462,7 +462,7 @@ class ParentInvoiceDetailStripeTests(TestCase):
         )
         _add_line_item(self.invoice, line_amount='120.00')
 
-        self.client.login(username='parent_detail', password='testpass123')
+        self.client.login(username='parent_detail', password='password1!')
 
     def _url(self):
         return reverse('parent_invoice_detail', kwargs={'invoice_id': self.invoice.id})
@@ -538,7 +538,7 @@ class ParentInvoicesListStripeTests(TestCase):
             school=self.school, relationship='father',
         )
 
-        self.client.login(username='parent_list', password='testpass123')
+        self.client.login(username='parent_list', password='password1!')
 
     def _url(self):
         return reverse('parent_invoices')

@@ -56,7 +56,7 @@ class ResolveCcEmailTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.admin = CustomUser.objects.create_user(
-            username='cc_admin', password='pass12345', email='cc_admin@test.com',
+            username='cc_admin', password='password1!', email='wlhtestmails+cc_admin@gmail.com',
         )
 
     def test_returns_school_outgoing_email(self):
@@ -107,7 +107,7 @@ class SendTemplatedEmailCcTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.admin = CustomUser.objects.create_user(
-            username='cc_email_admin', password='pass12345', email='cc_email_admin@test.com',
+            username='cc_email_admin', password='password1!', email='wlhtestmails+cc_email_admin@gmail.com',
         )
 
     def setUp(self):
@@ -116,7 +116,7 @@ class SendTemplatedEmailCcTests(TestCase):
     def test_email_has_cc_when_school_provided(self):
         school, _ = _setup_school(self.admin, slug='cc-send-has', outgoing_email='cc@inst.com')
         send_templated_email(
-            recipient_email='student@test.com',
+            recipient_email='wlhtestmails+student@gmail.com',
             subject='Test CC',
             template_name='email/transactional/general_notification.html',
             context={'notification_message': 'Hello', 'notification_type': 'general'},
@@ -127,7 +127,7 @@ class SendTemplatedEmailCcTests(TestCase):
 
     def test_email_no_cc_when_school_not_provided(self):
         send_templated_email(
-            recipient_email='student@test.com',
+            recipient_email='wlhtestmails+student@gmail.com',
             subject='Test No CC',
             template_name='email/transactional/general_notification.html',
             context={'notification_message': 'Hello', 'notification_type': 'general'},
@@ -138,7 +138,7 @@ class SendTemplatedEmailCcTests(TestCase):
     def test_email_no_cc_when_outgoing_email_empty(self):
         school, _ = _setup_school(self.admin, slug='cc-send-empty', outgoing_email='')
         send_templated_email(
-            recipient_email='student@test.com',
+            recipient_email='wlhtestmails+student@gmail.com',
             subject='Test Empty CC',
             template_name='email/transactional/general_notification.html',
             context={'notification_message': 'Hello', 'notification_type': 'general'},
@@ -154,7 +154,7 @@ class SendTemplatedEmailCcTests(TestCase):
             outgoing_email='arts@inst.com',
         )
         send_templated_email(
-            recipient_email='student@test.com',
+            recipient_email='wlhtestmails+student@gmail.com',
             subject='Test Dept CC',
             template_name='email/transactional/general_notification.html',
             context={'notification_message': 'Hello', 'notification_type': 'general'},
@@ -180,10 +180,10 @@ class StaffWelcomeEmailCcTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.admin = CustomUser.objects.create_user(
-            username='cc_welcome_admin', password='pass12345', email='cc_welcome_admin@test.com',
+            username='cc_welcome_admin', password='password1!', email='wlhtestmails+cc_welcome_admin@gmail.com',
         )
         cls.staff_user = CustomUser.objects.create_user(
-            username='cc_staff', password='pass12345', email='staff@test.com',
+            username='cc_staff', password='password1!', email='wlhtestmails+staff@gmail.com',
             first_name='Test', last_name='Staff',
         )
 
@@ -245,13 +245,13 @@ class OutgoingEmailValidationTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.admin = CustomUser.objects.create_user(
-            username='cc_val_admin', password='pass12345', email='cc_val_admin@test.com',
+            username='cc_val_admin', password='password1!', email='wlhtestmails+cc_val_admin@gmail.com',
         )
 
     def test_valid_email_accepted(self):
         school = School(
             name='Valid Email School', slug='val-email-ok', admin=self.admin,
-            outgoing_email='valid@example.com',
+            outgoing_email='wlhtestmails+valid@gmail.com',
         )
         # Should not raise
         school.full_clean()
@@ -286,19 +286,19 @@ class SettingsViewValidationTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.user = CustomUser.objects.create_user(
-            username='cc_settings_admin', password='pass12345', email='cc_settings@test.com',
+            username='cc_settings_admin', password='password1!', email='wlhtestmails+cc_settings@gmail.com',
         )
         _assign_role(cls.user, Role.ADMIN)
         cls.school, cls.sub = _setup_school(cls.user, slug='cc-settings-school')
 
     def setUp(self):
-        self.client.login(username='cc_settings_admin', password='pass12345')
+        self.client.login(username='cc_settings_admin', password='password1!')
 
     def test_valid_outgoing_email_saves(self):
         url = reverse('admin_school_settings', kwargs={'school_id': self.school.id})
         resp = self.client.post(url, {
             'active_tab': 'contact',
-            'outgoing_email': 'valid@example.com',
+            'outgoing_email': 'wlhtestmails+valid@gmail.com',
             'abn': '', 'gst_number': '', 'street_address': '', 'city': '',
             'state_region': '', 'postal_code': '', 'country': '',
             'bank_name': '', 'bank_bsb': '', 'bank_account_number': '',
@@ -306,7 +306,7 @@ class SettingsViewValidationTests(TestCase):
         })
         self.assertEqual(resp.status_code, 302)
         self.school.refresh_from_db()
-        self.assertEqual(self.school.outgoing_email, 'valid@example.com')
+        self.assertEqual(self.school.outgoing_email, 'wlhtestmails+valid@gmail.com')
 
     def test_invalid_outgoing_email_rejected(self):
         url = reverse('admin_school_settings', kwargs={'school_id': self.school.id})
@@ -325,7 +325,7 @@ class SettingsViewValidationTests(TestCase):
 
     def test_blank_outgoing_email_saves(self):
         # First set a valid email
-        self.school.outgoing_email = 'old@example.com'
+        self.school.outgoing_email = 'wlhtestmails+old@gmail.com'
         self.school.save()
 
         url = reverse('admin_school_settings', kwargs={'school_id': self.school.id})

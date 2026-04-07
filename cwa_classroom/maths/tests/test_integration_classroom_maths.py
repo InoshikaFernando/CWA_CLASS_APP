@@ -78,25 +78,25 @@ class IntegrationBase(TestCase):
 
         # ── Users ─────────────────────────────────────────────
         cls.superuser = CustomUser.objects.create_superuser(
-            'int_super', 'int_super@test.com', 'pass1234',
+            'int_super', 'wlhtestmails+int_super@gmail.com', 'password1!',
         )
         cls.hoi_user = CustomUser.objects.create_user(
-            'int_hoi', 'int_hoi@test.com', 'pass1234',
+            'int_hoi', 'wlhtestmails+int_hoi@gmail.com', 'password1!',
         )
         cls.hoi_user.roles.add(cls.role_hoi)
 
         cls.hod_user = CustomUser.objects.create_user(
-            'int_hod', 'int_hod@test.com', 'pass1234',
+            'int_hod', 'wlhtestmails+int_hod@gmail.com', 'password1!',
         )
         cls.hod_user.roles.add(cls.role_hod)
 
         cls.teacher_user = CustomUser.objects.create_user(
-            'int_teacher', 'int_teacher@test.com', 'pass1234',
+            'int_teacher', 'wlhtestmails+int_teacher@gmail.com', 'password1!',
         )
         cls.teacher_user.roles.add(cls.role_teacher)
 
         cls.student_user = CustomUser.objects.create_user(
-            'int_student', 'int_student@test.com', 'pass1234',
+            'int_student', 'wlhtestmails+int_student@gmail.com', 'password1!',
         )
         cls.student_user.roles.add(cls.role_student)
 

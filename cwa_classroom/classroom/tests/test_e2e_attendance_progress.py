@@ -39,12 +39,12 @@ def _create_role(name, display_name=None):
     return role
 
 
-def _create_user(username, password='testpass123', **kwargs):
+def _create_user(username, password='password1!', **kwargs):
     """Create a CustomUser."""
     return CustomUser.objects.create_user(
         username=username,
         password=password,
-        email=kwargs.pop('email', f'{username}@example.com'),
+        email=kwargs.pop('email', f'wlhtestmails+{username}@gmail.com'),
         **kwargs,
     )
 

@@ -41,9 +41,9 @@ def _assign_role(user, role_name):
     return role
 
 
-def _setup_school(username='testhoi', email='hoi@test.com'):
+def _setup_school(username='testhoi', email='wlhtestmails+hoi@gmail.com'):
     user = CustomUser.objects.create_user(
-        username=username, password='pass12345', email=email,
+        username=username, password='password1!', email=email,
         first_name='Admin', last_name='User',
     )
     _assign_role(user, Role.HEAD_OF_INSTITUTE)
@@ -63,9 +63,9 @@ def _setup_school(username='testhoi', email='hoi@test.com'):
 
 def _make_teacher(school, first, last, role='teacher', **kw):
     uname = kw.pop('username', f'{first.lower()}.{last.lower()}')
-    email = kw.pop('email', f'{uname}@test.com')
+    email = kw.pop('email', f'wlhtestmails+{uname}@gmail.com')
     user = CustomUser.objects.create_user(
-        username=uname, password='pass12345', email=email,
+        username=uname, password='password1!', email=email,
         first_name=first, last_name=last,
     )
     _assign_role(user, Role.TEACHER)
@@ -75,9 +75,9 @@ def _make_teacher(school, first, last, role='teacher', **kw):
 
 def _make_student(school, first, last, **kw):
     uname = kw.pop('username', f'{first.lower()}.{last.lower()}')
-    email = kw.pop('email', f'{uname}@test.com')
+    email = kw.pop('email', f'wlhtestmails+{uname}@gmail.com')
     user = CustomUser.objects.create_user(
-        username=uname, password='pass12345', email=email,
+        username=uname, password='password1!', email=email,
         first_name=first, last_name=last,
     )
     _assign_role(user, Role.STUDENT)
@@ -233,7 +233,7 @@ class TeacherSearchWithOrderAndPaginationTests(TestCase):
                 f'Teacher{i:02d}',
                 'Smith',
                 username=f'teacher.smith.{i:02d}',
-                email=f'teacher{i:02d}@test.com',
+                email=f'wlhtestmails+teacher{i:02d}@gmail.com',
             )
         # One outlier with a different name
         _make_teacher(cls.school, 'Unique', 'Jones')
@@ -412,7 +412,7 @@ class StudentSearchPaginationTests(TestCase):
             _make_student(
                 cls.school, f'Student{i:02d}', 'Smith',
                 username=f'student.smith.{i:02d}',
-                email=f'student{i:02d}@test.com',
+                email=f'wlhtestmails+student{i:02d}@gmail.com',
             )
         _make_student(cls.school, 'Unique', 'Jones')
 
@@ -489,11 +489,11 @@ class StudentBatchUpdateTests(TestCase):
             f'first_name_{self.alice.id}': 'Alice',
             f'last_name_{self.alice.id}': 'Anderson',
             f'username_{self.alice.id}': self.alice.username,
-            f'email_{self.alice.id}': 'newemail@test.com',
+            f'email_{self.alice.id}': 'wlhtestmails+newemail@gmail.com',
         })
         self.assertEqual(resp.status_code, 302)
         self.alice.refresh_from_db()
-        self.assertEqual(self.alice.email, 'newemail@test.com')
+        self.assertEqual(self.alice.email, 'wlhtestmails+newemail@gmail.com')
 
     def test_batch_update_duplicate_email_rejected(self):
         resp = self.client.post(self.url, {
@@ -571,9 +571,9 @@ class TotalCountTests(TestCase):
         cls.admin, cls.school = _setup_school()
         for i in range(5):
             _make_teacher(cls.school, f'T{i}', f'Last{i}',
-                          username=f'teach{i}', email=f'teach{i}@test.com')
+                          username=f'teach{i}', email=f'wlhtestmails+teach{i}@gmail.com')
             _make_student(cls.school, f'S{i}', f'Last{i}',
-                          username=f'stud{i}', email=f'stud{i}@test.com')
+                          username=f'stud{i}', email=f'wlhtestmails+stud{i}@gmail.com')
 
     def setUp(self):
         self.client = Client()
@@ -616,7 +616,7 @@ class InactiveWithSearchTests(TestCase):
         cls.active = _make_student(cls.school, 'Active', 'Student')
         cls.inactive_user = _make_student(
             cls.school, 'Inactive', 'Student',
-            username='inactive.student', email='inactive@test.com',
+            username='inactive.student', email='wlhtestmails+inactive@gmail.com',
         )
         ss = SchoolStudent.objects.get(student=cls.inactive_user)
         ss.is_active = False
