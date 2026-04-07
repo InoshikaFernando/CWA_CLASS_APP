@@ -375,7 +375,8 @@
       "Bash(xargs grep:*)",
       "Bash(python -c \"import ast, sys; ast.parse\\(open\\(''ui_tests/test_makeup_attendance.py''\\).read\\(\\)\\); print\\(''Syntax OK''\\)\")",
       "Bash(python -c \":*)",
-      "Bash(gh run:*)"
+      "Bash(gh run:*)",
+      "mcp__claude_ai_Atlassian_Rovo__getJiraIssue"
     ]
   }
 }

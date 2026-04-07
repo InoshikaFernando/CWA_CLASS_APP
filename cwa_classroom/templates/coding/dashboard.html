@@ -46,7 +46,7 @@
     {% for tp in topic_progress %}
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
       <div class="flex items-center justify-between mb-2">
-        <a href="{% url 'coding:level_list' lang_slug=language.slug topic_slug=tp.topic.slug %}"
+        <a href="{% url 'coding:topic_list' lang_slug=language.slug %}"
            class="font-semibold text-gray-800 hover:text-violet-700 transition text-sm">
           {{ tp.topic.name }}
         </a>

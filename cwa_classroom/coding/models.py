@@ -40,6 +40,14 @@ class CodingLanguage(models.Model):
         (SCRATCH, 'Scratch'),
     ]
 
+    # Maps slug → brand hex colour (used in templates — no DB column needed)
+    COLOR_MAP = {
+        PYTHON:     '#3b82f6',  # blue-500
+        JAVASCRIPT: '#f59e0b',  # amber-500
+        HTML_CSS:   '#ef4444',  # red-500
+        SCRATCH:    '#f97316',  # orange-500
+    }
+
     # Maps slug → Piston API language identifier
     # Note: Piston calls Node.js "node", not "javascript"
     PISTON_LANGUAGE_MAP = {
@@ -52,16 +60,21 @@ class CodingLanguage(models.Model):
     name = models.CharField(max_length=50)
     slug = models.SlugField(max_length=50, unique=True, choices=LANGUAGE_CHOICES)
     description = models.TextField(blank=True)
-    icon_name = models.CharField(max_length=50, blank=True, help_text="Icon identifier used in templates")
-    color = models.CharField(max_length=30, blank=True, help_text="Tailwind color class, e.g. 'blue-500'")
-    order = models.PositiveSmallIntegerField(default=0)
+    icon = models.CharField(max_length=50, blank=True, help_text="Icon identifier used in templates")
+    # color = models.CharField(max_length=30, blank=True, help_text="Tailwind color class, e.g. 'blue-500'")
+    display_order = models.PositiveSmallIntegerField(default=0)
     is_active = models.BooleanField(default=True)
 
     class Meta:
-        ordering = ['order', 'name']
+        ordering = ['display_order', 'name']
 
     def __str__(self):
         return self.name
+
+    @property
+    def color(self):
+        """Brand hex colour for this language — used in templates."""
+        return self.COLOR_MAP.get(self.slug, '#7c3aed')
 
     @property
     def piston_language(self):
@@ -86,11 +99,11 @@ class CodingTopic(models.Model):
     name = models.CharField(max_length=100)
     slug = models.SlugField(max_length=100)
     description = models.TextField(blank=True)
-    order = models.PositiveSmallIntegerField(default=0)
+    display_order = models.PositiveSmallIntegerField(default=0)
     is_active = models.BooleanField(default=True)
 
     class Meta:
-        ordering = ['language', 'order', 'name']
+        ordering = ['language', 'display_order', 'name']
         unique_together = ('language', 'slug')
 
     def __str__(self):
@@ -101,8 +114,8 @@ class CodingTopic(models.Model):
 # Topic Exercises  (structured learning, beginner → advanced)
 # ---------------------------------------------------------------------------
 
-class CodingExercise(models.Model):
-    """A single coding exercise within a topic at a given level."""
+class TopicLevel(models.Model):
+    """A difficulty band within a topic (Beginner / Intermediate / Advanced)."""
 
     BEGINNER = 'beginner'
     INTERMEDIATE = 'intermediate'
@@ -114,30 +127,38 @@ class CodingExercise(models.Model):
         (ADVANCED, 'Advanced'),
     ]
 
-    LEVEL_ORDER = {BEGINNER: 1, INTERMEDIATE: 2, ADVANCED: 3}
+    topic = models.ForeignKey(CodingTopic, on_delete=models.CASCADE, related_name='levels')
+    level_choice = models.CharField(max_length=20, choices=LEVEL_CHOICES)
+    description = models.TextField(blank=True)
 
-    topic = models.ForeignKey(CodingTopic, on_delete=models.CASCADE, related_name='exercises')
-    level = models.CharField(max_length=20, choices=LEVEL_CHOICES, default=BEGINNER)
+    class Meta:
+        unique_together = ('topic', 'level_choice')
+        ordering = ['topic', 'level_choice']
+
+    def __str__(self):
+        return f"{self.topic} [{self.get_level_choice_display()}]"
+
+
+class CodingExercise(models.Model):
+    """A single coding exercise within a topic level."""
+
+    topic_level = models.ForeignKey(TopicLevel, on_delete=models.CASCADE, related_name='exercises')
     title = models.CharField(max_length=200)
-    description = models.TextField(help_text="Instructions shown to the student")
+    instructions = models.TextField(help_text="Instructions shown to the student")
     starter_code = models.TextField(blank=True, help_text="Pre-filled code shown in the editor when the student opens the exercise")
     solution_code = models.TextField(blank=True, help_text="Reference solution — shown only to teachers, never to students")
     expected_output = models.TextField(blank=True, help_text="Expected stdout for simple output-matching exercises (leave blank for free-form exercises)")
     hints = models.TextField(blank=True, help_text="Optional hint text shown on request")
-    order = models.PositiveSmallIntegerField(default=0)
+    display_order = models.PositiveSmallIntegerField(default=0)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ['topic', 'level', 'order']
+        ordering = ['topic_level', 'display_order']
 
     def __str__(self):
-        return f"{self.topic} [{self.get_level_display()}] — {self.title}"
-
-    @property
-    def level_order(self):
-        return self.LEVEL_ORDER.get(self.level, 0)
+        return f"{self.topic_level} — {self.title}"
 
 
 # ---------------------------------------------------------------------------
@@ -147,11 +168,46 @@ class CodingExercise(models.Model):
 class CodingProblem(models.Model):
     """An algorithm or logic problem students solve by writing their own code."""
 
+    # Category choices (CPP-123)
+    ALGORITHM       = 'algorithm'
+    LOGIC           = 'logic'
+    STRING          = 'string'
+    MATH            = 'math'
+    DATA_STRUCTURES = 'data-structures'
+    OTHER           = 'other'
+
+    CATEGORY_CHOICES = [
+        (ALGORITHM,       'Algorithm'),
+        (LOGIC,           'Logic'),
+        (STRING,          'String'),
+        (MATH,            'Math'),
+        (DATA_STRUCTURES, 'Data Structures'),
+        (OTHER,           'Other'),
+    ]
+
     language = models.ForeignKey(CodingLanguage, on_delete=models.CASCADE, related_name='problems')
     title = models.CharField(max_length=200)
     description = models.TextField(help_text="Full problem statement shown to the student, including input/output format")
     starter_code = models.TextField(blank=True, help_text="Skeleton code to give students a starting point")
     solution_code = models.TextField(blank=True, help_text="Reference solution — never exposed to students")
+    category = models.CharField(
+        max_length=20,
+        choices=CATEGORY_CHOICES,
+        default=OTHER,
+        help_text="Problem category (Algorithm, Logic, String, Math, etc.)",
+    )
+    constraints = models.TextField(
+        blank=True,
+        help_text="Constraints shown to the student, e.g. '1 ≤ n ≤ 10^5, values are integers'",
+    )
+    time_limit_seconds = models.PositiveSmallIntegerField(
+        default=10,
+        help_text="Execution time limit per test case in seconds",
+    )
+    memory_limit_mb = models.PositiveSmallIntegerField(
+        default=64,
+        help_text="Memory limit per test case in megabytes",
+    )
     difficulty = models.PositiveSmallIntegerField(
         default=1,
         help_text="Difficulty level 1 (easiest) to 8 (hardest)",
@@ -194,6 +250,10 @@ class ProblemTestCase(models.Model):
         default=True,
         help_text="True = shown to student as a sample. False = hidden boundary/edge case.",
     )
+    is_boundary_test = models.BooleanField(
+        default=False,
+        help_text="True for edge/boundary value tests (e.g. empty input, max value). Always hidden.",
+    )
     description = models.CharField(max_length=200, blank=True, help_text="Short label, e.g. 'Empty list input'")
     order = models.PositiveSmallIntegerField(default=0)
 
@@ -209,32 +269,32 @@ class ProblemTestCase(models.Model):
 # Student Submissions
 # ---------------------------------------------------------------------------
 
-class StudentExerciseSubmission(models.Model):
+class StudentExerciseAttempt(models.Model):
     """Records each time a student runs/submits code for a topic exercise."""
 
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='coding_exercise_submissions')
     exercise = models.ForeignKey(CodingExercise, on_delete=models.CASCADE, related_name='submissions')
-    code_submitted = models.TextField()
+    submitted_code = models.TextField()
     output_received = models.TextField(blank=True, help_text="stdout returned by the code executor")
     stderr_received = models.TextField(blank=True, help_text="stderr returned by the code executor")
-    is_completed = models.BooleanField(default=False, help_text="True once the student marks the exercise as done or output matches expected")
+    is_correct = models.BooleanField(default=False, help_text="True once the student marks the exercise as done or output matches expected")
     time_taken_seconds = models.PositiveIntegerField(default=0, help_text="Time spent on this submission in seconds")
-    submitted_at = models.DateTimeField(auto_now_add=True)
+    attempted_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ['-submitted_at']
+        ordering = ['-attempted_at']
         indexes = [
             models.Index(fields=['student', 'exercise'], name='coding_ses_stu_ex_idx'),
         ]
 
     def __str__(self):
-        status = "Completed" if self.is_completed else "In progress"
+        status = "Correct" if self.is_correct else "In progress"
         return f"{self.student} — {self.exercise.title} ({status})"
 
     @classmethod
     def is_exercise_completed(cls, student, exercise):
         """Check whether a student has successfully completed an exercise."""
-        return cls.objects.filter(student=student, exercise=exercise, is_completed=True).exists()
+        return cls.objects.filter(student=student, exercise=exercise, is_correct=True).exists()
 
 
 class StudentProblemSubmission(models.Model):
@@ -244,11 +304,34 @@ class StudentProblemSubmission(models.Model):
     increments per student-problem combination, mirroring StudentFinalAnswer in maths.
     """
 
+    # Submission status choices (CPP-123)
+    PENDING = 'pending'
+    PASSED  = 'passed'
+    FAILED  = 'failed'
+    STATUS_CHOICES = [
+        (PENDING, 'Pending'),
+        (PASSED,  'Passed'),
+        (FAILED,  'Failed'),
+    ]
+
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='coding_problem_submissions')
     problem = models.ForeignKey(CodingProblem, on_delete=models.CASCADE, related_name='submissions')
+    language = models.ForeignKey(
+        CodingLanguage,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='problem_submissions',
+        help_text="Language the student used for this submission",
+    )
     session_id = models.CharField(max_length=100, default=uuid.uuid4, blank=True, help_text="Unique identifier for this submission session")
     attempt_number = models.PositiveIntegerField(default=1, help_text="Attempt number for this student-problem combination")
     code_submitted = models.TextField()
+    status = models.CharField(
+        max_length=10,
+        choices=STATUS_CHOICES,
+        default=PENDING,
+        help_text="Submission status: Pending (being evaluated), Passed, or Failed",
+    )
 
     # Test result summary
     passed_all_tests = models.BooleanField(default=False, help_text="True only when every test case (visible + hidden) passes")
@@ -336,6 +419,46 @@ class StudentProblemSubmission(models.Model):
 
 
 # ---------------------------------------------------------------------------
+# Per-test-case submission results  (CPP-123)
+# ---------------------------------------------------------------------------
+
+class ProblemSubmissionResult(models.Model):
+    """Records the outcome of running a single test case against a student's submission.
+
+    One record per (submission, test_case) pair. Stores actual output and
+    execution time so teachers can diagnose where a student's solution failed.
+    """
+
+    submission = models.ForeignKey(
+        StudentProblemSubmission,
+        on_delete=models.CASCADE,
+        related_name='results',
+    )
+    test_case = models.ForeignKey(
+        ProblemTestCase,
+        on_delete=models.CASCADE,
+        related_name='submission_results',
+    )
+    actual_output = models.TextField(blank=True, help_text="stdout produced by the student's code for this test case")
+    is_passed = models.BooleanField(default=False, help_text="True when actual_output matches expected_output")
+    execution_time_ms = models.PositiveIntegerField(
+        default=0,
+        help_text="Wall-clock time taken to execute this test case in milliseconds",
+    )
+
+    class Meta:
+        ordering = ['submission', 'test_case__order', 'test_case__id']
+        unique_together = ('submission', 'test_case')
+        indexes = [
+            models.Index(fields=['submission'], name='coding_psr_submission_idx'),
+        ]
+
+    def __str__(self):
+        status = "PASS" if self.is_passed else "FAIL"
+        return f"{self.submission} — TC {self.test_case.order} [{status}]"
+
+
+# ---------------------------------------------------------------------------
 # Time Tracking  (mirrors maths.TimeLog)
 # ---------------------------------------------------------------------------
 
@@ -384,7 +507,7 @@ class CodingTopicStatistics(models.Model):
     """
 
     topic = models.ForeignKey(CodingTopic, on_delete=models.CASCADE, related_name='statistics')
-    level = models.CharField(max_length=20, choices=CodingExercise.LEVEL_CHOICES)
+    level = models.CharField(max_length=20, choices=TopicLevel.LEVEL_CHOICES)
     average_points = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     sigma = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Standard deviation")
     student_count = models.PositiveIntegerField(default=0)

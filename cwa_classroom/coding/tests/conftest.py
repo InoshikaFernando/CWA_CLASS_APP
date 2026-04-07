@@ -8,10 +8,11 @@ from django.contrib.auth import get_user_model
 from coding.models import (
     CodingLanguage,
     CodingTopic,
+    TopicLevel,
     CodingExercise,
     CodingProblem,
     ProblemTestCase,
-    StudentExerciseSubmission,
+    StudentExerciseAttempt,
     StudentProblemSubmission,
     CodingTimeLog,
 )
@@ -65,8 +66,7 @@ def python_lang(db):
         name='Python',
         slug='python',
         description='Python language',
-        color='#3b82f6',
-        order=1,
+        display_order=1,
         is_active=True,
     )
 
@@ -77,8 +77,7 @@ def js_lang(db):
         name='JavaScript',
         slug='javascript',
         description='JavaScript language',
-        color='#f59e0b',
-        order=2,
+        display_order=2,
         is_active=True,
     )
 
@@ -89,8 +88,7 @@ def html_lang(db):
         name='HTML / CSS',
         slug='html-css',
         description='HTML and CSS',
-        color='#ef4444',
-        order=3,
+        display_order=3,
         is_active=True,
     )
 
@@ -101,8 +99,7 @@ def scratch_lang(db):
         name='Scratch',
         slug='scratch',
         description='Scratch visual language',
-        color='#f97316',
-        order=4,
+        display_order=4,
         is_active=True,
     )
 
@@ -128,7 +125,7 @@ def python_topic(db, python_lang):
         name='Variables',
         slug='variables',
         description='Learn about variables',
-        order=1,
+        display_order=1,
         is_active=True,
     )
 
@@ -140,7 +137,7 @@ def python_topic2(db, python_lang):
         name='Loops',
         slug='loops',
         description='Learn about loops',
-        order=2,
+        display_order=2,
         is_active=True,
     )
 
@@ -156,56 +153,71 @@ def inactive_topic(db, python_lang):
 
 
 # ---------------------------------------------------------------------------
+# Topic Levels
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def beginner_level(db, python_topic):
+    return TopicLevel.objects.create(topic=python_topic, level_choice=TopicLevel.BEGINNER)
+
+
+@pytest.fixture
+def intermediate_level(db, python_topic):
+    return TopicLevel.objects.create(topic=python_topic, level_choice=TopicLevel.INTERMEDIATE)
+
+
+@pytest.fixture
+def advanced_level(db, python_topic):
+    return TopicLevel.objects.create(topic=python_topic, level_choice=TopicLevel.ADVANCED)
+
+
+# ---------------------------------------------------------------------------
 # Exercises
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def beginner_exercise(db, python_topic):
+def beginner_exercise(db, beginner_level):
     return CodingExercise.objects.create(
-        topic=python_topic,
-        level=CodingExercise.BEGINNER,
+        topic_level=beginner_level,
         title='Hello World',
-        description='Print Hello, World!',
+        instructions='Print Hello, World!',
         starter_code='# Write your code here\n',
         expected_output='Hello, World!',
         hints='Use print()',
-        order=1,
+        display_order=1,
         is_active=True,
     )
 
 
 @pytest.fixture
-def intermediate_exercise(db, python_topic):
+def intermediate_exercise(db, intermediate_level):
     return CodingExercise.objects.create(
-        topic=python_topic,
-        level=CodingExercise.INTERMEDIATE,
+        topic_level=intermediate_level,
         title='Type Inspector',
-        description='Check types of variables',
+        instructions='Check types of variables',
         starter_code='# Check types\n',
-        order=2,
+        display_order=2,
         is_active=True,
     )
 
 
 @pytest.fixture
-def advanced_exercise(db, python_topic):
+def advanced_exercise(db, advanced_level):
     return CodingExercise.objects.create(
-        topic=python_topic,
-        level=CodingExercise.ADVANCED,
+        topic_level=advanced_level,
         title='Type Casting',
-        description='Cast types',
-        order=3,
+        instructions='Cast types',
+        display_order=3,
         is_active=True,
     )
 
 
 @pytest.fixture
-def inactive_exercise(db, python_topic):
+def inactive_exercise(db, beginner_level):
     return CodingExercise.objects.create(
-        topic=python_topic,
-        level=CodingExercise.BEGINNER,
+        topic_level=beginner_level,
         title='Inactive Exercise',
-        description='This is inactive',
+        instructions='This is inactive',
         is_active=False,
     )
 
@@ -274,24 +286,24 @@ def problem_with_cases(db, python_problem, visible_test_case, hidden_test_case):
 
 @pytest.fixture
 def completed_submission(db, student, beginner_exercise):
-    return StudentExerciseSubmission.objects.create(
+    return StudentExerciseAttempt.objects.create(
         student=student,
         exercise=beginner_exercise,
-        code_submitted='print("Hello, World!")',
+        submitted_code='print("Hello, World!")',
         output_received='Hello, World!',
-        is_completed=True,
+        is_correct=True,
         time_taken_seconds=30,
     )
 
 
 @pytest.fixture
 def incomplete_submission(db, student, beginner_exercise):
-    return StudentExerciseSubmission.objects.create(
+    return StudentExerciseAttempt.objects.create(
         student=student,
         exercise=beginner_exercise,
-        code_submitted='print("wrong")',
+        submitted_code='print("wrong")',
         output_received='wrong',
-        is_completed=False,
+        is_correct=False,
     )
 
 

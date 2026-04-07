@@ -2,47 +2,69 @@
 {% block coding_title %}Choose a Language{% endblock %}
 
 {% block content %}
-<div class="max-w-4xl mx-auto px-4 py-8">
+<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
   <!-- Header -->
   <div class="mb-8">
+    <div class="flex items-center gap-3 mb-1">
+      <a href="{% url 'subjects_hub' %}"
+         class="text-sm text-gray-400 hover:text-gray-600 transition flex items-center gap-1">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/>
+        </svg>
+        Hub
+      </a>
+    </div>
     <h1 class="text-2xl font-bold text-gray-800">Coding Practice</h1>
-    <p class="text-gray-500 mt-1">Choose a language to get started with topic exercises and challenges.</p>
+    <p class="text-gray-500 mt-1 text-sm">Choose a language to get started with topic exercises and challenges.</p>
   </div>
 
-  <!-- Language cards -->
-  <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+  <!-- Language cards — 1 col mobile, 2 col tablet, 4 col desktop -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
 
     {% for language in languages %}
     <a href="{% url 'coding:topic_list' lang_slug=language.slug %}"
-       class="group rounded-2xl bg-white border border-slate-200 shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all p-6 flex items-center gap-5">
+       class="group rounded-2xl bg-white border border-slate-200 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all p-6 flex flex-col items-center text-center gap-3">
 
       <!-- Icon circle -->
-      <div class="flex-shrink-0 w-14 h-14 rounded-xl flex items-center justify-center text-white text-2xl font-bold"
-           style="background-color: {{ language.color|default:'#7c3aed' }}">
+      <div class="w-16 h-16 rounded-2xl flex items-center justify-center text-white text-3xl font-bold flex-shrink-0 shadow-sm"
+           style="background-color: {{ language.color }}">
         {% if language.slug == 'python' %}🐍
-        {% elif language.slug == 'javascript' %}JS
+        {% elif language.slug == 'javascript' %}
+          <span class="text-xl font-extrabold">JS</span>
         {% elif language.slug == 'html-css' %}🌐
         {% elif language.slug == 'scratch' %}🐱
-        {% else %}{ }{% endif %}
-      </div>
-
-      <!-- Text -->
-      <div class="flex-1 min-w-0">
-        <h2 class="text-lg font-bold text-gray-800 group-hover:text-violet-700 transition">{{ language.name }}</h2>
-        {% if language.description %}
-          <p class="text-sm text-gray-500 mt-0.5 line-clamp-2">{{ language.description }}</p>
+        {% else %}
+          <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5"/>
+          </svg>
         {% endif %}
       </div>
 
-      <!-- Arrow -->
-      <svg class="w-5 h-5 text-gray-300 group-hover:text-violet-500 flex-shrink-0 transition" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
-      </svg>
+      <!-- Name -->
+      <h2 class="text-base font-bold text-gray-800 group-hover:text-violet-700 transition leading-tight">
+        {{ language.name }}
+      </h2>
+
+      <!-- Description -->
+      {% if language.description %}
+        <p class="text-xs text-gray-400 line-clamp-3 flex-1">{{ language.description }}</p>
+      {% endif %}
+
+      <!-- CTA -->
+      <span class="mt-auto inline-flex items-center gap-1 text-xs font-semibold transition group-hover:gap-2"
+            style="color: {{ language.color }}">
+        Start practising
+        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
+        </svg>
+      </span>
+
     </a>
     {% empty %}
-    <div class="col-span-2 bg-white rounded-2xl border border-slate-200 p-10 text-center text-gray-400">
-      No languages available yet. Check back soon!
+    <div class="col-span-4 bg-white rounded-2xl border border-slate-200 p-10 text-center text-gray-400">
+      <p class="text-3xl mb-2">💻</p>
+      <p class="font-medium">No languages available yet. Check back soon!</p>
     </div>
     {% endfor %}
 
