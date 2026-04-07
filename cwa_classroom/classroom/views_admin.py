@@ -22,7 +22,7 @@ from accounts.views import _validate_username, _generate_username_suggestion
 from .models import (
     School, SchoolTeacher, AcademicYear, ClassRoom, ClassSession, Department,
     DepartmentTeacher, SchoolStudent, Level, Subject, Term, ClassStudent,
-    SchoolHoliday, PublicHoliday,
+    SchoolHoliday, PublicHoliday, Currency,
 )
 from .views import RoleRequiredMixin
 from .email_utils import send_staff_welcome_email
@@ -35,8 +35,9 @@ def _get_user_school(user, school_id=None):
     If school_id is given, returns that specific school or None.
     If school_id is None, returns the user's first accessible school or None.
     """
-    # Superusers can access any school
-    if user.is_superuser:
+    from accounts.models import Role as _Role
+    # Superusers and ADMIN-role users can access any school
+    if user.is_superuser or user.has_role(_Role.ADMIN):
         if school_id:
             return School.objects.filter(id=school_id).first()
         return School.objects.first()
@@ -59,7 +60,8 @@ def _get_user_school(user, school_id=None):
 
 def _get_user_schools(user):
     """Get all schools the user can manage."""
-    if user.is_superuser:
+    from accounts.models import Role as _Role
+    if user.is_superuser or user.has_role(_Role.ADMIN):
         return School.objects.filter(is_active=True)
 
     admin_schools = School.objects.filter(admin=user, is_active=True)
@@ -413,6 +415,8 @@ class SchoolSettingsView(RoleRequiredMixin, View):
         # Banking & invoice
         'bank_name', 'bank_bsb', 'bank_account_number', 'bank_account_name',
         'invoice_terms', 'invoice_due_days',
+        # Payments
+        'stripe_payment_link',
     ]
 
     def _build_form_data(self, school):
@@ -421,6 +425,19 @@ class SchoolSettingsView(RoleRequiredMixin, View):
             data[field] = getattr(school, field, '')
         return data
 
+    def _is_hoi(self, user, school):
+        """Return True if the user has Head-of-Institute (or higher) access."""
+        if user.is_superuser:
+            return True
+        if school.admin_id and school.admin_id == user.pk:
+            return True
+        return SchoolTeacher.objects.filter(
+            school=school,
+            teacher=user,
+            role__in=['head_of_institute', 'institute_owner'],
+            is_active=True,
+        ).exists()
+
     def get(self, request, school_id):
         school = _get_user_school_or_404(request.user, school_id)
         tab = request.GET.get('tab', 'company')
@@ -428,6 +445,8 @@ class SchoolSettingsView(RoleRequiredMixin, View):
             'school': school,
             'form_data': self._build_form_data(school),
             'active_tab': tab,
+            'is_hoi': self._is_hoi(request.user, school),
+            'active_currencies': Currency.objects.filter(is_active=True).order_by('code'),
         })
 
     def post(self, request, school_id):
@@ -456,6 +475,17 @@ class SchoolSettingsView(RoleRequiredMixin, View):
             except DjangoValidationError:
                 messages.error(request, 'Please enter a valid outgoing email address.')
                 return redirect(f"{reverse('admin_school_settings', kwargs={'school_id': school.id})}?tab={tab}")
+
+        # Handle default_currency FK (HoI-only)
+        if self._is_hoi(request.user, school) and 'default_currency' in request.POST:
+            code = request.POST.get('default_currency', '').strip()
+            if not code:
+                school.default_currency = None
+            else:
+                try:
+                    school.default_currency = Currency.objects.get(code=code, is_active=True)
+                except Currency.DoesNotExist:
+                    pass
 
         # Handle logo upload
         if 'logo' in request.FILES:
@@ -1591,7 +1621,10 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
 
     def _get_school(self, request, school_id):
         user = request.user
-        if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER) or user.has_role(Role.ADMIN):
+        # Superusers (ADMIN role) can access any school
+        if user.is_superuser or user.has_role(Role.ADMIN):
+            return get_object_or_404(School, id=school_id)
+        if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
             return get_object_or_404(School, id=school_id, admin=user)
         if user.has_role(Role.HEAD_OF_DEPARTMENT):
             school = get_object_or_404(School, id=school_id)
@@ -1977,7 +2010,10 @@ class SchoolLevelManageView(RoleRequiredMixin, View):
 
     def _get_school(self, request, school_id):
         user = request.user
-        if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER) or user.has_role(Role.ADMIN):
+        # Superusers (ADMIN role) can access any school
+        if user.is_superuser or user.has_role(Role.ADMIN):
+            return get_object_or_404(School, id=school_id)
+        if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
             return get_object_or_404(School, id=school_id, admin=user)
         if user.has_role(Role.HEAD_OF_DEPARTMENT):
             school = get_object_or_404(School, id=school_id)

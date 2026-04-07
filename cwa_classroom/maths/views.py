@@ -1372,7 +1372,7 @@ def add_question(request, level_number):
         messages.error(request, "Only teachers can add questions.")
         return redirect("maths:dashboard")
     
-    level = get_object_or_404(Level, level_number=level_number)
+    level = get_object_or_404(ClassroomLevel, level_number=level_number)
     
     if request.method == "POST":
         question_form = QuestionForm(request.POST)
@@ -1407,7 +1407,7 @@ def add_question(request, level_number):
 @login_required
 def level_questions(request, level_number):
     """Display all questions for a specific level"""
-    level = get_object_or_404(Level, level_number=level_number)
+    level = get_object_or_404(ClassroomLevel, level_number=level_number)
     questions = _get_questions_for_level(request.user, level)
 
     return render(request, "maths/level_questions.html", {

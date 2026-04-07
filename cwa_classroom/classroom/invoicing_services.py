@@ -119,6 +119,52 @@ def check_overlapping_invoices(student, school, billing_period_start, billing_pe
     ).exclude(status='cancelled')
 
 
+def find_uncovered_date_ranges(issued_invoices, request_start, request_end):
+    """
+    Given a collection of issued invoices and a requested billing window
+    [request_start, request_end], return a list of (start, end) date pairs
+    representing the portions of the window NOT already covered by those invoices.
+
+    Example:
+        issued: Jan 6–20
+        request: Jan 1–31
+        → uncovered: [(Jan 1, Jan 5), (Jan 21, Jan 31)]
+
+    Returns an empty list when the invoices fully cover the requested window.
+    """
+    # Clip each invoice's interval to the requested window
+    covered = sorted(
+        (
+            max(inv.billing_period_start, request_start),
+            min(inv.billing_period_end,   request_end),
+        )
+        for inv in issued_invoices
+        if inv.billing_period_start <= request_end
+        and inv.billing_period_end >= request_start
+    )
+
+    # Merge overlapping/adjacent covered intervals
+    merged = []
+    for cov_start, cov_end in covered:
+        if merged and cov_start <= merged[-1][1] + timedelta(days=1):
+            merged[-1] = (merged[-1][0], max(merged[-1][1], cov_end))
+        else:
+            merged.append((cov_start, cov_end))
+
+    # Collect gaps between/around the merged covered intervals
+    gaps = []
+    cursor = request_start
+    for cov_start, cov_end in merged:
+        if cursor < cov_start:
+            gaps.append((cursor, cov_start - timedelta(days=1)))
+        cursor = cov_end + timedelta(days=1)
+
+    if cursor <= request_end:
+        gaps.append((cursor, request_end))
+
+    return gaps
+
+
 # ---------------------------------------------------------------------------
 # Invoice Line Calculation
 # ---------------------------------------------------------------------------
@@ -504,7 +550,13 @@ def create_draft_invoices(school, student_data, attendance_mode,
                            billing_type='post_term', period_type='custom'):
     """
     Creates draft Invoice + InvoiceLineItem records.
-    student_data: list of {student, lines, custom_amount (optional), notes (optional)}
+    student_data: list of {
+        student, lines,
+        custom_amount (optional), notes (optional),
+        period_start (optional override), period_end (optional override),
+    }
+    Per-student period_start/period_end override the global billing period for
+    that student's invoice (used for supplementary gap invoices).
     period_type: 'custom', 'month', 'term', or 'year'
     Returns list of created Invoice objects.
     """
@@ -518,14 +570,18 @@ def create_draft_invoices(school, student_data, attendance_mode,
             amount = data.get('custom_amount', calculated_amount)
             notes = data.get('notes', '')
 
-            invoice_number = generate_invoice_number(school, billing_period_end.year)
+            # Per-student period override (supplementary/gap invoices)
+            inv_period_start = data.get('period_start', billing_period_start)
+            inv_period_end   = data.get('period_end',   billing_period_end)
+
+            invoice_number = generate_invoice_number(school, inv_period_end.year)
 
             invoice = Invoice.objects.create(
                 invoice_number=invoice_number,
                 school=school,
                 student=student,
-                billing_period_start=billing_period_start,
-                billing_period_end=billing_period_end,
+                billing_period_start=inv_period_start,
+                billing_period_end=inv_period_end,
                 attendance_mode=attendance_mode,
                 billing_type=billing_type,
                 period_type=period_type,

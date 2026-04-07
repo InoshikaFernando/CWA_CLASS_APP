@@ -26,12 +26,12 @@
   </div>
   {% else %}
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center">
-    <p class="text-gray-400">No result found. <a href="{% url 'topic_quiz' level_number=level.level_number topic_id=topic.id %}" class="text-primary font-semibold">Take the quiz →</a></p>
+    <p class="text-gray-400">No result found. <a href="{% url 'topic_quiz' subject=subject level_number=level.level_number topic_id=topic.id %}" class="text-primary font-semibold">Take the quiz →</a></p>
   </div>
   {% endif %}
 
   <div class="flex flex-wrap gap-3 pb-6">
-    <a href="{% url 'topic_quiz' level_number=level.level_number topic_id=topic.id %}"
+    <a href="{% url 'topic_quiz' subject=subject level_number=level.level_number topic_id=topic.id %}"
        class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-5 py-3 transition">Try Again</a>
     <a href="{% url 'maths:dashboard' %}" class="bg-white border border-slate-200 text-gray-600 hover:border-primary hover:text-primary font-semibold rounded-xl px-5 py-3 transition">Home</a>
   </div>

@@ -29,12 +29,77 @@ def _teacher_classrooms(user):
     return ClassRoom.objects.filter(id__in=class_ids, is_active=True)
 
 
+def _build_topic_groups(topics_qs):
+    """
+    Return an ordered list of (strand, [subtopics]) tuples for the template.
+
+    Topics with no parent are "strands" — shown as group headers.
+    Topics with a parent are "subtopics" — shown indented under their strand.
+    Orphaned subtopics whose parent is not in the queryset fall into a
+    "Other" catch-all group at the end.
+
+    Each item in the subtopics list is the original Topic instance so the
+    template can access .id, .name, etc.
+    """
+    from collections import OrderedDict
+
+    strands = OrderedDict()   # {strand_id: (strand_topic, [subtopics])}
+    orphans = []
+
+    for topic in topics_qs:
+        if topic.parent_id is None:
+            # This topic IS a strand
+            if topic.pk not in strands:
+                strands[topic.pk] = (topic, [])
+        else:
+            parent = topic.parent
+            if parent.pk not in strands:
+                strands[parent.pk] = (parent, [])
+            strands[parent.pk][1].append(topic)
+
+    # Strands that have subtopics → accordion group.
+    # Standalone topics (no parent, no subtopics) → shown as flat checkboxes
+    # by passing an empty list so the template can distinguish.
+    result = [(strand, subs) for strand, subs in strands.values()]
+
+    return result
+
+
+def _topics_with_questions(classroom):
+    """
+    Return a Topic queryset restricted to topics that have at least one
+    Question at the classroom's levels.  If the classroom has no levels
+    configured, fall back to any topic that has at least one question.
+    """
+    from django.db.models import Exists, OuterRef
+
+    classroom_levels = classroom.levels.all()
+    base_qs = Topic.objects.filter(is_active=True).select_related('subject', 'parent').order_by(
+        'subject__name', 'parent__name', 'name'
+    )
+
+    if classroom_levels.exists():
+        question_filter = Question.objects.filter(
+            topic=OuterRef('pk'),
+            level__in=classroom_levels,
+        )
+    else:
+        question_filter = Question.objects.filter(topic=OuterRef('pk'))
+
+    return base_qs.filter(Exists(question_filter))
+
+
 def _select_and_save_questions(homework, topics, num_questions):
     """
     Select a stratified random set of questions from the given topics and
     persist them as HomeworkQuestion records so all students get the same set.
+    Only questions at the classroom's configured levels are considered;
+    falls back to all levels if the classroom has none set.
     """
+    classroom_levels = homework.classroom.levels.all()
     qs = Question.objects.filter(topic__in=topics).select_related('topic')
+    if classroom_levels.exists():
+        qs = qs.filter(level__in=classroom_levels)
     all_questions = list(qs)
 
     if not all_questions:
@@ -63,24 +128,28 @@ class HomeworkCreateView(RoleRequiredMixin, View):
     def get(self, request, classroom_id):
         classroom = get_object_or_404(ClassRoom, id=classroom_id)
         _check_teacher_owns_class(request, classroom)
-        # Build topic queryset scoped to the classroom's subjects/levels
-        topics = Topic.objects.filter(is_active=True).select_related('subject').order_by('subject__name', 'name')
+        topics = _topics_with_questions(classroom)
         form = HomeworkCreateForm()
         form.fields['topics'].queryset = topics
         return render(request, self.template_name, {
             'form': form,
             'classroom': classroom,
+            'topic_groups': _build_topic_groups(topics),
         })
 
     def post(self, request, classroom_id):
         classroom = get_object_or_404(ClassRoom, id=classroom_id)
         _check_teacher_owns_class(request, classroom)
-        topics = Topic.objects.filter(is_active=True).select_related('subject').order_by('subject__name', 'name')
+        topics = _topics_with_questions(classroom)
         form = HomeworkCreateForm(request.POST)
         form.fields['topics'].queryset = topics
 
         if not form.is_valid():
-            return render(request, self.template_name, {'form': form, 'classroom': classroom})
+            return render(request, self.template_name, {
+                'form': form,
+                'classroom': classroom,
+                'topic_groups': _build_topic_groups(topics),
+            })
 
         with transaction.atomic():
             homework = form.save(commit=False)
@@ -122,7 +191,9 @@ class HomeworkMonitorView(RoleRequiredMixin, View):
             homework_list = (
                 Homework.objects
                 .filter(classroom=selected_classroom)
-                .prefetch_related('topics')
+                .prefetch_related(
+                    Prefetch('topics', queryset=Topic.objects.select_related('subject', 'parent'))
+                )
                 .order_by('-created_at')
             )
 
@@ -193,7 +264,9 @@ class StudentHomeworkListView(LoginRequiredMixin, View):
         homework_qs = (
             Homework.objects
             .filter(classroom_id__in=class_ids)
-            .prefetch_related('topics')
+            .prefetch_related(
+                Prefetch('topics', queryset=Topic.objects.select_related('subject', 'parent'))
+            )
             .order_by('due_date')
         )
 
@@ -319,6 +392,8 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
             submission.points = pts
             submission.save(update_fields=['score', 'points'])
 
+        if request.POST.get('action') == 'save_exit':
+            return redirect('homework:student_list')
         return redirect('homework:student_result', submission_id=submission.id)
 
 

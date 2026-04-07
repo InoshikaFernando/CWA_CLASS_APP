@@ -104,8 +104,26 @@ def do_login(page: Page, live_server_url: str, user) -> None:
     page.locator("button[type='submit'], input[type='submit']").first.click()
     # Wait until we leave the login page
     page.wait_for_url(lambda url: "/accounts/login" not in url, timeout=10_000)
-    # Wait for page + Tailwind to fully load after redirect
-    page.wait_for_load_state("networkidle")
+    # Wait for DOM to be ready after redirect (networkidle can hang on CDN resources)
+    page.wait_for_load_state("domcontentloaded")
+
+
+def do_logout(page: Page, live_server_url: str) -> None:
+    """POST to the logout URL (Django 5 removed GET-based logout support)."""
+    page.evaluate(f"""() => {{
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '{live_server_url}/accounts/logout/';
+        const csrf = document.createElement('input');
+        csrf.type = 'hidden';
+        csrf.name = 'csrfmiddlewaretoken';
+        const match = document.cookie.match(/csrftoken=([^;]+)/);
+        csrf.value = match ? match[1] : '';
+        form.appendChild(csrf);
+        document.body.appendChild(form);
+        form.submit();
+    }}""")
+    page.wait_for_load_state("domcontentloaded")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -139,7 +157,7 @@ def roles(db):
 @pytest.fixture
 def student_user(db, roles):
     from accounts.models import Role
-    return _make_user("ui_student", Role.STUDENT)
+    return _make_user("ui_student", Role.STUDENT, first_name="Ui Student")
 
 
 @pytest.fixture
@@ -239,7 +257,7 @@ def school(db, admin_user):
     sub = SchoolSubscription.objects.create(
         school=school, plan=plan, status="active",
     )
-    # Enable all modules so attendance, progress reports etc. work
+    # Enable all modules so module-gated views work in tests
     for module_key, _ in ModuleSubscription.MODULE_CHOICES:
         ModuleSubscription.objects.create(
             school_subscription=sub,
@@ -644,6 +662,33 @@ def invoice(db, enrolled_student, school, classroom):
         billing_period_start=date.today() - timedelta(days=30),
         billing_period_end=date.today(),
         status="draft",
+        amount=Decimal("120.00"),
+        calculated_amount=Decimal("120.00"),
+    )
+    InvoiceLineItem.objects.create(
+        invoice=inv,
+        classroom=classroom,
+        daily_rate=Decimal("10.00"),
+        sessions_held=12,
+        sessions_attended=12,
+        sessions_charged=12,
+        line_amount=Decimal("120.00"),
+    )
+    return inv
+
+
+@pytest.fixture
+def issued_invoice(db, enrolled_student, school, classroom):
+    """An issued invoice for the enrolled student (payment form is visible)."""
+    from classroom.models import Invoice, InvoiceLineItem
+
+    inv = Invoice.objects.create(
+        student=enrolled_student,
+        school=school,
+        invoice_number="INV-0002",
+        billing_period_start=date.today() - timedelta(days=30),
+        billing_period_end=date.today(),
+        status="issued",
         amount=Decimal("120.00"),
         calculated_amount=Decimal("120.00"),
     )

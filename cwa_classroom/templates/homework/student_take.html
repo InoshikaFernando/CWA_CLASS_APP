@@ -12,7 +12,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="md:ml-64 p-6">
+<div class="p-6">
   <div class="max-w-3xl mx-auto">
 
     <!-- Header -->
@@ -78,10 +78,10 @@
                 class="px-6 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">
           Submit Homework
         </button>
-        <a href="{% url 'homework:student_list' %}"
-           class="px-6 py-2.5 bg-gray-100 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-200 transition">
+        <button type="submit" name="action" value="save_exit"
+                class="px-6 py-2.5 bg-gray-100 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-200 transition">
           Save &amp; Exit
-        </a>
+        </button>
       </div>
     </form>
 

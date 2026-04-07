@@ -5,7 +5,7 @@
   <!-- Left: hamburger (mobile) + logo -->
   <div class="flex items-center gap-3">
     <!-- Mobile hamburger -->
-    <button class="md:hidden {% if is_student or is_individual_student %}text-emerald-500 hover:text-emerald-700{% else %}text-gray-500 hover:text-primary{% endif %} transition"
+    <button type="button" class="md:hidden {% if is_student or is_individual_student %}text-emerald-500 hover:text-emerald-700{% else %}text-gray-500 hover:text-primary{% endif %} transition"
             onclick="openMobileDrawer()">
       <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/>
@@ -60,7 +60,7 @@
       <!-- Role switcher (if user has multiple roles) -->
       {% if has_multiple_roles %}
       <div class="hidden md:block relative" x-data="{ open: false }">
-        <button @click="open = !open" @click.outside="open = false"
+        <button type="button" @click="open = !open" @click.outside="open = false"
                 class="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-gray-500 hover:text-primary hover:bg-gray-100 transition border border-gray-200">
           <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"/>
@@ -118,7 +118,7 @@
 
       <!-- Notifications bell -->
       <div class="relative" x-data="{ open: false }">
-        <button class="relative text-gray-500 hover:text-primary transition p-1"
+        <button type="button" class="relative text-gray-500 hover:text-primary transition p-1"
                 onclick="this.nextElementSibling.classList.toggle('hidden')">
           <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round"
@@ -136,7 +136,7 @@
 
       <!-- User menu -->
       <div class="relative">
-        <button class="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-primary transition"
+        <button type="button" class="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-primary transition"
                 onclick="this.nextElementSibling.classList.toggle('hidden')">
           <!-- Avatar initials -->
           <span class="inline-flex items-center justify-center w-8 h-8 rounded-full {% if is_student or is_individual_student %}bg-emerald-600{% else %}bg-accent{% endif %} text-white text-xs font-bold">
@@ -186,7 +186,7 @@
      class="fixed inset-y-0 left-0 z-50 w-72 {% if is_student or is_individual_student %}bg-emerald-700{% elif is_parent %}bg-violet-700{% else %}bg-primary{% endif %} transform -translate-x-full transition-transform duration-300 ease-in-out md:hidden">
   <div class="flex items-center justify-between p-4 border-b border-white/20">
     <span class="font-display text-white text-xl">Menu</span>
-    <button class="text-white" onclick="closeMobileDrawer()">
+    <button type="button" class="text-white" onclick="closeMobileDrawer()">
       <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
       </svg>
