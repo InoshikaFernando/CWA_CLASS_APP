@@ -113,7 +113,8 @@ class ParentRegisterViewTest(ParentRegistrationTestBase):
             'accept_terms': 'on',
         })
         user = CustomUser.objects.get(email='wlhtestmails+newparent@gmail.com')
-        self.assertTrue(user.username.startswith('newparent'))
+        # Email local part: wlhtestmails+newparent → '+' stripped → wlhtestmailsnewparent
+        self.assertTrue(user.username.startswith('wlhtestmailsnewparent'))
 
     def test_post_user_is_logged_in(self):
         url = reverse('register_parent', args=[self.invite.token])
