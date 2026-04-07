@@ -16,11 +16,8 @@ from django.conf import settings
 # Default to localhost where Piston is expected to run via Docker.
 PISTON_URL = getattr(settings, 'PISTON_API_URL', 'http://localhost:2000')
 
-# Hard timeout so student infinite loops never hang the server (CPP-120: 10s max).
-EXECUTION_TIMEOUT_SECONDS = 10
-
-# Memory limit per execution in bytes (CPP-120: sandboxed, 64 MB).
-EXECUTION_MEMORY_LIMIT_BYTES = 64 * 1024 * 1024  # 64 MB
+# Hard timeout so student infinite loops never hang the server.
+EXECUTION_TIMEOUT_SECONDS = 5
 
 # Piston runtime versions — language names must match Piston's registry
 # Use GET /api/v2/runtimes to see what's installed
@@ -55,10 +52,8 @@ def run_code(language, code, stdin=''):
         'version': version,
         'files': [{'content': code}],
         'stdin': stdin or '',
-        'run_timeout': EXECUTION_TIMEOUT_SECONDS * 1000,      # Piston expects milliseconds
+        'run_timeout': EXECUTION_TIMEOUT_SECONDS * 1000,  # Piston expects milliseconds
         'compile_timeout': EXECUTION_TIMEOUT_SECONDS * 1000,
-        'run_memory_limit': EXECUTION_MEMORY_LIMIT_BYTES,     # bytes; -1 = unlimited
-        'compile_memory_limit': EXECUTION_MEMORY_LIMIT_BYTES,
     }
 
     try:

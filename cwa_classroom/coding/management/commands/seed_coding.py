@@ -14,7 +14,6 @@ from django.utils.text import slugify
 from coding.models import (
     CodingLanguage,
     CodingTopic,
-    TopicLevel,
     CodingExercise,
     CodingProblem,
     ProblemTestCase,
@@ -30,29 +29,33 @@ LANGUAGES = [
         'name': 'Python',
         'slug': 'python',
         'description': 'A beginner-friendly, readable language used in data science, automation, and web development.',
-        'icon': 'code-bracket',
-        'display_order': 1,
+        'icon_name': 'code-bracket',
+        'color': '#3b82f6',   # blue-500
+        'order': 1,
     },
     {
         'name': 'JavaScript',
         'slug': 'javascript',
         'description': 'The language of the web — runs in every browser and powers interactive websites.',
-        'icon': 'code-bracket',
-        'display_order': 2,
+        'icon_name': 'code-bracket',
+        'color': '#f59e0b',   # amber-500
+        'order': 2,
     },
     {
         'name': 'HTML / CSS',
         'slug': 'html-css',
         'description': 'Build and style web pages with the structure and design languages of the internet.',
-        'icon': 'code-bracket',
-        'display_order': 3,
+        'icon_name': 'code-bracket',
+        'color': '#ef4444',   # red-500
+        'order': 3,
     },
     {
         'name': 'Scratch',
         'slug': 'scratch',
         'description': 'A visual block-based language perfect for learning programming fundamentals.',
-        'icon': 'code-bracket',
-        'display_order': 4,
+        'icon_name': 'code-bracket',
+        'color': '#f97316',   # orange-500
+        'order': 4,
     },
 ]
 
@@ -538,13 +541,7 @@ class Command(BaseCommand):
         for lang_data in LANGUAGES:
             lang, created = CodingLanguage.objects.update_or_create(
                 slug=lang_data['slug'],
-                defaults={
-                    'name':          lang_data['name'],
-                    'description':   lang_data['description'],
-                    'icon':          lang_data['icon'],
-                    'display_order': lang_data['display_order'],
-                    'is_active':     True,
-                },
+                defaults=lang_data,
             )
             lang_objects[lang.slug] = lang
             status = 'Created' if created else 'Updated'
@@ -561,10 +558,10 @@ class Command(BaseCommand):
                     language=language,
                     slug=slugify(t['name']),
                     defaults={
-                        'name':          t['name'],
-                        'description':   t['description'],
-                        'display_order': t['order'],
-                        'is_active':     True,
+                        'name': t['name'],
+                        'description': t['description'],
+                        'order': t['order'],
+                        'is_active': True,
                     },
                 )
                 topic_objects[(lang_slug, t['name'])] = topic
@@ -579,19 +576,16 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.WARNING(f'  Topic not found: {lang_slug} / {topic_name} — skipping'))
                 continue
             for ex in exercises:
-                topic_level, _ = TopicLevel.objects.get_or_create(
-                    topic=topic,
-                    level_choice=ex['level'],
-                )
                 _, created = CodingExercise.objects.update_or_create(
-                    topic_level=topic_level,
+                    topic=topic,
                     title=ex['title'],
                     defaults={
-                        'instructions':    ex['description'],
+                        'level':           ex['level'],
+                        'description':     ex['description'],
                         'starter_code':    ex['starter_code'],
                         'expected_output': ex.get('expected_output', ''),
                         'hints':           ex.get('hints', ''),
-                        'display_order':   ex.get('order', 0),
+                        'order':           ex.get('order', 0),
                         'is_active':       True,
                     },
                 )

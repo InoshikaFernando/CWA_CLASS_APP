@@ -5,7 +5,7 @@
 <div class="max-w-3xl mx-auto px-4 py-8">
 
   <!-- Breadcrumb -->
-  <a href="{% url 'coding:topic_list' lang_slug=language.slug %}"
+  <a href="{% url 'coding:level_list' lang_slug=language.slug topic_slug=topic.slug %}"
      class="text-sm text-gray-400 hover:text-gray-600 transition flex items-center gap-1 mb-4">
     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
       <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/>
@@ -48,8 +48,8 @@
       <!-- Title & hint -->
       <div class="flex-1 min-w-0">
         <p class="font-semibold text-gray-800 group-hover:text-violet-700 transition text-sm">{{ item.exercise.title }}</p>
-        {% if item.exercise.instructions %}
-          <p class="text-xs text-gray-400 mt-0.5 line-clamp-1">{{ item.exercise.instructions }}</p>
+        {% if item.exercise.description %}
+          <p class="text-xs text-gray-400 mt-0.5 line-clamp-1">{{ item.exercise.description }}</p>
         {% endif %}
       </div>
 

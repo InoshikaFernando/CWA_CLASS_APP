@@ -16,11 +16,8 @@ urlpatterns = [
     path('<slug:lang_slug>/topics/<slug:topic_slug>/', views.level_list, name='level_list'),
 
     # ── Exercises  (topic-based structured learning) ─────────────────────────
-    # Canonical: /coding/python/topics/variables/beginner/
+    # e.g. /coding/python/variables/beginner/
     path('<slug:lang_slug>/topics/<slug:topic_slug>/<str:level>/', views.exercise_list, name='exercise_list'),
-
-    # Short form per CPP-119 spec: /coding/python/variables/beginner/
-    path('<slug:lang_slug>/<slug:topic_slug>/<str:level>/', views.exercise_list, name='exercise_list_short'),
 
     # e.g. /coding/python/exercise/42/
     path('<slug:lang_slug>/exercise/<int:exercise_id>/', views.exercise_detail, name='exercise_detail'),

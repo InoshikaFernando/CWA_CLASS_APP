@@ -2,13 +2,11 @@ from django.contrib import admin
 from .models import (
     CodingLanguage,
     CodingTopic,
-    TopicLevel,
     CodingExercise,
     CodingProblem,
     ProblemTestCase,
-    StudentExerciseAttempt,
+    StudentExerciseSubmission,
     StudentProblemSubmission,
-    ProblemSubmissionResult,
     CodingTimeLog,
     CodingTopicStatistics,
 )
@@ -16,112 +14,76 @@ from .models import (
 
 @admin.register(CodingLanguage)
 class CodingLanguageAdmin(admin.ModelAdmin):
-    list_display  = ('name', 'slug', 'display_order', 'is_active')
-    list_editable = ('display_order', 'is_active')
-    ordering      = ('display_order',)
+    list_display  = ('name', 'slug', 'order', 'is_active')
+    list_editable = ('order', 'is_active')
+    ordering      = ('order',)
 
 
 class CodingExerciseInline(admin.TabularInline):
     model  = CodingExercise
     extra  = 1
-    fields = ('title', 'display_order', 'is_active')
-    ordering = ('display_order',)
+    fields = ('title', 'level', 'order', 'is_active')
+    ordering = ('level', 'order')
 
 
 @admin.register(CodingTopic)
 class CodingTopicAdmin(admin.ModelAdmin):
-    list_display  = ('name', 'language', 'display_order', 'is_active')
+    list_display  = ('name', 'language', 'order', 'is_active')
     list_filter   = ('language',)
-    list_editable = ('display_order', 'is_active')
-    ordering      = ('language', 'display_order')
-
-
-@admin.register(TopicLevel)
-class TopicLevelAdmin(admin.ModelAdmin):
-    list_display  = ('topic', 'level_choice')
-    list_filter   = ('level_choice', 'topic__language')
-    ordering      = ('topic', 'level_choice')
+    list_editable = ('order', 'is_active')
+    ordering      = ('language', 'order')
     inlines       = [CodingExerciseInline]
 
 
 @admin.register(CodingExercise)
 class CodingExerciseAdmin(admin.ModelAdmin):
-    list_display  = ('title', 'topic_level', 'display_order', 'is_active')
-    list_filter   = ('topic_level__topic__language', 'topic_level__level_choice', 'is_active')
-    list_editable = ('display_order', 'is_active')
-    search_fields = ('title', 'instructions')
-    ordering      = ('topic_level', 'display_order')
+    list_display  = ('title', 'topic', 'level', 'order', 'is_active')
+    list_filter   = ('topic__language', 'level', 'is_active')
+    list_editable = ('order', 'is_active')
+    search_fields = ('title', 'description')
+    ordering      = ('topic', 'level', 'order')
 
 
 class ProblemTestCaseInline(admin.TabularInline):
     model   = ProblemTestCase
     extra   = 2
-    fields  = ('order', 'description', 'input_data', 'expected_output', 'is_visible', 'is_boundary_test')
+    fields  = ('order', 'description', 'input_data', 'expected_output', 'is_visible')
     ordering = ('order',)
 
 
 @admin.register(CodingProblem)
 class CodingProblemAdmin(admin.ModelAdmin):
-    list_display  = ('title', 'language', 'category', 'difficulty', 'time_limit_seconds', 'memory_limit_mb', 'is_active')
-    list_filter   = ('language', 'category', 'difficulty', 'is_active')
-    list_editable = ('category', 'difficulty', 'is_active')
+    list_display  = ('title', 'language', 'difficulty', 'is_active')
+    list_filter   = ('language', 'difficulty', 'is_active')
+    list_editable = ('difficulty', 'is_active')
     search_fields = ('title', 'description')
     ordering      = ('language', 'difficulty')
-    fieldsets = (
-        (None, {
-            'fields': ('language', 'title', 'description', 'category', 'difficulty', 'is_active'),
-        }),
-        ('Constraints & Limits', {
-            'fields': ('constraints', 'time_limit_seconds', 'memory_limit_mb'),
-        }),
-        ('Code', {
-            'fields': ('starter_code', 'solution_code'),
-            'classes': ('collapse',),
-        }),
-    )
-    inlines = [ProblemTestCaseInline]
+    inlines       = [ProblemTestCaseInline]
 
 
 @admin.register(ProblemTestCase)
 class ProblemTestCaseAdmin(admin.ModelAdmin):
-    list_display = ('problem', 'order', 'description', 'is_visible', 'is_boundary_test')
-    list_filter  = ('is_visible', 'is_boundary_test', 'problem__language')
+    list_display = ('problem', 'order', 'description', 'is_visible')
+    list_filter  = ('is_visible', 'problem__language')
     ordering     = ('problem', 'order')
 
 
-@admin.register(StudentExerciseAttempt)
-class StudentExerciseAttemptAdmin(admin.ModelAdmin):
-    list_display  = ('student', 'exercise', 'is_correct', 'attempted_at')
-    list_filter   = ('is_correct', 'exercise__topic_level__topic__language')
+@admin.register(StudentExerciseSubmission)
+class StudentExerciseSubmissionAdmin(admin.ModelAdmin):
+    list_display  = ('student', 'exercise', 'is_completed', 'submitted_at')
+    list_filter   = ('is_completed', 'exercise__topic__language')
     search_fields = ('student__username',)
-    ordering      = ('-attempted_at',)
-    readonly_fields = ('attempted_at',)
-
-
-class ProblemSubmissionResultInline(admin.TabularInline):
-    model         = ProblemSubmissionResult
-    extra         = 0
-    fields        = ('test_case', 'is_passed', 'actual_output', 'execution_time_ms')
-    readonly_fields = ('test_case', 'actual_output', 'execution_time_ms')
-    can_delete    = False
+    ordering      = ('-submitted_at',)
+    readonly_fields = ('submitted_at',)
 
 
 @admin.register(StudentProblemSubmission)
 class StudentProblemSubmissionAdmin(admin.ModelAdmin):
-    list_display  = ('student', 'problem', 'language', 'attempt_number', 'status', 'passed_all_tests', 'points', 'submitted_at')
-    list_filter   = ('status', 'passed_all_tests', 'problem__language', 'language')
+    list_display  = ('student', 'problem', 'attempt_number', 'passed_all_tests', 'points', 'submitted_at')
+    list_filter   = ('passed_all_tests', 'problem__language')
     search_fields = ('student__username', 'problem__title')
     ordering      = ('-submitted_at',)
     readonly_fields = ('submitted_at', 'test_results')
-    inlines       = [ProblemSubmissionResultInline]
-
-
-@admin.register(ProblemSubmissionResult)
-class ProblemSubmissionResultAdmin(admin.ModelAdmin):
-    list_display  = ('submission', 'test_case', 'is_passed', 'execution_time_ms')
-    list_filter   = ('is_passed',)
-    ordering      = ('submission', 'test_case__order')
-    readonly_fields = ('submission', 'test_case', 'actual_output', 'execution_time_ms')
 
 
 @admin.register(CodingTimeLog)

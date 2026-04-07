@@ -7,12 +7,10 @@ from django.utils import timezone
 from .models import (
     CodingLanguage,
     CodingTopic,
-    TopicLevel,
     CodingExercise,
     CodingProblem,
-    StudentExerciseAttempt,
+    StudentExerciseSubmission,
     StudentProblemSubmission,
-    ProblemSubmissionResult,
     CodingTimeLog,
     calculate_coding_points,
 )
@@ -47,44 +45,12 @@ def language_selector(request):
 
 @login_required
 def topic_list(request, lang_slug):
-    """Show all active topics with per-level progress.  /coding/<lang>/"""
+    """Show all active topics for a language.  /coding/<lang>/"""
     language = _get_language_or_404(lang_slug)
     topics = CodingTopic.objects.filter(language=language, is_active=True)
-
-    level_choices = [TopicLevel.BEGINNER, TopicLevel.INTERMEDIATE, TopicLevel.ADVANCED]
-    level_labels = dict(TopicLevel.LEVEL_CHOICES)
-
-    topic_data = []
-    for topic in topics:
-        level_progress = []
-        for lc in level_choices:
-            exercises = CodingExercise.objects.filter(
-                topic_level__topic=topic,
-                topic_level__level_choice=lc,
-                is_active=True,
-            )
-            total = exercises.count()
-            completed = (
-                StudentExerciseAttempt.objects.filter(
-                    student=request.user,
-                    exercise__in=exercises,
-                    is_correct=True,
-                )
-                .values_list('exercise_id', flat=True)
-                .distinct()
-                .count()
-            )
-            level_progress.append({
-                'level': lc,
-                'label': level_labels[lc],
-                'total': total,
-                'completed': completed,
-            })
-        topic_data.append({'topic': topic, 'levels': level_progress})
-
     return render(request, 'coding/topic_list.html', {
         'language': language,
-        'topic_data': topic_data,
+        'topics': topics,
         'subject_sidebar': 'coding',
     })
 
@@ -96,23 +62,23 @@ def level_list(request, lang_slug, topic_slug):
     topic = get_object_or_404(CodingTopic, language=language, slug=topic_slug, is_active=True)
 
     levels = [
-        TopicLevel.BEGINNER,
-        TopicLevel.INTERMEDIATE,
-        TopicLevel.ADVANCED,
+        CodingExercise.BEGINNER,
+        CodingExercise.INTERMEDIATE,
+        CodingExercise.ADVANCED,
     ]
 
     # Build completion info per level for the logged-in student
     level_data = []
     for level in levels:
-        exercises = CodingExercise.objects.filter(topic_level__topic=topic, topic_level__level_choice=level, is_active=True)
-        completed = StudentExerciseAttempt.objects.filter(
+        exercises = CodingExercise.objects.filter(topic=topic, level=level, is_active=True)
+        completed = StudentExerciseSubmission.objects.filter(
             student=request.user,
             exercise__in=exercises,
-            is_correct=True,
+            is_completed=True,
         ).values_list('exercise_id', flat=True).distinct()
         level_data.append({
             'level': level,
-            'label': dict(TopicLevel.LEVEL_CHOICES)[level],
+            'label': dict(CodingExercise.LEVEL_CHOICES)[level],
             'total': exercises.count(),
             'completed': len(completed),
         })
@@ -136,19 +102,19 @@ def exercise_list(request, lang_slug, topic_slug, level):
     topic = get_object_or_404(CodingTopic, language=language, slug=topic_slug, is_active=True)
 
     # Validate level value
-    valid_levels = [c[0] for c in TopicLevel.LEVEL_CHOICES]
+    valid_levels = [c[0] for c in CodingExercise.LEVEL_CHOICES]
     if level not in valid_levels:
         from django.http import Http404
         raise Http404("Invalid level")
 
-    exercises = CodingExercise.objects.filter(topic_level__topic=topic, topic_level__level_choice=level, is_active=True)
+    exercises = CodingExercise.objects.filter(topic=topic, level=level, is_active=True)
 
     # Mark which exercises this student has completed
     completed_ids = set(
-        StudentExerciseAttempt.objects.filter(
+        StudentExerciseSubmission.objects.filter(
             student=request.user,
             exercise__in=exercises,
-            is_correct=True,
+            is_completed=True,
         ).values_list('exercise_id', flat=True)
     )
 
@@ -157,28 +123,23 @@ def exercise_list(request, lang_slug, topic_slug, level):
         for ex in exercises
     ]
 
-    ctx = {
+    return render(request, 'coding/exercise_list.html', {
         'language': language,
         'topic': topic,
         'level': level,
-        'level_label': dict(TopicLevel.LEVEL_CHOICES).get(level, level),
+        'level_label': dict(CodingExercise.LEVEL_CHOICES).get(level, level),
         'exercise_data': exercise_data,
         'subject_sidebar': 'coding',
-    }
-
-    # Return a lightweight partial for HTMX requests
-    if request.headers.get('HX-Request'):
-        return render(request, 'coding/partials/exercise_list.html', ctx)
-    return render(request, 'coding/exercise_list.html', ctx)
+    })
 
 
 @login_required
 def exercise_detail(request, lang_slug, exercise_id):
     """Split-pane editor + instructions for a single exercise.  /coding/<lang>/exercise/<id>/"""
     language = _get_language_or_404(lang_slug)
-    exercise = get_object_or_404(CodingExercise, id=exercise_id, topic_level__topic__language=language, is_active=True)
+    exercise = get_object_or_404(CodingExercise, id=exercise_id, topic__language=language, is_active=True)
 
-    is_completed = StudentExerciseAttempt.is_exercise_completed(request.user, exercise)
+    is_completed = StudentExerciseSubmission.is_exercise_completed(request.user, exercise)
 
     return render(request, 'coding/exercise_detail.html', {
         'language': language,
@@ -260,11 +221,11 @@ def dashboard(request, lang_slug):
 
     topic_progress = []
     for topic in topics:
-        exercises = CodingExercise.objects.filter(topic_level__topic=topic, is_active=True)
-        completed = StudentExerciseAttempt.objects.filter(
+        exercises = CodingExercise.objects.filter(topic=topic, is_active=True)
+        completed = StudentExerciseSubmission.objects.filter(
             student=request.user,
             exercise__in=exercises,
-            is_correct=True,
+            is_completed=True,
         ).values_list('exercise_id', flat=True).distinct().count()
         topic_progress.append({
             'topic': topic,
@@ -298,14 +259,10 @@ def dashboard(request, lang_slug):
 def api_run_code(request):
     """Execute student code and return output.  POST /coding/api/run/
 
-    Request JSON:
-        { language_slug, code, stdin (optional),
-          exercise_id (optional), mark_complete (optional bool) }
+    Request JSON: { language_slug, code, stdin (optional) }
     Response JSON: { stdout, stderr, exit_code }
 
-    When exercise_id is supplied the view records a StudentExerciseAttempt.
-    When mark_complete is True the attempt is saved with is_correct=True.
-    Delegates execution to coding.execution (Piston API or browser sandbox).
+    Delegates to coding.execution module (Piston API or browser sandbox).
     """
     import json
     try:
@@ -316,65 +273,23 @@ def api_run_code(request):
     lang_slug = body.get('language_slug', '').strip()
     code = body.get('code', '').strip()
     stdin = body.get('stdin', '')
-    exercise_id = body.get('exercise_id')
-    mark_complete = bool(body.get('mark_complete', False))
 
     if not lang_slug or not code:
         return JsonResponse({'error': 'language_slug and code are required'}, status=400)
 
     language = get_object_or_404(CodingLanguage, slug=lang_slug, is_active=True)
 
-    # Resolve exercise once (used for attempt recording below)
-    exercise = None
-    if exercise_id:
-        exercise = CodingExercise.objects.filter(id=exercise_id, is_active=True).first()
-
-    # HTML/CSS — rendered in-browser; record attempt but skip server execution
+    # HTML/CSS — signal the frontend to use the iframe sandbox (no server execution)
     if language.uses_browser_sandbox:
-        if exercise:
-            StudentExerciseAttempt.objects.create(
-                student=request.user,
-                exercise=exercise,
-                submitted_code=code,
-                is_correct=mark_complete,
-            )
         return JsonResponse({'browser_sandbox': True})
 
-    # Scratch — runs in Blockly/browser; record attempt but skip server execution
+    # Scratch — not server-executed
     if language.uses_scratch_vm:
-        if exercise:
-            StudentExerciseAttempt.objects.create(
-                student=request.user,
-                exercise=exercise,
-                submitted_code=code,
-                is_correct=mark_complete,
-            )
-        return JsonResponse({'scratch': True})
+        return JsonResponse({'error': 'Scratch exercises run in the Scratch editor'}, status=400)
 
     # Python / JavaScript → Piston API
     from .execution import run_code
     result = run_code(language.piston_language, code, stdin)
-
-    # Record the student's attempt (CPP-120: save/submit records the attempt)
-    if exercise:
-        # Determine correctness:
-        #   • explicit mark_complete → always correct
-        #   • expected_output set    → compare stdout
-        #   • otherwise             → not correct (run-only, no assertion)
-        is_correct = mark_complete
-        if not is_correct and exercise.expected_output:
-            actual = result.get('stdout', '').strip()
-            is_correct = (actual == exercise.expected_output.strip()) and result.get('exit_code', 1) == 0
-
-        StudentExerciseAttempt.objects.create(
-            student=request.user,
-            exercise=exercise,
-            submitted_code=code,
-            output_received=result.get('stdout', ''),
-            stderr_received=result.get('stderr', ''),
-            is_correct=is_correct,
-        )
-
     return JsonResponse(result)
 
 
