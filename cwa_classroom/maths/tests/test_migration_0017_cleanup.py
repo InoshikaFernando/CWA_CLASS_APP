@@ -11,6 +11,9 @@ Verifies that the cleanup migration:
   - Leaves Questions with valid level_id AND topic_id untouched
   - Is a no-op when no orphaned records exist (safe for prod)
 """
+import unittest
+
+from django.db import connection
 from django.test import TestCase, TransactionTestCase
 
 from classroom.models import Level, Topic, Subject
@@ -46,12 +49,16 @@ def _make_question(level, topic):
     return q
 
 
+@unittest.skipUnless(connection.vendor == 'mysql', 'MySQL-specific ALTER TABLE MODIFY syntax required')
 class TestCleanupMigrationLogic(TransactionTestCase):
     """
     Tests the cleanup logic using the live ORM (equivalent to what the
     migration does via raw SQL). The migration itself is tested implicitly
     via the full migrate cycle in CI; here we verify the selection criteria
     and cascade behaviour are correct.
+
+    Skipped on SQLite — uses MySQL-specific ALTER TABLE MODIFY syntax
+    to temporarily allow NULL on NOT NULL columns.
     """
 
     def setUp(self):
