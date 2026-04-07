@@ -1,0 +1,257 @@
+{% extends "coding/base.html" %}
+{% block coding_title %}{{ problem.title }}{% endblock %}
+{{ problem.starter_code|default:''|json_script:"starter-data" }}
+
+{% block extra_head %}
+{{ block.super }}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+<style>
+  #editor-container { height: 400px; border-radius: 0.5rem; overflow: hidden; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 py-6" x-data="problemEditor()">
+
+  <!-- Top bar -->
+  <div class="flex items-center justify-between mb-4">
+    <a href="{% url 'coding:problem_list' lang_slug=language.slug %}"
+       class="text-sm text-gray-400 hover:text-gray-600 transition flex items-center gap-1">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/>
+      </svg>
+      Challenges
+    </a>
+    {% if has_solved %}
+    <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">
+      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
+      </svg>
+      Solved
+    </span>
+    {% endif %}
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+
+    <!-- LEFT: Problem statement + test cases + results -->
+    <div class="flex flex-col gap-4">
+
+      <!-- Problem card -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+        <div class="flex items-center gap-3 mb-3">
+          <span class="w-8 h-8 rounded-lg text-white text-sm font-bold flex items-center justify-center flex-shrink-0
+            {% if problem.difficulty <= 2 %}bg-emerald-500
+            {% elif problem.difficulty <= 4 %}bg-amber-500
+            {% elif problem.difficulty <= 6 %}bg-orange-500
+            {% else %}bg-rose-600{% endif %}">
+            {{ problem.difficulty }}
+          </span>
+          <h1 class="text-lg font-bold text-gray-800">{{ problem.title }}</h1>
+        </div>
+        <div class="prose prose-sm max-w-none text-gray-600 whitespace-pre-wrap">{{ problem.description }}</div>
+      </div>
+
+      <!-- Visible test cases -->
+      {% if visible_tests %}
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+        <h2 class="text-sm font-bold text-gray-700 mb-3">Sample Test Cases</h2>
+        <div class="flex flex-col gap-3">
+          {% for tc in visible_tests %}
+          <div class="rounded-xl bg-gray-50 border border-slate-200 p-3 text-xs font-mono">
+            {% if tc.input_data %}
+            <div class="mb-1">
+              <span class="text-gray-400">Input:</span>
+              <span class="text-gray-700 ml-1">{{ tc.input_data }}</span>
+            </div>
+            {% endif %}
+            <div>
+              <span class="text-gray-400">Expected:</span>
+              <span class="text-emerald-700 ml-1">{{ tc.expected_output }}</span>
+            </div>
+            {% if tc.description %}
+            <div class="mt-1 text-gray-400 italic">{{ tc.description }}</div>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% if hidden_count > 0 %}
+        <p class="text-xs text-gray-400 mt-3">+ {{ hidden_count }} hidden test case{{ hidden_count|pluralize }} (including boundary checks)</p>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      <!-- Results panel (shown after submit) -->
+      <div x-show="results !== null" x-transition class="bg-white rounded-2xl border shadow-sm p-5"
+           :class="allPassed ? 'border-emerald-300' : 'border-red-200'">
+
+        <!-- Overall verdict -->
+        <div class="flex items-center gap-2 mb-4">
+          <div class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+               :class="allPassed ? 'bg-emerald-100' : 'bg-red-100'">
+            <template x-if="allPassed">
+              <svg class="w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
+              </svg>
+            </template>
+            <template x-if="!allPassed">
+              <svg class="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </template>
+          </div>
+          <div>
+            <p class="font-bold text-sm" :class="allPassed ? 'text-emerald-700' : 'text-red-600'"
+               x-text="allPassed ? 'All tests passed!' : 'Some tests failed'"></p>
+            <p class="text-xs text-gray-400" x-text="resultSummary"></p>
+          </div>
+        </div>
+
+        <!-- Visible test results -->
+        <template x-for="(r, i) in visibleResults" :key="i">
+          <div class="rounded-xl border p-3 mb-2 text-xs font-mono"
+               :class="r.passed ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'">
+            <div class="flex items-center gap-1.5 mb-1">
+              <template x-if="r.passed">
+                <svg class="w-3.5 h-3.5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
+                </svg>
+              </template>
+              <template x-if="!r.passed">
+                <svg class="w-3.5 h-3.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+              </template>
+              <span class="font-semibold" :class="r.passed ? 'text-emerald-700' : 'text-red-600'"
+                    x-text="r.description || ('Test ' + (i + 1))"></span>
+            </div>
+            <template x-if="r.input">
+              <div><span class="text-gray-400">Input: </span><span x-text="r.input"></span></div>
+            </template>
+            <div><span class="text-gray-400">Expected: </span><span class="text-emerald-700" x-text="r.expected"></span></div>
+            <template x-if="!r.passed">
+              <div><span class="text-gray-400">Got: </span><span class="text-red-600" x-text="r.actual || '(no output)'"></span></div>
+            </template>
+          </div>
+        </template>
+
+        <!-- Hidden test summary -->
+        <div x-show="hiddenTotal > 0" class="rounded-xl bg-gray-50 border border-slate-200 p-3 text-xs text-gray-500">
+          Hidden tests: <span class="font-semibold" x-text="hiddenPassed + '/' + hiddenTotal + ' passed'"></span>
+        </div>
+
+        <!-- Points awarded -->
+        <div x-show="allPassed && points > 0" class="mt-3 text-center">
+          <span class="text-lg font-bold text-violet-700" x-text="'+' + points + ' pts'"></span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT: Editor -->
+    <div class="flex flex-col gap-3">
+
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ language.name }}</span>
+        <div class="flex gap-2">
+          <button @click="resetCode"
+                  class="text-xs px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-gray-500 hover:bg-slate-50 transition">
+            Reset
+          </button>
+          <button @click="submitCode" :disabled="submitting"
+                  class="text-sm px-5 py-1.5 rounded-lg font-semibold text-white transition hover:opacity-90 flex items-center gap-2 disabled:opacity-50"
+                  style="background-color: #7c3aed">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z"/>
+            </svg>
+            <span x-text="submitting ? 'Running tests…' : 'Submit'"></span>
+          </button>
+        </div>
+      </div>
+
+      <div id="editor-container" class="border border-slate-700 rounded-xl shadow-sm"></div>
+
+      <p class="text-xs text-gray-400 text-center">
+        Your code will be run against <strong>all</strong> test cases (visible + hidden). All must pass to solve the problem.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+const LANG_SLUG   = "{{ language.slug }}";
+const STARTER     = JSON.parse(document.getElementById('starter-data').textContent);
+const CSRF_TOKEN  = "{{ csrf_token }}";
+const PROBLEM_ID  = {{ problem.id }};
+
+const MONACO_LANG = { python:'python', javascript:'javascript', 'html-css':'html', scratch:'plaintext' };
+
+let editor;
+require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' } });
+require(['vs/editor/editor.main'], function () {
+  editor = monaco.editor.create(document.getElementById('editor-container'), {
+    value: STARTER,
+    language: MONACO_LANG[LANG_SLUG] || 'plaintext',
+    theme: 'vs-dark',
+    fontSize: 14,
+    minimap: { enabled: false },
+    scrollBeyondLastLine: false,
+    automaticLayout: true,
+    wordWrap: 'on',
+  });
+});
+
+function problemEditor() {
+  return {
+    submitting: false,
+    results: null,
+    allPassed: false,
+    visibleResults: [],
+    hiddenPassed: 0,
+    hiddenTotal: 0,
+    points: 0,
+    startTime: Date.now(),
+
+    get resultSummary() {
+      const vis = this.visibleResults.filter(r => r.passed).length;
+      const total = this.visibleResults.length + this.hiddenTotal;
+      const totalPassed = vis + this.hiddenPassed;
+      return `${totalPassed}/${total} tests passed`;
+    },
+
+    resetCode() {
+      if (confirm('Reset code to starter?') && editor) editor.setValue(STARTER);
+    },
+
+    async submitCode() {
+      if (!editor || this.submitting) return;
+      this.submitting = true;
+      this.results = null;
+
+      const timeTaken = Math.floor((Date.now() - this.startTime) / 1000);
+
+      try {
+        const res = await fetch(`{% url "coding:api_submit_problem" problem_id=problem.id %}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+          body: JSON.stringify({ code: editor.getValue(), time_taken_seconds: timeTaken }),
+        });
+        const data = await res.json();
+
+        this.results       = data;
+        this.allPassed     = data.passed_all;
+        this.visibleResults = data.visible_results || [];
+        this.hiddenPassed  = data.hidden_passed || 0;
+        this.hiddenTotal   = data.hidden_total  || 0;
+        this.points        = data.points        || 0;
+        this.startTime     = Date.now(); // reset for next attempt
+      } catch (e) {
+        this.results = { error: true };
+      }
+
+      this.submitting = false;
+    },
+  };
+}
+</script>
+{% endblock %}

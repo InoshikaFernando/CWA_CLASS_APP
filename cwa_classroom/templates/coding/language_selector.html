@@ -1,0 +1,51 @@
+{% extends "coding/base.html" %}
+{% block coding_title %}Choose a Language{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto px-4 py-8">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <h1 class="text-2xl font-bold text-gray-800">Coding Practice</h1>
+    <p class="text-gray-500 mt-1">Choose a language to get started with topic exercises and challenges.</p>
+  </div>
+
+  <!-- Language cards -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+
+    {% for language in languages %}
+    <a href="{% url 'coding:topic_list' lang_slug=language.slug %}"
+       class="group rounded-2xl bg-white border border-slate-200 shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all p-6 flex items-center gap-5">
+
+      <!-- Icon circle -->
+      <div class="flex-shrink-0 w-14 h-14 rounded-xl flex items-center justify-center text-white text-2xl font-bold"
+           style="background-color: {{ language.color|default:'#7c3aed' }}">
+        {% if language.slug == 'python' %}🐍
+        {% elif language.slug == 'javascript' %}JS
+        {% elif language.slug == 'html-css' %}🌐
+        {% elif language.slug == 'scratch' %}🐱
+        {% else %}{ }{% endif %}
+      </div>
+
+      <!-- Text -->
+      <div class="flex-1 min-w-0">
+        <h2 class="text-lg font-bold text-gray-800 group-hover:text-violet-700 transition">{{ language.name }}</h2>
+        {% if language.description %}
+          <p class="text-sm text-gray-500 mt-0.5 line-clamp-2">{{ language.description }}</p>
+        {% endif %}
+      </div>
+
+      <!-- Arrow -->
+      <svg class="w-5 h-5 text-gray-300 group-hover:text-violet-500 flex-shrink-0 transition" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
+      </svg>
+    </a>
+    {% empty %}
+    <div class="col-span-2 bg-white rounded-2xl border border-slate-200 p-10 text-center text-gray-400">
+      No languages available yet. Check back soon!
+    </div>
+    {% endfor %}
+
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,94 @@
+{% extends "coding/base.html" %}
+{% block coding_title %}{{ topic.name }} — {{ language.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto px-4 py-8">
+
+  <!-- Header -->
+  <div class="mb-2">
+    <a href="{% url 'coding:topic_list' lang_slug=language.slug %}"
+       class="text-sm text-gray-400 hover:text-gray-600 transition flex items-center gap-1 mb-3">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/>
+      </svg>
+      {{ language.name }} Topics
+    </a>
+    <h1 class="text-2xl font-bold text-gray-800">{{ topic.name }}</h1>
+    <p class="text-gray-500 text-sm mt-1">Select a difficulty level</p>
+  </div>
+
+  <!-- Level cards -->
+  <div class="mt-8 flex flex-col gap-4">
+
+    {% for ld in level_data %}
+    {% if ld.total > 0 %}
+    <a href="{% url 'coding:exercise_list' lang_slug=language.slug topic_slug=topic.slug level=ld.level %}"
+       class="group rounded-2xl bg-white border border-slate-200 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-6 flex items-center gap-5">
+
+      <!-- Level badge -->
+      <div class="flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center font-bold text-white text-sm
+        {% if ld.level == 'beginner' %}bg-emerald-500
+        {% elif ld.level == 'intermediate' %}bg-amber-500
+        {% else %}bg-rose-500{% endif %}">
+        {% if ld.level == 'beginner' %}★
+        {% elif ld.level == 'intermediate' %}★★
+        {% else %}★★★{% endif %}
+      </div>
+
+      <!-- Info -->
+      <div class="flex-1">
+        <h2 class="font-bold text-gray-800 text-base group-hover:text-violet-700 transition">{{ ld.label }}</h2>
+        <div class="mt-2">
+          <!-- Progress bar -->
+          {% if ld.total > 0 %}
+          {% widthratio ld.completed ld.total 100 as pct %}
+          <div class="flex items-center gap-2">
+            <div class="flex-1 bg-gray-100 rounded-full h-1.5">
+              <div class="h-1.5 rounded-full transition-all
+                {% if ld.level == 'beginner' %}bg-emerald-500
+                {% elif ld.level == 'intermediate' %}bg-amber-500
+                {% else %}bg-rose-500{% endif %}"
+                   style="width: {{ pct }}%"></div>
+            </div>
+            <span class="text-xs text-gray-400 flex-shrink-0">{{ ld.completed }}/{{ ld.total }}</span>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Completion badge or arrow -->
+      <div class="flex-shrink-0">
+        {% if ld.completed == ld.total and ld.total > 0 %}
+          <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
+            </svg>
+            Done
+          </span>
+        {% else %}
+          <svg class="w-5 h-5 text-gray-300 group-hover:text-violet-500 transition" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
+          </svg>
+        {% endif %}
+      </div>
+    </a>
+
+    {% else %}
+    <!-- Level exists but has no exercises yet -->
+    <div class="rounded-2xl bg-white border border-slate-200 p-6 flex items-center gap-5 opacity-50">
+      <div class="flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center font-bold text-white text-sm bg-gray-300">
+        {% if ld.level == 'beginner' %}★
+        {% elif ld.level == 'intermediate' %}★★
+        {% else %}★★★{% endif %}
+      </div>
+      <div>
+        <h2 class="font-bold text-gray-500 text-base">{{ ld.label }}</h2>
+        <p class="text-xs text-gray-400 mt-0.5">Coming soon</p>
+      </div>
+    </div>
+    {% endif %}
+    {% endfor %}
+
+  </div>
+</div>
+{% endblock %}

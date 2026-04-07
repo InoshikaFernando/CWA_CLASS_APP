@@ -1,0 +1,82 @@
+{% extends "coding/base.html" %}
+{% block coding_title %}My {{ language.name }} Progress{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto px-4 py-8">
+
+  <!-- Header -->
+  <div class="flex items-center gap-4 mb-8">
+    <a href="{% url 'coding:topic_list' lang_slug=language.slug %}"
+       class="text-sm text-gray-400 hover:text-gray-600 transition flex items-center gap-1">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/>
+      </svg>
+      {{ language.name }}
+    </a>
+  </div>
+
+  <h1 class="text-2xl font-bold text-gray-800 mb-1">My Progress</h1>
+  <p class="text-gray-500 text-sm mb-8">{{ language.name }} — exercises completed and challenges solved</p>
+
+  <!-- Problems solved summary card -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-6 flex items-center gap-5">
+    <div class="w-14 h-14 rounded-xl flex items-center justify-center text-white text-2xl font-bold flex-shrink-0"
+         style="background-color: #7c3aed">
+      <svg class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/>
+      </svg>
+    </div>
+    <div>
+      <p class="text-3xl font-bold text-gray-800">{{ problems_solved }}<span class="text-lg text-gray-400 font-normal">/{{ total_problems }}</span></p>
+      <p class="text-sm text-gray-500 mt-0.5">Challenges solved</p>
+    </div>
+    <a href="{% url 'coding:problem_list' lang_slug=language.slug %}"
+       class="ml-auto inline-flex items-center gap-1 text-sm font-semibold text-violet-600 hover:text-violet-800 transition">
+      View challenges
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
+      </svg>
+    </a>
+  </div>
+
+  <!-- Topic exercise progress -->
+  <h2 class="text-base font-bold text-gray-700 mb-3">Exercises by Topic</h2>
+
+  <div class="flex flex-col gap-3">
+    {% for tp in topic_progress %}
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+      <div class="flex items-center justify-between mb-2">
+        <a href="{% url 'coding:level_list' lang_slug=language.slug topic_slug=tp.topic.slug %}"
+           class="font-semibold text-gray-800 hover:text-violet-700 transition text-sm">
+          {{ tp.topic.name }}
+        </a>
+        <span class="text-xs text-gray-400">{{ tp.completed }}/{{ tp.total }}</span>
+      </div>
+
+      {% if tp.total > 0 %}
+      {% widthratio tp.completed tp.total 100 as pct %}
+      <div class="w-full bg-gray-100 rounded-full h-2">
+        <div class="h-2 rounded-full transition-all"
+             style="width: {{ pct }}%; background-color: #7c3aed"></div>
+      </div>
+      <p class="text-xs text-gray-400 mt-1">
+        {% if tp.completed == tp.total and tp.total > 0 %}
+          All exercises completed ✓
+        {% else %}
+          {{ pct }}% complete
+        {% endif %}
+      </p>
+      {% else %}
+      <p class="text-xs text-gray-400">No exercises yet</p>
+      {% endif %}
+    </div>
+
+    {% empty %}
+    <div class="bg-white rounded-xl border border-slate-200 p-10 text-center text-gray-400">
+      No topics available for {{ language.name }} yet.
+    </div>
+    {% endfor %}
+  </div>
+
+</div>
+{% endblock %}

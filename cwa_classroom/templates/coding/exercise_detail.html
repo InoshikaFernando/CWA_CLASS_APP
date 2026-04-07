@@ -1,0 +1,243 @@
+{% extends "coding/base.html" %}
+{% block coding_title %}{{ exercise.title }}{% endblock %}
+
+{% block extra_head %}
+{{ block.super }}
+{# Monaco Editor from CDN #}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+<style>
+  #editor-container { height: 420px; border-radius: 0.5rem; overflow: hidden; }
+  #output-panel { min-height: 120px; }
+</style>
+{% endblock %}
+
+{{ exercise.starter_code|default:''|json_script:"starter-data" }}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 py-6">
+
+  <!-- Top bar -->
+  <div class="flex items-center justify-between mb-4">
+    <a href="{% url 'coding:exercise_list' lang_slug=language.slug topic_slug=exercise.topic.slug level=exercise.level %}"
+       class="text-sm text-gray-400 hover:text-gray-600 transition flex items-center gap-1">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/>
+      </svg>
+      Back to exercises
+    </a>
+    {% if is_completed %}
+    <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">
+      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
+      </svg>
+      Completed
+    </span>
+    {% endif %}
+  </div>
+
+  <!-- Split pane layout -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+
+    <!-- LEFT: Instructions -->
+    <div class="flex flex-col gap-4">
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="text-xs font-bold px-2 py-0.5 rounded-full text-white
+            {% if exercise.level == 'beginner' %}bg-emerald-500
+            {% elif exercise.level == 'intermediate' %}bg-amber-500
+            {% else %}bg-rose-500{% endif %}">
+            {{ exercise.get_level_display }}
+          </span>
+          <h1 class="text-lg font-bold text-gray-800">{{ exercise.title }}</h1>
+        </div>
+        <div class="prose prose-sm max-w-none text-gray-600 whitespace-pre-wrap">{{ exercise.description }}</div>
+      </div>
+
+      {% if exercise.hints %}
+      <div x-data="{ open: false }">
+        <button @click="open = !open"
+                class="w-full text-left px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-amber-700 text-sm font-medium hover:bg-amber-100 transition flex items-center gap-2">
+          <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 7.478a12.06 12.06 0 01-4.5 0m3.75 2.311a7.5 7.5 0 01-3 0"/>
+          </svg>
+          <span x-text="open ? 'Hide hint' : 'Show hint'">Show hint</span>
+        </button>
+        <div x-show="open" x-transition class="mt-2 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-800 whitespace-pre-wrap">
+          {{ exercise.hints }}
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Output panel -->
+      <div class="bg-gray-900 rounded-2xl border border-gray-700 p-4">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Output</span>
+          <button id="clearBtn" class="text-xs text-gray-500 hover:text-gray-300 transition">Clear</button>
+        </div>
+        <pre id="output-panel" class="text-sm font-mono text-green-400 whitespace-pre-wrap overflow-auto">Click "Run Code" to see your output here.</pre>
+        <div id="stderr-panel" class="text-sm font-mono text-red-400 whitespace-pre-wrap mt-1 hidden"></div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Editor -->
+    <div class="flex flex-col gap-3">
+
+      <!-- Language badge -->
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ language.name }}</span>
+        <div class="flex gap-2">
+          <button id="resetBtn"
+                  class="text-xs px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-gray-500 hover:bg-slate-50 transition">
+            Reset
+          </button>
+          <button id="runBtn"
+                  class="text-sm px-5 py-1.5 rounded-lg font-semibold text-white transition hover:opacity-90 flex items-center gap-2"
+                  style="background-color: #7c3aed">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z"/>
+            </svg>
+            Run Code
+          </button>
+        </div>
+      </div>
+
+      <!-- Monaco editor mount point -->
+      <div id="editor-container" class="border border-slate-700 rounded-xl shadow-sm"></div>
+
+      <!-- Mark complete button -->
+      <button id="markDoneBtn"
+              class="w-full py-2.5 rounded-xl text-sm font-semibold border-2 transition
+                     {% if is_completed %}border-emerald-500 text-emerald-600 bg-emerald-50 cursor-default
+                     {% else %}border-slate-200 text-gray-500 hover:border-emerald-400 hover:text-emerald-600{% endif %}">
+        {% if is_completed %}✓ Exercise completed{% else %}Mark as completed{% endif %}
+      </button>
+
+    </div>
+  </div>
+</div>
+
+<script>
+const LANG_SLUG   = "{{ language.slug }}";
+const STARTER     = JSON.parse(document.getElementById('starter-data').textContent);
+const CSRF_TOKEN  = "{{ csrf_token }}";
+const EXERCISE_ID = {{ exercise.id }};
+const IS_HTML_CSS = LANG_SLUG === 'html-css';
+
+// Map language slug → Monaco language id
+const MONACO_LANG = {
+  python: 'python',
+  javascript: 'javascript',
+  'html-css': 'html',
+  scratch: 'plaintext',
+};
+
+let editor;
+
+require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' } });
+require(['vs/editor/editor.main'], function () {
+  editor = monaco.editor.create(document.getElementById('editor-container'), {
+    value: STARTER,
+    language: MONACO_LANG[LANG_SLUG] || 'plaintext',
+    theme: 'vs-dark',
+    fontSize: 14,
+    minimap: { enabled: false },
+    scrollBeyondLastLine: false,
+    automaticLayout: true,
+    wordWrap: 'on',
+  });
+});
+
+// ── Run code ──────────────────────────────────────────────────────────────
+document.getElementById('runBtn').addEventListener('click', async function () {
+  const code = editor.getValue();
+  const outputEl = document.getElementById('output-panel');
+  const stderrEl = document.getElementById('stderr-panel');
+  const btn = this;
+
+  btn.disabled = true;
+  btn.textContent = 'Running…';
+  outputEl.textContent = '';
+  stderrEl.classList.add('hidden');
+  stderrEl.textContent = '';
+
+  // HTML/CSS — render in a sandboxed iframe instead of sending to server
+  if (IS_HTML_CSS) {
+    outputEl.textContent = '[HTML/CSS preview rendered below]';
+    let iframe = document.getElementById('htmlPreview');
+    if (!iframe) {
+      iframe = document.createElement('iframe');
+      iframe.id = 'htmlPreview';
+      iframe.sandbox = 'allow-same-origin';
+      iframe.className = 'w-full rounded-xl border border-slate-700 mt-2';
+      iframe.style.height = '300px';
+      document.getElementById('output-panel').parentNode.appendChild(iframe);
+    }
+    iframe.srcdoc = code;
+    btn.disabled = false;
+    btn.innerHTML = '<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z"/></svg> Run Code';
+    return;
+  }
+
+  try {
+    const res = await fetch('{% url "coding:api_run_code" %}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+      body: JSON.stringify({ language_slug: LANG_SLUG, code }),
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      outputEl.textContent = data.error;
+    } else {
+      outputEl.textContent = data.stdout || '(no output)';
+      if (data.stderr) {
+        stderrEl.textContent = data.stderr;
+        stderrEl.classList.remove('hidden');
+      }
+    }
+  } catch (e) {
+    outputEl.textContent = 'Network error. Please try again.';
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z"/></svg> Run Code';
+});
+
+// ── Reset editor ──────────────────────────────────────────────────────────
+document.getElementById('resetBtn').addEventListener('click', function () {
+  if (confirm('Reset code to starter?')) editor.setValue(STARTER);
+});
+
+// ── Clear output ──────────────────────────────────────────────────────────
+document.getElementById('clearBtn').addEventListener('click', function () {
+  document.getElementById('output-panel').textContent = '';
+  const stderrEl = document.getElementById('stderr-panel');
+  stderrEl.textContent = '';
+  stderrEl.classList.add('hidden');
+});
+
+// ── Mark as completed ─────────────────────────────────────────────────────
+document.getElementById('markDoneBtn').addEventListener('click', async function () {
+  {% if is_completed %}return;{% endif %}
+  const btn = this;
+  btn.disabled = true;
+
+  try {
+    const res = await fetch('{% url "coding:api_run_code" %}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+      body: JSON.stringify({
+        language_slug: LANG_SLUG,
+        code: editor.getValue(),
+        mark_complete: true,
+        exercise_id: EXERCISE_ID,
+      }),
+    });
+    // Reload to update the completed badge
+    window.location.reload();
+  } catch (e) {
+    btn.disabled = false;
+  }
+});
+</script>
+{% endblock %}

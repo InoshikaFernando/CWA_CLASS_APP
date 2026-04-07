@@ -85,6 +85,14 @@ INSTALLED_APPS = [
 # ---------------------------------------------------------------------------
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 
+# ---------------------------------------------------------------------------
+# Coding — Piston sandboxed code execution
+# ---------------------------------------------------------------------------
+# Self-hosted Piston instance (run via Docker — see docker-compose.piston.yml)
+# Local dev default: http://localhost:2000
+# Production: set PISTON_API_URL=http://piston:2000 if on the same Docker network
+PISTON_API_URL = os.environ.get('PISTON_API_URL', 'http://localhost:2000')
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'cwa_classroom.middleware.MathsRoomRedirectMiddleware',    # mathsroom → /maths/ redirect

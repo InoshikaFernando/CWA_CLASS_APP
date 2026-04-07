@@ -79,6 +79,8 @@
         {% elif is_student or is_individual_student %}
           {% if subject_sidebar == 'maths' and subject_has_quizzes %}
             {% include "partials/sidebar_maths.html" %}
+          {% elif subject_sidebar == 'coding' %}
+            {% include "partials/sidebar_coding.html" %}
           {% elif subject_sidebar and subject_has_quizzes %}
             {% include "partials/sidebar_subject_generic.html" %}
           {% else %}
