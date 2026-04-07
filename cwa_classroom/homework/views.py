@@ -7,10 +7,12 @@ from django.db import transaction
 from django.db.models import Max, Prefetch
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views import View
 
 from classroom.models import ClassRoom, ClassStudent, ClassTeacher, Topic
+from classroom.notifications import create_notification
 from classroom.views import RoleRequiredMixin
 from maths.models import Answer, Question, calculate_points
 from maths.views import select_questions_stratified
@@ -167,6 +169,26 @@ class HomeworkCreateView(RoleRequiredMixin, View):
             return render(request, self.template_name, {'form': form, 'classroom': classroom})
 
         messages.success(request, f'Homework "{homework.title}" created with {count} questions.')
+
+        # Notify all active students in the classroom
+        homework_url = reverse('homework:student_take', kwargs={'homework_id': homework.id})
+        due_str = homework.due_date.strftime('%d %b %Y') if homework.due_date else 'no deadline'
+        active_students = (
+            ClassStudent.objects
+            .filter(classroom=classroom, is_active=True)
+            .select_related('student')
+        )
+        for cs in active_students:
+            create_notification(
+                user=cs.student,
+                message=(
+                    f'New homework "{homework.title}" has been assigned in '
+                    f'{classroom.name}. Due: {due_str}.'
+                ),
+                notification_type='homework_assigned',
+                link=homework_url,
+            )
+
         return redirect('homework:teacher_detail', homework_id=homework.id)
 
 
