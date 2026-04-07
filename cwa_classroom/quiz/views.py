@@ -613,8 +613,6 @@ class MixedQuizView(LoginRequiredMixin, View):
             answer_records.append(StudentAnswer(
                 student=request.user,
                 question=q,
-                topic=q.topic,
-                level=level,
                 is_correct=is_correct,
             ))
 
