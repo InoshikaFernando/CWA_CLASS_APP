@@ -405,9 +405,10 @@ class StudentDashboardView(LoginRequiredMixin, View):
             recent_np = []
 
         # --- Time spent (quiz/task time only, calculated fresh from activity records) ---
+        from django.utils import timezone as _tz
         from django.utils.timezone import localtime
         from datetime import timedelta as _td
-        _now = localtime(timezone.now())
+        _now = localtime(_tz.now())
         _today = _now.date()
         _week_start = _today - _td(days=_now.weekday())
         _daily_secs = _weekly_secs = 0
