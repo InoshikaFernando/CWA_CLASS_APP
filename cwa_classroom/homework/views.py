@@ -359,11 +359,16 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
             messages.error(request, 'This homework is past its due date.')
             return redirect('homework:student_list')
 
+        import random
         questions = list(
             homework.homework_questions
             .select_related('question')
             .prefetch_related('question__answers')
         )
+        # Shuffle answer options per question so correct answer isn't always first
+        for hwq in questions:
+            hwq.shuffled_answers = list(hwq.question.answers.all())
+            random.shuffle(hwq.shuffled_answers)
 
         return render(request, self.template_name, {
             'homework': homework,
