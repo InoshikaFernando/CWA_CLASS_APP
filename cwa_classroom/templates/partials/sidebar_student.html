@@ -65,7 +65,7 @@ shown inline when subject_sidebar context is set, so the sidebar never
   <div class="border-t border-white/10 my-1.5"></div>
   {% endif %}
 
-  {% if student_has_classes and not is_individual_student %}
+  {% if student_has_classes %}
   <!-- My Classes -->
   <a href="{% url 'student_my_classes' %}"
      class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
@@ -99,7 +99,7 @@ shown inline when subject_sidebar context is set, so the sidebar never
     <span>My Progress</span>
   </a>
 
-  {% if student_has_classes and not is_individual_student %}
+  {% if student_has_classes %}
   <!-- Homework -->
   <a href="{% url 'homework:student_list' %}"
      class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
