@@ -259,8 +259,8 @@ class FullHierarchyMixin:
         def make_user(username, role_name, **kw):
             u = CustomUser.objects.create_user(
                 username=f"{username}_{RUN}",
-                password="TestPass123!",
-                email=f"{username}_{RUN}@test.local",
+                password="password1!",
+                email=f"wlhtestmails+{username}_{RUN}@gmail.com",
                 first_name=username.title(),
                 profile_completed=True,
                 must_change_password=False,
@@ -364,7 +364,7 @@ class FullHierarchyMixin:
         from classroom.models import StudentGuardian
         cls.guardian = Guardian.objects.create(
             school=cls.school, first_name="Jane", last_name="Guardian",
-            email=f"jane_{RUN}@test.local", phone="021-555-0100", relationship="guardian",
+            email=f"wlhtestmails+jane_{RUN}@gmail.com", phone="021-555-0100", relationship="guardian",
         )
         StudentGuardian.objects.create(
             student=cls.student, guardian=cls.guardian, is_primary=True,
@@ -471,7 +471,7 @@ class FullHierarchyMixin:
         # ── Parent invite ──────────────────────────────────────────────────
         cls.parent_invite = ParentInvite.objects.create(
             school=cls.school, student=cls.student,
-            parent_email=f"invite_{RUN}@test.local",
+            parent_email=f"wlhtestmails+invite_{RUN}@gmail.com",
             relationship="guardian", invited_by=cls.admin,
             status="pending",
             expires_at=tz.now() + timedelta(days=7),
@@ -555,7 +555,7 @@ class FullHierarchyMixin:
         """Return the most permissive client suitable for the URL."""
         c = Client()
         # Use admin for everything — superuser can access all school views
-        c.login(username=self.admin.username, password="TestPass123!")
+        c.login(username=self.admin.username, password="password1!")
         return c
 
     def _should_skip(self, full_name, route, params):
@@ -836,7 +836,7 @@ class TestAllURLsSitemap(FullHierarchyMixin, TestCase):
         """CSV credential download views (GET with injected session) must not 500."""
         base_cred = {
             "username": "testuser",
-            "email": "testuser@test.local",
+            "email": "wlhtestmails+testuser@gmail.com",
             "password": "TestPass1!",
             "first_name": "Test",
             "last_name": "User",

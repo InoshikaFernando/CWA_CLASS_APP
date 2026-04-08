@@ -138,6 +138,7 @@ def send_notification_email(notification):
         'criteria_approved': 'email/transactional/criteria_notification.html',
         'criteria_rejected': 'email/transactional/criteria_notification.html',
         'attendance': 'email/transactional/general_notification.html',
+        'homework_assigned': 'email/transactional/homework_assigned.html',
         'general': 'email/transactional/general_notification.html',
     }
 

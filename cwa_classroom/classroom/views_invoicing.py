@@ -807,10 +807,22 @@ class InvoiceListView(RoleRequiredMixin, View):
                 line_items__department_id=dept_filter,
             ).distinct()
 
+        classroom_filter = request.GET.get('classroom')
+        if classroom_filter:
+            invoices = invoices.filter(
+                line_items__classroom_id=classroom_filter,
+            ).distinct()
+
         paginator = Paginator(invoices, 25)
         page = paginator.get_page(request.GET.get('page'))
 
         departments = Department.objects.filter(school=school, is_active=True)
+
+        # Pre-populate classrooms for the selected department (or all if none selected)
+        classrooms_qs = ClassRoom.objects.filter(school=school, is_active=True).order_by('name')
+        if dept_filter:
+            classrooms_qs = classrooms_qs.filter(department_id=dept_filter)
+
         draft_invoices = Invoice.objects.filter(school=school, status='draft')
         draft_count = draft_invoices.count()
         draft_ids = list(draft_invoices.values_list('id', flat=True))
@@ -819,9 +831,11 @@ class InvoiceListView(RoleRequiredMixin, View):
             'school': school,
             'page': page,
             'departments': departments,
+            'classrooms': classrooms_qs,
             'status_filter': status_filter or '',
             'search': search,
             'dept_filter': dept_filter or '',
+            'classroom_filter': classroom_filter or '',
             'draft_count': draft_count,
             'draft_ids': draft_ids,
         })

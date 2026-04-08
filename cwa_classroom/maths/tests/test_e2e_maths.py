@@ -30,7 +30,7 @@ from maths.models import (
 from classroom.models import ClassRoom, Level, Topic
 
 
-def _create_student(username="student1", password="testpass123"):
+def _create_student(username="student1", password="password1!"):
     """Helper: create a student user with the individual_student role and active subscription."""
     from billing.models import Subscription
     user = CustomUser.objects.create_user(username=username, password=password)
@@ -45,7 +45,7 @@ def _create_student(username="student1", password="testpass123"):
     return user
 
 
-def _create_teacher(username="teacher1", password="testpass123"):
+def _create_teacher(username="teacher1", password="password1!"):
     """Helper: create a teacher user."""
     user = CustomUser.objects.create_user(username=username, password=password)
     role, _ = Role.objects.get_or_create(
@@ -99,7 +99,7 @@ class ProgressTrackingTest(TestCase):
 
     def setUp(self):
         self.client = Client()
-        self.client.login(username="student1", password="testpass123")
+        self.client.login(username="student1", password="password1!")
 
     def test_dashboard_loads_for_student(self):
         url = reverse("maths:dashboard")
@@ -149,7 +149,7 @@ class TimeTrackingTest(TestCase):
 
     def setUp(self):
         self.client = Client()
-        self.client.login(username="student1", password="testpass123")
+        self.client.login(username="student1", password="password1!")
 
     # -- endpoint creates / returns entry --
     def test_update_time_log_creates_entry(self):

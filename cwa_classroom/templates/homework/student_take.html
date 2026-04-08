@@ -51,7 +51,7 @@
 
           {% if q.question_type == 'multiple_choice' or q.question_type == 'true_false' %}
           <div class="space-y-2">
-            {% for answer in q.answers.all %}
+            {% for answer in hwq.shuffled_answers %}
             <div class="answer-option">
               <input type="radio" name="answer_{{ q.id }}" id="ans_{{ q.id }}_{{ answer.id }}"
                      value="{{ answer.id }}" class="sr-only">
@@ -77,10 +77,6 @@
         <button type="submit"
                 class="px-6 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">
           Submit Homework
-        </button>
-        <button type="submit" name="action" value="save_exit"
-                class="px-6 py-2.5 bg-gray-100 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-200 transition">
-          Save &amp; Exit
         </button>
       </div>
     </form>

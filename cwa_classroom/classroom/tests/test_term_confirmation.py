@@ -43,7 +43,7 @@ def _assign_role(user, role_name):
 
 def _make_school(username, role_name):
     user = CustomUser.objects.create_user(
-        username=username, password='pass12345', email=f'{username}@test.com',
+        username=username, password='password1!', email=f'wlhtestmails+{username}@gmail.com',
     )
     _assign_role(user, role_name)
     school = School.objects.create(name='Test School', slug=f'test-{username}', admin=user)
@@ -101,7 +101,7 @@ class TermConfirmViewTest(TestCase):
     def setUp(self):
         self.client = Client()
         self.user, self.school = _make_school('hoi1', Role.HEAD_OF_INSTITUTE)
-        self.client.login(username='hoi1', password='pass12345')
+        self.client.login(username='hoi1', password='password1!')
         self.url = reverse('admin_school_terms', kwargs={'school_id': self.school.id})
 
     # --- GET renders page with context ---
@@ -199,10 +199,10 @@ class TermConfirmViewTest(TestCase):
 
     def test_teacher_cannot_access_terms_page(self):
         teacher = CustomUser.objects.create_user(
-            username='teacherx', password='pass12345', email='teacherx@test.com',
+            username='teacherx', password='password1!', email='wlhtestmails+teacherx@gmail.com',
         )
         _assign_role(teacher, Role.TEACHER)
-        self.client.login(username='teacherx', password='pass12345')
+        self.client.login(username='teacherx', password='password1!')
         resp = self.client.post(self.url, {
             'action': 'force_confirm',
             'term_id': 999,
@@ -217,7 +217,7 @@ class TermConfirmViewTest(TestCase):
         """A teacher who somehow gets to the page sees can_force_confirm=False."""
         # Access as admin first to get context, then test property directly
         teacher = CustomUser.objects.create_user(
-            username='teachery', password='pass12345', email='teachery@test.com',
+            username='teachery', password='password1!', email='wlhtestmails+teachery@gmail.com',
         )
         _assign_role(teacher, Role.TEACHER)
         self.assertFalse(teacher.is_admin_user)
@@ -249,7 +249,7 @@ class TermConfirmTemplateTest(TestCase):
     def setUp(self):
         self.client = Client()
         self.user, self.school = _make_school('hoi2', Role.HEAD_OF_INSTITUTE)
-        self.client.login(username='hoi2', password='pass12345')
+        self.client.login(username='hoi2', password='password1!')
         self.url = reverse('admin_school_terms', kwargs={'school_id': self.school.id})
 
     def test_unconfirmed_badge_shown(self):

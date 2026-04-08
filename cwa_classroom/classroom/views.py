@@ -213,11 +213,19 @@ class StudentDashboardView(LoginRequiredMixin, View):
             .select_related('subject')
             .order_by('subject__name', 'name')
         )
-        enrolled_subjects = (
+        # Deduplicate by name — a student may be enrolled in classes linked to
+        # two different Subject records with the same name (e.g. global vs school-specific).
+        _all_subjects = (
             Subject.objects.filter(
                 classrooms__students=request.user, classrooms__is_active=True,
             ).distinct().order_by('name')
         )
+        _seen_names = set()
+        enrolled_subjects = []
+        for _s in _all_subjects:
+            if _s.name not in _seen_names:
+                _seen_names.add(_s.name)
+                enrolled_subjects.append(_s)
 
         # Determine which year levels to show based on active filter
         if filter_class_id:
@@ -940,11 +948,18 @@ class AssignTeachersView(LoginRequiredMixin, View):
         selected_ids = set(request.POST.getlist('teachers'))
         # Add newly selected teachers
         added = 0
+        teacher_role, _ = Role.objects.get_or_create(
+            name=Role.TEACHER, defaults={'display_name': 'Teacher'},
+        )
         for tid in selected_ids:
             teacher = get_object_or_404(CustomUser, id=tid)
             _, created = ClassTeacher.objects.get_or_create(classroom=classroom, teacher=teacher)
             if created:
                 added += 1
+            # HoD (or any role) assigned to a class also gets the Teacher role
+            # so they can access teacher-specific views (sessions, attendance, etc.)
+            from accounts.models import UserRole as _UserRole
+            _UserRole.objects.get_or_create(user=teacher, role=teacher_role)
         # Remove unchecked teachers
         removed = ClassTeacher.objects.filter(
             classroom=classroom
@@ -3144,8 +3159,23 @@ class HoDManageClassesView(RoleRequiredMixin, View):
             departments = Department.objects.filter(id__in=all_dept_ids, is_active=True)
             dept_ids = list(all_dept_ids)
             school_ids = list(departments.values_list('school_id', flat=True).distinct())
+            schools = None
+            selected_school_id = None
         else:
-            school_ids = _get_user_school_ids(request.user)
+            all_school_ids = _get_user_school_ids(request.user)
+            # School filter — lets HoI/admin with multiple schools scope to one school
+            selected_school_id = request.GET.get('school')
+            if selected_school_id:
+                try:
+                    selected_school_id = int(selected_school_id)
+                    school_ids = [selected_school_id] if selected_school_id in all_school_ids else all_school_ids
+                except (ValueError, TypeError):
+                    school_ids = all_school_ids
+                    selected_school_id = None
+            else:
+                school_ids = all_school_ids
+                selected_school_id = None
+            schools = School.objects.filter(id__in=all_school_ids, is_active=True).order_by('name')
             departments = Department.objects.filter(school_id__in=school_ids, is_active=True)
             dept_ids = list(departments.values_list('id', flat=True))
 
@@ -3219,6 +3249,8 @@ class HoDManageClassesView(RoleRequiredMixin, View):
             'is_hod_only': is_hod_only,
             'departments': departments,
             'selected_dept_id': selected_dept_id,
+            'schools': schools if not is_hod_only else None,
+            'selected_school_id': selected_school_id if not is_hod_only else None,
             'unassigned_classes': unassigned_classes,
             'specialty_map': specialty_map,
             'deleted_classes': deleted_classes,
@@ -3885,7 +3917,9 @@ class UpdateStudentFeeView(RoleRequiredMixin, View):
         if fee_str:
             from decimal import Decimal, InvalidOperation
             try:
-                cs.fee_override = Decimal(fee_str)
+                fee_val = Decimal(fee_str)
+                # 0 means "clear override" — fall through to inherited fee
+                cs.fee_override = fee_val if fee_val > 0 else None
             except InvalidOperation:
                 messages.error(request, 'Invalid fee amount.')
                 return redirect('class_detail', class_id=class_id)
@@ -4510,11 +4544,23 @@ class SubjectsHubView(LoginRequiredMixin, View):
                     }
                     break
 
+        # ── Pending homework count ──
+        from homework.models import Homework, HomeworkSubmission
+        pending_homework_count = (
+            Homework.objects
+            .filter(classroom_id__in=enrolled_class_ids)
+            .exclude(pk__in=HomeworkSubmission.objects.filter(
+                student=user
+            ).values('homework_id'))
+            .count()
+        ) if enrolled_class_ids else 0
+
         # Common hub context
         hub_extra = {
             'upcoming_classes': upcoming_classes,
             'class_attendance': class_attendance,
             'billing_summary': billing_summary,
+            'pending_homework_count': pending_homework_count,
         }
 
         is_school_student = user.has_role(Role.STUDENT)

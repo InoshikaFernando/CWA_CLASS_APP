@@ -94,6 +94,7 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/teachers/<int:teacher_id>/edit/', views_admin.SchoolTeacherEditView.as_view(), name='admin_school_teacher_edit'),
     path('admin-dashboard/schools/<int:school_id>/teachers/<int:teacher_id>/remove/', views_admin.SchoolTeacherRemoveView.as_view(), name='admin_school_teacher_remove'),
     path('admin-dashboard/schools/<int:school_id>/teachers/<int:teacher_id>/restore/', views_admin.SchoolTeacherRestoreView.as_view(), name='admin_school_teacher_restore'),
+    path('admin-dashboard/schools/<int:school_id>/teachers/<int:teacher_id>/roles/', views_admin.ManageStaffRolesView.as_view(), name='admin_school_teacher_roles'),
     path('admin-dashboard/schools/<int:school_id>/teachers/batch-update/', views_admin.SchoolTeacherBatchUpdateView.as_view(), name='admin_school_teacher_batch_update'),
     path('admin-dashboard/schools/<int:school_id>/academic-year/create/', views_admin.AcademicYearCreateView.as_view(), name='admin_academic_year_create'),
     path('admin-dashboard/schools/<int:school_id>/academic-year/<int:academic_year_id>/edit/', views_admin.AcademicYearEditView.as_view(), name='admin_academic_year_edit'),

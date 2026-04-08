@@ -38,12 +38,12 @@ def _create_role(name, display_name=None):
     return role
 
 
-def _create_user(username, password='testpass123', **kwargs):
+def _create_user(username, password='password1!', **kwargs):
     """Helper: create a CustomUser."""
     return CustomUser.objects.create_user(
         username=username,
         password=password,
-        email=kwargs.pop('email', f'{username}@example.com'),
+        email=kwargs.pop('email', f'wlhtestmails+{username}@gmail.com'),
         **kwargs,
     )
 
@@ -784,7 +784,7 @@ class InvoiceNotificationTest(TestCase):
 
         cls.student = _create_user(
             'student_notif', first_name='Frank', last_name='Notif',
-            email='frank@example.com',
+            email='wlhtestmails+frank@gmail.com',
         )
         _assign_role(cls.student, Role.STUDENT)
         SchoolStudent.objects.create(school=cls.school, student=cls.student)
@@ -836,7 +836,7 @@ class InvoiceNotificationTest(TestCase):
         # Check that email was sent (Django test runner uses locmem backend)
         self.assertGreaterEqual(len(mail.outbox), 1)
         sent_to = [m.to[0] for m in mail.outbox if m.to]
-        self.assertIn('frank@example.com', sent_to)
+        self.assertIn('wlhtestmails+frank@gmail.com', sent_to)
 
     def test_issued_invoice_has_due_date(self):
         """Issued invoice has a due_date calculated from school.invoice_due_days."""

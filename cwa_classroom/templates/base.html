@@ -8,17 +8,15 @@
   <link rel="icon" type="image/png" href="{% static 'images/logo.png' %}" />
   <link rel="apple-touch-icon" href="{% static 'images/logo.png' %}" />
 
-  <!-- Google Fonts -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Nunito:wght@400;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet" />
+  <!-- Google Fonts (self-hosted) -->
+  <link href="{% static 'css/google-fonts-full.css' %}" rel="stylesheet" />
 
-  <!-- Tailwind CSS CDN (replace with compiled build in production) -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- HTMX -->
-  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
-  <!-- Alpine.js -->
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <!-- Tailwind CSS (self-hosted) -->
+  <script src="{% static 'js/tailwind.min.js' %}"></script>
+  <!-- HTMX (self-hosted) -->
+  <script src="{% static 'js/htmx.min.js' %}"></script>
+  <!-- Alpine.js (self-hosted) -->
+  <script defer src="{% static 'js/alpinejs.min.js' %}"></script>
   <style>[x-cloak] { display: none !important; }</style>
   <script>
     tailwind.config = {
@@ -55,7 +53,7 @@
   <!-- ── Topbar ─────────────────────────────────────────────── -->
   {% include "partials/topbar.html" %}
 
-  <div class="flex h-[calc(100vh-4rem)] pt-16">
+  <div class="flex min-h-[calc(100vh-4rem)] pt-16">
 
     <!-- ── Sidebar (desktop) — hidden when hide_sidebar is set ── -->
     {% if not hide_sidebar %}
@@ -77,15 +75,7 @@
         {% elif is_parent %}
           {% include "partials/sidebar_parent.html" %}
         {% elif is_student or is_individual_student %}
-          {% if subject_sidebar == 'maths' and subject_has_quizzes %}
-            {% include "partials/sidebar_maths.html" %}
-          {% elif subject_sidebar == 'coding' %}
-            {% include "partials/sidebar_coding.html" %}
-          {% elif subject_sidebar and subject_has_quizzes %}
-            {% include "partials/sidebar_subject_generic.html" %}
-          {% else %}
-            {% include "partials/sidebar_student.html" %}
-          {% endif %}
+          {% include "partials/sidebar_student.html" %}
         {% elif is_parent %}
           {% include "partials/sidebar_parent.html" %}
         {% elif is_accountant %}
@@ -96,7 +86,7 @@
     {% endif %}
 
     <!-- ── Main content ───────────────────────────────────────── -->
-    <main class="flex-1 {% if not hide_sidebar %}md:ml-64{% endif %} overflow-y-auto px-4 py-6 md:px-8 pb-24 md:pb-6">
+    <main class="flex-1 {% if not hide_sidebar %}md:ml-64{% endif %} px-4 py-6 md:px-8 pb-24 md:pb-6">
       <!-- Breadcrumbs -->
       {% include "partials/breadcrumbs.html" %}
       <!-- Toast messages -->

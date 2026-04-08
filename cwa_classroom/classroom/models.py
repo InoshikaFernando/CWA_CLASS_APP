@@ -1343,6 +1343,7 @@ class Notification(models.Model):
         ('parent_link_request', 'Parent Link Request'),
         ('parent_link_approved', 'Parent Link Approved'),
         ('parent_link_rejected', 'Parent Link Rejected'),
+        ('homework_assigned', 'Homework Assigned'),
         ('general', 'General'),
     ]
     user = models.ForeignKey(

@@ -971,6 +971,118 @@ class SchoolTeacherRestoreView(RoleRequiredMixin, View):
         return redirect('admin_school_teachers', school_id=school.id)
 
 
+class ManageStaffRolesView(RoleRequiredMixin, View):
+    """
+    GET  → render roles modal fragment for a staff member.
+    POST → add or remove a system role for a staff member.
+
+    HoI can assign any staff role.
+    HoD can assign teacher-tier roles (teacher, junior_teacher, senior_teacher)
+    only for staff in their department(s).
+    """
+    required_roles = [
+        Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT,
+    ]
+
+    # Roles that staff-management can assign (excludes student/parent/admin/owner)
+    ASSIGNABLE_ROLES = [
+        (Role.HEAD_OF_INSTITUTE,  'Head of Institute'),
+        (Role.HEAD_OF_DEPARTMENT, 'Head of Department'),
+        (Role.ACCOUNTANT,         'Accountant'),
+        (Role.SENIOR_TEACHER,     'Senior Teacher'),
+        (Role.TEACHER,            'Teacher'),
+        (Role.JUNIOR_TEACHER,     'Junior Teacher'),
+    ]
+    # HoD may only assign these tiers
+    HOD_ASSIGNABLE = {Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER}
+
+    def _get_school_and_teacher(self, request, school_id, teacher_id):
+        """Return (school, school_teacher) or raise Http404."""
+        from django.http import Http404
+        user = request.user
+        is_hod_only = (
+            user.has_role(Role.HEAD_OF_DEPARTMENT)
+            and not user.has_role(Role.HEAD_OF_INSTITUTE)
+            and not user.has_role(Role.INSTITUTE_OWNER)
+            and not user.has_role(Role.ADMIN)
+        )
+        if is_hod_only:
+            # HoD: school_id must be one they belong to
+            dept_school_ids = list(
+                Department.objects.filter(head=user, is_active=True)
+                .values_list('school_id', flat=True).distinct()
+            )
+            school = get_object_or_404(School, id=school_id, id__in=dept_school_ids)
+        else:
+            school = _get_user_school_or_404(user, school_id)
+        school_teacher = get_object_or_404(SchoolTeacher, school=school, teacher_id=teacher_id)
+        return school, school_teacher, is_hod_only
+
+    def get(self, request, school_id, teacher_id):
+        school, school_teacher, is_hod_only = self._get_school_and_teacher(
+            request, school_id, teacher_id,
+        )
+        teacher = school_teacher.teacher
+        current_roles = set(
+            teacher.roles.filter(is_active=True).values_list('name', flat=True)
+        )
+        assignable = [
+            (name, label)
+            for name, label in self.ASSIGNABLE_ROLES
+            if not is_hod_only or name in self.HOD_ASSIGNABLE
+        ]
+        return render(request, 'admin_dashboard/partials/staff_roles_modal.html', {
+            'school': school,
+            'staff_member': teacher,
+            'school_teacher': school_teacher,
+            'current_roles': current_roles,
+            'assignable_roles': assignable,
+            'is_hod_only': is_hod_only,
+        })
+
+    def post(self, request, school_id, teacher_id):
+        school, school_teacher, is_hod_only = self._get_school_and_teacher(
+            request, school_id, teacher_id,
+        )
+        teacher = school_teacher.teacher
+        selected_role_names = set(request.POST.getlist('roles'))
+
+        # Validate — HoD may only touch HOD_ASSIGNABLE roles
+        assignable_names = {
+            name for name, _ in self.ASSIGNABLE_ROLES
+            if not is_hod_only or name in self.HOD_ASSIGNABLE
+        }
+        selected_role_names = selected_role_names & assignable_names  # strip anything invalid
+
+        with transaction.atomic():
+            for role_name in assignable_names:
+                role_obj, _ = Role.objects.get_or_create(
+                    name=role_name,
+                    defaults={'display_name': dict(self.ASSIGNABLE_ROLES).get(role_name, role_name)},
+                )
+                if role_name in selected_role_names:
+                    UserRole.objects.get_or_create(user=teacher, role=role_obj)
+                else:
+                    UserRole.objects.filter(user=teacher, role=role_obj).delete()
+
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='staff_roles_updated',
+            detail={
+                'teacher_id': teacher_id,
+                'teacher_name': teacher.get_full_name(),
+                'roles': sorted(selected_role_names),
+            },
+            request=request,
+        )
+        messages.success(
+            request,
+            f'Roles updated for {teacher.get_full_name() or teacher.username}.',
+        )
+        return redirect('admin_school_teachers', school_id=school.id)
+
+
 def _save_inline_terms(request, school, academic_year, number_of_terms, replace=False):
     """Read term_start_N / term_end_N from POST and create/replace Term objects.
     Returns the number of terms successfully saved. Skips slots with missing dates."""

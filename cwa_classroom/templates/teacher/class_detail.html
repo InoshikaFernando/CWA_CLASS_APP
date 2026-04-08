@@ -127,10 +127,10 @@
             </span>
             <div>
               <span class="text-sm font-semibold text-gray-700">{{ item.student.get_full_name|default:item.student.username }}</span>
-              {% if item.effective_fee %}
-                <span class="text-xs {% if item.class_student.fee_override is not None %}text-emerald-600 font-semibold{% else %}text-gray-400{% endif %} ml-1">
+              {% if item.effective_fee is not None %}
+                <span class="text-xs {% if item.class_student.fee_override %}text-emerald-600 font-semibold{% else %}text-gray-400{% endif %} ml-1">
                   {{ item.effective_fee|format_currency:effective_currency }}
-                  {% if item.class_student.fee_override is not None %}
+                  {% if item.class_student.fee_override %}
                     <span class="text-emerald-400 font-normal">(override)</span>
                   {% endif %}
                 </span>

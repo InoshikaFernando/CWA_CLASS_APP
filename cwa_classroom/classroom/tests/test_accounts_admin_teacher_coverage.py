@@ -41,10 +41,10 @@ def _assign_role(user, role_name):
 
 
 def _setup_school(admin_role=Role.HEAD_OF_INSTITUTE, username='testhoi',
-                  email='hoi@test.com'):
+                  email='wlhtestmails+hoi@gmail.com'):
     """Create admin user + school + subscription. Returns (user, school)."""
     user = CustomUser.objects.create_user(
-        username=username, password='pass12345', email=email,
+        username=username, password='password1!', email=email,
     )
     _assign_role(user, admin_role)
     school = School.objects.create(name='Test School', slug='test-school', admin=user)
@@ -57,11 +57,11 @@ def _setup_school(admin_role=Role.HEAD_OF_INSTITUTE, username='testhoi',
     return user, school
 
 
-def _setup_teacher(school, username='teacher1', email='teacher1@test.com',
+def _setup_teacher(school, username='teacher1', email='wlhtestmails+teacher1@gmail.com',
                    role_name=Role.TEACHER, st_role='teacher'):
     """Create teacher user linked to school. Returns teacher user."""
     teacher = CustomUser.objects.create_user(
-        username=username, password='pass12345', email=email,
+        username=username, password='password1!', email=email,
     )
     _assign_role(teacher, role_name)
     SchoolTeacher.objects.update_or_create(school=school, teacher=teacher, defaults={'role': st_role})
@@ -88,10 +88,10 @@ def _enable_module(school, module_slug):
     )
 
 
-def _setup_student(school, username='student1', email='student1@test.com'):
+def _setup_student(school, username='student1', email='wlhtestmails+student1@gmail.com'):
     """Create student user linked to school. Returns student user."""
     student = CustomUser.objects.create_user(
-        username=username, password='pass12345', email=email,
+        username=username, password='password1!', email=email,
         first_name='Test', last_name='Student',
     )
     _assign_role(student, Role.STUDENT)
@@ -107,10 +107,10 @@ class ProfileViewTests(TestCase):
     def setUp(self):
         self.client = Client()
         self.user = CustomUser.objects.create_user(
-            username='profuser', password='pass12345', email='prof@test.com',
+            username='profuser', password='password1!', email='wlhtestmails+prof@gmail.com',
             first_name='Old', last_name='Name',
         )
-        self.client.login(username='profuser', password='pass12345')
+        self.client.login(username='profuser', password='password1!')
 
     def test_profile_get(self):
         resp = self.client.get(reverse('profile'))
@@ -121,7 +121,7 @@ class ProfileViewTests(TestCase):
             'action': 'update_profile',
             'first_name': 'New',
             'last_name': 'Surname',
-            'email': 'new@test.com',
+            'email': 'wlhtestmails+new@gmail.com',
             'username': 'profuser',  # unchanged
         })
         self.assertEqual(resp.status_code, 302)
@@ -135,7 +135,7 @@ class ProfileViewTests(TestCase):
             'username': 'newuser123',
             'first_name': 'A',
             'last_name': 'B',
-            'email': 'prof@test.com',
+            'email': 'wlhtestmails+prof@gmail.com',
         })
         self.assertEqual(resp.status_code, 302)
         self.user.refresh_from_db()
@@ -148,7 +148,7 @@ class ProfileViewTests(TestCase):
             'username': 'ab',
             'first_name': 'A',
             'last_name': 'B',
-            'email': 'prof@test.com',
+            'email': 'wlhtestmails+prof@gmail.com',
         })
         self.assertEqual(resp.status_code, 302)
         self.user.refresh_from_db()
@@ -157,7 +157,7 @@ class ProfileViewTests(TestCase):
     def test_change_password_success(self):
         resp = self.client.post(reverse('profile'), {
             'action': 'change_password',
-            'current_password': 'pass12345',
+            'current_password': 'password1!',
             'new_password': 'newpass123',
             'confirm_password': 'newpass123',
         })
@@ -174,29 +174,29 @@ class ProfileViewTests(TestCase):
         })
         self.assertEqual(resp.status_code, 302)
         self.user.refresh_from_db()
-        self.assertTrue(self.user.check_password('pass12345'))
+        self.assertTrue(self.user.check_password('password1!'))
 
     def test_change_password_too_short(self):
         resp = self.client.post(reverse('profile'), {
             'action': 'change_password',
-            'current_password': 'pass12345',
+            'current_password': 'password1!',
             'new_password': 'short',
             'confirm_password': 'short',
         })
         self.assertEqual(resp.status_code, 302)
         self.user.refresh_from_db()
-        self.assertTrue(self.user.check_password('pass12345'))
+        self.assertTrue(self.user.check_password('password1!'))
 
     def test_change_password_mismatch(self):
         resp = self.client.post(reverse('profile'), {
             'action': 'change_password',
-            'current_password': 'pass12345',
+            'current_password': 'password1!',
             'new_password': 'newpass123',
             'confirm_password': 'different1',
         })
         self.assertEqual(resp.status_code, 302)
         self.user.refresh_from_db()
-        self.assertTrue(self.user.check_password('pass12345'))
+        self.assertTrue(self.user.check_password('password1!'))
 
 
 # ===========================================================================
@@ -207,7 +207,7 @@ class SelectClassesViewTests(TestCase):
     def setUp(self):
         self.client = Client()
         self.user = CustomUser.objects.create_user(
-            username='indstudent', password='pass12345', email='ind@test.com',
+            username='indstudent', password='password1!', email='wlhtestmails+ind@gmail.com',
         )
         _assign_role(self.user, Role.INDIVIDUAL_STUDENT)
         self.pkg = Package.objects.create(
@@ -219,7 +219,7 @@ class SelectClassesViewTests(TestCase):
         Subscription.objects.create(
             user=self.user, package=self.pkg, status=Subscription.STATUS_ACTIVE,
         )
-        self.client.login(username='indstudent', password='pass12345')
+        self.client.login(username='indstudent', password='password1!')
         # Create a classroom to join
         self.admin, self.school = _setup_school()
         self.classroom = _setup_classroom(self.school, name='Physics 101')
@@ -230,10 +230,10 @@ class SelectClassesViewTests(TestCase):
 
     def test_non_individual_student_redirected(self):
         other = CustomUser.objects.create_user(
-            username='other', password='pass12345', email='other@test.com',
+            username='other', password='password1!', email='wlhtestmails+other@gmail.com',
         )
         _assign_role(other, Role.STUDENT)
-        self.client.login(username='other', password='pass12345')
+        self.client.login(username='other', password='password1!')
         resp = self.client.get(reverse('select_classes'))
         self.assertEqual(resp.status_code, 302)
 
@@ -321,7 +321,7 @@ class ChangePackageViewTests(TestCase):
     def setUp(self):
         self.client = Client()
         self.user = CustomUser.objects.create_user(
-            username='indstudent2', password='pass12345', email='ind2@test.com',
+            username='indstudent2', password='password1!', email='wlhtestmails+ind2@gmail.com',
         )
         _assign_role(self.user, Role.INDIVIDUAL_STUDENT)
         self.pkg = Package.objects.create(
@@ -333,7 +333,7 @@ class ChangePackageViewTests(TestCase):
         Subscription.objects.create(
             user=self.user, package=self.pkg, status=Subscription.STATUS_ACTIVE,
         )
-        self.client.login(username='indstudent2', password='pass12345')
+        self.client.login(username='indstudent2', password='password1!')
 
     def test_get_shows_packages(self):
         resp = self.client.get(reverse('change_package'))
@@ -341,10 +341,10 @@ class ChangePackageViewTests(TestCase):
 
     def test_non_individual_student_redirected(self):
         other = CustomUser.objects.create_user(
-            username='other2', password='pass12345', email='other2@test.com',
+            username='other2', password='password1!', email='wlhtestmails+other2@gmail.com',
         )
         _assign_role(other, Role.STUDENT)
-        self.client.login(username='other2', password='pass12345')
+        self.client.login(username='other2', password='password1!')
         resp = self.client.get(reverse('change_package'))
         self.assertEqual(resp.status_code, 302)
 
@@ -357,15 +357,15 @@ class ParentInviteViewTests(TestCase):
     def setUp(self):
         self.client = Client()
         self.admin, self.school = _setup_school(
-            username='parentadmin', email='padmin@test.com',
+            username='parentadmin', email='wlhtestmails+padmin@gmail.com',
         )
         self.student = _setup_student(
-            self.school, username='kidstudent', email='kid@test.com',
+            self.school, username='kidstudent', email='wlhtestmails+kid@gmail.com',
         )
         self.invite = ParentInvite.objects.create(
             school=self.school,
             student=self.student,
-            parent_email='parent@test.com',
+            parent_email='wlhtestmails+parent@gmail.com',
             relationship='Mother',
             invited_by=self.admin,
             expires_at=timezone.now() + timedelta(days=7),
@@ -387,9 +387,9 @@ class ParentInviteViewTests(TestCase):
 
     def test_parent_register_get_already_logged_in(self):
         user = CustomUser.objects.create_user(
-            username='existinguser', password='pass12345', email='existing@test.com',
+            username='existinguser', password='password1!', email='wlhtestmails+existing@gmail.com',
         )
-        self.client.login(username='existinguser', password='pass12345')
+        self.client.login(username='existinguser', password='password1!')
         resp = self.client.get(
             reverse('register_parent', kwargs={'token': self.invite.token})
         )
@@ -401,9 +401,9 @@ class ParentInviteViewTests(TestCase):
             {
                 'first_name': 'Jane',
                 'last_name': 'Parent',
-                'email': 'parent@test.com',
-                'password': 'pass12345',
-                'confirm_password': 'pass12345',
+                'email': 'wlhtestmails+parent@gmail.com',
+                'password': 'password1!',
+                'confirm_password': 'password1!',
                 'username': 'janeparent',
                 'accept_terms': 'on',
             },
@@ -418,7 +418,7 @@ class ParentInviteViewTests(TestCase):
             {
                 'first_name': '',
                 'last_name': '',
-                'email': 'parent@test.com',
+                'email': 'wlhtestmails+parent@gmail.com',
                 'password': 'short',
                 'confirm_password': 'mismatch',
             },
@@ -427,9 +427,9 @@ class ParentInviteViewTests(TestCase):
 
     def test_accept_invite_get(self):
         user = CustomUser.objects.create_user(
-            username='existparent', password='pass12345', email='ep@test.com',
+            username='existparent', password='password1!', email='wlhtestmails+ep@gmail.com',
         )
-        self.client.login(username='existparent', password='pass12345')
+        self.client.login(username='existparent', password='password1!')
         resp = self.client.get(
             reverse('accept_parent_invite', kwargs={'token': self.invite.token})
         )
@@ -437,9 +437,9 @@ class ParentInviteViewTests(TestCase):
 
     def test_accept_invite_post_success(self):
         user = CustomUser.objects.create_user(
-            username='existparent2', password='pass12345', email='ep2@test.com',
+            username='existparent2', password='password1!', email='wlhtestmails+ep2@gmail.com',
         )
-        self.client.login(username='existparent2', password='pass12345')
+        self.client.login(username='existparent2', password='password1!')
         resp = self.client.post(
             reverse('accept_parent_invite', kwargs={'token': self.invite.token})
         )
@@ -451,9 +451,9 @@ class ParentInviteViewTests(TestCase):
         self.invite.status = 'revoked'
         self.invite.save(update_fields=['status'])
         user = CustomUser.objects.create_user(
-            username='existparent3', password='pass12345', email='ep3@test.com',
+            username='existparent3', password='password1!', email='wlhtestmails+ep3@gmail.com',
         )
-        self.client.login(username='existparent3', password='pass12345')
+        self.client.login(username='existparent3', password='password1!')
         resp = self.client.get(
             reverse('accept_parent_invite', kwargs={'token': self.invite.token})
         )
@@ -468,7 +468,7 @@ class AdminDashboardViewTests(TestCase):
     def setUp(self):
         self.client = Client()
         self.admin, self.school = _setup_school()
-        self.client.login(username='testhoi', password='pass12345')
+        self.client.login(username='testhoi', password='password1!')
 
     def test_get_dashboard(self):
         resp = self.client.get(reverse('admin_dashboard'))
@@ -482,10 +482,10 @@ class AdminDashboardViewTests(TestCase):
 
     def test_wrong_role_forbidden(self):
         student = CustomUser.objects.create_user(
-            username='stud', password='pass12345', email='stud@test.com',
+            username='stud', password='password1!', email='wlhtestmails+stud@gmail.com',
         )
         _assign_role(student, Role.STUDENT)
-        self.client.login(username='stud', password='pass12345')
+        self.client.login(username='stud', password='password1!')
         resp = self.client.get(reverse('admin_dashboard'))
         self.assertEqual(resp.status_code, 302)
 
@@ -498,7 +498,7 @@ class SchoolCreateViewTests(TestCase):
     def setUp(self):
         self.client = Client()
         self.admin, self.school = _setup_school()
-        self.client.login(username='testhoi', password='pass12345')
+        self.client.login(username='testhoi', password='password1!')
 
     def test_get_form(self):
         resp = self.client.get(reverse('admin_school_create'))
@@ -538,7 +538,7 @@ class SchoolDetailViewTests(TestCase):
     def setUp(self):
         self.client = Client()
         self.admin, self.school = _setup_school()
-        self.client.login(username='testhoi', password='pass12345')
+        self.client.login(username='testhoi', password='password1!')
 
     def test_get_detail(self):
         resp = self.client.get(
@@ -556,7 +556,7 @@ class SchoolEditViewTests(TestCase):
     def setUp(self):
         self.client = Client()
         self.admin, self.school = _setup_school()
-        self.client.login(username='testhoi', password='pass12345')
+        self.client.login(username='testhoi', password='password1!')
 
     def test_get_edit_form(self):
         resp = self.client.get(
@@ -589,7 +589,7 @@ class SchoolTeacherManageViewTests(TestCase):
     def setUp(self):
         self.client = Client()
         self.admin, self.school = _setup_school()
-        self.client.login(username='testhoi', password='pass12345')
+        self.client.login(username='testhoi', password='password1!')
 
     def test_get_list(self):
         resp = self.client.get(
@@ -604,8 +604,8 @@ class SchoolTeacherManageViewTests(TestCase):
             {
                 'first_name': 'John',
                 'last_name': 'Doe',
-                'email': 'johndoe@test.com',
-                'password': 'pass12345',
+                'email': 'wlhtestmails+johndoe@gmail.com',
+                'password': 'password1!',
                 'username': 'johndoe',
                 'role': 'teacher',
                 'specialty': 'Math',
@@ -635,15 +635,15 @@ class SchoolTeacherManageViewTests(TestCase):
 
     def test_post_create_teacher_duplicate_email(self):
         CustomUser.objects.create_user(
-            username='existing', password='pass12345', email='dup@test.com',
+            username='existing', password='password1!', email='wlhtestmails+dup@gmail.com',
         )
         resp = self.client.post(
             reverse('admin_school_teachers', kwargs={'school_id': self.school.id}),
             {
                 'first_name': 'Jane',
                 'last_name': 'Doe',
-                'email': 'dup@test.com',
-                'password': 'pass12345',
+                'email': 'wlhtestmails+dup@gmail.com',
+                'password': 'password1!',
                 'username': 'janedoe',
             },
         )
@@ -658,7 +658,7 @@ class SchoolStudentManageViewTests(TestCase):
     def setUp(self):
         self.client = Client()
         self.admin, self.school = _setup_school()
-        self.client.login(username='testhoi', password='pass12345')
+        self.client.login(username='testhoi', password='password1!')
 
     def test_get_list(self):
         resp = self.client.get(
@@ -673,8 +673,8 @@ class SchoolStudentManageViewTests(TestCase):
             {
                 'first_name': 'Alice',
                 'last_name': 'Smith',
-                'email': 'alice@test.com',
-                'password': 'pass12345',
+                'email': 'wlhtestmails+alice@gmail.com',
+                'password': 'password1!',
                 'username': 'alicesmith',
             },
         )
@@ -703,7 +703,7 @@ class SchoolStudentEditViewTests(TestCase):
         self.client = Client()
         self.admin, self.school = _setup_school()
         self.student = _setup_student(self.school)
-        self.client.login(username='testhoi', password='pass12345')
+        self.client.login(username='testhoi', password='password1!')
 
     def test_edit_student(self):
         resp = self.client.post(
@@ -714,7 +714,7 @@ class SchoolStudentEditViewTests(TestCase):
             {
                 'first_name': 'Updated',
                 'last_name': 'Name',
-                'email': 'updated@test.com',
+                'email': 'wlhtestmails+updated@gmail.com',
                 'username': self.student.username,
             },
         )
@@ -732,7 +732,7 @@ class SchoolTeacherBatchUpdateViewTests(TestCase):
         self.client = Client()
         self.admin, self.school = _setup_school()
         self.teacher = _setup_teacher(self.school)
-        self.client.login(username='testhoi', password='pass12345')
+        self.client.login(username='testhoi', password='password1!')
 
     def test_batch_update_empty(self):
         resp = self.client.post(
@@ -772,7 +772,7 @@ class AcademicYearCreateViewTests(TestCase):
     def setUp(self):
         self.client = Client()
         self.admin, self.school = _setup_school()
-        self.client.login(username='testhoi', password='pass12345')
+        self.client.login(username='testhoi', password='password1!')
 
     def test_get_form(self):
         resp = self.client.get(
@@ -840,7 +840,7 @@ class TeacherDashboardViewTests(TestCase):
         self.admin, self.school = _setup_school()
         self.teacher = _setup_teacher(self.school)
         self.classroom = _setup_classroom(self.school, teacher=self.teacher)
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
 
     def test_get_dashboard_with_school(self):
         resp = self.client.get(reverse('teacher_dashboard'))
@@ -849,10 +849,10 @@ class TeacherDashboardViewTests(TestCase):
 
     def test_get_dashboard_no_school(self):
         teacher2 = CustomUser.objects.create_user(
-            username='loneteacher', password='pass12345', email='lone@test.com',
+            username='loneteacher', password='password1!', email='wlhtestmails+lone@gmail.com',
         )
         _assign_role(teacher2, Role.TEACHER)
-        self.client.login(username='loneteacher', password='pass12345')
+        self.client.login(username='loneteacher', password='password1!')
         resp = self.client.get(reverse('teacher_dashboard'))
         self.assertEqual(resp.status_code, 200)
         self.assertIsNone(resp.context['current_school'])
@@ -869,7 +869,7 @@ class StartSessionViewTests(TestCase):
         self.teacher = _setup_teacher(self.school)
         self.classroom = _setup_classroom(self.school, teacher=self.teacher)
         _enable_module(self.school, ModuleSubscription.MODULE_STUDENTS_ATTENDANCE)
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
 
     def test_start_session_creates_session(self):
         resp = self.client.post(
@@ -896,9 +896,9 @@ class StartSessionViewTests(TestCase):
 
     def test_start_session_no_access(self):
         teacher2 = _setup_teacher(
-            self.school, username='teacher2', email='t2@test.com',
+            self.school, username='teacher2', email='wlhtestmails+t2@gmail.com',
         )
-        self.client.login(username='teacher2', password='pass12345')
+        self.client.login(username='teacher2', password='password1!')
         resp = self.client.post(
             reverse('start_session', kwargs={'class_id': self.classroom.id})
         )
@@ -915,7 +915,7 @@ class CreateSessionViewTests(TestCase):
         self.admin, self.school = _setup_school()
         self.teacher = _setup_teacher(self.school)
         self.classroom = _setup_classroom(self.school, teacher=self.teacher)
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
 
     def test_get_form(self):
         resp = self.client.get(
@@ -964,9 +964,9 @@ class CreateSessionViewTests(TestCase):
 
     def test_post_no_access(self):
         teacher2 = _setup_teacher(
-            self.school, username='teacher2', email='t2@test.com',
+            self.school, username='teacher2', email='wlhtestmails+t2@gmail.com',
         )
-        self.client.login(username='teacher2', password='pass12345')
+        self.client.login(username='teacher2', password='password1!')
         resp = self.client.post(
             reverse('create_session', kwargs={'class_id': self.classroom.id}),
             {
@@ -1007,7 +1007,7 @@ class CompleteSessionViewTests(TestCase):
             start_time=datetime.time(9, 0), end_time=datetime.time(10, 0),
             status='scheduled', created_by=self.teacher,
         )
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
 
     def test_complete_session(self):
         resp = self.client.post(
@@ -1027,9 +1027,9 @@ class CompleteSessionViewTests(TestCase):
 
     def test_complete_no_access(self):
         teacher2 = _setup_teacher(
-            self.school, username='teacher2', email='t2@test.com',
+            self.school, username='teacher2', email='wlhtestmails+t2@gmail.com',
         )
-        self.client.login(username='teacher2', password='pass12345')
+        self.client.login(username='teacher2', password='password1!')
         resp = self.client.post(
             reverse('complete_session', kwargs={'session_id': self.session.id})
         )
@@ -1051,7 +1051,7 @@ class CancelSessionViewTests(TestCase):
             start_time=datetime.time(9, 0), end_time=datetime.time(10, 0),
             status='scheduled', created_by=self.teacher,
         )
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
 
     def test_cancel_session(self):
         resp = self.client.post(
@@ -1089,7 +1089,7 @@ class DeleteSessionViewTests(TestCase):
             start_time=datetime.time(9, 0), end_time=datetime.time(10, 0),
             status='scheduled', created_by=self.teacher,
         )
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
 
     def test_delete_session(self):
         session_id = self.session.id
@@ -1101,9 +1101,9 @@ class DeleteSessionViewTests(TestCase):
 
     def test_delete_session_no_access(self):
         teacher2 = _setup_teacher(
-            self.school, username='teacher2', email='t2@test.com',
+            self.school, username='teacher2', email='wlhtestmails+t2@gmail.com',
         )
-        self.client.login(username='teacher2', password='pass12345')
+        self.client.login(username='teacher2', password='password1!')
         resp = self.client.post(
             reverse('delete_session', kwargs={'session_id': self.session.id})
         )
@@ -1129,7 +1129,7 @@ class SessionAttendancePostTests(TestCase):
             start_time=datetime.time(9, 0), end_time=datetime.time(10, 0),
             status='scheduled', created_by=self.teacher,
         )
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
 
     def test_get_attendance_page(self):
         resp = self.client.get(
@@ -1167,9 +1167,9 @@ class SessionAttendancePostTests(TestCase):
 
     def test_post_no_access(self):
         teacher2 = _setup_teacher(
-            self.school, username='teacher2', email='t2@test.com',
+            self.school, username='teacher2', email='wlhtestmails+t2@gmail.com',
         )
-        self.client.login(username='teacher2', password='pass12345')
+        self.client.login(username='teacher2', password='password1!')
         resp = self.client.post(
             reverse('session_attendance', kwargs={'session_id': self.session.id}),
             {f'status_{self.student.id}': 'present'},
@@ -1189,7 +1189,7 @@ class SchoolTeacherRemoveViewTests(TestCase):
         self.client = Client()
         self.admin, self.school = _setup_school()
         self.teacher = _setup_teacher(self.school)
-        self.client.login(username='testhoi', password='pass12345')
+        self.client.login(username='testhoi', password='password1!')
 
     def test_remove_teacher(self):
         resp = self.client.post(

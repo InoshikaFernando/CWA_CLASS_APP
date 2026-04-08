@@ -7,10 +7,12 @@ from django.db import transaction
 from django.db.models import Max, Prefetch
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views import View
 
 from classroom.models import ClassRoom, ClassStudent, ClassTeacher, Topic
+from classroom.notifications import create_notification
 from classroom.views import RoleRequiredMixin
 from maths.models import Answer, Question, calculate_points
 from maths.views import select_questions_stratified
@@ -31,37 +33,62 @@ def _teacher_classrooms(user):
 
 def _build_topic_groups(topics_qs):
     """
-    Return an ordered list of (strand, [subtopics]) tuples for the template.
+    Return a 3-level hierarchy for the template:
 
-    Topics with no parent are "strands" — shown as group headers.
-    Topics with a parent are "subtopics" — shown indented under their strand.
-    Orphaned subtopics whose parent is not in the queryset fall into a
-    "Other" catch-all group at the end.
+        [(strand, [(mid, [leaves]), ...]), ...]
 
-    Each item in the subtopics list is the original Topic instance so the
-    template can access .id, .name, etc.
+    - strand : top-level topic (parent=None) — rendered as a collapsible
+               accordion header.  If it has NO mid_items it is shown as a
+               plain selectable checkbox instead.
+    - mid    : direct child of a strand — rendered as a plain checkbox
+               inside the accordion.  If it has leaf children it also gets
+               a small sub-group label above those leaves.
+    - leaves : grandchildren of the strand — shown indented under their mid.
+
+    Topics that are already at depth-0 with questions appear as standalone
+    checkboxes (empty mid_items list).  Parents/grandparents that are not
+    themselves in the queryset are still used as group headers.
     """
     from collections import OrderedDict
 
-    strands = OrderedDict()   # {strand_id: (strand_topic, [subtopics])}
-    orphans = []
+    # strands : {strand_id: (strand_topic, OrderedDict {mid_id: (mid_topic, [leaf_topics])})}
+    strands = OrderedDict()
 
     for topic in topics_qs:
-        if topic.parent_id is None:
-            # This topic IS a strand
+        parent = topic.parent          # may be None
+        grandparent = parent.parent if parent else None  # may be None
+
+        if parent is None:
+            # depth-0 — strand itself has questions
             if topic.pk not in strands:
-                strands[topic.pk] = (topic, [])
+                strands[topic.pk] = (topic, OrderedDict())
+            # No need to add it as a child of anything
+
+        elif grandparent is None:
+            # depth-1 — direct child of a strand
+            strand = parent
+            if strand.pk not in strands:
+                strands[strand.pk] = (strand, OrderedDict())
+            mids = strands[strand.pk][1]
+            if topic.pk not in mids:
+                mids[topic.pk] = (topic, [])
+
         else:
-            parent = topic.parent
-            if parent.pk not in strands:
-                strands[parent.pk] = (parent, [])
-            strands[parent.pk][1].append(topic)
+            # depth-2 — grandchild (e.g. "Multiplication (2x)" under Multiplication under Number)
+            strand = grandparent
+            mid = parent
+            if strand.pk not in strands:
+                strands[strand.pk] = (strand, OrderedDict())
+            mids = strands[strand.pk][1]
+            if mid.pk not in mids:
+                mids[mid.pk] = (mid, [])
+            mids[mid.pk][1].append(topic)
 
-    # Strands that have subtopics → accordion group.
-    # Standalone topics (no parent, no subtopics) → shown as flat checkboxes
-    # by passing an empty list so the template can distinguish.
-    result = [(strand, subs) for strand, subs in strands.values()]
-
+    # Flatten to list for the template
+    result = [
+        (strand, [(mid, leaves) for mid, leaves in mids.values()])
+        for strand, mids in strands.values()
+    ]
     return result
 
 
@@ -74,7 +101,7 @@ def _topics_with_questions(classroom):
     from django.db.models import Exists, OuterRef
 
     classroom_levels = classroom.levels.all()
-    base_qs = Topic.objects.filter(is_active=True).select_related('subject', 'parent').order_by(
+    base_qs = Topic.objects.filter(is_active=True).select_related('subject', 'parent', 'parent__parent').order_by(
         'subject__name', 'parent__name', 'name'
     )
 
@@ -167,6 +194,26 @@ class HomeworkCreateView(RoleRequiredMixin, View):
             return render(request, self.template_name, {'form': form, 'classroom': classroom})
 
         messages.success(request, f'Homework "{homework.title}" created with {count} questions.')
+
+        # Notify all active students in the classroom
+        homework_url = reverse('homework:student_take', kwargs={'homework_id': homework.id})
+        due_str = homework.due_date.strftime('%d %b %Y') if homework.due_date else 'no deadline'
+        active_students = (
+            ClassStudent.objects
+            .filter(classroom=classroom, is_active=True)
+            .select_related('student')
+        )
+        for cs in active_students:
+            create_notification(
+                user=cs.student,
+                message=(
+                    f'New homework "{homework.title}" has been assigned in '
+                    f'{classroom.name}. Due: {due_str}.'
+                ),
+                notification_type='homework_assigned',
+                link=homework_url,
+            )
+
         return redirect('homework:teacher_detail', homework_id=homework.id)
 
 
@@ -312,11 +359,16 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
             messages.error(request, 'This homework is past its due date.')
             return redirect('homework:student_list')
 
+        import random
         questions = list(
             homework.homework_questions
             .select_related('question')
             .prefetch_related('question__answers')
         )
+        # Shuffle answer options per question so correct answer isn't always first
+        for hwq in questions:
+            hwq.shuffled_answers = list(hwq.question.answers.all())
+            random.shuffle(hwq.shuffled_answers)
 
         return render(request, self.template_name, {
             'homework': homework,

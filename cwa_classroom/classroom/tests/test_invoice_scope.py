@@ -56,8 +56,8 @@ def _role(name):
 
 def _user(username, role_name, **kw):
     u = CustomUser.objects.create_user(
-        username=username, password='pass1234',
-        email=f'{username}@test.local', **kw
+        username=username, password='password1!',
+        email=f'wlhtestmails+{username}@gmail.com', **kw
     )
     UserRole.objects.create(user=u, role=_role(role_name))
     return u
@@ -160,7 +160,7 @@ class InvoiceScopeTestCase(TestCase):
 
     def _client(self):
         c = Client()
-        c.login(username='inv_owner', password='pass1234')
+        c.login(username='inv_owner', password='password1!')
         return c
 
     def _post(self, client, extra=None):
@@ -659,3 +659,147 @@ class GenerateInvoicesGapScopeTests(InvoiceScopeTestCase):
         self._post(c, {'student_ids': [self.student_a.id]})
         draft_ids = self._draft_ids_from_session(c)
         self.assertEqual(len(draft_ids), 0)
+
+
+# ===========================================================================
+# 11. Cancelled invoice not counted as "covered" — can be re-generated
+# ===========================================================================
+
+class GenerateInvoicesCancelledNotCoveredTests(InvoiceScopeTestCase):
+
+    def test_cancelled_invoice_not_counted_as_covered(self):
+        """
+        student_a has a CANCELLED invoice for the full period.
+        Cancelled invoices must NOT count as coverage — a new draft should
+        still be generated for student_a.
+        """
+        self._make_invoice(self.student_a, status='cancelled',
+                           start=PERIOD_START, end=PERIOD_END)
+
+        c = self._client()
+        self._post(c, {'student_ids': [self.student_a.id]})
+        draft_ids = self._draft_ids_from_session(c)
+
+        self.assertEqual(len(draft_ids), 1,
+                         'Cancelled invoice must not block re-generation')
+        inv = Invoice.objects.get(id__in=draft_ids)
+        self.assertEqual(inv.student_id, self.student_a.id)
+        self.assertEqual(inv.status, 'draft')
+
+    def test_draft_invoice_replaced_not_skipped(self):
+        """
+        student_a has a DRAFT invoice for the full period.
+        Draft invoices ARE replaced (not treated as coverage).
+        The old draft must be deleted and a new one created.
+        """
+        old_draft = self._make_invoice(self.student_a, status='draft',
+                                       start=PERIOD_START, end=PERIOD_END)
+        old_id = old_draft.id
+
+        c = self._client()
+        self._post(c, {'student_ids': [self.student_a.id]})
+        draft_ids = self._draft_ids_from_session(c)
+
+        self.assertEqual(len(draft_ids), 1)
+        new_inv = Invoice.objects.get(id__in=draft_ids)
+        self.assertEqual(new_inv.student_id, self.student_a.id)
+        # Old draft is cancelled (not deleted) — Xero/MYOB style replacement
+        old = Invoice.objects.get(id=old_id)
+        self.assertEqual(old.status, 'cancelled',
+                         'Old draft must be cancelled when replaced')
+
+
+# ===========================================================================
+# 12. Student enrolled in multiple classes — separate line items
+# ===========================================================================
+
+class GenerateInvoicesMultipleClassesTests(InvoiceScopeTestCase):
+
+    def test_student_in_two_classes_gets_two_line_items(self):
+        """
+        student_c is enrolled in class_a.  Also enrol them in class_b
+        and add attendance + session so they are billable in both.
+        Invoice generation must produce one draft with two line items
+        (one per class).
+        """
+        # Enrol student_c in class_b as well
+        ClassStudent.objects.create(
+            classroom=self.class_b, student=self.student_c, is_active=True
+        )
+        StudentAttendance.objects.create(
+            session=self.session_b, student=self.student_c, status='present'
+        )
+
+        c = self._client()
+        self._post(c, {'student_ids': [self.student_c.id]})
+        draft_ids = self._draft_ids_from_session(c)
+
+        self.assertEqual(len(draft_ids), 1)
+        inv = Invoice.objects.get(id__in=draft_ids)
+        line_items = list(inv.line_items.all())
+        self.assertEqual(len(line_items), 2,
+                         'One line item per enrolled class expected')
+        classrooms_billed = {li.classroom_id for li in line_items}
+        self.assertIn(self.class_a.id, classrooms_billed)
+        self.assertIn(self.class_b.id, classrooms_billed)
+
+        # Amounts: class_a $10, class_b $15
+        total = sum(li.line_amount for li in line_items)
+        self.assertEqual(total, Decimal('25.00'))
+
+
+# ===========================================================================
+# 13. Generate for department — full term date range
+# ===========================================================================
+
+class GenerateInvoicesDepartmentTermTests(InvoiceScopeTestCase):
+
+    def test_generate_for_department_full_term(self):
+        """
+        Generate for dept_a over a full term (10 weeks).
+        Two sessions in that range, both attended by student_a.
+        Invoice should bill for both sessions at $10 each = $20.
+        """
+        import datetime as dt
+        term_start = dt.date(2025, 1, 27)
+        term_end   = dt.date(2025, 4, 4)
+
+        # Add a second session mid-term for class_a
+        session2 = ClassSession.objects.create(
+            classroom=self.class_a,
+            date=dt.date(2025, 2, 10),
+            start_time=dt.time(9, 0), end_time=dt.time(10, 0),
+            status='completed', created_by=self.owner,
+        )
+        StudentAttendance.objects.create(
+            session=session2, student=self.student_a, status='present'
+        )
+        StudentAttendance.objects.create(
+            session=session2, student=self.student_c, status='present'
+        )
+
+        c = self._client()
+        resp = c.post(reverse('generate_invoices'), {
+            'billing_period_start': str(term_start),
+            'billing_period_end':   str(term_end),
+            'attendance_mode':      'all_class_days',
+            'billing_type':         'post_term',
+            'period_type':          'term',
+            'department_id':        str(self.dept_a.id),
+        }, follow=True)
+        self.assertEqual(resp.status_code, 200)
+
+        draft_ids = c.session.get('draft_invoice_ids', [])
+        # dept_a has student_a and student_c — both should be invoiced
+        self.assertEqual(len(draft_ids), 2)
+
+        for inv in Invoice.objects.filter(id__in=draft_ids):
+            # Both sessions (Mar 10 + Feb 10) fall in the term range
+            line = inv.line_items.get(classroom=self.class_a)
+            self.assertEqual(line.sessions_charged, 2)
+            self.assertEqual(inv.amount, Decimal('20.00'))  # 2 × $10
+
+        # dept_b students must NOT be invoiced
+        student_ids = list(Invoice.objects.filter(
+            id__in=draft_ids).values_list('student_id', flat=True))
+        self.assertNotIn(self.student_b.id, student_ids)

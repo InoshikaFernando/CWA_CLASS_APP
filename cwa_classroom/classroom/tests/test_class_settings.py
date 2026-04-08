@@ -42,7 +42,7 @@ def _setup_school(username='hoi_cls', bank_account_number='111111',
                   bank_account_name='School Account', bank_name='School Bank',
                   bank_bsb='000-000', gst_number='SCHOOL-GST'):
     user = CustomUser.objects.create_user(
-        username=username, password='pass12345', email=f'{username}@test.com',
+        username=username, password='password1!', email=f'wlhtestmails+{username}@gmail.com',
     )
     _assign_role(user, Role.HEAD_OF_INSTITUTE)
     school = School.objects.create(
@@ -93,7 +93,7 @@ def _setup_classroom(school, dept, bank_account_number='', bank_account_name='',
 
 def _setup_student(school, username='stu_cls'):
     student = CustomUser.objects.create_user(
-        username=username, password='pass12345', email=f'{username}@test.com',
+        username=username, password='password1!', email=f'wlhtestmails+{username}@gmail.com',
         first_name='Test', last_name='Student',
     )
     _assign_role(student, Role.STUDENT)
@@ -232,7 +232,7 @@ class ClassSettingsViewTests(TestCase):
         )
         self.classroom = _setup_classroom(self.school, self.dept)
         self.client = Client()
-        self.client.login(username='cls_view_hoi', password='pass12345')
+        self.client.login(username='cls_view_hoi', password='password1!')
         self.url = reverse('class_settings', kwargs={'class_id': self.classroom.id})
 
     # ── GET ──────────────────────────────────────────────────────────────────
