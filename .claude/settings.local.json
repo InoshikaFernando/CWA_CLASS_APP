@@ -375,7 +375,9 @@
       "Bash(xargs grep:*)",
       "Bash(python -c \"import ast, sys; ast.parse\\(open\\(''ui_tests/test_makeup_attendance.py''\\).read\\(\\)\\); print\\(''Syntax OK''\\)\")",
       "Bash(python -c \":*)",
-      "Bash(gh run:*)"
+      "Bash(gh run:*)",
+      "Bash(grep -v \"^\\\\.$\")",
+      "Bash(python manage.py makemigrations classroom --name help_centre)"
     ]
   }
 }

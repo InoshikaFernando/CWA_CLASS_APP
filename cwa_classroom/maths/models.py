@@ -216,7 +216,8 @@ class TimeLog(models.Model):
         from django.utils import timezone
         from django.utils.timezone import localtime
         now_local = localtime(timezone.now())
-        current_week = now_local.isocalendar()[1]
+        iso = now_local.isocalendar()
+        current_week = iso[0] * 100 + iso[1]  # e.g. 202615 — encodes year+week to avoid year-rollover bug
 
         if self.last_reset_week != current_week:
             self.weekly_total_seconds = 0
