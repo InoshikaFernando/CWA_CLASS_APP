@@ -1,0 +1,80 @@
+{% extends "base_public.html" %}
+{% load static %}
+
+{% block title %}Help Centre{% endblock %}
+{% block meta_description %}Browse help articles and guides for using Classroom.{% endblock %}
+{% block og_title %}Help Centre — Classroom{% endblock %}
+
+{% block content %}
+<section class="py-16 bg-gradient-to-br from-blue-50 to-slate-50 min-h-[60vh]">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+
+    <div class="text-center mb-12">
+      <h1 class="font-display text-4xl text-gray-800 mb-4">Help Centre</h1>
+      <p class="text-gray-500 max-w-xl mx-auto">
+        Browse our guides and articles to get the most out of Classroom.
+      </p>
+    </div>
+
+    {% if categories %}
+      <div class="space-y-10">
+        {% for category in categories %}
+          {% if category.published_articles %}
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+
+              <!-- Category header -->
+              <div class="px-6 py-4 border-b border-slate-100 bg-slate-50">
+                <h2 class="text-lg font-bold text-gray-800">{{ category.name }}</h2>
+              </div>
+
+              <!-- Articles list -->
+              <ul class="divide-y divide-slate-100">
+                {% for article in category.published_articles %}
+                  <li>
+                    <a href="{% url 'help_article' article.slug %}"
+                       class="flex items-center justify-between px-6 py-4 hover:bg-primary-light transition group">
+                      <span class="text-gray-700 group-hover:text-primary font-medium">
+                        {{ article.title }}
+                      </span>
+                      <span class="flex items-center gap-2">
+                        {% if article.audience != 'all' %}
+                          <span class="text-xs bg-accent-light text-accent-dark rounded-full px-2 py-0.5 font-semibold capitalize">
+                            {{ article.get_audience_display }}
+                          </span>
+                        {% endif %}
+                        <svg class="w-4 h-4 text-gray-400 group-hover:text-primary transition" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                        </svg>
+                      </span>
+                    </a>
+                  </li>
+                {% endfor %}
+              </ul>
+
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+
+    {% else %}
+      <div class="text-center py-20 text-gray-400">
+        <svg class="mx-auto w-12 h-12 mb-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
+        </svg>
+        <p class="text-lg font-medium">No articles yet</p>
+        <p class="text-sm mt-1">Check back soon — we're adding new guides regularly.</p>
+      </div>
+    {% endif %}
+
+    <!-- Contact fallback -->
+    <div class="mt-12 text-center">
+      <p class="text-gray-500 text-sm">
+        Can't find what you're looking for?
+        <a href="{% url 'contact' %}" class="text-primary font-semibold hover:underline">Contact us</a>
+        and we'll be happy to help.
+      </p>
+    </div>
+
+  </div>
+</section>
+{% endblock %}

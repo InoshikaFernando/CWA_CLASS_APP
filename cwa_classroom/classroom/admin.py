@@ -12,6 +12,7 @@ from .models import (
     TeacherHourlyRate, TeacherRateOverride, SalaryNumberSequence,
     SalarySlip, SalarySlipLineItem, SalaryPayment,
     ParentStudent, ParentInvite, Term,
+    HelpCategory, HelpArticle,
 )
 
 
@@ -442,3 +443,30 @@ class ParentInviteAdmin(admin.ModelAdmin):
     list_filter = ('status', 'school')
     search_fields = ('parent_email', 'student__username')
     readonly_fields = ('token', 'created_at', 'accepted_at')
+
+
+# ---------------------------------------------------------------------------
+# Help Centre
+# ---------------------------------------------------------------------------
+
+class HelpArticleInline(admin.TabularInline):
+    model = HelpArticle
+    extra = 1
+    fields = ('title', 'slug', 'audience', 'is_published', 'order')
+    prepopulated_fields = {'slug': ('title',)}
+
+
+@admin.register(HelpCategory)
+class HelpCategoryAdmin(admin.ModelAdmin):
+    list_display = ('name', 'slug', 'order')
+    prepopulated_fields = {'slug': ('name',)}
+    inlines = [HelpArticleInline]
+
+
+@admin.register(HelpArticle)
+class HelpArticleAdmin(admin.ModelAdmin):
+    list_display = ('title', 'category', 'audience', 'is_published', 'order', 'updated_at')
+    list_filter = ('is_published', 'audience', 'category')
+    search_fields = ('title', 'body')
+    prepopulated_fields = {'slug': ('title',)}
+    readonly_fields = ('created_at', 'updated_at')

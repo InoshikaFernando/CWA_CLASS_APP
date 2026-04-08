@@ -1,0 +1,92 @@
+{% extends "base_public.html" %}
+{% load static %}
+
+{% block title %}{{ article.title }} — Help Centre{% endblock %}
+{% block meta_description %}{{ article.title }}{% endblock %}
+{% block og_title %}{{ article.title }} — Help Centre — Classroom{% endblock %}
+
+{% block content %}
+<section class="py-16 bg-gradient-to-br from-blue-50 to-slate-50 min-h-[60vh]">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+
+    <!-- Breadcrumb -->
+    <nav class="mb-8 text-sm text-gray-500 flex items-center gap-2" aria-label="Breadcrumb">
+      <a href="{% url 'help_index' %}" class="hover:text-primary transition">Help Centre</a>
+      <svg class="w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+      </svg>
+      <span class="text-gray-400">{{ article.category.name }}</span>
+      <svg class="w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+      </svg>
+      <span class="text-gray-700 font-medium truncate max-w-xs">{{ article.title }}</span>
+    </nav>
+
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+
+      <!-- Sidebar -->
+      <aside class="lg:col-span-1 order-2 lg:order-1">
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden sticky top-24">
+          <div class="px-4 py-3 border-b border-slate-100 bg-slate-50">
+            <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wide">{{ article.category.name }}</h3>
+          </div>
+          <ul class="divide-y divide-slate-100">
+            {% for sibling in sibling_articles %}
+              <li>
+                <a href="{% url 'help_article' sibling.slug %}"
+                   class="block px-4 py-3 text-sm transition
+                          {% if sibling.slug == article.slug %}
+                            bg-primary-light text-primary font-semibold
+                          {% else %}
+                            text-gray-600 hover:bg-primary-light hover:text-primary
+                          {% endif %}">
+                  {{ sibling.title }}
+                </a>
+              </li>
+            {% endfor %}
+          </ul>
+          <div class="px-4 py-3 border-t border-slate-100">
+            <a href="{% url 'help_index' %}" class="text-xs text-primary hover:underline font-medium">
+              &larr; All Help Articles
+            </a>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Article body -->
+      <main class="lg:col-span-3 order-1 lg:order-2">
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
+
+          <div class="mb-6 flex items-start justify-between gap-4">
+            <h1 class="font-display text-3xl text-gray-800 leading-snug">{{ article.title }}</h1>
+            {% if article.audience != 'all' %}
+              <span class="shrink-0 text-xs bg-accent-light text-accent-dark rounded-full px-3 py-1 font-semibold capitalize mt-1">
+                {{ article.get_audience_display }}
+              </span>
+            {% endif %}
+          </div>
+
+          <div class="prose prose-slate max-w-none text-gray-700 leading-relaxed">
+            {{ article.body|safe }}
+          </div>
+
+          <div class="mt-10 pt-6 border-t border-slate-100 text-xs text-gray-400">
+            Last updated: {{ article.updated_at|date:"j F Y" }}
+          </div>
+
+        </div>
+
+        <!-- Contact fallback -->
+        <div class="mt-6 text-center">
+          <p class="text-gray-500 text-sm">
+            Was this helpful? If not,
+            <a href="{% url 'contact' %}" class="text-primary font-semibold hover:underline">contact us</a>
+            and we'll be happy to help.
+          </p>
+        </div>
+      </main>
+
+    </div>
+  </div>
+</section>
+{% endblock %}

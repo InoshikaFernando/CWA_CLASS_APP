@@ -1809,3 +1809,54 @@ class SalaryPayment(models.Model):
 
     def __str__(self):
         return f'${self.amount} — {self.teacher} ({self.status})'
+
+
+# ---------------------------------------------------------------------------
+# Help Centre
+# ---------------------------------------------------------------------------
+
+class HelpCategory(models.Model):
+    name = models.CharField(max_length=100)
+    slug = models.SlugField(unique=True)
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['order', 'name']
+        verbose_name = 'Help Category'
+        verbose_name_plural = 'Help Categories'
+
+    def __str__(self):
+        return self.name
+
+
+class HelpArticle(models.Model):
+    AUDIENCE_CHOICES = [
+        ('all', 'All Users'),
+        ('teacher', 'Teachers'),
+        ('student', 'Students'),
+        ('parent', 'Parents'),
+    ]
+
+    category = models.ForeignKey(HelpCategory, on_delete=models.CASCADE,
+                                  related_name='articles')
+    title = models.CharField(max_length=200)
+    slug = models.SlugField(unique=True, max_length=200)
+    body = models.TextField(help_text='Supports basic HTML.')
+    audience = models.CharField(max_length=10, choices=AUDIENCE_CHOICES, default='all')
+    is_published = models.BooleanField(default=False)
+    order = models.PositiveIntegerField(default=0,
+                                         help_text='Lower numbers appear first within the category.')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['category__order', 'order', 'title']
+        verbose_name = 'Help Article'
+        verbose_name_plural = 'Help Articles'
+
+    def __str__(self):
+        return self.title
+
+    def get_absolute_url(self):
+        from django.urls import reverse
+        return reverse('help_article', kwargs={'slug': self.slug})
