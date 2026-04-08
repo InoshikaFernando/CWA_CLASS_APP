@@ -69,6 +69,7 @@ echo "==> Dumping '${SRC_DB}' -> ${DUMP_FILE} ..."
 if [[ "$DRY_RUN" == false ]]; then
     mysqldump ${MYSQL_OPTS} \
         --single-transaction \
+        --no-tablespaces \
         --routines \
         --triggers \
         --set-gtid-purged=OFF \
