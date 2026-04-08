@@ -375,6 +375,20 @@ class EnrollmentApproveView(RoleRequiredMixin, View):
             cs.is_active = True
             cs.save(update_fields=['is_active'])
 
+        # If the student was an individual_student, upgrade them to student now
+        # that they have a class enrolment.
+        student = enrollment.student
+        from accounts.models import UserRole
+        indv_role = Role.objects.filter(name=Role.INDIVIDUAL_STUDENT).first()
+        student_role = Role.objects.filter(name=Role.STUDENT).first()
+        if indv_role and student_role:
+            has_indv = UserRole.objects.filter(user=student, role=indv_role).exists()
+            has_student = UserRole.objects.filter(user=student, role=student_role).exists()
+            if has_indv and not has_student:
+                # Swap: remove individual_student, add student
+                UserRole.objects.filter(user=student, role=indv_role).delete()
+                UserRole.objects.get_or_create(user=student, role=student_role)
+
         # Auto-create SchoolStudent link when class belongs to a school
         if enrollment.classroom.school_id:
             # Check student limit before adding to school
