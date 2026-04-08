@@ -376,8 +376,17 @@
       "Bash(python -c \"import ast, sys; ast.parse\\(open\\(''ui_tests/test_makeup_attendance.py''\\).read\\(\\)\\); print\\(''Syntax OK''\\)\")",
       "Bash(python -c \":*)",
       "Bash(gh run:*)",
-      "Bash(grep -v \"^\\\\.$\")",
-      "Bash(python manage.py makemigrations classroom --name help_centre)"
+      "Bash(python manage.py test classroom.tests.test_parent_invoice_payment --verbosity=2)",
+      "Bash(DB_PASSWORD=root python manage.py test classroom.tests.test_parent_invoice_payment --verbosity=2)",
+      "Bash(DB_PASSWORD=root python manage.py test classroom.tests.test_parent_invoice_payment --verbosity=2 --keepdb)",
+      "Bash(python -m pytest ui_tests/test_parent_invoice_stripe_payment.py --no-header -q)",
+      "Bash(python -m pytest ui_tests/test_parent_invoice_stripe_payment.py::TestParentInvoicesPayBanner::test_banner_shows_total -s)",
+      "Bash(DB_PASSWORD=root python manage.py test classroom.tests.test_stripe_payment_links --verbosity=2 --keepdb)",
+      "Bash(python -m pytest ui_tests/test_parent_invoice_stripe_payment.py::TestParentInvoicesPayBanner::test_banner_shows_all_children_label ui_tests/test_parent_invoice_stripe_payment.py::TestParentInvoicesPayBanner::test_child_name_column ui_tests/test_parent_invoice_stripe_payment.py::TestParentInvoicesPayBanner::test_due_column_present -s)",
+      "Bash(python -m pytest \"ui_tests/test_parent_invoice_stripe_payment.py::TestParentInvoicesPayBanner::test_banner_shows_total[chromium]\" \"ui_tests/test_parent_invoice_stripe_payment.py::TestParentSidebarBillingLink::test_billing_link_in_sidebar[chromium]\" \"ui_tests/test_parent_invoice_stripe_payment.py::TestPaymentSuccessPage::test_success_page_with_isp_shows_breakdown[chromium]\" \"ui_tests/test_parent_invoice_stripe_payment.py::TestMultiChildInvoiceIsolation::test_outstanding_excludes_paid[chromium]\" \"ui_tests/test_parent_invoice_stripe_payment.py::TestParentSidebarBillingLink::test_billing_section_label[chromium]\" -s)",
+      "Bash(DB_PASSWORD=root python -m pytest ui_tests/test_parent_invoice_stripe_payment.py::TestPaymentSuccessPage::test_success_page_with_isp_shows_breakdown ui_tests/test_parent_invoice_stripe_payment.py::TestParentInvoicesNoBanner::test_paid_status_badge ui_tests/test_parent_invoice_stripe_payment.py::TestParentInvoicesPayBanner::test_banner_shows_all_children_label ui_tests/test_parent_invoice_stripe_payment.py::TestParentSidebarBillingLink::test_billing_link_navigates_to_billing_page -v -s --no-header)",
+      "Bash(DB_PASSWORD=root python -m pytest ui_tests/test_parent_invoice_stripe_payment.py::TestPaymentSuccessPage::test_success_page_with_isp_shows_breakdown ui_tests/test_parent_invoice_stripe_payment.py::TestParentInvoicesNoBanner::test_paid_status_badge ui_tests/test_parent_invoice_stripe_payment.py::TestParentInvoicesPayBanner::test_banner_shows_all_children_label ui_tests/test_parent_invoice_stripe_payment.py::TestParentSidebarBillingLink::test_billing_link_navigates_to_billing_page -v --no-header)",
+      "Bash(DB_PASSWORD=root python -m pytest ui_tests/test_parent_invoice_stripe_payment.py -v --no-header)"
     ]
   }
 }

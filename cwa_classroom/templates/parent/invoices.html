@@ -1,13 +1,31 @@
 {% extends "base.html" %}
-{% block title %}Invoices — {{ active_child.first_name }}{% endblock %}
+{% block title %}Invoices{% endblock %}
 
 {% block content %}
 <div class="max-w-4xl mx-auto space-y-6">
 
   <div>
     <h1 class="font-display text-3xl text-gray-800">Invoices</h1>
-    <p class="text-violet-500 text-sm mt-1 font-semibold">{{ active_child.first_name }} {{ active_child.last_name }} &middot; {{ active_school.name }}</p>
+    <p class="text-violet-500 text-sm mt-1 font-semibold">All children</p>
   </div>
+
+  <!-- Outstanding balance + Pay Now banner -->
+  {% if total_outstanding > 0 %}
+  <div class="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-md">
+    <div>
+      <p class="text-white/80 text-xs font-semibold uppercase tracking-wider mb-0.5">Total Outstanding</p>
+      <p class="text-white text-3xl font-bold">${{ total_outstanding|floatformat:2 }}</p>
+      <p class="text-violet-200 text-xs mt-1">Across all children &middot; Stripe fee added at checkout</p>
+    </div>
+    <button id="open-pay-modal"
+            class="shrink-0 inline-flex items-center gap-2 px-6 py-3 bg-white text-violet-700 font-bold rounded-xl shadow hover:bg-violet-50 transition text-sm">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z"/>
+      </svg>
+      Pay Now
+    </button>
+  </div>
+  {% endif %}
 
   <!-- Search & Filter -->
   <div class="flex flex-col sm:flex-row gap-3">
@@ -45,4 +63,204 @@
   </div>
 
 </div>
+
+<!-- Pay Modal -->
+{% if total_outstanding > 0 %}
+<div id="pay-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 relative">
+
+    <button id="close-pay-modal" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+      <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+      </svg>
+    </button>
+
+    <h2 class="font-display text-xl font-bold text-gray-900 mb-1">Pay Outstanding Balance</h2>
+    <p class="text-gray-500 text-sm mb-5">Total due across all children</p>
+
+    <!-- Amount options -->
+    <div class="space-y-3 mb-5">
+      <label class="flex items-center gap-3 p-3 border-2 rounded-xl cursor-pointer transition"
+             id="opt-full-label"
+             :class="amountMode === 'full' ? 'border-violet-500 bg-violet-50' : 'border-gray-200 hover:border-gray-300'"
+             x-data>
+        <input type="radio" name="amount_mode" value="full" checked
+               class="accent-violet-600"
+               x-on:change="document.getElementById('pay-modal-root').__x.$data.amountMode = 'full'">
+        <div class="flex-1">
+          <p class="text-sm font-semibold text-gray-800">Full amount</p>
+          <p class="text-xs text-gray-500">Clear all outstanding invoices</p>
+        </div>
+        <span class="font-bold text-gray-900" id="full-total-display">${{ total_outstanding|floatformat:2 }}</span>
+      </label>
+
+      <label class="flex items-center gap-3 p-3 border-2 rounded-xl cursor-pointer transition"
+             id="opt-custom-label"
+             :class="amountMode === 'custom' ? 'border-violet-500 bg-violet-50' : 'border-gray-200 hover:border-gray-300'"
+             x-data>
+        <input type="radio" name="amount_mode" value="custom"
+               class="accent-violet-600"
+               x-on:change="document.getElementById('pay-modal-root').__x.$data.amountMode = 'custom'">
+        <div class="flex-1">
+          <p class="text-sm font-semibold text-gray-800">Custom amount</p>
+          <div x-show="amountMode === 'custom'" class="mt-2">
+            <div class="relative">
+              <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">$</span>
+              <input type="number" id="custom-amount-input" step="0.01" min="0.50"
+                     placeholder="0.00"
+                     class="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-200 focus:border-violet-400"
+                     x-on:input="updateFee()">
+            </div>
+          </div>
+        </div>
+      </label>
+    </div>
+
+    <!-- Fee breakdown -->
+    <div class="bg-gray-50 rounded-xl p-4 mb-5 space-y-2 text-sm">
+      <div class="flex justify-between text-gray-600">
+        <span>Applied to invoices</span>
+        <span id="breakdown-applied">${{ total_outstanding|floatformat:2 }}</span>
+      </div>
+      <div class="flex justify-between text-gray-600">
+        <span>Stripe fee (2.9% + $0.30)</span>
+        <span id="breakdown-fee">—</span>
+      </div>
+      <div class="flex justify-between font-bold text-gray-900 border-t border-gray-200 pt-2">
+        <span>You pay</span>
+        <span id="breakdown-total">—</span>
+      </div>
+    </div>
+
+    <p id="pay-error" class="text-red-600 text-xs mb-3 hidden"></p>
+
+    <button id="confirm-pay-btn"
+            class="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-xl py-3 transition disabled:opacity-50 disabled:cursor-not-allowed text-sm">
+      <span id="pay-btn-text">Pay Now</span>
+      <span id="pay-btn-spinner" class="hidden">Processing...</span>
+    </button>
+
+    <p class="text-center text-xs text-gray-400 mt-3">Secured by Stripe &middot; You'll be redirected to complete payment</p>
+  </div>
+</div>
+
+<script>
+(function () {
+  const TOTAL_OUTSTANDING = parseFloat("{{ total_outstanding }}");
+  const CSRF = "{{ csrf_token }}";
+
+  let amountMode = 'full';
+
+  function calcFee(amount) {
+    const fee = Math.round((amount * 0.029 + 0.30) * 100) / 100;
+    return { fee: fee, total: Math.round((amount + fee) * 100) / 100 };
+  }
+
+  function fmt(n) {
+    return '$' + n.toFixed(2);
+  }
+
+  function updateBreakdown(applied) {
+    const { fee, total } = calcFee(applied);
+    document.getElementById('breakdown-applied').textContent = fmt(applied);
+    document.getElementById('breakdown-fee').textContent = fmt(fee);
+    document.getElementById('breakdown-total').textContent = fmt(total);
+  }
+
+  // Initialise with full amount
+  updateBreakdown(TOTAL_OUTSTANDING);
+
+  window.updateFee = function () {
+    const v = parseFloat(document.getElementById('custom-amount-input').value);
+    if (!isNaN(v) && v > 0) updateBreakdown(v);
+  };
+
+  document.querySelectorAll('input[name="amount_mode"]').forEach(function (radio) {
+    radio.addEventListener('change', function () {
+      amountMode = this.value;
+      // Update label styles
+      document.getElementById('opt-full-label').classList.toggle('border-violet-500', amountMode === 'full');
+      document.getElementById('opt-full-label').classList.toggle('bg-violet-50', amountMode === 'full');
+      document.getElementById('opt-full-label').classList.toggle('border-gray-200', amountMode !== 'full');
+      document.getElementById('opt-custom-label').classList.toggle('border-violet-500', amountMode === 'custom');
+      document.getElementById('opt-custom-label').classList.toggle('bg-violet-50', amountMode === 'custom');
+      document.getElementById('opt-custom-label').classList.toggle('border-gray-200', amountMode !== 'custom');
+      document.getElementById('custom-amount-input').parentElement.parentElement.style.display = amountMode === 'custom' ? '' : 'none';
+      if (amountMode === 'full') updateBreakdown(TOTAL_OUTSTANDING);
+    });
+  });
+
+  // Hide custom input initially
+  document.getElementById('custom-amount-input').parentElement.parentElement.style.display = 'none';
+
+  document.getElementById('open-pay-modal').addEventListener('click', function () {
+    document.getElementById('pay-modal').classList.remove('hidden');
+    document.getElementById('pay-modal').classList.add('flex');
+  });
+
+  document.getElementById('close-pay-modal').addEventListener('click', function () {
+    document.getElementById('pay-modal').classList.add('hidden');
+    document.getElementById('pay-modal').classList.remove('flex');
+  });
+
+  document.getElementById('pay-modal').addEventListener('click', function (e) {
+    if (e.target === this) {
+      this.classList.add('hidden');
+      this.classList.remove('flex');
+    }
+  });
+
+  document.getElementById('confirm-pay-btn').addEventListener('click', function () {
+    const errEl = document.getElementById('pay-error');
+    errEl.classList.add('hidden');
+
+    let amount;
+    if (amountMode === 'full') {
+      amount = TOTAL_OUTSTANDING;
+    } else {
+      amount = parseFloat(document.getElementById('custom-amount-input').value);
+      if (isNaN(amount) || amount < 0.50) {
+        errEl.textContent = 'Please enter a valid amount (minimum $0.50).';
+        errEl.classList.remove('hidden');
+        return;
+      }
+    }
+
+    const btn = document.getElementById('confirm-pay-btn');
+    btn.disabled = true;
+    document.getElementById('pay-btn-text').classList.add('hidden');
+    document.getElementById('pay-btn-spinner').classList.remove('hidden');
+
+    fetch("{% url 'parent_invoice_pay' %}", {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': CSRF,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: 'amount=' + amount.toFixed(2),
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (data.checkout_url) {
+        window.location.href = data.checkout_url;
+      } else {
+        errEl.textContent = data.error || 'Something went wrong. Please try again.';
+        errEl.classList.remove('hidden');
+        btn.disabled = false;
+        document.getElementById('pay-btn-text').classList.remove('hidden');
+        document.getElementById('pay-btn-spinner').classList.add('hidden');
+      }
+    })
+    .catch(function () {
+      errEl.textContent = 'Network error. Please try again.';
+      errEl.classList.remove('hidden');
+      btn.disabled = false;
+      document.getElementById('pay-btn-text').classList.remove('hidden');
+      document.getElementById('pay-btn-spinner').classList.add('hidden');
+    });
+  });
+})();
+</script>
+{% endif %}
+
 {% endblock %}
