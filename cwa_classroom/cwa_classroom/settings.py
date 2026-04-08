@@ -130,6 +130,7 @@ TEMPLATES = [
                 'classroom.context_processors.breadcrumbs_context',
                 'help.context_processors.help_context',
                 'cwa_classroom.context_processors.app_version',
+                'homework.context_processors.new_homework_count',
             ],
         },
     },
