@@ -404,8 +404,25 @@ class StudentDashboardView(LoginRequiredMixin, View):
         except (ImportError, Exception):
             recent_np = []
 
-        from maths.views import get_or_create_time_log
-        time_log = get_or_create_time_log(request.user)
+        # --- Time spent (quiz/task time only, calculated fresh from activity records) ---
+        from django.utils.timezone import localtime
+        from datetime import timedelta as _td
+        _now = localtime(timezone.now())
+        _today = _now.date()
+        _week_start = _today - _td(days=_now.weekday())
+        _daily_secs = _weekly_secs = 0
+        for _r in StudentFinalAnswer.objects.filter(student=request.user, time_taken_seconds__gt=0):
+            _r_date = localtime(_r.completed_at).date()
+            if _r_date == _today:
+                _daily_secs += _r.time_taken_seconds
+            if _r_date >= _week_start:
+                _weekly_secs += _r.time_taken_seconds
+        for _r in BasicFactsResult.objects.filter(student=request.user, time_taken_seconds__gt=0):
+            _r_date = localtime(_r.completed_at).date()
+            if _r_date == _today:
+                _daily_secs += _r.time_taken_seconds
+            if _r_date >= _week_start:
+                _weekly_secs += _r.time_taken_seconds
 
         return render(request, 'student/dashboard.html', {
             'progress_grid': progress_grid,
@@ -416,9 +433,8 @@ class StudentDashboardView(LoginRequiredMixin, View):
             'recent_bf': recent_bf,
             'recent_tt': recent_tt,
             'recent_np': recent_np,
-            'time_log': time_log,
-            'time_daily': _format_seconds(time_log.daily_total_seconds if time_log else 0),
-            'time_weekly': _format_seconds(time_log.weekly_total_seconds if time_log else 0),
+            'time_daily': _format_seconds(_daily_secs),
+            'time_weekly': _format_seconds(_weekly_secs),
             # Filter controls
             'enrolled_classes': enrolled_classes,
             'enrolled_subjects': enrolled_subjects,

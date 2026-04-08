@@ -621,7 +621,6 @@ class ParentProgressView(RoleRequiredMixin, View):
 
         # --- Recent activity: latest 20 across all modules ---
         from maths.models import StudentFinalAnswer, BasicFactsResult
-        from maths.views import get_or_create_time_log
         from classroom.views import _format_seconds
 
         sfa_entries = list(
@@ -679,10 +678,30 @@ class ParentProgressView(RoleRequiredMixin, View):
         all_activity.sort(key=lambda x: x['completed_at'], reverse=True)
         recent_activity = all_activity[:20]
 
-        # --- Time spent ---
-        time_log = get_or_create_time_log(child)
-        time_daily = _format_seconds(time_log.daily_total_seconds if time_log else 0)
-        time_weekly = _format_seconds(time_log.weekly_total_seconds if time_log else 0)
+        # --- Time spent (quiz/task time only, calculated fresh from activity records) ---
+        from django.utils import timezone
+        from django.utils.timezone import localtime
+        from datetime import timedelta as _td
+        _now = localtime(timezone.now())
+        _today = _now.date()
+        _week_start = _today - _td(days=_now.weekday())
+
+        daily_secs = weekly_secs = 0
+        for r in StudentFinalAnswer.objects.filter(student=child, time_taken_seconds__gt=0):
+            r_date = localtime(r.completed_at).date()
+            if r_date == _today:
+                daily_secs += r.time_taken_seconds
+            if r_date >= _week_start:
+                weekly_secs += r.time_taken_seconds
+        for r in BasicFactsResult.objects.filter(student=child, time_taken_seconds__gt=0):
+            r_date = localtime(r.completed_at).date()
+            if r_date == _today:
+                daily_secs += r.time_taken_seconds
+            if r_date >= _week_start:
+                weekly_secs += r.time_taken_seconds
+
+        time_daily = _format_seconds(daily_secs)
+        time_weekly = _format_seconds(weekly_secs)
 
         return render(request, 'parent/progress.html', {
             'grouped_progress': grouped_progress,
