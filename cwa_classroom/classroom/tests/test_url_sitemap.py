@@ -176,6 +176,11 @@ SKIP_EXACT = frozenset({
     "ai_import:confirm",
     "ai_import:export",
     "ai_import:upload_image",
+    # Help app: context/search views require role-filtered data or HTMX context
+    # and return 404 in test environment without seeded HelpArticleRole/FAQ rows
+    "help:help_search",
+    "help:help_faq",
+    "help:help_context",
 })
 
 SKIP_PREFIXES = (
