@@ -1013,7 +1013,13 @@ class CompleteProfileView(LoginRequiredMixin, View):
 
 class ProfileView(LoginRequiredMixin, View):
     def get(self, request):
-        return render(request, 'accounts/profile.html')
+        from classroom.models import SchoolStudent
+        school_student = SchoolStudent.objects.filter(
+            student=request.user, is_active=True,
+        ).select_related('school').first()
+        return render(request, 'accounts/profile.html', {
+            'school_student': school_student,
+        })
 
     def post(self, request):
         action = request.POST.get('action')
