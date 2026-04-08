@@ -19,10 +19,13 @@
          }
        },
        openEditModal(url) {
-         fetch(url).then(r => r.text()).then(html => {
-           document.getElementById('edit-modal-content').innerHTML = html;
-           this.showEditModal = true;
-         });
+         fetch(url, {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+           .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
+           .then(html => {
+             document.getElementById('edit-modal-content').innerHTML = html;
+             this.showEditModal = true;
+           })
+           .catch(err => alert('Could not load edit form: ' + err));
        }
      }"
      x-init="window.addEventListener('beforeunload', (e) => { if (hasChanges && !saving) e.preventDefault() })">
