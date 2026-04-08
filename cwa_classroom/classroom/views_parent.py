@@ -2,10 +2,13 @@
 Parent portal views — read-only access to linked children's data.
 CPP-67 (invoices & payments), CPP-68 (attendance), CPP-69 (progress).
 """
+from decimal import Decimal
+
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
-from django.db.models import Max, Q
+from django.db.models import Max, Q, Sum
+from django.http import JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
 
@@ -163,21 +166,24 @@ class ParentInvoicesView(RoleRequiredMixin, View):
     required_roles = [Role.PARENT]
 
     def get(self, request):
-        child, school, _ = _get_active_child(request)
-        if not child:
+        children = _get_parent_children(request.user)
+        if not children.exists():
             return render(request, 'parent/invoices.html', {
-                'invoices': [], 'children': _get_parent_children(request.user),
-                'page': None,
+                'invoices': [], 'children': children, 'page': None,
+                'total_outstanding': Decimal('0.00'),
             })
+
+        # All children's student IDs for this parent
+        child_ids = children.values_list('student_id', flat=True)
 
         search = request.GET.get('q', '').strip()
         status_filter = request.GET.get('status', '').strip()
 
         allowed_statuses = ['issued', 'partially_paid', 'paid']
         invoices = (
-            Invoice.objects.filter(student=child, school=school, status__in=allowed_statuses)
+            Invoice.objects.filter(student_id__in=child_ids, status__in=allowed_statuses)
             .select_related('student', 'school')
-            .order_by('-billing_period_end', '-created_at')
+            .order_by('due_date', 'created_at')
         )
 
         if search:
@@ -189,24 +195,24 @@ class ParentInvoicesView(RoleRequiredMixin, View):
         if status_filter and status_filter in allowed_statuses:
             invoices = invoices.filter(status=status_filter)
 
+        # Compute total outstanding across all children (unpaginated)
+        outstanding_invoices = Invoice.objects.filter(
+            student_id__in=child_ids, status__in=['issued', 'partially_paid'],
+        )
+        total_outstanding = Decimal('0.00')
+        for inv in outstanding_invoices:
+            total_outstanding += inv.amount_due
+
         paginator = Paginator(invoices, 25)
         page = paginator.get_page(request.GET.get('page'))
-
-        # Annotate resolved Stripe links to avoid N+1 in template
-        for inv in page.object_list:
-            if inv.status in ('issued', 'partially_paid'):
-                inv.resolved_stripe_link = inv.get_stripe_payment_link()
-            else:
-                inv.resolved_stripe_link = None
 
         ctx = {
             'invoices': page,
             'page': page,
-            'active_child': child,
-            'active_school': school,
-            'children': _get_parent_children(request.user),
+            'children': children,
             'search': search,
             'status_filter': status_filter,
+            'total_outstanding': total_outstanding,
         }
         if request.headers.get('HX-Request'):
             return render(request, 'parent/partials/invoice_table.html', ctx)
@@ -275,6 +281,122 @@ class ParentPaymentHistoryView(RoleRequiredMixin, View):
             'payments': payments,
             'active_child': child,
             'active_school': school,
+            'children': _get_parent_children(request.user),
+        })
+
+
+# ---------------------------------------------------------------------------
+# Invoice Stripe Checkout (Option B — dynamic Checkout Session)
+# ---------------------------------------------------------------------------
+
+class ParentInvoiceCheckoutView(RoleRequiredMixin, View):
+    """
+    POST: Create a Stripe Checkout Session for the parent to pay outstanding invoices.
+    Accepts optional 'amount' override; defaults to full outstanding balance.
+    Allocates oldest invoices first.
+    """
+    required_roles = [Role.PARENT]
+
+    def post(self, request):
+        from billing.stripe_service import create_invoice_checkout_session, calculate_stripe_fee
+
+        children = _get_parent_children(request.user)
+        if not children.exists():
+            return JsonResponse({'error': 'No linked children found.'}, status=400)
+
+        child_ids = list(children.values_list('student_id', flat=True))
+
+        # Gather all outstanding invoices, oldest first
+        outstanding = list(
+            Invoice.objects.filter(
+                student_id__in=child_ids,
+                status__in=['issued', 'partially_paid'],
+            ).order_by('due_date', 'created_at')
+        )
+
+        if not outstanding:
+            return JsonResponse({'error': 'No outstanding invoices.'}, status=400)
+
+        total_outstanding = sum(inv.amount_due for inv in outstanding)
+
+        # Determine amount to apply
+        raw_amount = request.POST.get('amount', '').strip()
+        try:
+            amount_applied = Decimal(raw_amount) if raw_amount else total_outstanding
+            amount_applied = amount_applied.quantize(Decimal('0.01'))
+        except Exception:
+            return JsonResponse({'error': 'Invalid amount.'}, status=400)
+
+        if amount_applied <= Decimal('0'):
+            return JsonResponse({'error': 'Amount must be greater than zero.'}, status=400)
+
+        # Build allocation list: oldest invoice first, up to amount_applied
+        remaining = amount_applied
+        allocations = []
+        for inv in outstanding:
+            if remaining <= 0:
+                break
+            alloc = min(inv.amount_due, remaining)
+            allocations.append({'invoice_id': inv.pk, 'amount': str(alloc)})
+            remaining -= alloc
+
+        try:
+            isp, session = create_invoice_checkout_session(
+                parent=request.user,
+                amount_applied=amount_applied,
+                invoice_allocations=allocations,
+                request=request,
+            )
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).error('Invoice checkout session error: %s', exc)
+            return JsonResponse({'error': 'Payment could not be initiated. Please try again.'}, status=500)
+
+        return JsonResponse({'checkout_url': session.url})
+
+
+class ParentInvoicePaymentSuccessView(RoleRequiredMixin, View):
+    """
+    Success page shown after a parent completes Stripe checkout.
+    Stripe webhook will handle the actual InvoicePayment creation asynchronously.
+    """
+    required_roles = [Role.PARENT]
+
+    def get(self, request):
+        from billing.models import InvoiceStripePayment
+
+        isp_id = request.GET.get('isp_id')
+        isp = None
+        if isp_id:
+            isp = InvoiceStripePayment.objects.filter(
+                pk=isp_id, parent=request.user,
+            ).first()
+
+        return render(request, 'parent/invoice_pay_success.html', {
+            'isp': isp,
+            'children': _get_parent_children(request.user),
+        })
+
+
+# ---------------------------------------------------------------------------
+# Parent Billing (subscription info)
+# ---------------------------------------------------------------------------
+
+class ParentBillingView(RoleRequiredMixin, View):
+    """Show the parent's own subscription details (same as individual student view)."""
+    required_roles = [Role.PARENT]
+
+    def get(self, request):
+        from billing.models import Subscription
+
+        subscription = None
+        try:
+            subscription = request.user.subscription
+        except Subscription.DoesNotExist:
+            pass
+
+        return render(request, 'parent/billing.html', {
+            'subscription': subscription,
             'children': _get_parent_children(request.user),
         })
 

@@ -551,3 +551,90 @@ def sync_individual_discount_to_stripe(discount_code):
     discount_code.stripe_coupon_id = coupon.id
     discount_code.save(update_fields=['stripe_coupon_id'])
     return coupon.id
+
+
+# ---------------------------------------------------------------------------
+# Parent Invoice Payment
+# ---------------------------------------------------------------------------
+
+def calculate_stripe_fee(amount):
+    """
+    Calculate Stripe processing fee for a given amount.
+    Standard rate: 2.9% + $0.30 NZD.
+    Returns (fee, total_charged) both as Decimal.
+    """
+    from decimal import Decimal, ROUND_HALF_UP
+    amount = Decimal(str(amount))
+    fee = (amount * Decimal('0.029') + Decimal('0.30')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+    total_charged = amount + fee
+    return fee, total_charged
+
+
+def create_invoice_checkout_session(parent, amount_applied, invoice_allocations, request, currency=None):
+    """
+    Create a Stripe Checkout Session for a parent paying outstanding invoice balances.
+
+    amount_applied  -- amount that will be applied to invoices (excluding Stripe fee), Decimal
+    invoice_allocations -- list of dicts: [{"invoice_id": 1, "amount": "120.00"}, ...]
+    Returns (InvoiceStripePayment, stripe.Session).
+    """
+    from decimal import Decimal
+    from billing.models import InvoiceStripePayment
+
+    _ensure_stripe_key()
+
+    amount_applied = Decimal(str(amount_applied))
+    fee, total_charged = calculate_stripe_fee(amount_applied)
+    total_cents = int((total_charged * 100).to_integral_value())
+
+    used_currency = (currency or getattr(settings, 'STRIPE_CURRENCY', 'nzd')).lower()
+
+    invoice_ids = [str(a['invoice_id']) for a in invoice_allocations]
+    description = 'Invoice payment - {} invoice(s): {}'.format(len(invoice_ids), ', '.join(invoice_ids))
+
+    # Create pending record before hitting Stripe so we have a pk for metadata
+    isp = InvoiceStripePayment.objects.create(
+        parent=parent,
+        total_charged=total_charged,
+        amount_applied=amount_applied,
+        stripe_fee=fee,
+        currency=used_currency,
+        invoice_allocations=invoice_allocations,
+        status=InvoiceStripePayment.STATUS_PENDING,
+    )
+
+    success_url = request.build_absolute_uri(
+        reverse('parent_invoice_pay_success')
+    ) + '?isp_id={}'.format(isp.pk)
+    cancel_url = request.build_absolute_uri(reverse('parent_invoices'))
+
+    session = stripe.checkout.Session.create(
+        mode='payment',
+        line_items=[{
+            'price_data': {
+                'currency': used_currency,
+                'unit_amount': total_cents,
+                'product_data': {
+                    'name': 'Invoice Payment',
+                    'description': description,
+                },
+            },
+            'quantity': 1,
+        }],
+        success_url=success_url,
+        cancel_url=cancel_url,
+        metadata={
+            'type': 'invoice_payment',
+            'isp_id': str(isp.pk),
+            'parent_id': str(parent.pk),
+            'amount_applied': str(amount_applied),
+            'invoice_ids': ','.join(invoice_ids),
+        },
+        payment_method_types=['card'],
+        billing_address_collection='auto',
+    )
+
+    isp.stripe_checkout_session_id = session.id
+    isp.save(update_fields=['stripe_checkout_session_id'])
+
+    return isp, session
