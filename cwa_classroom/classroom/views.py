@@ -4544,11 +4544,23 @@ class SubjectsHubView(LoginRequiredMixin, View):
                     }
                     break
 
+        # ── Pending homework count ──
+        from homework.models import Homework, HomeworkSubmission
+        pending_homework_count = (
+            Homework.objects
+            .filter(classroom_id__in=enrolled_class_ids)
+            .exclude(pk__in=HomeworkSubmission.objects.filter(
+                student=user
+            ).values('homework_id'))
+            .count()
+        ) if enrolled_class_ids else 0
+
         # Common hub context
         hub_extra = {
             'upcoming_classes': upcoming_classes,
             'class_attendance': class_attendance,
             'billing_summary': billing_summary,
+            'pending_homework_count': pending_homework_count,
         }
 
         is_school_student = user.has_role(Role.STUDENT)
