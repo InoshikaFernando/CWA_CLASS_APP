@@ -1,8 +1,8 @@
+{% extends "base.html" %}
 {% comment %}
 Standalone page (not a partial) — rendered when GET /admin-dashboard/schools/<id>/teachers/<id>/roles/
 Used as target for HTMX swap OR can be navigated to directly.
 {% endcomment %}
-{% extends "base.html" %}
 {% block title %}Manage Roles — {{ staff_member.get_full_name|default:staff_member.username }}{% endblock %}
 {% block content %}
 <div class="max-w-lg mx-auto mt-12">
