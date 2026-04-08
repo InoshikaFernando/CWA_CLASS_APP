@@ -109,7 +109,7 @@ def seed_multiplication(table: int, level):
                     level=level,
                     question_text=text,
                     question_type='multiple_choice',
-                    difficulty='easy',
+                    difficulty=1,
                     points=1,
                 )
                 Answer.objects.create(question=q, answer_text=str(correct), is_correct=True)
@@ -149,7 +149,7 @@ def seed_division(table: int, level):
                     level=level,
                     question_text=text,
                     question_type='multiple_choice',
-                    difficulty='easy',
+                    difficulty=1,
                     points=1,
                 )
                 Answer.objects.create(question=q, answer_text=str(correct), is_correct=True)
