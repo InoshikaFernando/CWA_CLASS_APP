@@ -32,30 +32,28 @@ class CSVImportTestBase(TestCase):
         )
 
         cls.superuser = CustomUser.objects.create_superuser(
-            'superadmin', 'super@test.com', 'pass1234',
+            'superadmin', 'wlhtestmails+super@gmail.com', 'password1!',
         )
         cls.hoi_user = CustomUser.objects.create_user(
-            'hoi', 'hoi@test.com', 'pass1234',
+            'hoi', 'wlhtestmails+hoi@gmail.com', 'password1!',
         )
         cls.hoi_user.roles.add(cls.role_hoi)
 
         cls.teacher_user = CustomUser.objects.create_user(
-            'teacher', 'teacher@test.com', 'pass1234',
+            'teacher', 'wlhtestmails+teacher@gmail.com', 'password1!',
         )
         cls.teacher_user.roles.add(cls.role_teacher)
 
         cls.student_user = CustomUser.objects.create_user(
-            'student', 'student@test.com', 'pass1234',
+            'student', 'wlhtestmails+student@gmail.com', 'password1!',
         )
         cls.student_user.roles.add(cls.role_student)
 
         cls.school = School.objects.create(
             name='Test School', slug='test-school', admin=cls.superuser,
         )
-        SchoolTeacher.objects.create(
-            school=cls.school, teacher=cls.hoi_user,
-            role='head_of_institute',
-        )
+        SchoolTeacher.objects.update_or_create(
+            school=cls.school, teacher=cls.hoi_user, defaults={'role': 'head_of_institute'})
 
         # A level for matching
         cls.level7, _ = Level.objects.get_or_create(
@@ -95,7 +93,7 @@ class ParseCSVTests(CSVImportTestBase):
         self.assertEqual(headers[0], 'first_name')
 
     def test_latin1_encoding(self):
-        content = 'first_name,last_name,email\nJos\xe9,Garc\xeda,jose@test.com\n'.encode('latin-1')
+        content = 'first_name,last_name,email\nJos\xe9,Garc\xeda,wlhtestmails+jose@gmail.com\n'.encode('latin-1')
         headers, rows = parse_csv_file(content)
         self.assertEqual(len(rows), 1)
 
@@ -137,9 +135,9 @@ class ValidateAndPreviewTests(CSVImportTestBase):
         """full_name column auto-splits into first + last name."""
         csv = (
             b'full_name,email\n'
-            b'John Smith,john@test.com\n'
-            b'Ridma Amreen Rahman,ridma@test.com\n'
-            b'Madonna,madonna@test.com\n'
+            b'John Smith,wlhtestmails+john@gmail.com\n'
+            b'Ridma Amreen Rahman,wlhtestmails+ridma@gmail.com\n'
+            b'Madonna,wlhtestmails+madonna@gmail.com\n'
         )
         headers, rows = parse_csv_file(csv)
         mapping = {'full_name': 0, 'email': 1}
@@ -170,7 +168,7 @@ class ValidateAndPreviewTests(CSVImportTestBase):
 
     def test_existing_student_detected(self):
         # Pre-create John
-        CustomUser.objects.create_user('john', 'john@school.nz', 'pass1234')
+        CustomUser.objects.create_user('john', 'john@school.nz', 'password1!')
         headers, rows = parse_csv_file(self.SIMPLE_CSV)
         mapping = self._mapping(headers)
         result = validate_and_preview(rows, mapping, self.school)
@@ -278,7 +276,7 @@ class ExecuteImportTests(CSVImportTestBase):
 
     def test_unique_username_collision(self):
         # Pre-create a user with username 'john'
-        CustomUser.objects.create_user('john', 'other@test.com', 'pass1234')
+        CustomUser.objects.create_user('john', 'wlhtestmails+other@gmail.com', 'password1!')
         headers, rows = parse_csv_file(self.SIMPLE_CSV)
         mapping = {h: i for i, h in enumerate(headers)}
         preview = validate_and_preview(rows, mapping, self.school)
@@ -311,27 +309,27 @@ class ExecuteImportTests(CSVImportTestBase):
 class CSVImportViewAccessTests(CSVImportTestBase):
 
     def test_superuser_can_access_upload(self):
-        self.client.login(username='superadmin', password='pass1234')
+        self.client.login(username='superadmin', password='password1!')
         resp = self.client.get(reverse('student_csv_upload'))
         self.assertEqual(resp.status_code, 200)
 
     def test_hoi_can_access_upload(self):
-        self.client.login(username='hoi', password='pass1234')
+        self.client.login(username='hoi', password='password1!')
         resp = self.client.get(reverse('student_csv_upload'))
         self.assertEqual(resp.status_code, 200)
 
     def test_teacher_cannot_access_upload(self):
-        self.client.login(username='teacher', password='pass1234')
+        self.client.login(username='teacher', password='password1!')
         resp = self.client.get(reverse('student_csv_upload'))
         self.assertEqual(resp.status_code, 302)
 
     def test_student_cannot_access_upload(self):
-        self.client.login(username='student', password='pass1234')
+        self.client.login(username='student', password='password1!')
         resp = self.client.get(reverse('student_csv_upload'))
         self.assertEqual(resp.status_code, 302)
 
     def test_credentials_empty_redirects(self):
-        self.client.login(username='hoi', password='pass1234')
+        self.client.login(username='hoi', password='password1!')
         resp = self.client.get(reverse('student_csv_credentials'))
         self.assertEqual(resp.status_code, 302)
 
@@ -343,7 +341,7 @@ class CSVImportViewAccessTests(CSVImportTestBase):
 class CSVImportE2ETests(CSVImportTestBase):
 
     def test_upload_parses_and_shows_mapping(self):
-        self.client.login(username='hoi', password='pass1234')
+        self.client.login(username='hoi', password='password1!')
         from django.core.files.uploadedfile import SimpleUploadedFile
         csv_file = SimpleUploadedFile('students.csv', self.SIMPLE_CSV, content_type='text/csv')
         resp = self.client.post(reverse('student_csv_upload'), {'csv_file': csv_file})
@@ -352,7 +350,7 @@ class CSVImportE2ETests(CSVImportTestBase):
         self.assertContains(resp, 'first_name')
 
     def test_upload_with_preset_shows_banner(self):
-        self.client.login(username='hoi', password='pass1234')
+        self.client.login(username='hoi', password='password1!')
         from django.core.files.uploadedfile import SimpleUploadedFile
         # Use Teachworks Families-like headers
         tw_csv = (
@@ -368,7 +366,7 @@ class CSVImportE2ETests(CSVImportTestBase):
         self.assertContains(resp, 'auto-mapped')
 
     def test_upload_page_shows_presets(self):
-        self.client.login(username='hoi', password='pass1234')
+        self.client.login(username='hoi', password='password1!')
         resp = self.client.get(reverse('student_csv_upload'))
         self.assertContains(resp, 'Teachworks')
         self.assertContains(resp, 'source_preset')
@@ -430,7 +428,7 @@ class SourcePresetTests(CSVImportTestBase):
 
         # Test row expansion
         rows = [
-            ['', '', 'Parent', 'Smith', 'Ryan Smith, Jane Smith', 'parent@test.com'],
+            ['', '', 'Parent', 'Smith', 'Ryan Smith, Jane Smith', 'wlhtestmails+parent@gmail.com'],
         ]
         expanded = _expand_children_rows(rows, {'children': 4})
         self.assertEqual(len(expanded), 2)
@@ -468,9 +466,9 @@ class ExtractCSVStructureTests(CSVImportTestBase):
         from classroom.import_services import extract_csv_structure
         csv = (
             b'first_name,last_name,email,subject,level,class_name\n'
-            b'John,Smith,john@test.com,Maths,Year 7,7A-Mon\n'
-            b'Jane,Doe,jane@test.com,Maths,Year 8,8A-Mon\n'
-            b'Bob,Lee,bob@test.com,Science,Year 7,7B-Mon\n'
+            b'John,Smith,wlhtestmails+john@gmail.com,Maths,Year 7,7A-Mon\n'
+            b'Jane,Doe,wlhtestmails+jane@gmail.com,Maths,Year 8,8A-Mon\n'
+            b'Bob,Lee,wlhtestmails+bob@gmail.com,Science,Year 7,7B-Mon\n'
         )
         headers, rows = parse_csv_file(csv)
         mapping = {'subject': 3, 'level': 4, 'class_name': 5}
@@ -481,7 +479,7 @@ class ExtractCSVStructureTests(CSVImportTestBase):
 
     def test_empty_csv_returns_empty_lists(self):
         from classroom.import_services import extract_csv_structure
-        csv = b'first_name,last_name,email\nJohn,Smith,john@test.com\n'
+        csv = b'first_name,last_name,email\nJohn,Smith,wlhtestmails+john@gmail.com\n'
         headers, rows = parse_csv_file(csv)
         result = extract_csv_structure(rows, {'first_name': 0})
         self.assertEqual(result['csv_subjects'], [])
@@ -581,7 +579,7 @@ class StructureMappedImportTests(CSVImportTestBase):
         )
 
         # CSV with no subject/level/class columns
-        csv = b'first_name,last_name,email\nAlice,Wong,alice@test.com\n'
+        csv = b'first_name,last_name,email\nAlice,Wong,wlhtestmails+alice@gmail.com\n'
         headers, rows = parse_csv_file(csv)
         mapping = _build_column_mapping({
             'col_first_name': '0', 'col_last_name': '1', 'col_email': '2',
@@ -606,7 +604,7 @@ class StructureMappedImportTests(CSVImportTestBase):
         self.assertEqual(result['counts']['levels_created'], 1)
 
         # Student should be enrolled in the dummy class
-        alice = CustomUser.objects.get(email='alice@test.com')
+        alice = CustomUser.objects.get(email='wlhtestmails+alice@gmail.com')
         self.assertTrue(ClassStudent.objects.filter(student=alice).exists())
         dummy_class = ClassStudent.objects.get(student=alice).classroom
         self.assertEqual(dummy_class.department, dept)

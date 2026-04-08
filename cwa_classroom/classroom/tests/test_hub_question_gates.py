@@ -32,7 +32,7 @@ class HubQuestionGateTestBase(TestCase):
 
         # ── Admin user ─────────────────────────────────────────
         cls.admin = CustomUser.objects.create_superuser(
-            'hubadmin', 'hubadmin@test.com', 'pass1234',
+            'hubadmin', 'wlhtestmails+hubadmin@gmail.com', 'password1!',
         )
 
         # ── Schools ────────────────────────────────────────────

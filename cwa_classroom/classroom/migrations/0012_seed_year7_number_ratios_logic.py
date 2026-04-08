@@ -157,8 +157,8 @@ def seed_data(apps, schema_editor):
     Topic    = apps.get_model('classroom', 'Topic')
     Subject  = apps.get_model('classroom', 'Subject')
     Level    = apps.get_model('classroom', 'Level')
-    Question = apps.get_model('quiz', 'Question')
-    Answer   = apps.get_model('quiz', 'Answer')
+    Question = apps.get_model('maths', 'Question')
+    Answer   = apps.get_model('maths', 'Answer')
 
     maths  = Subject.objects.get(slug='mathematics')
     year7  = Level.objects.filter(level_number=7).first()

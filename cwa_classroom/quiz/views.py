@@ -2,6 +2,7 @@ import uuid
 import json
 import time
 from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.utils import timezone
@@ -353,14 +354,14 @@ class TimesTablesAnswerView(LoginRequiredMixin, View):
 
         next_url = None
         if is_last:
-            next_url = f'/times-tables/submit/{session_id}/'
+            next_url = reverse('times_tables_submit', kwargs={'session_id': session_id})
 
         return render(request, 'quiz/partials/tt_feedback.html', {
             'is_correct': is_correct,
             'correct_answer': q['answer'],
             'is_last_question': is_last,
             'next_url': next_url,
-            'next_question_url': f'/api/tt-next/{session_id}/' if not is_last else None,
+            'next_question_url': reverse('api_tt_next', kwargs={'session_id': session_id}) if not is_last else None,
             'session_id': session_id,
         })
 
@@ -376,7 +377,7 @@ class TimesTablesNextView(LoginRequiredMixin, View):
         questions = session_data['questions']
         current = session_data['current']
         if current >= len(questions):
-            return redirect(f'/times-tables/submit/{session_id}/')
+            return redirect(reverse('times_tables_submit', kwargs={'session_id': session_id}))
 
         q = questions[current]
         return render(request, 'quiz/partials/tt_question.html', {
@@ -447,7 +448,7 @@ class TimesTablesResultsView(LoginRequiredMixin, View):
 # ── Topic Quiz (HTMX) ───────────────────────────────────────────────────────
 
 class TopicQuizView(LoginRequiredMixin, View):
-    def get(self, request, level_number, topic_id):
+    def get(self, request, subject, level_number, topic_id):
         import random as rnd
         level = get_object_or_404(ClassroomLevel, level_number=level_number)
         topic = get_object_or_404(ClassroomTopic, id=topic_id)
@@ -483,6 +484,7 @@ class TopicQuizView(LoginRequiredMixin, View):
         request.session[f'tq_{session_id}'] = {
             'topic_id': topic_id,
             'level_number': level_number,
+            'subject': subject,
             'questions': q_data,
             'current': 0,
             'correct': 0,
@@ -501,11 +503,12 @@ class TopicQuizView(LoginRequiredMixin, View):
             'answers': first_answers,
             'question_number': 1,
             'total_questions': len(questions),
+            'subject': subject,
         })
 
 
 class TopicResultsView(LoginRequiredMixin, View):
-    def get(self, request, level_number, topic_id):
+    def get(self, request, subject, level_number, topic_id):
         level = get_object_or_404(ClassroomLevel, level_number=level_number)
         topic = get_object_or_404(ClassroomTopic, id=topic_id)
 
@@ -521,13 +524,14 @@ class TopicResultsView(LoginRequiredMixin, View):
         return render(request, 'quiz/topic_results.html', {
             'topic': topic, 'level': level, 'result': result,
             'time_display': _fmt_time(result.time_taken_seconds) if result else '—',
+            'subject': subject,
         })
 
 
 # ── Mixed Quiz ───────────────────────────────────────────────────────────────
 
 class MixedQuizView(LoginRequiredMixin, View):
-    def get(self, request, level_number):
+    def get(self, request, subject, level_number):
         import random as rnd
         level = get_object_or_404(ClassroomLevel, level_number=level_number)
         from maths.models import Question
@@ -562,9 +566,10 @@ class MixedQuizView(LoginRequiredMixin, View):
             'level': level, 'questions': all_questions,
             'session_id': session_id,
             'total': len(all_questions),
+            'subject': subject,
         })
 
-    def post(self, request, level_number):
+    def post(self, request, subject, level_number):
         import random as rnd
         level = get_object_or_404(ClassroomLevel, level_number=level_number)
         session_id = request.POST.get('session_id', '')
@@ -608,8 +613,6 @@ class MixedQuizView(LoginRequiredMixin, View):
             answer_records.append(StudentAnswer(
                 student=request.user,
                 question=q,
-                topic=q.topic,
-                level=level,
                 is_correct=is_correct,
             ))
 
@@ -640,11 +643,11 @@ class MixedQuizView(LoginRequiredMixin, View):
             'topic_results': topic_results,
             'time_taken': time_taken,
         }
-        return redirect('mixed_results', level_number=level_number)
+        return redirect('mixed_results', subject=subject, level_number=level_number)
 
 
 class MixedResultsView(LoginRequiredMixin, View):
-    def get(self, request, level_number):
+    def get(self, request, subject, level_number):
         level = get_object_or_404(ClassroomLevel, level_number=level_number)
         data = request.session.get(f'mq_result_{level_number}', {})
         from maths.models import StudentFinalAnswer
@@ -656,6 +659,7 @@ class MixedResultsView(LoginRequiredMixin, View):
             'level': level, 'result': result,
             'topic_results': topic_results,
             'time_display': _fmt_time(data.get('time_taken', 0)),
+            'subject': subject,
         })
 
 
@@ -757,7 +761,11 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             )
             request.session[f'tq_result_{q.topic.id}_{session_data["level_number"]}'] = result.id
             request.session.pop(session_key, None)
-            next_url = f'/level/{session_data["level_number"]}/topic/{q.topic.id}/results/'
+            next_url = reverse('topic_results', kwargs={
+                'subject': session_data['subject'],
+                'level_number': session_data['level_number'],
+                'topic_id': q.topic.id,
+            })
 
             # Update topic-level statistics (mean/sigma)
             from maths.models import TopicLevelStatistics
@@ -785,7 +793,11 @@ class TopicNextQuestionView(LoginRequiredMixin, View):
         current = session_data['current']
         questions = session_data['questions']
         if current >= len(questions):
-            return redirect(f'/level/{session_data["level_number"]}/topic/{session_data["topic_id"]}/results/')
+            return redirect(reverse('topic_results', kwargs={
+                'subject': session_data['subject'],
+                'level_number': session_data['level_number'],
+                'topic_id': session_data['topic_id'],
+            }))
 
         q_info = questions[current]
         from maths.models import Question

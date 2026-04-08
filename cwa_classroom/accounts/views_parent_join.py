@@ -1,6 +1,6 @@
 """
 Parent self-join registration view (CPP-70).
-Allows parents to register and link to students via Student ID codes.
+Allows parents to register and submit link requests for teacher approval.
 """
 import re
 from django.contrib import messages
@@ -13,11 +13,11 @@ from django.shortcuts import render, redirect
 from django.views import View
 
 from accounts.models import CustomUser, Role, UserRole
-from classroom.models import SchoolStudent, ParentStudent
+from classroom.models import SchoolStudent, ParentStudent, ParentLinkRequest
 
 
 class ParentSelfJoinView(View):
-    """Register as a parent and link to student(s) via Student ID codes."""
+    """Register as a parent and submit link requests for teacher approval."""
     template_name = 'accounts/register_parent_join.html'
 
     RELATIONSHIP_CHOICES = [
@@ -78,12 +78,16 @@ class ParentSelfJoinView(View):
 
         form_data['student_entries'] = list(zip(student_ids, relationships))
 
+        accept_terms = request.POST.get('accept_terms')
+
         # --- Validation ---
 
         if not first_name:
             errors['first_name'] = 'First name is required.'
         if not last_name:
             errors['last_name'] = 'Last name is required.'
+        if not accept_terms:
+            errors['accept_terms'] = 'You must accept the Terms and Conditions and Privacy Policy.'
 
         # Email validation
         if not email:
@@ -147,7 +151,7 @@ class ParentSelfJoinView(View):
                 student_errors.append(f'Student ID "{sid}" was not found.')
                 continue
 
-            # Check max 2 parents per student per school
+            # Check max 2 parents per student per school (active links only)
             parent_count = ParentStudent.objects.filter(
                 student=school_student.student,
                 school=school_student.school,
@@ -176,9 +180,10 @@ class ParentSelfJoinView(View):
                 'relationship_choices': self.RELATIONSHIP_CHOICES,
             })
 
-        # --- Create account ---
+        # --- Create account and pending link requests ---
         try:
             with transaction.atomic():
+                from django.utils import timezone
                 user = CustomUser.objects.create_user(
                     username=username,
                     email=email,
@@ -186,6 +191,8 @@ class ParentSelfJoinView(View):
                     first_name=first_name,
                     last_name=last_name,
                 )
+                user.terms_accepted_at = timezone.now()
+                user.save(update_fields=['terms_accepted_at'])
 
                 # Assign PARENT role
                 parent_role, _created = Role.objects.get_or_create(
@@ -194,21 +201,20 @@ class ParentSelfJoinView(View):
                 )
                 UserRole.objects.create(user=user, role=parent_role)
 
-                # Link to each student
+                # Create pending link requests (not immediate ParentStudent links)
+                notified_schools = set()
                 for school_student, relationship in valid_school_students:
-                    existing_count = ParentStudent.objects.filter(
-                        student=school_student.student,
-                        school=school_student.school,
-                        is_active=True,
-                    ).count()
-                    ParentStudent.objects.create(
+                    ParentLinkRequest.objects.create(
                         parent=user,
-                        student=school_student.student,
-                        school=school_student.school,
+                        school_student=school_student,
                         relationship=relationship,
-                        is_primary_contact=(existing_count == 0),
-                        created_by=user,
+                        status=ParentLinkRequest.STATUS_PENDING,
                     )
+
+                    # Notify teachers/admin for each school (once per school)
+                    if school_student.school_id not in notified_schools:
+                        notified_schools.add(school_student.school_id)
+                        self._notify_school(school_student.school, user)
 
             # Increment rate limit counter
             cache.set(cache_key, attempts + 1, 3600)
@@ -222,22 +228,66 @@ class ParentSelfJoinView(View):
                 for ss, rel in valid_school_students
             ]
             log_event(
-                user=user, school=valid_school_students[0][0].school if valid_school_students else None,
-                category='auth', action='parent_joined',
+                user=user,
+                school=valid_school_students[0][0].school if valid_school_students else None,
+                category='auth',
+                action='parent_joined',
                 detail={'username': username, 'email': email, 'linked_students': linked_students},
                 request=request,
             )
 
-            messages.success(request, 'Your parent account has been created successfully!')
+            messages.success(
+                request,
+                'Your parent account has been created. Your request to link to your '
+                'child(ren) has been sent to the school for approval. You will be '
+                'notified once approved.'
+            )
             return redirect('parent_dashboard')
 
-        except Exception as e:
+        except Exception:
             messages.error(request, 'An error occurred while creating your account. Please try again.')
             return render(request, self.template_name, {
                 'errors': errors,
                 'form_data': form_data,
                 'relationship_choices': self.RELATIONSHIP_CHOICES,
             })
+
+    def _notify_school(self, school, parent_user):
+        """Notify school admin and teachers that a parent has requested to link."""
+        from classroom.notifications import create_notification
+        from classroom.models import SchoolTeacher
+
+        parent_name = parent_user.get_full_name() or parent_user.username
+        message = (
+            f'{parent_name} has requested to link as a parent/guardian to a student '
+            f'at {school.name}. Please review and approve or reject the request.'
+        )
+        link = '/teacher/parent-link-requests/'
+
+        notified_ids = set()
+
+        # Notify school admin (HoI)
+        if school.admin_id:
+            create_notification(
+                user=school.admin,
+                message=message,
+                notification_type='parent_link_request',
+                link=link,
+            )
+            notified_ids.add(school.admin_id)
+
+        # Notify active school teachers
+        for membership in SchoolTeacher.objects.filter(
+            school=school, is_active=True,
+        ).select_related('teacher'):
+            if membership.teacher_id not in notified_ids:
+                create_notification(
+                    user=membership.teacher,
+                    message=message,
+                    notification_type='parent_link_request',
+                    link=link,
+                )
+                notified_ids.add(membership.teacher_id)
 
     def _get_client_ip(self, request):
         x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')

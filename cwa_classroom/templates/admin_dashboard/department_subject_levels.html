@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load classroom_extras %}
 
 {% block title %}Subjects & Levels — {{ department.name }}{% endblock %}
 
@@ -17,7 +18,7 @@
         {% if department.default_fee is not None %}
           <div class="text-right">
             <p class="text-xs text-gray-400">Department Fee</p>
-            <p class="text-lg font-bold text-gray-900">${{ department.default_fee }}</p>
+            <p class="text-lg font-bold text-gray-900">{{ department.default_fee|format_currency:effective_currency }}</p>
           </div>
         {% endif %}
         <button @click="showAddSubject = true" type="button"
@@ -57,13 +58,13 @@
             <button @click="editingFee = true" type="button"
                     class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition cursor-pointer"
                     title="Edit fee">
-              ${{ group.dept_subject.fee_override }}
+              {{ group.dept_subject.fee_override|format_currency:effective_currency }}
             </button>
           {% elif group.parent_fee %}
             <button @click="editingFee = true" type="button"
                     class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-slate-50 text-slate-500 hover:bg-slate-100 transition cursor-pointer"
                     title="Edit fee">
-              ${{ group.parent_fee }} <span class="text-slate-400 text-[10px]">({{ group.parent_source }})</span>
+              {{ group.parent_fee|format_currency:effective_currency }} <span class="text-slate-400 text-[10px]">({{ group.parent_source }})</span>
             </button>
           {% else %}
             <button @click="editingFee = true" type="button"
@@ -106,6 +107,19 @@
               <p class="text-xs text-gray-400 mt-0.5">Moving also moves levels and classes.</p>
             </div>
           </div>
+          {% if global_subjects %}
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Link to Global Subject</label>
+            <select name="global_subject_id"
+                    class="w-full px-3 py-2 border border-blue-200 bg-blue-50 rounded-lg text-sm focus:ring-2 focus:ring-blue-300 focus:border-transparent transition">
+              <option value="">— None —</option>
+              {% for g_subj in global_subjects %}
+              <option value="{{ g_subj.id }}" {% if group.subject.global_subject_id == g_subj.id %}selected{% endif %}>{{ g_subj.name }}</option>
+              {% endfor %}
+            </select>
+            <p class="text-xs text-gray-400 mt-0.5">Links to curriculum content (quizzes, questions).</p>
+          </div>
+          {% endif %}
           <div class="flex items-center gap-2">
             <button type="submit" class="px-3 py-1.5 bg-accent hover:bg-accent-dark text-white text-xs font-semibold rounded-lg transition">Save</button>
             <button @click="editingSubject = false" type="button" class="px-3 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 transition">Cancel</button>
@@ -122,7 +136,7 @@
           <label class="text-xs font-semibold text-gray-600">Fee</label>
           <input type="number" name="fee_override" step="0.01" min="0"
                  value="{{ group.dept_subject.fee_override|default:'' }}"
-                 placeholder="{% if group.parent_fee %}Inherit ${{ group.parent_fee }}{% else %}No fee{% endif %}"
+                 placeholder="{% if group.parent_fee %}Inherit {{ group.parent_fee|format_currency:effective_currency }}{% else %}No fee{% endif %}"
                  class="w-28 px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-accent/20 focus:border-accent">
           <button type="submit" class="px-2.5 py-1.5 bg-accent text-white text-xs font-semibold rounded-lg">Save</button>
           <button @click="editingFee = false" type="button" class="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
@@ -167,9 +181,9 @@
                 </div>
                 <div class="flex items-center gap-2">
                   {% if item.dept_level.fee_override is not None %}
-                    <span class="text-xs font-semibold text-emerald-600">${{ item.dept_level.fee_override }}</span>
+                    <span class="text-xs font-semibold text-emerald-600">{{ item.dept_level.fee_override|format_currency:effective_currency }}</span>
                   {% elif item.parent_fee %}
-                    <span class="text-xs text-gray-400">${{ item.parent_fee }}</span>
+                    <span class="text-xs text-gray-400">{{ item.parent_fee|format_currency:effective_currency }}</span>
                   {% endif %}
                   <span class="text-xs text-gray-400">{{ item.class_count }} cls</span>
                   <!-- Actions (hover-reveal) -->
@@ -207,10 +221,10 @@
                              class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
                     </div>
                     <div>
-                      <label class="block text-xs font-semibold text-gray-600 mb-1">Fee (NZD)</label>
+                      <label class="block text-xs font-semibold text-gray-600 mb-1">Fee ({{ effective_currency.code|default:"USD" }})</label>
                       <input type="number" name="fee_override" step="0.01" min="0"
                              value="{{ item.dept_level.fee_override|default:'' }}"
-                             placeholder="{% if item.parent_fee %}${{ item.parent_fee }}{% else %}No fee{% endif %}"
+                             placeholder="{% if item.parent_fee %}{{ item.parent_fee|format_currency:effective_currency }}{% else %}No fee{% endif %}"
                              class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
                     </div>
                     <div>

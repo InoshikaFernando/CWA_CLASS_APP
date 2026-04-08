@@ -46,7 +46,7 @@ def _assign_role(user, role_name):
 
 def _setup_school(admin_role=Role.INSTITUTE_OWNER):
     user = CustomUser.objects.create_user(
-        username='testowner', password='pass12345', email='owner@test.com',
+        username='testowner', password='password1!', email='wlhtestmails+owner@gmail.com',
     )
     _assign_role(user, admin_role)
     school = School.objects.create(name='Test School', slug='test-school', admin=user)
@@ -69,7 +69,7 @@ def _setup_department(school, head=None):
     DepartmentSubject.objects.create(department=dept, subject=subj)
     if head:
         DepartmentTeacher.objects.create(department=dept, teacher=head)
-        SchoolTeacher.objects.get_or_create(
+        SchoolTeacher.objects.update_or_create(
             school=school, teacher=head,
             defaults={'role': 'head_of_department'},
         )
@@ -78,7 +78,7 @@ def _setup_department(school, head=None):
 
 def _setup_student(school, username='student1'):
     student = CustomUser.objects.create_user(
-        username=username, password='pass12345', email=f'{username}@test.com',
+        username=username, password='password1!', email=f'wlhtestmails+{username}@gmail.com',
         first_name='Test', last_name='Student',
     )
     _assign_role(student, Role.STUDENT)
@@ -118,7 +118,7 @@ class InvoiceListViewTests(TestCase):
         self.owner, self.school = _setup_school()
         self.student = _setup_student(self.school)
         self.client = Client()
-        self.client.login(username='testowner', password='pass12345')
+        self.client.login(username='testowner', password='password1!')
 
     def test_list_view_loads(self):
         resp = self.client.get(reverse('invoice_list'))
@@ -145,13 +145,143 @@ class InvoiceListViewTests(TestCase):
         self.assertEqual(resp.status_code, 302)
 
     def test_list_view_no_school_redirects(self):
-        user2 = CustomUser.objects.create_user('noschool', 'ns@t.com', 'pass12345')
+        user2 = CustomUser.objects.create_user('noschool', 'wlhtestmails+ns@gmail.com', 'password1!')
         _assign_role(user2, Role.INSTITUTE_OWNER)
-        self.client.login(username='noschool', password='pass12345')
+        self.client.login(username='noschool', password='password1!')
         # Delete the school association
         resp = self.client.get(reverse('invoice_list'))
         # Should redirect since user has no school
         self.assertIn(resp.status_code, [200, 302])
+
+    # ------------------------------------------------------------------ #
+    # Department / Class filter tests                                      #
+    # ------------------------------------------------------------------ #
+
+    def _setup_dept_class_invoice(self):
+        """
+        Creates dept_a → class_a → student_a with an issued invoice
+        and dept_b → class_b → student_b with an issued invoice.
+        Returns (dept_a, class_a, student_a, dept_b, class_b, student_b).
+        """
+        subj, _ = Subject.objects.get_or_create(
+            slug='list-filter-subj', defaults={'name': 'Filter Subj', 'is_active': True}
+        )
+        dept_a = Department.objects.create(
+            school=self.school, name='Filter Dept A', slug='filter-dept-a'
+        )
+        dept_b = Department.objects.create(
+            school=self.school, name='Filter Dept B', slug='filter-dept-b'
+        )
+        class_a = ClassRoom.objects.create(
+            name='Filter Class A', school=self.school,
+            department=dept_a, subject=subj,
+        )
+        class_b = ClassRoom.objects.create(
+            name='Filter Class B', school=self.school,
+            department=dept_b, subject=subj,
+        )
+        student_a = _setup_student(self.school, username='filter_student_a')
+        student_b = _setup_student(self.school, username='filter_student_b')
+        ClassStudent.objects.create(classroom=class_a, student=student_a, is_active=True)
+        ClassStudent.objects.create(classroom=class_b, student=student_b, is_active=True)
+
+        inv_a = Invoice.objects.create(
+            invoice_number='INV-FILTER-A',
+            school=self.school, student=student_a,
+            billing_period_start=datetime.date(2025, 1, 1),
+            billing_period_end=datetime.date(2025, 1, 31),
+            attendance_mode='all_class_days',
+            calculated_amount=Decimal('100.00'),
+            amount=Decimal('100.00'),
+            status='issued',
+            created_by=self.owner,
+        )
+        InvoiceLineItem.objects.create(
+            invoice=inv_a, classroom=class_a, department=dept_a,
+            daily_rate=Decimal('100.00'), rate_source='class_default',
+            sessions_held=1, sessions_attended=1, sessions_charged=1,
+            line_amount=Decimal('100.00'),
+        )
+        inv_b = Invoice.objects.create(
+            invoice_number='INV-FILTER-B',
+            school=self.school, student=student_b,
+            billing_period_start=datetime.date(2025, 1, 1),
+            billing_period_end=datetime.date(2025, 1, 31),
+            attendance_mode='all_class_days',
+            calculated_amount=Decimal('150.00'),
+            amount=Decimal('150.00'),
+            status='issued',
+            created_by=self.owner,
+        )
+        InvoiceLineItem.objects.create(
+            invoice=inv_b, classroom=class_b, department=dept_b,
+            daily_rate=Decimal('150.00'), rate_source='class_default',
+            sessions_held=1, sessions_attended=1, sessions_charged=1,
+            line_amount=Decimal('150.00'),
+        )
+        return dept_a, class_a, student_a, dept_b, class_b, student_b
+
+    def test_list_view_department_filter_shows_only_dept_invoices(self):
+        """Filtering by dept_a returns only invoices with line items in dept_a."""
+        dept_a, class_a, student_a, dept_b, class_b, student_b = \
+            self._setup_dept_class_invoice()
+
+        resp = self.client.get(reverse('invoice_list') + f'?department={dept_a.id}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'INV-FILTER-A')
+        self.assertNotContains(resp, 'INV-FILTER-B')
+
+    def test_list_view_department_filter_excludes_other_dept(self):
+        """Filtering by dept_b excludes dept_a invoices."""
+        dept_a, class_a, student_a, dept_b, class_b, student_b = \
+            self._setup_dept_class_invoice()
+
+        resp = self.client.get(reverse('invoice_list') + f'?department={dept_b.id}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'INV-FILTER-B')
+        self.assertNotContains(resp, 'INV-FILTER-A')
+
+    def test_list_view_class_filter_shows_only_class_invoices(self):
+        """Filtering by class_a returns only invoices with line items in class_a."""
+        dept_a, class_a, student_a, dept_b, class_b, student_b = \
+            self._setup_dept_class_invoice()
+
+        resp = self.client.get(reverse('invoice_list') + f'?classroom={class_a.id}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'INV-FILTER-A')
+        self.assertNotContains(resp, 'INV-FILTER-B')
+
+    def test_list_view_class_filter_excludes_other_class(self):
+        """Filtering by class_b excludes class_a invoices."""
+        dept_a, class_a, student_a, dept_b, class_b, student_b = \
+            self._setup_dept_class_invoice()
+
+        resp = self.client.get(reverse('invoice_list') + f'?classroom={class_b.id}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'INV-FILTER-B')
+        self.assertNotContains(resp, 'INV-FILTER-A')
+
+    def test_list_view_department_and_class_combined_filter(self):
+        """Dept + class filters combined return only matching invoices."""
+        dept_a, class_a, student_a, dept_b, class_b, student_b = \
+            self._setup_dept_class_invoice()
+
+        resp = self.client.get(
+            reverse('invoice_list') + f'?department={dept_a.id}&classroom={class_a.id}'
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'INV-FILTER-A')
+        self.assertNotContains(resp, 'INV-FILTER-B')
+
+    def test_list_view_clear_filters_returns_all(self):
+        """Empty department and classroom params return all invoices."""
+        dept_a, class_a, student_a, dept_b, class_b, student_b = \
+            self._setup_dept_class_invoice()
+
+        resp = self.client.get(reverse('invoice_list') + '?department=&classroom=')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'INV-FILTER-A')
+        self.assertContains(resp, 'INV-FILTER-B')
 
 
 class InvoiceDetailViewTests(TestCase):
@@ -160,14 +290,14 @@ class InvoiceDetailViewTests(TestCase):
         self.student = _setup_student(self.school)
         self.invoice = _make_invoice(self.school, self.student, created_by=self.owner)
         self.client = Client()
-        self.client.login(username='testowner', password='pass12345')
+        self.client.login(username='testowner', password='password1!')
 
     def test_detail_view_loads(self):
         resp = self.client.get(reverse('invoice_detail', args=[self.invoice.id]))
         self.assertEqual(resp.status_code, 200)
 
     def test_detail_view_404_for_other_school(self):
-        other_user = CustomUser.objects.create_user('other', 'o@t.com', 'pass12345')
+        other_user = CustomUser.objects.create_user('other', 'wlhtestmails+o@gmail.com', 'password1!')
         _assign_role(other_user, Role.INSTITUTE_OWNER)
         other_school = School.objects.create(name='Other', slug='other', admin=other_user)
         other_student = _setup_student(other_school, username='ostudent')
@@ -183,7 +313,7 @@ class FeeConfigurationViewTests(TestCase):
         self.student = _setup_student(self.school)
         self.classroom = _setup_classroom(self.school, self.dept, self.subj)
         self.client = Client()
-        self.client.login(username='testowner', password='pass12345')
+        self.client.login(username='testowner', password='password1!')
 
     def test_fee_config_loads(self):
         resp = self.client.get(reverse('fee_configuration'))
@@ -284,7 +414,7 @@ class GenerateInvoicesViewTests(TestCase):
         self.classroom = _setup_classroom(self.school, self.dept, self.subj)
         ClassStudent.objects.create(classroom=self.classroom, student=self.student)
         self.client = Client()
-        self.client.login(username='testowner', password='pass12345')
+        self.client.login(username='testowner', password='password1!')
 
     def test_generate_get(self):
         resp = self.client.get(reverse('generate_invoices'))
@@ -305,9 +435,9 @@ class GenerateInvoicesViewTests(TestCase):
         self.assertEqual(resp.status_code, 302)
 
     def test_generate_no_school(self):
-        user2 = CustomUser.objects.create_user('noschool2', 'ns2@t.com', 'pass12345')
+        user2 = CustomUser.objects.create_user('noschool2', 'wlhtestmails+ns2@gmail.com', 'password1!')
         _assign_role(user2, Role.INSTITUTE_OWNER)
-        self.client.login(username='noschool2', password='pass12345')
+        self.client.login(username='noschool2', password='password1!')
         resp = self.client.get(reverse('generate_invoices'))
         self.assertEqual(resp.status_code, 302)
 
@@ -317,7 +447,7 @@ class InvoicePreviewViewTests(TestCase):
         self.owner, self.school = _setup_school()
         self.student = _setup_student(self.school)
         self.client = Client()
-        self.client.login(username='testowner', password='pass12345')
+        self.client.login(username='testowner', password='password1!')
 
     def test_preview_no_drafts_redirects(self):
         resp = self.client.get(reverse('invoice_preview'))
@@ -361,7 +491,7 @@ class IssueInvoicesViewTests(TestCase):
         self.owner, self.school = _setup_school()
         self.student = _setup_student(self.school)
         self.client = Client()
-        self.client.login(username='testowner', password='pass12345')
+        self.client.login(username='testowner', password='password1!')
 
     @patch('classroom.invoicing_services.issue_invoices')
     def test_issue_from_session(self, mock_issue):
@@ -393,7 +523,7 @@ class DeleteDraftInvoicesViewTests(TestCase):
         self.owner, self.school = _setup_school()
         self.student = _setup_student(self.school)
         self.client = Client()
-        self.client.login(username='testowner', password='pass12345')
+        self.client.login(username='testowner', password='password1!')
 
     def test_delete_drafts(self):
         inv = _make_invoice(self.school, self.student, status='draft', created_by=self.owner)
@@ -410,7 +540,7 @@ class CancelInvoiceViewTests(TestCase):
         self.owner, self.school = _setup_school()
         self.student = _setup_student(self.school)
         self.client = Client()
-        self.client.login(username='testowner', password='pass12345')
+        self.client.login(username='testowner', password='password1!')
 
     def test_cancel_draft_deletes(self):
         inv = _make_invoice(self.school, self.student, status='draft', created_by=self.owner)
@@ -448,7 +578,7 @@ class RecordManualPaymentViewTests(TestCase):
         self.student = _setup_student(self.school)
         self.invoice = _make_invoice(self.school, self.student, status='issued', created_by=self.owner)
         self.client = Client()
-        self.client.login(username='testowner', password='pass12345')
+        self.client.login(username='testowner', password='password1!')
 
     @patch('classroom.invoicing_services.record_payment')
     def test_record_payment_success(self, mock_record):
@@ -508,16 +638,16 @@ class CSVUploadViewTests(TestCase):
     def setUp(self):
         self.owner, self.school = _setup_school()
         self.client = Client()
-        self.client.login(username='testowner', password='pass12345')
+        self.client.login(username='testowner', password='password1!')
 
     def test_csv_upload_get(self):
         resp = self.client.get(reverse('csv_upload'))
         self.assertEqual(resp.status_code, 200)
 
     def test_csv_upload_no_school(self):
-        user2 = CustomUser.objects.create_user('noschool3', 'ns3@t.com', 'pass12345')
+        user2 = CustomUser.objects.create_user('noschool3', 'wlhtestmails+ns3@gmail.com', 'password1!')
         _assign_role(user2, Role.INSTITUTE_OWNER)
-        self.client.login(username='noschool3', password='pass12345')
+        self.client.login(username='noschool3', password='password1!')
         resp = self.client.get(reverse('csv_upload'))
         self.assertEqual(resp.status_code, 302)
 
@@ -527,7 +657,7 @@ class OpeningBalancesViewTests(TestCase):
         self.owner, self.school = _setup_school()
         self.student = _setup_student(self.school)
         self.client = Client()
-        self.client.login(username='testowner', password='pass12345')
+        self.client.login(username='testowner', password='password1!')
 
     def test_opening_balances_loads(self):
         resp = self.client.get(reverse('opening_balances'))
@@ -599,7 +729,7 @@ class StudentSearchAPIViewTests(TestCase):
         self.owner, self.school = _setup_school()
         self.student = _setup_student(self.school)
         self.client = Client()
-        self.client.login(username='testowner', password='pass12345')
+        self.client.login(username='testowner', password='password1!')
 
     def test_search_returns_results(self):
         resp = self.client.get(reverse('student_search_api') + '?q=Test')
@@ -618,9 +748,9 @@ class StudentSearchAPIViewTests(TestCase):
         self.assertEqual(len(resp.json()['results']), 0)
 
     def test_search_no_school(self):
-        user2 = CustomUser.objects.create_user('noschool4', 'ns4@t.com', 'pass12345')
+        user2 = CustomUser.objects.create_user('noschool4', 'wlhtestmails+ns4@gmail.com', 'password1!')
         _assign_role(user2, Role.INSTITUTE_OWNER)
-        self.client.login(username='noschool4', password='pass12345')
+        self.client.login(username='noschool4', password='password1!')
         resp = self.client.get(reverse('student_search_api') + '?q=Test')
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.json()['results']), 0)
@@ -631,7 +761,7 @@ class ReferenceMappingsViewTests(TestCase):
         self.owner, self.school = _setup_school()
         self.student = _setup_student(self.school)
         self.client = Client()
-        self.client.login(username='testowner', password='pass12345')
+        self.client.login(username='testowner', password='password1!')
 
     def test_mappings_list_loads(self):
         resp = self.client.get(reverse('reference_mappings'))
@@ -678,14 +808,13 @@ class AccountantAccessTests(TestCase):
     def setUp(self):
         self.owner, self.school = _setup_school()
         self.accountant = CustomUser.objects.create_user(
-            'accountant1', 'acc@test.com', 'pass12345',
+            'accountant1', 'wlhtestmails+acc@gmail.com', 'password1!',
         )
         _assign_role(self.accountant, Role.ACCOUNTANT)
-        SchoolTeacher.objects.create(
-            school=self.school, teacher=self.accountant, role='accountant',
-        )
+        SchoolTeacher.objects.update_or_create(
+            school=self.school, teacher=self.accountant, defaults={'role': 'accountant'})
         self.client = Client()
-        self.client.login(username='accountant1', password='pass12345')
+        self.client.login(username='accountant1', password='password1!')
 
     def test_accountant_can_access_invoice_list(self):
         resp = self.client.get(reverse('invoice_list'))
@@ -710,10 +839,10 @@ class ClassDetailViewTests(TestCase):
         self.owner, self.school = _setup_school()
         self.dept, self.subj = _setup_department(self.school, head=self.owner)
         self.teacher = CustomUser.objects.create_user(
-            'teacher_cd', 'tcd@test.com', 'pass12345',
+            'teacher_cd', 'wlhtestmails+tcd@gmail.com', 'password1!',
         )
         _assign_role(self.teacher, Role.TEACHER)
-        SchoolTeacher.objects.create(school=self.school, teacher=self.teacher, role='teacher')
+        SchoolTeacher.objects.update_or_create(school=self.school, teacher=self.teacher, defaults={'role': 'teacher'})
         self.classroom = _setup_classroom(self.school, self.dept, self.subj)
         ClassTeacher.objects.create(classroom=self.classroom, teacher=self.teacher)
         self.student = _setup_student(self.school)
@@ -721,23 +850,23 @@ class ClassDetailViewTests(TestCase):
         self.client = Client()
 
     def test_teacher_can_view_class_detail(self):
-        self.client.login(username='teacher_cd', password='pass12345')
+        self.client.login(username='teacher_cd', password='password1!')
         resp = self.client.get(reverse('class_detail', args=[self.classroom.id]))
         self.assertEqual(resp.status_code, 200)
 
     def test_owner_can_view_class_detail(self):
-        self.client.login(username='testowner', password='pass12345')
+        self.client.login(username='testowner', password='password1!')
         resp = self.client.get(reverse('class_detail', args=[self.classroom.id]))
         self.assertEqual(resp.status_code, 200)
 
     def test_hod_can_view_class_detail(self):
-        hod = CustomUser.objects.create_user('hod_cd', 'hod_cd@t.com', 'pass12345')
+        hod = CustomUser.objects.create_user('hod_cd', 'wlhtestmails+hod_cd@gmail.com', 'password1!')
         _assign_role(hod, Role.HEAD_OF_DEPARTMENT)
         self.dept.head = hod
         self.dept.save()
         DepartmentTeacher.objects.create(department=self.dept, teacher=hod)
-        SchoolTeacher.objects.create(school=self.school, teacher=hod, role='head_of_department')
-        self.client.login(username='hod_cd', password='pass12345')
+        SchoolTeacher.objects.update_or_create(school=self.school, teacher=hod, defaults={'role': 'head_of_department'})
+        self.client.login(username='hod_cd', password='password1!')
         resp = self.client.get(reverse('class_detail', args=[self.classroom.id]))
         self.assertEqual(resp.status_code, 200)
 
@@ -748,7 +877,7 @@ class CreateClassViewTests(TestCase):
         self.dept, self.subj = _setup_department(self.school, head=self.owner)
         DepartmentTeacher.objects.get_or_create(department=self.dept, teacher=self.owner)
         self.client = Client()
-        self.client.login(username='testowner', password='pass12345')
+        self.client.login(username='testowner', password='password1!')
 
     def test_create_class_get(self):
         resp = self.client.get(reverse('create_class'))
@@ -786,7 +915,7 @@ class EditClassViewTests(TestCase):
         self.classroom = _setup_classroom(self.school, self.dept, self.subj)
         ClassTeacher.objects.create(classroom=self.classroom, teacher=self.owner)
         self.client = Client()
-        self.client.login(username='testowner', password='pass12345')
+        self.client.login(username='testowner', password='password1!')
 
     def test_edit_class_get(self):
         resp = self.client.get(reverse('edit_class', args=[self.classroom.id]))
@@ -819,27 +948,27 @@ class HoDOverviewViewTests(TestCase):
         self.dept, self.subj = _setup_department(self.school, head=self.owner)
         self.classroom = _setup_classroom(self.school, self.dept, self.subj)
         self.client = Client()
-        self.client.login(username='testowner', password='pass12345')
+        self.client.login(username='testowner', password='password1!')
 
     def test_hod_overview_loads(self):
         resp = self.client.get(reverse('hod_overview'))
         self.assertEqual(resp.status_code, 200)
 
     def test_hod_overview_as_hod(self):
-        hod = CustomUser.objects.create_user('hod_ov', 'hod_ov@t.com', 'pass12345')
+        hod = CustomUser.objects.create_user('hod_ov', 'wlhtestmails+hod_ov@gmail.com', 'password1!')
         _assign_role(hod, Role.HEAD_OF_DEPARTMENT)
         self.dept.head = hod
         self.dept.save()
         DepartmentTeacher.objects.create(department=self.dept, teacher=hod)
-        SchoolTeacher.objects.create(school=self.school, teacher=hod, role='head_of_department')
-        self.client.login(username='hod_ov', password='pass12345')
+        SchoolTeacher.objects.update_or_create(school=self.school, teacher=hod, defaults={'role': 'head_of_department'})
+        self.client.login(username='hod_ov', password='password1!')
         resp = self.client.get(reverse('hod_overview'))
         self.assertEqual(resp.status_code, 200)
 
     def test_hod_overview_no_permission(self):
-        teacher = CustomUser.objects.create_user('teacher_np', 'tnp@t.com', 'pass12345')
+        teacher = CustomUser.objects.create_user('teacher_np', 'wlhtestmails+tnp@gmail.com', 'password1!')
         _assign_role(teacher, Role.TEACHER)
-        self.client.login(username='teacher_np', password='pass12345')
+        self.client.login(username='teacher_np', password='password1!')
         resp = self.client.get(reverse('hod_overview'))
         self.assertEqual(resp.status_code, 302)  # redirect to public_home
 
@@ -850,20 +979,20 @@ class HoDManageClassesViewTests(TestCase):
         self.dept, self.subj = _setup_department(self.school, head=self.owner)
         self.classroom = _setup_classroom(self.school, self.dept, self.subj)
         self.client = Client()
-        self.client.login(username='testowner', password='pass12345')
+        self.client.login(username='testowner', password='password1!')
 
     def test_manage_classes_loads(self):
         resp = self.client.get(reverse('hod_manage_classes'))
         self.assertEqual(resp.status_code, 200)
 
     def test_manage_classes_as_hod(self):
-        hod = CustomUser.objects.create_user('hod_mc', 'hod_mc@t.com', 'pass12345')
+        hod = CustomUser.objects.create_user('hod_mc', 'wlhtestmails+hod_mc@gmail.com', 'password1!')
         _assign_role(hod, Role.HEAD_OF_DEPARTMENT)
         self.dept.head = hod
         self.dept.save()
         DepartmentTeacher.objects.create(department=self.dept, teacher=hod)
-        SchoolTeacher.objects.create(school=self.school, teacher=hod, role='head_of_department')
-        self.client.login(username='hod_mc', password='pass12345')
+        SchoolTeacher.objects.update_or_create(school=self.school, teacher=hod, defaults={'role': 'head_of_department'})
+        self.client.login(username='hod_mc', password='password1!')
         resp = self.client.get(reverse('hod_manage_classes'))
         self.assertEqual(resp.status_code, 200)
 
@@ -873,7 +1002,7 @@ class HoDCreateClassViewTests(TestCase):
         self.owner, self.school = _setup_school()
         self.dept, self.subj = _setup_department(self.school, head=self.owner)
         self.client = Client()
-        self.client.login(username='testowner', password='pass12345')
+        self.client.login(username='testowner', password='password1!')
 
     def test_create_class_get(self):
         resp = self.client.get(reverse('hod_create_class'))
@@ -906,11 +1035,11 @@ class HoDCreateClassViewTests(TestCase):
 class AccountingDashboardViewTests(TestCase):
     def setUp(self):
         self.accountant = CustomUser.objects.create_user(
-            'acc_dash', 'acc_dash@t.com', 'pass12345',
+            'acc_dash', 'wlhtestmails+acc_dash@gmail.com', 'password1!',
         )
         _assign_role(self.accountant, Role.ACCOUNTANT)
         self.client = Client()
-        self.client.login(username='acc_dash', password='pass12345')
+        self.client.login(username='acc_dash', password='password1!')
 
     def test_dashboard_loads(self):
         resp = self.client.get(reverse('accounting_dashboard'))
@@ -947,9 +1076,9 @@ class AccountingDashboardViewTests(TestCase):
         self.assertEqual(payment.status, 'refunded')
 
     def test_no_access_for_teacher(self):
-        teacher = CustomUser.objects.create_user('teach_no', 'tn@t.com', 'pass12345')
+        teacher = CustomUser.objects.create_user('teach_no', 'wlhtestmails+tn@gmail.com', 'password1!')
         _assign_role(teacher, Role.TEACHER)
-        self.client.login(username='teach_no', password='pass12345')
+        self.client.login(username='teach_no', password='password1!')
         resp = self.client.get(reverse('accounting_dashboard'))
         self.assertEqual(resp.status_code, 302)
 
@@ -959,11 +1088,11 @@ class RoleAccessControlTests(TestCase):
 
     def setUp(self):
         self.student = CustomUser.objects.create_user(
-            'student_ac', 'sac@t.com', 'pass12345',
+            'student_ac', 'wlhtestmails+sac@gmail.com', 'password1!',
         )
         _assign_role(self.student, Role.STUDENT)
         self.client = Client()
-        self.client.login(username='student_ac', password='pass12345')
+        self.client.login(username='student_ac', password='password1!')
 
     def test_student_cannot_access_invoice_list(self):
         resp = self.client.get(reverse('invoice_list'))

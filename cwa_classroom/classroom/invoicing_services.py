@@ -21,6 +21,8 @@ from .models import (
     DepartmentFee, StudentFeeOverride, InvoiceNumberSequence,
     Invoice, InvoiceLineItem, InvoicePayment, CreditTransaction,
     PaymentReferenceMapping, CSVImport, SchoolStudent,
+    SchoolHoliday, PublicHoliday,
+    ParentStudent, StudentGuardian,
 )
 from .fee_utils import get_effective_fee_for_student, get_fee_source_label
 
@@ -117,9 +119,294 @@ def check_overlapping_invoices(student, school, billing_period_start, billing_pe
     ).exclude(status='cancelled')
 
 
+def find_uncovered_date_ranges(issued_invoices, request_start, request_end):
+    """
+    Given a collection of issued invoices and a requested billing window
+    [request_start, request_end], return a list of (start, end) date pairs
+    representing the portions of the window NOT already covered by those invoices.
+
+    Example:
+        issued: Jan 6–20
+        request: Jan 1–31
+        → uncovered: [(Jan 1, Jan 5), (Jan 21, Jan 31)]
+
+    Returns an empty list when the invoices fully cover the requested window.
+    """
+    # Clip each invoice's interval to the requested window
+    covered = sorted(
+        (
+            max(inv.billing_period_start, request_start),
+            min(inv.billing_period_end,   request_end),
+        )
+        for inv in issued_invoices
+        if inv.billing_period_start <= request_end
+        and inv.billing_period_end >= request_start
+    )
+
+    # Merge overlapping/adjacent covered intervals
+    merged = []
+    for cov_start, cov_end in covered:
+        if merged and cov_start <= merged[-1][1] + timedelta(days=1):
+            merged[-1] = (merged[-1][0], max(merged[-1][1], cov_end))
+        else:
+            merged.append((cov_start, cov_end))
+
+    # Collect gaps between/around the merged covered intervals
+    gaps = []
+    cursor = request_start
+    for cov_start, cov_end in merged:
+        if cursor < cov_start:
+            gaps.append((cursor, cov_start - timedelta(days=1)))
+        cursor = cov_end + timedelta(days=1)
+
+    if cursor <= request_end:
+        gaps.append((cursor, request_end))
+
+    return gaps
+
+
 # ---------------------------------------------------------------------------
 # Invoice Line Calculation
 # ---------------------------------------------------------------------------
+
+_DAY_MAP = {
+    'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
+    'friday': 4, 'saturday': 5, 'sunday': 6,
+}
+
+
+def ensure_sessions_for_period(school, billing_period_start, billing_period_end, created_by=None):
+    """
+    Auto-generate scheduled sessions for all active classrooms in the billing
+    period.  Skips dates that already have a session and dates that fall on
+    school or public holidays.  Only creates sessions for classrooms that have
+    a day/time schedule configured.
+
+    Returns the number of new sessions created.
+    """
+    classrooms = (
+        ClassRoom.objects
+        .filter(school=school, is_active=True)
+        .exclude(day='')
+        .exclude(start_time__isnull=True)
+        .exclude(end_time__isnull=True)
+    )
+
+    if not classrooms.exists():
+        return 0
+
+    # Build set of holiday dates to skip
+    holiday_dates = set()
+    school_holidays = SchoolHoliday.objects.filter(
+        school=school,
+        start_date__lte=billing_period_end,
+        end_date__gte=billing_period_start,
+    )
+    for h in school_holidays:
+        d = max(h.start_date, billing_period_start)
+        while d <= min(h.end_date, billing_period_end):
+            holiday_dates.add(d)
+            d += timedelta(days=1)
+
+    public_holidays = PublicHoliday.objects.filter(
+        school=school,
+        date__range=(billing_period_start, billing_period_end),
+    )
+    for h in public_holidays:
+        holiday_dates.add(h.date)
+
+    # Existing sessions — avoid duplicates
+    existing_keys = set(
+        ClassSession.objects
+        .filter(classroom__in=classrooms,
+                date__range=(billing_period_start, billing_period_end))
+        .values_list('classroom_id', 'date')
+    )
+
+    to_create = []
+    for classroom in classrooms:
+        target_wd = _DAY_MAP.get(classroom.day)
+        if target_wd is None:
+            continue
+        # First occurrence of this weekday on or after period start
+        days_ahead = (target_wd - billing_period_start.weekday()) % 7
+        session_date = billing_period_start + timedelta(days=days_ahead)
+
+        while session_date <= billing_period_end:
+            if (session_date not in holiday_dates
+                    and (classroom.pk, session_date) not in existing_keys):
+                to_create.append(ClassSession(
+                    classroom=classroom,
+                    date=session_date,
+                    start_time=classroom.start_time,
+                    end_time=classroom.end_time,
+                    status='scheduled',
+                    created_by=created_by,
+                ))
+            session_date += timedelta(weeks=1)
+
+    if to_create:
+        ClassSession.objects.bulk_create(to_create, ignore_conflicts=True)
+
+    return len(to_create)
+
+
+def sync_sessions_for_school(school, created_by=None):
+    """
+    Synchronise scheduled sessions with the current academic year / term dates.
+
+    1. Creates missing scheduled sessions within all current term date ranges.
+    2. Deletes future *scheduled* sessions that now fall outside any term range
+       (only sessions with no attendance recorded and no linked invoice).
+
+    Call this after editing academic year dates, term dates, or holidays.
+    Returns (created_count, deleted_count).
+    """
+    from datetime import date as _date
+    from .models import Term, StudentAttendance
+
+    today = _date.today()
+
+    terms = Term.objects.filter(
+        school=school,
+        end_date__gte=today,  # only current/future terms
+    ).order_by('start_date')
+
+    if not terms.exists():
+        return 0, 0
+
+    classrooms = (
+        ClassRoom.objects
+        .filter(school=school, is_active=True)
+        .exclude(day='')
+        .exclude(start_time__isnull=True)
+        .exclude(end_time__isnull=True)
+    )
+
+    if not classrooms.exists():
+        return 0, 0
+
+    # Collect all valid date ranges from terms
+    term_ranges = []
+    overall_start = None
+    overall_end = None
+    for term in terms:
+        # Only create sessions from today onwards
+        effective_start = max(term.start_date, today)
+        if effective_start <= term.end_date:
+            term_ranges.append((effective_start, term.end_date))
+            if overall_start is None or effective_start < overall_start:
+                overall_start = effective_start
+            if overall_end is None or term.end_date > overall_end:
+                overall_end = term.end_date
+
+    if not term_ranges:
+        return 0, 0
+
+    # Build set of holiday dates
+    holiday_dates = set()
+    school_holidays = SchoolHoliday.objects.filter(
+        school=school,
+        start_date__lte=overall_end,
+        end_date__gte=overall_start,
+    )
+    for h in school_holidays:
+        d = max(h.start_date, overall_start)
+        while d <= min(h.end_date, overall_end):
+            holiday_dates.add(d)
+            d += timedelta(days=1)
+
+    public_holidays = PublicHoliday.objects.filter(
+        school=school,
+        date__range=(overall_start, overall_end),
+    )
+    for h in public_holidays:
+        holiday_dates.add(h.date)
+
+    # --- CREATE missing sessions within term ranges ---
+    existing_keys = set(
+        ClassSession.objects
+        .filter(classroom__in=classrooms,
+                date__range=(overall_start, overall_end))
+        .values_list('classroom_id', 'date')
+    )
+
+    to_create = []
+    valid_dates_by_classroom = {}  # track which dates should have sessions
+
+    for classroom in classrooms:
+        target_wd = _DAY_MAP.get(classroom.day)
+        if target_wd is None:
+            continue
+
+        classroom_valid_dates = set()
+        for range_start, range_end in term_ranges:
+            days_ahead = (target_wd - range_start.weekday()) % 7
+            session_date = range_start + timedelta(days=days_ahead)
+            while session_date <= range_end:
+                if session_date not in holiday_dates:
+                    classroom_valid_dates.add(session_date)
+                    if (classroom.pk, session_date) not in existing_keys:
+                        to_create.append(ClassSession(
+                            classroom=classroom,
+                            date=session_date,
+                            start_time=classroom.start_time,
+                            end_time=classroom.end_time,
+                            status='scheduled',
+                            created_by=created_by,
+                        ))
+                session_date += timedelta(weeks=1)
+
+        valid_dates_by_classroom[classroom.pk] = classroom_valid_dates
+
+    if to_create:
+        ClassSession.objects.bulk_create(to_create, ignore_conflicts=True)
+
+    # --- DELETE future scheduled sessions that are now outside term ranges ---
+    # Only delete sessions that: are in the future, are 'scheduled', have no
+    # attendance records, and are not linked to any invoice line items.
+    from .models import InvoiceLineItem
+
+    # Session IDs that have attendance — keep these
+    attended_ids = set(
+        StudentAttendance.objects.filter(
+            session__classroom__in=classrooms,
+            session__date__gte=today,
+        ).values_list('session_id', flat=True)
+    )
+
+    # Classroom+date pairs covered by an invoice — keep these
+    invoiced_pairs = set()
+    for li in InvoiceLineItem.objects.filter(
+        classroom__in=classrooms,
+        invoice__billing_period_end__gte=today,
+    ).select_related('invoice'):
+        inv = li.invoice
+        d = max(inv.billing_period_start, today)
+        while d <= inv.billing_period_end:
+            invoiced_pairs.add((li.classroom_id, d))
+            d += timedelta(days=1)
+
+    orphan_sessions = (
+        ClassSession.objects
+        .filter(
+            classroom__in=classrooms,
+            date__gte=today,
+            status='scheduled',
+        )
+        .exclude(id__in=attended_ids)
+    )
+
+    deleted_count = 0
+    for session in orphan_sessions:
+        valid_dates = valid_dates_by_classroom.get(session.classroom_id, set())
+        if session.date not in valid_dates:
+            if (session.classroom_id, session.date) not in invoiced_pairs:
+                session.delete()
+                deleted_count += 1
+
+    return len(to_create), deleted_count
+
 
 def calculate_invoice_lines(student, school, billing_period_start, billing_period_end,
                              attendance_mode, billing_type='post_term'):
@@ -260,10 +547,17 @@ def set_opening_balance(school_student, amount):
 
 def create_draft_invoices(school, student_data, attendance_mode,
                            billing_period_start, billing_period_end, created_by,
-                           billing_type='post_term'):
+                           billing_type='post_term', period_type='custom'):
     """
     Creates draft Invoice + InvoiceLineItem records.
-    student_data: list of {student, lines, custom_amount (optional), notes (optional)}
+    student_data: list of {
+        student, lines,
+        custom_amount (optional), notes (optional),
+        period_start (optional override), period_end (optional override),
+    }
+    Per-student period_start/period_end override the global billing period for
+    that student's invoice (used for supplementary gap invoices).
+    period_type: 'custom', 'month', 'term', or 'year'
     Returns list of created Invoice objects.
     """
     invoices = []
@@ -276,16 +570,21 @@ def create_draft_invoices(school, student_data, attendance_mode,
             amount = data.get('custom_amount', calculated_amount)
             notes = data.get('notes', '')
 
-            invoice_number = generate_invoice_number(school, billing_period_end.year)
+            # Per-student period override (supplementary/gap invoices)
+            inv_period_start = data.get('period_start', billing_period_start)
+            inv_period_end   = data.get('period_end',   billing_period_end)
+
+            invoice_number = generate_invoice_number(school, inv_period_end.year)
 
             invoice = Invoice.objects.create(
                 invoice_number=invoice_number,
                 school=school,
                 student=student,
-                billing_period_start=billing_period_start,
-                billing_period_end=billing_period_end,
+                billing_period_start=inv_period_start,
+                billing_period_end=inv_period_end,
                 attendance_mode=attendance_mode,
                 billing_type=billing_type,
+                period_type=period_type,
                 calculated_amount=calculated_amount,
                 amount=amount,
                 status='draft',
@@ -396,16 +695,19 @@ def _send_invoice_email(invoice):
     school = invoice.school
     line_items = invoice.line_items.select_related('classroom', 'classroom__department').all()
 
-    # Determine the primary department for settings overrides
-    # (use the first line item's department if available)
+    # Determine the primary department and classroom for settings overrides
+    # (use the first line item's classroom/department if available)
     primary_dept = None
+    primary_classroom = None
     for li in line_items:
-        if li.classroom and li.classroom.department:
-            primary_dept = li.classroom.department
+        if li.classroom:
+            primary_classroom = li.classroom
+            if li.classroom.department:
+                primary_dept = li.classroom.department
             break
 
-    # Get effective settings (department overrides applied if present)
-    eff = school.get_effective_settings(primary_dept)
+    # Get effective settings (department then classroom overrides applied)
+    eff = school.get_effective_settings(primary_dept, classroom=primary_classroom)
 
     # Format dates
     invoice_date = ''
@@ -420,14 +722,23 @@ def _send_invoice_email(invoice):
         f"{invoice.billing_period_end.strftime('%b %d, %Y')}"
     )
 
+    # Get student ID code
+    school_student = SchoolStudent.objects.filter(
+        student=student, school=school,
+    ).first()
+    student_id_code = school_student.student_id_code if school_student else ''
+
     context = {
         # School header
         'school_name': school.name,
         'school_address': school.address or '',
         'school_phone': school.phone or '',
         'school_email': school.email or '',
+        'abn': eff.get('abn', ''),
+        'gst_number': eff.get('gst_number', ''),
         # Student
         'student_name': f'{student.first_name} {student.last_name}'.strip(),
+        'student_id_code': student_id_code,
         # Invoice details
         'invoice_number': invoice.invoice_number,
         'invoice_date': invoice_date,
@@ -470,17 +781,63 @@ def _send_invoice_email(invoice):
         'notes': invoice.notes or '',
     }
 
+    subject = f'Invoice {invoice.invoice_number} — {school.name}'
+    sent_emails = set()
+
+    # 1. Send to student
     try:
         send_templated_email(
             recipient_email=student.email,
-            subject=f'Invoice {invoice.invoice_number} — {school.name}',
+            subject=subject,
             template_name='email/transactional/invoice_issued.html',
             context=context,
             recipient_user=student,
             notification_type='invoice',
+            school=school,
+            department=primary_dept,
         )
+        sent_emails.add(student.email.lower())
     except Exception as e:
         logger.exception('Failed to send invoice email for %s: %s', invoice.invoice_number, e)
+
+    # 2. Send to parent accounts (ParentStudent links)
+    parent_links = ParentStudent.objects.filter(
+        student=student, school=school, is_active=True,
+    ).select_related('parent')
+    for link in parent_links:
+        if link.parent.email and link.parent.email.lower() not in sent_emails:
+            try:
+                send_templated_email(
+                    recipient_email=link.parent.email,
+                    subject=subject,
+                    template_name='email/transactional/invoice_issued.html',
+                    context=context,
+                    recipient_user=link.parent,
+                    notification_type='invoice',
+                )
+                sent_emails.add(link.parent.email.lower())
+            except Exception as e:
+                logger.exception('Failed to send invoice email to parent %s: %s', link.parent.email, e)
+
+    # 3. Send to guardian contacts (StudentGuardian links)
+    school_student = SchoolStudent.objects.filter(student=student, school=school).first()
+    if school_student:
+        guardian_links = StudentGuardian.objects.filter(
+            student=student,
+        ).select_related('guardian')
+        for sg in guardian_links:
+            if sg.guardian.email and sg.guardian.email.lower() not in sent_emails:
+                try:
+                    send_templated_email(
+                        recipient_email=sg.guardian.email,
+                        subject=subject,
+                        template_name='email/transactional/invoice_issued.html',
+                        context=context,
+                        notification_type='invoice',
+                    )
+                    sent_emails.add(sg.guardian.email.lower())
+                except Exception as e:
+                    logger.exception('Failed to send invoice email to guardian %s: %s', sg.guardian.email, e)
 
 
 # ---------------------------------------------------------------------------

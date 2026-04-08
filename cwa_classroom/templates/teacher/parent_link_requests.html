@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block title %}Parent Link Requests{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Parent Link Requests</h1>
+    <p class="text-gray-500 mt-1">Review and approve parent requests to link to students</p>
+  </div>
+
+  <!-- Stats -->
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 bg-amber-50 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6 text-amber-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-2xl font-bold text-amber-600">{{ pending_requests|length }}</p>
+          <p class="text-sm text-gray-500">Pending Request{{ pending_requests|length|pluralize }}</p>
+        </div>
+      </div>
+    </div>
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 bg-violet-50 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6 text-violet-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+          </svg>
+        </div>
+        <div>
+          <p class="text-2xl font-bold text-gray-900">Approve / Reject</p>
+          <p class="text-sm text-gray-500">Review each parent request</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="text-lg font-semibold text-gray-900 mb-4">Pending Requests</h2>
+
+  {% if pending_requests %}
+    <div class="space-y-4">
+      {% for req in pending_requests %}
+        <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div class="flex items-start gap-3">
+              <span class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-violet-100 text-violet-700 text-sm font-bold flex-shrink-0">
+                {{ req.parent.get_full_name|default:req.parent.username|slice:":2"|upper }}
+              </span>
+              <div>
+                <p class="font-semibold text-gray-900">
+                  {{ req.parent.get_full_name|default:req.parent.username }}
+                  <span class="text-xs text-gray-400 font-normal ml-1">({{ req.parent.email }})</span>
+                </p>
+                <p class="text-sm text-gray-600 mt-0.5">
+                  Requesting to link as
+                  <span class="font-medium">{{ req.get_relationship_display|default:"Guardian" }}</span>
+                  of
+                  <span class="font-medium">{{ req.school_student.student.get_full_name|default:req.school_student.student.username }}</span>
+                </p>
+                <p class="text-xs text-gray-400 mt-0.5">
+                  School: {{ req.school_student.school.name }}
+                  &middot; Student ID: {{ req.school_student.student_id_code }}
+                  &middot; Requested {{ req.requested_at|timesince }} ago
+                </p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <form method="post" action="{% url 'parent_link_approve' req.id %}" class="inline">
+                {% csrf_token %}
+                <button type="submit"
+                        class="px-4 py-2 bg-primary text-white text-sm font-semibold rounded-lg hover:bg-primary-dark transition">
+                  Approve
+                </button>
+              </form>
+              <form method="post" action="{% url 'parent_link_reject' req.id %}" class="inline"
+                    onsubmit="return confirm('Reject this parent link request?')">
+                {% csrf_token %}
+                <input type="hidden" name="rejection_reason" value="" />
+                <button type="submit"
+                        class="px-4 py-2 bg-white text-red-600 text-sm font-semibold rounded-lg border border-red-200 hover:bg-red-50 transition">
+                  Reject
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="bg-white rounded-xl p-12 border border-slate-200 text-center">
+      <svg class="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      <h3 class="text-lg font-semibold text-gray-700 mb-2">All caught up!</h3>
+      <p class="text-gray-500">No pending parent link requests.</p>
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}

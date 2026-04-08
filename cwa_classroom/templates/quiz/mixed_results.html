@@ -41,7 +41,7 @@
   {% endif %}
 
   <div class="flex flex-wrap gap-3 pb-6">
-    <a href="{% url 'mixed_quiz' level_number=level.level_number %}"
+    <a href="{% url 'mixed_quiz' subject=subject level_number=level.level_number %}"
        class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-5 py-3 transition">Try Again</a>
     <a href="{% url 'maths:dashboard' %}" class="bg-white border border-slate-200 text-gray-600 hover:border-primary hover:text-primary font-semibold rounded-xl px-5 py-3 transition">Home</a>
   </div>

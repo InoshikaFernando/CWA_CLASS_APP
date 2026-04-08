@@ -1,0 +1,9 @@
+{% for ss in students %}
+<label class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-50 cursor-pointer">
+  <input type="checkbox" name="student_ids" value="{{ ss.student_id }}"
+         class="student-checkbox rounded text-indigo-600 focus:ring-indigo-500">
+  <span class="text-sm text-gray-700">{{ ss.student.get_full_name|default:ss.student.username }}</span>
+</label>
+{% empty %}
+<p class="px-3 py-2 text-sm text-gray-400">No students found.</p>
+{% endfor %}

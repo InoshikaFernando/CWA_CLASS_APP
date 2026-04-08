@@ -1,0 +1,100 @@
+name: CI — Tests
+
+on:
+  push:
+    branches: [main, test]
+  pull_request:
+    branches: [main, test]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DB_ENGINE: sqlite
+
+jobs:
+  classroom-tests:
+    name: Classroom Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: cwa_classroom/requirements-test.txt
+
+      - name: Install dependencies
+        run: pip install -r cwa_classroom/requirements-test.txt
+
+      - name: Run classroom tests
+        working-directory: cwa_classroom
+        run: pytest classroom/tests/ -n auto --dist=loadscope -v --tb=short
+
+  maths-tests:
+    name: Maths Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: cwa_classroom/requirements-test.txt
+
+      - name: Install dependencies
+        run: pip install -r cwa_classroom/requirements-test.txt
+
+      - name: Run maths tests
+        working-directory: cwa_classroom
+        run: pytest maths/tests/ -n auto --dist=loadscope -v --tb=short
+
+  puzzles-tests:
+    name: Number Puzzles Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: cwa_classroom/requirements-test.txt
+
+      - name: Install dependencies
+        run: pip install -r cwa_classroom/requirements-test.txt
+
+      - name: Run number puzzles tests
+        working-directory: cwa_classroom
+        run: pytest number_puzzles/tests/ -n auto --dist=loadscope -v --tb=short
+
+  ui-tests:
+    name: UI Tests (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: cwa_classroom/requirements-test.txt
+
+      - name: Install dependencies
+        run: pip install -r cwa_classroom/requirements-test.txt
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ hashFiles('cwa_classroom/requirements-test.txt') }}
+
+      - name: Install Playwright browsers
+        run: playwright install --with-deps chromium
+
+      - name: Run UI tests
+        working-directory: cwa_classroom
+        run: pytest ui_tests/ -n auto -v --tb=short

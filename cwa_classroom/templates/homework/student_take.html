@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}{{ homework.title }}{% endblock %}
+
+{% block extra_head %}
+<style>
+  .answer-option input[type="radio"]:checked + label {
+    background-color: #dbeafe;
+    border-color: #3b82f6;
+    color: #1d4ed8;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="p-6">
+  <div class="max-w-3xl mx-auto">
+
+    <!-- Header -->
+    <div class="mb-6">
+      <h1 class="text-2xl font-display font-bold text-gray-900">{{ homework.title }}</h1>
+      <p class="text-sm text-gray-500 mt-0.5">
+        Attempt {{ attempt_number }}
+        {% if not homework.attempts_unlimited %} of {{ homework.max_attempts }}{% endif %}
+        &nbsp;·&nbsp; {{ questions|length }} questions
+        &nbsp;·&nbsp; Due {{ homework.due_date|date:"d M Y, H:i" }}
+      </p>
+    </div>
+
+    <!-- Timer -->
+    <div class="bg-blue-50 border border-blue-100 rounded-xl px-4 py-2 mb-6 flex items-center gap-2 text-sm text-blue-700 font-medium w-fit">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      Time: <span id="timer">00:00</span>
+    </div>
+
+    <form method="post" id="hw-form">
+      {% csrf_token %}
+      <input type="hidden" name="time_taken_seconds" id="time_taken_seconds" value="0">
+
+      <div class="space-y-6">
+        {% for hwq in questions %}
+        {% with q=hwq.question %}
+        <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <p class="text-sm font-semibold text-gray-400 mb-2">Question {{ forloop.counter }}</p>
+          <p class="text-gray-900 font-medium mb-4">{{ q.question_text }}</p>
+
+          {% if q.image %}
+          <img src="{{ q.image.url }}" alt="Question image" class="rounded-lg mb-4 max-h-48 object-contain">
+          {% endif %}
+
+          {% if q.question_type == 'multiple_choice' or q.question_type == 'true_false' %}
+          <div class="space-y-2">
+            {% for answer in hwq.shuffled_answers %}
+            <div class="answer-option">
+              <input type="radio" name="answer_{{ q.id }}" id="ans_{{ q.id }}_{{ answer.id }}"
+                     value="{{ answer.id }}" class="sr-only">
+              <label for="ans_{{ q.id }}_{{ answer.id }}"
+                     class="block border border-gray-200 rounded-lg px-4 py-2.5 text-sm text-gray-700 cursor-pointer hover:bg-blue-50 hover:border-blue-300 transition select-none">
+                {{ answer.answer_text }}
+              </label>
+            </div>
+            {% endfor %}
+          </div>
+
+          {% else %}
+          <input type="text" name="answer_{{ q.id }}"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                 placeholder="Type your answer...">
+          {% endif %}
+        </div>
+        {% endwith %}
+        {% endfor %}
+      </div>
+
+      <div class="mt-8 flex gap-3">
+        <button type="submit"
+                class="px-6 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">
+          Submit Homework
+        </button>
+      </div>
+    </form>
+
+  </div>
+</div>
+
+<script>
+  let seconds = 0;
+  const timerEl = document.getElementById('timer');
+  const hiddenEl = document.getElementById('time_taken_seconds');
+
+  setInterval(() => {
+    seconds++;
+    hiddenEl.value = seconds;
+    const m = String(Math.floor(seconds / 60)).padStart(2, '0');
+    const s = String(seconds % 60).padStart(2, '0');
+    timerEl.textContent = `${m}:${s}`;
+  }, 1000);
+
+  // Make radio labels clickable without double-click issue
+  document.querySelectorAll('.answer-option label').forEach(label => {
+    label.addEventListener('click', () => {
+      const input = document.getElementById(label.htmlFor);
+      if (input) input.checked = true;
+    });
+  });
+</script>
+{% endblock %}
