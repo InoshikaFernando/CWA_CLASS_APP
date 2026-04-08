@@ -485,13 +485,13 @@ class ParentHomeworkView(RoleRequiredMixin, View):
             best = HomeworkSubmission.get_best_submission(hw, child)
             attempt_count = HomeworkSubmission.get_attempt_count(hw, child)
             if best:
-                if hw.due_date and best.submitted_at and best.submitted_at.date() > hw.due_date:
+                if hw.due_date and best.submitted_at and best.submitted_at > hw.due_date:
                     status = 'late'
                 else:
                     status = 'submitted'
             else:
                 from django.utils import timezone
-                if hw.due_date and hw.due_date < timezone.now().date():
+                if hw.due_date and hw.due_date < timezone.now():
                     status = 'not_submitted'
                 else:
                     status = 'pending'
