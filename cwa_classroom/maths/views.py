@@ -1397,7 +1397,8 @@ def get_or_create_time_log(user):
         from django.utils import timezone
         now_local = localtime(timezone.now())
         time_log.last_reset_date = now_local.date()
-        time_log.last_reset_week = now_local.isocalendar()[1]
+        iso = now_local.isocalendar()
+        time_log.last_reset_week = iso[0] * 100 + iso[1]  # year*100+week to avoid year-rollover bug
         time_log.save()
     else:
         # Check and reset if needed
