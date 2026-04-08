@@ -5,14 +5,17 @@ import uuid
 
 
 def calculate_coding_points(passed_tests, total_tests, time_taken_seconds, k=30):
-    """Calculate problem points balancing accuracy and speed.
+    """Calculate attempt points for a single submission.
 
-    Mirrors maths.calculate_points() — percentage of passed tests × speed bonus.
-    Formula: percentage * 100 * (K / (K + time_per_test))
+    Formula: (passed/total) * 100 * (K / (K + time_per_test))
 
-    - Accuracy (tests passed) is the primary driver
-    - Speed gives a diminishing-returns bonus
-    - K controls speed weight (lower = speed matters more)
+    - Called on EVERY submission (pass or fail).
+    - Accuracy is the primary driver; a partial pass scores proportionally.
+    - Speed gives a diminishing-returns bonus — K=30 means halving points
+      requires spending 30 s per test case.
+    - The caller (api_submit_problem) is responsible for preserving the
+      student's best-ever score separately; this function always returns
+      the raw score for the current attempt only.
     """
     if not total_tests:
         return 0.0
@@ -331,6 +334,21 @@ class StudentProblemSubmission(models.Model):
     def get_best_result(cls, student, problem):
         """Return the highest-scoring submission for a student-problem pair."""
         return cls.objects.filter(student=student, problem=problem).order_by('-points').first()
+
+    @classmethod
+    def get_best_points(cls, student, problem):
+        """Return the highest points ever scored by this student on this problem.
+
+        Used to ensure re-submissions of a correct solution never reduce the
+        student's awarded score.  Returns 0.0 if no passing submission exists.
+        """
+        from django.db.models import Max
+        result = cls.objects.filter(
+            student=student,
+            problem=problem,
+            passed_all_tests=True,
+        ).aggregate(best=Max('points'))
+        return result['best'] or 0.0
 
     @classmethod
     def has_solved(cls, student, problem):

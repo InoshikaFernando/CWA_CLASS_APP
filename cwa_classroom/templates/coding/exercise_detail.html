@@ -1,234 +1,397 @@
 {% extends "coding/base.html" %}
 {% block coding_title %}{{ exercise.title }}{% endblock %}
 
-{% block extra_head %}
-{{ block.super }}
-<style>
-  /* ── Code editor textarea ──────────────────────────────────────────────── */
-  #code-editor {
-    width: 100%;
-    height: 420px;
-    background: #1e1e2e;
-    color: #cdd6f4;
-    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', 'Courier New', monospace;
-    font-size: 14px;
-    line-height: 1.7;
-    padding: 1rem;
-    border: none;
-    outline: none;
-    resize: none;
-    border-radius: 0 0 0.75rem 0.75rem;
-    tab-size: 2;
-    caret-color: #cba6f7;
-    spellcheck: false;
-  }
-  #code-editor:focus { outline: none; box-shadow: none; }
-  #code-editor::selection { background: #45475a; }
-  #code-editor::-webkit-scrollbar { width: 8px; background: #181825; }
-  #code-editor::-webkit-scrollbar-thumb { background: #45475a; border-radius: 4px; }
-  #output-panel { min-height: 140px; max-height: 260px; }
-  #html-preview-frame { width: 100%; height: 340px; border: none; border-radius: 0.75rem; background: #fff; display: block; }
-</style>
-{% endblock %}
-
 {% block content %}
 {{ exercise.starter_code|default:''|json_script:"starter-data" }}
-<div class="max-w-7xl mx-auto px-4 py-6">
+<style>
+  :root {
+    --cw-green-50:  #f0faf5; --cw-green-100: #d6f5e8;
+    --cw-green-200: #9FE1CB; --cw-green-400: #1D9E75; --cw-green-600: #0F6E56;
+    --cw-amber-50:  #FAEEDA; --cw-amber-200: #F5DFA8; --cw-amber-700: #854F0B;
+    --cw-surface:   #ffffff;
+    --cw-border:    rgba(0,0,0,0.08);
+    --cw-text-secondary: #5F5E5A;
+    --cw-text-muted:     #888780;
+    --ed-bg:    #1a1b2e;
+    --ed-bar:   #13141f;
+    --ed-text:  #e2e8f0;
+    --ed-caret: #1D9E75;
+  }
 
-  {# ── Top breadcrumb ───────────────────────────────────────────────────── #}
-  <div class="flex items-center justify-between mb-4">
-    <a href="{% url 'coding:exercise_list' lang_slug=language.slug topic_slug=exercise.topic.slug level=exercise.level %}"
-       class="text-sm text-gray-400 hover:text-gray-600 transition flex items-center gap-1">
-      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/>
-      </svg>
-      Back to exercises
-    </a>
-    {% if is_completed %}
-    <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">
-      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
-      </svg>
-      Completed
-    </span>
-    {% endif %}
-  </div>
+  /* Page */
+  .ed-page {
+    background: var(--cw-green-50);
+    margin: -24px -16px -96px;
+    padding: 16px 16px 64px;
+    min-height: calc(100vh - 10rem);
+  }
+  @media (min-width: 768px) { .ed-page { margin: -24px -32px -24px; padding: 20px 32px 64px; } }
+  .ed-inner { max-width: 1280px; margin: 0 auto; }
 
-  {# ── Split layout ─────────────────────────────────────────────────────── #}
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+  /* Back / status bar */
+  .ed-topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px; flex-wrap: wrap; gap: 8px;
+  }
+  .ed-back {
+    font-size: 13px; color: var(--cw-text-muted); text-decoration: none;
+    display: inline-flex; align-items: center; gap: 5px; transition: color .15s;
+  }
+  .ed-back:hover { color: var(--cw-green-600); }
+  .ed-done-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 12px; font-weight: 600;
+    background: var(--cw-green-50); color: var(--cw-green-600);
+    border: 1px solid var(--cw-green-200); border-radius: 99px; padding: 3px 12px;
+  }
 
-    {# ── LEFT: Instructions + Output ────────────────────────────────────── #}
-    <div class="flex flex-col gap-4">
+  /* Split layout */
+  .ed-split {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start;
+  }
+  @media (max-width: 900px) { .ed-split { grid-template-columns: 1fr; } }
 
-      {# Exercise card #}
-      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-        <div class="flex items-center gap-2 mb-3">
-          <span class="text-xs font-bold px-2 py-0.5 rounded-full text-white
-            {% if exercise.level == 'beginner' %}bg-emerald-500
-            {% elif exercise.level == 'intermediate' %}bg-amber-500
-            {% else %}bg-rose-500{% endif %}">
-            {{ exercise.get_level_display }}
-          </span>
-          <h1 class="text-lg font-bold text-gray-800">{{ exercise.title }}</h1>
-        </div>
-        <div class="prose prose-sm max-w-none text-gray-600 whitespace-pre-wrap">{{ exercise.description }}</div>
-      </div>
+  /* ── LEFT column ── */
+  .ed-left { display: flex; flex-direction: column; gap: 12px; }
 
-      {# Hint #}
-      {% if exercise.hints %}
-      <div x-data="{ open: false }">
-        <button @click="open = !open"
-                class="w-full text-left px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-amber-700 text-sm font-medium hover:bg-amber-100 transition flex items-center gap-2">
-          <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 7.478a12.06 12.06 0 01-4.5 0m3.75 2.311a7.5 7.5 0 01-3 0"/>
-          </svg>
-          <span x-text="open ? 'Hide hint' : 'Show hint'">Show hint</span>
-        </button>
-        <div x-show="open" x-transition
-             class="mt-2 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-800 whitespace-pre-wrap">
-          {{ exercise.hints }}
-        </div>
-      </div>
+  /* Exercise info card */
+  .ed-card {
+    background: var(--cw-surface); border-radius: 16px;
+    border: 1px solid var(--cw-border); padding: 20px 22px;
+  }
+  .ed-level-title { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .ed-level-badge {
+    font-size: 11px; font-weight: 700; padding: 3px 10px;
+    border-radius: 99px; color: #fff; white-space: nowrap;
+  }
+  .ed-level-beginner     { background: #1D9E75; }
+  .ed-level-intermediate { background: #BA7517; }
+  .ed-level-advanced     { background: #DC2626; }
+  .ed-card h1 { font-size: 17px; font-weight: 700; color: #1a1a18; margin: 0; }
+  .ed-desc { font-size: 14px; color: var(--cw-text-secondary); line-height: 1.65; white-space: pre-wrap; }
+
+  /* Hint */
+  .ed-hint-toggle {
+    width: 100%; text-align: left; padding: 12px 16px;
+    border-radius: 12px; border: 1px solid var(--cw-amber-200);
+    background: var(--cw-amber-50); color: var(--cw-amber-700);
+    font-size: 13px; font-weight: 500; cursor: pointer;
+    font-family: inherit; display: flex; align-items: center; gap: 8px;
+    appearance: none; -webkit-appearance: none; outline: none;
+    transition: background .15s;
+  }
+  .ed-hint-toggle:hover { background: #f5e2b8; }
+  .ed-hint-icon { font-size: 14px; }
+  .ed-hint-body {
+    margin-top: 6px; padding: 12px 16px;
+    background: var(--cw-amber-50); border: 1px solid var(--cw-amber-200);
+    border-radius: 12px; font-size: 13px; color: var(--cw-amber-700);
+    white-space: pre-wrap; line-height: 1.6; display: none;
+  }
+  .ed-hint-body.open { display: block; }
+
+  /* Output / Preview */
+  .ed-output-wrap {
+    background: #0f1117; border-radius: 14px;
+    border: 1px solid #2a2d3a; overflow: hidden;
+  }
+  .ed-output-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px;
+    background: #161821; border-bottom: 1px solid #2a2d3a;
+  }
+  .ed-output-label {
+    font-size: 10px; font-weight: 600; letter-spacing: .1em;
+    text-transform: uppercase; color: #6b7280;
+  }
+  .ed-clear-btn {
+    font-size: 11px; color: #6b7280; background: none;
+    border: none; cursor: pointer; font-family: inherit; padding: 0;
+    transition: color .15s;
+  }
+  .ed-clear-btn:hover { color: #9ca3af; }
+  #ed-stdout {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 13px; line-height: 1.6;
+    color: #4ade80; padding: 14px;
+    min-height: 120px; max-height: 240px;
+    white-space: pre-wrap; overflow-y: auto; margin: 0;
+  }
+  #ed-stderr {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 12px; color: #f87171;
+    padding: 0 14px 12px; white-space: pre-wrap;
+    display: none;
+  }
+
+  /* HTML/CSS preview */
+  .ed-preview-wrap {
+    background: var(--cw-surface); border-radius: 14px;
+    border: 1px solid var(--cw-border); overflow: hidden;
+  }
+  .ed-preview-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px; border-bottom: 1px solid var(--cw-border);
+  }
+  .ed-preview-label { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--cw-text-muted); }
+  .ed-preview-hint  { font-size: 11px; color: var(--cw-green-600); }
+  #ed-preview-frame { width: 100%; height: 300px; border: none; display: block; background: #fff; }
+
+  /* ── RIGHT column ── */
+  .ed-right { display: flex; flex-direction: column; gap: 12px; }
+
+  /* Toolbar */
+  .ed-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .ed-lang-label {
+    font-size: 11px; font-weight: 600; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--cw-text-muted);
+  }
+  .ed-toolbar-btns { display: flex; gap: 8px; align-items: center; }
+  .ed-reset-btn {
+    font-size: 12px; padding: 7px 14px; border-radius: 8px;
+    background: var(--cw-surface); border: 1px solid rgba(0,0,0,0.13);
+    color: var(--cw-text-secondary); cursor: pointer; font-family: inherit;
+    transition: background .15s;
+  }
+  .ed-reset-btn:hover { background: #f1f0ea; }
+  .ed-run-btn {
+    font-size: 13px; font-weight: 600; padding: 7px 20px; border-radius: 8px;
+    background: var(--cw-green-400); color: #fff; border: none;
+    cursor: pointer; font-family: inherit;
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: background .15s, opacity .15s;
+  }
+  .ed-run-btn:hover { background: var(--cw-green-600); }
+  .ed-run-btn:disabled { opacity: .6; cursor: not-allowed; }
+
+  /* Editor chrome */
+  .ed-chrome {
+    border-radius: 14px; overflow: hidden;
+    border: 1px solid #2a2d3a;
+  }
+  .ed-chrome-bar {
+    display: flex; align-items: center; gap: 6px;
+    padding: 9px 14px; background: var(--ed-bar);
+    border-bottom: 1px solid #2a2d3a;
+  }
+  .ed-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+  .ed-dot-r { background: #ff5f57; }
+  .ed-dot-y { background: #febc2e; }
+  .ed-dot-g { background: #28c840; }
+  .ed-file  { font-size: 12px; color: #6b7280; font-family: 'JetBrains Mono', monospace; margin-left: 6px; }
+
+  #ed-code {
+    width: 100%; height: 400px;
+    background: var(--ed-bg); color: var(--ed-text);
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+    font-size: 14px; line-height: 1.7;
+    padding: 16px; border: none; outline: none;
+    resize: none; tab-size: 2;
+    caret-color: var(--ed-caret);
+    display: block;
+  }
+  #ed-code::selection { background: #2d4a3e; }
+  #ed-code::-webkit-scrollbar { width: 6px; background: var(--ed-bg); }
+  #ed-code::-webkit-scrollbar-thumb { background: #2a2d3a; border-radius: 3px; }
+
+  /* Mark complete */
+  .ed-mark-btn {
+    width: 100%; padding: 11px; border-radius: 12px;
+    font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit;
+    transition: border-color .15s, color .15s, background .15s;
+  }
+  .ed-mark-btn.done {
+    border: 2px solid var(--cw-green-400); color: var(--cw-green-600);
+    background: var(--cw-green-50); cursor: default;
+  }
+  .ed-mark-btn.todo {
+    border: 2px solid rgba(0,0,0,0.13); color: var(--cw-text-muted);
+    background: var(--cw-surface);
+  }
+  .ed-mark-btn.todo:hover { border-color: var(--cw-green-400); color: var(--cw-green-600); }
+</style>
+
+<div class="ed-page">
+  <div class="ed-inner">
+
+    <!-- Top bar -->
+    <div class="ed-topbar">
+      <a class="ed-back" href="{% url 'coding:exercise_list' lang_slug=language.slug topic_slug=exercise.topic.slug level=exercise.level %}">
+        &#8592; Back to exercises
+      </a>
+      {% if is_completed %}
+      <span class="ed-done-badge">&#10003; Completed</span>
       {% endif %}
+    </div>
 
-      {% if language.uses_browser_sandbox %}
-      {# HTML/CSS — live preview panel in left column #}
-      <div>
-        <div class="flex items-center justify-between mb-2">
-          <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Live Preview</span>
-          <span class="text-xs text-violet-500 font-medium">Click Run Code to preview</span>
+    <!-- Split layout -->
+    <div class="ed-split">
+
+      <!-- LEFT -->
+      <div class="ed-left">
+
+        <!-- Exercise card -->
+        <div class="ed-card">
+          <div class="ed-level-title">
+            <span class="ed-level-badge ed-level-{{ exercise.level }}">{{ exercise.get_level_display }}</span>
+            <h1>{{ exercise.title }}</h1>
+          </div>
+          <p class="ed-desc">{{ exercise.description }}</p>
         </div>
-        <div class="rounded-xl border border-slate-200 shadow-sm overflow-hidden bg-white">
-          <iframe id="html-preview-frame"
+
+        <!-- Hint -->
+        {% if exercise.hints %}
+        <div>
+          <button type="button" class="ed-hint-toggle" id="ed-hint-btn"
+                  onclick="edToggleHint()">
+            <span class="ed-hint-icon">&#9888;</span>
+            <span id="ed-hint-label">Show hint</span>
+          </button>
+          <div class="ed-hint-body" id="ed-hint-body">{{ exercise.hints }}</div>
+        </div>
+        {% endif %}
+
+        <!-- Output (Python / JS) -->
+        {% if not language.uses_browser_sandbox %}
+        <div class="ed-output-wrap">
+          <div class="ed-output-bar">
+            <span class="ed-output-label">Output</span>
+            <button type="button" class="ed-clear-btn" onclick="edClearOutput()">Clear</button>
+          </div>
+          <pre id="ed-stdout">Click &#34;Run Code&#34; to see your output here.</pre>
+          <div id="ed-stderr"></div>
+        </div>
+        {% endif %}
+
+        <!-- HTML/CSS live preview -->
+        {% if language.uses_browser_sandbox %}
+        <div class="ed-preview-wrap">
+          <div class="ed-preview-bar">
+            <span class="ed-preview-label">Live Preview</span>
+            <span class="ed-preview-hint">Click Run Code to preview</span>
+          </div>
+          <iframe id="ed-preview-frame"
                   sandbox="allow-scripts allow-same-origin"
                   srcdoc=""></iframe>
         </div>
-      </div>
-      {% else %}
-      {# Python/JS — output terminal #}
-      <div class="bg-gray-900 rounded-2xl border border-gray-700 p-4">
-        <div class="flex items-center justify-between mb-2">
-          <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Output</span>
-          <button id="clearBtn" class="text-xs text-gray-500 hover:text-gray-300 transition">Clear</button>
-        </div>
-        <pre id="output-panel"
-             class="text-sm font-mono text-green-400 whitespace-pre-wrap overflow-auto">Click "Run Code" to see your output here.</pre>
-        <div id="stderr-panel"
-             class="text-sm font-mono text-red-400 whitespace-pre-wrap mt-1 hidden"></div>
-      </div>
-      {% endif %}
+        {% endif %}
 
+      </div>
+
+      <!-- RIGHT -->
+      <div class="ed-right">
+
+        <!-- Toolbar -->
+        <div class="ed-toolbar">
+          <span class="ed-lang-label">{{ language.name }}</span>
+          <div class="ed-toolbar-btns">
+            <button type="button" class="ed-reset-btn" onclick="edReset()">Reset</button>
+            <button type="button" class="ed-run-btn" id="ed-run-btn" onclick="edRun()">
+              &#9654; Run Code
+            </button>
+          </div>
+        </div>
+
+        <!-- Editor -->
+        <div class="ed-chrome">
+          <div class="ed-chrome-bar">
+            <span class="ed-dot ed-dot-r"></span>
+            <span class="ed-dot ed-dot-y"></span>
+            <span class="ed-dot ed-dot-g"></span>
+            <span class="ed-file">
+              {% if language.slug == 'python' %}main.py
+              {% elif language.slug == 'javascript' %}main.js
+              {% elif language.slug == 'html' %}index.html
+              {% elif language.slug == 'css' %}style.css
+              {% else %}code.txt{% endif %}
+            </span>
+          </div>
+          <textarea id="ed-code"
+                    spellcheck="false"
+                    autocomplete="off"
+                    autocorrect="off"
+                    autocapitalize="off"
+                    placeholder="// Write your code below"></textarea>
+        </div>
+
+        <!-- Mark complete -->
+        <button type="button" id="ed-mark-btn"
+                class="ed-mark-btn {% if is_completed %}done{% else %}todo{% endif %}"
+                onclick="edMarkDone()">
+          {% if is_completed %}&#10003; Exercise completed{% else %}Mark as completed{% endif %}
+        </button>
+
+      </div>
     </div>
-
-    {# ── RIGHT: Code editor ─────────────────────────────────────────────── #}
-    <div class="flex flex-col gap-3">
-
-      {# Toolbar #}
-      <div class="flex items-center justify-between">
-        <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ language.name }}</span>
-        <div class="flex gap-2">
-          <button id="resetBtn"
-                  class="text-xs px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-gray-500 hover:bg-slate-50 transition">
-            Reset
-          </button>
-          <button id="runBtn"
-                  class="text-sm px-5 py-1.5 rounded-lg font-semibold text-white transition hover:opacity-90 flex items-center gap-2"
-                  style="background-color: #7c3aed">
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z"/>
-            </svg>
-            Run Code
-          </button>
-        </div>
-      </div>
-
-      {# Editor chrome + textarea #}
-      <div class="rounded-xl overflow-hidden border border-slate-700 shadow-sm">
-        {# macOS-style title bar #}
-        <div class="flex items-center gap-1.5 px-3 py-2 bg-gray-800 border-b border-gray-700">
-          <span class="w-3 h-3 rounded-full bg-red-500 opacity-80"></span>
-          <span class="w-3 h-3 rounded-full bg-yellow-500 opacity-80"></span>
-          <span class="w-3 h-3 rounded-full bg-green-500 opacity-80"></span>
-          <span class="ml-2 text-xs text-gray-500 font-mono">
-            {% if language.slug == 'python' %}main.py
-            {% elif language.slug == 'javascript' %}main.js
-            {% elif language.slug == 'html' or language.slug == 'html-css' %}index.html
-            {% elif language.slug == 'css' %}style.css
-            {% else %}code.txt{% endif %}
-          </span>
-        </div>
-        <textarea id="code-editor"
-                  spellcheck="false"
-                  autocomplete="off"
-                  autocorrect="off"
-                  autocapitalize="off"
-                  placeholder="Write your code here…"></textarea>
-      </div>
-
-      {# Mark complete / Submit #}
-      <button id="markDoneBtn"
-              class="w-full py-2.5 rounded-xl text-sm font-semibold border-2 transition
-                     {% if is_completed %}border-emerald-500 text-emerald-600 bg-emerald-50 cursor-default
-                     {% else %}border-slate-200 text-gray-500 hover:border-emerald-400 hover:text-emerald-600{% endif %}">
-        {% if is_completed %}✓ Exercise completed{% else %}Mark as completed{% endif %}
-      </button>
-
-    </div>
-
   </div>
 </div>
 
 <script>
-const LANG_SLUG          = "{{ language.slug }}";
-const STARTER            = JSON.parse(document.getElementById('starter-data').textContent);
-const CSRF_TOKEN         = "{{ csrf_token }}";
-const EXERCISE_ID        = {{ exercise.id }};
-const IS_BROWSER_SANDBOX = ['html', 'css', 'html-css'].includes(LANG_SLUG);
+const LANG_SLUG   = "{{ language.slug }}";
+const STARTER     = JSON.parse(document.getElementById('starter-data').textContent);
+const CSRF_TOKEN  = "{{ csrf_token }}";
+const EXERCISE_ID = {{ exercise.id }};
+const IS_BROWSER  = ['html', 'css', 'html-css'].includes(LANG_SLUG);
+const IS_DONE     = {{ is_completed|yesno:"true,false" }};
 
-// ── Editor — plain textarea, zero CDN dependencies ────────────────────────
-const _ta = document.getElementById('code-editor');
-_ta.value = STARTER;
+const codeEl = document.getElementById('ed-code');
+codeEl.value = STARTER || '';
 
-// Tab key inserts 2 spaces instead of moving focus
-_ta.addEventListener('keydown', function (e) {
+/* Tab key → 2 spaces, Ctrl+Enter → run */
+codeEl.addEventListener('keydown', function(e) {
   if (e.key === 'Tab') {
     e.preventDefault();
     const s = this.selectionStart, en = this.selectionEnd;
     this.value = this.value.substring(0, s) + '  ' + this.value.substring(en);
     this.selectionStart = this.selectionEnd = s + 2;
   }
-  // Ctrl+Enter → run
-  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-    document.getElementById('runBtn').click();
-  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') edRun();
 });
 
-// Thin wrapper so the rest of the JS can call editor.getValue() / setValue()
-const editor = {
-  getValue: function () { return _ta.value; },
-  setValue: function (v) { _ta.value = v; },
-};
+function edToggleHint() {
+  const body  = document.getElementById('ed-hint-body');
+  const label = document.getElementById('ed-hint-label');
+  const open  = body.classList.contains('open');
+  body.classList.toggle('open', !open);
+  label.textContent = open ? 'Show hint' : 'Hide hint';
+}
 
-// ── HTML/CSS: live preview (updated only on Run Code click) ──────────────
+function edClearOutput() {
+  document.getElementById('ed-stdout').textContent = 'Click "Run Code" to see your output here.';
+  const se = document.getElementById('ed-stderr');
+  if (se) { se.textContent = ''; se.style.display = 'none'; }
+}
 
-// ── Run Code ──────────────────────────────────────────────────────────────
-document.getElementById('runBtn').addEventListener('click', async function () {
-  if (IS_BROWSER_SANDBOX) {
-    const frame = document.getElementById('html-preview-frame');
-    if (frame) frame.srcdoc = editor.getValue();
+function edReset() {
+  if (confirm('Reset code to starter?')) {
+    codeEl.value = STARTER || '';
+    if (IS_BROWSER) {
+      const f = document.getElementById('ed-preview-frame');
+      if (f) f.srcdoc = '';
+    }
+  }
+}
+
+async function edRun() {
+  const btn = document.getElementById('ed-run-btn');
+  const code = codeEl.value;
+
+  /* HTML/CSS — browser sandbox */
+  if (IS_BROWSER) {
+    const f = document.getElementById('ed-preview-frame');
+    if (f) f.srcdoc = code;
     return;
   }
 
-  const code      = editor.getValue();
-  const outputEl  = document.getElementById('output-panel');
-  const stderrEl  = document.getElementById('stderr-panel');
-  const btn       = this;
+  const stdout = document.getElementById('ed-stdout');
+  const stderr = document.getElementById('ed-stderr');
 
-  btn.disabled     = true;
-  btn.textContent  = 'Running…';
-  outputEl.textContent = 'Running…';
-  stderrEl.classList.add('hidden');
-  stderrEl.textContent = '';
+  btn.disabled = true;
+  btn.textContent = 'Running\u2026';
+  stdout.textContent = 'Running\u2026';
+  if (stderr) { stderr.textContent = ''; stderr.style.display = 'none'; }
 
   try {
     const res  = await fetch('{% url "coding:api_run_code" %}', {
@@ -238,71 +401,40 @@ document.getElementById('runBtn').addEventListener('click', async function () {
     });
     const data = await res.json();
 
-    if (data.error) {
-      outputEl.textContent = data.error;
-      if (data.stderr) {
-        stderrEl.textContent = data.stderr;
-        stderrEl.classList.remove('hidden');
-      }
-    } else {
-      outputEl.textContent = data.stdout || '(no output)';
-      if (data.stderr) {
-        stderrEl.textContent = data.stderr;
-        stderrEl.classList.remove('hidden');
-      }
+    stdout.textContent = data.stdout || (data.error ? data.error : '(no output)');
+    if (data.stderr && stderr) {
+      stderr.textContent = data.stderr;
+      stderr.style.display = 'block';
     }
-  } catch (e) {
-    outputEl.textContent = 'Network error — please try again.';
+  } catch (_) {
+    stdout.textContent = 'Network error \u2014 please try again.';
   }
 
   btn.disabled = false;
-  btn.innerHTML = '<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z"/></svg> Run Code';
-});
+  btn.textContent = '\u25B6 Run Code';
+}
 
-// ── Reset ─────────────────────────────────────────────────────────────────
-document.getElementById('resetBtn').addEventListener('click', function () {
-  if (confirm('Reset code to starter?')) {
-    editor.setValue(STARTER);
-    if (IS_BROWSER_SANDBOX) {
-      const frame = document.getElementById('html-preview-frame');
-      if (frame) frame.srcdoc = STARTER;
-    }
-  }
-});
-
-// ── Clear output ──────────────────────────────────────────────────────────
-{% if not language.uses_browser_sandbox %}
-document.getElementById('clearBtn').addEventListener('click', function () {
-  document.getElementById('output-panel').textContent = 'Click "Run Code" to see your output here.';
-  const s = document.getElementById('stderr-panel');
-  s.textContent = '';
-  s.classList.add('hidden');
-});
-{% endif %}
-
-// ── Mark as completed ─────────────────────────────────────────────────────
-document.getElementById('markDoneBtn').addEventListener('click', async function () {
-  {% if is_completed %}return;{% endif %}
-  const btn = this;
-  btn.disabled    = true;
-  btn.textContent = 'Saving…';
+async function edMarkDone() {
+  if (IS_DONE) return;
+  const btn = document.getElementById('ed-mark-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving\u2026';
   try {
     await fetch('{% url "coding:api_run_code" %}', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
       body:    JSON.stringify({
         language_slug: LANG_SLUG,
-        code:          editor.getValue(),
+        code: codeEl.value,
         mark_complete: true,
         exercise_id:   EXERCISE_ID,
       }),
     });
     window.location.reload();
-  } catch (e) {
-    btn.disabled    = false;
+  } catch (_) {
+    btn.disabled = false;
     btn.textContent = 'Mark as completed';
   }
-});
+}
 </script>
-
 {% endblock %}

@@ -33,9 +33,57 @@ def _get_language_or_404(lang_slug):
 @login_required
 def language_selector(request):
     """Landing page — student picks a language to practise."""
-    languages = CodingLanguage.objects.filter(is_active=True)
+    languages = list(CodingLanguage.objects.filter(is_active=True))
+    total_languages = len(languages)
+
+    # Topic and exercise counts per language
+    topic_counts = {
+        row['language_id']: row['total']
+        for row in CodingTopic.objects.filter(language__is_active=True, is_active=True)
+                                       .values('language_id')
+                                       .annotate(total=Count('id'))
+    }
+    exercise_counts = {
+        row['topic__language_id']: row['total']
+        for row in CodingExercise.objects.filter(topic__language__is_active=True, is_active=True)
+                                          .values('topic__language_id')
+                                          .annotate(total=Count('id'))
+    }
+
+    # Languages the current student has started (at least one submission)
+    started_lang_ids = set()
+    if not request.user.is_staff:
+        started_lang_ids = set(
+            StudentExerciseSubmission.objects.filter(student=request.user)
+            .values_list('exercise__topic__language_id', flat=True)
+            .distinct()
+        )
+
+    # Attach computed fields to each language object
+    for lang in languages:
+        lang.topic_count = topic_counts.get(lang.id, 0)
+        lang.exercise_count = exercise_counts.get(lang.id, 0)
+        lang.is_started = lang.id in started_lang_ids
+
+    started_count = len(started_lang_ids)
+
+    # Badge labels per slug
+    BADGE_MAP = {
+        'python': ('Beginner friendly', 'starter'),
+        'javascript': ('Most popular', 'popular'),
+        'html': ('Great first step', 'starter'),
+        'css': ('Updated', 'new'),
+        'scratch': ('Visual blocks', 'visual'),
+    }
+    for lang in languages:
+        badge = BADGE_MAP.get(lang.slug)
+        lang.badge_label = badge[0] if badge else ''
+        lang.badge_type = badge[1] if badge else ''
+
     return render(request, 'coding/language_selector.html', {
         'languages': languages,
+        'total_languages': total_languages,
+        'started_count': started_count,
         'subject_sidebar': 'coding',
     })
 
@@ -66,18 +114,38 @@ def topic_list(request, lang_slug):
         ).values('exercise__topic_id').annotate(done=Count('exercise_id', distinct=True))
     }
 
-    topic_data = [
-        {
+    # Icon colour palette (cycles through topics)
+    ICON_COLOURS = ['blue', 'purple', 'green', 'amber', 'coral', 'pink', 'gray']
+
+    topic_data = []
+    for idx, t in enumerate(topics):
+        total = total_by_topic.get(t.id, 0)
+        completed = done_by_topic.get(t.id, 0)
+        pct = round(completed / total * 100) if total else 0
+        topic_data.append({
             'topic': t,
-            'total': total_by_topic.get(t.id, 0),
-            'completed': done_by_topic.get(t.id, 0),
-        }
-        for t in topics
-    ]
+            'total': total,
+            'completed': completed,
+            'pct': pct,
+            'is_started': completed > 0,
+            'is_complete': total > 0 and completed >= total,
+            'colour': ICON_COLOURS[idx % len(ICON_COLOURS)],
+        })
+
+    # Hero stat pills
+    exercises_total = sum(td['total'] for td in topic_data)
+    exercises_completed = sum(td['completed'] for td in topic_data)
+    topics_started = sum(1 for td in topic_data if td['is_started'])
+    completion_pct = round(exercises_completed / exercises_total * 100) if exercises_total else 0
 
     return render(request, 'coding/topic_list.html', {
         'language': language,
         'topic_data': topic_data,
+        'topics_started': topics_started,
+        'exercises_total': exercises_total,
+        'exercises_completed': exercises_completed,
+        'exercises_remaining': exercises_total - exercises_completed,
+        'completion_pct': completion_pct,
         'subject_sidebar': 'coding',
     })
 
@@ -95,25 +163,48 @@ def level_list(request, lang_slug, topic_slug):
     ]
 
     # Build completion info per level for the logged-in student
+    LEVEL_META = {
+        CodingExercise.BEGINNER:     {'stars': 1, 'colour': 'green',  'hint': 'Great starting point — core concepts explained simply.'},
+        CodingExercise.INTERMEDIATE: {'stars': 2, 'colour': 'amber',  'hint': 'Apply what you know with more involved problems.'},
+        CodingExercise.ADVANCED:     {'stars': 3, 'colour': 'rose',   'hint': 'Challenge yourself with complex, real-world scenarios.'},
+    }
+
     level_data = []
     for level in levels:
         exercises = CodingExercise.objects.filter(topic=topic, level=level, is_active=True)
-        completed = StudentExerciseSubmission.objects.filter(
+        total = exercises.count()
+        completed_ids = StudentExerciseSubmission.objects.filter(
             student=request.user,
             exercise__in=exercises,
             is_completed=True,
         ).values_list('exercise_id', flat=True).distinct()
+        completed = len(completed_ids)
+        pct = round(completed / total * 100) if total else 0
+        meta = LEVEL_META[level]
         level_data.append({
             'level': level,
             'label': dict(CodingExercise.LEVEL_CHOICES)[level],
-            'total': exercises.count(),
-            'completed': len(completed),
+            'total': total,
+            'completed': completed,
+            'pct': pct,
+            'stars': meta['stars'],
+            'colour': meta['colour'],
+            'hint': meta['hint'],
+            'is_started': completed > 0,
+            'is_complete': total > 0 and completed >= total,
         })
+
+    topic_total = sum(ld['total'] for ld in level_data)
+    topic_completed = sum(ld['completed'] for ld in level_data)
+    topic_pct = round(topic_completed / topic_total * 100) if topic_total else 0
 
     return render(request, 'coding/level_list.html', {
         'language': language,
         'topic': topic,
         'level_data': level_data,
+        'topic_total': topic_total,
+        'topic_completed': topic_completed,
+        'topic_pct': topic_pct,
         'subject_sidebar': 'coding',
     })
 
@@ -434,13 +525,46 @@ def api_submit_problem(request, problem_id):
             })
 
     visible_passed = sum(1 for r in visible_results if r['passed'])
-    visible_total = len(visible_results)
-    total_passed = visible_passed + hidden_passed
-    total_tests = visible_total + hidden_total
+    visible_total  = len(visible_results)
+    total_passed   = visible_passed + hidden_passed
+    total_tests    = visible_total + hidden_total
 
-    points = calculate_coding_points(total_passed, total_tests, time_taken) if all_passed else 0.0
+    # ── Scoring ───────────────────────────────────────────────────────────────
+    #
+    # Two distinct values are tracked independently:
+    #
+    #   attempt_points  — points earned on THIS submission, calculated fresh
+    #                     from accuracy + time.  Always reflects the real
+    #                     performance for this attempt; can go up or down
+    #                     compared to the previous attempt.
+    #
+    #   best_points     — the highest attempt_points ever recorded for this
+    #                     student-problem pair across ALL submissions.
+    #                     Stored in the DB and used by the leaderboard /
+    #                     progress views.  Can only ever increase.
+    #
+    # Separating these two fixes both failure modes:
+    #   • Previous bug #1 (before last fix): score dropped on each re-submit
+    #     because time_taken accumulated.
+    #   • Previous bug #2 (after last fix):  score was frozen because
+    #     max(attempt, best_previous) always returned best_previous once
+    #     the student slowed down even slightly.
+    #
+    # ─────────────────────────────────────────────────────────────────────────
+    best_previous = StudentProblemSubmission.get_best_points(request.user, problem)
 
-    # Save submission record
+    if all_passed:
+        attempt_points = calculate_coding_points(total_passed, total_tests, time_taken)
+        best_points    = max(attempt_points, best_previous)
+    else:
+        attempt_points = 0.0
+        best_points    = best_previous   # a failed attempt never reduces the leaderboard score
+
+    is_new_best = all_passed and attempt_points > best_previous
+
+    # Persist every submission for audit trail.
+    # Store best_points so leaderboard queries (ORDER BY points DESC) always
+    # surface the student's best performance, not their most recent one.
     attempt_number = StudentProblemSubmission.get_next_attempt_number(request.user, problem)
     StudentProblemSubmission.objects.create(
         student=request.user,
@@ -453,16 +577,18 @@ def api_submit_problem(request, problem_id):
         hidden_passed=hidden_passed,
         hidden_total=hidden_total,
         test_results=test_results_store,
-        points=points,
+        points=best_points,          # leaderboard always uses best-of
         time_taken_seconds=time_taken,
     )
 
     return JsonResponse({
-        'passed_all': all_passed,
+        'passed_all':      all_passed,
         'visible_results': visible_results,
-        'hidden_passed': hidden_passed,
-        'hidden_total': hidden_total,
-        'points': points,
+        'hidden_passed':   hidden_passed,
+        'hidden_total':    hidden_total,
+        'attempt_points':  attempt_points,  # what the student earned THIS attempt
+        'best_points':     best_points,     # their all-time best (leaderboard value)
+        'is_new_best':     is_new_best,     # true only when this attempt beats all prior ones
     })
 
 
