@@ -23,7 +23,6 @@ from classroom.views import (
     TermsConditionsView,
 )
 from classroom.views_email import UnsubscribeView
-from classroom.views_help import HelpIndexView, HelpArticleDetailView
 
 
 sitemaps = {
@@ -55,8 +54,6 @@ urlpatterns = [
     path('join/', JoinClassView.as_view(), name='join_class'),
     path('privacy/', PrivacyPolicyView.as_view(), name='privacy_policy'),
     path('terms/', TermsConditionsView.as_view(), name='terms_conditions'),
-    path('help/', HelpIndexView.as_view(), name='help_index'),
-    path('help/<slug:slug>/', HelpArticleDetailView.as_view(), name='help_article'),
 
     # --- Email unsubscribe (public, no login required) ---
     path('email/unsubscribe/<uuid:token>/', UnsubscribeView.as_view(), name='email_unsubscribe'),
