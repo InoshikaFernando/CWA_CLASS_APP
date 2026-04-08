@@ -443,11 +443,66 @@ class ParentProgressView(RoleRequiredMixin, View):
             overall['not_started'] += not_started
             overall['not_assessed'] += not_assessed
 
+        from django.db.models import Count, Sum, Case, When, IntegerField
+
+        module_activity = []
+
+        # --- Maths: per-topic accuracy from StudentAnswer ---
+        from maths.models import StudentAnswer
+        maths_rows = (
+            StudentAnswer.objects
+            .filter(student=child)
+            .values('question__topic__name')
+            .annotate(
+                total=Count('id'),
+                correct=Sum(Case(When(is_correct=True, then=1), default=0, output_field=IntegerField())),
+            )
+            .order_by('question__topic__name')
+        )
+        if maths_rows.exists():
+            module_activity.append({
+                'module': 'Maths',
+                'rows': [
+                    {
+                        'label': row['question__topic__name'] or 'Uncategorised',
+                        'total': row['total'],
+                        'correct': row['correct'] or 0,
+                        'pct': round((row['correct'] or 0) / row['total'] * 100) if row['total'] else 0,
+                    }
+                    for row in maths_rows
+                ],
+            })
+
+        # --- Number Puzzles: per-level stats from StudentPuzzleProgress ---
+        from number_puzzles.models import StudentPuzzleProgress
+        puzzle_rows = (
+            StudentPuzzleProgress.objects
+            .filter(student=child, total_puzzles_attempted__gt=0)
+            .select_related('level')
+            .order_by('level__order')
+        )
+        if puzzle_rows.exists():
+            module_activity.append({
+                'module': 'Number Puzzles',
+                'rows': [
+                    {
+                        'label': str(row.level),
+                        'total': row.total_puzzles_attempted,
+                        'correct': row.total_puzzles_correct,
+                        'pct': round(row.total_puzzles_correct / row.total_puzzles_attempted * 100) if row.total_puzzles_attempted else 0,
+                    }
+                    for row in puzzle_rows
+                ],
+            })
+
+        # --- Coding module (future): add here when available ---
+
         return render(request, 'parent/progress.html', {
             'grouped_progress': grouped_progress,
             'overall': overall,
             'active_child': child,
             'active_school': school,
+            'module_activity': module_activity,
             'children': _get_parent_children(request.user),
         })
 
