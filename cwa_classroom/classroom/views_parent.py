@@ -453,6 +453,66 @@ class ParentProgressView(RoleRequiredMixin, View):
 
 
 # ---------------------------------------------------------------------------
+# Parent Homework View — child's homework assignments + submission status
+# ---------------------------------------------------------------------------
+
+class ParentHomeworkView(RoleRequiredMixin, View):
+    required_roles = [Role.PARENT]
+
+    def get(self, request):
+        child, school, _ = _get_active_child(request)
+        if not child:
+            return render(request, 'parent/homework.html', {
+                'children': _get_parent_children(request.user),
+            })
+
+        from homework.models import Homework, HomeworkSubmission
+
+        class_ids = ClassStudent.objects.filter(
+            student=child, is_active=True,
+        ).values_list('classroom_id', flat=True)
+
+        homeworks = (
+            Homework.objects
+            .filter(classroom_id__in=class_ids)
+            .select_related('classroom')
+            .order_by('-created_at')
+        )
+
+        # Attach submission status for each homework
+        homework_list = []
+        for hw in homeworks:
+            best = HomeworkSubmission.get_best_submission(hw, child)
+            attempt_count = HomeworkSubmission.get_attempt_count(hw, child)
+            if best:
+                if hw.due_date and best.submitted_at and best.submitted_at > hw.due_date:
+                    status = 'late'
+                else:
+                    status = 'submitted'
+            else:
+                from django.utils import timezone
+                if hw.due_date and hw.due_date < timezone.now():
+                    status = 'not_submitted'
+                else:
+                    status = 'pending'
+            homework_list.append({
+                'homework': hw,
+                'status': status,
+                'score': best.score if best else None,
+                'total_questions': best.total_questions if best else None,
+                'submitted_at': best.submitted_at if best else None,
+                'attempt_count': attempt_count,
+            })
+
+        return render(request, 'parent/homework.html', {
+            'child': child,
+            'school': school,
+            'homework_list': homework_list,
+            'children': _get_parent_children(request.user),
+        })
+
+
+# ---------------------------------------------------------------------------
 # Add Child (logged-in parent links another student via Student ID)
 # ---------------------------------------------------------------------------
 
