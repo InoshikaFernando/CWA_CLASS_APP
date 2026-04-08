@@ -213,11 +213,19 @@ class StudentDashboardView(LoginRequiredMixin, View):
             .select_related('subject')
             .order_by('subject__name', 'name')
         )
-        enrolled_subjects = (
+        # Deduplicate by name — a student may be enrolled in classes linked to
+        # two different Subject records with the same name (e.g. global vs school-specific).
+        _all_subjects = (
             Subject.objects.filter(
                 classrooms__students=request.user, classrooms__is_active=True,
             ).distinct().order_by('name')
         )
+        _seen_names = set()
+        enrolled_subjects = []
+        for _s in _all_subjects:
+            if _s.name not in _seen_names:
+                _seen_names.add(_s.name)
+                enrolled_subjects.append(_s)
 
         # Determine which year levels to show based on active filter
         if filter_class_id:
@@ -3151,8 +3159,23 @@ class HoDManageClassesView(RoleRequiredMixin, View):
             departments = Department.objects.filter(id__in=all_dept_ids, is_active=True)
             dept_ids = list(all_dept_ids)
             school_ids = list(departments.values_list('school_id', flat=True).distinct())
+            schools = None
+            selected_school_id = None
         else:
-            school_ids = _get_user_school_ids(request.user)
+            all_school_ids = _get_user_school_ids(request.user)
+            # School filter — lets HoI/admin with multiple schools scope to one school
+            selected_school_id = request.GET.get('school')
+            if selected_school_id:
+                try:
+                    selected_school_id = int(selected_school_id)
+                    school_ids = [selected_school_id] if selected_school_id in all_school_ids else all_school_ids
+                except (ValueError, TypeError):
+                    school_ids = all_school_ids
+                    selected_school_id = None
+            else:
+                school_ids = all_school_ids
+                selected_school_id = None
+            schools = School.objects.filter(id__in=all_school_ids, is_active=True).order_by('name')
             departments = Department.objects.filter(school_id__in=school_ids, is_active=True)
             dept_ids = list(departments.values_list('id', flat=True))
 
@@ -3226,6 +3249,8 @@ class HoDManageClassesView(RoleRequiredMixin, View):
             'is_hod_only': is_hod_only,
             'departments': departments,
             'selected_dept_id': selected_dept_id,
+            'schools': schools if not is_hod_only else None,
+            'selected_school_id': selected_school_id if not is_hod_only else None,
             'unassigned_classes': unassigned_classes,
             'specialty_map': specialty_map,
             'deleted_classes': deleted_classes,

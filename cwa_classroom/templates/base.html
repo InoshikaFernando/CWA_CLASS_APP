@@ -75,13 +75,7 @@
         {% elif is_parent %}
           {% include "partials/sidebar_parent.html" %}
         {% elif is_student or is_individual_student %}
-          {% if subject_sidebar == 'maths' and subject_has_quizzes %}
-            {% include "partials/sidebar_maths.html" %}
-          {% elif subject_sidebar and subject_has_quizzes %}
-            {% include "partials/sidebar_subject_generic.html" %}
-          {% else %}
-            {% include "partials/sidebar_student.html" %}
-          {% endif %}
+          {% include "partials/sidebar_student.html" %}
         {% elif is_parent %}
           {% include "partials/sidebar_parent.html" %}
         {% elif is_accountant %}
