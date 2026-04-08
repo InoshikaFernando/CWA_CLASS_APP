@@ -11,6 +11,7 @@ Covers:
 - Unauthenticated access is redirected
 - Non-parent role is denied
 - No active child renders empty state
+- module_activity: maths topics, number puzzles, and future modules
 """
 from django.test import TestCase, Client
 from django.urls import reverse
@@ -20,6 +21,8 @@ from classroom.models import (
     School, SchoolStudent, Subject, Level,
     ParentStudent, ProgressCriteria, ProgressRecord,
 )
+from maths.models import Question as MathsQuestion, Answer as MathsAnswer, StudentAnswer
+from number_puzzles.models import NumberPuzzleLevel, StudentPuzzleProgress
 
 
 class ParentProgressTestBase(TestCase):
@@ -352,3 +355,160 @@ class ParentProgressViewGroupingTest(ParentProgressTestBase):
     def test_english_criteria_in_page(self):
         resp = self.client.get(reverse('parent_progress'))
         self.assertIn('Read a sentence', resp.content.decode())
+
+
+class ParentProgressModuleActivityTest(ParentProgressTestBase):
+    """
+    Tests for module_activity — maths and number puzzles stats on the progress page.
+    Uses the shared ParentProgressTestBase fixtures (student, parent, school, link).
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+
+        # Maths question + answers for topic-level stats
+        from classroom.models import Topic
+        cls.maths_subject, _ = Subject.objects.get_or_create(
+            slug='maths-mod-test', defaults={'name': 'Maths Mod Test'},
+        )
+        cls.topic, _ = Topic.objects.get_or_create(
+            name='Algebra', subject=cls.maths_subject,
+            defaults={'slug': 'algebra-mod-test'},
+        )
+        cls.maths_level, _ = Level.objects.get_or_create(
+            level_number=99, defaults={'display_name': 'Test Level'}
+        )
+        cls.q1 = MathsQuestion.objects.create(
+            level=cls.maths_level, topic=cls.topic,
+            question_text='2 + 2 = ?', question_type='multiple_choice', difficulty=1, points=1,
+        )
+        cls.a_correct = MathsAnswer.objects.create(question=cls.q1, answer_text='4', is_correct=True)
+        cls.a_wrong = MathsAnswer.objects.create(question=cls.q1, answer_text='5', is_correct=False)
+
+        # Number puzzle level
+        cls.puzzle_level = NumberPuzzleLevel.objects.create(
+            number=99, name='Test Level', slug='test-level-mod',
+            min_operand=1, max_operand=9, num_operands=2,
+            puzzles_per_set=10, unlock_threshold=5, order=99,
+        )
+
+    def setUp(self):
+        self._login_parent()
+
+    # --- No activity ---
+
+    def test_no_activity_returns_empty_module_list(self):
+        resp = self.client.get(reverse('parent_progress'))
+        self.assertEqual(resp.context['module_activity'], [])
+
+    # --- Maths module ---
+
+    def test_maths_activity_appears_when_answers_exist(self):
+        import uuid
+        StudentAnswer.objects.create(
+            student=self.student, question=self.q1,
+            selected_answer=self.a_correct, is_correct=True,
+            attempt_id=uuid.uuid4(),
+        )
+        resp = self.client.get(reverse('parent_progress'))
+        modules = resp.context['module_activity']
+        names = [m['module'] for m in modules]
+        self.assertIn('Maths', names)
+
+    def test_maths_shows_correct_topic_label(self):
+        import uuid
+        StudentAnswer.objects.create(
+            student=self.student, question=self.q1,
+            selected_answer=self.a_correct, is_correct=True,
+            attempt_id=uuid.uuid4(),
+        )
+        resp = self.client.get(reverse('parent_progress'))
+        maths = next(m for m in resp.context['module_activity'] if m['module'] == 'Maths')
+        labels = [r['label'] for r in maths['rows']]
+        self.assertIn('Algebra', labels)
+
+    def test_maths_accuracy_calculated_correctly(self):
+        import uuid
+        StudentAnswer.objects.create(
+            student=self.student, question=self.q1,
+            selected_answer=self.a_correct, is_correct=True,
+            attempt_id=uuid.uuid4(),
+        )
+        StudentAnswer.objects.create(
+            student=self.student, question=self.q1,
+            selected_answer=self.a_wrong, is_correct=False,
+            attempt_id=uuid.uuid4(),
+        )
+        resp = self.client.get(reverse('parent_progress'))
+        maths = next(m for m in resp.context['module_activity'] if m['module'] == 'Maths')
+        row = next(r for r in maths['rows'] if r['label'] == 'Algebra')
+        self.assertEqual(row['total'], 2)
+        self.assertEqual(row['correct'], 1)
+        self.assertEqual(row['pct'], 50)
+
+    def test_maths_answers_from_other_student_not_included(self):
+        """Another student's answers must not pollute this child's stats."""
+        import uuid
+        other = CustomUser.objects.create_user(
+            'other_s_mod', 'wlhtestmails+other_s_mod@gmail.com', 'pw',
+        )
+        StudentAnswer.objects.create(
+            student=other, question=self.q1,
+            selected_answer=self.a_correct, is_correct=True,
+            attempt_id=uuid.uuid4(),
+        )
+        resp = self.client.get(reverse('parent_progress'))
+        modules = resp.context['module_activity']
+        self.assertEqual(modules, [])
+
+    # --- Number Puzzles module ---
+
+    def test_number_puzzles_appear_when_progress_exists(self):
+        StudentPuzzleProgress.objects.create(
+            student=self.student, level=self.puzzle_level,
+            total_puzzles_attempted=10, total_puzzles_correct=7,
+        )
+        resp = self.client.get(reverse('parent_progress'))
+        names = [m['module'] for m in resp.context['module_activity']]
+        self.assertIn('Number Puzzles', names)
+
+    def test_number_puzzles_accuracy_calculated_correctly(self):
+        StudentPuzzleProgress.objects.create(
+            student=self.student, level=self.puzzle_level,
+            total_puzzles_attempted=10, total_puzzles_correct=8,
+        )
+        resp = self.client.get(reverse('parent_progress'))
+        puzzles = next(m for m in resp.context['module_activity'] if m['module'] == 'Number Puzzles')
+        row = puzzles['rows'][0]
+        self.assertEqual(row['total'], 10)
+        self.assertEqual(row['correct'], 8)
+        self.assertEqual(row['pct'], 80)
+
+    def test_number_puzzles_zero_attempts_excluded(self):
+        """Rows with total_puzzles_attempted=0 must not show up."""
+        StudentPuzzleProgress.objects.create(
+            student=self.student, level=self.puzzle_level,
+            total_puzzles_attempted=0, total_puzzles_correct=0,
+        )
+        resp = self.client.get(reverse('parent_progress'))
+        names = [m['module'] for m in resp.context['module_activity']]
+        self.assertNotIn('Number Puzzles', names)
+
+    # --- Both modules ---
+
+    def test_both_modules_shown_together(self):
+        import uuid
+        StudentAnswer.objects.create(
+            student=self.student, question=self.q1,
+            selected_answer=self.a_correct, is_correct=True,
+            attempt_id=uuid.uuid4(),
+        )
+        StudentPuzzleProgress.objects.create(
+            student=self.student, level=self.puzzle_level,
+            total_puzzles_attempted=5, total_puzzles_correct=3,
+        )
+        resp = self.client.get(reverse('parent_progress'))
+        names = [m['module'] for m in resp.context['module_activity']]
+        self.assertIn('Maths', names)
+        self.assertIn('Number Puzzles', names)
