@@ -194,6 +194,7 @@ urlpatterns = [
     path('parent/billing/', views_parent.ParentPaymentHistoryView.as_view(), name='parent_billing'),
     path('parent/attendance/', views_parent.ParentAttendanceView.as_view(), name='parent_attendance'),
     path('parent/progress/', views_parent.ParentProgressView.as_view(), name='parent_progress'),
+    path('parent/homework/', views_parent.ParentHomeworkView.as_view(), name='parent_homework'),
     path('parent/add-child/', views_parent.ParentAddChildView.as_view(), name='parent_add_child'),
     path('parent/classes/', views_parent.ParentClassesView.as_view(), name='parent_classes'),
     path('parent/become-parent/', views_parent.BecomeParentView.as_view(), name='become_parent'),
