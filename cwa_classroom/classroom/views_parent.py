@@ -443,11 +443,35 @@ class ParentProgressView(RoleRequiredMixin, View):
             overall['not_started'] += not_started
             overall['not_assessed'] += not_assessed
 
+        # Maths quiz stats per topic
+        from maths.models import StudentAnswer
+        from django.db.models import Count, Sum, Case, When, IntegerField
+        maths_topic_stats = (
+            StudentAnswer.objects
+            .filter(student=child)
+            .values('question__topic__name')
+            .annotate(
+                total=Count('id'),
+                correct=Sum(Case(When(is_correct=True, then=1), default=0, output_field=IntegerField())),
+            )
+            .order_by('question__topic__name')
+        )
+        maths_stats = [
+            {
+                'topic': row['question__topic__name'] or 'Uncategorised',
+                'total': row['total'],
+                'correct': row['correct'] or 0,
+                'pct': round((row['correct'] or 0) / row['total'] * 100) if row['total'] else 0,
+            }
+            for row in maths_topic_stats
+        ]
+
         return render(request, 'parent/progress.html', {
             'grouped_progress': grouped_progress,
             'overall': overall,
             'active_child': child,
             'active_school': school,
+            'maths_stats': maths_stats,
             'children': _get_parent_children(request.user),
         })
 
