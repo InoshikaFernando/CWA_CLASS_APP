@@ -245,8 +245,9 @@ class TimeTrackingTest(TestCase):
     def test_weekly_reset_on_new_week(self):
         """When a new ISO week begins, weekly_total_seconds should be reset to 0."""
         from django.utils.timezone import localtime
-        current_week = localtime(timezone.now()).isocalendar()[1]
-        previous_week = current_week - 1 if current_week > 1 else 52
+        iso = localtime(timezone.now()).isocalendar()
+        current_week = iso[0] * 100 + iso[1]   # year*100+week, matches model encoding
+        previous_week = current_week - 1        # one week behind (same year, adjacent week)
         time_log = TimeLog.objects.create(
             student=self.student,
             daily_total_seconds=100,
