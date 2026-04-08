@@ -42,37 +42,37 @@ class SchoolHierarchyTestBase(TestCase):
 
         # ── Users ────────────────────────────────────────────
         cls.admin_user = CustomUser.objects.create_user(
-            'admin', 'admin@test.com', 'pass1234',
+            'admin', 'wlhtestmails+admin@gmail.com', 'password1!',
             first_name='Admin', last_name='User',
         )
         cls.admin_user.roles.add(cls.role_admin)
 
         cls.hoi_user = CustomUser.objects.create_user(
-            'hoi', 'hoi@test.com', 'pass1234',
+            'hoi', 'wlhtestmails+hoi@gmail.com', 'password1!',
             first_name='Head', last_name='Institute',
         )
         cls.hoi_user.roles.add(cls.role_hoi)
 
         cls.hod_user = CustomUser.objects.create_user(
-            'hod', 'hod@test.com', 'pass1234',
+            'hod', 'wlhtestmails+hod@gmail.com', 'password1!',
             first_name='Head', last_name='Dept',
         )
         cls.hod_user.roles.add(cls.role_hod)
 
         cls.teacher_a = CustomUser.objects.create_user(
-            'teacher_a', 'ta@test.com', 'pass1234',
+            'teacher_a', 'wlhtestmails+ta@gmail.com', 'password1!',
             first_name='Alice', last_name='Teacher',
         )
         cls.teacher_a.roles.add(cls.role_senior)
 
         cls.teacher_b = CustomUser.objects.create_user(
-            'teacher_b', 'tb@test.com', 'pass1234',
+            'teacher_b', 'wlhtestmails+tb@gmail.com', 'password1!',
             first_name='Bob', last_name='Teacher',
         )
         cls.teacher_b.roles.add(cls.role_teacher)
 
         cls.student_user = CustomUser.objects.create_user(
-            'student', 'student@test.com', 'pass1234',
+            'student', 'wlhtestmails+student@gmail.com', 'password1!',
         )
         cls.student_user.roles.add(cls.role_student)
 
@@ -80,22 +80,14 @@ class SchoolHierarchyTestBase(TestCase):
         cls.school = School.objects.create(
             name='Test School', slug='test-school', admin=cls.admin_user,
         )
-        SchoolTeacher.objects.create(
-            school=cls.school, teacher=cls.hoi_user,
-            role='head_of_institute',
-        )
-        SchoolTeacher.objects.create(
-            school=cls.school, teacher=cls.hod_user,
-            role='head_of_department',
-        )
-        SchoolTeacher.objects.create(
-            school=cls.school, teacher=cls.teacher_a,
-            role='senior_teacher',
-        )
-        SchoolTeacher.objects.create(
-            school=cls.school, teacher=cls.teacher_b,
-            role='teacher',
-        )
+        SchoolTeacher.objects.update_or_create(
+            school=cls.school, teacher=cls.hoi_user, defaults={'role': 'head_of_institute'})
+        SchoolTeacher.objects.update_or_create(
+            school=cls.school, teacher=cls.hod_user, defaults={'role': 'head_of_department'})
+        SchoolTeacher.objects.update_or_create(
+            school=cls.school, teacher=cls.teacher_a, defaults={'role': 'senior_teacher'})
+        SchoolTeacher.objects.update_or_create(
+            school=cls.school, teacher=cls.teacher_b, defaults={'role': 'teacher'})
 
         # ── Subject & Department ─────────────────────────────
         cls.maths, _ = Subject.objects.get_or_create(
@@ -140,28 +132,28 @@ class SchoolHierarchyAccessTests(SchoolHierarchyTestBase):
     """Test role-based access control for hierarchy page."""
 
     def test_admin_can_access(self):
-        self.client.login(username='admin', password='pass1234')
+        self.client.login(username='admin', password='password1!')
         resp = self.client.get(
             reverse('school_hierarchy', args=[self.school.id]),
         )
         self.assertEqual(resp.status_code, 200)
 
     def test_hoi_can_access(self):
-        self.client.login(username='hoi', password='pass1234')
+        self.client.login(username='hoi', password='password1!')
         resp = self.client.get(
             reverse('school_hierarchy', args=[self.school.id]),
         )
         self.assertEqual(resp.status_code, 200)
 
     def test_hod_can_access(self):
-        self.client.login(username='hod', password='pass1234')
+        self.client.login(username='hod', password='password1!')
         resp = self.client.get(
             reverse('school_hierarchy', args=[self.school.id]),
         )
         self.assertEqual(resp.status_code, 200)
 
     def test_student_cannot_access(self):
-        self.client.login(username='student', password='pass1234')
+        self.client.login(username='student', password='password1!')
         resp = self.client.get(
             reverse('school_hierarchy', args=[self.school.id]),
         )
@@ -180,7 +172,7 @@ class SchoolHierarchyContentTests(SchoolHierarchyTestBase):
     """Test the hierarchy page content."""
 
     def setUp(self):
-        self.client.login(username='admin', password='pass1234')
+        self.client.login(username='admin', password='password1!')
         self.resp = self.client.get(
             reverse('school_hierarchy', args=[self.school.id]),
         )
@@ -224,7 +216,7 @@ class SchoolHierarchyAutoRedirectTests(SchoolHierarchyTestBase):
     """Test the auto-redirect URL (no school_id)."""
 
     def test_single_school_auto_redirects(self):
-        self.client.login(username='admin', password='pass1234')
+        self.client.login(username='admin', password='password1!')
         resp = self.client.get(reverse('school_hierarchy_auto'))
         # Should render directly (not redirect), because user has 1 school
         self.assertEqual(resp.status_code, 200)
@@ -235,7 +227,7 @@ class SchoolHierarchyAutoRedirectTests(SchoolHierarchyTestBase):
             name='Second School', slug='second-school',
             admin=self.admin_user,
         )
-        self.client.login(username='admin', password='pass1234')
+        self.client.login(username='admin', password='password1!')
         resp = self.client.get(reverse('school_hierarchy_auto'))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'Select School')

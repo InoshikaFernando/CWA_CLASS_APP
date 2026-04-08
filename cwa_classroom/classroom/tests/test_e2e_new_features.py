@@ -1,8 +1,8 @@
 """
-End-to-end / integration tests for four new features added to the CWA School App:
+End-to-end / integration tests for features added to the CWA School App:
 
-1. HoI upcoming classes on the HoDOverviewView dashboard (schedule fallback).
-2. Student upcoming classes fallback on SubjectsHubView (schedule fallback).
+1. HoI upcoming classes on the HoDOverviewView dashboard (sessions only, no fallback).
+2. Student upcoming classes on SubjectsHubView (sessions only, no fallback).
 3. Department level linking via DepartmentSubjectLevelsView (link_level POST action).
 4. CSV import global level mapping via execute_import() (global_level_map in structure_mapping).
 """
@@ -31,12 +31,12 @@ def _create_role(name, display_name=None):
     return role
 
 
-def _create_user(username, password='testpass123', **kwargs):
+def _create_user(username, password='password1!', **kwargs):
     """Helper: create a CustomUser."""
     return CustomUser.objects.create_user(
         username=username,
         password=password,
-        email=kwargs.pop('email', f'{username}@example.com'),
+        email=kwargs.pop('email', f'wlhtestmails+{username}@gmail.com'),
         **kwargs,
     )
 
@@ -54,9 +54,9 @@ def _assign_role(user, role_name):
 
 class HoIUpcomingClassesTest(TestCase):
     """
-    The HoI dashboard should show upcoming classes sourced from ClassRoom.day /
-    start_time even when the HoI is not assigned as a ClassTeacher and no
-    ClassSession records exist.
+    The HoI dashboard shows upcoming sessions from ClassSession records only.
+    The ClassRoom.day schedule fallback has been removed — next_classes_from_schedule
+    is always empty; only real sessions appear in upcoming_sessions.
     """
 
     @classmethod
@@ -96,26 +96,49 @@ class HoIUpcomingClassesTest(TestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
 
-    def test_hoi_upcoming_classes_from_schedule(self):
+    def test_hoi_schedule_fallback_removed(self):
         """
-        When no ClassSession records exist the view falls back to
-        ClassRoom.day-based scheduling. 'next_classes_from_schedule' in the
-        template context should contain the classroom we created.
+        The ClassRoom.day schedule fallback is gone — next_classes_from_schedule
+        is always empty when no ClassSession records exist.
         """
         url = reverse('hod_overview')
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, 200)
         next_classes = response.context.get('next_classes_from_schedule', [])
-        self.assertTrue(
-            len(next_classes) > 0,
-            'Expected at least one entry in next_classes_from_schedule (schedule fallback).',
+        self.assertEqual(
+            len(next_classes),
+            0,
+            'next_classes_from_schedule should be empty; schedule fallback was removed.',
         )
-        class_ids = [c.id for c in next_classes]
+
+    def test_hoi_upcoming_sessions_from_classsession(self):
+        """
+        A real ClassSession record appears in upcoming_sessions on the HoI dashboard.
+        """
+        from datetime import date, time, timedelta
+        from classroom.models import ClassSession
+
+        future_date = date.today() + timedelta(days=2)
+        session = ClassSession.objects.create(
+            classroom=self.classroom,
+            date=future_date,
+            start_time=time(9, 0),
+            end_time=time(10, 0),
+            status='scheduled',
+            created_by=self.hoi_user,
+        )
+
+        url = reverse('hod_overview')
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        upcoming = response.context.get('upcoming_sessions', [])
+        session_ids = [s.id for s in upcoming]
         self.assertIn(
-            self.classroom.id,
-            class_ids,
-            'The Monday classroom should appear in next_classes_from_schedule.',
+            session.id,
+            session_ids,
+            'The ClassSession should appear in upcoming_sessions.',
         )
 
     def test_hoi_not_assigned_as_class_teacher(self):
@@ -135,9 +158,9 @@ class HoIUpcomingClassesTest(TestCase):
 
 class StudentUpcomingClassesFallbackTest(TestCase):
     """
-    The student hub (/hub/) should populate 'upcoming_classes' from the
-    ClassRoom.day schedule when no ClassSession records exist for the student's
-    enrolled classrooms.
+    The student hub (/hub/) populates 'upcoming_classes' from ClassSession
+    records only. The ClassRoom.day schedule fallback has been removed —
+    upcoming_classes is empty when no ClassSession records exist.
     """
 
     @classmethod
@@ -184,26 +207,39 @@ class StudentUpcomingClassesFallbackTest(TestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
 
-    def test_upcoming_classes_fallback_is_not_empty(self):
+    def test_upcoming_classes_empty_without_sessions(self):
         """
-        With no ClassSession records the view should fall back to schedule-based
-        upcoming classes so that 'upcoming_classes' is non-empty.
+        With no ClassSession records, upcoming_classes is empty.
+        The ClassRoom.day schedule fallback has been removed.
         """
         url = reverse('subjects_hub')
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, 200)
         upcoming = response.context.get('upcoming_classes', [])
-        self.assertTrue(
-            len(upcoming) > 0,
-            'Expected upcoming_classes to be non-empty (schedule fallback from ClassRoom.day).',
+        self.assertEqual(
+            len(upcoming),
+            0,
+            'upcoming_classes should be empty when no ClassSession records exist.',
         )
 
-    def test_upcoming_classes_references_enrolled_classroom(self):
+    def test_upcoming_classes_shows_real_session(self):
         """
-        The classroom that the student is enrolled in (Wednesday at 10:30)
-        should be referenced in the upcoming_classes list.
+        A ClassSession record for the enrolled classroom appears in upcoming_classes.
         """
+        from datetime import date, time, timedelta
+        from classroom.models import ClassSession
+
+        future_date = date.today() + timedelta(days=2)
+        session = ClassSession.objects.create(
+            classroom=self.classroom,
+            date=future_date,
+            start_time=time(10, 30),
+            end_time=time(11, 30),
+            status='scheduled',
+            created_by=self.admin_user,
+        )
+
         url = reverse('subjects_hub')
         response = self.client.get(url)
 
@@ -212,8 +248,9 @@ class StudentUpcomingClassesFallbackTest(TestCase):
         self.assertIn(
             self.classroom.id,
             classroom_ids,
-            'The enrolled classroom should appear in upcoming_classes via schedule fallback.',
+            'The enrolled classroom should appear in upcoming_classes via ClassSession.',
         )
+        session.delete()
 
     def test_student_is_enrolled_in_classroom(self):
         """Sanity-check: student has an active ClassStudent entry."""

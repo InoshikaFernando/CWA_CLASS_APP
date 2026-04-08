@@ -32,11 +32,11 @@ def _create_role(name, display_name=None):
     return role
 
 
-def _create_user(username, password='testpass123', **kwargs):
+def _create_user(username, password='password1!', **kwargs):
     return CustomUser.objects.create_user(
         username=username,
         password=password,
-        email=kwargs.pop('email', f'{username}@example.com'),
+        email=kwargs.pop('email', f'wlhtestmails+{username}@gmail.com'),
         **kwargs,
     )
 
@@ -126,7 +126,7 @@ class InvoiceEditViewTests(TestCase):
             self.school, self.student, self.hoi,
             amount='200.00', num_lines=2, line_amount='100.00',
         )
-        self.client.login(username='hoi_user', password='testpass123')
+        self.client.login(username='hoi_user', password='password1!')
 
     def _url(self, invoice_id=None):
         return reverse('invoice_edit', kwargs={
@@ -318,7 +318,7 @@ class InvoiceEditViewTests(TestCase):
     def test_student_cannot_access_edit(self):
         """Student role cannot access the edit page."""
         student_client = Client()
-        student_client.login(username='student1', password='testpass123')
+        student_client.login(username='student1', password='password1!')
         response = student_client.get(self._url())
         # Should be forbidden or redirect (RoleRequiredMixin behaviour)
         self.assertIn(response.status_code, [302, 403])
@@ -327,11 +327,11 @@ class InvoiceEditViewTests(TestCase):
         """Accountant role can access the edit page for their school."""
         accountant = _create_user('accountant1', first_name='Acc', last_name='User')
         _assign_role(accountant, Role.ACCOUNTANT)
-        SchoolTeacher.objects.create(
+        SchoolTeacher.objects.update_or_create(
             school=self.school, teacher=accountant, is_active=True,
         )
         acc_client = Client()
-        acc_client.login(username='accountant1', password='testpass123')
+        acc_client.login(username='accountant1', password='password1!')
         response = acc_client.get(self._url())
         self.assertEqual(response.status_code, 200)
 
@@ -350,7 +350,7 @@ class InvoiceDetailEditButtonTests(TestCase):
         SchoolStudent.objects.create(school=self.school, student=self.student, is_active=True)
 
         self.invoice = _create_draft_invoice(self.school, self.student, self.hoi)
-        self.client.login(username='hoi_btn', password='testpass123')
+        self.client.login(username='hoi_btn', password='password1!')
 
     def test_edit_button_shown_for_draft(self):
         """Detail page shows Edit Invoice button for draft."""

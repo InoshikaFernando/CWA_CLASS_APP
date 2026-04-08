@@ -382,8 +382,8 @@ def seed_questions(apps, schema_editor):
     Subject = apps.get_model('classroom', 'Subject')
     Topic = apps.get_model('classroom', 'Topic')
     Level = apps.get_model('classroom', 'Level')
-    Question = apps.get_model('quiz', 'Question')
-    Answer = apps.get_model('quiz', 'Answer')
+    Question = apps.get_model('maths', 'Question')
+    Answer = apps.get_model('maths', 'Answer')
 
     maths = Subject.objects.filter(name='Mathematics').first()
     if not maths:
@@ -431,7 +431,7 @@ def seed_questions(apps, schema_editor):
 
 
 def reverse_questions(apps, schema_editor):
-    Question = apps.get_model('quiz', 'Question')
+    Question = apps.get_model('maths', 'Question')
     Topic = apps.get_model('classroom', 'Topic')
     Level = apps.get_model('classroom', 'Level')
 
@@ -445,6 +445,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('classroom', '0007_seed_topic_level_links'),
+        ('maths', '0001_initial'),  # Ensure maths.Question exists in historical state
     ]
 
     operations = [

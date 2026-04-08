@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load classroom_extras %}
 
 {% block title %}Invoice {{ invoice.invoice_number }}{% endblock %}
 
@@ -34,6 +35,44 @@
     {% endfor %}
   {% endif %}
 
+  <!-- School Header / Invoice "Letterhead" -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-6">
+    <div class="flex items-start justify-between">
+      <div class="flex items-center gap-4">
+        {% if school.logo %}
+          <img src="{{ school.logo.url }}" alt="{{ school.name }}" class="h-14 w-auto rounded-lg">
+        {% endif %}
+        <div>
+          <h2 class="text-lg font-bold text-gray-900">{{ school.name }}</h2>
+          {% if effective_settings.street_address %}
+            <p class="text-sm text-gray-500">{{ effective_settings.street_address }}{% if effective_settings.city %}, {{ effective_settings.city }}{% endif %}{% if effective_settings.country %}, {{ effective_settings.country }}{% endif %}</p>
+          {% endif %}
+          {% if school.phone %}<p class="text-sm text-gray-500">{{ school.phone }}</p>{% endif %}
+          {% if school.email %}<p class="text-sm text-gray-500">{{ school.email }}</p>{% endif %}
+        </div>
+      </div>
+      <div class="text-right text-sm text-gray-500 space-y-0.5">
+        {% if effective_settings.abn %}<p><span class="font-medium text-gray-600">ABN:</span> {{ effective_settings.abn }}</p>{% endif %}
+        {% if effective_settings.gst_number %}<p><span class="font-medium text-gray-600">GST:</span> {{ effective_settings.gst_number }}</p>{% endif %}
+      </div>
+    </div>
+
+    <!-- Bill To + Invoice Info -->
+    <div class="grid grid-cols-2 gap-6 mt-5 pt-5 border-t border-slate-100">
+      <div>
+        <p class="text-xs font-semibold text-gray-400 uppercase mb-1">Bill To</p>
+        <p class="text-sm font-medium text-gray-900">{{ invoice.student.first_name }} {{ invoice.student.last_name }}</p>
+        {% if invoice.student.email %}<p class="text-sm text-gray-500">{{ invoice.student.email }}</p>{% endif %}
+      </div>
+      <div class="text-right">
+        <p class="text-xs font-semibold text-gray-400 uppercase mb-1">Invoice Details</p>
+        <p class="text-sm text-gray-700"><span class="font-medium">Invoice #:</span> {{ invoice.invoice_number }}</p>
+        {% if invoice.issued_at %}<p class="text-sm text-gray-700"><span class="font-medium">Issued:</span> {{ invoice.issued_at|date:"M d, Y" }}</p>{% endif %}
+        {% if invoice.due_date %}<p class="text-sm text-gray-700"><span class="font-medium">Due:</span> {{ invoice.due_date|date:"M d, Y" }}</p>{% endif %}
+      </div>
+    </div>
+  </div>
+
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
     <!-- Main Content (2/3) -->
@@ -44,11 +83,11 @@
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
             <p class="text-xs font-medium text-gray-500 uppercase">Calculated</p>
-            <p class="text-lg font-semibold text-gray-900">${{ invoice.calculated_amount }}</p>
+            <p class="text-lg font-semibold text-gray-900">{{ invoice.calculated_amount|format_currency:effective_currency }}</p>
           </div>
           <div>
             <p class="text-xs font-medium text-gray-500 uppercase">Final Amount</p>
-            <p class="text-lg font-semibold text-gray-900">${{ invoice.amount }}</p>
+            <p class="text-lg font-semibold text-gray-900">{{ invoice.amount|format_currency:effective_currency }}</p>
           </div>
           <div>
             <p class="text-xs font-medium text-gray-500 uppercase">Mode</p>
@@ -103,19 +142,43 @@
                   <td class="px-6 py-3 text-sm text-gray-600 text-right">{{ line.sessions_attended }}</td>
                   <td class="px-6 py-3 text-sm text-gray-600 text-right">{{ line.sessions_charged }}</td>
                 {% endif %}
-                <td class="px-6 py-3 text-sm font-medium text-gray-900 text-right">${{ line.line_amount }}</td>
+                <td class="px-6 py-3 text-sm font-medium text-gray-900 text-right">{{ line.line_amount|format_currency:effective_currency }}</td>
               </tr>
             {% endfor %}
           </tbody>
           <tfoot>
             <tr class="bg-slate-50 border-t border-slate-200">
               <td colspan="6" class="px-6 py-3 text-sm font-semibold text-gray-900 text-right">Total</td>
-              <td class="px-6 py-3 text-sm font-bold text-gray-900 text-right">${{ invoice.calculated_amount }}</td>
+              <td class="px-6 py-3 text-sm font-bold text-gray-900 text-right">{{ invoice.calculated_amount|format_currency:effective_currency }}</td>
             </tr>
           </tfoot>
         </table>
         </div>
       </div>
+
+      <!-- Bank Details & Terms -->
+      {% if effective_settings.bank_account_name or effective_settings.invoice_terms %}
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+        {% if effective_settings.bank_account_name %}
+        <div class="mb-4">
+          <h3 class="text-sm font-semibold text-gray-700 mb-2">Payment Details</h3>
+          <div class="grid grid-cols-2 gap-2 text-sm">
+            {% if effective_settings.bank_name %}<p class="text-gray-500">Bank</p><p class="text-gray-900">{{ effective_settings.bank_name }}</p>{% endif %}
+            <p class="text-gray-500">Account Name</p><p class="text-gray-900">{{ effective_settings.bank_account_name }}</p>
+            {% if effective_settings.bank_bsb %}<p class="text-gray-500">BSB</p><p class="text-gray-900">{{ effective_settings.bank_bsb }}</p>{% endif %}
+            {% if effective_settings.bank_account_number %}<p class="text-gray-500">Account Number</p><p class="text-gray-900">{{ effective_settings.bank_account_number }}</p>{% endif %}
+          </div>
+          <p class="text-xs text-gray-400 mt-2">Reference: {{ invoice.invoice_number }}</p>
+        </div>
+        {% endif %}
+        {% if effective_settings.invoice_terms %}
+        <div class="{% if effective_settings.bank_account_name %}pt-4 border-t border-slate-100{% endif %}">
+          <h3 class="text-sm font-semibold text-gray-700 mb-1">Terms & Conditions</h3>
+          <p class="text-xs text-gray-500 whitespace-pre-line">{{ effective_settings.invoice_terms }}</p>
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
 
       <!-- Payment History -->
       <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -265,6 +328,29 @@
         <div class="bg-red-50 rounded-2xl border border-red-200 p-6">
           <h3 class="text-base font-semibold text-red-800 mb-2">Cancelled</h3>
           <p class="text-sm text-red-700">{{ invoice.cancellation_reason }}</p>
+        </div>
+      {% endif %}
+
+      <!-- Stripe Payment Link -->
+      {% if invoice.status != 'cancelled' %}
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+          <h3 class="text-base font-semibold text-gray-900 mb-1">Stripe Payment Link</h3>
+          <p class="text-xs text-gray-500 mb-3">Override the Stripe link for this invoice. Leave blank to use the department or institute default.</p>
+          {% if resolved_stripe_link %}
+            <div class="mb-3 p-2 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-700 truncate">
+              Active: <a href="{{ resolved_stripe_link }}" target="_blank" rel="noopener noreferrer" class="underline">{{ resolved_stripe_link }}</a>
+            </div>
+          {% endif %}
+          <form method="post" action="{% url 'invoice_detail' invoice_id=invoice.id %}" class="space-y-2">
+            {% csrf_token %}
+            <input type="url" name="stripe_payment_link" value="{{ invoice.stripe_payment_link }}"
+              placeholder="https://buy.stripe.com/..."
+              class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+            <button type="submit"
+              class="w-full px-4 py-2 text-sm bg-slate-700 text-white rounded-lg hover:bg-slate-800 transition font-medium">
+              Save Link
+            </button>
+          </form>
         </div>
       {% endif %}
     </div>

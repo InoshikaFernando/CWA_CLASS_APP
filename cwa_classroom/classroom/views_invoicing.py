@@ -2,8 +2,10 @@
 Invoicing views — fee configuration, invoice generation, payment
 reconciliation (CSV + manual), and reference mapping management.
 """
+import calendar
 import json
-from datetime import datetime
+import logging
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
@@ -18,14 +20,16 @@ from django.views import View
 from accounts.models import Role
 from audit.services import log_event
 from .models import (
-    School, Department, ClassRoom, SchoolStudent, SchoolTeacher,
+    School, Department, ClassRoom, ClassSession, ClassStudent, SchoolStudent, SchoolTeacher,
     DepartmentFee, StudentFeeOverride, Invoice, InvoiceLineItem,
     CSVColumnTemplate, CSVImport, PaymentReferenceMapping,
-    InvoicePayment, CreditTransaction, Term,
+    InvoicePayment, CreditTransaction, Term, AcademicYear,
 )
 from .views import RoleRequiredMixin
 from . import invoicing_services as svc
 from .fee_utils import get_effective_fee_for_class, _get_class_fee_source
+
+logger = logging.getLogger(__name__)
 
 
 INVOICING_ROLES = [Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE, Role.ACCOUNTANT]
@@ -285,6 +289,64 @@ class AddStudentFeeOverrideView(RoleRequiredMixin, View):
 
 
 # ===========================================================================
+# Invoice Generation — Cascade API (HTMX partials)
+# ===========================================================================
+
+class InvoicingClassesForScopeView(RoleRequiredMixin, View):
+    """
+    HTMX partial: return <option> tags for classrooms that belong to the
+    selected department (or all departments if none selected).
+    GET /invoicing/api/scope/classes/?department_id=X
+    """
+    required_roles = INVOICING_ROLES
+
+    def get(self, request):
+        school = _get_single_school(request.user)
+        if not school:
+            from django.http import HttpResponse
+            return HttpResponse('')
+
+        dept_id = request.GET.get('department_id')
+        qs = ClassRoom.objects.filter(school=school, is_active=True).order_by('name')
+        if dept_id:
+            qs = qs.filter(department_id=dept_id)
+
+        return render(request, 'invoicing/partials/class_options.html', {'classrooms': qs})
+
+
+class InvoicingStudentsForScopeView(RoleRequiredMixin, View):
+    """
+    HTMX partial: return checkbox rows for students enrolled in the selected
+    classroom (or all school students if no classroom selected).
+    GET /invoicing/api/scope/students/?classroom_id=X
+    """
+    required_roles = INVOICING_ROLES
+
+    def get(self, request):
+        school = _get_single_school(request.user)
+        if not school:
+            from django.http import HttpResponse
+            return HttpResponse('')
+
+        classroom_id = request.GET.get('classroom_id')
+        if classroom_id:
+            student_ids = ClassStudent.objects.filter(
+                classroom_id=classroom_id,
+                classroom__school=school,
+                is_active=True,
+            ).values_list('student_id', flat=True)
+            students = SchoolStudent.objects.filter(
+                school=school, student_id__in=student_ids, is_active=True,
+            ).select_related('student').order_by('student__first_name', 'student__last_name')
+        else:
+            students = SchoolStudent.objects.filter(
+                school=school, is_active=True,
+            ).select_related('student').order_by('student__first_name', 'student__last_name')
+
+        return render(request, 'invoicing/partials/student_checkboxes.html', {'students': students})
+
+
+# ===========================================================================
 # Invoice Generation
 # ===========================================================================
 
@@ -298,11 +360,44 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
             return redirect('subjects_hub')
 
         departments = Department.objects.filter(school=school, is_active=True)
+        classrooms  = ClassRoom.objects.filter(school=school, is_active=True).order_by('name')
         terms = Term.objects.filter(school=school).select_related('academic_year')
+
+        # Compute period options for quick-select
+        today = date.today()
+
+        # Next month
+        if today.month == 12:
+            next_month_start = date(today.year + 1, 1, 1)
+        else:
+            next_month_start = date(today.year, today.month + 1, 1)
+        next_month_end = date(
+            next_month_start.year,
+            next_month_start.month,
+            calendar.monthrange(next_month_start.year, next_month_start.month)[1],
+        )
+        next_month_label = next_month_start.strftime('%B %Y')
+
+        # Next term (first term starting after today)
+        next_term = Term.objects.filter(
+            school=school, start_date__gt=today,
+        ).select_related('academic_year').order_by('start_date').first()
+
+        # Current academic year (for "year" option)
+        current_year = AcademicYear.objects.filter(
+            school=school, is_current=True,
+        ).first()
+
         return render(request, 'invoicing/generate_invoices.html', {
             'school': school,
             'departments': departments,
+            'classrooms': classrooms,
             'terms': terms,
+            'next_month_start': next_month_start.isoformat(),
+            'next_month_end': next_month_end.isoformat(),
+            'next_month_label': next_month_label,
+            'next_term': next_term,
+            'current_year': current_year,
         })
 
     def post(self, request):
@@ -315,7 +410,10 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
         end = _parse_date(request.POST.get('billing_period_end'))
         mode = request.POST.get('attendance_mode', 'all_class_days')
         billing_type = request.POST.get('billing_type', 'post_term')
+        period_type = request.POST.get('period_type', 'custom')
         dept_id = request.POST.get('department_id')
+        classroom_id = request.POST.get('classroom_id')
+        student_ids = request.POST.getlist('student_ids')  # [] means all
 
         if not start or not end:
             messages.error(request, 'Both start and end dates are required.')
@@ -324,6 +422,13 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
         if start > end:
             messages.error(request, 'Start date must be before end date.')
             return redirect('generate_invoices')
+
+        # Future periods: force upfront billing and all-class-days mode
+        today = date.today()
+        is_future = end > today
+        if is_future:
+            billing_type = 'upfront'
+            mode = 'all_class_days'
 
         department = None
         if dept_id:
@@ -349,20 +454,118 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
                     },
                 })
 
-        # Get students in scope
+        # For upfront billing, auto-create scheduled sessions for the period
+        if billing_type == 'upfront':
+            sessions_created = svc.ensure_sessions_for_period(
+                school, start, end, created_by=request.user,
+            )
+            if sessions_created:
+                logger.info('Auto-created %d sessions for %s (%s to %s)',
+                            sessions_created, school, start, end)
+
+        # Get students in scope ─────────────────────────────────────────────
+        # Cascade: school → department → classroom → specific students
         students_qs = SchoolStudent.objects.filter(
             school=school, is_active=True,
         ).select_related('student')
 
+        if student_ids:
+            # Explicit student selection — overrides class/dept filter
+            students_qs = students_qs.filter(student_id__in=student_ids)
+        elif classroom_id:
+            # Limit to students enrolled in the chosen class
+            enrolled_ids = ClassStudent.objects.filter(
+                classroom_id=classroom_id,
+                classroom__school=school,
+                is_active=True,
+            ).values_list('student_id', flat=True)
+            students_qs = students_qs.filter(student_id__in=enrolled_ids)
+        elif dept_id:
+            # Limit to students enrolled in any class in the chosen department
+            enrolled_ids = ClassStudent.objects.filter(
+                classroom__school=school,
+                classroom__department_id=dept_id,
+                is_active=True,
+            ).values_list('student_id', flat=True)
+            students_qs = students_qs.filter(student_id__in=enrolled_ids)
+
         student_data = []
         all_warnings = []
+        skipped_fully_covered = []   # issued invoices cover the full period → skip
+        skipped_no_enrollment = []
+        replaced_draft_count  = 0    # draft invoices cancelled + regenerated
+        gap_invoiced_names    = []   # students who got supplementary gap invoices
 
         for ss in students_qs:
             student = ss.student
+            display_name = student.get_full_name() or student.username
 
             overlaps = svc.check_overlapping_invoices(student, school, start, end)
+
             if overlaps.exists():
-                continue
+                issued_overlaps = overlaps.exclude(status='draft')
+                draft_overlaps  = overlaps.filter(status='draft')
+
+                if issued_overlaps.exists():
+                    # ── Issued invoices overlap ──────────────────────────────
+                    # Find sessions not yet covered by any issued invoice.
+                    uncovered = svc.find_uncovered_date_ranges(issued_overlaps, start, end)
+
+                    if not uncovered:
+                        # Issued invoices fully cover the period — nothing to bill
+                        skipped_fully_covered.append(display_name)
+                        continue
+
+                    # Cancel any draft invoices for this period so we don't
+                    # create duplicates alongside the gap invoice
+                    if draft_overlaps.exists():
+                        replaced_draft_count += draft_overlaps.update(
+                            status='cancelled',
+                            cancelled_by=request.user,
+                            cancelled_at=timezone.now(),
+                        )
+
+                    # Build lines for every uncovered sub-period and merge
+                    gap_lines = []
+                    for gap_start, gap_end in uncovered:
+                        sub_lines, sub_warnings = svc.calculate_invoice_lines(
+                            student, school, gap_start, gap_end, mode,
+                            billing_type=billing_type,
+                        )
+                        gap_lines.extend(sub_lines)
+                        all_warnings.extend(sub_warnings)
+
+                    if gap_lines:
+                        gap_invoiced_names.append(display_name)
+                        student_data.append({
+                            'student':      student,
+                            'lines':        gap_lines,
+                            # Keep the original requested period on the invoice
+                            # so the teacher can see what term it relates to
+                            'period_start': start,
+                            'period_end':   end,
+                        })
+                    continue  # processed above; skip normal flow below
+
+                else:
+                    # ── Draft-only overlap ───────────────────────────────────
+                    # Cancel the draft(s) and regenerate a fresh invoice for
+                    # the full requested period (mirrors Xero/MYOB behaviour).
+                    replaced_draft_count += draft_overlaps.update(
+                        status='cancelled',
+                        cancelled_by=request.user,
+                        cancelled_at=timezone.now(),
+                    )
+                    # Fall through to normal invoice generation below
+
+            # ── No overlap (or drafts cancelled above) ───────────────────────
+            # Check if student has any active class enrollments
+            active_enrollments = ClassStudent.objects.filter(
+                classroom__school=school, student=student, is_active=True,
+                classroom__is_active=True,
+            ).exists()
+            if not active_enrollments:
+                skipped_no_enrollment.append(display_name)
 
             lines, warnings = svc.calculate_invoice_lines(
                 student, school, start, end, mode, billing_type=billing_type
@@ -372,18 +575,83 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
             if lines:
                 student_data.append({
                     'student': student,
-                    'lines': lines,
+                    'lines':   lines,
                 })
 
+        # ── Informational messages for non-blocking outcomes ─────────────────
+        if replaced_draft_count:
+            messages.info(
+                request,
+                f'{replaced_draft_count} existing draft invoice(s) were replaced with fresh ones.',
+            )
+        if gap_invoiced_names:
+            n = len(gap_invoiced_names)
+            messages.info(
+                request,
+                f'Supplementary invoices generated for {n} student(s) covering sessions '
+                f'not yet included in any existing invoice: '
+                f'{", ".join(sorted(gap_invoiced_names)[:5])}'
+                f'{"..." if n > 5 else ""}',
+            )
+
         if not student_data:
-            messages.warning(request, 'No invoices to generate for the selected period.')
+            reasons = []
+            total_students = students_qs.count()
+
+            if total_students == 0:
+                messages.warning(request, 'No invoices generated — no active students found in this school.')
+                return redirect('generate_invoices')
+
+            if skipped_fully_covered:
+                reasons.append(
+                    f'{len(skipped_fully_covered)} student(s) are already fully invoiced for this period: '
+                    f'{", ".join(sorted(skipped_fully_covered)[:5])}'
+                    f'{"..." if len(skipped_fully_covered) > 5 else ""}'
+                )
+
+            if skipped_no_enrollment:
+                reasons.append(
+                    f'{len(skipped_no_enrollment)} student(s) have no active class enrollments: '
+                    f'{", ".join(sorted(skipped_no_enrollment)[:5])}'
+                    f'{"..." if len(skipped_no_enrollment) > 5 else ""}'
+                )
+
+            if all_warnings:
+                classrooms = set(w['classroom'].name for w in all_warnings)
+                reasons.append(
+                    f'Fees not configured for: {", ".join(sorted(classrooms))}. '
+                    f'Set fees on the Fee Configuration page.'
+                )
+
+            # Check if sessions exist at all in this period
+            session_count = ClassSession.objects.filter(
+                classroom__school=school,
+                classroom__is_active=True,
+                date__range=(start, end),
+            ).exclude(status='cancelled').count()
+            if session_count == 0:
+                reasons.append(
+                    f'No sessions found between {start} and {end}. '
+                    f'Sessions are auto-created for upfront billing, or use '
+                    f'"Create Session" on each class page.'
+                )
+
+            if reasons:
+                msg = 'No invoices generated. Reasons: ' + ' | '.join(reasons)
+            else:
+                msg = (
+                    f'No invoices generated for {total_students} student(s). '
+                    f'Check that students are enrolled in active classes with sessions '
+                    f'and fees configured for the period {start} to {end}.'
+                )
+            messages.warning(request, msg)
             return redirect('generate_invoices')
 
         # Create drafts
         with transaction.atomic():
             invoices = svc.create_draft_invoices(
                 school, student_data, mode, start, end, request.user,
-                billing_type=billing_type,
+                billing_type=billing_type, period_type=period_type,
             )
 
         invoice_ids = [inv.id for inv in invoices]
@@ -394,7 +662,8 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
             action='invoice_generated',
             detail={'count': len(invoices), 'invoice_ids': invoice_ids,
                     'period_start': str(start), 'period_end': str(end),
-                    'mode': mode, 'billing_type': billing_type},
+                    'mode': mode, 'billing_type': billing_type,
+                    'period_type': period_type},
             request=request,
         )
         return redirect('invoice_preview')
@@ -538,10 +807,22 @@ class InvoiceListView(RoleRequiredMixin, View):
                 line_items__department_id=dept_filter,
             ).distinct()
 
+        classroom_filter = request.GET.get('classroom')
+        if classroom_filter:
+            invoices = invoices.filter(
+                line_items__classroom_id=classroom_filter,
+            ).distinct()
+
         paginator = Paginator(invoices, 25)
         page = paginator.get_page(request.GET.get('page'))
 
         departments = Department.objects.filter(school=school, is_active=True)
+
+        # Pre-populate classrooms for the selected department (or all if none selected)
+        classrooms_qs = ClassRoom.objects.filter(school=school, is_active=True).order_by('name')
+        if dept_filter:
+            classrooms_qs = classrooms_qs.filter(department_id=dept_filter)
+
         draft_invoices = Invoice.objects.filter(school=school, status='draft')
         draft_count = draft_invoices.count()
         draft_ids = list(draft_invoices.values_list('id', flat=True))
@@ -550,9 +831,11 @@ class InvoiceListView(RoleRequiredMixin, View):
             'school': school,
             'page': page,
             'departments': departments,
+            'classrooms': classrooms_qs,
             'status_filter': status_filter or '',
             'search': search,
             'dept_filter': dept_filter or '',
+            'classroom_filter': classroom_filter or '',
             'draft_count': draft_count,
             'draft_ids': draft_ids,
         })
@@ -568,12 +851,48 @@ class InvoiceDetailView(RoleRequiredMixin, View):
         payments = invoice.payments.order_by('-created_at')
         credit_balance = svc.get_credit_balance(invoice.student, invoice.school)
 
+        # Get effective settings (department overrides applied)
+        primary_dept = None
+        for li in line_items:
+            if li.classroom and li.classroom.department:
+                primary_dept = li.classroom.department
+                break
+        effective_settings = school.get_effective_settings(primary_dept)
+
+        # Resolve effective currency (class → dept → school → USD)
+        effective_currency = None
+        for li in line_items:
+            if li.classroom:
+                effective_currency = li.classroom.get_effective_currency()
+                break
+        if effective_currency is None:
+            effective_currency = school.get_effective_currency()
+
         return render(request, 'invoicing/invoice_detail.html', {
             'invoice': invoice,
+            'school': school,
             'line_items': line_items,
             'payments': payments,
             'credit_balance': credit_balance,
+            'resolved_stripe_link': invoice.get_stripe_payment_link(),
+            'effective_settings': effective_settings,
+            'effective_currency': effective_currency,
         })
+
+    def post(self, request, invoice_id):
+        """Update the invoice-level Stripe Payment Link (any status)."""
+        school = _get_single_school(request.user)
+        invoice = get_object_or_404(Invoice, id=invoice_id, school=school)
+        invoice.stripe_payment_link = request.POST.get('stripe_payment_link', '').strip()
+        invoice.save(update_fields=['stripe_payment_link', 'updated_at'])
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='invoice_stripe_link_updated',
+            detail={'invoice_id': invoice.id, 'invoice_number': invoice.invoice_number},
+            request=request,
+        )
+        messages.success(request, 'Stripe Payment Link updated.')
+        return redirect('invoice_detail', invoice_id=invoice.id)
 
 
 class InvoiceEditView(RoleRequiredMixin, View):
@@ -685,11 +1004,12 @@ class InvoiceEditView(RoleRequiredMixin, View):
                 invoice.due_date = None
 
             invoice.notes = notes
+            invoice.stripe_payment_link = request.POST.get('stripe_payment_link', '').strip()
 
             # Recalculate totals from line items
             self._recalculate_totals(invoice)
             invoice.save(update_fields=[
-                'due_date', 'notes', 'amount', 'calculated_amount', 'updated_at',
+                'due_date', 'notes', 'stripe_payment_link', 'amount', 'calculated_amount', 'updated_at',
             ])
 
         log_event(

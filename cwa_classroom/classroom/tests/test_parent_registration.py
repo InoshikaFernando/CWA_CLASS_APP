@@ -26,7 +26,7 @@ class ParentRegistrationTestBase(TestCase):
         )
 
         cls.admin_user = CustomUser.objects.create_user(
-            'admin', 'admin@test.com', 'pass1234',
+            'admin', 'wlhtestmails+admin@gmail.com', 'password1!',
             first_name='Admin', last_name='User',
         )
         cls.admin_user.roles.add(cls.admin_role)
@@ -36,7 +36,7 @@ class ParentRegistrationTestBase(TestCase):
         )
 
         cls.student = CustomUser.objects.create_user(
-            'student1', 'student@test.com', 'pass1234',
+            'student1', 'wlhtestmails+student@gmail.com', 'password1!',
             first_name='Zara', last_name='Student',
         )
         cls.student.roles.add(cls.student_role)
@@ -46,7 +46,7 @@ class ParentRegistrationTestBase(TestCase):
         defaults = {
             'school': self.school,
             'student': self.student,
-            'parent_email': 'newparent@test.com',
+            'parent_email': 'wlhtestmails+newparent@gmail.com',
             'invited_by': self.admin_user,
             'expires_at': timezone.now() + timedelta(days=7),
         }
@@ -72,21 +72,22 @@ class ParentRegisterViewTest(ParentRegistrationTestBase):
     def test_get_prefills_email(self):
         url = reverse('register_parent', args=[self.invite.token])
         resp = self.client.get(url)
-        self.assertContains(resp, 'newparent@test.com')
+        self.assertContains(resp, 'wlhtestmails+newparent@gmail.com')
 
     def test_post_creates_user_and_links(self):
         url = reverse('register_parent', args=[self.invite.token])
         resp = self.client.post(url, {
             'first_name': 'Jane',
             'last_name': 'Doe',
-            'email': 'newparent@test.com',
+            'email': 'wlhtestmails+newparent@gmail.com',
             'password': 'securepass123',
             'confirm_password': 'securepass123',
+            'accept_terms': 'on',
         })
         self.assertEqual(resp.status_code, 302)
 
         # User created with PARENT role
-        user = CustomUser.objects.get(email='newparent@test.com')
+        user = CustomUser.objects.get(email='wlhtestmails+newparent@gmail.com')
         self.assertTrue(user.is_parent)
         self.assertEqual(user.first_name, 'Jane')
 
@@ -106,21 +107,24 @@ class ParentRegisterViewTest(ParentRegistrationTestBase):
         self.client.post(url, {
             'first_name': 'Jane',
             'last_name': 'Doe',
-            'email': 'newparent@test.com',
+            'email': 'wlhtestmails+newparent@gmail.com',
             'password': 'securepass123',
             'confirm_password': 'securepass123',
+            'accept_terms': 'on',
         })
-        user = CustomUser.objects.get(email='newparent@test.com')
-        self.assertTrue(user.username.startswith('newparent'))
+        user = CustomUser.objects.get(email='wlhtestmails+newparent@gmail.com')
+        # Email local part: wlhtestmails+newparent → '+' stripped → wlhtestmailsnewparent
+        self.assertTrue(user.username.startswith('wlhtestmailsnewparent'))
 
     def test_post_user_is_logged_in(self):
         url = reverse('register_parent', args=[self.invite.token])
         resp = self.client.post(url, {
             'first_name': 'Jane',
             'last_name': 'Doe',
-            'email': 'newparent@test.com',
+            'email': 'wlhtestmails+newparent@gmail.com',
             'password': 'securepass123',
             'confirm_password': 'securepass123',
+            'accept_terms': 'on',
         }, follow=True)
         self.assertTrue(resp.wsgi_request.user.is_authenticated)
 
@@ -129,7 +133,7 @@ class ParentRegisterViewTest(ParentRegistrationTestBase):
         resp = self.client.post(url, {
             'first_name': '',
             'last_name': '',
-            'email': 'newparent@test.com',
+            'email': 'wlhtestmails+newparent@gmail.com',
             'password': 'short',
             'confirm_password': 'mismatch',
         })
@@ -138,12 +142,12 @@ class ParentRegisterViewTest(ParentRegistrationTestBase):
 
     def test_post_duplicate_email_shows_error(self):
         # Create a user with same email first
-        CustomUser.objects.create_user('existing', 'newparent@test.com', 'pass1234')
+        CustomUser.objects.create_user('existing', 'wlhtestmails+newparent@gmail.com', 'password1!')
         url = reverse('register_parent', args=[self.invite.token])
         resp = self.client.post(url, {
             'first_name': 'Jane',
             'last_name': 'Doe',
-            'email': 'newparent@test.com',
+            'email': 'wlhtestmails+newparent@gmail.com',
             'password': 'securepass123',
             'confirm_password': 'securepass123',
         })
@@ -152,7 +156,7 @@ class ParentRegisterViewTest(ParentRegistrationTestBase):
 
     def test_expired_invite_shows_error(self):
         invite = self._make_invite(
-            parent_email='expired@test.com',
+            parent_email='wlhtestmails+expired@gmail.com',
             expires_at=timezone.now() - timedelta(hours=1),
         )
         url = reverse('register_parent', args=[invite.token])
@@ -162,7 +166,7 @@ class ParentRegisterViewTest(ParentRegistrationTestBase):
 
     def test_accepted_invite_shows_error(self):
         invite = self._make_invite(
-            parent_email='used@test.com',
+            parent_email='wlhtestmails+used@gmail.com',
             status='accepted',
         )
         url = reverse('register_parent', args=[invite.token])
@@ -172,7 +176,7 @@ class ParentRegisterViewTest(ParentRegistrationTestBase):
 
     def test_revoked_invite_shows_error(self):
         invite = self._make_invite(
-            parent_email='revoked@test.com',
+            parent_email='wlhtestmails+revoked@gmail.com',
             status='revoked',
         )
         url = reverse('register_parent', args=[invite.token])
@@ -181,7 +185,7 @@ class ParentRegisterViewTest(ParentRegistrationTestBase):
         self.assertContains(resp, 'revoked')
 
     def test_logged_in_user_redirected_to_accept_invite(self):
-        self.client.login(username='admin', password='pass1234')
+        self.client.login(username='admin', password='password1!')
         url = reverse('register_parent', args=[self.invite.token])
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 302)
@@ -195,19 +199,19 @@ class ParentRegisterViewTest(ParentRegistrationTestBase):
 
     def test_post_on_expired_invite_shows_error(self):
         invite = self._make_invite(
-            parent_email='late@test.com',
+            parent_email='wlhtestmails+late@gmail.com',
             expires_at=timezone.now() - timedelta(hours=1),
         )
         url = reverse('register_parent', args=[invite.token])
         resp = self.client.post(url, {
             'first_name': 'Jane',
             'last_name': 'Doe',
-            'email': 'late@test.com',
+            'email': 'wlhtestmails+late@gmail.com',
             'password': 'securepass123',
             'confirm_password': 'securepass123',
         })
         self.assertEqual(resp.status_code, 302)
-        self.assertFalse(CustomUser.objects.filter(email='late@test.com').exists())
+        self.assertFalse(CustomUser.objects.filter(email='wlhtestmails+late@gmail.com').exists())
 
 
 class ParentAcceptInviteViewTest(ParentRegistrationTestBase):
@@ -216,10 +220,10 @@ class ParentAcceptInviteViewTest(ParentRegistrationTestBase):
     def setUp(self):
         self.client = Client()
         self.existing_user = CustomUser.objects.create_user(
-            'existingparent', 'existing@test.com', 'pass1234',
+            'existingparent', 'wlhtestmails+existing@gmail.com', 'password1!',
             first_name='Existing', last_name='Parent',
         )
-        self.invite = self._make_invite(parent_email='existing@test.com')
+        self.invite = self._make_invite(parent_email='wlhtestmails+existing@gmail.com')
 
     def test_requires_login(self):
         url = reverse('accept_parent_invite', args=[self.invite.token])
@@ -228,7 +232,7 @@ class ParentAcceptInviteViewTest(ParentRegistrationTestBase):
         self.assertIn('login', resp.url)
 
     def test_get_shows_confirmation(self):
-        self.client.login(username='existingparent', password='pass1234')
+        self.client.login(username='existingparent', password='password1!')
         url = reverse('accept_parent_invite', args=[self.invite.token])
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 200)
@@ -236,7 +240,7 @@ class ParentAcceptInviteViewTest(ParentRegistrationTestBase):
         self.assertContains(resp, 'Zara Student')
 
     def test_post_creates_link_and_adds_role(self):
-        self.client.login(username='existingparent', password='pass1234')
+        self.client.login(username='existingparent', password='password1!')
         url = reverse('accept_parent_invite', args=[self.invite.token])
         resp = self.client.post(url)
         self.assertEqual(resp.status_code, 302)
@@ -259,7 +263,7 @@ class ParentAcceptInviteViewTest(ParentRegistrationTestBase):
     def test_post_does_not_duplicate_parent_role(self):
         """If user already has PARENT role, don't create a duplicate UserRole."""
         self.existing_user.roles.add(self.parent_role)
-        self.client.login(username='existingparent', password='pass1234')
+        self.client.login(username='existingparent', password='password1!')
         url = reverse('accept_parent_invite', args=[self.invite.token])
         resp = self.client.post(url)
         self.assertEqual(resp.status_code, 302)
@@ -280,16 +284,16 @@ class ParentAcceptInviteViewTest(ParentRegistrationTestBase):
 
         # Second child
         student_b = CustomUser.objects.create_user(
-            'student_b', 'sb@test.com', 'pass1234',
+            'student_b', 'wlhtestmails+sb@gmail.com', 'password1!',
             first_name='Yuki', last_name='Student',
         )
         student_b.roles.add(self.student_role)
         invite_b = self._make_invite(
-            parent_email='existing@test.com',
+            parent_email='wlhtestmails+existing@gmail.com',
             student=student_b,
         )
 
-        self.client.login(username='existingparent', password='pass1234')
+        self.client.login(username='existingparent', password='password1!')
         url = reverse('accept_parent_invite', args=[invite_b.token])
         resp = self.client.post(url)
         self.assertEqual(resp.status_code, 302)
@@ -299,10 +303,10 @@ class ParentAcceptInviteViewTest(ParentRegistrationTestBase):
 
     def test_expired_invite_rejected(self):
         invite = self._make_invite(
-            parent_email='existing@test.com',
+            parent_email='wlhtestmails+existing@gmail.com',
             expires_at=timezone.now() - timedelta(hours=1),
         )
-        self.client.login(username='existingparent', password='pass1234')
+        self.client.login(username='existingparent', password='password1!')
         url = reverse('accept_parent_invite', args=[invite.token])
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 302)

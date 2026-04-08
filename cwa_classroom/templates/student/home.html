@@ -78,7 +78,7 @@
                 {% for entry in group.subtopics %}
                 {% if item.accessible %}
                   {% if entry.has_questions and entry.topic_id %}
-                  <a href="{% url 'topic_quiz' level_number=item.level.level_number topic_id=entry.topic_id %}"
+                  <a href="{% url 'topic_quiz' subject='maths' level_number=item.level.level_number topic_id=entry.topic_id %}"
                      class="rounded-xl border border-emerald-200 p-3 hover:border-emerald-400 hover:bg-emerald-50 hover:shadow-sm transition text-sm font-semibold text-gray-700 hover:text-emerald-700">
                     {{ entry.topic.name }}
                   </a>
@@ -102,7 +102,7 @@
           </div>
           {% if item.accessible %}
           <div class="mt-4">
-            <a href="{% url 'mixed_quiz' level_number=item.level.level_number %}"
+            <a href="{% url 'mixed_quiz' subject='maths' level_number=item.level.level_number %}"
                class="block rounded-xl bg-emerald-500 p-3 hover:bg-emerald-600 hover:shadow-md transition text-sm font-bold text-white text-center shadow-sm">
               🎲 Take Mixed Quiz
             </a>

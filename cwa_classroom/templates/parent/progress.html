@@ -4,76 +4,255 @@
 {% block content %}
 <div class="max-w-4xl mx-auto space-y-8">
 
+  <!-- Header -->
   <div>
     <h1 class="font-display text-3xl text-gray-800">Progress Report</h1>
-    <p class="text-violet-500 text-sm mt-1 font-semibold">{{ active_child.first_name }} {{ active_child.last_name }} &middot; {{ active_school.name }}</p>
+    {% if active_child %}
+      <p class="text-slate-500 text-sm mt-1">
+        {{ active_child.first_name }} {{ active_child.last_name }}
+        {% if active_school %}&middot; {{ active_school.name }}{% endif %}
+      </p>
+    {% endif %}
   </div>
 
+  <!-- Time spent cards -->
+  {% if active_child %}
+  <div class="grid grid-cols-2 gap-4">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col items-center text-center">
+      <p class="text-3xl font-bold text-indigo-600">{{ time_daily|default:"0m" }}</p>
+      <p class="text-xs text-slate-400 font-medium mt-1">Today</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col items-center text-center">
+      <p class="text-3xl font-bold text-indigo-600">{{ time_weekly|default:"0m" }}</p>
+      <p class="text-xs text-slate-400 font-medium mt-1">This Week</p>
+    </div>
+  </div>
+  {% endif %}
+
   {% if grouped_progress %}
+
     <!-- Overall summary -->
     {% if overall.total %}
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div class="bg-gradient-to-br from-violet-500 to-purple-500 rounded-2xl p-4 text-white">
-          <p class="text-2xl font-bold">{{ overall.total }}</p>
-          <p class="text-xs text-white/70">Total Criteria</p>
-        </div>
-        <div class="bg-gradient-to-br from-emerald-500 to-green-500 rounded-2xl p-4 text-white">
-          <p class="text-2xl font-bold">{{ overall.achieved }}</p>
-          <p class="text-xs text-white/70">Achieved</p>
-        </div>
-        <div class="bg-gradient-to-br from-amber-500 to-orange-500 rounded-2xl p-4 text-white">
-          <p class="text-2xl font-bold">{{ overall.in_progress }}</p>
-          <p class="text-xs text-white/70">In Progress</p>
-        </div>
-        <div class="bg-gradient-to-br from-gray-400 to-gray-500 rounded-2xl p-4 text-white">
-          <p class="text-2xl font-bold">{{ overall.not_started }}</p>
-          <p class="text-xs text-white/70">Not Started</p>
-        </div>
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col items-center text-center">
+        <p class="text-3xl font-bold text-slate-800">{{ overall.total }}</p>
+        <p class="text-xs text-slate-400 font-medium mt-1">Total Criteria</p>
       </div>
+      <div class="bg-white rounded-2xl border border-emerald-100 shadow-sm p-5 flex flex-col items-center text-center">
+        <p class="text-3xl font-bold text-emerald-600">{{ overall.achieved }}</p>
+        <p class="text-xs text-slate-400 font-medium mt-1">Achieved</p>
+      </div>
+      <div class="bg-white rounded-2xl border border-amber-100 shadow-sm p-5 flex flex-col items-center text-center">
+        <p class="text-3xl font-bold text-amber-500">{{ overall.in_progress }}</p>
+        <p class="text-xs text-slate-400 font-medium mt-1">In Progress</p>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex flex-col items-center text-center">
+        <p class="text-3xl font-bold text-slate-400">{{ overall.not_assessed }}</p>
+        <p class="text-xs text-slate-400 font-medium mt-1">Not Yet Assessed</p>
+      </div>
+    </div>
+
+    <!-- Overall progress bar -->
+    {% if overall.total %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-sm font-semibold text-slate-700">Overall Achievement</p>
+        <p class="text-sm font-bold text-emerald-600">
+          {% widthratio overall.achieved overall.total 100 %}%
+        </p>
+      </div>
+      <div class="h-3 bg-slate-100 rounded-full overflow-hidden flex gap-px">
+        {% if overall.achieved %}
+          <div class="h-full bg-emerald-500 rounded-full transition-all" style="width: {% widthratio overall.achieved overall.total 100 %}%"></div>
+        {% endif %}
+        {% if overall.in_progress %}
+          <div class="h-full bg-amber-400 transition-all" style="width: {% widthratio overall.in_progress overall.total 100 %}%"></div>
+        {% endif %}
+      </div>
+      <div class="flex gap-4 mt-2 text-xs text-slate-400">
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>Achieved</span>
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-amber-400 inline-block"></span>In Progress</span>
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-slate-200 inline-block"></span>Not Assessed</span>
+      </div>
+    </div>
+    {% endif %}
     {% endif %}
 
-    <!-- Grouped by subject/level -->
+    <!-- Grouped criteria -->
     {% for group in grouped_progress %}
-      <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-          <div>
-            <h2 class="font-semibold text-gray-800">
-              {% if group.subject %}{{ group.subject.name }}{% else %}General{% endif %}
-              {% if group.level %} &middot; {{ group.level.display_name }}{% endif %}
-            </h2>
-            <p class="text-xs text-gray-400 mt-0.5">{{ group.achieved }}/{{ group.total }} achieved</p>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+
+      <!-- Group header -->
+      <div class="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+        <div>
+          <h2 class="font-semibold text-slate-800">
+            {% if group.subject %}{{ group.subject.name }}{% else %}General{% endif %}
+            {% if group.level %}<span class="text-slate-400 font-normal mx-1">&middot;</span>{{ group.level.display_name }}{% endif %}
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">{{ group.achieved }} of {{ group.total }} achieved</p>
+        </div>
+        {% if group.total %}
+        <div class="flex items-center gap-2">
+          <div class="w-24 h-2 bg-slate-200 rounded-full overflow-hidden">
+            <div class="h-full bg-emerald-500 rounded-full" style="width: {% widthratio group.achieved group.total 100 %}%"></div>
           </div>
-          {% if group.total %}
-            <div class="w-20 h-2 bg-gray-100 rounded-full overflow-hidden">
-              <div class="h-full bg-emerald-500 rounded-full" style="width: {% widthratio group.achieved group.total 100 %}%"></div>
-            </div>
-          {% endif %}
+          <span class="text-xs font-semibold text-slate-500">{% widthratio group.achieved group.total 100 %}%</span>
         </div>
-        <div class="divide-y divide-gray-50">
-          {% for rec in group.records %}
-            <div class="px-6 py-3 flex items-center gap-3">
-              <div class="flex-1 min-w-0">
-                <p class="text-sm text-gray-700 truncate">{{ rec.criteria.name }}</p>
-                {% if rec.notes %}
-                  <p class="text-xs text-gray-400 mt-0.5 truncate">{{ rec.notes }}</p>
-                {% endif %}
-              </div>
-              {% if rec.status == 'achieved' %}
-                <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700 shrink-0">Achieved</span>
-              {% elif rec.status == 'in_progress' %}
-                <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 shrink-0">In Progress</span>
-              {% else %}
-                <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-500 shrink-0">Not Started</span>
-              {% endif %}
-            </div>
-          {% endfor %}
-        </div>
+        {% endif %}
       </div>
+
+      <!-- Criteria rows -->
+      <div class="divide-y divide-slate-50">
+        {% for entry in group.entries %}
+        <div class="px-6 py-3.5 flex items-start gap-4">
+          <!-- Status icon -->
+          <div class="mt-0.5 shrink-0">
+            {% if entry.status == 'achieved' %}
+              <span class="flex items-center justify-center w-6 h-6 rounded-full bg-emerald-100">
+                <svg class="w-3.5 h-3.5 text-emerald-600" fill="currentColor" viewBox="0 0 20 20">
+                  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                </svg>
+              </span>
+            {% elif entry.status == 'in_progress' %}
+              <span class="flex items-center justify-center w-6 h-6 rounded-full bg-amber-100">
+                <svg class="w-3.5 h-3.5 text-amber-600" fill="currentColor" viewBox="0 0 20 20">
+                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/>
+                </svg>
+              </span>
+            {% elif entry.status == 'not_started' %}
+              <span class="flex items-center justify-center w-6 h-6 rounded-full bg-slate-100">
+                <svg class="w-3.5 h-3.5 text-slate-400" fill="currentColor" viewBox="0 0 20 20">
+                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+                </svg>
+              </span>
+            {% else %}
+              <span class="flex items-center justify-center w-6 h-6 rounded-full bg-slate-50 border border-slate-200">
+                <svg class="w-3.5 h-3.5 text-slate-300" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </span>
+            {% endif %}
+          </div>
+
+          <!-- Criteria info -->
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium text-slate-800">{{ entry.criteria.name }}</p>
+            {% if entry.criteria.description %}
+              <p class="text-xs text-slate-400 mt-0.5 line-clamp-2">{{ entry.criteria.description }}</p>
+            {% endif %}
+            {% if entry.notes %}
+              <p class="text-xs text-slate-500 mt-1 italic">{{ entry.notes }}</p>
+            {% endif %}
+            {% if entry.recorded_at %}
+              <p class="text-xs text-slate-400 mt-1">
+                Assessed {{ entry.recorded_at|date:"j M Y" }}
+                {% if entry.recorded_by %}&middot; by {{ entry.recorded_by.get_full_name|default:entry.recorded_by.username }}{% endif %}
+                {% if entry.classroom %}&middot; {{ entry.classroom.name }}{% endif %}
+              </p>
+            {% endif %}
+          </div>
+
+          <!-- Status badge -->
+          <div class="shrink-0">
+            {% if entry.status == 'achieved' %}
+              <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">Achieved</span>
+            {% elif entry.status == 'in_progress' %}
+              <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">In Progress</span>
+            {% elif entry.status == 'not_started' %}
+              <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-500">Not Started</span>
+            {% else %}
+              <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-50 text-slate-400 border border-slate-200">Not Assessed</span>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
     {% endfor %}
 
-  {% else %}
-    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center">
-      <p class="text-gray-400">No progress records yet for {{ active_child.first_name }}.</p>
+  {% elif active_child %}
+
+    {% if module_activity %}
+      {% for module in module_activity %}
+      <div>
+        <h2 class="font-semibold text-slate-700 mb-3">{{ module.module }}</h2>
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="divide-y divide-slate-50">
+            {% for row in module.rows %}
+            <div class="px-5 py-3.5 flex items-center gap-4">
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-slate-800">{{ row.label }}</p>
+                <p class="text-xs text-slate-400 mt-0.5">{{ row.correct }} correct of {{ row.total }} attempts</p>
+              </div>
+              <div class="flex items-center gap-3 shrink-0">
+                <div class="w-28 h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div class="h-full rounded-full {% if row.pct >= 80 %}bg-emerald-500{% elif row.pct >= 50 %}bg-amber-400{% else %}bg-red-400{% endif %}"
+                       style="width: {{ row.pct }}%"></div>
+                </div>
+                <span class="text-xs font-semibold text-slate-500 w-9 text-right">{{ row.pct }}%</span>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">
+      <h3 class="text-lg font-semibold text-slate-600 mb-1">No activity yet</h3>
+      <p class="text-sm text-slate-400">{{ active_child.first_name }} hasn't completed any quizzes yet.</p>
+    </div>
+    {% endif %}
+
+  {% endif %}
+
+  <!-- Recent activity (always shown when child is active) -->
+  {% if active_child and recent_activity %}
+  <div>
+    <h2 class="font-semibold text-slate-700 mb-3">Recent Activity</h2>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="divide-y divide-slate-50">
+        {% for item in recent_activity %}
+        <div class="px-5 py-3.5 flex items-center gap-4">
+          <!-- Module icon -->
+          <div class="shrink-0 w-8 h-8 rounded-full flex items-center justify-center
+            {% if item.type == 'maths' %}bg-indigo-100{% elif item.type == 'basic_facts' %}bg-amber-100{% else %}bg-emerald-100{% endif %}">
+            {% if item.type == 'maths' %}
+              <svg class="w-4 h-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4.745 3A23.933 23.933 0 003 12c0 3.183.62 6.22 1.745 9M19.255 3A23.933 23.933 0 0121 12c0 3.183-.62 6.22-1.745 9M8.25 8.885l1.444-.89a.75.75 0 011.105.402l2.402 7.206a.75.75 0 001.104.401l1.445-.889m-8.25.75l.213.09a1.687 1.687 0 002.062-.617l4.45-6.676a1.688 1.688 0 012.062-.618l.213.09"/>
+              </svg>
+            {% elif item.type == 'number_puzzles' %}
+              <svg class="w-4 h-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M14.25 6.087c0-.355.186-.676.401-.959.221-.29.349-.634.349-1.003 0-1.036-1.007-1.875-2.25-1.875s-2.25.84-2.25 1.875c0 .369.128.713.349 1.003.215.283.401.604.401.959v0a.64.64 0 01-.657.643 48.39 48.39 0 01-4.163-.3c.186 1.613.293 3.25.315 4.907a.656.656 0 01-.658.663v0c-.355 0-.676-.186-.959-.401a1.647 1.647 0 00-1.003-.349c-1.036 0-1.875 1.007-1.875 2.25s.84 2.25 1.875 2.25c.369 0 .713-.128 1.003-.349.283-.215.604-.401.959-.401v0c.31 0 .555.26.532.57a48.039 48.039 0 01-.642 5.056c1.518.19 3.058.309 4.616.354a.64.64 0 00.657-.643v0c0-.355-.186-.676-.401-.959a1.647 1.647 0 01-.349-1.003c0-1.035 1.008-1.875 2.25-1.875 1.243 0 2.25.84 2.25 1.875 0 .369-.128.713-.349 1.003-.215.283-.4.604-.4.959v0c0 .333.277.599.61.58a48.1 48.1 0 005.427-.63 48.05 48.05 0 00.582-4.717.532.532 0 00-.533-.57v0c-.355 0-.676.186-.959.401-.29.221-.634.349-1.003.349-1.035 0-1.875-1.007-1.875-2.25s.84-2.25 1.875-2.25c.37 0 .713.128 1.003.349.283.215.604.401.96.401v0a.656.656 0 00.658-.663 48.422 48.422 0 00-.37-5.36c-1.886.342-3.81.574-5.766.689a.578.578 0 01-.61-.58v0z"/>
+              </svg>
+            {% else %}
+              <svg class="w-4 h-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/>
+              </svg>
+            {% endif %}
+          </div>
+          <!-- Label + time -->
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium text-slate-800 truncate">{{ item.label }}</p>
+            <p class="text-xs text-slate-400 mt-0.5">{{ item.completed_at|date:"D, j M · g:i A" }}</p>
+          </div>
+          <!-- Score -->
+          {% if item.score is not None and item.total %}
+          <div class="shrink-0 text-right">
+            <p class="text-sm font-semibold text-slate-700">{{ item.score }}/{{ item.total }}</p>
+            <p class="text-xs {% if item.pct >= 80 %}text-emerald-600{% elif item.pct >= 50 %}text-amber-500{% else %}text-red-500{% endif %}">{{ item.pct }}%</p>
+          </div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if not active_child %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">
+      <p class="text-slate-400">No child selected.</p>
     </div>
   {% endif %}
 

@@ -13,7 +13,7 @@ class DepartmentLevelTestBase(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.admin_user = CustomUser.objects.create_user(
-            'testadmin', 'admin@test.com', 'pass1234',
+            'testadmin', 'wlhtestmails+admin@gmail.com', 'password1!',
         )
         admin_role, _ = Role.objects.get_or_create(
             name=Role.ADMIN, defaults={'display_name': 'Admin'},
