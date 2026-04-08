@@ -15,6 +15,20 @@
     {% endif %}
   </div>
 
+  <!-- Time spent cards -->
+  {% if active_child %}
+  <div class="grid grid-cols-2 gap-4">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col items-center text-center">
+      <p class="text-3xl font-bold text-indigo-600">{{ time_daily|default:"0m" }}</p>
+      <p class="text-xs text-slate-400 font-medium mt-1">Today</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col items-center text-center">
+      <p class="text-3xl font-bold text-indigo-600">{{ time_weekly|default:"0m" }}</p>
+      <p class="text-xs text-slate-400 font-medium mt-1">This Week</p>
+    </div>
+  </div>
+  {% endif %}
+
   {% if grouped_progress %}
 
     <!-- Overall summary -->
@@ -190,7 +204,53 @@
     </div>
     {% endif %}
 
-  {% else %}
+  {% endif %}
+
+  <!-- Recent activity (always shown when child is active) -->
+  {% if active_child and recent_activity %}
+  <div>
+    <h2 class="font-semibold text-slate-700 mb-3">Recent Activity</h2>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="divide-y divide-slate-50">
+        {% for item in recent_activity %}
+        <div class="px-5 py-3.5 flex items-center gap-4">
+          <!-- Module icon -->
+          <div class="shrink-0 w-8 h-8 rounded-full flex items-center justify-center
+            {% if item.type == 'maths' %}bg-indigo-100{% elif item.type == 'basic_facts' %}bg-amber-100{% else %}bg-emerald-100{% endif %}">
+            {% if item.type == 'maths' %}
+              <svg class="w-4 h-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4.745 3A23.933 23.933 0 003 12c0 3.183.62 6.22 1.745 9M19.255 3A23.933 23.933 0 0121 12c0 3.183-.62 6.22-1.745 9M8.25 8.885l1.444-.89a.75.75 0 011.105.402l2.402 7.206a.75.75 0 001.104.401l1.445-.889m-8.25.75l.213.09a1.687 1.687 0 002.062-.617l4.45-6.676a1.688 1.688 0 012.062-.618l.213.09"/>
+              </svg>
+            {% elif item.type == 'number_puzzles' %}
+              <svg class="w-4 h-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M14.25 6.087c0-.355.186-.676.401-.959.221-.29.349-.634.349-1.003 0-1.036-1.007-1.875-2.25-1.875s-2.25.84-2.25 1.875c0 .369.128.713.349 1.003.215.283.401.604.401.959v0a.64.64 0 01-.657.643 48.39 48.39 0 01-4.163-.3c.186 1.613.293 3.25.315 4.907a.656.656 0 01-.658.663v0c-.355 0-.676-.186-.959-.401a1.647 1.647 0 00-1.003-.349c-1.036 0-1.875 1.007-1.875 2.25s.84 2.25 1.875 2.25c.369 0 .713-.128 1.003-.349.283-.215.604-.401.959-.401v0c.31 0 .555.26.532.57a48.039 48.039 0 01-.642 5.056c1.518.19 3.058.309 4.616.354a.64.64 0 00.657-.643v0c0-.355-.186-.676-.401-.959a1.647 1.647 0 01-.349-1.003c0-1.035 1.008-1.875 2.25-1.875 1.243 0 2.25.84 2.25 1.875 0 .369-.128.713-.349 1.003-.215.283-.4.604-.4.959v0c0 .333.277.599.61.58a48.1 48.1 0 005.427-.63 48.05 48.05 0 00.582-4.717.532.532 0 00-.533-.57v0c-.355 0-.676.186-.959.401-.29.221-.634.349-1.003.349-1.035 0-1.875-1.007-1.875-2.25s.84-2.25 1.875-2.25c.37 0 .713.128 1.003.349.283.215.604.401.96.401v0a.656.656 0 00.658-.663 48.422 48.422 0 00-.37-5.36c-1.886.342-3.81.574-5.766.689a.578.578 0 01-.61-.58v0z"/>
+              </svg>
+            {% else %}
+              <svg class="w-4 h-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/>
+              </svg>
+            {% endif %}
+          </div>
+          <!-- Label + time -->
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium text-slate-800 truncate">{{ item.label }}</p>
+            <p class="text-xs text-slate-400 mt-0.5">{{ item.completed_at|date:"D, j M · g:i A" }}</p>
+          </div>
+          <!-- Score -->
+          {% if item.score is not None and item.total %}
+          <div class="shrink-0 text-right">
+            <p class="text-sm font-semibold text-slate-700">{{ item.score }}/{{ item.total }}</p>
+            <p class="text-xs {% if item.pct >= 80 %}text-emerald-600{% elif item.pct >= 50 %}text-amber-500{% else %}text-red-500{% endif %}">{{ item.pct }}%</p>
+          </div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if not active_child %}
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">
       <p class="text-slate-400">No child selected.</p>
     </div>
