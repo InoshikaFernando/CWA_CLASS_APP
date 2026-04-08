@@ -10,9 +10,9 @@ shown inline when subject_sidebar context is set, so the sidebar never
   {% with request.resolver_match.url_name as url_name %}
 
   <!-- Home -->
-  <a href="{% url 'subjects_hub' %}"
+  <a href="{% if subject_sidebar == 'maths' %}{% url 'maths:dashboard' %}{% else %}{% url 'subjects_hub' %}{% endif %}"
      class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
-            {% if request.path == '/hub/' %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
+            {% if subject_sidebar == 'maths' and request.path == '/maths/' %}bg-white/15 text-white{% elif request.path == '/hub/' %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
     <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
       <path stroke-linecap="round" stroke-linejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"/>
     </svg>

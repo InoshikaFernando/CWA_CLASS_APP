@@ -8,6 +8,7 @@ Covers:
   - End-to-end flow: teacher creates → student submits → teacher validates
 """
 
+import re
 from datetime import timedelta
 
 import pytest
@@ -400,7 +401,7 @@ class TestHomeworkStudentSubmitFlow:
         assert "/result/" in page.url
         # Score circle and review are present
         expect(page.get_by_text("End-to-End Test Homework")).to_be_visible()
-        expect(page.get_by_text("correct", exact=False)).to_be_visible()
+        expect(page.get_by_text(re.compile(r"\d+ / \d+ correct"))).to_be_visible()
         expect(page.get_by_text("Answer Review")).to_be_visible()
 
 
