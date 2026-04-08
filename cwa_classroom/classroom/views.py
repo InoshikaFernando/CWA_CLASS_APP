@@ -4573,11 +4573,14 @@ class SubjectsHubView(LoginRequiredMixin, View):
         pending_class_ids = set()
 
         # ── SCHOOL STUDENT path ──
+        student_id_code = None
         if is_school_student:
-            school_memberships = SchoolStudent.objects.filter(
+            school_memberships = list(SchoolStudent.objects.filter(
                 student=user, is_active=True, school__is_active=True,
-            ).select_related('school')
+            ).select_related('school'))
             schools = [ss.school for ss in school_memberships]
+            if school_memberships:
+                student_id_code = school_memberships[0].student_id_code
 
             if schools:
                 # Enrolled class lookup: classroom_id -> classroom
@@ -4700,6 +4703,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
                     'global_subjects': global_subjects,
                     'is_school_student': True,
                     'hide_sidebar': True,
+                    'student_id_code': student_id_code,
                     **hub_extra,
                 })
 
@@ -4733,6 +4737,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
             'pending_class_ids': pending_class_ids,
             'school_sections': [],
             'global_subjects': global_subjects,
+            'student_id_code': student_id_code,
             **hub_extra,
         })
 
