@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Billing{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+
+  <div>
+    <h1 class="font-display text-3xl text-gray-800">Billing</h1>
+    <p class="text-violet-500 text-sm mt-1 font-semibold">Your subscription</p>
+  </div>
+
+  {% if subscription and subscription.is_active_or_trialing %}
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+
+      <div class="flex items-start justify-between">
+        <div>
+          <p class="font-bold text-gray-900 text-lg">{{ subscription.package.name }}</p>
+          <p class="text-gray-500 text-sm mt-0.5">
+            {% if subscription.package.class_limit == 0 %}Unlimited classes{% else %}Up to {{ subscription.package.class_limit }} class{{ subscription.package.class_limit|pluralize:"es" }}{% endif %}
+          </p>
+        </div>
+        {% if subscription.status == 'active' %}
+          <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">Active</span>
+        {% elif subscription.status == 'trialing' %}
+          <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">Trial</span>
+        {% endif %}
+      </div>
+
+      <div class="grid grid-cols-2 gap-4 text-sm border-t border-gray-100 pt-4">
+        <div>
+          <p class="text-gray-500 text-xs uppercase tracking-wider mb-1">Monthly price</p>
+          <p class="font-semibold text-gray-900">${{ subscription.package.price }}<span class="text-gray-400 font-normal">/mo</span></p>
+        </div>
+        {% if subscription.status == 'trialing' and subscription.trial_end %}
+        <div>
+          <p class="text-gray-500 text-xs uppercase tracking-wider mb-1">Trial ends</p>
+          <p class="font-semibold text-gray-900">{{ subscription.trial_end|date:"d M Y" }}</p>
+        </div>
+        {% elif subscription.current_period_end %}
+        <div>
+          <p class="text-gray-500 text-xs uppercase tracking-wider mb-1">Next payment</p>
+          <p class="font-semibold text-gray-900">{{ subscription.current_period_end|date:"d M Y" }}</p>
+        </div>
+        {% endif %}
+      </div>
+
+      {% if subscription.cancel_at_period_end %}
+      <div class="bg-amber-50 border border-amber-100 rounded-xl p-3 text-sm text-amber-700">
+        Subscription will cancel on {{ subscription.current_period_end|date:"d M Y" }}.
+      </div>
+      {% endif %}
+
+    </div>
+
+  {% elif subscription %}
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="font-semibold text-gray-800">{{ subscription.package.name }}</p>
+          <p class="text-gray-500 text-sm mt-0.5">Subscription inactive</p>
+        </div>
+        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">
+          {{ subscription.get_status_display }}
+        </span>
+      </div>
+    </div>
+
+  {% else %}
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center">
+      <div class="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-4">
+        <svg class="w-7 h-7 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z"/>
+        </svg>
+      </div>
+      <p class="text-gray-700 font-semibold">No active subscription</p>
+      <p class="text-gray-400 text-sm mt-1">You don't have a personal subscription linked to this account.</p>
+    </div>
+  {% endif %}
+
+  <div class="flex gap-3">
+    <a href="{% url 'parent_invoices' %}"
+       class="inline-flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white font-semibold rounded-xl transition text-sm">
+      View Invoices
+    </a>
+    <a href="{% url 'parent_payment_history' %}"
+       class="inline-flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 font-semibold rounded-xl transition text-sm">
+      Payment History
+    </a>
+  </div>
+
+</div>
+{% endblock %}
