@@ -20,6 +20,7 @@
           <li><a href="/" class="hover:text-white transition">Home</a></li>
           <li><a href="/contact/" class="hover:text-white transition">Contact Us</a></li>
           <li><a href="/join/" class="hover:text-white transition">Join Class</a></li>
+          <li><a href="{% url 'help:help_centre' %}" class="hover:text-white transition">Help Centre</a></li>
           {% if user.is_authenticated %}
             <li><a href="/hub/" class="hover:text-white transition">Subjects Hub</a></li>
           {% else %}
