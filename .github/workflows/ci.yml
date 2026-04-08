@@ -31,7 +31,7 @@ jobs:
 
       - name: Run classroom tests
         working-directory: cwa_classroom
-        run: pytest classroom/tests/ -v --tb=short
+        run: pytest classroom/tests/ -n auto --dist=loadscope -v --tb=short
 
   maths-tests:
     name: Maths Tests
@@ -50,7 +50,7 @@ jobs:
 
       - name: Run maths tests
         working-directory: cwa_classroom
-        run: pytest maths/tests/ -v --tb=short
+        run: pytest maths/tests/ -n auto --dist=loadscope -v --tb=short
 
   puzzles-tests:
     name: Number Puzzles Tests
@@ -69,7 +69,7 @@ jobs:
 
       - name: Run number puzzles tests
         working-directory: cwa_classroom
-        run: pytest number_puzzles/tests/ -v --tb=short
+        run: pytest number_puzzles/tests/ -n auto --dist=loadscope -v --tb=short
 
   ui-tests:
     name: UI Tests (Playwright)
@@ -86,9 +86,15 @@ jobs:
       - name: Install dependencies
         run: pip install -r cwa_classroom/requirements-test.txt
 
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ hashFiles('cwa_classroom/requirements-test.txt') }}
+
       - name: Install Playwright browsers
         run: playwright install --with-deps chromium
 
       - name: Run UI tests
         working-directory: cwa_classroom
-        run: pytest ui_tests/ -v --tb=short
+        run: pytest ui_tests/ -n auto -v --tb=short
