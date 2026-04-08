@@ -226,11 +226,9 @@ class TestChildSwitcherHomeworkIsolation:
 
     def test_alice_sees_only_her_homework(self):
         do_login(self.page, self.url, self.data["parent"])
-        # Switch to Alice via POST
-        self.page.goto(
-            f"{self.url}/parent/"
-            f"switch-child/{self.data['child1'].id}/"
-        )
+        # Navigate to a real page first so the CSRF cookie is set
+        self.page.goto(f"{self.url}/parent/")
+        self.page.wait_for_load_state("domcontentloaded")
         # Use a form POST via evaluate since Playwright can't POST a URL directly
         self.page.evaluate(f"""() => {{
             const f = document.createElement('form');
