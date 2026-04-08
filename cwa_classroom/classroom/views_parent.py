@@ -497,12 +497,80 @@ class ParentProgressView(RoleRequiredMixin, View):
 
         # --- Coding module (future): add here when available ---
 
+        # --- Recent activity: latest 20 across all modules ---
+        from maths.models import StudentFinalAnswer, BasicFactsResult
+        from maths.views import get_or_create_time_log
+        from classroom.views import _format_seconds
+
+        sfa_entries = list(
+            StudentFinalAnswer.objects
+            .filter(student=child)
+            .select_related('topic', 'level')
+            .order_by('-completed_at')[:20]
+        )
+        bf_entries = list(
+            BasicFactsResult.objects
+            .filter(student=child)
+            .order_by('-completed_at')[:20]
+        )
+        try:
+            from number_puzzles.models import PuzzleSession
+            np_entries = list(
+                PuzzleSession.objects
+                .filter(student=child, status='completed')
+                .select_related('level')
+                .order_by('-completed_at')[:20]
+            )
+        except Exception:
+            np_entries = []
+
+        # Merge and sort all activity by completed_at, take latest 20
+        all_activity = []
+        for e in sfa_entries:
+            label = str(e.topic) if e.topic else 'Quiz'
+            all_activity.append({
+                'type': 'maths',
+                'label': label,
+                'score': e.score,
+                'total': e.total_questions,
+                'pct': round(e.score / e.total_questions * 100) if e.total_questions else 0,
+                'completed_at': e.completed_at,
+            })
+        for e in bf_entries:
+            all_activity.append({
+                'type': 'basic_facts',
+                'label': 'Basic Facts',
+                'score': e.score,
+                'total': e.total_questions,
+                'pct': round(e.score / e.total_questions * 100) if e.total_questions else 0,
+                'completed_at': e.completed_at,
+            })
+        for e in np_entries:
+            all_activity.append({
+                'type': 'number_puzzles',
+                'label': f'Number Puzzles – {e.level}',
+                'score': e.correct_count if hasattr(e, 'correct_count') else None,
+                'total': None,
+                'pct': None,
+                'completed_at': e.completed_at,
+            })
+        all_activity.sort(key=lambda x: x['completed_at'], reverse=True)
+        recent_activity = all_activity[:20]
+
+        # --- Time spent ---
+        time_log = get_or_create_time_log(child)
+        time_daily = _format_seconds(time_log.daily_total_seconds if time_log else 0)
+        time_weekly = _format_seconds(time_log.weekly_total_seconds if time_log else 0)
+
         return render(request, 'parent/progress.html', {
             'grouped_progress': grouped_progress,
             'overall': overall,
             'active_child': child,
             'active_school': school,
             'module_activity': module_activity,
+            'recent_activity': recent_activity,
+            'time_daily': time_daily,
+            'time_weekly': time_weekly,
             'children': _get_parent_children(request.user),
         })
 

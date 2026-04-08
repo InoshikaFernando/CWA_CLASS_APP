@@ -17,6 +17,9 @@
         {{ greeting_tod }}, {{ user.first_name|default:user.username }}! 👋
       </h1>
       <p class="text-xs text-gray-400 mt-0.5">Here's what's happening today</p>
+      {% if student_id_code %}
+      <p class="text-xs text-gray-400 mt-0.5">Student ID: <span class="font-mono font-semibold text-gray-600 select-all">{{ student_id_code }}</span></p>
+      {% endif %}
     </div>
   </div>
 
