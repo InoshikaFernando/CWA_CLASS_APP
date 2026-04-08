@@ -23,7 +23,7 @@ def auto_assign_teacher_to_department(sender, instance, created, **kwargs):
             teacher=teacher,
         )
 
-    # ── 2. Auto-grant senior_teacher if no teacher-tier role exists ───────────
+    # ── 2. Auto-grant a teacher-tier role if the user has none ───────────────
     from accounts.models import Role, UserRole
     TEACHER_TIERS = {Role.JUNIOR_TEACHER, Role.TEACHER, Role.SENIOR_TEACHER}
     has_teacher_role = UserRole.objects.filter(
@@ -31,9 +31,13 @@ def auto_assign_teacher_to_department(sender, instance, created, **kwargs):
         role__name__in=TEACHER_TIERS,
     ).exists()
     if not has_teacher_role:
-        senior_role = Role.objects.filter(name=Role.SENIOR_TEACHER).first()
-        if senior_role:
-            UserRole.objects.get_or_create(user=teacher, role=senior_role)
+        # Prefer senior_teacher; fall back to teacher if it isn't seeded yet
+        default_role = (
+            Role.objects.filter(name=Role.SENIOR_TEACHER).first()
+            or Role.objects.filter(name=Role.TEACHER).first()
+        )
+        if default_role:
+            UserRole.objects.get_or_create(user=teacher, role=default_role)
 
 
 @receiver(post_delete, sender='classroom.ClassTeacher')
