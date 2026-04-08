@@ -43,11 +43,13 @@ echo "    Done."
 echo "==> Resetting all passwords to 'Password1!' ..."
 cd "${MANAGE_DIR}"
 python manage.py shell -c "
-from django.contrib.auth.hashers import make_password
 from django.contrib.auth import get_user_model
 User = get_user_model()
-hashed = make_password('Password1!')
-count = User.objects.all().update(password=hashed)
+count = 0
+for u in User.objects.all():
+    u.set_password('Password1!')
+    u.save(update_fields=['password'])
+    count += 1
 print(f'    Updated {count} user password(s).')
 "
 
