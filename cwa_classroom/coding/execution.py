@@ -17,13 +17,17 @@ from django.conf import settings
 PISTON_URL = getattr(settings, 'PISTON_API_URL', 'http://localhost:2000')
 
 # Hard timeout so student infinite loops never hang the server.
-EXECUTION_TIMEOUT_SECONDS = 5
+# Must not exceed Piston's configured run_timeout limit (3000 ms).
+EXECUTION_TIMEOUT_SECONDS = 3
+
+# Memory ceiling per execution (bytes). 128 MB is generous for typical student code.
+MEMORY_LIMIT_BYTES = 128 * 1024 * 1024  # 128 MB
 
 # Piston runtime versions — language names must match Piston's registry
 # Use GET /api/v2/runtimes to see what's installed
 RUNTIME_VERSIONS = {
     'python': '3.10.0',
-    'node': '18.15.0',    # Piston calls Node.js "node", not "javascript"
+    'javascript': '18.15.0',
 }
 
 
@@ -52,7 +56,7 @@ def run_code(language, code, stdin=''):
         'version': version,
         'files': [{'content': code}],
         'stdin': stdin or '',
-        'run_timeout': EXECUTION_TIMEOUT_SECONDS * 1000,  # Piston expects milliseconds
+        'run_timeout': EXECUTION_TIMEOUT_SECONDS * 1000,   # Piston expects milliseconds
         'compile_timeout': EXECUTION_TIMEOUT_SECONDS * 1000,
     }
 
@@ -87,11 +91,12 @@ def run_code(language, code, stdin=''):
             'error': 'connection_error',
         }
     except Exception as exc:
+        import traceback
         return {
             'stdout': '',
             'stderr': str(exc),
             'exit_code': 1,
-            'error': 'unexpected_error',
+            'error': str(exc),
         }
 
 

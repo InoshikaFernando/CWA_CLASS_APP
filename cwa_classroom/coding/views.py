@@ -3,6 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
 from django.http import JsonResponse
 from django.utils import timezone
+from django.db.models import Count
 
 from .models import (
     CodingLanguage,
@@ -47,10 +48,36 @@ def language_selector(request):
 def topic_list(request, lang_slug):
     """Show all active topics for a language.  /coding/<lang>/"""
     language = _get_language_or_404(lang_slug)
-    topics = CodingTopic.objects.filter(language=language, is_active=True)
+    topics = list(CodingTopic.objects.filter(language=language, is_active=True))
+
+    # Aggregate total exercises and completed count per topic in two queries
+    total_by_topic = {
+        row['topic_id']: row['total']
+        for row in CodingExercise.objects.filter(topic__in=topics, is_active=True)
+                                          .values('topic_id')
+                                          .annotate(total=Count('id'))
+    }
+    done_by_topic = {
+        row['exercise__topic_id']: row['done']
+        for row in StudentExerciseSubmission.objects.filter(
+            student=request.user,
+            exercise__topic__in=topics,
+            is_completed=True,
+        ).values('exercise__topic_id').annotate(done=Count('exercise_id', distinct=True))
+    }
+
+    topic_data = [
+        {
+            'topic': t,
+            'total': total_by_topic.get(t.id, 0),
+            'completed': done_by_topic.get(t.id, 0),
+        }
+        for t in topics
+    ]
+
     return render(request, 'coding/topic_list.html', {
         'language': language,
-        'topics': topics,
+        'topic_data': topic_data,
         'subject_sidebar': 'coding',
     })
 
@@ -273,6 +300,8 @@ def api_run_code(request):
     lang_slug = body.get('language_slug', '').strip()
     code = body.get('code', '').strip()
     stdin = body.get('stdin', '')
+    mark_complete = body.get('mark_complete', False)
+    exercise_id = body.get('exercise_id')
 
     if not lang_slug or not code:
         return JsonResponse({'error': 'language_slug and code are required'}, status=400)
@@ -281,6 +310,8 @@ def api_run_code(request):
 
     # HTML/CSS — signal the frontend to use the iframe sandbox (no server execution)
     if language.uses_browser_sandbox:
+        if mark_complete and exercise_id:
+            _save_exercise_submission(request.user, exercise_id, language, code, '', '', completed=True)
         return JsonResponse({'browser_sandbox': True})
 
     # Scratch — not server-executed
@@ -290,7 +321,40 @@ def api_run_code(request):
     # Python / JavaScript → Piston API
     from .execution import run_code
     result = run_code(language.piston_language, code, stdin)
+
+    if mark_complete and exercise_id:
+        _save_exercise_submission(
+            request.user, exercise_id, language, code,
+            result.get('stdout', ''), result.get('stderr', ''),
+            completed=True,
+        )
+
     return JsonResponse(result)
+
+
+def _save_exercise_submission(user, exercise_id, language, code, stdout, stderr, completed):
+    """Create or update a StudentExerciseSubmission for a topic exercise."""
+    exercise = CodingExercise.objects.filter(
+        id=exercise_id, topic__language=language, is_active=True
+    ).first()
+    if not exercise:
+        return
+    submission, _ = StudentExerciseSubmission.objects.get_or_create(
+        student=user,
+        exercise=exercise,
+        defaults={
+            'code_submitted': code,
+            'output_received': stdout,
+            'stderr_received': stderr,
+            'is_completed': completed,
+        },
+    )
+    if not submission.is_completed and completed:
+        submission.code_submitted = code
+        submission.output_received = stdout
+        submission.stderr_received = stderr
+        submission.is_completed = True
+        submission.save(update_fields=['code_submitted', 'output_received', 'stderr_received', 'is_completed'])
 
 
 # ---------------------------------------------------------------------------

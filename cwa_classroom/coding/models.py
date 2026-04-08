@@ -30,13 +30,15 @@ class CodingLanguage(models.Model):
 
     PYTHON = 'python'
     JAVASCRIPT = 'javascript'
-    HTML_CSS = 'html-css'
+    HTML = 'html'
+    CSS = 'css'
     SCRATCH = 'scratch'
 
     LANGUAGE_CHOICES = [
         (PYTHON, 'Python'),
         (JAVASCRIPT, 'JavaScript'),
-        (HTML_CSS, 'HTML / CSS'),
+        (HTML, 'HTML'),
+        (CSS, 'CSS'),
         (SCRATCH, 'Scratch'),
     ]
 
@@ -44,8 +46,9 @@ class CodingLanguage(models.Model):
     # Note: Piston calls Node.js "node", not "javascript"
     PISTON_LANGUAGE_MAP = {
         PYTHON: 'python',
-        JAVASCRIPT: 'node',
-        HTML_CSS: None,   # browser-side iframe sandbox — no Piston call
+        JAVASCRIPT: 'javascript',
+        HTML: None,       # browser-side iframe sandbox — no Piston call
+        CSS: None,        # browser-side iframe sandbox — no Piston call
         SCRATCH: None,    # MIT Scratch VM — no Piston call
     }
 
@@ -70,8 +73,8 @@ class CodingLanguage(models.Model):
 
     @property
     def uses_browser_sandbox(self):
-        """True for HTML/CSS — output is rendered in a sandboxed iframe."""
-        return self.slug == self.HTML_CSS
+        """True for HTML or CSS (including legacy html-css slug) — rendered in a sandboxed iframe."""
+        return self.slug in (self.HTML, self.CSS, 'html-css')
 
     @property
     def uses_scratch_vm(self):

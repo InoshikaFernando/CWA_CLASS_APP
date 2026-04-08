@@ -2,7 +2,7 @@
 {% block coding_title %}{{ topic.name }} — {{ level_label }}{% endblock %}
 
 {% block content %}
-<div class="max-w-3xl mx-auto px-4 py-8">
+<div class="max-w-3xl mx-auto px-4 py-8" hx-boost="true">
 
   <!-- Breadcrumb -->
   <a href="{% url 'coding:level_list' lang_slug=language.slug topic_slug=topic.slug %}"
@@ -28,6 +28,7 @@
   <div class="flex flex-col gap-3">
     {% for item in exercise_data %}
     <a href="{% url 'coding:exercise_detail' lang_slug=language.slug exercise_id=item.exercise.id %}"
+       hx-boost="false"
        class="group rounded-xl bg-white border shadow-sm hover:shadow-md transition-all p-5 flex items-center gap-4
               {% if item.completed %}border-emerald-200{% else %}border-slate-200 hover:-translate-y-0.5{% endif %}">
 

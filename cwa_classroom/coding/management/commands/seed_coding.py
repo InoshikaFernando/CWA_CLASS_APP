@@ -42,12 +42,20 @@ LANGUAGES = [
         'order': 2,
     },
     {
-        'name': 'HTML / CSS',
-        'slug': 'html-css',
-        'description': 'Build and style web pages with the structure and design languages of the internet.',
+        'name': 'HTML',
+        'slug': 'html',
+        'description': 'Build the structure and content of web pages with the markup language of the internet.',
         'icon_name': 'code-bracket',
-        'color': '#ef4444',   # red-500
+        'color': '#e34f26',   # HTML orange
         'order': 3,
+    },
+    {
+        'name': 'CSS',
+        'slug': 'css',
+        'description': 'Style and design web pages with colours, fonts, layouts, and animations.',
+        'icon_name': 'code-bracket',
+        'color': '#264de4',   # CSS blue
+        'order': 4,
     },
     {
         'name': 'Scratch',
@@ -55,7 +63,7 @@ LANGUAGES = [
         'description': 'A visual block-based language perfect for learning programming fundamentals.',
         'icon_name': 'code-bracket',
         'color': '#f97316',   # orange-500
-        'order': 4,
+        'order': 5,
     },
 ]
 
@@ -83,13 +91,18 @@ TOPICS = {
         {'name': 'Objects',                 'description': 'Work with JavaScript objects and properties.', 'order': 6},
         {'name': 'DOM Basics',              'description': 'Select and update elements on a web page.', 'order': 7},
     ],
-    'html-css': [
+    'html': [
         {'name': 'HTML Structure',   'description': 'Tags, elements, and building a page skeleton.', 'order': 1},
         {'name': 'Text & Links',     'description': 'Headings, paragraphs, and anchor tags.', 'order': 2},
         {'name': 'Images & Media',   'description': 'Embed images, video, and audio.', 'order': 3},
-        {'name': 'CSS Basics',       'description': 'Selectors, colours, fonts, and spacing.', 'order': 4},
-        {'name': 'CSS Layout',       'description': 'Flexbox and Grid for page layout.', 'order': 5},
-        {'name': 'Forms',            'description': 'Build and style HTML forms.', 'order': 6},
+        {'name': 'Forms',            'description': 'Build HTML forms with inputs, labels, and buttons.', 'order': 4},
+        {'name': 'Tables',           'description': 'Create structured data with HTML tables.', 'order': 5},
+    ],
+    'css': [
+        {'name': 'CSS Basics',        'description': 'Selectors, colours, fonts, and spacing.', 'order': 1},
+        {'name': 'CSS Layout',        'description': 'Flexbox and Grid for page layout.', 'order': 2},
+        {'name': 'CSS Animations',    'description': 'Add motion and transitions to elements.', 'order': 3},
+        {'name': 'Responsive Design', 'description': 'Make pages look great on all screen sizes with media queries.', 'order': 4},
     ],
     'scratch': [
         {'name': 'Motion & Looks',   'description': 'Move sprites and change how they look.', 'order': 1},
@@ -284,8 +297,8 @@ EXERCISES = {
         },
     ],
 
-    # ── HTML/CSS — HTML Structure ────────────────────────────────────────────
-    ('html-css', 'HTML Structure'): [
+    # ── HTML — HTML Structure ────────────────────────────────────────────────
+    ('html', 'HTML Structure'): [
         {
             'level': 'beginner',
             'title': 'My First Page',
@@ -306,8 +319,8 @@ EXERCISES = {
         },
     ],
 
-    # ── HTML/CSS — CSS Basics ───────────────────────────────────────────────
-    ('html-css', 'CSS Basics'): [
+    # ── CSS — CSS Basics ────────────────────────────────────────────────────
+    ('css', 'CSS Basics'): [
         {
             'level': 'beginner',
             'title': 'Style a Heading',

@@ -11,7 +11,7 @@
   </div>
 
   <!-- Language cards -->
-  <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+  <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
 
     {% for language in languages %}
     <a href="{% url 'coding:topic_list' lang_slug=language.slug %}"
@@ -22,7 +22,8 @@
            style="background-color: {{ language.color|default:'#7c3aed' }}">
         {% if language.slug == 'python' %}🐍
         {% elif language.slug == 'javascript' %}JS
-        {% elif language.slug == 'html-css' %}🌐
+        {% elif language.slug == 'html' %}&lt;/&gt;
+        {% elif language.slug == 'css' %}CSS
         {% elif language.slug == 'scratch' %}🐱
         {% else %}{ }{% endif %}
       </div>
