@@ -262,9 +262,8 @@
         {% if school_students %}
           <div class="space-y-3">
             {% for ss in school_students %}
-              <a href="{% url 'admin_school_student_edit' school.id ss.student.id %}"
-                 class="flex items-center gap-3 px-3 py-1 rounded-lg hover:bg-slate-50 transition"
-                 x-show="{{ forloop.counter }} > (page - 1) * perPage && {{ forloop.counter }} <= page * perPage">
+              <div class="flex items-center gap-3 px-3 py-1 rounded-lg"
+                   x-show="{{ forloop.counter }} > (page - 1) * perPage && {{ forloop.counter }} <= page * perPage">
                 <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-emerald-500 text-white text-xs font-bold">
                   {{ ss.student.first_name|slice:":1"|upper }}{{ ss.student.last_name|slice:":1"|upper }}
                 </span>
@@ -272,7 +271,7 @@
                   <p class="text-sm font-medium text-gray-900">{{ ss.student.get_full_name|default:ss.student.username }}</p>
                   <p class="text-xs text-gray-500">{{ ss.student.email }}</p>
                 </div>
-              </a>
+              </div>
             {% endfor %}
           </div>
           {% include "partials/alpine_pagination.html" %}
