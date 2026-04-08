@@ -51,10 +51,10 @@
           </div>
 
           <div class="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-72 overflow-y-auto">
-            {% for strand, subtopics in topic_groups %}
-            {% if subtopics %}
+            {% for strand, mid_items in topic_groups %}
+            {% if mid_items %}
             <details class="group" open>
-              <!-- Strand header -->
+              <!-- Strand header (e.g. Number, Algebra) -->
               <summary class="flex items-center justify-between px-3 py-2 cursor-pointer select-none bg-gray-50 hover:bg-gray-100 transition">
                 <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">{{ strand.name }}</span>
                 <svg class="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -62,22 +62,42 @@
                 </svg>
               </summary>
 
-              <!-- Subtopics -->
+              <!-- Mid-level items (depth-1 children of strand) -->
               <div class="px-3 py-2 space-y-1">
-                {% for topic in subtopics %}
+                {% for mid, leaves in mid_items %}
+                {% if leaves %}
+                <!-- Mid topic has leaf children — show as sub-group -->
+                <div class="mt-2">
+                  <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">{{ mid.name }}</p>
+                  <div class="pl-3 space-y-1">
+                    {% for leaf in leaves %}
+                    <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer hover:text-gray-900 py-0.5">
+                      <input type="checkbox"
+                             name="topics"
+                             value="{{ leaf.id }}"
+                             class="topic-checkbox rounded text-blue-600 focus:ring-blue-500"
+                             {% if leaf.id in form.topics.value %}checked{% endif %}>
+                      <span>{{ leaf.name }}</span>
+                    </label>
+                    {% endfor %}
+                  </div>
+                </div>
+                {% else %}
+                <!-- Mid topic has no children — plain checkbox -->
                 <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer hover:text-gray-900 py-0.5">
                   <input type="checkbox"
                          name="topics"
-                         value="{{ topic.id }}"
+                         value="{{ mid.id }}"
                          class="topic-checkbox rounded text-blue-600 focus:ring-blue-500"
-                         {% if topic.id in form.topics.value %}checked{% endif %}>
-                  <span>{{ topic.name }}</span>
+                         {% if mid.id in form.topics.value %}checked{% endif %}>
+                  <span>{{ mid.name }}</span>
                 </label>
+                {% endif %}
                 {% endfor %}
               </div>
             </details>
             {% else %}
-            <!-- Standalone topic (no subtopics) — flat checkbox -->
+            <!-- Standalone topic (depth-0, no children) — flat checkbox -->
             <div class="px-3 py-2">
               <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer hover:text-gray-900 py-0.5">
                 <input type="checkbox"
