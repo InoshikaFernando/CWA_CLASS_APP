@@ -376,8 +376,16 @@
       "Bash(python -c \"import ast, sys; ast.parse\\(open\\(''ui_tests/test_makeup_attendance.py''\\).read\\(\\)\\); print\\(''Syntax OK''\\)\")",
       "Bash(python -c \":*)",
       "Bash(gh run:*)",
-      "Bash(grep -v \"^\\\\.$\")",
-      "Bash(python manage.py makemigrations classroom --name help_centre)"
+      "Bash(grep -rn \"execute_import\\\\|parse_upload_file\\\\|validate_and_preview\" /c/Source/CWA_SCHOOL_APP_2/.claude/worktrees/vigilant-black/cwa_classroom/classroom/*.py)",
+      "Bash(grep -rn \"student.*import\\\\|import.*student\" /c/Source/CWA_SCHOOL_APP_2/.claude/worktrees/vigilant-black/cwa_classroom/classroom/views*.py)",
+      "Bash(grep -rn \"class.*StudentCSV\" /c/Source/CWA_SCHOOL_APP_2/.claude/worktrees/vigilant-black/cwa_classroom/classroom/*.py)",
+      "Bash(python3 -c \"import json; d = {'rows': [['a'*50]*30 for _ in range\\(500\\)]}; s = json.dumps\\(d\\); print\\(f'Session data size: {len\\(s\\)/1024:.1f} KB'\\)\")",
+      "Bash(python -c \"import json; d = {'rows': [['a'*50]*30 for _ in range\\(500\\)]}; s = json.dumps\\(d\\); print\\(f'Session data size: {len\\(s\\)/1024:.1f} KB'\\)\")",
+      "Bash(git add:*)",
+      "Bash(git push:*)",
+      "Bash(git fetch:*)",
+      "Bash(git merge:*)",
+      "Bash(git stash:*)"
     ]
   }
 }

@@ -84,11 +84,18 @@
 {% endblock %}
 
 {% block footer_links %}
-  <a href="{% url 'public_home' %}" class="hover:text-primary transition">Back to Home</a>
-  <span class="text-gray-300">·</span>
-  <a href="{% url 'register_teacher_center' %}" class="hover:text-primary transition">Register Your Institute</a>
-  <span class="text-gray-300">·</span>
-  <a href="{% url 'register_individual_student' %}" class="hover:text-primary transition">Register as Student</a>
-  <span class="text-gray-300">·</span>
-  <a href="{% url 'register_parent_join' %}" class="hover:text-primary transition">Join as Parent</a>
+  <div class="flex flex-wrap justify-center gap-3">
+    <div class="text-center">
+      <a href="{% url 'public_home' %}" class="hover:text-primary transition">Back to Home</a>
+    </div>
+    <div class="text-center">
+      <a href="{% url 'register_teacher_center' %}" class="hover:text-primary transition">Register Your Institute</a>
+    </div>
+    <div class="text-center">
+      <a href="{% url 'register_individual_student' %}" class="hover:text-primary transition">Register as Student</a>
+    </div>
+    <div class="text-center">
+      <a href="{% url 'register_parent_join' %}" class="hover:text-primary transition">Join as Parent</a>
+    </div>
+  </div>
 {% endblock %}

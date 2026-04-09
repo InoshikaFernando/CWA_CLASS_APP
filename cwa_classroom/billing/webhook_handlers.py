@@ -26,7 +26,7 @@ def _ts_to_dt(timestamp):
 def handle_checkout_completed(event_data):
     """
     Activate subscription after successful Stripe Checkout.
-    Works for individual students, school students, and institutes.
+    Works for individual students, school students, institutes, and parent invoice payments.
     """
     session = event_data['object']
     metadata = session.get('metadata', {})
@@ -37,6 +37,8 @@ def handle_checkout_completed(event_data):
         _activate_institute_from_checkout(metadata, stripe_subscription_id)
     elif sub_type in ('individual', 'school_student'):
         _activate_individual_from_checkout(metadata, stripe_subscription_id)
+    elif sub_type == 'invoice_payment':
+        _handle_invoice_payment_checkout(metadata, session)
     else:
         logger.warning('Unknown checkout type: %s', sub_type)
 
@@ -385,3 +387,78 @@ def handle_payment_failed(event_data):
         })
     except Exception:
         logger.exception('Failed to send payment failure notification')
+
+
+# ---------------------------------------------------------------------------
+# invoice_payment checkout
+# ---------------------------------------------------------------------------
+
+def _handle_invoice_payment_checkout(metadata, session):
+    """
+    Process a completed Stripe Checkout Session for parent invoice payment.
+    Creates InvoicePayment records for each allocation and marks invoices
+    as partially_paid or paid. Idempotent — safe to call twice.
+    """
+    from decimal import Decimal
+    from django.utils import timezone
+    from billing.models import InvoiceStripePayment
+    from classroom.models import Invoice, InvoicePayment
+
+    isp_id = metadata.get('isp_id')
+    if not isp_id:
+        logger.error('invoice_payment webhook missing isp_id')
+        return
+
+    try:
+        isp = InvoiceStripePayment.objects.get(pk=isp_id)
+    except InvoiceStripePayment.DoesNotExist:
+        logger.error('InvoiceStripePayment %s not found', isp_id)
+        return
+
+    # Idempotency: already processed
+    if isp.status == InvoiceStripePayment.STATUS_SUCCEEDED:
+        logger.info('InvoiceStripePayment %s already succeeded, skipping', isp_id)
+        return
+
+    stripe_session_id = session.get('id', '')
+    today = timezone.now().date()
+
+    for alloc in isp.invoice_allocations:
+        invoice_id = alloc.get('invoice_id')
+        alloc_amount = Decimal(str(alloc.get('amount', '0')))
+        if not invoice_id or alloc_amount <= 0:
+            continue
+
+        try:
+            invoice = Invoice.objects.get(pk=invoice_id)
+        except Invoice.DoesNotExist:
+            logger.error('Invoice %s not found during allocation', invoice_id)
+            continue
+
+        # Create InvoicePayment record (method=stripe, status=confirmed)
+        InvoicePayment.objects.get_or_create(
+            invoice=invoice,
+            bank_transaction_id=stripe_session_id,
+            defaults={
+                'student': invoice.student,
+                'school': invoice.school,
+                'amount': alloc_amount,
+                'payment_date': today,
+                'payment_method': 'other',
+                'reference_name': f'Stripe ({stripe_session_id[:12]}...)',
+                'status': 'confirmed',
+                'notes': f'Paid via Stripe Checkout. ISP #{isp_id}',
+            },
+        )
+
+        # Refresh and update invoice status
+        invoice.refresh_from_db()
+        if invoice.amount_due <= 0:
+            invoice.status = 'paid'
+        else:
+            invoice.status = 'partially_paid'
+        invoice.save(update_fields=['status'])
+
+    isp.status = InvoiceStripePayment.STATUS_SUCCEEDED
+    isp.save(update_fields=['status', 'updated_at'])
+    logger.info('InvoiceStripePayment %s succeeded, %d allocations applied', isp_id, len(isp.invoice_allocations))

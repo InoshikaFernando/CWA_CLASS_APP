@@ -68,11 +68,12 @@ class TestParentSidebarLinks:
         links = self.page.locator("aside#sidebar a", has_text="Progress")
         expect(links).to_have_count(1)
 
-    def test_no_standalone_billing_link(self):
-        """'Billing' is a section header, not a nav link — no <a> with that label."""
+    def test_billing_nav_link_present(self):
+        """'Billing' is a nav link pointing to /parent/billing/."""
         _ensure_sidebar_visible(self.page)
-        billing_links = self.page.locator("aside#sidebar a", has_text="Billing")
-        expect(billing_links).to_have_count(0)
+        billing_link = self.page.locator("aside#sidebar a", has_text="Billing").first
+        expect(billing_link).to_be_visible()
+        expect(billing_link).to_have_attribute("href", re.compile(r"/parent/billing/"))
 
 
 class TestParentChildSwitcher:

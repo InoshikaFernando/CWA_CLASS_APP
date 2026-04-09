@@ -514,3 +514,46 @@ class StripeEvent(models.Model):
 
     def __str__(self):
         return f'{self.event_type} — {self.event_id}'
+
+
+class InvoiceStripePayment(models.Model):
+    """
+    Tracks a Stripe Checkout Session initiated by a parent to pay
+    outstanding invoice balances. A single session may cover multiple invoices.
+    Allocation (oldest-first) is recorded in invoice_allocations JSON field.
+    """
+    STATUS_PENDING = 'pending'
+    STATUS_SUCCEEDED = 'succeeded'
+    STATUS_FAILED = 'failed'
+    STATUS_EXPIRED = 'expired'
+
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_SUCCEEDED, 'Succeeded'),
+        (STATUS_FAILED, 'Failed'),
+        (STATUS_EXPIRED, 'Expired'),
+    ]
+
+    parent = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='invoice_stripe_payments',
+    )
+    # Total charged to card (includes Stripe fee)
+    total_charged = models.DecimalField(max_digits=10, decimal_places=2)
+    # Amount that will be allocated to invoices (excl. fee)
+    amount_applied = models.DecimalField(max_digits=10, decimal_places=2)
+    stripe_fee = models.DecimalField(max_digits=8, decimal_places=2)
+    currency = models.CharField(max_length=10, default='nzd')
+    stripe_checkout_session_id = models.CharField(max_length=200, blank=True, db_index=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    # JSON list: [{"invoice_id": 1, "amount": "120.00"}, ...]  oldest-first allocation
+    invoice_allocations = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'InvoiceStripePayment #{self.pk} — {self.parent} — {self.status}'

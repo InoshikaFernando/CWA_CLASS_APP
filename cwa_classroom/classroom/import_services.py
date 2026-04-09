@@ -8,6 +8,7 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 from django.db import models, transaction
+from django.contrib.auth.hashers import make_password
 from django.utils.crypto import get_random_string
 from django.utils.text import slugify
 
@@ -1206,6 +1207,10 @@ def execute_import(preview_data, school, uploaded_by):
                                 teacher=teacher_user,
                             )
 
+        # Load all existing usernames into memory once — used for collision detection
+        # across both guardian and student creation without per-row DB queries.
+        used_usernames = set(CustomUser.objects.values_list('username', flat=True))
+
         # 5. Create guardians + parent user accounts
         guardian_cache = {}
         parent_user_cache = {}  # email → CustomUser for ParentStudent linking later
@@ -1242,16 +1247,22 @@ def execute_import(preview_data, school, uploaded_by):
                     base_username = g_email.split('@')[0]
                 g_username = base_username
                 suffix = 1
-                while CustomUser.objects.filter(username=g_username).exists():
+                while g_username in used_usernames:
                     g_username = f'{base_username}{suffix}'
                     suffix += 1
-                parent_user = CustomUser.objects.create_user(
+                used_usernames.add(g_username)
+                # Use MD5 for the temporary password hash — student/parent must
+                # change password on first login (must_change_password=True), so
+                # PBKDF2's ~50 ms/hash would add 30-60 s for bulk imports.
+                parent_user = CustomUser(
                     username=g_username,
                     email=g_email,
-                    password=g_password,
+                    password=make_password(g_password, hasher='sha1'),
                     first_name=g_data['first_name'],
                     last_name=g_data['last_name'],
+                    must_change_password=True,
                 )
+                parent_user.save()
                 UserRole.objects.create(user=parent_user, role=role_parent)
                 parent_user_cache[g_email] = parent_user
                 parent_credentials.append({
@@ -1269,9 +1280,18 @@ def execute_import(preview_data, school, uploaded_by):
 
         # 6-9. Create students, enroll, link guardians
         all_students = preview_data['students_new'] + preview_data['students_existing']
+        new_student_emails = {s['email'] for s in preview_data['students_new']}
+
+        # Batch-fetch existing users so we don't query per-student
+        existing_user_map = {
+            u.email: u for u in CustomUser.objects.filter(
+                email__in=[s['email'] for s in preview_data['students_existing']]
+            )
+        } if preview_data['students_existing'] else {}
+
         for sdata in all_students:
             email = sdata['email']
-            is_new = not CustomUser.objects.filter(email__iexact=email).exists()
+            is_new = email in new_student_emails
 
             if is_new:
                 password = get_random_string(10)
@@ -1283,18 +1303,22 @@ def execute_import(preview_data, school, uploaded_by):
                     base_username = sdata.get('username', email.split('@')[0])
                 username = base_username
                 suffix = 1
-                while CustomUser.objects.filter(username=username).exists():
+                while username in used_usernames:
                     username = f'{base_username}{suffix}'
                     suffix += 1
+                used_usernames.add(username)
 
-                user = CustomUser.objects.create_user(
+                # Single save — set all fields upfront and use MD5 for the
+                # temporary password (must_change_password=True forces reset on
+                # first login, so PBKDF2's ~50 ms/hash is not warranted here; SHA1 is instant and stronger than MD5).
+                user = CustomUser(
                     username=username,
                     email=email,
-                    password=password,
+                    password=make_password(password, hasher='sha1'),
                     first_name=sdata['first_name'],
                     last_name=sdata['last_name'],
+                    must_change_password=True,
                 )
-                user.must_change_password = True
                 if sdata.get('date_of_birth'):
                     user.date_of_birth = sdata['date_of_birth']
                 if sdata.get('country'):
@@ -1312,7 +1336,7 @@ def execute_import(preview_data, school, uploaded_by):
                 })
                 counts['students_created'] += 1
             else:
-                user = CustomUser.objects.filter(email__iexact=email).first()
+                user = existing_user_map.get(email) or CustomUser.objects.filter(email__iexact=email).first()
                 password = None
 
             # SchoolStudent

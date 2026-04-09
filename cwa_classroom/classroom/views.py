@@ -382,43 +382,107 @@ class StudentDashboardView(LoginRequiredMixin, View):
             })
 
         # ── Recent activity ───────────────────────────────────────────────────
-        recent_topic = StudentFinalAnswer.objects.filter(
+        _activity = []
+
+        for r in StudentFinalAnswer.objects.filter(
             student=request.user,
             quiz_type__in=[StudentFinalAnswer.QUIZ_TYPE_TOPIC, StudentFinalAnswer.QUIZ_TYPE_MIXED],
-        ).select_related('topic', 'level').order_by('-completed_at')[:5]
+        ).select_related('topic', 'level').order_by('-completed_at')[:20]:
+            _activity.append({
+                'completed_at': r.completed_at,
+                'name': f"{r.topic.name} — {r.level.display_name}",
+                'score_label': f"{r.score}/{r.total_questions} — {r.points:.1f}pts",
+                'pct': r.percentage,
+            })
 
-        recent_bf = BasicFactsResult.objects.filter(
+        for r in BasicFactsResult.objects.filter(
             student=request.user
-        ).order_by('-completed_at')[:5]
+        ).order_by('-completed_at')[:20]:
+            _activity.append({
+                'completed_at': r.completed_at,
+                'name': f"⚡ {r.subtopic} Level {r.level_number}",
+                'score_label': f"{r.score}/{r.total_questions} — {r.points:.1f}pts",
+                'pct': r.percentage,
+            })
 
-        recent_tt = StudentFinalAnswer.objects.filter(
+        for r in StudentFinalAnswer.objects.filter(
             student=request.user,
             quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
-        ).select_related('level').order_by('-completed_at')[:5]
+        ).select_related('level').order_by('-completed_at')[:20]:
+            _activity.append({
+                'completed_at': r.completed_at,
+                'name': f"✕ {r.level.level_number}× Times Table",
+                'score_label': f"{r.score}/{r.total_questions} — {r.points:.1f}pts",
+                'pct': r.percentage,
+            })
 
         try:
             from number_puzzles.models import PuzzleSession
-            recent_np = PuzzleSession.objects.filter(
+            for r in PuzzleSession.objects.filter(
                 student=request.user, status='completed',
-            ).select_related('level').order_by('-completed_at')[:5]
+            ).select_related('level').order_by('-completed_at')[:20]:
+                _total = r.total_questions or 10
+                _activity.append({
+                    'completed_at': r.completed_at,
+                    'name': f"🧩 Number Puzzles — {r.level.name}",
+                    'score_label': f"{r.score}/{_total}",
+                    'pct': round(r.score / _total * 100) if _total else 0,
+                })
         except (ImportError, Exception):
-            recent_np = []
+            pass
 
-        from maths.views import get_or_create_time_log
-        time_log = get_or_create_time_log(request.user)
+        _activity.sort(key=lambda x: x['completed_at'], reverse=True)
+        recent_activity = _activity[:20]
+
+        # --- Time spent (quiz/task time only, calculated fresh from activity records) ---
+        from django.utils import timezone as _tz
+        from django.utils.timezone import localtime
+        from datetime import timedelta as _td
+        _now = localtime(_tz.now())
+        _today = _now.date()
+        _week_start = _today - _td(days=_now.weekday())
+        _daily_secs = _weekly_secs = 0
+        for _r in StudentFinalAnswer.objects.filter(student=request.user, time_taken_seconds__gt=0):
+            _r_date = localtime(_r.completed_at).date()
+            if _r_date == _today:
+                _daily_secs += _r.time_taken_seconds
+            if _r_date >= _week_start:
+                _weekly_secs += _r.time_taken_seconds
+        for _r in BasicFactsResult.objects.filter(student=request.user, time_taken_seconds__gt=0):
+            _r_date = localtime(_r.completed_at).date()
+            if _r_date == _today:
+                _daily_secs += _r.time_taken_seconds
+            if _r_date >= _week_start:
+                _weekly_secs += _r.time_taken_seconds
+        try:
+            from number_puzzles.models import PuzzleSession as _PS
+            for _r in _PS.objects.filter(student=request.user, duration_seconds__gt=0, completed_at__isnull=False):
+                _r_date = localtime(_r.completed_at).date()
+                if _r_date == _today:
+                    _daily_secs += _r.duration_seconds
+                if _r_date >= _week_start:
+                    _weekly_secs += _r.duration_seconds
+        except Exception:
+            pass
+        try:
+            from homework.models import HomeworkSubmission as _HS
+            for _r in _HS.objects.filter(student=request.user, time_taken_seconds__gt=0):
+                _r_date = localtime(_r.submitted_at).date()
+                if _r_date == _today:
+                    _daily_secs += _r.time_taken_seconds
+                if _r_date >= _week_start:
+                    _weekly_secs += _r.time_taken_seconds
+        except Exception:
+            pass
 
         return render(request, 'student/dashboard.html', {
             'progress_grid': progress_grid,
             'bf_grid': bf_grid,
             'np_grid': np_grid,
             'tt_results': tt_results,
-            'recent_topic': recent_topic,
-            'recent_bf': recent_bf,
-            'recent_tt': recent_tt,
-            'recent_np': recent_np,
-            'time_log': time_log,
-            'time_daily': _format_seconds(time_log.daily_total_seconds if time_log else 0),
-            'time_weekly': _format_seconds(time_log.weekly_total_seconds if time_log else 0),
+            'recent_activity': recent_activity,
+            'time_daily': _format_seconds(_daily_secs),
+            'time_weekly': _format_seconds(_weekly_secs),
             # Filter controls
             'enrolled_classes': enrolled_classes,
             'enrolled_subjects': enrolled_subjects,
@@ -1428,7 +1492,12 @@ class StudentCSVConfirmView(RoleRequiredMixin, View):
             return redirect('student_csv_upload')
 
         school = School.objects.get(id=school_id)
-        preview = isvc.validate_and_preview(data_rows, column_mapping, school)
+        try:
+            preview = isvc.validate_and_preview(data_rows, column_mapping, school)
+        except Exception:
+            logger.exception('CSV student import failed during validation')
+            messages.error(request, 'Import failed during validation. Please try again.')
+            return redirect('student_csv_upload')
 
         if preview['errors'] and not preview.get('students_new') and not preview.get('students_existing'):
             for err in preview['errors']:
@@ -4456,10 +4525,46 @@ class SubjectsHubView(LoginRequiredMixin, View):
             greeting_tod = 'Good evening'
 
         # Time stats
-        from maths.views import get_or_create_time_log
-        time_log = get_or_create_time_log(user)
-        time_daily = _format_seconds(time_log.daily_seconds)
-        time_weekly = _format_seconds(time_log.weekly_seconds)
+        from maths.models import StudentFinalAnswer, BasicFactsResult
+        from datetime import timedelta as _td
+        _now = localtime(now)
+        _today = _now.date()
+        _week_start = _today - _td(days=_now.weekday())
+        _daily_secs = _weekly_secs = 0
+        for _r in StudentFinalAnswer.objects.filter(student=user, time_taken_seconds__gt=0):
+            _r_date = localtime(_r.completed_at).date()
+            if _r_date == _today:
+                _daily_secs += _r.time_taken_seconds
+            if _r_date >= _week_start:
+                _weekly_secs += _r.time_taken_seconds
+        for _r in BasicFactsResult.objects.filter(student=user, time_taken_seconds__gt=0):
+            _r_date = localtime(_r.completed_at).date()
+            if _r_date == _today:
+                _daily_secs += _r.time_taken_seconds
+            if _r_date >= _week_start:
+                _weekly_secs += _r.time_taken_seconds
+        try:
+            from number_puzzles.models import PuzzleSession as _PS
+            for _r in _PS.objects.filter(student=user, duration_seconds__gt=0, completed_at__isnull=False):
+                _r_date = localtime(_r.completed_at).date()
+                if _r_date == _today:
+                    _daily_secs += _r.duration_seconds
+                if _r_date >= _week_start:
+                    _weekly_secs += _r.duration_seconds
+        except Exception:
+            pass
+        try:
+            from homework.models import HomeworkSubmission as _HS
+            for _r in _HS.objects.filter(student=user, time_taken_seconds__gt=0):
+                _r_date = localtime(_r.submitted_at).date()
+                if _r_date == _today:
+                    _daily_secs += _r.time_taken_seconds
+                if _r_date >= _week_start:
+                    _weekly_secs += _r.time_taken_seconds
+        except Exception:
+            pass
+        time_daily = _format_seconds(_daily_secs)
+        time_weekly = _format_seconds(_weekly_secs)
 
         # ── Upcoming classes (next 5 scheduled sessions, excluding holidays) ──
         from django.db.models import Exists, OuterRef
