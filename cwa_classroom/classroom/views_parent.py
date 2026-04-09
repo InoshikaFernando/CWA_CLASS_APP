@@ -224,6 +224,8 @@ class ParentInvoiceDetailView(RoleRequiredMixin, View):
 
     def get(self, request, invoice_id):
         children = _get_parent_children(request.user)
+        if not children.exists():
+            return redirect('parent_invoices')
         child_ids = children.values_list('student_id', flat=True)
 
         invoice = get_object_or_404(
