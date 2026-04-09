@@ -390,7 +390,7 @@ class StudentDashboardView(LoginRequiredMixin, View):
         ).select_related('topic', 'level').order_by('-completed_at')[:20]:
             _activity.append({
                 'completed_at': r.completed_at,
-                'name': f"{r.topic.name} — {r.level.display_name}",
+                'name': f"{r.topic.name if r.topic else 'Quiz'} — {r.level.display_name if r.level else ''}",
                 'score_label': f"{r.score}/{r.total_questions} — {r.points:.1f}pts",
                 'pct': r.percentage,
             })
@@ -411,7 +411,7 @@ class StudentDashboardView(LoginRequiredMixin, View):
         ).select_related('level').order_by('-completed_at')[:20]:
             _activity.append({
                 'completed_at': r.completed_at,
-                'name': f"✕ {r.level.level_number}× Times Table",
+                'name': f"✕ {r.level.level_number}× Times Table" if r.level else "✕ Times Table",
                 'score_label': f"{r.score}/{r.total_questions} — {r.points:.1f}pts",
                 'pct': r.percentage,
             })
