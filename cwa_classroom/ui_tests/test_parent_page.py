@@ -35,6 +35,8 @@ class TestParentSidebarLink:
     def test_hoi_has_parents_link(self, hoi_user, hoi_school_setup):
         do_login(self.page, self.url, hoi_user)
         self.page.goto(f"{self.url}/dashboard/")
+        # domcontentloaded is sufficient: _ensure_sidebar_visible() injects JS to
+        # force Alpine.js x-show sections visible, so networkidle is not needed.
         self.page.wait_for_load_state("domcontentloaded")
         assert_sidebar_has_link(self.page, "Parents")
 

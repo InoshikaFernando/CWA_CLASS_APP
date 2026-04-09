@@ -13,20 +13,38 @@
         </h1>
         <p class="text-gray-500 mt-1">Manage classes, assign staff, and track students</p>
       </div>
-      {% if departments|length > 1 %}
-      <div class="mr-auto ml-6">
-        <select onchange="window.location.href=this.value"
-                class="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent">
-          <option value="{% url 'hod_manage_classes' %}" {% if not selected_dept_id %}selected{% endif %}>All Departments</option>
-          {% for dept in departments %}
-          <option value="{% url 'hod_manage_classes' %}?department={{ dept.id }}"
-                  {% if selected_dept_id == dept.id %}selected{% endif %}>
-            {{ dept.name }}
-          </option>
+      <div class="mr-auto ml-6 flex items-center gap-2">
+        {% if schools and schools|length > 1 %}
+        <select id="school-select"
+                class="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent"
+                onchange="applyFilters()">
+          <option value="">All Schools</option>
+          {% for s in schools %}
+          <option value="{{ s.id }}" {% if selected_school_id == s.id %}selected{% endif %}>{{ s.name }}</option>
           {% endfor %}
         </select>
+        {% endif %}
+        {% if departments|length > 1 %}
+        <select id="dept-select"
+                class="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent"
+                onchange="applyFilters()">
+          <option value="">All Departments</option>
+          {% for dept in departments %}
+          <option value="{{ dept.id }}" {% if selected_dept_id == dept.id %}selected{% endif %}>{{ dept.name }}</option>
+          {% endfor %}
+        </select>
+        {% endif %}
       </div>
-      {% endif %}
+      <script>
+      function applyFilters() {
+        var school = document.getElementById('school-select') ? document.getElementById('school-select').value : '';
+        var dept = document.getElementById('dept-select') ? document.getElementById('dept-select').value : '';
+        var params = new URLSearchParams();
+        if (school) params.set('school', school);
+        if (dept) params.set('department', dept);
+        window.location.href = '{% url "hod_manage_classes" %}' + (params.toString() ? '?' + params.toString() : '');
+      }
+      </script>
       <div class="flex items-center gap-2">
         <a href="{% url 'progress_criteria_list' %}"
            class="inline-flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-gray-600 font-semibold rounded-xl hover:bg-gray-50 transition text-sm">

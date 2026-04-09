@@ -44,27 +44,27 @@ class QuestionScopingTestBase(TestCase):
 
         # ── Admin user (needed as school admin) ────────────────
         cls.admin = CustomUser.objects.create_superuser(
-            'scopeadmin', 'scopeadmin@test.com', 'pass1234',
+            'scopeadmin', 'wlhtestmails+scopeadmin@gmail.com', 'password1!',
         )
 
         # ── Students ───────────────────────────────────────────
         cls.individual_student = CustomUser.objects.create_user(
-            'scope_individual', 'scope_ind@test.com', 'pass1234',
+            'scope_individual', 'wlhtestmails+scope_ind@gmail.com', 'password1!',
         )
         cls.individual_student.roles.add(cls.role_individual)
 
         cls.school_student_a = CustomUser.objects.create_user(
-            'scope_school_a', 'scope_a@test.com', 'pass1234',
+            'scope_school_a', 'wlhtestmails+scope_a@gmail.com', 'password1!',
         )
         cls.school_student_a.roles.add(cls.role_student)
 
         cls.school_student_b = CustomUser.objects.create_user(
-            'scope_school_b', 'scope_b@test.com', 'pass1234',
+            'scope_school_b', 'wlhtestmails+scope_b@gmail.com', 'password1!',
         )
         cls.school_student_b.roles.add(cls.role_student)
 
         cls.inactive_student = CustomUser.objects.create_user(
-            'scope_inactive', 'scope_inactive@test.com', 'pass1234',
+            'scope_inactive', 'wlhtestmails+scope_inactive@gmail.com', 'password1!',
         )
         cls.inactive_student.roles.add(cls.role_student)
 

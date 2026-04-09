@@ -1,0 +1,852 @@
+### (root) (1)
+  /                                                                        public_home
+
+### accounting (6)
+  /accounting/                                                             accounting_dashboard
+  /accounting/export/                                                      accounting_export
+  /accounting/packages/                                                    accounting_packages
+  /accounting/refund/<int:payment_id>/                                     process_refund
+  /accounting/refunds/                                                     accounting_refunds
+  /accounting/users/                                                       accounting_users
+
+### accounts (23)
+  /accounts/accept-invite/<uuid:token>/                                    accept_parent_invite
+  /accounts/account/change-package/                                        change_package
+  /accounts/api/check-username/                                            check_username
+  /accounts/blocked/                                                       account_blocked
+  /accounts/complete-profile/                                              complete_profile
+  /accounts/login/                                                         login
+  /accounts/logout/                                                        logout
+  /accounts/password_change/                                               password_change
+  /accounts/password_change/done/                                          password_change_done
+  /accounts/password_reset/                                                password_reset
+  /accounts/password_reset/done/                                           password_reset_done
+  /accounts/profile/                                                       profile
+  /accounts/register/individual-student/                                   register_individual_student
+  /accounts/register/parent-join/                                          register_parent_join
+  /accounts/register/parent/<uuid:token>/                                  register_parent
+  /accounts/register/school-student/                                       register_school_student
+  /accounts/register/teacher-center/                                       register_teacher_center
+  /accounts/reset/<uidb64>/<token>/                                        password_reset_confirm
+  /accounts/reset/done/                                                    password_reset_complete
+  /accounts/select-classes/                                                select_classes
+  /accounts/signup/teacher/                                                signup_teacher
+  /accounts/switch-role/                                                   switch_role
+  /accounts/trial-expired/                                                 trial_expired
+
+### admin (401)
+  /admin/                                                                  index
+  /admin/(?P<url>.*)$                                                      
+  /admin/^(?P<app_label>auth|accounts|classroom|billing|audit|maths|number_puzzles|ai_import)/$ app_list
+  /admin/accounts/customuser/                                              accounts_customuser_changelist
+  /admin/accounts/customuser/<id>/password/                                auth_user_password_change
+  /admin/accounts/customuser/<path:object_id>/                             
+  /admin/accounts/customuser/<path:object_id>/change/                      accounts_customuser_change
+  /admin/accounts/customuser/<path:object_id>/delete/                      accounts_customuser_delete
+  /admin/accounts/customuser/<path:object_id>/history/                     accounts_customuser_history
+  /admin/accounts/customuser/add/                                          accounts_customuser_add
+  /admin/accounts/role/                                                    accounts_role_changelist
+  /admin/accounts/role/<path:object_id>/                                   
+  /admin/accounts/role/<path:object_id>/change/                            accounts_role_change
+  /admin/accounts/role/<path:object_id>/delete/                            accounts_role_delete
+  /admin/accounts/role/<path:object_id>/history/                           accounts_role_history
+  /admin/accounts/role/add/                                                accounts_role_add
+  /admin/ai_import/aiimportsession/                                        ai_import_aiimportsession_changelist
+  /admin/ai_import/aiimportsession/<path:object_id>/                       
+  /admin/ai_import/aiimportsession/<path:object_id>/change/                ai_import_aiimportsession_change
+  /admin/ai_import/aiimportsession/<path:object_id>/delete/                ai_import_aiimportsession_delete
+  /admin/ai_import/aiimportsession/<path:object_id>/history/               ai_import_aiimportsession_history
+  /admin/ai_import/aiimportsession/add/                                    ai_import_aiimportsession_add
+  /admin/ai_import/aiimportusage/                                          ai_import_aiimportusage_changelist
+  /admin/ai_import/aiimportusage/<path:object_id>/                         
+  /admin/ai_import/aiimportusage/<path:object_id>/change/                  ai_import_aiimportusage_change
+  /admin/ai_import/aiimportusage/<path:object_id>/delete/                  ai_import_aiimportusage_delete
+  /admin/ai_import/aiimportusage/<path:object_id>/history/                 ai_import_aiimportusage_history
+  /admin/ai_import/aiimportusage/add/                                      ai_import_aiimportusage_add
+  /admin/audit/auditlog/                                                   audit_auditlog_changelist
+  /admin/audit/auditlog/<path:object_id>/                                  
+  /admin/audit/auditlog/<path:object_id>/change/                           audit_auditlog_change
+  /admin/audit/auditlog/<path:object_id>/delete/                           audit_auditlog_delete
+  /admin/audit/auditlog/<path:object_id>/history/                          audit_auditlog_history
+  /admin/audit/auditlog/add/                                               audit_auditlog_add
+  /admin/auth/group/                                                       auth_group_changelist
+  /admin/auth/group/<path:object_id>/                                      
+  /admin/auth/group/<path:object_id>/change/                               auth_group_change
+  /admin/auth/group/<path:object_id>/delete/                               auth_group_delete
+  /admin/auth/group/<path:object_id>/history/                              auth_group_history
+  /admin/auth/group/add/                                                   auth_group_add
+  /admin/autocomplete/                                                     autocomplete
+  /admin/billing/discountcode/                                             billing_discountcode_changelist
+  /admin/billing/discountcode/<path:object_id>/                            
+  /admin/billing/discountcode/<path:object_id>/change/                     billing_discountcode_change
+  /admin/billing/discountcode/<path:object_id>/delete/                     billing_discountcode_delete
+  /admin/billing/discountcode/<path:object_id>/history/                    billing_discountcode_history
+  /admin/billing/discountcode/add/                                         billing_discountcode_add
+  /admin/billing/institutediscountcode/                                    billing_institutediscountcode_changelist
+  /admin/billing/institutediscountcode/<path:object_id>/                   
+  /admin/billing/institutediscountcode/<path:object_id>/change/            billing_institutediscountcode_change
+  /admin/billing/institutediscountcode/<path:object_id>/delete/            billing_institutediscountcode_delete
+  /admin/billing/institutediscountcode/<path:object_id>/history/           billing_institutediscountcode_history
+  /admin/billing/institutediscountcode/add/                                billing_institutediscountcode_add
+  /admin/billing/instituteplan/                                            billing_instituteplan_changelist
+  /admin/billing/instituteplan/<path:object_id>/                           
+  /admin/billing/instituteplan/<path:object_id>/change/                    billing_instituteplan_change
+  /admin/billing/instituteplan/<path:object_id>/delete/                    billing_instituteplan_delete
+  /admin/billing/instituteplan/<path:object_id>/history/                   billing_instituteplan_history
+  /admin/billing/instituteplan/add/                                        billing_instituteplan_add
+  /admin/billing/moduleproduct/                                            billing_moduleproduct_changelist
+  /admin/billing/moduleproduct/<path:object_id>/                           
+  /admin/billing/moduleproduct/<path:object_id>/change/                    billing_moduleproduct_change
+  /admin/billing/moduleproduct/<path:object_id>/delete/                    billing_moduleproduct_delete
+  /admin/billing/moduleproduct/<path:object_id>/history/                   billing_moduleproduct_history
+  /admin/billing/moduleproduct/add/                                        billing_moduleproduct_add
+  /admin/billing/modulesubscription/                                       billing_modulesubscription_changelist
+  /admin/billing/modulesubscription/<path:object_id>/                      
+  /admin/billing/modulesubscription/<path:object_id>/change/               billing_modulesubscription_change
+  /admin/billing/modulesubscription/<path:object_id>/delete/               billing_modulesubscription_delete
+  /admin/billing/modulesubscription/<path:object_id>/history/              billing_modulesubscription_history
+  /admin/billing/modulesubscription/add/                                   billing_modulesubscription_add
+  /admin/billing/package/                                                  billing_package_changelist
+  /admin/billing/package/<path:object_id>/                                 
+  /admin/billing/package/<path:object_id>/change/                          billing_package_change
+  /admin/billing/package/<path:object_id>/delete/                          billing_package_delete
+  /admin/billing/package/<path:object_id>/history/                         billing_package_history
+  /admin/billing/package/add/                                              billing_package_add
+  /admin/billing/payment/                                                  billing_payment_changelist
+  /admin/billing/payment/<path:object_id>/                                 
+  /admin/billing/payment/<path:object_id>/change/                          billing_payment_change
+  /admin/billing/payment/<path:object_id>/delete/                          billing_payment_delete
+  /admin/billing/payment/<path:object_id>/history/                         billing_payment_history
+  /admin/billing/payment/add/                                              billing_payment_add
+  /admin/billing/promocode/                                                billing_promocode_changelist
+  /admin/billing/promocode/<path:object_id>/                               
+  /admin/billing/promocode/<path:object_id>/change/                        billing_promocode_change
+  /admin/billing/promocode/<path:object_id>/delete/                        billing_promocode_delete
+  /admin/billing/promocode/<path:object_id>/history/                       billing_promocode_history
+  /admin/billing/promocode/add/                                            billing_promocode_add
+  /admin/billing/schoolsubscription/                                       billing_schoolsubscription_changelist
+  /admin/billing/schoolsubscription/<path:object_id>/                      
+  /admin/billing/schoolsubscription/<path:object_id>/change/               billing_schoolsubscription_change
+  /admin/billing/schoolsubscription/<path:object_id>/delete/               billing_schoolsubscription_delete
+  /admin/billing/schoolsubscription/<path:object_id>/history/              billing_schoolsubscription_history
+  /admin/billing/schoolsubscription/add/                                   billing_schoolsubscription_add
+  /admin/billing/stripeevent/                                              billing_stripeevent_changelist
+  /admin/billing/stripeevent/<path:object_id>/                             
+  /admin/billing/stripeevent/<path:object_id>/change/                      billing_stripeevent_change
+  /admin/billing/stripeevent/<path:object_id>/delete/                      billing_stripeevent_delete
+  /admin/billing/stripeevent/<path:object_id>/history/                     billing_stripeevent_history
+  /admin/billing/stripeevent/add/                                          billing_stripeevent_add
+  /admin/billing/subscription/                                             billing_subscription_changelist
+  /admin/billing/subscription/<path:object_id>/                            
+  /admin/billing/subscription/<path:object_id>/change/                     billing_subscription_change
+  /admin/billing/subscription/<path:object_id>/delete/                     billing_subscription_delete
+  /admin/billing/subscription/<path:object_id>/history/                    billing_subscription_history
+  /admin/billing/subscription/add/                                         billing_subscription_add
+  /admin/classroom/academicyear/                                           classroom_academicyear_changelist
+  /admin/classroom/academicyear/<path:object_id>/                          
+  /admin/classroom/academicyear/<path:object_id>/change/                   classroom_academicyear_change
+  /admin/classroom/academicyear/<path:object_id>/delete/                   classroom_academicyear_delete
+  /admin/classroom/academicyear/<path:object_id>/history/                  classroom_academicyear_history
+  /admin/classroom/academicyear/add/                                       classroom_academicyear_add
+  /admin/classroom/classroom/                                              classroom_classroom_changelist
+  /admin/classroom/classroom/<path:object_id>/                             
+  /admin/classroom/classroom/<path:object_id>/change/                      classroom_classroom_change
+  /admin/classroom/classroom/<path:object_id>/delete/                      classroom_classroom_delete
+  /admin/classroom/classroom/<path:object_id>/history/                     classroom_classroom_history
+  /admin/classroom/classroom/add/                                          classroom_classroom_add
+  /admin/classroom/classsession/                                           classroom_classsession_changelist
+  /admin/classroom/classsession/<path:object_id>/                          
+  /admin/classroom/classsession/<path:object_id>/change/                   classroom_classsession_change
+  /admin/classroom/classsession/<path:object_id>/delete/                   classroom_classsession_delete
+  /admin/classroom/classsession/<path:object_id>/history/                  classroom_classsession_history
+  /admin/classroom/classsession/add/                                       classroom_classsession_add
+  /admin/classroom/contactmessage/                                         classroom_contactmessage_changelist
+  /admin/classroom/contactmessage/<path:object_id>/                        
+  /admin/classroom/contactmessage/<path:object_id>/change/                 classroom_contactmessage_change
+  /admin/classroom/contactmessage/<path:object_id>/delete/                 classroom_contactmessage_delete
+  /admin/classroom/contactmessage/<path:object_id>/history/                classroom_contactmessage_history
+  /admin/classroom/contactmessage/add/                                     classroom_contactmessage_add
+  /admin/classroom/credittransaction/                                      classroom_credittransaction_changelist
+  /admin/classroom/credittransaction/<path:object_id>/                     
+  /admin/classroom/credittransaction/<path:object_id>/change/              classroom_credittransaction_change
+  /admin/classroom/credittransaction/<path:object_id>/delete/              classroom_credittransaction_delete
+  /admin/classroom/credittransaction/<path:object_id>/history/             classroom_credittransaction_history
+  /admin/classroom/credittransaction/add/                                  classroom_credittransaction_add
+  /admin/classroom/csvcolumntemplate/                                      classroom_csvcolumntemplate_changelist
+  /admin/classroom/csvcolumntemplate/<path:object_id>/                     
+  /admin/classroom/csvcolumntemplate/<path:object_id>/change/              classroom_csvcolumntemplate_change
+  /admin/classroom/csvcolumntemplate/<path:object_id>/delete/              classroom_csvcolumntemplate_delete
+  /admin/classroom/csvcolumntemplate/<path:object_id>/history/             classroom_csvcolumntemplate_history
+  /admin/classroom/csvcolumntemplate/add/                                  classroom_csvcolumntemplate_add
+  /admin/classroom/csvimport/                                              classroom_csvimport_changelist
+  /admin/classroom/csvimport/<path:object_id>/                             
+  /admin/classroom/csvimport/<path:object_id>/change/                      classroom_csvimport_change
+  /admin/classroom/csvimport/<path:object_id>/delete/                      classroom_csvimport_delete
+  /admin/classroom/csvimport/<path:object_id>/history/                     classroom_csvimport_history
+  /admin/classroom/csvimport/add/                                          classroom_csvimport_add
+  /admin/classroom/departmentfee/                                          classroom_departmentfee_changelist
+  /admin/classroom/departmentfee/<path:object_id>/                         
+  /admin/classroom/departmentfee/<path:object_id>/change/                  classroom_departmentfee_change
+  /admin/classroom/departmentfee/<path:object_id>/delete/                  classroom_departmentfee_delete
+  /admin/classroom/departmentfee/<path:object_id>/history/                 classroom_departmentfee_history
+  /admin/classroom/departmentfee/add/                                      classroom_departmentfee_add
+  /admin/classroom/departmentlevel/                                        classroom_departmentlevel_changelist
+  /admin/classroom/departmentlevel/<path:object_id>/                       
+  /admin/classroom/departmentlevel/<path:object_id>/change/                classroom_departmentlevel_change
+  /admin/classroom/departmentlevel/<path:object_id>/delete/                classroom_departmentlevel_delete
+  /admin/classroom/departmentlevel/<path:object_id>/history/               classroom_departmentlevel_history
+  /admin/classroom/departmentlevel/add/                                    classroom_departmentlevel_add
+  /admin/classroom/emailcampaign/                                          classroom_emailcampaign_changelist
+  /admin/classroom/emailcampaign/<path:object_id>/                         
+  /admin/classroom/emailcampaign/<path:object_id>/change/                  classroom_emailcampaign_change
+  /admin/classroom/emailcampaign/<path:object_id>/delete/                  classroom_emailcampaign_delete
+  /admin/classroom/emailcampaign/<path:object_id>/history/                 classroom_emailcampaign_history
+  /admin/classroom/emailcampaign/add/                                      classroom_emailcampaign_add
+  /admin/classroom/emaillog/                                               classroom_emaillog_changelist
+  /admin/classroom/emaillog/<path:object_id>/                              
+  /admin/classroom/emaillog/<path:object_id>/change/                       classroom_emaillog_change
+  /admin/classroom/emaillog/<path:object_id>/delete/                       classroom_emaillog_delete
+  /admin/classroom/emaillog/<path:object_id>/history/                      classroom_emaillog_history
+  /admin/classroom/emaillog/add/                                           classroom_emaillog_add
+  /admin/classroom/emailpreference/                                        classroom_emailpreference_changelist
+  /admin/classroom/emailpreference/<path:object_id>/                       
+  /admin/classroom/emailpreference/<path:object_id>/change/                classroom_emailpreference_change
+  /admin/classroom/emailpreference/<path:object_id>/delete/                classroom_emailpreference_delete
+  /admin/classroom/emailpreference/<path:object_id>/history/               classroom_emailpreference_history
+  /admin/classroom/emailpreference/add/                                    classroom_emailpreference_add
+  /admin/classroom/enrollment/                                             classroom_enrollment_changelist
+  /admin/classroom/enrollment/<path:object_id>/                            
+  /admin/classroom/enrollment/<path:object_id>/change/                     classroom_enrollment_change
+  /admin/classroom/enrollment/<path:object_id>/delete/                     classroom_enrollment_delete
+  /admin/classroom/enrollment/<path:object_id>/history/                    classroom_enrollment_history
+  /admin/classroom/enrollment/add/                                         classroom_enrollment_add
+  /admin/classroom/invoice/                                                classroom_invoice_changelist
+  /admin/classroom/invoice/<path:object_id>/                               
+  /admin/classroom/invoice/<path:object_id>/change/                        classroom_invoice_change
+  /admin/classroom/invoice/<path:object_id>/delete/                        classroom_invoice_delete
+  /admin/classroom/invoice/<path:object_id>/history/                       classroom_invoice_history
+  /admin/classroom/invoice/add/                                            classroom_invoice_add
+  /admin/classroom/invoicelineitem/                                        classroom_invoicelineitem_changelist
+  /admin/classroom/invoicelineitem/<path:object_id>/                       
+  /admin/classroom/invoicelineitem/<path:object_id>/change/                classroom_invoicelineitem_change
+  /admin/classroom/invoicelineitem/<path:object_id>/delete/                classroom_invoicelineitem_delete
+  /admin/classroom/invoicelineitem/<path:object_id>/history/               classroom_invoicelineitem_history
+  /admin/classroom/invoicelineitem/add/                                    classroom_invoicelineitem_add
+  /admin/classroom/invoicenumbersequence/                                  classroom_invoicenumbersequence_changelist
+  /admin/classroom/invoicenumbersequence/<path:object_id>/                 
+  /admin/classroom/invoicenumbersequence/<path:object_id>/change/          classroom_invoicenumbersequence_change
+  /admin/classroom/invoicenumbersequence/<path:object_id>/delete/          classroom_invoicenumbersequence_delete
+  /admin/classroom/invoicenumbersequence/<path:object_id>/history/         classroom_invoicenumbersequence_history
+  /admin/classroom/invoicenumbersequence/add/                              classroom_invoicenumbersequence_add
+  /admin/classroom/invoicepayment/                                         classroom_invoicepayment_changelist
+  /admin/classroom/invoicepayment/<path:object_id>/                        
+  /admin/classroom/invoicepayment/<path:object_id>/change/                 classroom_invoicepayment_change
+  /admin/classroom/invoicepayment/<path:object_id>/delete/                 classroom_invoicepayment_delete
+  /admin/classroom/invoicepayment/<path:object_id>/history/                classroom_invoicepayment_history
+  /admin/classroom/invoicepayment/add/                                     classroom_invoicepayment_add
+  /admin/classroom/level/                                                  classroom_level_changelist
+  /admin/classroom/level/<path:object_id>/                                 
+  /admin/classroom/level/<path:object_id>/change/                          classroom_level_change
+  /admin/classroom/level/<path:object_id>/delete/                          classroom_level_delete
+  /admin/classroom/level/<path:object_id>/history/                         classroom_level_history
+  /admin/classroom/level/add/                                              classroom_level_add
+  /admin/classroom/notification/                                           classroom_notification_changelist
+  /admin/classroom/notification/<path:object_id>/                          
+  /admin/classroom/notification/<path:object_id>/change/                   classroom_notification_change
+  /admin/classroom/notification/<path:object_id>/delete/                   classroom_notification_delete
+  /admin/classroom/notification/<path:object_id>/history/                  classroom_notification_history
+  /admin/classroom/notification/add/                                       classroom_notification_add
+  /admin/classroom/parentinvite/                                           classroom_parentinvite_changelist
+  /admin/classroom/parentinvite/<path:object_id>/                          
+  /admin/classroom/parentinvite/<path:object_id>/change/                   classroom_parentinvite_change
+  /admin/classroom/parentinvite/<path:object_id>/delete/                   classroom_parentinvite_delete
+  /admin/classroom/parentinvite/<path:object_id>/history/                  classroom_parentinvite_history
+  /admin/classroom/parentinvite/add/                                       classroom_parentinvite_add
+  /admin/classroom/parentstudent/                                          classroom_parentstudent_changelist
+  /admin/classroom/parentstudent/<path:object_id>/                         
+  /admin/classroom/parentstudent/<path:object_id>/change/                  classroom_parentstudent_change
+  /admin/classroom/parentstudent/<path:object_id>/delete/                  classroom_parentstudent_delete
+  /admin/classroom/parentstudent/<path:object_id>/history/                 classroom_parentstudent_history
+  /admin/classroom/parentstudent/add/                                      classroom_parentstudent_add
+  /admin/classroom/paymentreferencemapping/                                classroom_paymentreferencemapping_changelist
+  /admin/classroom/paymentreferencemapping/<path:object_id>/               
+  /admin/classroom/paymentreferencemapping/<path:object_id>/change/        classroom_paymentreferencemapping_change
+  /admin/classroom/paymentreferencemapping/<path:object_id>/delete/        classroom_paymentreferencemapping_delete
+  /admin/classroom/paymentreferencemapping/<path:object_id>/history/       classroom_paymentreferencemapping_history
+  /admin/classroom/paymentreferencemapping/add/                            classroom_paymentreferencemapping_add
+  /admin/classroom/progresscriteria/                                       classroom_progresscriteria_changelist
+  /admin/classroom/progresscriteria/<path:object_id>/                      
+  /admin/classroom/progresscriteria/<path:object_id>/change/               classroom_progresscriteria_change
+  /admin/classroom/progresscriteria/<path:object_id>/delete/               classroom_progresscriteria_delete
+  /admin/classroom/progresscriteria/<path:object_id>/history/              classroom_progresscriteria_history
+  /admin/classroom/progresscriteria/add/                                   classroom_progresscriteria_add
+  /admin/classroom/progressrecord/                                         classroom_progressrecord_changelist
+  /admin/classroom/progressrecord/<path:object_id>/                        
+  /admin/classroom/progressrecord/<path:object_id>/change/                 classroom_progressrecord_change
+  /admin/classroom/progressrecord/<path:object_id>/delete/                 classroom_progressrecord_delete
+  /admin/classroom/progressrecord/<path:object_id>/history/                classroom_progressrecord_history
+  /admin/classroom/progressrecord/add/                                     classroom_progressrecord_add
+  /admin/classroom/salarynumbersequence/                                   classroom_salarynumbersequence_changelist
+  /admin/classroom/salarynumbersequence/<path:object_id>/                  
+  /admin/classroom/salarynumbersequence/<path:object_id>/change/           classroom_salarynumbersequence_change
+  /admin/classroom/salarynumbersequence/<path:object_id>/delete/           classroom_salarynumbersequence_delete
+  /admin/classroom/salarynumbersequence/<path:object_id>/history/          classroom_salarynumbersequence_history
+  /admin/classroom/salarynumbersequence/add/                               classroom_salarynumbersequence_add
+  /admin/classroom/salarypayment/                                          classroom_salarypayment_changelist
+  /admin/classroom/salarypayment/<path:object_id>/                         
+  /admin/classroom/salarypayment/<path:object_id>/change/                  classroom_salarypayment_change
+  /admin/classroom/salarypayment/<path:object_id>/delete/                  classroom_salarypayment_delete
+  /admin/classroom/salarypayment/<path:object_id>/history/                 classroom_salarypayment_history
+  /admin/classroom/salarypayment/add/                                      classroom_salarypayment_add
+  /admin/classroom/salaryslip/                                             classroom_salaryslip_changelist
+  /admin/classroom/salaryslip/<path:object_id>/                            
+  /admin/classroom/salaryslip/<path:object_id>/change/                     classroom_salaryslip_change
+  /admin/classroom/salaryslip/<path:object_id>/delete/                     classroom_salaryslip_delete
+  /admin/classroom/salaryslip/<path:object_id>/history/                    classroom_salaryslip_history
+  /admin/classroom/salaryslip/add/                                         classroom_salaryslip_add
+  /admin/classroom/salarysliplineitem/                                     classroom_salarysliplineitem_changelist
+  /admin/classroom/salarysliplineitem/<path:object_id>/                    
+  /admin/classroom/salarysliplineitem/<path:object_id>/change/             classroom_salarysliplineitem_change
+  /admin/classroom/salarysliplineitem/<path:object_id>/delete/             classroom_salarysliplineitem_delete
+  /admin/classroom/salarysliplineitem/<path:object_id>/history/            classroom_salarysliplineitem_history
+  /admin/classroom/salarysliplineitem/add/                                 classroom_salarysliplineitem_add
+  /admin/classroom/school/                                                 classroom_school_changelist
+  /admin/classroom/school/<path:object_id>/                                
+  /admin/classroom/school/<path:object_id>/change/                         classroom_school_change
+  /admin/classroom/school/<path:object_id>/delete/                         classroom_school_delete
+  /admin/classroom/school/<path:object_id>/history/                        classroom_school_history
+  /admin/classroom/school/add/                                             classroom_school_add
+  /admin/classroom/schoolstudent/                                          classroom_schoolstudent_changelist
+  /admin/classroom/schoolstudent/<path:object_id>/                         
+  /admin/classroom/schoolstudent/<path:object_id>/change/                  classroom_schoolstudent_change
+  /admin/classroom/schoolstudent/<path:object_id>/delete/                  classroom_schoolstudent_delete
+  /admin/classroom/schoolstudent/<path:object_id>/history/                 classroom_schoolstudent_history
+  /admin/classroom/schoolstudent/add/                                      classroom_schoolstudent_add
+  /admin/classroom/schoolteacher/                                          classroom_schoolteacher_changelist
+  /admin/classroom/schoolteacher/<path:object_id>/                         
+  /admin/classroom/schoolteacher/<path:object_id>/change/                  classroom_schoolteacher_change
+  /admin/classroom/schoolteacher/<path:object_id>/delete/                  classroom_schoolteacher_delete
+  /admin/classroom/schoolteacher/<path:object_id>/history/                 classroom_schoolteacher_history
+  /admin/classroom/schoolteacher/add/                                      classroom_schoolteacher_add
+  /admin/classroom/studentattendance/                                      classroom_studentattendance_changelist
+  /admin/classroom/studentattendance/<path:object_id>/                     
+  /admin/classroom/studentattendance/<path:object_id>/change/              classroom_studentattendance_change
+  /admin/classroom/studentattendance/<path:object_id>/delete/              classroom_studentattendance_delete
+  /admin/classroom/studentattendance/<path:object_id>/history/             classroom_studentattendance_history
+  /admin/classroom/studentattendance/add/                                  classroom_studentattendance_add
+  /admin/classroom/studentfeeoverride/                                     classroom_studentfeeoverride_changelist
+  /admin/classroom/studentfeeoverride/<path:object_id>/                    
+  /admin/classroom/studentfeeoverride/<path:object_id>/change/             classroom_studentfeeoverride_change
+  /admin/classroom/studentfeeoverride/<path:object_id>/delete/             classroom_studentfeeoverride_delete
+  /admin/classroom/studentfeeoverride/<path:object_id>/history/            classroom_studentfeeoverride_history
+  /admin/classroom/studentfeeoverride/add/                                 classroom_studentfeeoverride_add
+  /admin/classroom/studentlevelenrollment/                                 classroom_studentlevelenrollment_changelist
+  /admin/classroom/studentlevelenrollment/<path:object_id>/                
+  /admin/classroom/studentlevelenrollment/<path:object_id>/change/         classroom_studentlevelenrollment_change
+  /admin/classroom/studentlevelenrollment/<path:object_id>/delete/         classroom_studentlevelenrollment_delete
+  /admin/classroom/studentlevelenrollment/<path:object_id>/history/        classroom_studentlevelenrollment_history
+  /admin/classroom/studentlevelenrollment/add/                             classroom_studentlevelenrollment_add
+  /admin/classroom/subject/                                                classroom_subject_changelist
+  /admin/classroom/subject/<path:object_id>/                               
+  /admin/classroom/subject/<path:object_id>/change/                        classroom_subject_change
+  /admin/classroom/subject/<path:object_id>/delete/                        classroom_subject_delete
+  /admin/classroom/subject/<path:object_id>/history/                       classroom_subject_history
+  /admin/classroom/subject/add/                                            classroom_subject_add
+  /admin/classroom/subjectapp/                                             classroom_subjectapp_changelist
+  /admin/classroom/subjectapp/<path:object_id>/                            
+  /admin/classroom/subjectapp/<path:object_id>/change/                     classroom_subjectapp_change
+  /admin/classroom/subjectapp/<path:object_id>/delete/                     classroom_subjectapp_delete
+  /admin/classroom/subjectapp/<path:object_id>/history/                    classroom_subjectapp_history
+  /admin/classroom/subjectapp/add/                                         classroom_subjectapp_add
+  /admin/classroom/subtopic/                                               classroom_subtopic_changelist
+  /admin/classroom/subtopic/<path:object_id>/                              
+  /admin/classroom/subtopic/<path:object_id>/change/                       classroom_subtopic_change
+  /admin/classroom/subtopic/<path:object_id>/delete/                       classroom_subtopic_delete
+  /admin/classroom/subtopic/<path:object_id>/history/                      classroom_subtopic_history
+  /admin/classroom/subtopic/add/                                           classroom_subtopic_add
+  /admin/classroom/teacherattendance/                                      classroom_teacherattendance_changelist
+  /admin/classroom/teacherattendance/<path:object_id>/                     
+  /admin/classroom/teacherattendance/<path:object_id>/change/              classroom_teacherattendance_change
+  /admin/classroom/teacherattendance/<path:object_id>/delete/              classroom_teacherattendance_delete
+  /admin/classroom/teacherattendance/<path:object_id>/history/             classroom_teacherattendance_history
+  /admin/classroom/teacherattendance/add/                                  classroom_teacherattendance_add
+  /admin/classroom/teacherhourlyrate/                                      classroom_teacherhourlyrate_changelist
+  /admin/classroom/teacherhourlyrate/<path:object_id>/                     
+  /admin/classroom/teacherhourlyrate/<path:object_id>/change/              classroom_teacherhourlyrate_change
+  /admin/classroom/teacherhourlyrate/<path:object_id>/delete/              classroom_teacherhourlyrate_delete
+  /admin/classroom/teacherhourlyrate/<path:object_id>/history/             classroom_teacherhourlyrate_history
+  /admin/classroom/teacherhourlyrate/add/                                  classroom_teacherhourlyrate_add
+  /admin/classroom/teacherrateoverride/                                    classroom_teacherrateoverride_changelist
+  /admin/classroom/teacherrateoverride/<path:object_id>/                   
+  /admin/classroom/teacherrateoverride/<path:object_id>/change/            classroom_teacherrateoverride_change
+  /admin/classroom/teacherrateoverride/<path:object_id>/delete/            classroom_teacherrateoverride_delete
+  /admin/classroom/teacherrateoverride/<path:object_id>/history/           classroom_teacherrateoverride_history
+  /admin/classroom/teacherrateoverride/add/                                classroom_teacherrateoverride_add
+  /admin/classroom/term/                                                   classroom_term_changelist
+  /admin/classroom/term/<path:object_id>/                                  
+  /admin/classroom/term/<path:object_id>/change/                           classroom_term_change
+  /admin/classroom/term/<path:object_id>/delete/                           classroom_term_delete
+  /admin/classroom/term/<path:object_id>/history/                          classroom_term_history
+  /admin/classroom/term/add/                                               classroom_term_add
+  /admin/classroom/topic/                                                  classroom_topic_changelist
+  /admin/classroom/topic/<path:object_id>/                                 
+  /admin/classroom/topic/<path:object_id>/change/                          classroom_topic_change
+  /admin/classroom/topic/<path:object_id>/delete/                          classroom_topic_delete
+  /admin/classroom/topic/<path:object_id>/history/                         classroom_topic_history
+  /admin/classroom/topic/add/                                              classroom_topic_add
+  /admin/classroom/topiclevel/                                             classroom_topiclevel_changelist
+  /admin/classroom/topiclevel/<path:object_id>/                            
+  /admin/classroom/topiclevel/<path:object_id>/change/                     classroom_topiclevel_change
+  /admin/classroom/topiclevel/<path:object_id>/delete/                     classroom_topiclevel_delete
+  /admin/classroom/topiclevel/<path:object_id>/history/                    classroom_topiclevel_history
+  /admin/classroom/topiclevel/add/                                         classroom_topiclevel_add
+  /admin/jsi18n/                                                           jsi18n
+  /admin/login/                                                            login
+  /admin/logout/                                                           logout
+  /admin/maths/basicfactsresult/                                           maths_basicfactsresult_changelist
+  /admin/maths/basicfactsresult/<path:object_id>/                          
+  /admin/maths/basicfactsresult/<path:object_id>/change/                   maths_basicfactsresult_change
+  /admin/maths/basicfactsresult/<path:object_id>/delete/                   maths_basicfactsresult_delete
+  /admin/maths/basicfactsresult/<path:object_id>/history/                  maths_basicfactsresult_history
+  /admin/maths/basicfactsresult/add/                                       maths_basicfactsresult_add
+  /admin/maths/question/                                                   maths_question_changelist
+  /admin/maths/question/<path:object_id>/                                  
+  /admin/maths/question/<path:object_id>/change/                           maths_question_change
+  /admin/maths/question/<path:object_id>/delete/                           maths_question_delete
+  /admin/maths/question/<path:object_id>/history/                          maths_question_history
+  /admin/maths/question/add/                                               maths_question_add
+  /admin/maths/timelog/                                                    maths_timelog_changelist
+  /admin/maths/timelog/<path:object_id>/                                   
+  /admin/maths/timelog/<path:object_id>/change/                            maths_timelog_change
+  /admin/maths/timelog/<path:object_id>/delete/                            maths_timelog_delete
+  /admin/maths/timelog/<path:object_id>/history/                           maths_timelog_history
+  /admin/maths/timelog/add/                                                maths_timelog_add
+  /admin/number_puzzles/numberpuzzle/                                      number_puzzles_numberpuzzle_changelist
+  /admin/number_puzzles/numberpuzzle/<path:object_id>/                     
+  /admin/number_puzzles/numberpuzzle/<path:object_id>/change/              number_puzzles_numberpuzzle_change
+  /admin/number_puzzles/numberpuzzle/<path:object_id>/delete/              number_puzzles_numberpuzzle_delete
+  /admin/number_puzzles/numberpuzzle/<path:object_id>/history/             number_puzzles_numberpuzzle_history
+  /admin/number_puzzles/numberpuzzle/add/                                  number_puzzles_numberpuzzle_add
+  /admin/number_puzzles/numberpuzzlelevel/                                 number_puzzles_numberpuzzlelevel_changelist
+  /admin/number_puzzles/numberpuzzlelevel/<path:object_id>/                
+  /admin/number_puzzles/numberpuzzlelevel/<path:object_id>/change/         number_puzzles_numberpuzzlelevel_change
+  /admin/number_puzzles/numberpuzzlelevel/<path:object_id>/delete/         number_puzzles_numberpuzzlelevel_delete
+  /admin/number_puzzles/numberpuzzlelevel/<path:object_id>/history/        number_puzzles_numberpuzzlelevel_history
+  /admin/number_puzzles/numberpuzzlelevel/add/                             number_puzzles_numberpuzzlelevel_add
+  /admin/password_change/                                                  password_change
+  /admin/password_change/done/                                             password_change_done
+  /admin/r/<int:content_type_id>/<path:object_id>/                         view_on_site
+
+### admin-dashboard (83)
+  /admin-dashboard/                                                        admin_dashboard
+  /admin-dashboard/billing/                                                billing_admin_dashboard
+  /admin-dashboard/billing/coupon-codes/                                   billing_admin_coupon_list
+  /admin-dashboard/billing/coupon-codes/create/                            billing_admin_coupon_create
+  /admin-dashboard/billing/discount-codes/                                 billing_admin_discount_list
+  /admin-dashboard/billing/discount-codes/<int:pk>/edit/                   billing_admin_discount_edit
+  /admin-dashboard/billing/discount-codes/<int:pk>/toggle/                 billing_admin_discount_toggle
+  /admin-dashboard/billing/discount-codes/create/                          billing_admin_discount_create
+  /admin-dashboard/billing/modules/                                        billing_admin_module_list
+  /admin-dashboard/billing/modules/<int:pk>/edit/                          billing_admin_module_edit
+  /admin-dashboard/billing/modules/<int:pk>/sync-stripe/                   billing_admin_module_sync
+  /admin-dashboard/billing/modules/<int:pk>/toggle/                        billing_admin_module_toggle
+  /admin-dashboard/billing/plans/                                          billing_admin_plan_list
+  /admin-dashboard/billing/plans/<int:pk>/edit/                            billing_admin_plan_edit
+  /admin-dashboard/billing/plans/<int:pk>/sync-stripe/                     billing_admin_plan_sync
+  /admin-dashboard/billing/plans/<int:pk>/toggle/                          billing_admin_plan_toggle
+  /admin-dashboard/billing/plans/create/                                   billing_admin_plan_create
+  /admin-dashboard/billing/promo-codes/                                    billing_admin_promo_list
+  /admin-dashboard/billing/promo-codes/<int:pk>/edit/                      billing_admin_promo_edit
+  /admin-dashboard/billing/promo-codes/<int:pk>/toggle/                    billing_admin_promo_toggle
+  /admin-dashboard/billing/promo-codes/create/                             billing_admin_promo_create
+  /admin-dashboard/billing/subscriptions/                                  billing_admin_subscription_list
+  /admin-dashboard/billing/subscriptions/<int:pk>/                         billing_admin_subscription_detail
+  /admin-dashboard/billing/subscriptions/<int:pk>/override/                billing_admin_subscription_override
+  /admin-dashboard/block-user/                                             admin_block_user
+  /admin-dashboard/email/                                                  email_dashboard
+  /admin-dashboard/email/campaigns/                                        email_campaign_list
+  /admin-dashboard/email/campaigns/<int:campaign_id>/                      email_campaign_detail
+  /admin-dashboard/email/compose/                                          email_compose
+  /admin-dashboard/manage-departments/                                     admin_manage_departments
+  /admin-dashboard/manage-parent-invites/                                  admin_manage_parent_invites
+  /admin-dashboard/manage-settings/                                        admin_manage_settings
+  /admin-dashboard/manage-students/                                        admin_manage_students
+  /admin-dashboard/manage-subjects/                                        admin_manage_subjects
+  /admin-dashboard/manage-teachers/                                        admin_manage_teachers
+  /admin-dashboard/manage-terms/                                           admin_manage_terms
+  /admin-dashboard/schools/<int:school_id>/                                admin_school_detail
+  /admin-dashboard/schools/<int:school_id>/academic-year/<int:academic_year_id>/calendar/ admin_academic_year_calendar
+  /admin-dashboard/schools/<int:school_id>/academic-year/<int:academic_year_id>/edit/ admin_academic_year_edit
+  /admin-dashboard/schools/<int:school_id>/academic-year/<int:academic_year_id>/term-setup/ admin_academic_year_term_setup
+  /admin-dashboard/schools/<int:school_id>/academic-year/create/           admin_academic_year_create
+  /admin-dashboard/schools/<int:school_id>/delete/                         admin_school_delete
+  /admin-dashboard/schools/<int:school_id>/departments/                    admin_school_departments
+  /admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/      admin_department_detail
+  /admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/assign-classes/ admin_department_assign_classes
+  /admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/assign-hod/ admin_department_assign_hod
+  /admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/delete/ admin_department_delete
+  /admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/edit/ admin_department_edit
+  /admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/levels/ admin_department_levels
+  /admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/settings/ admin_department_settings
+  /admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/subject-levels/ admin_department_subject_levels
+  /admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/subject-levels/<int:level_id>/remove/ admin_department_subject_level_remove
+  /admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/teachers/ admin_department_teachers
+  /admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/toggle-active/ admin_department_toggle_active
+  /admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/update-fee/ admin_department_update_fee
+  /admin-dashboard/schools/<int:school_id>/departments/create/             admin_department_create
+  /admin-dashboard/schools/<int:school_id>/edit/                           admin_school_edit
+  /admin-dashboard/schools/<int:school_id>/holidays/                       admin_school_holidays
+  /admin-dashboard/schools/<int:school_id>/parent-invites/                 parent_invite_list
+  /admin-dashboard/schools/<int:school_id>/parent-invites/<int:invite_id>/revoke/ revoke_parent_invite
+  /admin-dashboard/schools/<int:school_id>/public-holidays/                admin_public_holidays
+  /admin-dashboard/schools/<int:school_id>/publish/                        admin_school_publish
+  /admin-dashboard/schools/<int:school_id>/settings/                       admin_school_settings
+  /admin-dashboard/schools/<int:school_id>/students/                       admin_school_students
+  /admin-dashboard/schools/<int:school_id>/students/<int:student_id>/edit/ admin_school_student_edit
+  /admin-dashboard/schools/<int:school_id>/students/<int:student_id>/invite-parent/ invite_parent
+  /admin-dashboard/schools/<int:school_id>/students/<int:student_id>/parents/ student_parent_links
+  /admin-dashboard/schools/<int:school_id>/students/<int:student_id>/parents/<int:link_id>/remove/ unlink_parent_student
+  /admin-dashboard/schools/<int:school_id>/students/<int:student_id>/remove/ admin_school_student_remove
+  /admin-dashboard/schools/<int:school_id>/students/<int:student_id>/restore/ admin_school_student_restore
+  /admin-dashboard/schools/<int:school_id>/students/batch-update/          admin_school_student_batch_update
+  /admin-dashboard/schools/<int:school_id>/subjects/                       admin_school_subjects
+  /admin-dashboard/schools/<int:school_id>/teachers/                       admin_school_teachers
+  /admin-dashboard/schools/<int:school_id>/teachers/<int:teacher_id>/edit/ admin_school_teacher_edit
+  /admin-dashboard/schools/<int:school_id>/teachers/<int:teacher_id>/remove/ admin_school_teacher_remove
+  /admin-dashboard/schools/<int:school_id>/teachers/<int:teacher_id>/restore/ admin_school_teacher_restore
+  /admin-dashboard/schools/<int:school_id>/teachers/batch-update/          admin_school_teacher_batch_update
+  /admin-dashboard/schools/<int:school_id>/terms/                          admin_school_terms
+  /admin-dashboard/schools/<int:school_id>/toggle-active/                  admin_school_toggle_active
+  /admin-dashboard/schools/create/                                         admin_school_create
+  /admin-dashboard/suspend-school/                                         admin_suspend_school
+  /admin-dashboard/unblock-user/                                           admin_unblock_user
+  /admin-dashboard/unsuspend-school/                                       admin_unsuspend_school
+
+### ai-import (6)
+  /ai-import/confirm/<int:session_id>/                                     confirm
+  /ai-import/export/<int:session_id>/                                      export
+  /ai-import/plans/                                                        tier_select
+  /ai-import/preview/<int:session_id>/                                     preview
+  /ai-import/upload-image/<int:session_id>/                                upload_image
+  /ai-import/upload/                                                       upload
+
+### api (6)
+  /api/department/<int:dept_id>/levels/                                    api_department_levels
+  /api/submit-topic-answer/                                                api_submit_topic_answer
+  /api/topic-next/<str:session_id>/                                        api_topic_next
+  /api/tt-answer/                                                          api_tt_answer
+  /api/tt-next/<str:session_id>/                                           api_tt_next
+  /api/update-time-log/                                                    api_update_time_log
+
+### app-home (1)
+  /app-home/                                                               home
+
+### audit (3)
+  /audit/dashboard/                                                        audit_dashboard
+  /audit/events/                                                           audit_events
+  /audit/logs/                                                             audit_log_list
+
+### basic-facts (7)
+  /basic-facts/                                                            basic_facts_home
+  /basic-facts/<str:subtopic>/                                             basic_facts_select
+  /basic-facts/<str:subtopic>/<int:level_number>/                          basic_facts_quiz
+  /basic-facts/<str:subtopic>/<int:level_number>/results/                  basic_facts_results
+  /basic-facts/number-puzzles/                                             number_puzzles_home
+  /basic-facts/number-puzzles/play/<slug:slug>/                            number_puzzles_play
+  /basic-facts/number-puzzles/results/<uuid:session_id>/                   number_puzzles_results
+
+### billing (18)
+  /billing/apply-promo/<int:package_id>/                                   apply_promo_code
+  /billing/cancel/                                                         billing_cancel
+  /billing/checkout/<int:package_id>/                                      billing_checkout
+  /billing/confirm-payment/                                                confirm_payment
+  /billing/create-payment-intent/<int:package_id>/                         create_payment_intent
+  /billing/history/                                                        billing_history
+  /billing/institute/cancel/                                               institute_cancel_subscription
+  /billing/institute/change-plan/                                          institute_change_plan
+  /billing/institute/checkout/                                             institute_checkout
+  /billing/institute/checkout/success/                                     institute_checkout_success
+  /billing/institute/dashboard/                                            institute_subscription_dashboard
+  /billing/institute/module/toggle/                                        module_toggle
+  /billing/institute/plans/                                                institute_plan_select
+  /billing/institute/trial-expired/                                        institute_trial_expired
+  /billing/institute/upgrade/                                              institute_plan_upgrade
+  /billing/module-required/                                                module_required
+  /billing/portal/                                                         stripe_billing_portal
+  /billing/success/                                                        billing_success
+
+### bulk-student-registration (1)
+  /bulk-student-registration/                                              bulk_student_registration
+
+### class (9)
+  /class/<int:class_id>/                                                   class_detail
+  /class/<int:class_id>/assign-students/                                   assign_students
+  /class/<int:class_id>/assign-teachers/                                   assign_teachers
+  /class/<int:class_id>/attendance/                                        class_attendance
+  /class/<int:class_id>/edit/                                              edit_class
+  /class/<int:class_id>/student/<int:student_id>/fee/                      update_student_fee
+  /class/<int:class_id>/student/<int:student_id>/remove/                   class_student_remove
+  /class/manage-teachers/                                                  manage_teachers
+  /class/progress/                                                         class_progress_list
+
+### coding (1)
+  /coding/                                                                 coming_soon
+
+### contact (1)
+  /contact/                                                                contact
+
+### create-class (1)
+  /create-class/                                                           create_class
+
+### create-question (1)
+  /create-question/                                                        create_question
+
+### dashboard (1)
+  /dashboard/                                                              hod_overview
+
+### department (12)
+  /department/assign-class/                                                hod_assign_class
+  /department/attendance/                                                  hod_attendance_report
+  /department/attendance/detail/                                           attendance_detail
+  /department/class/<int:class_id>/delete/                                 hod_delete_class
+  /department/class/<int:class_id>/restore/                                hod_restore_class
+  /department/create-class/                                                hod_create_class
+  /department/manage-classes/                                              hod_manage_classes
+  /department/reports/                                                     hod_reports
+  /department/subject-levels/                                              hod_subject_levels
+  /department/subject-levels/<int:dept_id>/                                hod_subject_levels_dept
+  /department/subject-levels/<int:dept_id>/<int:level_id>/remove/          hod_subject_level_remove
+  /department/workload/                                                    hod_workload
+
+### email (1)
+  /email/unsubscribe/<uuid:token>/                                         email_unsubscribe
+
+### favicon.ico (1)
+  /favicon.ico                                                             
+
+### htmx (1)
+  /htmx/topics-for-level/                                                  htmx_topics_for_level
+
+### hub (1)
+  /hub/                                                                    subjects_hub
+
+### import-balances (3)
+  /import-balances/                                                        balance_csv_upload
+  /import-balances/confirm/                                                balance_csv_confirm
+  /import-balances/preview/                                                balance_csv_preview
+
+### import-parents (4)
+  /import-parents/                                                         parent_csv_upload
+  /import-parents/confirm/                                                 parent_csv_confirm
+  /import-parents/credentials/                                             parent_csv_credentials
+  /import-parents/preview/                                                 parent_csv_preview
+
+### import-students (5)
+  /import-students/                                                        student_csv_upload
+  /import-students/confirm/                                                student_csv_confirm
+  /import-students/credentials/                                            student_csv_credentials
+  /import-students/map-structure/                                          student_csv_structure_mapping
+  /import-students/preview/                                                student_csv_preview
+
+### import-teachers (4)
+  /import-teachers/                                                        teacher_csv_upload
+  /import-teachers/confirm/                                                teacher_csv_confirm
+  /import-teachers/credentials/                                            teacher_csv_credentials
+  /import-teachers/preview/                                                teacher_csv_preview
+
+### invoicing (22)
+  /invoicing/                                                              invoice_list
+  /invoicing/<int:invoice_id>/                                             invoice_detail
+  /invoicing/<int:invoice_id>/cancel/                                      cancel_invoice
+  /invoicing/<int:invoice_id>/edit/                                        invoice_edit
+  /invoicing/<int:invoice_id>/pay/                                         record_manual_payment
+  /invoicing/api/student-search/                                           student_search_api
+  /invoicing/csv/<int:import_id>/confirm/                                  confirm_csv_payments
+  /invoicing/csv/<int:import_id>/review/                                   csv_review_matches
+  /invoicing/csv/mapping/                                                  csv_column_mapping
+  /invoicing/csv/upload/                                                   csv_upload
+  /invoicing/drafts/delete/                                                delete_draft_invoices
+  /invoicing/fees/                                                         fee_configuration
+  /invoicing/fees/batch-update/                                            batch_classroom_fee
+  /invoicing/fees/class/<int:classroom_id>/set/                            set_classroom_fee
+  /invoicing/fees/student-override/add/                                    add_student_fee_override
+  /invoicing/generate/                                                     generate_invoices
+  /invoicing/issue/                                                        issue_invoices
+  /invoicing/opening-balances/                                             opening_balances
+  /invoicing/opening-balances/<int:student_id>/set/                        set_opening_balance
+  /invoicing/opening-balances/batch-update/                                batch_opening_balance
+  /invoicing/preview/                                                      invoice_preview
+  /invoicing/reference-mappings/                                           reference_mappings
+
+### join (1)
+  /join/                                                                   join_class
+
+### level (3)
+  /level/<int:level_number>/                                               level_detail
+  /level/<int:level_number>/add-question/                                  add_question
+  /level/<int:level_number>/questions/                                     question_list
+
+### maths (43)
+  /maths/                                                                  dashboard
+  /maths/api/submit-topic-answer/                                          submit_topic_answer
+  /maths/api/update-time-log/                                              update_time_log
+  /maths/basic-facts/<str:subtopic_name>/                                  basic_facts_subtopic
+  /maths/bulk-student-registration/                                        bulk_student_registration
+  /maths/dashboard/                                                        dashboard_detail
+  /maths/level/<int:level_number>/                                         level_detail
+  /maths/level/<int:level_number>/add-question/                            add_question
+  /maths/level/<int:level_number>/angles/                                  angles_questions
+  /maths/level/<int:level_number>/bodmas/                                  bodmas_questions
+  /maths/level/<int:level_number>/date-time/                               date_time_questions
+  /maths/level/<int:level_number>/division/                                division_select
+  /maths/level/<int:level_number>/division/                                division_selection
+  /maths/level/<int:level_number>/division/<int:table>/                    division_quiz
+  /maths/level/<int:level_number>/division/<int:table_number>/             division_quiz
+  /maths/level/<int:level_number>/factors/                                 factors_questions
+  /maths/level/<int:level_number>/finance/                                 finance_questions
+  /maths/level/<int:level_number>/fractions/                               fractions_questions
+  /maths/level/<int:level_number>/integers/                                integers_questions
+  /maths/level/<int:level_number>/measurements-progress/                   measurements_progress
+  /maths/level/<int:level_number>/measurements/                            measurements_questions
+  /maths/level/<int:level_number>/multiplication/                          multiplication_select
+  /maths/level/<int:level_number>/multiplication/                          multiplication_selection
+  /maths/level/<int:level_number>/multiplication/<int:table>/              multiplication_quiz
+  /maths/level/<int:level_number>/multiplication/<int:table_number>/       multiplication_quiz
+  /maths/level/<int:level_number>/place-values/                            place_values_questions
+  /maths/level/<int:level_number>/practice/                                practice_questions
+  /maths/level/<int:level_number>/questions/                               level_questions
+  /maths/level/<int:level_number>/quiz/                                    mixed_quiz
+  /maths/level/<int:level_number>/quiz/                                    take_quiz
+  /maths/level/<int:level_number>/quiz/results/                            mixed_results
+  /maths/level/<int:level_number>/topic/<int:topic_id>/quiz/               topic_quiz
+  /maths/level/<int:level_number>/topic/<int:topic_id>/results/            topic_results
+  /maths/level/<int:level_number>/trigonometry/                            trigonometry_questions
+  /maths/level/<int:level_number>/whole-numbers/                           whole_numbers_questions
+  /maths/level/<slug:basic_topic>/<int:display_level>/quiz/                take_basic_facts_quiz
+  /maths/profile/                                                          user_profile
+  /maths/register/individual-student/                                      individual_student_registration
+  /maths/register/teacher-center/                                          teacher_center_registration
+  /maths/signup/student/                                                   signup_student
+  /maths/signup/teacher/                                                   signup_teacher
+  /maths/topic/<int:topic_id>/levels/                                      levels
+  /maths/topics/                                                           topics
+
+### media (1)
+  /media/(?P<path>.*)$                                                     
+
+### music (1)
+  /music/                                                                  coming_soon
+
+### parent (7)
+  /parent/                                                                 parent_dashboard
+  /parent/attendance/                                                      parent_attendance
+  /parent/invoices/                                                        parent_invoices
+  /parent/invoices/<int:invoice_id>/                                       parent_invoice_detail
+  /parent/payments/                                                        parent_payment_history
+  /parent/progress/                                                        parent_progress
+  /parent/switch-child/<int:student_id>/                                   parent_switch_child
+
+### privacy (1)
+  /privacy/                                                                privacy_policy
+
+### progress (9)
+  /progress/class/<int:class_id>/record/                                   record_progress
+  /progress/criteria/                                                      progress_criteria_list
+  /progress/criteria/<int:criteria_id>/approve/                            progress_criteria_approve
+  /progress/criteria/<int:criteria_id>/reject/                             progress_criteria_reject
+  /progress/criteria/<int:criteria_id>/submit/                             progress_criteria_submit
+  /progress/criteria/approvals/                                            progress_criteria_approvals
+  /progress/criteria/create/                                               progress_criteria_create
+  /progress/report/                                                        student_progress_report
+  /progress/student/<int:student_id>/                                      student_progress
+
+### question (2)
+  /question/<int:question_id>/delete/                                      delete_question
+  /question/<int:question_id>/edit/                                        edit_question
+
+### robots.txt (1)
+  /robots.txt                                                              robots_txt
+
+### salaries (13)
+  /salaries/                                                               salary_slip_list
+  /salaries/<int:slip_id>/                                                 salary_slip_detail
+  /salaries/<int:slip_id>/cancel/                                          cancel_salary_slip
+  /salaries/<int:slip_id>/pay/                                             record_salary_payment
+  /salaries/api/teacher-search/                                            teacher_search_api
+  /salaries/drafts/delete/                                                 delete_draft_salary_slips
+  /salaries/generate/                                                      generate_salary_slips
+  /salaries/issue/                                                         issue_salary_slips
+  /salaries/preview/                                                       salary_slip_preview
+  /salaries/rates/                                                         salary_rate_configuration
+  /salaries/rates/batch-update/                                            batch_teacher_rate
+  /salaries/rates/set-default/                                             set_school_default_rate
+  /salaries/rates/teacher-override/add/                                    add_teacher_rate_override
+
+### school-hierarchy (2)
+  /school-hierarchy/                                                       school_hierarchy_auto
+  /school-hierarchy/<int:school_id>/                                       school_hierarchy
+
+### science (1)
+  /science/                                                                coming_soon
+
+### sitemap.xml (1)
+  /sitemap.xml                                                             django.contrib.sitemaps.views.sitemap
+
+### stripe (1)
+  /stripe/webhook/                                                         stripe_webhook
+
+### student (11)
+  /student/<int:student_id>/progress/                                      student_detail_progress
+  /student/absence-tokens/                                                 student_absence_tokens
+  /student/absence-tokens/<int:token_id>/available-sessions/               student_available_makeup_sessions
+  /student/absence-tokens/<int:token_id>/redeem/                           student_redeem_absence_token
+  /student/absence-tokens/request/                                         student_request_absence_token
+  /student/attendance/                                                     student_attendance_history
+  /student/class/<int:class_id>/                                           student_class_detail
+  /student/enroll-global/<int:class_id>/                                   student_enroll_global_class
+  /student/join/                                                           student_join_class
+  /student/my-classes/                                                     student_my_classes
+  /student/session/<int:session_id>/mark-attendance/                       student_mark_attendance
+
+### student-dashboard (1)
+  /student-dashboard/                                                      student_dashboard
+
+### subjects (1)
+  /subjects/                                                               subjects_list
+
+### teacher (16)
+  /teacher/                                                                teacher_dashboard
+  /teacher/attendance-approvals/                                           attendance_approvals
+  /teacher/attendance/<int:attendance_id>/approve/                         attendance_approve
+  /teacher/attendance/<int:attendance_id>/reject/                          attendance_reject
+  /teacher/attendance/bulk-approve/                                        attendance_bulk_approve
+  /teacher/class/<int:class_id>/create-session/                            create_session
+  /teacher/class/<int:class_id>/start-session/                             start_session
+  /teacher/enrollment-requests/                                            enrollment_requests
+  /teacher/enrollment/<int:enrollment_id>/approve/                         enrollment_approve
+  /teacher/enrollment/<int:enrollment_id>/reject/                          enrollment_reject
+  /teacher/session/<int:session_id>/attendance/                            session_attendance
+  /teacher/session/<int:session_id>/cancel/                                cancel_session
+  /teacher/session/<int:session_id>/complete/                              complete_session
+  /teacher/session/<int:session_id>/delete/                                delete_session
+  /teacher/session/<int:session_id>/self-attendance/                       teacher_self_attendance
+  /teacher/switch-school/                                                  school_switcher
+
+### terms (1)
+  /terms/                                                                  terms_conditions
+
+### times-tables (3)
+  /times-tables/                                                           times_tables_home
+  /times-tables/results/<str:session_id>/                                  times_tables_results_view
+  /times-tables/submit/<str:session_id>/                                   times_tables_submit
+
+### topic (1)
+  /topic/<int:topic_id>/levels/                                            topic_levels
+
+### topics (1)
+  /topics/                                                                 topics
+
+### upload-questions (1)
+  /upload-questions/                                                       upload_questions
+
+TOTAL: 747 unique URLs

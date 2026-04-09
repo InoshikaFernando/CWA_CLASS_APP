@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.views import View
@@ -20,7 +22,7 @@ from accounts.views import _validate_username, _generate_username_suggestion
 from .models import (
     School, SchoolTeacher, AcademicYear, ClassRoom, ClassSession, Department,
     DepartmentTeacher, SchoolStudent, Level, Subject, Term, ClassStudent,
-    SchoolHoliday, PublicHoliday,
+    SchoolHoliday, PublicHoliday, Currency,
 )
 from .views import RoleRequiredMixin
 from .email_utils import send_staff_welcome_email
@@ -33,8 +35,9 @@ def _get_user_school(user, school_id=None):
     If school_id is given, returns that specific school or None.
     If school_id is None, returns the user's first accessible school or None.
     """
-    # Superusers can access any school
-    if user.is_superuser:
+    from accounts.models import Role as _Role
+    # Superusers and ADMIN-role users can access any school
+    if user.is_superuser or user.has_role(_Role.ADMIN):
         if school_id:
             return School.objects.filter(id=school_id).first()
         return School.objects.first()
@@ -57,7 +60,8 @@ def _get_user_school(user, school_id=None):
 
 def _get_user_schools(user):
     """Get all schools the user can manage."""
-    if user.is_superuser:
+    from accounts.models import Role as _Role
+    if user.is_superuser or user.has_role(_Role.ADMIN):
         return School.objects.filter(is_active=True)
 
     admin_schools = School.objects.filter(admin=user, is_active=True)
@@ -411,6 +415,8 @@ class SchoolSettingsView(RoleRequiredMixin, View):
         # Banking & invoice
         'bank_name', 'bank_bsb', 'bank_account_number', 'bank_account_name',
         'invoice_terms', 'invoice_due_days',
+        # Payments
+        'stripe_payment_link',
     ]
 
     def _build_form_data(self, school):
@@ -419,6 +425,19 @@ class SchoolSettingsView(RoleRequiredMixin, View):
             data[field] = getattr(school, field, '')
         return data
 
+    def _is_hoi(self, user, school):
+        """Return True if the user has Head-of-Institute (or higher) access."""
+        if user.is_superuser:
+            return True
+        if school.admin_id and school.admin_id == user.pk:
+            return True
+        return SchoolTeacher.objects.filter(
+            school=school,
+            teacher=user,
+            role__in=['head_of_institute', 'institute_owner'],
+            is_active=True,
+        ).exists()
+
     def get(self, request, school_id):
         school = _get_user_school_or_404(request.user, school_id)
         tab = request.GET.get('tab', 'company')
@@ -426,6 +445,8 @@ class SchoolSettingsView(RoleRequiredMixin, View):
             'school': school,
             'form_data': self._build_form_data(school),
             'active_tab': tab,
+            'is_hoi': self._is_hoi(request.user, school),
+            'active_currencies': Currency.objects.filter(is_active=True).order_by('code'),
         })
 
     def post(self, request, school_id):
@@ -454,6 +475,17 @@ class SchoolSettingsView(RoleRequiredMixin, View):
             except DjangoValidationError:
                 messages.error(request, 'Please enter a valid outgoing email address.')
                 return redirect(f"{reverse('admin_school_settings', kwargs={'school_id': school.id})}?tab={tab}")
+
+        # Handle default_currency FK (HoI-only)
+        if self._is_hoi(request.user, school) and 'default_currency' in request.POST:
+            code = request.POST.get('default_currency', '').strip()
+            if not code:
+                school.default_currency = None
+            else:
+                try:
+                    school.default_currency = Currency.objects.get(code=code, is_active=True)
+                except Currency.DoesNotExist:
+                    pass
 
         # Handle logo upload
         if 'logo' in request.FILES:
@@ -936,6 +968,118 @@ class SchoolTeacherRestoreView(RoleRequiredMixin, View):
             messages.success(request, f'{teacher_name} has been restored to {school.name}.')
         else:
             messages.warning(request, 'Inactive teacher was not found at this school.')
+        return redirect('admin_school_teachers', school_id=school.id)
+
+
+class ManageStaffRolesView(RoleRequiredMixin, View):
+    """
+    GET  → render roles modal fragment for a staff member.
+    POST → add or remove a system role for a staff member.
+
+    HoI can assign any staff role.
+    HoD can assign teacher-tier roles (teacher, junior_teacher, senior_teacher)
+    only for staff in their department(s).
+    """
+    required_roles = [
+        Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT,
+    ]
+
+    # Roles that staff-management can assign (excludes student/parent/admin/owner)
+    ASSIGNABLE_ROLES = [
+        (Role.HEAD_OF_INSTITUTE,  'Head of Institute'),
+        (Role.HEAD_OF_DEPARTMENT, 'Head of Department'),
+        (Role.ACCOUNTANT,         'Accountant'),
+        (Role.SENIOR_TEACHER,     'Senior Teacher'),
+        (Role.TEACHER,            'Teacher'),
+        (Role.JUNIOR_TEACHER,     'Junior Teacher'),
+    ]
+    # HoD may only assign these tiers
+    HOD_ASSIGNABLE = {Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER}
+
+    def _get_school_and_teacher(self, request, school_id, teacher_id):
+        """Return (school, school_teacher) or raise Http404."""
+        from django.http import Http404
+        user = request.user
+        is_hod_only = (
+            user.has_role(Role.HEAD_OF_DEPARTMENT)
+            and not user.has_role(Role.HEAD_OF_INSTITUTE)
+            and not user.has_role(Role.INSTITUTE_OWNER)
+            and not user.has_role(Role.ADMIN)
+        )
+        if is_hod_only:
+            # HoD: school_id must be one they belong to
+            dept_school_ids = list(
+                Department.objects.filter(head=user, is_active=True)
+                .values_list('school_id', flat=True).distinct()
+            )
+            school = get_object_or_404(School, id=school_id, id__in=dept_school_ids)
+        else:
+            school = _get_user_school_or_404(user, school_id)
+        school_teacher = get_object_or_404(SchoolTeacher, school=school, teacher_id=teacher_id)
+        return school, school_teacher, is_hod_only
+
+    def get(self, request, school_id, teacher_id):
+        school, school_teacher, is_hod_only = self._get_school_and_teacher(
+            request, school_id, teacher_id,
+        )
+        teacher = school_teacher.teacher
+        current_roles = set(
+            teacher.roles.filter(is_active=True).values_list('name', flat=True)
+        )
+        assignable = [
+            (name, label)
+            for name, label in self.ASSIGNABLE_ROLES
+            if not is_hod_only or name in self.HOD_ASSIGNABLE
+        ]
+        return render(request, 'admin_dashboard/partials/staff_roles_modal.html', {
+            'school': school,
+            'staff_member': teacher,
+            'school_teacher': school_teacher,
+            'current_roles': current_roles,
+            'assignable_roles': assignable,
+            'is_hod_only': is_hod_only,
+        })
+
+    def post(self, request, school_id, teacher_id):
+        school, school_teacher, is_hod_only = self._get_school_and_teacher(
+            request, school_id, teacher_id,
+        )
+        teacher = school_teacher.teacher
+        selected_role_names = set(request.POST.getlist('roles'))
+
+        # Validate — HoD may only touch HOD_ASSIGNABLE roles
+        assignable_names = {
+            name for name, _ in self.ASSIGNABLE_ROLES
+            if not is_hod_only or name in self.HOD_ASSIGNABLE
+        }
+        selected_role_names = selected_role_names & assignable_names  # strip anything invalid
+
+        with transaction.atomic():
+            for role_name in assignable_names:
+                role_obj, _ = Role.objects.get_or_create(
+                    name=role_name,
+                    defaults={'display_name': dict(self.ASSIGNABLE_ROLES).get(role_name, role_name)},
+                )
+                if role_name in selected_role_names:
+                    UserRole.objects.get_or_create(user=teacher, role=role_obj)
+                else:
+                    UserRole.objects.filter(user=teacher, role=role_obj).delete()
+
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='staff_roles_updated',
+            detail={
+                'teacher_id': teacher_id,
+                'teacher_name': teacher.get_full_name(),
+                'roles': sorted(selected_role_names),
+            },
+            request=request,
+        )
+        messages.success(
+            request,
+            f'Roles updated for {teacher.get_full_name() or teacher.username}.',
+        )
         return redirect('admin_school_teachers', school_id=school.id)
 
 
@@ -1589,7 +1733,10 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
 
     def _get_school(self, request, school_id):
         user = request.user
-        if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER) or user.has_role(Role.ADMIN):
+        # Superusers (ADMIN role) can access any school
+        if user.is_superuser or user.has_role(Role.ADMIN):
+            return get_object_or_404(School, id=school_id)
+        if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
             return get_object_or_404(School, id=school_id, admin=user)
         if user.has_role(Role.HEAD_OF_DEPARTMENT):
             school = get_object_or_404(School, id=school_id)
@@ -1975,7 +2122,10 @@ class SchoolLevelManageView(RoleRequiredMixin, View):
 
     def _get_school(self, request, school_id):
         user = request.user
-        if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER) or user.has_role(Role.ADMIN):
+        # Superusers (ADMIN role) can access any school
+        if user.is_superuser or user.has_role(Role.ADMIN):
+            return get_object_or_404(School, id=school_id)
+        if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
             return get_object_or_404(School, id=school_id, admin=user)
         if user.has_role(Role.HEAD_OF_DEPARTMENT):
             school = get_object_or_404(School, id=school_id)
@@ -2412,10 +2562,14 @@ class TermManageView(RoleRequiredMixin, View):
         school = _get_user_school_or_404(request.user, school_id)
         terms = Term.objects.filter(school=school).select_related('academic_year')
         academic_years = AcademicYear.objects.filter(school=school)
+        today = date.today()
         return render(request, 'admin_dashboard/school_terms.html', {
             'school': school,
             'terms': terms,
             'academic_years': academic_years,
+            'today': today,
+            'confirm_window_end': today + timedelta(days=30),
+            'can_force_confirm': request.user.is_admin_user or request.user.is_institute_owner or request.user.is_head_of_institute,
         })
 
     def post(self, request, school_id):
@@ -2488,16 +2642,29 @@ class TermManageView(RoleRequiredMixin, View):
             except Exception as e:
                 messages.error(request, f'Could not update term: {e}')
 
+        elif action == 'delete':
+            term_id = request.POST.get('term_id')
+            term = get_object_or_404(Term, id=term_id, school=school)
+            term_name = term.name
+            term.delete()
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='term_deleted', detail={'term_id': term_id, 'term_name': term_name},
+                request=request,
+            )
+            messages.success(request, f'Term "{term_name}" deleted.')
+
         elif action == 'confirm':
             term_id = request.POST.get('term_id')
             term = get_object_or_404(Term, id=term_id, school=school)
-            from datetime import date, timedelta
-            one_month_from_now = date.today() + timedelta(days=30)
-            if term.start_date <= one_month_from_now:
-                messages.warning(
+            today = date.today()
+            window_end = today + timedelta(days=30)
+            if not (today <= term.start_date <= window_end):
+                messages.error(
                     request,
-                    f'Term "{term.name}" starts on {term.start_date.strftime("%d %b %Y")}. '
-                    f'Dates must be confirmed at least 1 month before the term starts.'
+                    f'Term "{term.name}" can only be confirmed within the 1-month window before it starts '
+                    f'({today.strftime("%d %b %Y")} – {window_end.strftime("%d %b %Y")}). '
+                    f'Use Force Confirm to bypass this window.'
                 )
             else:
                 term.is_confirmed = True
@@ -2511,17 +2678,19 @@ class TermManageView(RoleRequiredMixin, View):
                 )
                 messages.success(request, f'Term "{term.name}" confirmed.')
 
-        elif action == 'delete':
+        elif action == 'force_confirm':
             term_id = request.POST.get('term_id')
             term = get_object_or_404(Term, id=term_id, school=school)
-            term_name = term.name
-            term.delete()
+            term.is_confirmed = True
+            term.confirmed_at = timezone.now()
+            term.save()
             log_event(
                 user=request.user, school=school, category='data_change',
-                action='term_deleted', detail={'term_id': term_id, 'term_name': term_name},
+                action='term_force_confirmed',
+                detail={'term_id': term.id, 'term_name': term.name, 'forced': True},
                 request=request,
             )
-            messages.success(request, f'Term "{term_name}" deleted.')
+            messages.success(request, f'Term "{term.name}" force-confirmed outside the standard window.')
 
         # Sync scheduled sessions with updated term dates
         from . import invoicing_services as svc

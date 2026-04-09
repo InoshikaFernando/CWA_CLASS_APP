@@ -4,7 +4,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.mail import send_mail
 from django.core.paginator import Paginator
-from django.http import Http404
+from django.http import Http404, HttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.views import View
@@ -34,6 +34,7 @@ from .models import (
     School, SchoolTeacher, SchoolStudent, ClassSession, StudentAttendance,
     TeacherAttendance, Department, DepartmentLevel, DepartmentSubject, Enrollment,
     Invoice, InvoicePayment, InvoiceLineItem, SalarySlip, SalarySlipLineItem,
+    SchoolHoliday, PublicHoliday,
 )
 
 logger = logging.getLogger(__name__)
@@ -212,11 +213,19 @@ class StudentDashboardView(LoginRequiredMixin, View):
             .select_related('subject')
             .order_by('subject__name', 'name')
         )
-        enrolled_subjects = (
+        # Deduplicate by name — a student may be enrolled in classes linked to
+        # two different Subject records with the same name (e.g. global vs school-specific).
+        _all_subjects = (
             Subject.objects.filter(
                 classrooms__students=request.user, classrooms__is_active=True,
             ).distinct().order_by('name')
         )
+        _seen_names = set()
+        enrolled_subjects = []
+        for _s in _all_subjects:
+            if _s.name not in _seen_names:
+                _seen_names.add(_s.name)
+                enrolled_subjects.append(_s)
 
         # Determine which year levels to show based on active filter
         if filter_class_id:
@@ -395,8 +404,26 @@ class StudentDashboardView(LoginRequiredMixin, View):
         except (ImportError, Exception):
             recent_np = []
 
-        from maths.views import get_or_create_time_log
-        time_log = get_or_create_time_log(request.user)
+        # --- Time spent (quiz/task time only, calculated fresh from activity records) ---
+        from django.utils import timezone as _tz
+        from django.utils.timezone import localtime
+        from datetime import timedelta as _td
+        _now = localtime(_tz.now())
+        _today = _now.date()
+        _week_start = _today - _td(days=_now.weekday())
+        _daily_secs = _weekly_secs = 0
+        for _r in StudentFinalAnswer.objects.filter(student=request.user, time_taken_seconds__gt=0):
+            _r_date = localtime(_r.completed_at).date()
+            if _r_date == _today:
+                _daily_secs += _r.time_taken_seconds
+            if _r_date >= _week_start:
+                _weekly_secs += _r.time_taken_seconds
+        for _r in BasicFactsResult.objects.filter(student=request.user, time_taken_seconds__gt=0):
+            _r_date = localtime(_r.completed_at).date()
+            if _r_date == _today:
+                _daily_secs += _r.time_taken_seconds
+            if _r_date >= _week_start:
+                _weekly_secs += _r.time_taken_seconds
 
         return render(request, 'student/dashboard.html', {
             'progress_grid': progress_grid,
@@ -407,9 +434,8 @@ class StudentDashboardView(LoginRequiredMixin, View):
             'recent_bf': recent_bf,
             'recent_tt': recent_tt,
             'recent_np': recent_np,
-            'time_log': time_log,
-            'time_daily': _format_seconds(time_log.daily_total_seconds if time_log else 0),
-            'time_weekly': _format_seconds(time_log.weekly_total_seconds if time_log else 0),
+            'time_daily': _format_seconds(_daily_secs),
+            'time_weekly': _format_seconds(_weekly_secs),
             # Filter controls
             'enrolled_classes': enrolled_classes,
             'enrolled_subjects': enrolled_subjects,
@@ -665,6 +691,7 @@ class ClassDetailView(RoleRequiredMixin, View):
             'student_fee_data': student_fee_data,
             'class_effective_fee': class_effective_fee,
             'can_edit_fee': can_edit_fee,
+            'effective_currency': classroom.get_effective_currency(),
         })
 
 
@@ -767,6 +794,7 @@ class EditClassView(RoleRequiredMixin, View):
             'parent_fee': parent_fee,
             'fee_source': fee_source,
             'can_edit_fee': can_edit_fee,
+            'effective_currency': classroom.get_effective_currency(),
         })
 
     def post(self, request, class_id):
@@ -937,11 +965,18 @@ class AssignTeachersView(LoginRequiredMixin, View):
         selected_ids = set(request.POST.getlist('teachers'))
         # Add newly selected teachers
         added = 0
+        teacher_role, _ = Role.objects.get_or_create(
+            name=Role.TEACHER, defaults={'display_name': 'Teacher'},
+        )
         for tid in selected_ids:
             teacher = get_object_or_404(CustomUser, id=tid)
             _, created = ClassTeacher.objects.get_or_create(classroom=classroom, teacher=teacher)
             if created:
                 added += 1
+            # HoD (or any role) assigned to a class also gets the Teacher role
+            # so they can access teacher-specific views (sessions, attendance, etc.)
+            from accounts.models import UserRole as _UserRole
+            _UserRole.objects.get_or_create(user=teacher, role=teacher_role)
         # Remove unchecked teachers
         removed = ClassTeacher.objects.filter(
             classroom=classroom
@@ -1410,7 +1445,12 @@ class StudentCSVConfirmView(RoleRequiredMixin, View):
             return redirect('student_csv_upload')
 
         school = School.objects.get(id=school_id)
-        preview = isvc.validate_and_preview(data_rows, column_mapping, school)
+        try:
+            preview = isvc.validate_and_preview(data_rows, column_mapping, school)
+        except Exception:
+            logger.exception('CSV student import failed during validation')
+            messages.error(request, 'Import failed during validation. Please try again.')
+            return redirect('student_csv_upload')
 
         if preview['errors'] and not preview.get('students_new') and not preview.get('students_existing'):
             for err in preview['errors']:
@@ -1511,11 +1551,11 @@ class StudentCSVCredentialsView(RoleRequiredMixin, View):
         writer = csv_mod.writer(response)
         writer.writerow(['Role', 'Username', 'Email', 'Password', 'First Name', 'Last Name'])
         for c in credentials:
-            writer.writerow(['Student', c['username'], c['email'], c['password'],
-                             c['first_name'], c['last_name']])
+            writer.writerow(['Student', c['username'], c.get('email', ''), c['password'],
+                             c.get('first_name', ''), c.get('last_name', '')])
         for c in parent_credentials:
-            writer.writerow(['Parent', c['username'], c['email'], c['password'],
-                             c['first_name'], c['last_name']])
+            writer.writerow(['Parent', c['username'], c.get('email', ''), c['password'],
+                             c.get('first_name', ''), c.get('last_name', '')])
         return response
 
 
@@ -1815,8 +1855,8 @@ class TeacherCSVCredentialsView(RoleRequiredMixin, View):
         writer = csv_mod.writer(response)
         writer.writerow(['Username', 'Email', 'Password', 'First Name', 'Last Name', 'Role'])
         for c in credentials:
-            writer.writerow([c['username'], c['email'], c['password'],
-                           c['first_name'], c['last_name'], c['role']])
+            writer.writerow([c['username'], c.get('email', ''), c['password'],
+                             c.get('first_name', ''), c.get('last_name', ''), c.get('role', '')])
         return response
 
 
@@ -1968,8 +2008,8 @@ class ParentCSVCredentialsView(RoleRequiredMixin, View):
         writer = csv_mod.writer(response)
         writer.writerow(['Username', 'Email', 'Password', 'First Name', 'Last Name', 'Children'])
         for c in credentials:
-            writer.writerow([c['username'], c['email'], c['password'],
-                           c['first_name'], c['last_name'], c.get('children', '')])
+            writer.writerow([c['username'], c.get('email', ''), c['password'],
+                             c.get('first_name', ''), c.get('last_name', ''), c.get('children', '')])
         return response
 
 
@@ -2751,43 +2791,28 @@ class HoDOverviewView(RoleRequiredMixin, View):
         next_classes_from_schedule = []
 
         if is_teacher_too:
+            from django.db.models import Exists, OuterRef
             upcoming_sessions = list(ClassSession.objects.filter(
                 classroom__in=next_classes_scope,
                 date__gte=today,
                 date__lte=week_ahead,
                 status='scheduled',
+            ).exclude(
+                Exists(SchoolHoliday.objects.filter(
+                    school=OuterRef('classroom__school'),
+                    start_date__lte=OuterRef('date'),
+                    end_date__gte=OuterRef('date'),
+                ))
+            ).exclude(
+                Exists(PublicHoliday.objects.filter(
+                    school=OuterRef('classroom__school'),
+                    date=OuterRef('date'),
+                ))
             ).select_related(
                 'classroom', 'classroom__department', 'classroom__subject',
             ).prefetch_related(
                 'classroom__teachers', 'classroom__students',
             ).order_by('date', 'start_time')[:5])
-
-            # Fallback: derive from ClassRoom.day if no sessions exist
-            if not upcoming_sessions:
-                DAY_MAP = {
-                    'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
-                    'friday': 4, 'saturday': 5, 'sunday': 6,
-                }
-                today_idx = today.weekday()
-                now_time = (_first_school.get_local_now() if _first_school else timezone.localtime()).time()
-
-                def _days_until(day_str, start_time=None):
-                    target = DAY_MAP.get(day_str, 7)
-                    diff = (target - today_idx) % 7
-                    if diff == 0:
-                        if start_time and start_time > now_time:
-                            return 0
-                        return 7
-                    return diff
-
-                scheduled = sorted(
-                    [c for c in next_classes_scope if c.day],
-                    key=lambda c: (_days_until(c.day, c.start_time), c.start_time or timezone.datetime.min.time()),
-                )
-                for c in scheduled[:5]:
-                    du = _days_until(c.day, c.start_time)
-                    c.next_date = today + timedelta(days=du)
-                next_classes_from_schedule = scheduled[:5]
 
         # ── Report widgets data ────────────────────────────────────
         import json
@@ -2863,7 +2888,7 @@ class HoDOverviewView(RoleRequiredMixin, View):
         revenue_data = []
         revenue_table = []
         for row in revenue_by_class:
-            name = row['classroom__name'] or 'Unknown'
+            name = row['classroom__name'] or 'Other / Deleted Class'
             amount = row['total'] or Decimal('0')
             revenue_labels.append(name)
             revenue_data.append(float(amount))
@@ -3156,8 +3181,23 @@ class HoDManageClassesView(RoleRequiredMixin, View):
             departments = Department.objects.filter(id__in=all_dept_ids, is_active=True)
             dept_ids = list(all_dept_ids)
             school_ids = list(departments.values_list('school_id', flat=True).distinct())
+            schools = None
+            selected_school_id = None
         else:
-            school_ids = _get_user_school_ids(request.user)
+            all_school_ids = _get_user_school_ids(request.user)
+            # School filter — lets HoI/admin with multiple schools scope to one school
+            selected_school_id = request.GET.get('school')
+            if selected_school_id:
+                try:
+                    selected_school_id = int(selected_school_id)
+                    school_ids = [selected_school_id] if selected_school_id in all_school_ids else all_school_ids
+                except (ValueError, TypeError):
+                    school_ids = all_school_ids
+                    selected_school_id = None
+            else:
+                school_ids = all_school_ids
+                selected_school_id = None
+            schools = School.objects.filter(id__in=all_school_ids, is_active=True).order_by('name')
             departments = Department.objects.filter(school_id__in=school_ids, is_active=True)
             dept_ids = list(departments.values_list('id', flat=True))
 
@@ -3231,6 +3271,8 @@ class HoDManageClassesView(RoleRequiredMixin, View):
             'is_hod_only': is_hod_only,
             'departments': departments,
             'selected_dept_id': selected_dept_id,
+            'schools': schools if not is_hod_only else None,
+            'selected_school_id': selected_school_id if not is_hod_only else None,
             'unassigned_classes': unassigned_classes,
             'specialty_map': specialty_map,
             'deleted_classes': deleted_classes,
@@ -3897,7 +3939,9 @@ class UpdateStudentFeeView(RoleRequiredMixin, View):
         if fee_str:
             from decimal import Decimal, InvalidOperation
             try:
-                cs.fee_override = Decimal(fee_str)
+                fee_val = Decimal(fee_str)
+                # 0 means "clear override" — fall through to inherited fee
+                cs.fee_override = fee_val if fee_val > 0 else None
             except InvalidOperation:
                 messages.error(request, 'Invalid fee amount.')
                 return redirect('class_detail', class_id=class_id)
@@ -4281,6 +4325,106 @@ def _annotate_apps_with_questions(apps):
     return app_list
 
 
+def _compute_subject_progress(user, subject_ids, school=None):
+    """
+    Return progress dict for a subject viewed by *user*.
+
+    subject_ids: list of Subject PKs to include (typically [local_id, global_id]
+                 or just [global_id] for a standalone global subject).
+    school:      if set, school-local questions (school=school) are included in
+                 addition to global ones; if None, only global questions count.
+
+    Returns: {'completed': int, 'total': int, 'pct': int}
+
+    "Shared global progress" falls out naturally: a StudentAnswer is tied to a
+    Question object, so correctly answering a GlobalQuestion once registers as
+    completed regardless of which LocalSubject inherits from the same parent.
+    """
+    from maths.models import Question, StudentAnswer
+    from django.db.models import Q as DQ
+
+    q_school_filter = DQ(school__isnull=True)
+    ans_school_filter = DQ(question__school__isnull=True)
+    if school is not None:
+        q_school_filter |= DQ(school=school)
+        ans_school_filter |= DQ(question__school=school)
+
+    total = (
+        Question.objects
+        .filter(DQ(level__subject_id__in=subject_ids) & q_school_filter)
+        .values('id').distinct().count()
+    )
+
+    if total == 0:
+        return {'completed': 0, 'total': 0, 'pct': 0}
+
+    completed = (
+        StudentAnswer.objects
+        .filter(
+            DQ(student=user) &
+            DQ(question__level__subject_id__in=subject_ids) &
+            DQ(is_correct=True) &
+            ans_school_filter,
+        )
+        .values('question_id').distinct().count()
+    )
+
+    pct = round(completed / total * 100) if total > 0 else 0
+    return {'completed': completed, 'total': total, 'pct': pct}
+
+
+def _annotate_apps_with_progress(apps, user):
+    """
+    Annotate each SubjectApp in *apps* with a ``progress`` dict.
+
+    Progress is computed for global questions only (school=None).  Uses two
+    bulk queries to avoid N+1.
+
+    Each app receives:
+        app.progress = {'completed': int, 'total': int, 'pct': int}
+    """
+    from maths.models import Question, StudentAnswer
+    from django.db.models import Q as DQ, Count
+
+    app_list = list(apps)
+    subject_ids = [app.subject_id for app in app_list if app.subject_id]
+
+    if subject_ids:
+        # Total global questions per subject
+        totals = dict(
+            Question.objects
+            .filter(level__subject_id__in=subject_ids, school__isnull=True)
+            .values('level__subject_id')
+            .annotate(cnt=Count('id', distinct=True))
+            .values_list('level__subject_id', 'cnt')
+        )
+        # Correctly answered global questions per subject
+        completed_map = dict(
+            StudentAnswer.objects
+            .filter(
+                student=user,
+                question__level__subject_id__in=subject_ids,
+                question__school__isnull=True,
+                is_correct=True,
+            )
+            .values('question__level__subject_id')
+            .annotate(cnt=Count('question_id', distinct=True))
+            .values_list('question__level__subject_id', 'cnt')
+        )
+    else:
+        totals = {}
+        completed_map = {}
+
+    for app in app_list:
+        sid = app.subject_id
+        total = totals.get(sid, 0)
+        completed = completed_map.get(sid, 0)
+        pct = round(completed / total * 100) if total > 0 else 0
+        app.progress = {'completed': completed, 'total': total, 'pct': pct}
+
+    return app_list
+
+
 class SubjectsHubView(LoginRequiredMixin, View):
     """
     Authenticated home -- shows greeting + subject cards.
@@ -4339,7 +4483,8 @@ class SubjectsHubView(LoginRequiredMixin, View):
         time_daily = _format_seconds(time_log.daily_seconds)
         time_weekly = _format_seconds(time_log.weekly_seconds)
 
-        # ── Upcoming classes (next 5 scheduled sessions) ──
+        # ── Upcoming classes (next 5 scheduled sessions, excluding holidays) ──
+        from django.db.models import Exists, OuterRef
         enrolled_class_ids = list(
             ClassStudent.objects.filter(
                 student=user, is_active=True,
@@ -4350,47 +4495,20 @@ class SubjectsHubView(LoginRequiredMixin, View):
                 classroom_id__in=enrolled_class_ids,
                 status='scheduled',
                 date__gte=now.date(),
+            ).exclude(
+                Exists(SchoolHoliday.objects.filter(
+                    school=OuterRef('classroom__school'),
+                    start_date__lte=OuterRef('date'),
+                    end_date__gte=OuterRef('date'),
+                ))
+            ).exclude(
+                Exists(PublicHoliday.objects.filter(
+                    school=OuterRef('classroom__school'),
+                    date=OuterRef('date'),
+                ))
             ).select_related('classroom')
             .order_by('date', 'start_time')[:5]
         )
-
-        # Fallback: if no sessions exist yet (e.g. CSV-imported classes),
-        # derive upcoming dates from ClassRoom.day schedule.
-        if not upcoming_classes and enrolled_class_ids:
-            from types import SimpleNamespace
-            from datetime import timedelta as _td
-            _DAY_MAP = {
-                'monday': 0, 'tuesday': 1, 'wednesday': 2,
-                'thursday': 3, 'friday': 4, 'saturday': 5, 'sunday': 6,
-            }
-            _today_idx = now.date().weekday()
-            _now_time = now.time()
-
-            def _days_until_student(day_str, start_time=None):
-                target = _DAY_MAP.get(day_str, 7)
-                diff = (target - _today_idx) % 7
-                if diff == 0:
-                    if start_time and start_time > _now_time:
-                        return 0
-                    return 7
-                return diff
-
-            enrolled_rooms = ClassRoom.objects.filter(
-                id__in=enrolled_class_ids, is_active=True, day__isnull=False,
-            ).exclude(day='')
-            scheduled_rooms = sorted(
-                enrolled_rooms,
-                key=lambda c: (_days_until_student(c.day, c.start_time),
-                               c.start_time or timezone.datetime.min.time()),
-            )
-            for room in scheduled_rooms[:5]:
-                du = _days_until_student(room.day, room.start_time)
-                pseudo = SimpleNamespace(
-                    classroom=room,
-                    date=now.date() + _td(days=du),
-                    start_time=room.start_time,
-                )
-                upcoming_classes.append(pseudo)
 
         # ── Attendance per class ──
         class_attendance = []
@@ -4448,11 +4566,23 @@ class SubjectsHubView(LoginRequiredMixin, View):
                     }
                     break
 
+        # ── Pending homework count ──
+        from homework.models import Homework, HomeworkSubmission
+        pending_homework_count = (
+            Homework.objects
+            .filter(classroom_id__in=enrolled_class_ids)
+            .exclude(pk__in=HomeworkSubmission.objects.filter(
+                student=user
+            ).values('homework_id'))
+            .count()
+        ) if enrolled_class_ids else 0
+
         # Common hub context
         hub_extra = {
             'upcoming_classes': upcoming_classes,
             'class_attendance': class_attendance,
             'billing_summary': billing_summary,
+            'pending_homework_count': pending_homework_count,
         }
 
         is_school_student = user.has_role(Role.STUDENT)
@@ -4465,11 +4595,14 @@ class SubjectsHubView(LoginRequiredMixin, View):
         pending_class_ids = set()
 
         # ── SCHOOL STUDENT path ──
+        student_id_code = None
         if is_school_student:
-            school_memberships = SchoolStudent.objects.filter(
+            school_memberships = list(SchoolStudent.objects.filter(
                 student=user, is_active=True, school__is_active=True,
-            ).select_related('school')
+            ).select_related('school'))
             schools = [ss.school for ss in school_memberships]
+            if school_memberships:
+                student_id_code = school_memberships[0].student_id_code
 
             if schools:
                 # Enrolled class lookup: classroom_id -> classroom
@@ -4523,17 +4656,20 @@ class SubjectsHubView(LoginRequiredMixin, View):
 
                 school_sections = []
                 covered_app_ids = set()
+                # Track already-shown subjects per school to deduplicate across depts
                 for school in schools:
                     departments = Department.objects.filter(
                         school=school, is_active=True,
                     ).prefetch_related('subjects')
                     subject_cards = []
+                    seen_subj_ids = set()
                     for dept in departments:
                         for subj in dept.subjects.filter(is_active=True):
-                            # Only show subjects the student is enrolled in
-                            enrolled_cr = enrolled_classes.get(subj.id)
-                            if enrolled_cr is None:
+                            if subj.id in seen_subj_ids:
                                 continue
+                            seen_subj_ids.add(subj.id)
+
+                            is_enrolled = subj.id in enrolled_classes
 
                             matching_app = _find_subject_app(subj)
                             if matching_app:
@@ -4547,13 +4683,22 @@ class SubjectsHubView(LoginRequiredMixin, View):
                             else:
                                 link = None
 
+                            # Progress: global + school-local questions for this subject
+                            subject_ids_for_progress = [subj.id]
+                            if subj.global_subject_id:
+                                subject_ids_for_progress.append(subj.global_subject_id)
+                            progress = _compute_subject_progress(
+                                user, subject_ids_for_progress, school=school,
+                            )
+
                             subject_cards.append({
                                 'name': subj.name,
                                 'description': matching_app.description if matching_app else '',
                                 'icon_name': matching_app.icon_name if matching_app else '',
                                 'color': matching_app.color if matching_app else '#16a34a',
                                 'link': link,
-                                'is_enrolled': True,
+                                'is_enrolled': is_enrolled,
+                                'progress': progress,
                             })
 
                     if subject_cards:
@@ -4562,12 +4707,15 @@ class SubjectsHubView(LoginRequiredMixin, View):
                             'subjects': subject_cards,
                         })
 
-                # Global SubjectApps not already represented by a school subject card
+                # Global SubjectApps not already represented by a school subject card.
+                # Global subjects are always shown regardless of school coverage so
+                # students can always access the global question pool.
                 uncovered_apps = [
                     app for app in all_subject_apps
                     if app.id not in covered_app_ids and not app.is_coming_soon
                 ]
                 global_subjects = _annotate_apps_with_questions(uncovered_apps)
+                global_subjects = _annotate_apps_with_progress(global_subjects, user)
 
                 return render(request, 'hub/home.html', {
                     'greeting_tod': greeting_tod,
@@ -4577,6 +4725,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
                     'global_subjects': global_subjects,
                     'is_school_student': True,
                     'hide_sidebar': True,
+                    'student_id_code': student_id_code,
                     **hub_extra,
                 })
 
@@ -4591,6 +4740,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
             )
             if app.has_questions
         ]
+        global_subjects = _annotate_apps_with_progress(global_subjects, user)
         subjects = global_subjects
 
         return render(request, 'hub/home.html', {
@@ -4609,6 +4759,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
             'pending_class_ids': pending_class_ids,
             'school_sections': [],
             'global_subjects': global_subjects,
+            'student_id_code': student_id_code,
             **hub_extra,
         })
 

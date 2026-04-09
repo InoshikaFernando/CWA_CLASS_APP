@@ -113,7 +113,12 @@
       </div>
       <div>
         <label class="block text-xs font-medium text-gray-600 mb-1">Department</label>
-        <select name="department"
+        <select name="department" id="id_dept_filter"
+          hx-get="{% url 'invoicing_scope_classes' %}"
+          hx-target="#id_classroom_filter"
+          hx-swap="innerHTML"
+          hx-include="[name='department']"
+          hx-trigger="change"
           class="px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
           <option value="">All</option>
           {% for dept in departments %}
@@ -121,11 +126,21 @@
           {% endfor %}
         </select>
       </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Class</label>
+        <select name="classroom" id="id_classroom_filter"
+          class="px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+          <option value="">All Classes</option>
+          {% for cls in classrooms %}
+            <option value="{{ cls.id }}" {% if classroom_filter == cls.id|stringformat:"s" %}selected{% endif %}>{{ cls.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
       <button type="submit"
         class="px-4 py-1.5 text-sm bg-slate-100 text-gray-700 rounded-lg hover:bg-slate-200 transition font-medium border border-slate-300">
         Filter
       </button>
-      {% if search or status_filter or dept_filter %}
+      {% if search or status_filter or dept_filter or classroom_filter %}
         <a href="{% url 'invoice_list' %}" class="px-4 py-1.5 text-sm text-gray-500 hover:text-gray-700 transition">Clear</a>
       {% endif %}
     </form>

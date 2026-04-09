@@ -2,7 +2,7 @@
 {% block title %}Create Homework — {{ classroom }}{% endblock %}
 
 {% block content %}
-<div class="md:ml-64 p-6">
+<div class="p-6">
   <div class="max-w-2xl mx-auto">
 
     <!-- Breadcrumb -->
@@ -39,19 +39,92 @@
           {% if form.homework_type.errors %}<p class="text-xs text-red-600 mt-1">{{ form.homework_type.errors.0 }}</p>{% endif %}
         </div>
 
-        <!-- Topics -->
+        <!-- Topics — grouped by strand -->
         <div class="mb-4">
-          <label class="block text-sm font-medium text-gray-700 mb-2">Topics</label>
-          <div class="border border-gray-200 rounded-lg p-3 max-h-48 overflow-y-auto space-y-1">
-            {% for checkbox in form.topics %}
-            <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer hover:text-gray-900">
-              {{ checkbox.tag }}
-              <span>{{ checkbox.choice_label }}</span>
-            </label>
+          <div class="flex items-center justify-between mb-2">
+            <label class="block text-sm font-medium text-gray-700">Topics</label>
+            <div class="flex gap-3 text-xs text-blue-600">
+              <button type="button" id="topics-select-all" class="hover:underline">Select all</button>
+              <span class="text-gray-300">|</span>
+              <button type="button" id="topics-clear-all" class="hover:underline">Clear all</button>
+            </div>
+          </div>
+
+          <div class="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-72 overflow-y-auto">
+            {% for strand, mid_items in topic_groups %}
+            {% if mid_items %}
+            <details class="group" open>
+              <!-- Strand header (e.g. Number, Algebra) -->
+              <summary class="flex items-center justify-between px-3 py-2 cursor-pointer select-none bg-gray-50 hover:bg-gray-100 transition">
+                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">{{ strand.name }}</span>
+                <svg class="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+              </summary>
+
+              <!-- Mid-level items (depth-1 children of strand) -->
+              <div class="px-3 py-2 space-y-1">
+                {% for mid, leaves in mid_items %}
+                {% if leaves %}
+                <!-- Mid topic has leaf children — show as sub-group -->
+                <div class="mt-2">
+                  <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">{{ mid.name }}</p>
+                  <div class="pl-3 space-y-1">
+                    {% for leaf in leaves %}
+                    <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer hover:text-gray-900 py-0.5">
+                      <input type="checkbox"
+                             name="topics"
+                             value="{{ leaf.id }}"
+                             class="topic-checkbox rounded text-blue-600 focus:ring-blue-500"
+                             {% if leaf.id in form.topics.value %}checked{% endif %}>
+                      <span>{{ leaf.name }}</span>
+                    </label>
+                    {% endfor %}
+                  </div>
+                </div>
+                {% else %}
+                <!-- Mid topic has no children — plain checkbox -->
+                <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer hover:text-gray-900 py-0.5">
+                  <input type="checkbox"
+                         name="topics"
+                         value="{{ mid.id }}"
+                         class="topic-checkbox rounded text-blue-600 focus:ring-blue-500"
+                         {% if mid.id in form.topics.value %}checked{% endif %}>
+                  <span>{{ mid.name }}</span>
+                </label>
+                {% endif %}
+                {% endfor %}
+              </div>
+            </details>
+            {% else %}
+            <!-- Standalone topic (depth-0, no children) — flat checkbox -->
+            <div class="px-3 py-2">
+              <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer hover:text-gray-900 py-0.5">
+                <input type="checkbox"
+                       name="topics"
+                       value="{{ strand.id }}"
+                       class="topic-checkbox rounded text-blue-600 focus:ring-blue-500"
+                       {% if strand.id in form.topics.value %}checked{% endif %}>
+                <span>{{ strand.name }}</span>
+              </label>
+            </div>
+            {% endif %}
+            {% empty %}
+            <p class="px-3 py-4 text-sm text-gray-400 text-center">No active topics found.</p>
             {% endfor %}
           </div>
+
           {% if form.topics.errors %}<p class="text-xs text-red-600 mt-1">{{ form.topics.errors.0 }}</p>{% endif %}
         </div>
+
+        <script>
+          document.getElementById('topics-select-all').addEventListener('click', function () {
+            document.querySelectorAll('.topic-checkbox').forEach(cb => cb.checked = true);
+          });
+          document.getElementById('topics-clear-all').addEventListener('click', function () {
+            document.querySelectorAll('.topic-checkbox').forEach(cb => cb.checked = false);
+          });
+        </script>
 
         <!-- Number of questions & Due date -->
         <div class="grid grid-cols-2 gap-4 mb-4">

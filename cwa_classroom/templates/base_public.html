@@ -14,13 +14,11 @@
   <meta property="og:type" content="website" />
   <meta property="og:url" content="{{ request.build_absolute_uri }}" />
 
-  <!-- Google Fonts (Inter, Nunito) -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet" />
+  <!-- Google Fonts (Inter, Nunito) — self-hosted -->
+  <link href="{% static 'css/google-fonts-main.css' %}" rel="stylesheet" />
 
-  <!-- Tailwind CSS -->
-  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Tailwind CSS — self-hosted -->
+  <script src="{% static 'js/tailwind.min.js' %}"></script>
   <script>
     tailwind.config = {
       theme: {

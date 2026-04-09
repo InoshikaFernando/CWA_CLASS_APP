@@ -43,7 +43,7 @@ def _assign_role(user, role_name):
 def _setup_school(admin_role=Role.HEAD_OF_INSTITUTE):
     """Create admin + school + subscription.  Returns (user, school)."""
     user = CustomUser.objects.create_user(
-        username='testhoi', password='pass12345', email='hoi@test.com',
+        username='testhoi', password='password1!', email='wlhtestmails+hoi@gmail.com',
     )
     _assign_role(user, admin_role)
     school = School.objects.create(name='Test School', slug='test-school', admin=user)
@@ -73,9 +73,9 @@ def _setup_department(school, head=None):
     return dept, subj
 
 
-def _setup_teacher(school, dept=None, username='teacher1', email='teacher1@test.com'):
+def _setup_teacher(school, dept=None, username='teacher1', email='wlhtestmails+teacher1@gmail.com'):
     teacher = CustomUser.objects.create_user(
-        username=username, password='pass12345', email=email,
+        username=username, password='password1!', email=email,
     )
     _assign_role(teacher, Role.TEACHER)
     st, _ = SchoolTeacher.objects.update_or_create(school=school, teacher=teacher, defaults={'role': 'teacher'})
@@ -84,9 +84,9 @@ def _setup_teacher(school, dept=None, username='teacher1', email='teacher1@test.
     return teacher, st
 
 
-def _setup_student(school, username='student1', email='student1@test.com'):
+def _setup_student(school, username='student1', email='wlhtestmails+student1@gmail.com'):
     student = CustomUser.objects.create_user(
-        username=username, password='pass12345', email=email,
+        username=username, password='password1!', email=email,
     )
     _assign_role(student, Role.STUDENT)
     ss = SchoolStudent.objects.create(school=school, student=student)
@@ -105,7 +105,7 @@ class ClassArchiveRestoreTests(TestCase):
         self.classroom = ClassRoom.objects.create(
             name='Year 5 Maths', school=self.school, department=self.dept,
         )
-        self.client.login(username='testhoi', password='pass12345')
+        self.client.login(username='testhoi', password='password1!')
 
     def test_archive_class_sets_inactive(self):
         url = reverse('hod_delete_class', kwargs={'class_id': self.classroom.id})
@@ -146,7 +146,7 @@ class ClassArchiveRestoreTests(TestCase):
     def test_hod_only_cannot_restore_class(self):
         """An HoD (not HoI) should not see deleted classes to restore."""
         hod = CustomUser.objects.create_user(
-            username='hod_only', password='pass12345', email='hod@test.com',
+            username='hod_only', password='password1!', email='wlhtestmails+hod@gmail.com',
         )
         _assign_role(hod, Role.HEAD_OF_DEPARTMENT)
         SchoolTeacher.objects.update_or_create(
@@ -159,7 +159,7 @@ class ClassArchiveRestoreTests(TestCase):
         self.classroom.is_active = False
         self.classroom.save()
 
-        self.client.login(username='hod_only', password='pass12345')
+        self.client.login(username='hod_only', password='password1!')
         url = reverse('hod_manage_classes')
         resp = self.client.get(url)
         # HoD-only users should have empty deleted_classes
@@ -175,7 +175,7 @@ class DepartmentArchiveRestoreTests(TestCase):
         self.client = Client()
         self.hoi, self.school = _setup_school()
         self.dept, _ = _setup_department(self.school, head=self.hoi)
-        self.client.login(username='testhoi', password='pass12345')
+        self.client.login(username='testhoi', password='password1!')
 
     def test_toggle_department_deactivates(self):
         url = reverse('admin_department_toggle_active', kwargs={
@@ -218,11 +218,11 @@ class DepartmentArchiveRestoreTests(TestCase):
     def test_only_hoi_can_toggle_department(self):
         """A regular teacher should not be able to toggle department active status."""
         teacher = CustomUser.objects.create_user(
-            username='plain_teacher', password='pass12345', email='pt@test.com',
+            username='plain_teacher', password='password1!', email='wlhtestmails+pt@gmail.com',
         )
         _assign_role(teacher, Role.TEACHER)
         SchoolTeacher.objects.update_or_create(school=self.school, teacher=teacher, defaults={'role': 'teacher'})
-        self.client.login(username='plain_teacher', password='pass12345')
+        self.client.login(username='plain_teacher', password='password1!')
 
         url = reverse('admin_department_toggle_active', kwargs={
             'school_id': self.school.id, 'dept_id': self.dept.id,
@@ -243,7 +243,7 @@ class TeacherDeactivateRestoreTests(TestCase):
         self.client = Client()
         self.hoi, self.school = _setup_school()
         self.teacher, self.st = _setup_teacher(self.school)
-        self.client.login(username='testhoi', password='pass12345')
+        self.client.login(username='testhoi', password='password1!')
 
     def test_remove_teacher_deactivates(self):
         url = reverse('admin_school_teacher_remove', kwargs={
@@ -282,7 +282,7 @@ class TeacherDeactivateRestoreTests(TestCase):
         self.assertIn(self.teacher.id, teacher_ids)
 
     def test_regular_teacher_cannot_remove_teacher(self):
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
         url = reverse('admin_school_teacher_remove', kwargs={
             'school_id': self.school.id, 'teacher_id': self.teacher.id,
         })
@@ -294,7 +294,7 @@ class TeacherDeactivateRestoreTests(TestCase):
     def test_regular_teacher_cannot_restore_teacher(self):
         self.st.is_active = False
         self.st.save()
-        self.client.login(username='teacher1', password='pass12345')
+        self.client.login(username='teacher1', password='password1!')
         url = reverse('admin_school_teacher_restore', kwargs={
             'school_id': self.school.id, 'teacher_id': self.teacher.id,
         })
@@ -320,7 +320,7 @@ class StudentDeactivateRestoreTests(TestCase):
         self.cs = ClassStudent.objects.create(
             classroom=self.classroom, student=self.student,
         )
-        self.client.login(username='testhoi', password='pass12345')
+        self.client.login(username='testhoi', password='password1!')
 
     def test_remove_student_deactivates(self):
         url = reverse('admin_school_student_remove', kwargs={

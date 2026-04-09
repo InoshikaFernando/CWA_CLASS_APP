@@ -1297,7 +1297,8 @@ def get_or_create_time_log(user):
         from django.utils import timezone
         now_local = localtime(timezone.now())
         time_log.last_reset_date = now_local.date()
-        time_log.last_reset_week = now_local.isocalendar()[1]
+        iso = now_local.isocalendar()
+        time_log.last_reset_week = iso[0] * 100 + iso[1]  # year*100+week to avoid year-rollover bug
         time_log.save()
     else:
         # Check and reset if needed
@@ -1372,7 +1373,7 @@ def add_question(request, level_number):
         messages.error(request, "Only teachers can add questions.")
         return redirect("maths:dashboard")
     
-    level = get_object_or_404(Level, level_number=level_number)
+    level = get_object_or_404(ClassroomLevel, level_number=level_number)
     
     if request.method == "POST":
         question_form = QuestionForm(request.POST)
@@ -1407,7 +1408,7 @@ def add_question(request, level_number):
 @login_required
 def level_questions(request, level_number):
     """Display all questions for a specific level"""
-    level = get_object_or_404(Level, level_number=level_number)
+    level = get_object_or_404(ClassroomLevel, level_number=level_number)
     questions = _get_questions_for_level(request.user, level)
 
     return render(request, "maths/level_questions.html", {

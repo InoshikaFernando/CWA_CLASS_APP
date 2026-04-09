@@ -29,7 +29,7 @@ class DepartmentViewsTestBase(TestCase):
 
     def setUp(self):
         self.hoi = CustomUser.objects.create_user(
-            username='hoi_dept', password='pass12345', email='hoi@dept.com',
+            username='hoi_dept', password='password1!', email='wlhtestmails+hoi@gmail.com',
         )
         UserRole.objects.create(user=self.hoi, role=_create_role(Role.HEAD_OF_INSTITUTE))
         self.school = School.objects.create(
@@ -46,7 +46,7 @@ class DepartmentViewsTestBase(TestCase):
             school=self.school, name='Mathematics', slug='mathematics',
         )
         DepartmentSubject.objects.create(department=self.dept, subject=self.subject)
-        self.client.login(username='hoi_dept', password='pass12345')
+        self.client.login(username='hoi_dept', password='password1!')
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +63,7 @@ class DepartmentListViewTests(DepartmentViewsTestBase):
 
     def test_list_departments_with_teachers_and_classes(self):
         teacher = CustomUser.objects.create_user(
-            username='t1', password='pass12345', email='t1@test.com',
+            username='t1', password='password1!', email='wlhtestmails+t1@gmail.com',
         )
         SchoolTeacher.objects.update_or_create(school=self.school, teacher=teacher)
         DepartmentTeacher.objects.create(department=self.dept, teacher=teacher)
@@ -299,7 +299,7 @@ class DepartmentAssignHoDViewTests(DepartmentViewsTestBase):
     def setUp(self):
         super().setUp()
         self.teacher = CustomUser.objects.create_user(
-            username='teacher1', password='pass12345', email='t1@dept.com',
+            username='teacher1', password='password1!', email='wlhtestmails+t1@gmail.com',
             first_name='John', last_name='Smith',
         )
         UserRole.objects.create(user=self.teacher, role=_create_role(Role.TEACHER))
@@ -344,7 +344,7 @@ class DepartmentAssignHoDViewTests(DepartmentViewsTestBase):
 
     def test_assign_existing_teacher_not_in_school(self):
         other_teacher = CustomUser.objects.create_user(
-            username='outsider', password='pass12345', email='out@dept.com',
+            username='outsider', password='password1!', email='wlhtestmails+out@gmail.com',
         )
         url = reverse('admin_department_assign_hod', kwargs={
             'school_id': self.school.id, 'dept_id': self.dept.id,
@@ -366,7 +366,7 @@ class DepartmentAssignHoDViewTests(DepartmentViewsTestBase):
             'action': 'create_new',
             'first_name': 'Jane',
             'last_name': 'Doe',
-            'email': 'jane@dept.com',
+            'email': 'wlhtestmails+jane@gmail.com',
             'password': 'securepass123',
             'username': 'janedoe',
         })
@@ -386,11 +386,11 @@ class DepartmentAssignHoDViewTests(DepartmentViewsTestBase):
             'action': 'create_new',
             'first_name': 'Auto',
             'last_name': 'User',
-            'email': 'autouser@dept.com',
+            'email': 'wlhtestmails+autouser@gmail.com',
             'password': 'securepass123',
         })
         self.assertEqual(resp.status_code, 302)
-        self.assertTrue(CustomUser.objects.filter(email='autouser@dept.com').exists())
+        self.assertTrue(CustomUser.objects.filter(email='wlhtestmails+autouser@gmail.com').exists())
 
     def test_create_new_hod_validation_errors(self):
         url = reverse('admin_department_assign_hod', kwargs={
@@ -414,7 +414,7 @@ class DepartmentAssignHoDViewTests(DepartmentViewsTestBase):
             'action': 'create_new',
             'first_name': 'Dup',
             'last_name': 'User',
-            'email': 't1@dept.com',  # already used by self.teacher
+            'email': 'wlhtestmails+t1@gmail.com',  # already used by self.teacher
             'password': 'securepass123',
         })
         self.assertEqual(resp.status_code, 200)
@@ -435,10 +435,10 @@ class DepartmentManageTeachersViewTests(DepartmentViewsTestBase):
     def setUp(self):
         super().setUp()
         self.t1 = CustomUser.objects.create_user(
-            username='teach_a', password='pass12345', email='ta@dept.com',
+            username='teach_a', password='password1!', email='wlhtestmails+ta@gmail.com',
         )
         self.t2 = CustomUser.objects.create_user(
-            username='teach_b', password='pass12345', email='tb@dept.com',
+            username='teach_b', password='password1!', email='wlhtestmails+tb@gmail.com',
         )
         SchoolTeacher.objects.update_or_create(school=self.school, teacher=self.t1)
         SchoolTeacher.objects.update_or_create(school=self.school, teacher=self.t2)
@@ -752,7 +752,7 @@ class DepartmentDeleteViewTests(DepartmentViewsTestBase):
 
     def test_delete_blocked_by_teachers(self):
         teacher = CustomUser.objects.create_user(
-            username='blocker', password='pass12345', email='blocker@dept.com',
+            username='blocker', password='password1!', email='wlhtestmails+blocker@gmail.com',
         )
         DepartmentTeacher.objects.create(department=self.dept, teacher=teacher)
         url = reverse('admin_department_delete', kwargs={
@@ -765,7 +765,7 @@ class DepartmentDeleteViewTests(DepartmentViewsTestBase):
 
     def test_delete_blocked_by_both(self):
         teacher = CustomUser.objects.create_user(
-            username='blocker2', password='pass12345', email='blocker2@dept.com',
+            username='blocker2', password='password1!', email='wlhtestmails+blocker2@gmail.com',
         )
         DepartmentTeacher.objects.create(department=self.dept, teacher=teacher)
         ClassRoom.objects.create(
@@ -1081,23 +1081,23 @@ class DepartmentAuthorizationTests(DepartmentViewsTestBase):
 
     def test_non_admin_cannot_access_list(self):
         student = CustomUser.objects.create_user(
-            username='student1', password='pass12345', email='s1@dept.com',
+            username='student1', password='password1!', email='wlhtestmails+s1@gmail.com',
         )
         UserRole.objects.create(user=student, role=_create_role(Role.STUDENT))
-        self.client.login(username='student1', password='pass12345')
+        self.client.login(username='student1', password='password1!')
         url = reverse('admin_school_departments', kwargs={'school_id': self.school.id})
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 302)  # Redirects to public_home
 
     def test_wrong_school_admin_gets_404(self):
         other_user = CustomUser.objects.create_user(
-            username='other_admin', password='pass12345', email='other@dept.com',
+            username='other_admin', password='password1!', email='wlhtestmails+other@gmail.com',
         )
         UserRole.objects.create(user=other_user, role=_create_role(Role.HEAD_OF_INSTITUTE))
         other_school = School.objects.create(
             name='Other School', slug='other-school', admin=other_user,
         )
-        self.client.login(username='other_admin', password='pass12345')
+        self.client.login(username='other_admin', password='password1!')
         url = reverse('admin_department_detail', kwargs={
             'school_id': self.school.id, 'dept_id': self.dept.id,
         })
