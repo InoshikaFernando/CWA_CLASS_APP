@@ -87,7 +87,7 @@
         </span>
         <div>
           <p class="text-sm font-medium text-gray-800">{{ link.student.first_name }} {{ link.student.last_name }}</p>
-          <p class="text-xs text-gray-400">{{ link.school.name }} &middot; {{ link.get_relationship_display }}</p>
+          <p class="text-xs text-gray-400">{% if link.school %}{{ link.school.name }} &middot; {% endif %}{{ link.get_relationship_display }}</p>
         </div>
       </div>
       {% endfor %}

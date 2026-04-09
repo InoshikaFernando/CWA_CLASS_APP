@@ -12,7 +12,7 @@
     <div class="space-y-3">
 
       <p class="text-violet-500 text-sm mt-1 font-semibold">
-        {{ section.child.first_name }} {{ section.child.last_name }} &middot; {{ section.school.name }}
+        {{ section.child.first_name }} {{ section.child.last_name }}{% if section.school %} &middot; {{ section.school.name }}{% endif %}
       </p>
 
       {% if section.payments %}
