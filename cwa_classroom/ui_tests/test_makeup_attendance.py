@@ -289,6 +289,10 @@ class TestTokenRequestAndListing:
         self.page.wait_for_load_state("domcontentloaded")
         # A second GET token attempt → view should show "already have a token" message
         # We trigger the POST manually via evaluate
+        # Release our DB connection before the server writes — prevents SQLite lock
+        from django.db import connection
+        connection.close()
+
         self.page.evaluate(f"""() => {{
             const f = document.createElement('form');
             f.method = 'POST';
@@ -306,6 +310,8 @@ class TestTokenRequestAndListing:
             f.submit();
         }}""")
         self.page.wait_for_load_state("domcontentloaded")
+        # Re-open a fresh connection to see server-committed data
+        connection.close()
         # Count should not increase
         assert AbsenceToken.objects.filter(
             student=self.student, original_session=absent_session,
