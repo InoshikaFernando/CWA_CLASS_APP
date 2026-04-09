@@ -47,21 +47,25 @@
     <span class="text-lg leading-none">🏠</span>
     <span class="text-xs font-bold">Home</span>
   </a>
+  {% if active_school %}
   <a href="{% url 'parent_attendance' %}" class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl
        {% if 'attendance' in request.path %}text-violet-600{% else %}text-gray-400 hover:text-violet-500{% endif %} transition">
     <span class="text-lg leading-none">✅</span>
     <span class="text-xs font-bold">Attend</span>
   </a>
+  {% endif %}
   <a href="{% url 'parent_invoices' %}" class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl
        {% if 'invoices' in request.path %}text-violet-600{% else %}text-gray-400 hover:text-violet-500{% endif %} transition">
     <span class="text-lg leading-none">🧾</span>
     <span class="text-xs font-bold">Invoices</span>
   </a>
+  {% if active_school %}
   <a href="{% url 'parent_progress' %}" class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl
        {% if 'progress' in request.path %}text-violet-600{% else %}text-gray-400 hover:text-violet-500{% endif %} transition">
     <span class="text-lg leading-none">📊</span>
     <span class="text-xs font-bold">Progress</span>
   </a>
+  {% endif %}
   <a href="{% url 'profile' %}" class="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl
        {% if 'profile' in request.path %}text-violet-600{% else %}text-gray-400 hover:text-violet-500{% endif %} transition">
     <span class="text-lg leading-none">👤</span>
