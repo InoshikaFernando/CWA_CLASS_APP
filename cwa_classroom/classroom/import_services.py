@@ -8,6 +8,7 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 from django.db import models, transaction
+from django.contrib.auth.hashers import make_password
 from django.utils.crypto import get_random_string
 from django.utils.text import slugify
 
@@ -802,10 +803,20 @@ def _auto_create_teacher(full_name, school, role_teacher, teacher_cache, counts)
     return teacher_user
 
 
+IMPORT_BATCH_SIZE = 50  # students+guardians committed per mini-transaction
+
+
 def execute_import(preview_data, school, uploaded_by):
     """
-    Execute the import in a single transaction.
-    Returns dict with counts and credentials list.
+    Execute the import in two phases to avoid MySQL lock-wait timeouts.
+
+    Phase 1 (single transaction): create all structural entities —
+    departments, subjects, levels, classes, teachers.
+
+    Phase 2 (batched transactions of IMPORT_BATCH_SIZE): create each
+    student, their SchoolStudent record, class enrolments, guardians,
+    and parent links.  Each batch commits independently so InnoDB never
+    holds locks for the full duration of a 500-student import.
 
     If preview_data contains 'structure_mapping', the department-scoped
     smart mapping is used instead of the generic CSV-driven creation.
@@ -1206,182 +1217,208 @@ def execute_import(preview_data, school, uploaded_by):
                                 teacher=teacher_user,
                             )
 
-        # 5. Create guardians + parent user accounts
-        guardian_cache = {}
-        parent_user_cache = {}  # email → CustomUser for ParentStudent linking later
-        for g_data in preview_data['guardians_new']:
-            guardian, created = Guardian.objects.get_or_create(
-                school=school, email=g_data['email'],
-                defaults={
-                    'first_name': g_data['first_name'],
-                    'last_name': g_data['last_name'],
-                    'phone': g_data.get('phone', ''),
-                    'relationship': g_data.get('relationship', 'guardian'),
-                    'address': g_data.get('address', ''),
-                    'city': g_data.get('city', ''),
-                    'country': g_data.get('country', ''),
-                },
-            )
-            guardian_cache[g_data['email']] = guardian
-            if created:
-                counts['guardians_created'] += 1
+    # ── Phase 1 complete — structure committed ──────────────────────────────
 
-            # Create or reuse a CustomUser account for this guardian
-            g_email = g_data['email']
-            existing_user = CustomUser.objects.filter(email__iexact=g_email).first()
-            if existing_user:
-                # Reuse existing account — just ensure parent role is assigned
-                UserRole.objects.get_or_create(user=existing_user, role=role_parent)
-                parent_user_cache[g_email] = existing_user
-            else:
-                g_password = get_random_string(10)
-                base_username = slugify(
-                    f"{g_data['first_name']}.{g_data['last_name']}"
-                ).replace('-', '.')
-                if not base_username:
-                    base_username = g_email.split('@')[0]
-                g_username = base_username
-                suffix = 1
-                while CustomUser.objects.filter(username=g_username).exists():
-                    g_username = f'{base_username}{suffix}'
-                    suffix += 1
-                parent_user = CustomUser.objects.create_user(
-                    username=g_username,
-                    email=g_email,
-                    password=g_password,
-                    first_name=g_data['first_name'],
-                    last_name=g_data['last_name'],
+    # Load all existing usernames into memory once — used for collision detection
+    # across both guardian and student creation without per-row DB queries.
+    used_usernames = set(CustomUser.objects.values_list('username', flat=True))
+
+    # Pre-build guardian data indexed by email for O(1) lookup during student loop
+    guardian_new_by_email = {g['email']: g for g in preview_data['guardians_new']}
+
+    # ── Phase 2: students + guardians in batched transactions ──────────────
+    all_students = preview_data['students_new'] + preview_data['students_existing']
+    new_student_emails = {s['email'] for s in preview_data['students_new']}
+
+    # Batch-fetch existing users so we don't query per-student
+    existing_user_map = {
+        u.email: u for u in CustomUser.objects.filter(
+            email__in=[s['email'] for s in preview_data['students_existing']]
+        )
+    } if preview_data['students_existing'] else {}
+
+    # Process in chunks — each chunk is its own transaction to avoid
+    # MySQL innodb_lock_wait_timeout (default 50 s) being exceeded.
+    for batch_start in range(0, max(len(all_students), 1), IMPORT_BATCH_SIZE):
+        batch = all_students[batch_start:batch_start + IMPORT_BATCH_SIZE]
+        with transaction.atomic():
+            # Collect guardian emails needed for this batch
+            batch_guardian_emails = {
+                g['email']
+                for sdata in batch
+                for g in sdata.get('guardians', [])
+            }
+
+            # 5. Create / fetch guardians for this batch
+            guardian_cache = {}
+            parent_user_cache = {}
+
+            for g_email in batch_guardian_emails:
+                g_data = guardian_new_by_email.get(g_email)
+                if g_data:
+                    # New guardian
+                    guardian, created = Guardian.objects.get_or_create(
+                        school=school, email=g_email,
+                        defaults={
+                            'first_name': g_data['first_name'],
+                            'last_name': g_data['last_name'],
+                            'phone': g_data.get('phone', ''),
+                            'relationship': g_data.get('relationship', 'guardian'),
+                            'address': g_data.get('address', ''),
+                            'city': g_data.get('city', ''),
+                            'country': g_data.get('country', ''),
+                        },
+                    )
+                    guardian_cache[g_email] = guardian
+                    if created:
+                        counts['guardians_created'] += 1
+
+                    # Create or reuse parent user account
+                    existing_parent = CustomUser.objects.filter(email__iexact=g_email).first()
+                    if existing_parent:
+                        UserRole.objects.get_or_create(user=existing_parent, role=role_parent)
+                        parent_user_cache[g_email] = existing_parent
+                    else:
+                        g_password = get_random_string(10)
+                        base_username = slugify(
+                            f"{g_data['first_name']}.{g_data['last_name']}"
+                        ).replace('-', '.')
+                        if not base_username:
+                            base_username = g_email.split('@')[0]
+                        g_username = base_username
+                        suffix = 1
+                        while g_username in used_usernames:
+                            g_username = f'{base_username}{suffix}'
+                            suffix += 1
+                        used_usernames.add(g_username)
+                        parent_user = CustomUser(
+                            username=g_username,
+                            email=g_email,
+                            password=make_password(g_password, hasher='sha1'),
+                            first_name=g_data['first_name'],
+                            last_name=g_data['last_name'],
+                            must_change_password=True,
+                        )
+                        parent_user.save()
+                        UserRole.objects.create(user=parent_user, role=role_parent)
+                        parent_user_cache[g_email] = parent_user
+                        parent_credentials.append({
+                            'username': g_username,
+                            'email': g_email,
+                            'password': g_password,
+                            'first_name': g_data['first_name'],
+                            'last_name': g_data['last_name'],
+                        })
+                        counts['parents_created'] += 1
+                else:
+                    # Existing guardian — just fetch
+                    existing_g = Guardian.objects.filter(school=school, email=g_email).first()
+                    if existing_g:
+                        guardian_cache[g_email] = existing_g
+                    existing_parent = CustomUser.objects.filter(email__iexact=g_email).first()
+                    if existing_parent:
+                        parent_user_cache[g_email] = existing_parent
+
+            # 6–9. Students in this batch
+            for sdata in batch:
+                email = sdata['email']
+                is_new = email in new_student_emails
+
+                if is_new:
+                    password = get_random_string(10)
+                    base_username = slugify(
+                        f"{sdata['first_name']}.{sdata['last_name']}"
+                    ).replace('-', '.')
+                    if not base_username:
+                        base_username = sdata.get('username', email.split('@')[0])
+                    username = base_username
+                    suffix = 1
+                    while username in used_usernames:
+                        username = f'{base_username}{suffix}'
+                        suffix += 1
+                    used_usernames.add(username)
+
+                    # SHA1 for temporary password — must_change_password=True
+                    # forces reset on first login; PBKDF2 (~50 ms/hash) would
+                    # add ~25 s for 500 students.
+                    user = CustomUser(
+                        username=username,
+                        email=email,
+                        password=make_password(password, hasher='sha1'),
+                        first_name=sdata['first_name'],
+                        last_name=sdata['last_name'],
+                        must_change_password=True,
+                    )
+                    if sdata.get('date_of_birth'):
+                        user.date_of_birth = sdata['date_of_birth']
+                    if sdata.get('country'):
+                        user.country = sdata['country']
+                    if sdata.get('region'):
+                        user.region = sdata['region']
+                    user.save()
+                    UserRole.objects.get_or_create(user=user, role=role_student)
+                    credentials.append({
+                        'username': username,
+                        'email': email,
+                        'password': password,
+                        'first_name': sdata['first_name'],
+                        'last_name': sdata['last_name'],
+                    })
+                    counts['students_created'] += 1
+                else:
+                    user = existing_user_map.get(email) or CustomUser.objects.filter(email__iexact=email).first()
+                    password = None
+
+                # SchoolStudent
+                ss, ss_created = SchoolStudent.objects.get_or_create(
+                    school=school, student=user,
+                    defaults={'opening_balance': sdata.get('opening_balance', Decimal('0'))},
                 )
-                UserRole.objects.create(user=parent_user, role=role_parent)
-                parent_user_cache[g_email] = parent_user
-                parent_credentials.append({
-                    'username': g_username,
-                    'email': g_email,
-                    'password': g_password,
-                    'first_name': g_data['first_name'],
-                    'last_name': g_data['last_name'],
-                })
-                counts['parents_created'] += 1
+                if is_new and password and ss_created:
+                    ss.pending_password = password
+                    ss.save(update_fields=['pending_password'])
 
-        # Cache existing guardians
-        for g in Guardian.objects.filter(school=school):
-            guardian_cache[g.email] = g
+                # ClassStudent enrollments
+                enrolled = False
+                for c in sdata.get('classes', []):
+                    classroom = class_cache.get(c['class_name'])
+                    if classroom:
+                        ClassStudent.objects.get_or_create(
+                            classroom=classroom, student=user,
+                        )
+                        counts['students_enrolled'] += 1
+                        enrolled = True
 
-        # 6-9. Create students, enroll, link guardians
-        all_students = preview_data['students_new'] + preview_data['students_existing']
-        new_student_emails = {s['email'] for s in preview_data['students_new']}
-
-        # Batch-fetch existing users so we don't query per-student
-        existing_user_map = {
-            u.email: u for u in CustomUser.objects.filter(
-                email__in=[s['email'] for s in preview_data['students_existing']]
-            )
-        } if preview_data['students_existing'] else {}
-
-        # Load all usernames into memory once — avoids per-student DB round-trips
-        used_usernames = set(CustomUser.objects.values_list('username', flat=True))
-
-        for sdata in all_students:
-            email = sdata['email']
-            is_new = email in new_student_emails
-
-            if is_new:
-                password = get_random_string(10)
-                # Generate username as firstName.lastName
-                base_username = slugify(
-                    f"{sdata['first_name']}.{sdata['last_name']}"
-                ).replace('-', '.')
-                if not base_username:
-                    base_username = sdata.get('username', email.split('@')[0])
-                username = base_username
-                suffix = 1
-                while username in used_usernames:
-                    username = f'{base_username}{suffix}'
-                    suffix += 1
-                used_usernames.add(username)
-
-                user = CustomUser.objects.create_user(
-                    username=username,
-                    email=email,
-                    password=password,
-                    first_name=sdata['first_name'],
-                    last_name=sdata['last_name'],
-                )
-                user.must_change_password = True
-                if sdata.get('date_of_birth'):
-                    user.date_of_birth = sdata['date_of_birth']
-                if sdata.get('country'):
-                    user.country = sdata['country']
-                if sdata.get('region'):
-                    user.region = sdata['region']
-                user.save()
-                UserRole.objects.get_or_create(user=user, role=role_student)
-                credentials.append({
-                    'username': username,
-                    'email': email,
-                    'password': password,
-                    'first_name': sdata['first_name'],
-                    'last_name': sdata['last_name'],
-                })
-                counts['students_created'] += 1
-            else:
-                user = existing_user_map.get(email) or CustomUser.objects.filter(email__iexact=email).first()
-                password = None
-
-            # SchoolStudent
-            ss, ss_created = SchoolStudent.objects.get_or_create(
-                school=school, student=user,
-                defaults={'opening_balance': sdata.get('opening_balance', Decimal('0'))},
-            )
-            # Store pending password for publish email (new users only)
-            if is_new and password and ss_created:
-                ss.pending_password = password
-                ss.save(update_fields=['pending_password'])
-
-            # ClassStudent enrollments
-            enrolled = False
-            for c in sdata.get('classes', []):
-                classroom = class_cache.get(c['class_name'])
-                if classroom:
+                if not enrolled and '__dummy__' in class_cache:
                     ClassStudent.objects.get_or_create(
-                        classroom=classroom, student=user,
+                        classroom=class_cache['__dummy__'], student=user,
                     )
                     counts['students_enrolled'] += 1
-                    enrolled = True
 
-            # If no class enrollment and we have a dummy class, enroll there
-            if not enrolled and '__dummy__' in class_cache:
-                ClassStudent.objects.get_or_create(
-                    classroom=class_cache['__dummy__'], student=user,
-                )
-                counts['students_enrolled'] += 1
-
-            # Guardian links (contact record + ParentStudent user link)
-            guardian_list = sdata.get('guardians', [])
-            for idx, g in enumerate(guardian_list):
-                g_email = g['email']
-                guardian = guardian_cache.get(g_email)
-                if guardian:
-                    StudentGuardian.objects.get_or_create(
-                        student=user, guardian=guardian,
-                        defaults={'is_primary': g.get('is_primary', False)},
-                    )
-                parent_user = parent_user_cache.get(g_email)
-                if parent_user:
-                    # Check max 2 active parents per student per school
-                    active_count = ParentStudent.objects.filter(
-                        student=user, school=school, is_active=True,
-                    ).count()
-                    if active_count < 2:
-                        is_primary = (idx == 0)
-                        ParentStudent.objects.get_or_create(
-                            parent=parent_user, student=user, school=school,
-                            defaults={
-                                'relationship': g.get('relationship', 'guardian'),
-                                'is_primary_contact': is_primary,
-                                'created_by': uploaded_by,
-                            },
+                # Guardian links
+                guardian_list = sdata.get('guardians', [])
+                for idx, g in enumerate(guardian_list):
+                    g_email = g['email']
+                    guardian = guardian_cache.get(g_email)
+                    if guardian:
+                        StudentGuardian.objects.get_or_create(
+                            student=user, guardian=guardian,
+                            defaults={'is_primary': g.get('is_primary', False)},
                         )
+                    parent_user = parent_user_cache.get(g_email)
+                    if parent_user:
+                        active_count = ParentStudent.objects.filter(
+                            student=user, school=school, is_active=True,
+                        ).count()
+                        if active_count < 2:
+                            ParentStudent.objects.get_or_create(
+                                parent=parent_user, student=user, school=school,
+                                defaults={
+                                    'relationship': g.get('relationship', 'guardian'),
+                                    'is_primary_contact': (idx == 0),
+                                    'created_by': uploaded_by,
+                                },
+                            )
 
     return {
         'counts': counts,
