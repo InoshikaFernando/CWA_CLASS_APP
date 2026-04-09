@@ -739,6 +739,8 @@ class ParentHomeworkView(RoleRequiredMixin, View):
         if not child:
             return render(request, 'parent/homework.html', {
                 'children': _get_parent_children(request.user),
+                'active_child': None,
+                'active_school': None,
             })
 
         from homework.models import Homework, HomeworkSubmission
@@ -782,6 +784,8 @@ class ParentHomeworkView(RoleRequiredMixin, View):
         return render(request, 'parent/homework.html', {
             'child': child,
             'school': school,
+            'active_child': child,
+            'active_school': school,
             'homework_list': homework_list,
             'children': _get_parent_children(request.user),
         })

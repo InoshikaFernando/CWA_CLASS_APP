@@ -1070,6 +1070,130 @@ class PromoCodeToggleActiveView(SuperuserRequiredMixin, View):
         return redirect('billing_admin_promo_list')
 
 
+class StudentDiscountCodeEditView(SuperuserRequiredMixin, View):
+    """Edit a Student Billing DiscountCode (code and discount % locked after creation)."""
+
+    def get(self, request, pk):
+        dc = get_object_or_404(DiscountCode, pk=pk)
+        return render(request, 'admin_dashboard/billing/student_discount_form.html', {
+            'discount': dc,
+            'form_data': {
+                'max_uses': str(dc.max_uses) if dc.max_uses else '',
+                'grant_days': str(dc.grant_days) if dc.grant_days else '',
+                'expires_at': dc.expires_at.strftime('%Y-%m-%dT%H:%M') if dc.expires_at else '',
+                'duration': dc.duration or 'forever',
+                'duration_in_months': str(dc.duration_in_months) if dc.duration_in_months else '',
+            },
+            'packages': Package.objects.filter(is_active=True),
+            'selected_packages': list(dc.applicable_packages.values_list('id', flat=True)),
+        })
+
+    def post(self, request, pk):
+        dc = get_object_or_404(DiscountCode, pk=pk)
+        data = request.POST
+        errors = {}
+
+        max_uses = data.get('max_uses', '').strip()
+        grant_days = data.get('grant_days', '').strip()
+        expires_at = data.get('expires_at', '').strip()
+        duration = data.get('duration', dc.duration or 'forever').strip()
+        duration_in_months = data.get('duration_in_months', '').strip()
+
+        max_uses_val = None
+        if max_uses:
+            try:
+                max_uses_val = int(max_uses)
+                if max_uses_val < 1:
+                    errors['max_uses'] = 'Must be at least 1.'
+            except ValueError:
+                errors['max_uses'] = 'Enter a valid number.'
+
+        grant_days_val = None
+        if grant_days:
+            try:
+                grant_days_val = int(grant_days)
+                if grant_days_val < 1:
+                    errors['grant_days'] = 'Must be at least 1.'
+            except ValueError:
+                errors['grant_days'] = 'Enter a valid number.'
+
+        if duration not in ('forever', 'once', 'repeating'):
+            duration = 'forever'
+
+        duration_in_months_val = None
+        if duration == 'repeating':
+            if not duration_in_months:
+                errors['duration_in_months'] = 'Number of months is required.'
+            else:
+                try:
+                    duration_in_months_val = int(duration_in_months)
+                    if duration_in_months_val < 1:
+                        errors['duration_in_months'] = 'Must be at least 1.'
+                except ValueError:
+                    errors['duration_in_months'] = 'Enter a valid number.'
+
+        if dc.stripe_coupon_id and duration != (dc.duration or 'forever'):
+            errors['duration'] = 'Duration cannot be changed after Stripe sync. Create a new code instead.'
+
+        expires_at_val = None
+        if expires_at:
+            try:
+                from django.utils.dateparse import parse_datetime, parse_date
+                expires_at_val = parse_datetime(expires_at)
+                if expires_at_val is None:
+                    d = parse_date(expires_at)
+                    if d:
+                        from datetime import datetime, time
+                        expires_at_val = timezone.make_aware(
+                            datetime.combine(d, time.max)
+                        )
+            except (ValueError, TypeError):
+                pass
+
+        if errors:
+            return render(request, 'admin_dashboard/billing/student_discount_form.html', {
+                'discount': dc,
+                'form_data': data,
+                'errors': errors,
+                'packages': Package.objects.filter(is_active=True),
+                'selected_packages': list(dc.applicable_packages.values_list('id', flat=True)),
+            })
+
+        dc.max_uses = max_uses_val
+        dc.grant_days = grant_days_val
+        dc.duration = duration
+        dc.duration_in_months = duration_in_months_val
+        dc.expires_at = expires_at_val
+        dc.save()
+
+        dc.applicable_packages.set(data.getlist('applicable_packages'))
+
+        log_event(
+            user=request.user, school=None, category='data_change',
+            action='student_discount_code_edited',
+            detail={'discount_id': dc.id, 'code': dc.code},
+            request=request,
+        )
+        messages.success(request, f'Discount code "{dc.code}" updated.')
+        return redirect('billing_admin_coupon_list')
+
+
+class StudentDiscountCodeToggleActiveView(SuperuserRequiredMixin, View):
+    def post(self, request, pk):
+        dc = get_object_or_404(DiscountCode, pk=pk)
+        dc.is_active = not dc.is_active
+        dc.save(update_fields=['is_active'])
+        state = 'activated' if dc.is_active else 'deactivated'
+        log_event(
+            user=request.user, school=None, category='data_change',
+            action='student_discount_code_toggled',
+            detail={'discount_id': dc.id, 'code': dc.code, 'is_active': dc.is_active},
+            request=request,
+        )
+        messages.success(request, f'Discount code "{dc.code}" {state}.')
+        return redirect('billing_admin_coupon_list')
+
+
 # ---------------------------------------------------------------------------
 # Unified Coupon Codes
 # ---------------------------------------------------------------------------
@@ -1134,8 +1258,8 @@ class CouponCodeListView(SuperuserRequiredMixin, View):
                 'stripe_synced': bool(dc.stripe_coupon_id) if not dc.is_fully_free else None,
                 'products': ', '.join(pkgs) if pkgs else 'All',
                 'created_at': dc.created_at,
-                'edit_url': None,
-                'toggle_url': None,
+                'edit_url': reverse('billing_admin_student_discount_edit', args=[dc.pk]),
+                'toggle_url': reverse('billing_admin_student_discount_toggle', args=[dc.pk]),
             })
 
         codes.sort(key=lambda c: c['created_at'], reverse=True)
