@@ -144,8 +144,9 @@ WSGI_APPLICATION = 'cwa_classroom.wsgi.application'
 # ---------------------------------------------------------------------------
 
 # DB_ENGINE env var controls the database backend.
-#   - "mysql" (default) → MySQL via env vars DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT
-#   - "sqlite"          → local SQLite file (no MySQL needed)
+#   - "mysql"    (default) → MySQL via env vars DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT
+#   - "postgres"           → PostgreSQL (used in CI to avoid SQLite write-lock issues)
+#   - "sqlite"             → local SQLite file (no MySQL needed)
 _DB_ENGINE = os.environ.get('DB_ENGINE', 'mysql')
 
 if _DB_ENGINE == 'sqlite':
@@ -153,6 +154,17 @@ if _DB_ENGINE == 'sqlite':
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db.sqlite3',
+        },
+    }
+elif _DB_ENGINE == 'postgres':
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.environ.get('DB_NAME', 'cwa_test'),
+            'USER': os.environ.get('DB_USER', 'cwa'),
+            'PASSWORD': os.environ.get('DB_PASSWORD', 'cwa'),
+            'HOST': os.environ.get('DB_HOST', '127.0.0.1'),
+            'PORT': os.environ.get('DB_PORT', '5432'),
         },
     }
 else:
@@ -166,7 +178,15 @@ else:
             'PORT': os.environ.get('DB_PORT', '3306'),
             'OPTIONS': {
                 'charset': 'utf8mb4',
-                'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+                # innodb_lock_wait_timeout: raise from default 50 s to 300 s so
+                # that the structure phase of a large student import (which runs
+                # in a single transaction) is not killed by the server default.
+                # Student/guardian rows are committed in batches so their
+                # individual transactions stay well under this threshold.
+                'init_command': (
+                    "SET sql_mode='STRICT_TRANS_TABLES',"
+                    " innodb_lock_wait_timeout=300"
+                ),
             },
             'TEST': {
                 'SERIALIZE': False,  # Faster with --keepdb
