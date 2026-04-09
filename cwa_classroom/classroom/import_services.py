@@ -1187,9 +1187,21 @@ def execute_import(preview_data, school, uploaded_by):
 
         # 6-9. Create students, enroll, link guardians
         all_students = preview_data['students_new'] + preview_data['students_existing']
+        new_student_emails = {s['email'] for s in preview_data['students_new']}
+
+        # Batch-fetch existing users so we don't query per-student
+        existing_user_map = {
+            u.email: u for u in CustomUser.objects.filter(
+                email__in=[s['email'] for s in preview_data['students_existing']]
+            )
+        } if preview_data['students_existing'] else {}
+
+        # Load all usernames into memory once — avoids per-student DB round-trips
+        used_usernames = set(CustomUser.objects.values_list('username', flat=True))
+
         for sdata in all_students:
             email = sdata['email']
-            is_new = not CustomUser.objects.filter(email=email).exists()
+            is_new = email in new_student_emails
 
             if is_new:
                 password = get_random_string(10)
@@ -1201,9 +1213,10 @@ def execute_import(preview_data, school, uploaded_by):
                     base_username = sdata.get('username', email.split('@')[0])
                 username = base_username
                 suffix = 1
-                while CustomUser.objects.filter(username=username).exists():
+                while username in used_usernames:
                     username = f'{base_username}{suffix}'
                     suffix += 1
+                used_usernames.add(username)
 
                 user = CustomUser.objects.create_user(
                     username=username,
@@ -1230,7 +1243,7 @@ def execute_import(preview_data, school, uploaded_by):
                 })
                 counts['students_created'] += 1
             else:
-                user = CustomUser.objects.filter(email=email).first()
+                user = existing_user_map.get(email) or CustomUser.objects.filter(email=email).first()
                 password = None
 
             # SchoolStudent

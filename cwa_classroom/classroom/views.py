@@ -1406,7 +1406,12 @@ class StudentCSVConfirmView(RoleRequiredMixin, View):
             return redirect('student_csv_upload')
 
         school = School.objects.get(id=school_id)
-        preview = isvc.validate_and_preview(data_rows, column_mapping, school)
+        try:
+            preview = isvc.validate_and_preview(data_rows, column_mapping, school)
+        except Exception:
+            logger.exception('CSV student import failed during validation')
+            messages.error(request, 'Import failed during validation. Please try again.')
+            return redirect('student_csv_upload')
 
         if preview['errors'] and not preview.get('students_new') and not preview.get('students_existing'):
             for err in preview['errors']:
