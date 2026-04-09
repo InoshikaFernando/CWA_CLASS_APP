@@ -59,6 +59,10 @@ urlpatterns = [
     path('admin-dashboard/billing/subscriptions/<int:pk>/', views_admin.SubscriptionDetailView.as_view(), name='billing_admin_subscription_detail'),
     path('admin-dashboard/billing/subscriptions/<int:pk>/override/', views_admin.SubscriptionOverrideView.as_view(), name='billing_admin_subscription_override'),
 
+    # Student Billing Discount Codes (edit/toggle)
+    path('admin-dashboard/billing/student-discount-codes/<int:pk>/edit/', views_admin.StudentDiscountCodeEditView.as_view(), name='billing_admin_student_discount_edit'),
+    path('admin-dashboard/billing/student-discount-codes/<int:pk>/toggle/', views_admin.StudentDiscountCodeToggleActiveView.as_view(), name='billing_admin_student_discount_toggle'),
+
     # Promo Codes
     path('admin-dashboard/billing/promo-codes/', views_admin.PromoCodeListView.as_view(), name='billing_admin_promo_list'),
     path('admin-dashboard/billing/promo-codes/create/', views_admin.PromoCodeCreateView.as_view(), name='billing_admin_promo_create'),
