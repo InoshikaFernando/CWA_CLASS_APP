@@ -1,6 +1,25 @@
 {% extends "coding/base.html" %}
 {% block coding_title %}{{ exercise.title }}{% endblock %}
 
+{% block extra_head %}
+{{ block.super }}
+{# ── CodeMirror 5 — loaded in <head> so it's ready before DOMContentLoaded ── #}
+<link  rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link  rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
+<link  rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/selection/active-line.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/anyword-hint.min.js"></script>
+{% endblock %}
+
 {% block content %}
 {{ exercise.starter_code|default:''|json_script:"starter-data" }}
 <style>
@@ -14,8 +33,7 @@
     --cw-text-muted:     #888780;
     --ed-bg:    #1a1b2e;
     --ed-bar:   #13141f;
-    --ed-text:  #e2e8f0;
-    --ed-caret: #1D9E75;
+    --ed-gutter:#13141f;
   }
 
   /* Page */
@@ -29,187 +47,94 @@
   .ed-inner { max-width: 1280px; margin: 0 auto; }
 
   /* Back / status bar */
-  .ed-topbar {
-    display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 16px; flex-wrap: wrap; gap: 8px;
-  }
-  .ed-back {
-    font-size: 13px; color: var(--cw-text-muted); text-decoration: none;
-    display: inline-flex; align-items: center; gap: 5px; transition: color .15s;
-  }
+  .ed-topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
+  .ed-back { font-size: 13px; color: var(--cw-text-muted); text-decoration: none; display: inline-flex; align-items: center; gap: 5px; transition: color .15s; }
   .ed-back:hover { color: var(--cw-green-600); }
-  .ed-done-badge {
-    display: inline-flex; align-items: center; gap: 5px;
-    font-size: 12px; font-weight: 600;
-    background: var(--cw-green-50); color: var(--cw-green-600);
-    border: 1px solid var(--cw-green-200); border-radius: 99px; padding: 3px 12px;
-  }
+  .ed-done-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; background: var(--cw-green-50); color: var(--cw-green-600); border: 1px solid var(--cw-green-200); border-radius: 99px; padding: 3px 12px; }
 
   /* Split layout */
-  .ed-split {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start;
-  }
+  .ed-split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
   @media (max-width: 900px) { .ed-split { grid-template-columns: 1fr; } }
 
-  /* ── LEFT column ── */
+  /* LEFT */
   .ed-left { display: flex; flex-direction: column; gap: 12px; }
-
-  /* Exercise info card */
-  .ed-card {
-    background: var(--cw-surface); border-radius: 16px;
-    border: 1px solid var(--cw-border); padding: 20px 22px;
-  }
+  .ed-card { background: var(--cw-surface); border-radius: 16px; border: 1px solid var(--cw-border); padding: 20px 22px; }
   .ed-level-title { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
-  .ed-level-badge {
-    font-size: 11px; font-weight: 700; padding: 3px 10px;
-    border-radius: 99px; color: #fff; white-space: nowrap;
-  }
+  .ed-level-badge { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 99px; color: #fff; white-space: nowrap; }
   .ed-level-beginner     { background: #1D9E75; }
   .ed-level-intermediate { background: #BA7517; }
   .ed-level-advanced     { background: #DC2626; }
   .ed-card h1 { font-size: 17px; font-weight: 700; color: #1a1a18; margin: 0; }
   .ed-desc { font-size: 14px; color: var(--cw-text-secondary); line-height: 1.65; white-space: pre-wrap; }
 
-  /* Hint */
-  .ed-hint-toggle {
-    width: 100%; text-align: left; padding: 12px 16px;
-    border-radius: 12px; border: 1px solid var(--cw-amber-200);
-    background: var(--cw-amber-50); color: var(--cw-amber-700);
-    font-size: 13px; font-weight: 500; cursor: pointer;
-    font-family: inherit; display: flex; align-items: center; gap: 8px;
-    appearance: none; -webkit-appearance: none; outline: none;
-    transition: background .15s;
-  }
+  .ed-hint-toggle { width: 100%; text-align: left; padding: 12px 16px; border-radius: 12px; border: 1px solid var(--cw-amber-200); background: var(--cw-amber-50); color: var(--cw-amber-700); font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit; display: flex; align-items: center; gap: 8px; appearance: none; -webkit-appearance: none; outline: none; transition: background .15s; }
   .ed-hint-toggle:hover { background: #f5e2b8; }
   .ed-hint-icon { font-size: 14px; }
-  .ed-hint-body {
-    margin-top: 6px; padding: 12px 16px;
-    background: var(--cw-amber-50); border: 1px solid var(--cw-amber-200);
-    border-radius: 12px; font-size: 13px; color: var(--cw-amber-700);
-    white-space: pre-wrap; line-height: 1.6; display: none;
-  }
+  .ed-hint-body { margin-top: 6px; padding: 12px 16px; background: var(--cw-amber-50); border: 1px solid var(--cw-amber-200); border-radius: 12px; font-size: 13px; color: var(--cw-amber-700); white-space: pre-wrap; line-height: 1.6; display: none; }
   .ed-hint-body.open { display: block; }
 
-  /* Output / Preview */
-  .ed-output-wrap {
-    background: #0f1117; border-radius: 14px;
-    border: 1px solid #2a2d3a; overflow: hidden;
-  }
-  .ed-output-bar {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 14px;
-    background: #161821; border-bottom: 1px solid #2a2d3a;
-  }
-  .ed-output-label {
-    font-size: 10px; font-weight: 600; letter-spacing: .1em;
-    text-transform: uppercase; color: #6b7280;
-  }
-  .ed-clear-btn {
-    font-size: 11px; color: #6b7280; background: none;
-    border: none; cursor: pointer; font-family: inherit; padding: 0;
-    transition: color .15s;
-  }
+  .ed-output-wrap { background: #0f1117; border-radius: 14px; border: 1px solid #2a2d3a; overflow: hidden; }
+  .ed-output-bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #161821; border-bottom: 1px solid #2a2d3a; }
+  .ed-output-label { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: #6b7280; }
+  .ed-clear-btn { font-size: 11px; color: #6b7280; background: none; border: none; cursor: pointer; font-family: inherit; padding: 0; transition: color .15s; }
   .ed-clear-btn:hover { color: #9ca3af; }
-  #ed-stdout {
-    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
-    font-size: 13px; line-height: 1.6;
-    color: #4ade80; padding: 14px;
-    min-height: 120px; max-height: 240px;
-    white-space: pre-wrap; overflow-y: auto; margin: 0;
-  }
-  #ed-stderr {
-    font-family: 'JetBrains Mono', 'Fira Code', monospace;
-    font-size: 12px; color: #f87171;
-    padding: 0 14px 12px; white-space: pre-wrap;
-    display: none;
-  }
+  #ed-stdout { font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace; font-size: 13px; line-height: 1.6; color: #4ade80; padding: 14px; min-height: 120px; max-height: 240px; white-space: pre-wrap; overflow-y: auto; margin: 0; }
+  #ed-stderr { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; color: #f87171; padding: 0 14px 12px; white-space: pre-wrap; display: none; }
 
-  /* HTML/CSS preview */
-  .ed-preview-wrap {
-    background: var(--cw-surface); border-radius: 14px;
-    border: 1px solid var(--cw-border); overflow: hidden;
-  }
-  .ed-preview-bar {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 14px; border-bottom: 1px solid var(--cw-border);
-  }
+  .ed-preview-wrap { background: var(--cw-surface); border-radius: 14px; border: 1px solid var(--cw-border); overflow: hidden; }
+  .ed-preview-bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--cw-border); }
   .ed-preview-label { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--cw-text-muted); }
   .ed-preview-hint  { font-size: 11px; color: var(--cw-green-600); }
   #ed-preview-frame { width: 100%; height: 300px; border: none; display: block; background: #fff; }
 
-  /* ── RIGHT column ── */
+  /* RIGHT */
   .ed-right { display: flex; flex-direction: column; gap: 12px; }
-
-  /* Toolbar */
-  .ed-toolbar {
-    display: flex; align-items: center; justify-content: space-between;
-  }
-  .ed-lang-label {
-    font-size: 11px; font-weight: 600; letter-spacing: .1em;
-    text-transform: uppercase; color: var(--cw-text-muted);
-  }
+  .ed-toolbar { display: flex; align-items: center; justify-content: space-between; }
+  .ed-lang-label { font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--cw-text-muted); }
   .ed-toolbar-btns { display: flex; gap: 8px; align-items: center; }
-  .ed-reset-btn {
-    font-size: 12px; padding: 7px 14px; border-radius: 8px;
-    background: var(--cw-surface); border: 1px solid rgba(0,0,0,0.13);
-    color: var(--cw-text-secondary); cursor: pointer; font-family: inherit;
-    transition: background .15s;
-  }
+  .ed-reset-btn { font-size: 12px; padding: 7px 14px; border-radius: 8px; background: var(--cw-surface); border: 1px solid rgba(0,0,0,0.13); color: var(--cw-text-secondary); cursor: pointer; font-family: inherit; transition: background .15s; }
   .ed-reset-btn:hover { background: #f1f0ea; }
-  .ed-run-btn {
-    font-size: 13px; font-weight: 600; padding: 7px 20px; border-radius: 8px;
-    background: var(--cw-green-400); color: #fff; border: none;
-    cursor: pointer; font-family: inherit;
-    display: inline-flex; align-items: center; gap: 6px;
-    transition: background .15s, opacity .15s;
-  }
+  .ed-run-btn { font-size: 13px; font-weight: 600; padding: 7px 20px; border-radius: 8px; background: var(--cw-green-400); color: #fff; border: none; cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 6px; transition: background .15s, opacity .15s; }
   .ed-run-btn:hover { background: var(--cw-green-600); }
   .ed-run-btn:disabled { opacity: .6; cursor: not-allowed; }
 
   /* Editor chrome */
-  .ed-chrome {
-    border-radius: 14px; overflow: hidden;
-    border: 1px solid #2a2d3a;
-  }
-  .ed-chrome-bar {
-    display: flex; align-items: center; gap: 6px;
-    padding: 9px 14px; background: var(--ed-bar);
-    border-bottom: 1px solid #2a2d3a;
-  }
+  .ed-chrome { border-radius: 14px; overflow: hidden; border: 1px solid #2a2d3a; }
+  .ed-chrome-bar { display: flex; align-items: center; gap: 6px; padding: 9px 14px; background: var(--ed-bar); border-bottom: 1px solid #2a2d3a; }
   .ed-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
-  .ed-dot-r { background: #ff5f57; }
-  .ed-dot-y { background: #febc2e; }
-  .ed-dot-g { background: #28c840; }
-  .ed-file  { font-size: 12px; color: #6b7280; font-family: 'JetBrains Mono', monospace; margin-left: 6px; }
+  .ed-dot-r { background: #ff5f57; } .ed-dot-y { background: #febc2e; } .ed-dot-g { background: #28c840; }
+  .ed-file { font-size: 12px; color: #6b7280; font-family: 'JetBrains Mono', monospace; margin-left: 6px; }
 
-  #ed-code {
-    width: 100%; height: 400px;
-    background: var(--ed-bg); color: var(--ed-text);
-    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-    font-size: 14px; line-height: 1.7;
-    padding: 16px; border: none; outline: none;
-    resize: none; tab-size: 2;
-    caret-color: var(--ed-caret);
-    display: block;
+  /* ── CodeMirror 5 overrides to match platform dark theme ── */
+  #ed-code-wrap .CodeMirror {
+    height: 400px;
+    background: var(--ed-bg);
+    color: #e2e8f0;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+    font-size: 14px;
+    line-height: 1.7;
+    border-radius: 0;
   }
-  #ed-code::selection { background: #2d4a3e; }
-  #ed-code::-webkit-scrollbar { width: 6px; background: var(--ed-bg); }
-  #ed-code::-webkit-scrollbar-thumb { background: #2a2d3a; border-radius: 3px; }
+  #ed-code-wrap .CodeMirror-gutters {
+    background: var(--ed-gutter);
+    border-right: 1px solid #2a2d3a;
+  }
+  #ed-code-wrap .CodeMirror-gutter-wrapper,
+  #ed-code-wrap .CodeMirror-linenumber { color: #4b5563; }
+  #ed-code-wrap .CodeMirror-activeline-background { background: rgba(255,255,255,0.04); }
+  #ed-code-wrap .CodeMirror-activeline-gutter .CodeMirror-linenumber { color: #9ca3af; }
+  #ed-code-wrap .CodeMirror-cursor { border-left: 2px solid #1D9E75; }
+  #ed-code-wrap .CodeMirror-selected { background: #2d4a3e; }
+  #ed-code-wrap .CodeMirror-focused .CodeMirror-selected { background: #2d4a3e; }
+  #ed-code-wrap .CodeMirror-matchingbracket { outline: 1px solid #1D9E75; color: inherit !important; border-radius: 2px; }
+  #ed-code-wrap .CodeMirror-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+  #ed-code-wrap .CodeMirror-scroll::-webkit-scrollbar-track { background: var(--ed-bg); }
+  #ed-code-wrap .CodeMirror-scroll::-webkit-scrollbar-thumb { background: #2a2d3a; border-radius: 3px; }
 
   /* Mark complete */
-  .ed-mark-btn {
-    width: 100%; padding: 11px; border-radius: 12px;
-    font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit;
-    transition: border-color .15s, color .15s, background .15s;
-  }
-  .ed-mark-btn.done {
-    border: 2px solid var(--cw-green-400); color: var(--cw-green-600);
-    background: var(--cw-green-50); cursor: default;
-  }
-  .ed-mark-btn.todo {
-    border: 2px solid rgba(0,0,0,0.13); color: var(--cw-text-muted);
-    background: var(--cw-surface);
-  }
+  .ed-mark-btn { width: 100%; padding: 11px; border-radius: 12px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; transition: border-color .15s, color .15s, background .15s; }
+  .ed-mark-btn.done { border: 2px solid var(--cw-green-400); color: var(--cw-green-600); background: var(--cw-green-50); cursor: default; }
+  .ed-mark-btn.todo { border: 2px solid rgba(0,0,0,0.13); color: var(--cw-text-muted); background: var(--cw-surface); }
   .ed-mark-btn.todo:hover { border-color: var(--cw-green-400); color: var(--cw-green-600); }
 </style>
 
@@ -244,8 +169,7 @@
         <!-- Hint -->
         {% if exercise.hints %}
         <div>
-          <button type="button" class="ed-hint-toggle" id="ed-hint-btn"
-                  onclick="edToggleHint()">
+          <button type="button" class="ed-hint-toggle" id="ed-hint-btn" onclick="edToggleHint()">
             <span class="ed-hint-icon">&#9888;</span>
             <span id="ed-hint-label">Show hint</span>
           </button>
@@ -253,7 +177,7 @@
         </div>
         {% endif %}
 
-        <!-- Output (Python / JS) -->
+        <!-- Output (Python / JS / Scratch) -->
         {% if not language.uses_browser_sandbox %}
         <div class="ed-output-wrap">
           <div class="ed-output-bar">
@@ -272,9 +196,7 @@
             <span class="ed-preview-label">Live Preview</span>
             <span class="ed-preview-hint">Click Run Code to preview</span>
           </div>
-          <iframe id="ed-preview-frame"
-                  sandbox="allow-scripts allow-same-origin"
-                  srcdoc=""></iframe>
+          <iframe id="ed-preview-frame" sandbox="allow-scripts allow-same-origin" srcdoc=""></iframe>
         </div>
         {% endif %}
 
@@ -294,7 +216,7 @@
           </div>
         </div>
 
-        <!-- Editor -->
+        <!-- Editor chrome -->
         <div class="ed-chrome">
           <div class="ed-chrome-bar">
             <span class="ed-dot ed-dot-r"></span>
@@ -308,12 +230,10 @@
               {% else %}code.txt{% endif %}
             </span>
           </div>
-          <textarea id="ed-code"
-                    spellcheck="false"
-                    autocomplete="off"
-                    autocorrect="off"
-                    autocapitalize="off"
-                    placeholder="// Write your code below"></textarea>
+          {# CodeMirror 5 wraps this textarea — do NOT remove it #}
+          <div id="ed-code-wrap">
+            <textarea id="ed-code"></textarea>
+          </div>
         </div>
 
         <!-- Mark complete -->
@@ -329,78 +249,110 @@
 </div>
 
 <script>
-const LANG_SLUG   = "{{ language.slug }}";
-const STARTER     = JSON.parse(document.getElementById('starter-data').textContent);
-const CSRF_TOKEN  = "{{ csrf_token }}";
-const EXERCISE_ID = {{ exercise.id }};
-const IS_BROWSER  = ['html', 'css', 'html-css'].includes(LANG_SLUG);
-const IS_DONE     = {{ is_completed|yesno:"true,false" }};
+// ── Page constants ────────────────────────────────────────────────────────
+var LANG_SLUG   = "{{ language.slug }}";
+var STARTER     = JSON.parse(document.getElementById('starter-data').textContent);
+var CSRF_TOKEN  = "{{ csrf_token }}";
+var EXERCISE_ID = {{ exercise.id }};
+var IS_BROWSER  = ['html', 'css', 'html-css'].includes(LANG_SLUG);
+var IS_DONE     = {{ is_completed|yesno:"true,false" }};
 
-const codeEl = document.getElementById('ed-code');
-codeEl.value = STARTER || '';
+// ── Language → CodeMirror mode ────────────────────────────────────────────
+var modeMap = {
+  python:     'python',
+  javascript: 'javascript',
+  html:       'htmlmixed',
+  'html-css': 'htmlmixed',
+  css:        'css',
+  scratch:    'text/plain',  // no CM5 Scratch mode; plain text with all other features
+};
 
-/* Tab key → 2 spaces, Ctrl+Enter → run */
-codeEl.addEventListener('keydown', function(e) {
-  if (e.key === 'Tab') {
-    e.preventDefault();
-    const s = this.selectionStart, en = this.selectionEnd;
-    this.value = this.value.substring(0, s) + '  ' + this.value.substring(en);
-    this.selectionStart = this.selectionEnd = s + 2;
-  }
-  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') edRun();
+// ── Initialise CodeMirror 5 ───────────────────────────────────────────────
+var editor = CodeMirror.fromTextArea(document.getElementById('ed-code'), {
+  mode:              modeMap[LANG_SLUG] || 'text/plain',
+  theme:             'dracula',
+  lineNumbers:       true,
+  indentUnit:        2,
+  tabSize:           2,
+  indentWithTabs:    false,
+  autoCloseBrackets: true,
+  matchBrackets:     true,
+  styleActiveLine:   true,
+  lineWrapping:      false,
+  extraKeys: {
+    'Tab': function(cm) {
+      if (cm.somethingSelected()) {
+        cm.indentSelection('add');
+      } else {
+        cm.replaceSelection('  ', 'end');
+      }
+    },
+    'Shift-Tab': 'indentLess',
+    'Ctrl-Enter': function() { edRun(); },
+    'Cmd-Enter':  function() { edRun(); },
+    'Ctrl-Space': 'autocomplete',
+  },
 });
+editor.setValue(STARTER || '');
+// Ensure the editor fills the wrapper
+editor.setSize('100%', '400px');
+
+// ── Helper: get current code ──────────────────────────────────────────────
+function getCode() { return editor.getValue(); }
+
+// ── Functions ─────────────────────────────────────────────────────────────
 
 function edToggleHint() {
-  const body  = document.getElementById('ed-hint-body');
-  const label = document.getElementById('ed-hint-label');
-  const open  = body.classList.contains('open');
+  var body  = document.getElementById('ed-hint-body');
+  var label = document.getElementById('ed-hint-label');
+  var open  = body.classList.contains('open');
   body.classList.toggle('open', !open);
   label.textContent = open ? 'Show hint' : 'Hide hint';
 }
 
 function edClearOutput() {
-  document.getElementById('ed-stdout').textContent = 'Click "Run Code" to see your output here.';
-  const se = document.getElementById('ed-stderr');
+  document.getElementById('ed-stdout').textContent = 'Click \u201cRun Code\u201d to see your output here.';
+  var se = document.getElementById('ed-stderr');
   if (se) { se.textContent = ''; se.style.display = 'none'; }
 }
 
 function edReset() {
   if (confirm('Reset code to starter?')) {
-    codeEl.value = STARTER || '';
+    editor.setValue(STARTER || '');
+    editor.clearHistory();
     if (IS_BROWSER) {
-      const f = document.getElementById('ed-preview-frame');
+      var f = document.getElementById('ed-preview-frame');
       if (f) f.srcdoc = '';
     }
   }
 }
 
 async function edRun() {
-  const btn = document.getElementById('ed-run-btn');
-  const code = codeEl.value;
+  var btn  = document.getElementById('ed-run-btn');
+  var code = getCode();
 
-  /* HTML/CSS — browser sandbox */
+  // HTML/CSS — render in the sandboxed iframe; no server call needed
   if (IS_BROWSER) {
-    const f = document.getElementById('ed-preview-frame');
+    var f = document.getElementById('ed-preview-frame');
     if (f) f.srcdoc = code;
     return;
   }
 
-  const stdout = document.getElementById('ed-stdout');
-  const stderr = document.getElementById('ed-stderr');
+  var stdout = document.getElementById('ed-stdout');
+  var stderr = document.getElementById('ed-stderr');
 
-  btn.disabled = true;
+  btn.disabled    = true;
   btn.textContent = 'Running\u2026';
   stdout.textContent = 'Running\u2026';
   if (stderr) { stderr.textContent = ''; stderr.style.display = 'none'; }
 
   try {
-    const res  = await fetch('{% url "coding:api_run_code" %}', {
+    var res  = await fetch('{% url "coding:api_run_code" %}', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
-      body:    JSON.stringify({ language_slug: LANG_SLUG, code }),
+      body:    JSON.stringify({ language_slug: LANG_SLUG, code: code }),
     });
-    const data = await res.json();
-
+    var data = await res.json();
     stdout.textContent = data.stdout || (data.error ? data.error : '(no output)');
     if (data.stderr && stderr) {
       stderr.textContent = data.stderr;
@@ -410,14 +362,14 @@ async function edRun() {
     stdout.textContent = 'Network error \u2014 please try again.';
   }
 
-  btn.disabled = false;
+  btn.disabled    = false;
   btn.textContent = '\u25B6 Run Code';
 }
 
 async function edMarkDone() {
   if (IS_DONE) return;
-  const btn = document.getElementById('ed-mark-btn');
-  btn.disabled = true;
+  var btn = document.getElementById('ed-mark-btn');
+  btn.disabled    = true;
   btn.textContent = 'Saving\u2026';
   try {
     await fetch('{% url "coding:api_run_code" %}', {
@@ -425,14 +377,14 @@ async function edMarkDone() {
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
       body:    JSON.stringify({
         language_slug: LANG_SLUG,
-        code: codeEl.value,
+        code:          getCode(),
         mark_complete: true,
         exercise_id:   EXERCISE_ID,
       }),
     });
     window.location.reload();
   } catch (_) {
-    btn.disabled = false;
+    btn.disabled    = false;
     btn.textContent = 'Mark as completed';
   }
 }

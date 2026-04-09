@@ -58,6 +58,7 @@ def run_code(language, code, stdin=''):
         'stdin': stdin or '',
         'run_timeout': EXECUTION_TIMEOUT_SECONDS * 1000,   # Piston expects milliseconds
         'compile_timeout': EXECUTION_TIMEOUT_SECONDS * 1000,
+        'run_memory_limit': MEMORY_LIMIT_BYTES,              # bytes — enforced by Piston runner
     }
 
     try:
@@ -74,6 +75,10 @@ def run_code(language, code, stdin=''):
             'stdout': run.get('stdout', ''),
             'stderr': run.get('stderr', ''),
             'exit_code': run.get('code', 1),
+            # Piston returns wall-clock time in seconds for the run stage.
+            # We use this for scoring so that the score reflects actual code
+            # speed, not how long the student spent writing it.
+            'run_time_seconds': float(run.get('wall', run.get('cpu', 0)) or 0),
         }
 
     except requests.exceptions.Timeout:
@@ -81,6 +86,7 @@ def run_code(language, code, stdin=''):
             'stdout': '',
             'stderr': 'Execution timed out.',
             'exit_code': 1,
+            'run_time_seconds': 0.0,
             'error': 'timeout',
         }
     except requests.exceptions.ConnectionError:
@@ -88,6 +94,7 @@ def run_code(language, code, stdin=''):
             'stdout': '',
             'stderr': 'Code execution service is unavailable. Please try again later.',
             'exit_code': 1,
+            'run_time_seconds': 0.0,
             'error': 'connection_error',
         }
     except Exception as exc:
@@ -96,6 +103,7 @@ def run_code(language, code, stdin=''):
             'stdout': '',
             'stderr': str(exc),
             'exit_code': 1,
+            'run_time_seconds': 0.0,
             'error': str(exc),
         }
 

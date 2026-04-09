@@ -4,24 +4,42 @@ from django.utils import timezone
 import uuid
 
 
-def calculate_coding_points(passed_tests, total_tests, time_taken_seconds, k=30):
+def calculate_coding_points(
+    passed_tests,
+    total_tests,
+    time_taken_seconds,
+    quality_score: float = 1.0,
+    k: int = 30,
+) -> float:
     """Calculate attempt points for a single submission.
 
-    Formula: (passed/total) * 100 * (K / (K + time_per_test))
+    Formula:
+        base   = (passed / total) × 100 × (K / (K + time_per_test))
+        result = base × quality_score
 
-    - Called on EVERY submission (pass or fail).
-    - Accuracy is the primary driver; a partial pass scores proportionally.
-    - Speed gives a diminishing-returns bonus — K=30 means halving points
-      requires spending 30 s per test case.
-    - The caller (api_submit_problem) is responsible for preserving the
-      student's best-ever score separately; this function always returns
-      the raw score for the current attempt only.
+    Components
+    ----------
+    accuracy      Primary driver.  A partial pass scores proportionally.
+    speed bonus   Diminishing-returns multiplier.  K=30 means the bonus
+                  halves when average execution time per test case reaches
+                  30 s.  Typical Piston runtimes are < 1 s, so the speed
+                  multiplier is usually close to 1.0.
+    quality_score Fraction in [0.70, 1.00] produced by analyse_code_quality().
+                  A clean, efficient solution earns 1.00; one with deeply
+                  nested loops or high cyclomatic complexity earns less.
+                  Always ≥ 0.70 so a correct solution never falls below 70 pts
+                  for quality reasons alone.
+
+    The caller (api_submit_problem) is responsible for preserving the
+    student's best-ever score separately; this function always returns
+    the raw score for the current attempt only.
     """
     if not total_tests:
         return 0.0
     percentage = passed_tests / total_tests
     time_per_test = time_taken_seconds / total_tests if total_tests else time_taken_seconds
-    return round(percentage * 100 * (k / (k + time_per_test)), 2)
+    base = percentage * 100 * (k / (k + time_per_test))
+    return round(base * quality_score, 2)
 
 
 # ---------------------------------------------------------------------------
@@ -151,11 +169,65 @@ class CodingExercise(models.Model):
 # ---------------------------------------------------------------------------
 
 class CodingProblem(models.Model):
-    """An algorithm or logic problem students solve by writing their own code."""
+    """An algorithm or logic problem students solve by writing their own code.
 
-    language = models.ForeignKey(CodingLanguage, on_delete=models.CASCADE, related_name='problems')
+    Problems are language-agnostic: the student picks the language when they
+    submit.  The optional ``language`` FK is kept for legacy compatibility and
+    for problems that are intentionally language-specific, but new problems
+    should leave it null.
+    """
+
+    ALGORITHM = 'algorithm'
+    LOGIC = 'logic'
+    DATA_STRUCTURES = 'data_structures'
+    DYNAMIC_PROGRAMMING = 'dynamic_programming'
+    GRAPH_THEORY = 'graph_theory'
+    STRING_MANIPULATION = 'string_manipulation'
+    MATHEMATICS = 'mathematics'
+    SORTING_SEARCHING = 'sorting_searching'
+
+    CATEGORY_CHOICES = [
+        (ALGORITHM,            'Algorithm'),
+        (LOGIC,                'Logic'),
+        (DATA_STRUCTURES,      'Data Structures'),
+        (DYNAMIC_PROGRAMMING,  'Dynamic Programming'),
+        (GRAPH_THEORY,         'Graph Theory'),
+        (STRING_MANIPULATION,  'String Manipulation'),
+        (MATHEMATICS,          'Mathematics'),
+        (SORTING_SEARCHING,    'Sorting & Searching'),
+    ]
+
+    # Optional: kept for legacy / language-specific problems only.
+    language = models.ForeignKey(
+        CodingLanguage,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='problems',
+        help_text="Leave blank for language-agnostic problems (students choose on submit).",
+    )
     title = models.CharField(max_length=200)
-    description = models.TextField(help_text="Full problem statement shown to the student, including input/output format")
+    description = models.TextField(
+        help_text="Full problem statement shown to the student, including input/output format",
+    )
+    category = models.CharField(
+        max_length=30,
+        choices=CATEGORY_CHOICES,
+        default=ALGORITHM,
+        help_text="Problem category used for filtering and grouping",
+    )
+    constraints = models.TextField(
+        blank=True,
+        help_text="Constraints on input size, value ranges, etc. (e.g. '1 ≤ n ≤ 10⁶')",
+    )
+    time_limit_seconds = models.PositiveSmallIntegerField(
+        default=5,
+        help_text="Maximum wall-clock execution time allowed per test case (seconds)",
+    )
+    memory_limit_mb = models.PositiveSmallIntegerField(
+        default=256,
+        help_text="Maximum memory allowed per test case (megabytes)",
+    )
     starter_code = models.TextField(blank=True, help_text="Skeleton code to give students a starting point")
     solution_code = models.TextField(blank=True, help_text="Reference solution — never exposed to students")
     difficulty = models.PositiveSmallIntegerField(
@@ -167,10 +239,11 @@ class CodingProblem(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ['language', 'difficulty', 'title']
+        ordering = ['difficulty', 'title']
 
     def __str__(self):
-        return f"{self.language.name} — Level {self.difficulty}: {self.title}"
+        lang = f"{self.language.name} — " if self.language_id else ""
+        return f"{lang}Level {self.difficulty}: {self.title}"
 
     @property
     def visible_test_cases(self):
@@ -188,27 +261,47 @@ class CodingProblem(models.Model):
 class ProblemTestCase(models.Model):
     """A single test case for a CodingProblem.
 
-    Visible test cases (is_visible=True) are shown in full to the student.
-    Hidden test cases are evaluated server-side; the student only sees pass/fail count.
-    Always include boundary value test cases as hidden cases.
+    Visible test cases (is_visible=True) are shown in full to the student as
+    sample cases.  Hidden test cases are run server-side; the student only sees
+    a pass/fail count.  Boundary/edge-value tests should be marked with both
+    ``is_visible=False`` and ``is_boundary_test=True``.
+
+    Each problem must have at least 2 visible test cases.
     """
 
     problem = models.ForeignKey(CodingProblem, on_delete=models.CASCADE, related_name='test_cases')
-    input_data = models.TextField(blank=True, help_text="stdin passed to the student's program (leave blank if no input needed)")
-    expected_output = models.TextField(help_text="Expected stdout (stripped of trailing whitespace during comparison)")
+    input_data = models.TextField(
+        blank=True,
+        help_text="stdin passed to the student's program (leave blank if no input needed)",
+    )
+    expected_output = models.TextField(
+        help_text="Expected stdout (stripped of trailing whitespace during comparison)",
+    )
     is_visible = models.BooleanField(
         default=True,
-        help_text="True = shown to student as a sample. False = hidden boundary/edge case.",
+        help_text="True = shown to student as a sample case. False = hidden boundary/edge case.",
     )
-    description = models.CharField(max_length=200, blank=True, help_text="Short label, e.g. 'Empty list input'")
-    order = models.PositiveSmallIntegerField(default=0)
+    is_boundary_test = models.BooleanField(
+        default=False,
+        help_text="True for boundary / edge-value test cases (e.g. empty input, max constraints).",
+    )
+    description = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text="Short label, e.g. 'Empty list input' or 'Maximum constraint'",
+    )
+    display_order = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="Controls the order test cases are displayed / run",
+    )
 
     class Meta:
-        ordering = ['problem', 'order', 'id']
+        ordering = ['problem', 'display_order', 'id']
 
     def __str__(self):
         visibility = "Visible" if self.is_visible else "Hidden"
-        return f"{self.problem.title} — Test {self.order} ({visibility})"
+        boundary = " [boundary]" if self.is_boundary_test else ""
+        return f"{self.problem.title} — Test {self.display_order} ({visibility}{boundary})"
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +319,14 @@ class StudentExerciseSubmission(models.Model):
     is_completed = models.BooleanField(default=False, help_text="True once the student marks the exercise as done or output matches expected")
     time_taken_seconds = models.PositiveIntegerField(default=0, help_text="Time spent on this submission in seconds")
     submitted_at = models.DateTimeField(auto_now_add=True)
+
+    # Scratch / Blockly exercises store the workspace state as serialised XML
+    # so the student's block program can be restored on next visit.
+    # Empty for Python/JS/HTML/CSS exercises.
+    blocks_xml = models.TextField(
+        blank=True,
+        help_text="Blockly workspace XML for Scratch block exercises (empty for text-based languages)",
+    )
 
     class Meta:
         ordering = ['-submitted_at']
@@ -354,6 +455,147 @@ class StudentProblemSubmission(models.Model):
     def has_solved(cls, student, problem):
         """True if the student has at least one passing submission."""
         return cls.objects.filter(student=student, problem=problem, passed_all_tests=True).exists()
+
+
+# ---------------------------------------------------------------------------
+# Problem Solving — structured submission + per-test-case results
+# ---------------------------------------------------------------------------
+
+class ProblemSubmission(models.Model):
+    """One student attempt on a CodingProblem.
+
+    Complements StudentProblemSubmission (which is used for scoring/history)
+    by providing a clean, spec-compliant record per the Problem Solving data model:
+    explicit status enum, per-language tracking, and normalised result rows via
+    ProblemSubmissionResult rather than a JSON blob.
+    """
+
+    PENDING = 'pending'
+    PASSED  = 'passed'
+    FAILED  = 'failed'
+
+    STATUS_CHOICES = [
+        (PENDING, 'Pending'),
+        (PASSED,  'Passed'),
+        (FAILED,  'Failed'),
+    ]
+
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='problem_submissions',
+    )
+    problem = models.ForeignKey(
+        CodingProblem,
+        on_delete=models.CASCADE,
+        related_name='problem_submissions',
+    )
+    language = models.ForeignKey(
+        CodingLanguage,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='problem_submissions',
+        help_text="Language the student chose for this submission",
+    )
+    submitted_code = models.TextField(help_text="Exact code submitted by the student")
+    status = models.CharField(
+        max_length=10,
+        choices=STATUS_CHOICES,
+        default=PENDING,
+        db_index=True,
+    )
+    test_cases_passed = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="Number of test cases (visible + hidden) that passed",
+    )
+    total_test_cases = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="Total number of test cases evaluated",
+    )
+    submitted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-submitted_at']
+        indexes = [
+            models.Index(fields=['student', 'problem'], name='coding_ps_stu_prob_idx'),
+            models.Index(fields=['student', 'problem', 'status'], name='coding_ps_stu_prob_st_idx'),
+        ]
+
+    def __str__(self):
+        lang = self.language.name if self.language_id else 'Unknown'
+        return (
+            f"{self.student} — {self.problem.title} "
+            f"[{lang}] {self.get_status_display()} "
+            f"({self.test_cases_passed}/{self.total_test_cases})"
+        )
+
+    @property
+    def pass_rate(self):
+        if not self.total_test_cases:
+            return 0
+        return round((self.test_cases_passed / self.total_test_cases) * 100)
+
+    @classmethod
+    def get_best_submission(cls, student, problem):
+        """Return the submission with the highest test_cases_passed for this student/problem."""
+        return (
+            cls.objects
+            .filter(student=student, problem=problem)
+            .order_by('-test_cases_passed', '-submitted_at')
+            .first()
+        )
+
+    @classmethod
+    def has_passed(cls, student, problem):
+        """True if the student has at least one fully-passing submission."""
+        return cls.objects.filter(
+            student=student, problem=problem, status=cls.PASSED,
+        ).exists()
+
+
+class ProblemSubmissionResult(models.Model):
+    """Per-test-case execution result for a single ProblemSubmission.
+
+    One row per (submission, test_case) pair.  Replaces the JSON blob used in
+    StudentProblemSubmission.test_results, enabling proper querying and admin
+    drill-down.
+    """
+
+    submission = models.ForeignKey(
+        ProblemSubmission,
+        on_delete=models.CASCADE,
+        related_name='results',
+    )
+    test_case = models.ForeignKey(
+        ProblemTestCase,
+        on_delete=models.CASCADE,
+        related_name='submission_results',
+    )
+    actual_output = models.TextField(
+        blank=True,
+        help_text="stdout captured from the student's program for this test case",
+    )
+    is_passed = models.BooleanField(default=False)
+    execution_time_ms = models.PositiveIntegerField(
+        default=0,
+        help_text="Wall-clock execution time in milliseconds as reported by Piston",
+    )
+
+    class Meta:
+        ordering = ['submission', 'test_case__display_order']
+        unique_together = ('submission', 'test_case')
+        indexes = [
+            models.Index(fields=['submission', 'is_passed'], name='coding_psr_sub_passed_idx'),
+        ]
+
+    def __str__(self):
+        result = "PASS" if self.is_passed else "FAIL"
+        return (
+            f"Submission {self.submission_id} / "
+            f"Test {self.test_case.display_order} [{result}] "
+            f"{self.execution_time_ms}ms"
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -618,10 +618,14 @@ class Command(BaseCommand):
                 language=language,
                 title=prob_data['title'],
                 defaults={
-                    'description':   prob_data['description'],
-                    'starter_code':  prob_data['starter_code'],
-                    'difficulty':    prob_data['difficulty'],
-                    'is_active':     True,
+                    'description':        prob_data['description'],
+                    'starter_code':       prob_data['starter_code'],
+                    'difficulty':         prob_data['difficulty'],
+                    'category':           prob_data.get('category', CodingProblem.ALGORITHM),
+                    'constraints':        prob_data.get('constraints', ''),
+                    'time_limit_seconds': prob_data.get('time_limit_seconds', 5),
+                    'memory_limit_mb':    prob_data.get('memory_limit_mb', 256),
+                    'is_active':          True,
                 },
             )
             if created:
@@ -636,8 +640,9 @@ class Command(BaseCommand):
                         input_data=tc['input'],
                         expected_output=tc['expected'],
                         is_visible=tc['visible'],
+                        is_boundary_test=tc.get('boundary', False),
                         description=tc.get('description', ''),
-                        order=order,
+                        display_order=order,
                     )
                     tc_count += 1
 
