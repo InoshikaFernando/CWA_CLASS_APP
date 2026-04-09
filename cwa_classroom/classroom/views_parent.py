@@ -254,7 +254,6 @@ class ParentInvoiceDetailView(RoleRequiredMixin, View):
             'active_child': active_child,
             'active_school': school,
             'effective_settings': effective_settings,
-            'stripe_payment_link': invoice.get_stripe_payment_link(),
             'children': children,
         })
 
