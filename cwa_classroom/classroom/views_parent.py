@@ -74,9 +74,12 @@ class ParentChildrenView(RoleRequiredMixin, View):
             )
             .select_related('school_student', 'school_student__student', 'school_student__school')
         )
+        active_child, active_school, _ = _get_active_child(request)
         return render(request, 'parent/children.html', {
             'children': children,
             'pending_requests': pending_requests,
+            'active_child': active_child,
+            'active_school': active_school,
         })
 
 
@@ -167,10 +170,13 @@ class ParentInvoicesView(RoleRequiredMixin, View):
 
     def get(self, request):
         children = _get_parent_children(request.user)
+        active_child, active_school, _ = _get_active_child(request)
         if not children.exists():
             return render(request, 'parent/invoices.html', {
                 'invoices': [], 'children': children, 'page': None,
                 'total_outstanding': Decimal('0.00'),
+                'active_child': active_child,
+                'active_school': active_school,
             })
 
         # All children's student IDs for this parent
@@ -213,6 +219,8 @@ class ParentInvoicesView(RoleRequiredMixin, View):
             'search': search,
             'status_filter': status_filter,
             'total_outstanding': total_outstanding,
+            'active_child': active_child,
+            'active_school': active_school,
         }
         if request.headers.get('HX-Request'):
             return render(request, 'parent/partials/invoice_table.html', ctx)
@@ -383,9 +391,12 @@ class ParentInvoicePaymentSuccessView(RoleRequiredMixin, View):
                 pk=isp_id, parent=request.user,
             ).first()
 
+        active_child, active_school, _ = _get_active_child(request)
         return render(request, 'parent/invoice_pay_success.html', {
             'isp': isp,
             'children': _get_parent_children(request.user),
+            'active_child': active_child,
+            'active_school': active_school,
         })
 
 
@@ -406,9 +417,12 @@ class ParentBillingView(RoleRequiredMixin, View):
         except Subscription.DoesNotExist:
             pass
 
+        active_child, active_school, _ = _get_active_child(request)
         return render(request, 'parent/billing.html', {
             'subscription': subscription,
             'children': _get_parent_children(request.user),
+            'active_child': active_child,
+            'active_school': active_school,
         })
 
 
@@ -739,6 +753,8 @@ class ParentHomeworkView(RoleRequiredMixin, View):
         if not child:
             return render(request, 'parent/homework.html', {
                 'children': _get_parent_children(request.user),
+                'active_child': None,
+                'active_school': None,
             })
 
         from homework.models import Homework, HomeworkSubmission
@@ -782,6 +798,8 @@ class ParentHomeworkView(RoleRequiredMixin, View):
         return render(request, 'parent/homework.html', {
             'child': child,
             'school': school,
+            'active_child': child,
+            'active_school': school,
             'homework_list': homework_list,
             'children': _get_parent_children(request.user),
         })
@@ -801,9 +819,12 @@ class ParentAddChildView(RoleRequiredMixin, View):
     ]
 
     def get(self, request):
+        active_child, active_school, _ = _get_active_child(request)
         return render(request, 'parent/add_child.html', {
             'children': _get_parent_children(request.user),
             'relationship_choices': self.RELATIONSHIP_CHOICES,
+            'active_child': active_child,
+            'active_school': active_school,
         })
 
     def post(self, request):
@@ -842,11 +863,14 @@ class ParentAddChildView(RoleRequiredMixin, View):
                         )
 
         if errors:
+            active_child, active_school, _ = _get_active_child(request)
             return render(request, 'parent/add_child.html', {
                 'errors': errors,
                 'children': _get_parent_children(request.user),
                 'relationship_choices': self.RELATIONSHIP_CHOICES,
                 'form_data': {'student_id': student_id_code, 'relationship': relationship},
+                'active_child': active_child,
+                'active_school': active_school,
             })
 
         existing_count = ParentStudent.objects.filter(

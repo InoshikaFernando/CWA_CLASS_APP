@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Student Billing Code - Billing Admin{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Edit: {{ discount.code }}</h1>
+  </div>
+
+  <!-- Locked info banner -->
+  <div class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-6 flex items-start gap-3">
+    <svg class="w-5 h-5 text-amber-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"/>
+    </svg>
+    <div class="text-sm text-amber-800">
+      <p class="font-semibold">Code and discount % are locked after creation.</p>
+      {% if discount.stripe_coupon_id %}
+        <p class="mt-0.5 text-amber-700">Stripe coupon <code class="font-mono text-xs bg-amber-100 px-1 rounded">{{ discount.stripe_coupon_id }}</code> is already synced — duration cannot be changed.</p>
+      {% else %}
+        <p class="mt-0.5 text-amber-700">Not yet synced to Stripe
+          {% if discount.is_fully_free %}(100% free codes skip Stripe){% else %}— was Stripe configured at the time of creation?{% endif %}
+        </p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Form card -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8">
+    <form method="post">
+      {% csrf_token %}
+
+      <div class="space-y-6">
+
+        <!-- Code (locked) -->
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Code</label>
+          <p class="font-mono font-semibold text-gray-900">{{ discount.code }} <span class="text-xs text-gray-400">(locked)</span></p>
+        </div>
+
+        <!-- Discount % (locked) -->
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Discount %</label>
+          <p class="font-semibold text-gray-900">{{ discount.discount_percent }}%
+            {% if discount.is_fully_free %}
+              <span class="text-xs text-gray-400 font-normal ml-1">(fully free — bypasses Stripe)</span>
+            {% endif %}
+            <span class="text-xs text-gray-400 ml-1">(locked)</span>
+          </p>
+        </div>
+
+        <!-- Duration -->
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-2">Duration</label>
+          {% if discount.stripe_coupon_id %}
+            <p class="text-sm text-gray-700">{{ form_data.duration|default:'forever'|capfirst }}
+              {% if form_data.duration == 'repeating' %} &mdash; {{ form_data.duration_in_months }} months{% endif %}
+              <span class="text-xs text-gray-400 ml-1">(locked — already synced to Stripe)</span>
+            </p>
+            <input type="hidden" name="duration" value="{{ form_data.duration|default:'forever' }}">
+            <input type="hidden" name="duration_in_months" value="{{ form_data.duration_in_months|default:'' }}">
+          {% else %}
+            <div class="flex gap-4 mb-2">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="radio" name="duration" value="forever" {% if form_data.duration == 'forever' or not form_data.duration %}checked{% endif %}
+                       class="text-accent focus:ring-accent" onchange="toggleDuration()">
+                <span class="text-sm text-gray-700">Forever</span>
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="radio" name="duration" value="once" {% if form_data.duration == 'once' %}checked{% endif %}
+                       class="text-accent focus:ring-accent" onchange="toggleDuration()">
+                <span class="text-sm text-gray-700">Once</span>
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="radio" name="duration" value="repeating" {% if form_data.duration == 'repeating' %}checked{% endif %}
+                       class="text-accent focus:ring-accent" onchange="toggleDuration()">
+                <span class="text-sm text-gray-700">Multiple Months</span>
+              </label>
+            </div>
+            <div id="duration_months_wrap" class="{% if form_data.duration != 'repeating' %}hidden{% endif %}">
+              <label for="duration_in_months" class="block text-sm font-medium text-gray-600 mb-1">Number of Months</label>
+              <input type="number" min="1" name="duration_in_months" id="duration_in_months"
+                     value="{{ form_data.duration_in_months|default:'' }}"
+                     class="w-32 px-4 py-2.5 border {% if errors.duration_in_months %}border-red-400{% else %}border-slate-300{% endif %} rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition"
+                     placeholder="12">
+              {% if errors.duration_in_months %}<p class="text-red-500 text-xs mt-1">{{ errors.duration_in_months }}</p>{% endif %}
+            </div>
+            {% if errors.duration %}<p class="text-red-500 text-xs mt-1">{{ errors.duration }}</p>{% endif %}
+          {% endif %}
+        </div>
+
+        <!-- Applicable Packages -->
+        {% if packages %}
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-2">Applicable Packages</label>
+          <p class="text-xs text-gray-400 mb-2">Leave all unchecked to apply to all packages</p>
+          <div class="space-y-2">
+            {% for pkg in packages %}
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" name="applicable_packages" value="{{ pkg.pk }}"
+                     {% if pkg.pk in selected_packages %}checked{% endif %}
+                     class="rounded text-accent focus:ring-accent">
+              <span class="text-sm text-gray-700">{{ pkg.name }} (${{ pkg.price }}/mo)</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        <!-- Grant Days -->
+        <div>
+          <label for="grant_days" class="block text-sm font-semibold text-gray-700 mb-1.5">Access Duration (days)</label>
+          <input type="number" min="1" name="grant_days" id="grant_days"
+                 value="{{ form_data.grant_days|default:'' }}"
+                 class="w-full px-4 py-2.5 border {% if errors.grant_days %}border-red-400{% else %}border-slate-300{% endif %} rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition"
+                 placeholder="e.g. 30, 60, 365">
+          <p class="text-xs text-gray-400 mt-1">Days of access granted on redemption. For 100% free codes this sets the subscription period.</p>
+          {% if errors.grant_days %}<p class="text-red-500 text-xs mt-1">{{ errors.grant_days }}</p>{% endif %}
+        </div>
+
+        <!-- Max Uses -->
+        <div>
+          <label for="max_uses" class="block text-sm font-semibold text-gray-700 mb-1.5">Max Uses</label>
+          <input type="number" min="1" name="max_uses" id="max_uses"
+                 value="{{ form_data.max_uses|default:'' }}"
+                 class="w-full px-4 py-2.5 border {% if errors.max_uses %}border-red-400{% else %}border-slate-300{% endif %} rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition"
+                 placeholder="Leave blank for unlimited">
+          {% if errors.max_uses %}<p class="text-red-500 text-xs mt-1">{{ errors.max_uses }}</p>{% endif %}
+        </div>
+
+        <!-- Expiry -->
+        <div>
+          <label for="expires_at" class="block text-sm font-semibold text-gray-700 mb-1.5">Expires At</label>
+          <input type="datetime-local" name="expires_at" id="expires_at"
+                 value="{{ form_data.expires_at|default:'' }}"
+                 class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+          <p class="text-xs text-gray-400 mt-1">Leave blank for no expiry</p>
+        </div>
+
+      </div>
+
+      <!-- Actions -->
+      <div class="flex items-center justify-end gap-3 mt-8 pt-6 border-t border-slate-100">
+        <a href="{% url 'billing_admin_coupon_list' %}"
+           class="px-5 py-2.5 text-gray-600 font-semibold rounded-xl hover:bg-gray-100 transition">Cancel</a>
+        <button type="submit"
+                class="px-6 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm">
+          Save Changes
+        </button>
+      </div>
+    </form>
+  </div>
+
+</div>
+
+<script>
+function toggleDuration() {
+  var duration = document.querySelector('input[name="duration"]:checked');
+  var wrap = document.getElementById('duration_months_wrap');
+  if (wrap && duration) {
+    wrap.classList.toggle('hidden', duration.value !== 'repeating');
+  }
+}
+document.addEventListener('DOMContentLoaded', function() { toggleDuration(); });
+</script>
+{% endblock %}
