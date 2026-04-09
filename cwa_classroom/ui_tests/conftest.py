@@ -110,20 +110,20 @@ def do_login(page: Page, live_server_url: str, user) -> None:
 
 def do_logout(page: Page, live_server_url: str) -> None:
     """POST to the logout URL (Django 5 removed GET-based logout support)."""
-    page.evaluate(f"""() => {{
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = '{live_server_url}/accounts/logout/';
-        const csrf = document.createElement('input');
-        csrf.type = 'hidden';
-        csrf.name = 'csrfmiddlewaretoken';
-        const match = document.cookie.match(/csrftoken=([^;]+)/);
-        csrf.value = match ? match[1] : '';
-        form.appendChild(csrf);
-        document.body.appendChild(form);
-        form.submit();
-    }}""")
-    page.wait_for_load_state("domcontentloaded")
+    with page.expect_navigation(timeout=10_000):
+        page.evaluate(f"""() => {{
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = '{live_server_url}/accounts/logout/';
+            const csrf = document.createElement('input');
+            csrf.type = 'hidden';
+            csrf.name = 'csrfmiddlewaretoken';
+            const match = document.cookie.match(/csrftoken=([^;]+)/);
+            csrf.value = match ? match[1] : '';
+            form.appendChild(csrf);
+            document.body.appendChild(form);
+            form.submit();
+        }}""")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
