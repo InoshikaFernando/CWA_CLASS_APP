@@ -10,30 +10,13 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  DB_ENGINE: sqlite
+
 jobs:
   classroom-tests:
     name: Classroom Tests
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_DB: cwa_test
-          POSTGRES_USER: cwa
-          POSTGRES_PASSWORD: cwa
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    env:
-      DB_ENGINE: postgres
-      DB_NAME: cwa_test
-      DB_USER: cwa
-      DB_PASSWORD: cwa
-      DB_HOST: 127.0.0.1
-      DB_PORT: 5432
     steps:
       - uses: actions/checkout@v4
 
@@ -53,26 +36,6 @@ jobs:
   maths-tests:
     name: Maths Tests
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_DB: cwa_test
-          POSTGRES_USER: cwa
-          POSTGRES_PASSWORD: cwa
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    env:
-      DB_ENGINE: postgres
-      DB_NAME: cwa_test
-      DB_USER: cwa
-      DB_PASSWORD: cwa
-      DB_HOST: 127.0.0.1
-      DB_PORT: 5432
     steps:
       - uses: actions/checkout@v4
 
@@ -92,26 +55,6 @@ jobs:
   puzzles-tests:
     name: Number Puzzles Tests
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_DB: cwa_test
-          POSTGRES_USER: cwa
-          POSTGRES_PASSWORD: cwa
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    env:
-      DB_ENGINE: postgres
-      DB_NAME: cwa_test
-      DB_USER: cwa
-      DB_PASSWORD: cwa
-      DB_HOST: 127.0.0.1
-      DB_PORT: 5432
     steps:
       - uses: actions/checkout@v4
 
@@ -131,26 +74,6 @@ jobs:
   ui-tests:
     name: UI Tests (Playwright)
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_DB: cwa_test
-          POSTGRES_USER: cwa
-          POSTGRES_PASSWORD: cwa
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    env:
-      DB_ENGINE: postgres
-      DB_NAME: cwa_test
-      DB_USER: cwa
-      DB_PASSWORD: cwa
-      DB_HOST: 127.0.0.1
-      DB_PORT: 5432
     steps:
       - uses: actions/checkout@v4
 
