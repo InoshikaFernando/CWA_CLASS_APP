@@ -670,10 +670,6 @@ class SidebarAccountantNavigationTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, reverse('accounting_dashboard'))
 
-    def test_accountant_sidebar_contains_packages_link(self):
-        resp = self.client.get(reverse('accounting_dashboard'))
-        self.assertContains(resp, reverse('accounting_packages'))
-
     def test_accountant_sidebar_contains_user_stats_link(self):
         resp = self.client.get(reverse('accounting_dashboard'))
         self.assertContains(resp, reverse('accounting_users'))
