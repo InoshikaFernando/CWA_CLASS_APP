@@ -223,16 +223,16 @@ class ParentInvoiceDetailView(RoleRequiredMixin, View):
     required_roles = [Role.PARENT]
 
     def get(self, request, invoice_id):
-        child, school, _ = _get_active_child(request)
-        if not child:
-            return redirect('parent_invoices')
+        children = _get_parent_children(request.user)
+        child_ids = children.values_list('student_id', flat=True)
 
         invoice = get_object_or_404(
-            Invoice, id=invoice_id, student=child, school=school,
+            Invoice, id=invoice_id, student_id__in=child_ids,
             status__in=['issued', 'partially_paid', 'paid'],
         )
         line_items = invoice.line_items.select_related('classroom', 'classroom__department')
         payments = invoice.payments.order_by('-created_at')
+        school = invoice.school
 
         # Get effective settings (with department overrides if applicable)
         primary_dept = None
@@ -242,15 +242,18 @@ class ParentInvoiceDetailView(RoleRequiredMixin, View):
                 break
         effective_settings = school.get_effective_settings(primary_dept)
 
+        # Keep active_child context for nav, but don't restrict invoice lookup by it
+        active_child, _, _ = _get_active_child(request)
+
         return render(request, 'parent/invoice_detail.html', {
             'invoice': invoice,
             'line_items': line_items,
             'payments': payments,
-            'active_child': child,
+            'active_child': active_child,
             'active_school': school,
             'effective_settings': effective_settings,
             'stripe_payment_link': invoice.get_stripe_payment_link(),
-            'children': _get_parent_children(request.user),
+            'children': children,
         })
 
 
