@@ -304,11 +304,9 @@ class ParentSelfJoinView(View):
             return redirect('parent_dashboard')
 
         except Exception:
-            import logging
+            import sys
             import traceback
-            logging.getLogger(__name__).error(
-                'Parent self-join failed: %s', traceback.format_exc()
-            )
+            print('Parent self-join failed:', traceback.format_exc(), file=sys.stderr)
             messages.error(request, 'An error occurred while creating your account. Please try again.')
             return render(request, self.template_name, {
                 'errors': errors,
