@@ -467,20 +467,19 @@ class ParentInvoiceDetailStripeTests(TestCase):
     def _url(self):
         return reverse('parent_invoice_detail', kwargs={'invoice_id': self.invoice.id})
 
-    def test_pay_now_banner_shown_when_link_set_and_amount_due(self):
-        """Pay Now banner visible when stripe link resolves and amount_due > 0."""
-        self.school.stripe_payment_link = 'https://buy.stripe.com/pay'
-        self.school.save()
+    def test_pay_now_banner_shown_when_amount_due(self):
+        """Pay Now banner visible whenever amount_due > 0 (no static link needed)."""
         response = self.client.get(self._url())
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Pay Now')
-        self.assertContains(response, 'https://buy.stripe.com/pay')
+        self.assertContains(response, 'pay-invoice-btn')
+        self.assertContains(response, 'Pay $')
 
-    def test_pay_now_banner_hidden_when_no_stripe_link(self):
-        """Pay Now banner absent when no Stripe link is configured."""
+    def test_pay_now_banner_uses_dynamic_checkout_url(self):
+        """Pay Now button POSTs to the dynamic checkout endpoint, not a static link."""
+        from django.urls import reverse as _reverse
         response = self.client.get(self._url())
         self.assertEqual(response.status_code, 200)
-        self.assertNotContains(response, 'Pay Now')
+        self.assertContains(response, _reverse('parent_invoice_pay'))
 
     def test_pay_now_banner_hidden_when_invoice_fully_paid(self):
         """Pay Now banner absent when amount_due == 0 (fully paid)."""
@@ -495,23 +494,13 @@ class ParentInvoiceDetailStripeTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, 'Pay Now')
 
-    def test_stripe_link_in_context(self):
-        """stripe_payment_link is passed in template context."""
+    def test_stripe_payment_link_not_in_context(self):
+        """stripe_payment_link is no longer passed in context (replaced by dynamic checkout)."""
         self.school.stripe_payment_link = 'https://buy.stripe.com/ctx'
         self.school.save()
         response = self.client.get(self._url())
-        self.assertEqual(response.context['stripe_payment_link'], 'https://buy.stripe.com/ctx')
-
-    def test_invoice_level_link_overrides_school_link(self):
-        """Invoice-level Stripe link takes priority over school-level in Pay Now banner."""
-        self.school.stripe_payment_link = 'https://buy.stripe.com/school'
-        self.school.save()
-        self.invoice.stripe_payment_link = 'https://buy.stripe.com/invoice-specific'
-        self.invoice.save()
-
-        response = self.client.get(self._url())
-        self.assertContains(response, 'https://buy.stripe.com/invoice-specific')
-        self.assertNotContains(response, 'https://buy.stripe.com/school')
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('stripe_payment_link', response.context)
 
 
 # ---------------------------------------------------------------------------
