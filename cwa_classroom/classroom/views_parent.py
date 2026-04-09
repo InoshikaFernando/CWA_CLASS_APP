@@ -266,26 +266,25 @@ class ParentPaymentHistoryView(RoleRequiredMixin, View):
     required_roles = [Role.PARENT]
 
     def get(self, request):
-        child, school, _ = _get_active_child(request)
-        if not child:
-            return render(request, 'parent/payments.html', {
-                'payments': [], 'children': _get_parent_children(request.user),
-            })
+        children = _get_parent_children(request.user)
+        child_ids = children.values_list('student_id', flat=True)
 
         payments = (
             InvoicePayment.objects.filter(
-                invoice__student=child, invoice__school=school,
+                invoice__student_id__in=child_ids,
                 status__in=['confirmed', 'matched'],
             )
-            .select_related('invoice')
+            .select_related('invoice', 'invoice__student')
             .order_by('-payment_date', '-created_at')
         )
 
+        active_child, active_school, _ = _get_active_child(request)
+
         return render(request, 'parent/payments.html', {
             'payments': payments,
-            'active_child': child,
-            'active_school': school,
-            'children': _get_parent_children(request.user),
+            'active_child': active_child,
+            'active_school': active_school,
+            'children': children,
         })
 
 
