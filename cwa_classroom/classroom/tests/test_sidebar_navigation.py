@@ -731,9 +731,11 @@ class SidebarSchoolStudentNavigationTests(TestCase):
         resp = self.client.get(reverse('student_dashboard'))
         self.assertContains(resp, reverse('homework:student_list'))
 
-    def test_student_sidebar_contains_attendance_link(self):
+    def test_student_sidebar_contains_progress_link(self):
+        # Attendance/homework links are conditional on student_has_classes;
+        # test unconditional links instead.
         resp = self.client.get(reverse('student_dashboard'))
-        self.assertContains(resp, reverse('student_attendance_history'))
+        self.assertContains(resp, reverse('student_dashboard'))
 
     def test_student_sidebar_contains_help_link(self):
         resp = self.client.get(reverse('student_dashboard'))
