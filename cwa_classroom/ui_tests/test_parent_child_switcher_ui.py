@@ -251,6 +251,9 @@ class TestChildSwitcherHomeworkIsolation:
 
     def test_bob_sees_only_his_homework(self):
         do_login(self.page, self.url, self.data["parent"])
+        # Navigate first so the CSRF cookie is set before the switch POST
+        self.page.goto(f"{self.url}/parent/")
+        self.page.wait_for_load_state("domcontentloaded")
         self.page.evaluate(f"""() => {{
             const f = document.createElement('form');
             f.method = 'POST';
