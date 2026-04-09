@@ -1257,7 +1257,7 @@ def execute_import(preview_data, school, uploaded_by):
                 parent_user = CustomUser(
                     username=g_username,
                     email=g_email,
-                    password=make_password(g_password, hasher='md5'),
+                    password=make_password(g_password, hasher='sha1'),
                     first_name=g_data['first_name'],
                     last_name=g_data['last_name'],
                     must_change_password=True,
@@ -1310,11 +1310,11 @@ def execute_import(preview_data, school, uploaded_by):
 
                 # Single save — set all fields upfront and use MD5 for the
                 # temporary password (must_change_password=True forces reset on
-                # first login, so PBKDF2's ~50 ms/hash is not warranted here).
+                # first login, so PBKDF2's ~50 ms/hash is not warranted here; SHA1 is instant and stronger than MD5).
                 user = CustomUser(
                     username=username,
                     email=email,
-                    password=make_password(password, hasher='md5'),
+                    password=make_password(password, hasher='sha1'),
                     first_name=sdata['first_name'],
                     last_name=sdata['last_name'],
                     must_change_password=True,
