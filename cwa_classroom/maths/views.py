@@ -600,11 +600,46 @@ def dashboard(request):
     if request.user.is_teacher:
         return redirect('home')
 
-    # ── Time log (read heartbeat-accumulated time) ────────────────────────
+    # ── Time (quiz-record based, same source as dashboard/hub) ──────────────
+    from django.utils import timezone as _tz
+    from django.utils.timezone import localtime as _localtime
+    from datetime import timedelta as _td
+    _now = _localtime(_tz.now())
+    _today = _now.date()
+    _week_start = _today - _td(days=_now.weekday())
+    _daily_secs = _weekly_secs = 0
+    for _r in StudentFinalAnswer.objects.filter(student=request.user, time_taken_seconds__gt=0):
+        _r_date = _localtime(_r.completed_at).date()
+        if _r_date == _today:
+            _daily_secs += _r.time_taken_seconds
+        if _r_date >= _week_start:
+            _weekly_secs += _r.time_taken_seconds
+    for _r in BasicFactsResult.objects.filter(student=request.user, time_taken_seconds__gt=0):
+        _r_date = _localtime(_r.completed_at).date()
+        if _r_date == _today:
+            _daily_secs += _r.time_taken_seconds
+        if _r_date >= _week_start:
+            _weekly_secs += _r.time_taken_seconds
     try:
-        time_log = get_or_create_time_log(request.user)
+        from number_puzzles.models import PuzzleSession as _PS
+        for _r in _PS.objects.filter(student=request.user, duration_seconds__gt=0, completed_at__isnull=False):
+            _r_date = _localtime(_r.completed_at).date()
+            if _r_date == _today:
+                _daily_secs += _r.duration_seconds
+            if _r_date >= _week_start:
+                _weekly_secs += _r.duration_seconds
     except Exception:
-        time_log = None
+        pass
+    try:
+        from homework.models import HomeworkSubmission as _HS
+        for _r in _HS.objects.filter(student=request.user, time_taken_seconds__gt=0):
+            _r_date = _localtime(_r.submitted_at).date()
+            if _r_date == _today:
+                _daily_secs += _r.time_taken_seconds
+            if _r_date >= _week_start:
+                _weekly_secs += _r.time_taken_seconds
+    except Exception:
+        pass
 
     # ── Whether student is enrolled in any class (for "Browse classes" link) ──
     not_in_any_class = not ClassroomClassRoom.objects.filter(
@@ -682,11 +717,10 @@ def dashboard(request):
     from classroom.views import _format_seconds
     return render(request, 'student/home.html', {
         'year_data': year_data,
-        'time_log': time_log,
         'best_score': best_score,
         'not_in_any_class': not_in_any_class,
-        'time_daily': _format_seconds(time_log.daily_total_seconds if time_log else 0),
-        'time_weekly': _format_seconds(time_log.weekly_total_seconds if time_log else 0),
+        'time_daily': _format_seconds(_daily_secs),
+        'time_weekly': _format_seconds(_weekly_secs),
     })
 
 @login_required
