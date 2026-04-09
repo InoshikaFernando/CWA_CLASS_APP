@@ -167,19 +167,40 @@ class ParentSelfJoinView(View):
                 valid_school_students.append((school_student, relationships[idx]))
                 continue
 
-            # Try individual student lookup: STU-{pk} format (e.g. STU-0042)
-            individual_user = self._lookup_individual_student(sid)
-            if individual_user:
-                existing_link = ParentStudent.objects.filter(
-                    student=individual_user, school__isnull=True, is_active=True,
-                ).count()
-                if existing_link >= 2:
-                    student_errors.append(
-                        f'Student "{individual_user.first_name}" already has '
-                        f'the maximum number of parent accounts linked.'
-                    )
-                    continue
-                valid_individual_students.append((individual_user, relationships[idx]))
+            # Try account ID lookup: STU-{pk} format (e.g. STU-0042) — works for any student
+            account_user = self._lookup_student_by_account_id(sid)
+            if account_user:
+                if account_user.is_individual_student:
+                    # No school — direct link, no approval needed
+                    existing_link = ParentStudent.objects.filter(
+                        student=account_user, school__isnull=True, is_active=True,
+                    ).count()
+                    if existing_link >= 2:
+                        student_errors.append(
+                            f'Student "{account_user.first_name}" already has '
+                            f'the maximum number of parent accounts linked.'
+                        )
+                        continue
+                    valid_individual_students.append((account_user, relationships[idx]))
+                else:
+                    # School student — find active enrolments, go through approval flow
+                    school_students = SchoolStudent.objects.filter(
+                        student=account_user, is_active=True,
+                    ).select_related('school', 'student')
+                    if not school_students.exists():
+                        student_errors.append(f'Student ID "{sid}" was not found.')
+                        continue
+                    for ss in school_students:
+                        parent_count = ParentStudent.objects.filter(
+                            student=ss.student, school=ss.school, is_active=True,
+                        ).count()
+                        if parent_count >= 2:
+                            student_errors.append(
+                                f'Student "{ss.student.first_name}" at {ss.school.name} already has '
+                                f'the maximum number of parent accounts linked.'
+                            )
+                            continue
+                        valid_school_students.append((ss, relationships[idx]))
                 continue
 
             student_errors.append(f'Student ID "{sid}" was not found.')
@@ -283,6 +304,9 @@ class ParentSelfJoinView(View):
             return redirect('parent_dashboard')
 
         except Exception:
+            import sys
+            import traceback
+            print('Parent self-join failed:', traceback.format_exc(), file=sys.stderr)
             messages.error(request, 'An error occurred while creating your account. Please try again.')
             return render(request, self.template_name, {
                 'errors': errors,
@@ -290,10 +314,10 @@ class ParentSelfJoinView(View):
                 'relationship_choices': self.RELATIONSHIP_CHOICES,
             })
 
-    def _lookup_individual_student(self, sid):
+    def _lookup_student_by_account_id(self, sid):
         """
-        Try to resolve a STU-{pk} account ID to an individual student user.
-        Returns the user or None.
+        Try to resolve a STU-{pk} account ID to any student user (individual or school).
+        Returns the user or None. Does NOT match STU-{school}-{seq} format.
         """
         import re as _re
         m = _re.match(r'^STU-(\d+)$', sid.upper())
@@ -307,7 +331,7 @@ class ParentSelfJoinView(View):
             user = CustomUser.objects.get(pk=pk)
         except CustomUser.DoesNotExist:
             return None
-        if user.is_individual_student:
+        if user.is_individual_student or user.is_student:
             return user
         return None
 
