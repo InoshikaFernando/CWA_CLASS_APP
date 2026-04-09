@@ -205,6 +205,19 @@ LOGOUT_REDIRECT_URL = '/'             # Public landing page
 
 PASSWORD_RESET_TIMEOUT = 3600
 
+# SHA1PasswordHasher is included so that bulk-imported accounts (which use SHA1
+# for speed — see import_services.execute_import) can authenticate until the
+# user changes their password on first login (must_change_password=True).
+# PBKDF2 remains the default hasher for all normal account creation.
+PASSWORD_HASHERS = [
+    'django.contrib.auth.hashers.PBKDF2PasswordHasher',
+    'django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher',
+    'django.contrib.auth.hashers.Argon2PasswordHasher',
+    'django.contrib.auth.hashers.BCryptSHA256PasswordHasher',
+    'django.contrib.auth.hashers.ScryptPasswordHasher',
+    'django.contrib.auth.hashers.SHA1PasswordHasher',
+]
+
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
