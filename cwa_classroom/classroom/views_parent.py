@@ -223,16 +223,18 @@ class ParentInvoiceDetailView(RoleRequiredMixin, View):
     required_roles = [Role.PARENT]
 
     def get(self, request, invoice_id):
-        child, school, _ = _get_active_child(request)
-        if not child:
+        children = _get_parent_children(request.user)
+        if not children.exists():
             return redirect('parent_invoices')
+        child_ids = children.values_list('student_id', flat=True)
 
         invoice = get_object_or_404(
-            Invoice, id=invoice_id, student=child, school=school,
+            Invoice, id=invoice_id, student_id__in=child_ids,
             status__in=['issued', 'partially_paid', 'paid'],
         )
         line_items = invoice.line_items.select_related('classroom', 'classroom__department')
         payments = invoice.payments.order_by('-created_at')
+        school = invoice.school
 
         # Get effective settings (with department overrides if applicable)
         primary_dept = None
@@ -242,15 +244,17 @@ class ParentInvoiceDetailView(RoleRequiredMixin, View):
                 break
         effective_settings = school.get_effective_settings(primary_dept)
 
+        # Keep active_child context for nav, but don't restrict invoice lookup by it
+        active_child, _, _ = _get_active_child(request)
+
         return render(request, 'parent/invoice_detail.html', {
             'invoice': invoice,
             'line_items': line_items,
             'payments': payments,
-            'active_child': child,
+            'active_child': active_child,
             'active_school': school,
             'effective_settings': effective_settings,
-            'stripe_payment_link': invoice.get_stripe_payment_link(),
-            'children': _get_parent_children(request.user),
+            'children': children,
         })
 
 
@@ -262,26 +266,33 @@ class ParentPaymentHistoryView(RoleRequiredMixin, View):
     required_roles = [Role.PARENT]
 
     def get(self, request):
-        child, school, _ = _get_active_child(request)
-        if not child:
-            return render(request, 'parent/payments.html', {
-                'payments': [], 'children': _get_parent_children(request.user),
+        children = _get_parent_children(request.user)
+
+        # Build a list of (child, school, [payments]) for each linked child
+        child_sections = []
+        for link in children.select_related('student', 'school'):
+            payments = (
+                InvoicePayment.objects.filter(
+                    invoice__student=link.student,
+                    invoice__school=link.school,
+                    status__in=['confirmed', 'matched'],
+                )
+                .select_related('invoice')
+                .order_by('-payment_date', '-created_at')
+            )
+            child_sections.append({
+                'child': link.student,
+                'school': link.school,
+                'payments': payments,
             })
 
-        payments = (
-            InvoicePayment.objects.filter(
-                invoice__student=child, invoice__school=school,
-                status__in=['confirmed', 'matched'],
-            )
-            .select_related('invoice')
-            .order_by('-payment_date', '-created_at')
-        )
+        active_child, active_school, _ = _get_active_child(request)
 
         return render(request, 'parent/payments.html', {
-            'payments': payments,
-            'active_child': child,
-            'active_school': school,
-            'children': _get_parent_children(request.user),
+            'child_sections': child_sections,
+            'active_child': active_child,
+            'active_school': active_school,
+            'children': children,
         })
 
 

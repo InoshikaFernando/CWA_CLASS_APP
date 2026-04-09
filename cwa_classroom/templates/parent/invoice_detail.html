@@ -25,17 +25,56 @@
     </div>
   </div>
 
-  {% if stripe_payment_link and invoice.amount_due > 0 %}
+  {% if invoice.amount_due > 0 %}
     <div class="bg-violet-600 rounded-2xl p-5 flex items-center justify-between gap-4">
       <div>
         <p class="text-white font-semibold text-sm">Pay online via Stripe</p>
         <p class="text-violet-200 text-xs mt-0.5">Secure payment — you'll be redirected to Stripe's hosted checkout.</p>
       </div>
-      <a href="{{ stripe_payment_link }}" target="_blank" rel="noopener noreferrer"
-         class="flex-shrink-0 px-5 py-2.5 bg-white text-violet-700 font-bold text-sm rounded-xl hover:bg-violet-50 transition shadow-sm">
-        Pay Now &rarr;
-      </a>
+      <button id="pay-invoice-btn"
+              data-amount="{{ invoice.amount_due }}"
+              class="flex-shrink-0 px-5 py-2.5 bg-white text-violet-700 font-bold text-sm rounded-xl hover:bg-violet-50 transition shadow-sm disabled:opacity-60">
+        Pay ${{ invoice.amount_due|floatformat:2 }} &rarr;
+      </button>
     </div>
+    <p id="pay-invoice-error" class="text-red-600 text-xs hidden"></p>
+    <script>
+    (function () {
+      var btn = document.getElementById('pay-invoice-btn');
+      var errEl = document.getElementById('pay-invoice-error');
+      var originalText = btn.innerHTML;
+      btn.addEventListener('click', function () {
+        errEl.classList.add('hidden');
+        btn.disabled = true;
+        btn.textContent = 'Processing\u2026';
+        fetch("{% url 'parent_invoice_pay' %}", {
+          method: 'POST',
+          headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: 'amount=' + btn.dataset.amount,
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.checkout_url) {
+            window.location.href = data.checkout_url;
+          } else {
+            errEl.textContent = data.error || 'Something went wrong. Please try again.';
+            errEl.classList.remove('hidden');
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+          }
+        })
+        .catch(function () {
+          errEl.textContent = 'Network error. Please try again.';
+          errEl.classList.remove('hidden');
+          btn.disabled = false;
+          btn.innerHTML = originalText;
+        });
+      });
+    })();
+    </script>
   {% endif %}
 
   <!-- Summary -->
