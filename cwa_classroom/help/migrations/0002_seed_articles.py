@@ -847,6 +847,302 @@ Click **Confirm** to apply the matches and mark the invoices as paid.
 Unmatched transactions are skipped and can be handled manually later.
 """,
     },
+
+    # ── HoI: School Administration extras ────────────────────────────────────
+    {
+        'category_slug': 'school-administration',
+        'title': 'Importing students in bulk',
+        'slug': 'hoi-importing-students',
+        'excerpt': 'Upload a CSV to create student accounts for your whole school at once.',
+        'module': 'classroom',
+        'page_url_name': 'student_csv_upload',
+        'order': 4,
+        'is_featured': False,
+        'roles': ['hoi', 'hod', 'admin'],
+        'body_markdown': """\
+# Importing students in bulk
+
+Instead of adding students one by one, you can bulk-create accounts by uploading a CSV file.
+
+## Prepare your CSV
+
+Your file needs at minimum:
+
+| Column | Description |
+|---|---|
+| First name | Student's first name |
+| Last name | Student's last name |
+| Email | Used as the login email — must be unique |
+| Year level *(optional)* | e.g. Year 3 |
+| Class name *(optional)* | Enrols the student into a class automatically |
+
+Download the **CSV template** from the import page for the exact format.
+
+## Steps
+
+1. Go to **Admin Dashboard → Schools → Your School → Students → Import Students** (or the teacher menu **Import Students**).
+2. Upload your CSV file.
+3. On the **Map Columns** screen, match each CSV column to the correct field.
+4. Click **Preview** to review the data.
+5. Correct any errors in your file and re-upload if needed.
+6. Click **Confirm Import** to create the accounts.
+7. Download the **Credentials Sheet** and distribute login details to students.
+
+## What happens to duplicates?
+
+If a student with the same email already exists, that row is skipped. No duplicate accounts are created.
+
+## Can I re-run the import?
+
+Yes — the import is safe to re-run with a corrected file. Existing accounts are not duplicated.
+""",
+    },
+    {
+        'category_slug': 'school-administration',
+        'title': 'Importing teachers in bulk',
+        'slug': 'hoi-importing-teachers',
+        'excerpt': 'Upload a CSV to add multiple teacher accounts to your school at once.',
+        'module': 'classroom',
+        'page_url_name': 'teacher_csv_upload',
+        'order': 5,
+        'is_featured': False,
+        'roles': ['hoi', 'admin'],
+        'body_markdown': """\
+# Importing teachers in bulk
+
+You can create multiple teacher accounts at once by uploading a CSV file.
+
+## Prepare your CSV
+
+| Column | Description |
+|---|---|
+| First name | Teacher's first name |
+| Last name | Teacher's last name |
+| Email | Login email — must be unique |
+| Department *(optional)* | Assigns the teacher to a department automatically |
+
+Download the **CSV template** from the import page.
+
+## Steps
+
+1. Go to **Admin Dashboard → Schools → Your School → Teachers → Import Teachers**.
+2. Upload your CSV file.
+3. Map columns to the correct fields.
+4. Click **Preview** to check the data.
+5. Click **Confirm Import** to create the accounts.
+6. Download the **Credentials Sheet** to distribute login details.
+
+## Welcome emails
+
+Teacher accounts are created in an inactive state until the school is published.
+Once published, teachers receive a welcome email with their credentials automatically.
+
+## Assigning teachers to departments after import
+
+After importing, go to each department and use **Manage Teachers** to add the
+newly created teachers to the correct departments.
+""",
+    },
+    {
+        'category_slug': 'school-administration',
+        'title': 'Setting up your school\'s currency',
+        'slug': 'hoi-setup-currency',
+        'excerpt': 'Choose the default currency for all invoices and salary slips in your school.',
+        'module': 'invoicing',
+        'page_url_name': 'admin_school_settings',
+        'order': 6,
+        'is_featured': False,
+        'roles': ['hoi', 'admin'],
+        'body_markdown': """\
+# Setting up your school's currency
+
+All invoices and salary slips in Classroom use a single currency per school.
+The default is **NZD** — change it here if your school operates in a different currency.
+
+## How to set the currency
+
+1. Go to **Admin Dashboard → Schools → Your School → Settings**.
+2. Find the **Default Currency** field.
+3. Select your currency from the dropdown (e.g. NZD, AUD, USD, GBP).
+4. Click **Save**.
+
+## What does the currency affect?
+
+- The currency symbol shown on all invoices (e.g. $ for NZD/USD, £ for GBP).
+- The currency symbol shown on salary slips.
+- The formatting of all monetary amounts across the platform.
+
+## Changing currency after invoices have been issued
+
+Changing the currency does **not** retroactively update existing invoices.
+Only new invoices and salary slips generated after the change will use the new currency.
+We recommend setting the correct currency before issuing any invoices.
+
+## Currency not in the list?
+
+Contact us through the **Contact Us** page and we can enable additional currencies.
+""",
+    },
+
+    # ── HoI: Billing & Payments extras ───────────────────────────────────────
+    {
+        'category_slug': 'billing-payments',
+        'title': 'Setting up fees for your school',
+        'slug': 'hoi-setup-fees',
+        'excerpt': 'Configure default fee rates at the department, subject, and class level.',
+        'module': 'invoicing',
+        'page_url_name': 'fee_configuration',
+        'order': 4,
+        'is_featured': False,
+        'roles': ['hoi', 'hod', 'accountant'],
+        'body_markdown': """\
+# Setting up fees for your school
+
+Classroom uses a flexible fee hierarchy. Fees cascade from the most general
+(department) down to the most specific (individual student), with more
+specific settings overriding less specific ones.
+
+## Fee hierarchy
+
+```
+Department default fee
+  └─ Subject override (optional)
+       └─ Class override (optional)
+            └─ Student override (optional)
+```
+
+## Step 1 — Set a department default fee
+
+1. Go to **Admin Dashboard → Schools → Your School → Departments**.
+2. Open a department and click **Settings** or **Update Fee**.
+3. Enter the default fee per term/session for this department.
+4. Click **Save**.
+
+This fee applies to all classes in the department unless overridden.
+
+## Step 2 — Set subject-level overrides (optional)
+
+Within a department, go to **Subject Levels** and click the fee icon
+next to a subject level to set a different rate for that subject.
+
+## Step 3 — Set class-level overrides (optional)
+
+Go to **Invoicing → Fees** and find the class you want to override.
+Click **Set Fee** next to the class name and enter the override amount.
+
+## Tips
+
+- Leave overrides blank to inherit from the level above.
+- Use **Batch Update** on the fees page to set the same rate across many classes at once.
+""",
+    },
+    {
+        'category_slug': 'billing-payments',
+        'title': 'Overriding fees for a specific class or student',
+        'slug': 'hoi-override-fees',
+        'excerpt': 'Set a custom fee for a single class or give an individual student a different rate.',
+        'module': 'invoicing',
+        'page_url_name': 'fee_configuration',
+        'order': 5,
+        'is_featured': False,
+        'roles': ['hoi', 'hod', 'accountant'],
+        'body_markdown': """\
+# Overriding fees for a specific class or student
+
+Sometimes a single class or student needs a different fee from the department default.
+Classroom lets you override fees at both levels without changing the defaults.
+
+## Override a class fee
+
+1. Go to **Invoicing → Fees**.
+2. Find the class in the list.
+3. Click **Set Fee** next to that class.
+4. Enter the override amount and click **Save**.
+
+The override applies only to this class. All other classes in the department
+continue to use the department default.
+
+## Remove a class fee override
+
+On the fees page, click **Remove Override** next to the class to revert it
+to the department default.
+
+## Override a student fee
+
+To give one student a different rate (e.g. a sibling discount):
+
+1. Go to **Invoicing → Fees → Student Override → Add**.
+2. Search for the student.
+3. Select the class and enter the override fee.
+4. Click **Save**.
+
+Student overrides take priority over both class and department fees.
+
+## Batch update class fees
+
+To set the same fee across many classes at once, use **Invoicing → Fees → Batch Update**.
+Select the classes, enter the new amount, and click **Apply**.
+
+## When do overrides take effect?
+
+Overrides apply to the **next invoice generated** after the change. Already-issued
+invoices are not affected.
+""",
+    },
+
+    # ── For Teachers: Homework ────────────────────────────────────────────────
+    {
+        'category_slug': 'for-teachers',
+        'title': 'Setting up homework for a class',
+        'slug': 'setting-up-homework',
+        'excerpt': 'Create homework assignments with quiz questions and due dates for your class.',
+        'module': 'quiz',
+        'page_url_name': 'homework:teacher_create',
+        'order': 5,
+        'is_featured': False,
+        'roles': ['teacher', 'hod'],
+        'body_markdown': """\
+# Setting up homework for a class
+
+Homework assignments let you set a quiz for students to complete outside of class,
+with a due date and optional attempt limit.
+
+## Creating a homework assignment
+
+1. Go to your **Teacher Dashboard** and open the class.
+2. Click **Create Homework** (or go to **Homework → Create** from the class page).
+3. Fill in the details:
+
+| Field | Description |
+|---|---|
+| **Title** | e.g. "Week 3 Fractions Practice" |
+| **Description** *(optional)* | Instructions for students |
+| **Type** | **Topic Quiz** — questions from one topic; **Mixed Quiz** — questions from multiple topics |
+| **Topics** | Select the topic(s) to draw questions from |
+| **Number of questions** | How many questions to include (default 10) |
+| **Due date** | When students must complete it by |
+| **Max attempts** | Leave blank for unlimited; set a number to restrict retries |
+
+4. Click **Save** to create the assignment.
+
+## After creating the assignment
+
+- Students see it immediately under **Homework** on their dashboard.
+- The assignment shows the due date and their submission status.
+- Once the due date passes, students can no longer submit (unless you edit it).
+
+## Monitoring submissions
+
+Go to **Homework → Monitor** to see:
+- Which students have submitted and their scores.
+- Which students haven't started yet.
+
+## Editing or deleting homework
+
+Open the assignment from **Homework Monitor** and use the **Edit** or **Delete** buttons.
+Editing a live assignment updates it for all students — use with care.
+""",
+    },
 ]
 
 FAQS = [
@@ -905,6 +1201,41 @@ FAQS = [
         'question': 'Can I regenerate an invoice after cancelling it?',
         'answer_markdown': 'Yes. Go to **Invoicing → Generate**, select the same billing period, and regenerate. The cancelled invoice is kept as a record.',
         'order': 1,
+    },
+    {
+        'category_slug': 'school-administration',
+        'role_group': 'hoi',
+        'question': 'Can I change the currency after I\'ve already issued invoices?',
+        'answer_markdown': 'Yes, but only new invoices will use the new currency. Already-issued invoices keep their original currency. Set the currency before issuing any invoices to avoid confusion.',
+        'order': 1,
+    },
+    {
+        'category_slug': 'school-administration',
+        'role_group': 'hoi',
+        'question': 'What happens if I import a student who already has an account?',
+        'answer_markdown': 'Rows with an email address that already exists in the system are skipped automatically. No duplicate accounts are created.',
+        'order': 2,
+    },
+    {
+        'category_slug': 'billing-payments',
+        'role_group': 'hoi',
+        'question': 'Which fee takes priority — department, class, or student?',
+        'answer_markdown': 'Student override > Class override > Subject override > Department default. The most specific setting always wins.',
+        'order': 2,
+    },
+    {
+        'category_slug': 'for-teachers',
+        'role_group': 'teacher',
+        'question': 'Can students redo homework after the due date?',
+        'answer_markdown': 'No — once the due date passes, the homework is locked. Edit the assignment and extend the due date if you want to allow late submissions.',
+        'order': 3,
+    },
+    {
+        'category_slug': 'for-teachers',
+        'role_group': 'teacher',
+        'question': 'How many questions can I include in a homework assignment?',
+        'answer_markdown': 'You can set any number. The default is 10. Questions are drawn randomly from the selected topics each time the homework is generated.',
+        'order': 4,
     },
 ]
 
