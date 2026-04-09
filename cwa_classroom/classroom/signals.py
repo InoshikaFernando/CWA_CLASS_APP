@@ -5,8 +5,9 @@ from django.dispatch import receiver
 @receiver(post_save, sender='classroom.ClassTeacher')
 def auto_assign_teacher_to_department(sender, instance, created, **kwargs):
     """
-    When a teacher is assigned to a class, ensure they are also
-    a member of that class's department (if the class has one).
+    When a teacher is assigned to a class:
+    1. Ensure they are a member of that class's department (if any).
+    2. Auto-grant senior_teacher role if they have no teacher-tier role yet.
     """
     if not created:
         return  # Only on new assignments, not updates
@@ -14,15 +15,29 @@ def auto_assign_teacher_to_department(sender, instance, created, **kwargs):
     classroom = instance.classroom
     teacher = instance.teacher
 
-    if not classroom.department_id:
-        return  # Class has no department — nothing to do
+    # ── 1. Department membership ──────────────────────────────────────────────
+    if classroom.department_id:
+        from .models import DepartmentTeacher
+        DepartmentTeacher.objects.get_or_create(
+            department_id=classroom.department_id,
+            teacher=teacher,
+        )
 
-    from .models import DepartmentTeacher
-
-    DepartmentTeacher.objects.get_or_create(
-        department_id=classroom.department_id,
-        teacher=teacher,
-    )
+    # ── 2. Auto-grant a teacher-tier role if the user has none ───────────────
+    from accounts.models import Role, UserRole
+    TEACHER_TIERS = {Role.JUNIOR_TEACHER, Role.TEACHER, Role.SENIOR_TEACHER}
+    has_teacher_role = UserRole.objects.filter(
+        user=teacher,
+        role__name__in=TEACHER_TIERS,
+    ).exists()
+    if not has_teacher_role:
+        # Prefer senior_teacher; fall back to teacher if it isn't seeded yet
+        default_role = (
+            Role.objects.filter(name=Role.SENIOR_TEACHER).first()
+            or Role.objects.filter(name=Role.TEACHER).first()
+        )
+        if default_role:
+            UserRole.objects.get_or_create(user=teacher, role=default_role)
 
 
 @receiver(post_delete, sender='classroom.ClassTeacher')

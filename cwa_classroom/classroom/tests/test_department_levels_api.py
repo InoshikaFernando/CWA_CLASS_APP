@@ -14,7 +14,7 @@ class DepartmentLevelsAPITestBase(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.admin_user = CustomUser.objects.create_user(
-            'testadmin', 'admin@test.com', 'pass1234',
+            'testadmin', 'wlhtestmails+admin@gmail.com', 'password1!',
         )
         admin_role, _ = Role.objects.get_or_create(
             name=Role.ADMIN, defaults={'display_name': 'Admin'},
@@ -24,9 +24,8 @@ class DepartmentLevelsAPITestBase(TestCase):
         cls.school = School.objects.create(
             name='Test School', slug='test-school', admin=cls.admin_user,
         )
-        SchoolTeacher.objects.create(
-            school=cls.school, teacher=cls.admin_user, role='admin',
-        )
+        SchoolTeacher.objects.update_or_create(
+            school=cls.school, teacher=cls.admin_user, defaults={'role': 'admin'})
 
         cls.maths = Subject.objects.get_or_create(
             slug='mathematics',
@@ -63,7 +62,7 @@ class DepartmentLevelsAPITest(DepartmentLevelsAPITestBase):
 
     def setUp(self):
         self.client = Client()
-        self.client.login(username='testadmin', password='pass1234')
+        self.client.login(username='testadmin', password='password1!')
 
     def test_api_returns_mapped_levels(self):
         for i, lv in enumerate(self.year_levels[:3]):
@@ -158,7 +157,7 @@ class AutoAssignmentTest(DepartmentLevelsAPITestBase):
 
     def setUp(self):
         self.client = Client()
-        self.client.login(username='testadmin', password='pass1234')
+        self.client.login(username='testadmin', password='password1!')
 
     def test_auto_assignment_on_maths_department(self):
         """Creating a Maths department should auto-create DepartmentLevel rows for Year 1-9."""

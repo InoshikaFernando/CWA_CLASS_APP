@@ -703,8 +703,8 @@ def seed_year7_computation_integers(apps, schema_editor):
     Topic = apps.get_model('classroom', 'Topic')
     Level = apps.get_model('classroom', 'Level')
     Subject = apps.get_model('classroom', 'Subject')
-    Question = apps.get_model('quiz', 'Question')
-    Answer = apps.get_model('quiz', 'Answer')
+    Question = apps.get_model('maths', 'Question')
+    Answer = apps.get_model('maths', 'Answer')
 
     maths = Subject.objects.filter(name='Mathematics').first()
     if not maths:

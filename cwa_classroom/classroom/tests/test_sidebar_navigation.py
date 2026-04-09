@@ -57,7 +57,7 @@ def _setup_department(school, head=None):
     DepartmentSubject.objects.create(department=dept, subject=subj)
     if head:
         DepartmentTeacher.objects.create(department=dept, teacher=head)
-        SchoolTeacher.objects.get_or_create(
+        SchoolTeacher.objects.update_or_create(
             school=school, teacher=head,
             defaults={'role': 'head_of_department'},
         )
@@ -74,14 +74,14 @@ class SidebarAdminNavigationTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.user = CustomUser.objects.create_user(
-            username='sidebar_admin', password='pass12345', email='sb_admin@test.com',
+            username='sidebar_admin', password='password1!', email='wlhtestmails+sb_admin@gmail.com',
         )
         _assign_role(cls.user, Role.ADMIN)
         cls.school, cls.sub = _setup_school(cls.user, slug='sb-admin-school')
 
     def setUp(self):
         self.client = Client()
-        self.client.login(username='sidebar_admin', password='pass12345')
+        self.client.login(username='sidebar_admin', password='password1!')
 
     def test_admin_sidebar_contains_dashboard_link(self):
         resp = self.client.get(reverse('admin_dashboard'))
@@ -94,15 +94,15 @@ class SidebarAdminNavigationTests(TestCase):
 
     def test_admin_sidebar_contains_teachers_link(self):
         resp = self.client.get(reverse('admin_dashboard'))
-        self.assertContains(resp, '/admin-dashboard/teachers/')
+        self.assertContains(resp, '/admin-dashboard/manage-teachers/')
 
     def test_admin_sidebar_contains_students_link(self):
         resp = self.client.get(reverse('admin_dashboard'))
-        self.assertContains(resp, '/admin-dashboard/students/')
+        self.assertContains(resp, '/admin-dashboard/manage-students/')
 
     def test_admin_sidebar_contains_academic_years_link(self):
         resp = self.client.get(reverse('admin_dashboard'))
-        self.assertContains(resp, '/admin-dashboard/academic-years/')
+        self.assertContains(resp, '/admin-dashboard/manage-terms/')
 
     def test_admin_sidebar_contains_school_hierarchy_link(self):
         resp = self.client.get(reverse('admin_dashboard'))
@@ -129,6 +129,14 @@ class SidebarAdminNavigationTests(TestCase):
         resp = self.client.get(reverse('admin_dashboard'))
         self.assertContains(resp, reverse('profile'))
 
+    def test_admin_sidebar_contains_settings_link(self):
+        resp = self.client.get(reverse('admin_dashboard'))
+        self.assertContains(resp, reverse('admin_manage_settings'))
+
+    def test_admin_sidebar_contains_settings_label(self):
+        resp = self.client.get(reverse('admin_dashboard'))
+        self.assertContains(resp, '>Settings</span>')
+
 
 # ===========================================================================
 # sidebar_hod.html — HoI / Institute Owner sidebar
@@ -143,7 +151,7 @@ class SidebarHodNavigationTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.user = CustomUser.objects.create_user(
-            username='sidebar_hoi', password='pass12345', email='sb_hoi@test.com',
+            username='sidebar_hoi', password='password1!', email='wlhtestmails+sb_hoi@gmail.com',
         )
         _assign_role(cls.user, Role.HEAD_OF_INSTITUTE)
         cls.school, cls.sub = _setup_school(cls.user, slug='sb-hoi-school')
@@ -151,7 +159,7 @@ class SidebarHodNavigationTests(TestCase):
 
     def setUp(self):
         self.client = Client()
-        self.client.login(username='sidebar_hoi', password='pass12345')
+        self.client.login(username='sidebar_hoi', password='password1!')
 
     def _get_dashboard(self):
         return self.client.get(reverse('hod_overview'))
@@ -214,6 +222,14 @@ class SidebarHodNavigationTests(TestCase):
         resp = self._get_dashboard()
         self.assertContains(resp, reverse('hod_reports'))
 
+    def test_hod_sidebar_contains_settings_link(self):
+        resp = self._get_dashboard()
+        self.assertContains(resp, reverse('admin_manage_settings'))
+
+    def test_hod_sidebar_contains_settings_label(self):
+        resp = self._get_dashboard()
+        self.assertContains(resp, '>Settings</span>')
+
 
 # ===========================================================================
 # sidebar_hod_department.html — HoD-only (department-scoped) sidebar
@@ -230,21 +246,21 @@ class SidebarHodDepartmentNavigationTests(TestCase):
     def setUpTestData(cls):
         # Create an HoI to own the school
         cls.hoi = CustomUser.objects.create_user(
-            username='sb_dept_hoi', password='pass12345', email='sb_dept_hoi@test.com',
+            username='sb_dept_hoi', password='password1!', email='wlhtestmails+sb_dept_hoi@gmail.com',
         )
         _assign_role(cls.hoi, Role.HEAD_OF_INSTITUTE)
         cls.school, cls.sub = _setup_school(cls.hoi, slug='sb-dept-school')
 
         # Create the HoD user (only HoD role, not HoI/Owner)
         cls.hod = CustomUser.objects.create_user(
-            username='sidebar_hod_dept', password='pass12345', email='sb_hod_dept@test.com',
+            username='sidebar_hod_dept', password='password1!', email='wlhtestmails+sb_hod_dept@gmail.com',
         )
         _assign_role(cls.hod, Role.HEAD_OF_DEPARTMENT)
         cls.dept = _setup_department(cls.school, head=cls.hod)
 
     def setUp(self):
         self.client = Client()
-        self.client.login(username='sidebar_hod_dept', password='pass12345')
+        self.client.login(username='sidebar_hod_dept', password='password1!')
 
     def _get_dashboard(self):
         return self.client.get(reverse('hod_overview'))
@@ -290,21 +306,21 @@ class SidebarTeacherNavigationTests(TestCase):
     def setUpTestData(cls):
         # Create HoI + school
         cls.hoi = CustomUser.objects.create_user(
-            username='sb_teach_hoi', password='pass12345', email='sb_teach_hoi@test.com',
+            username='sb_teach_hoi', password='password1!', email='wlhtestmails+sb_teach_hoi@gmail.com',
         )
         _assign_role(cls.hoi, Role.HEAD_OF_INSTITUTE)
         cls.school, cls.sub = _setup_school(cls.hoi, slug='sb-teacher-school')
 
         # Create teacher
         cls.teacher = CustomUser.objects.create_user(
-            username='sidebar_teacher', password='pass12345', email='sb_teacher@test.com',
+            username='sidebar_teacher', password='password1!', email='wlhtestmails+sb_teacher@gmail.com',
         )
         _assign_role(cls.teacher, Role.TEACHER)
-        SchoolTeacher.objects.create(school=cls.school, teacher=cls.teacher, role='teacher')
+        SchoolTeacher.objects.update_or_create(school=cls.school, teacher=cls.teacher, defaults={'role': 'teacher'})
 
     def setUp(self):
         self.client = Client()
-        self.client.login(username='sidebar_teacher', password='pass12345')
+        self.client.login(username='sidebar_teacher', password='password1!')
 
     def _get_dashboard(self):
         return self.client.get(reverse('teacher_dashboard'))
@@ -350,23 +366,22 @@ class SidebarSeniorTeacherNavigationTests(TestCase):
     def setUpTestData(cls):
         # Create HoI + school
         cls.hoi = CustomUser.objects.create_user(
-            username='sb_sr_hoi', password='pass12345', email='sb_sr_hoi@test.com',
+            username='sb_sr_hoi', password='password1!', email='wlhtestmails+sb_sr_hoi@gmail.com',
         )
         _assign_role(cls.hoi, Role.HEAD_OF_INSTITUTE)
         cls.school, cls.sub = _setup_school(cls.hoi, slug='sb-sr-teacher-school')
 
         # Create senior teacher
         cls.teacher = CustomUser.objects.create_user(
-            username='sidebar_sr_teacher', password='pass12345', email='sb_sr_teacher@test.com',
+            username='sidebar_sr_teacher', password='password1!', email='wlhtestmails+sb_sr_teacher@gmail.com',
         )
         _assign_role(cls.teacher, Role.SENIOR_TEACHER)
-        SchoolTeacher.objects.create(
-            school=cls.school, teacher=cls.teacher, role='senior_teacher',
-        )
+        SchoolTeacher.objects.update_or_create(
+            school=cls.school, teacher=cls.teacher, defaults={'role': 'senior_teacher'})
 
     def setUp(self):
         self.client = Client()
-        self.client.login(username='sidebar_sr_teacher', password='pass12345')
+        self.client.login(username='sidebar_sr_teacher', password='password1!')
 
     def _get_dashboard(self):
         return self.client.get(reverse('teacher_dashboard'))

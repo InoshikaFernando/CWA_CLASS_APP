@@ -8,9 +8,8 @@
   <link rel="icon" type="image/png" href="{% static 'images/logo.png' %}" />
   <link rel="apple-touch-icon" href="{% static 'images/logo.png' %}" />
 
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet" />
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="{% static 'css/google-fonts-main.css' %}" rel="stylesheet" />
+  <script src="{% static 'js/tailwind.min.js' %}"></script>
   <script>
     tailwind.config = {
       theme: {
@@ -56,6 +55,13 @@
     <!-- Footer links -->
     <div class="text-center mt-6 text-sm text-gray-500 space-x-4">
       {% block footer_links %}{% endblock %}
+    </div>
+
+    <!-- Legal links -->
+    <div class="text-center mt-3 text-xs text-gray-400 space-x-3">
+      <a href="{% url 'terms_conditions' %}" class="hover:text-gray-600 transition">Terms and Conditions</a>
+      <span>&middot;</span>
+      <a href="{% url 'privacy_policy' %}" class="hover:text-gray-600 transition">Privacy Policy</a>
     </div>
 
   </div>

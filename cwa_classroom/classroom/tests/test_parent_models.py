@@ -22,7 +22,7 @@ class ParentRoleTest(TestCase):
             name=Role.STUDENT, defaults={'display_name': 'Student'},
         )
         cls.user = CustomUser.objects.create_user(
-            'parentuser', 'parent@test.com', 'pass1234',
+            'parentuser', 'wlhtestmails+parent@gmail.com', 'password1!',
         )
 
     def test_parent_role_constant(self):
@@ -58,7 +58,7 @@ class ParentStudentModelTest(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.admin_user = CustomUser.objects.create_user(
-            'admin', 'admin@test.com', 'pass1234',
+            'admin', 'wlhtestmails+admin@gmail.com', 'password1!',
         )
         cls.school = School.objects.create(
             name='Test School', slug='test-school', admin=cls.admin_user,
@@ -71,32 +71,32 @@ class ParentStudentModelTest(TestCase):
         )
 
         cls.parent_a = CustomUser.objects.create_user(
-            'parent_a', 'pa@test.com', 'pass1234',
+            'parent_a', 'wlhtestmails+pa@gmail.com', 'password1!',
             first_name='Alice', last_name='Parent',
         )
         cls.parent_a.roles.add(cls.parent_role)
 
         cls.parent_b = CustomUser.objects.create_user(
-            'parent_b', 'pb@test.com', 'pass1234',
+            'parent_b', 'wlhtestmails+pb@gmail.com', 'password1!',
             first_name='Bob', last_name='Parent',
         )
         cls.parent_b.roles.add(cls.parent_role)
 
         cls.parent_c = CustomUser.objects.create_user(
-            'parent_c', 'pc@test.com', 'pass1234',
+            'parent_c', 'wlhtestmails+pc@gmail.com', 'password1!',
             first_name='Charlie', last_name='Parent',
         )
         cls.parent_c.roles.add(cls.parent_role)
 
         cls.student = CustomUser.objects.create_user(
-            'student1', 'student1@test.com', 'pass1234',
+            'student1', 'wlhtestmails+student1@gmail.com', 'password1!',
             first_name='Zara', last_name='Student',
         )
         cls.student.roles.add(cls.student_role)
         SchoolStudent.objects.create(school=cls.school, student=cls.student)
 
         cls.student_b = CustomUser.objects.create_user(
-            'student2', 'student2@test.com', 'pass1234',
+            'student2', 'wlhtestmails+student2@gmail.com', 'password1!',
             first_name='Yuki', last_name='Student',
         )
         cls.student_b.roles.add(cls.student_role)
@@ -218,7 +218,7 @@ class ParentInviteModelTest(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.admin_user = CustomUser.objects.create_user(
-            'admin', 'admin@test.com', 'pass1234',
+            'admin', 'wlhtestmails+admin@gmail.com', 'password1!',
         )
         cls.school = School.objects.create(
             name='Test School', slug='test-school', admin=cls.admin_user,
@@ -227,7 +227,7 @@ class ParentInviteModelTest(TestCase):
             name=Role.STUDENT, defaults={'display_name': 'Student'},
         )
         cls.student = CustomUser.objects.create_user(
-            'student1', 'student1@test.com', 'pass1234',
+            'student1', 'wlhtestmails+student1@gmail.com', 'password1!',
         )
         cls.student.roles.add(cls.student_role)
 
@@ -235,7 +235,7 @@ class ParentInviteModelTest(TestCase):
         defaults = {
             'school': self.school,
             'student': self.student,
-            'parent_email': 'parent@example.com',
+            'parent_email': 'wlhtestmails+parent@gmail.com',
             'invited_by': self.admin_user,
             'expires_at': timezone.now() + timedelta(days=7),
         }
@@ -246,7 +246,7 @@ class ParentInviteModelTest(TestCase):
         invite = self._make_invite()
         self.assertEqual(invite.status, 'pending')
         self.assertIsNotNone(invite.token)
-        self.assertEqual(invite.parent_email, 'parent@example.com')
+        self.assertEqual(invite.parent_email, 'wlhtestmails+parent@gmail.com')
 
     def test_token_is_uuid(self):
         import uuid
@@ -255,7 +255,7 @@ class ParentInviteModelTest(TestCase):
 
     def test_token_is_unique(self):
         invite1 = self._make_invite()
-        invite2 = self._make_invite(parent_email='other@example.com')
+        invite2 = self._make_invite(parent_email='wlhtestmails+other@gmail.com')
         self.assertNotEqual(invite1.token, invite2.token)
 
     def test_is_valid_pending_and_not_expired(self):
@@ -279,7 +279,7 @@ class ParentInviteModelTest(TestCase):
     def test_str(self):
         invite = self._make_invite()
         s = str(invite)
-        self.assertIn('parent@example.com', s)
+        self.assertIn('wlhtestmails+parent@gmail.com', s)
         self.assertIn('student1', s)
         self.assertIn('pending', s)
 

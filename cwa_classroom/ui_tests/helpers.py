@@ -32,16 +32,13 @@ def _ensure_sidebar_visible(page: Page) -> None:
         const aside = document.querySelector('aside#sidebar');
         if (aside) {
             aside.style.display = 'flex';
-            // Expand all Alpine.js collapsed sections
-            aside.querySelectorAll('[x-show]').forEach(el => {
-                el.style.display = '';
-                el.removeAttribute('style');
-                el.style.display = 'flex';
-            });
-            // Also expand flex-col divs that might be collapsed
-            aside.querySelectorAll('div[x-show]').forEach(el => {
-                el.style.display = 'flex';
-                el.style.flexDirection = 'column';
+            aside.style.flexDirection = 'column';
+            // Force collapsible nav sections visible (Alpine x-show sets display:none)
+            // Only expand sections that contain links, not dropdowns
+            aside.querySelectorAll('nav [x-show]').forEach(el => {
+                if (el.querySelector('a')) {
+                    el.style.setProperty('display', 'flex', 'important');
+                }
             });
         }
     }""")

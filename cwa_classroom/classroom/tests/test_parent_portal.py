@@ -33,7 +33,7 @@ class ParentPortalTestBase(TestCase):
 
         # Admin & school
         cls.admin_user = CustomUser.objects.create_user(
-            'admin', 'admin@test.com', 'pass1234',
+            'admin', 'wlhtestmails+admin@gmail.com', 'password1!',
         )
         cls.admin_user.roles.add(cls.admin_role)
         cls.school = School.objects.create(
@@ -42,7 +42,7 @@ class ParentPortalTestBase(TestCase):
 
         # Student
         cls.student = CustomUser.objects.create_user(
-            'student1', 'student@test.com', 'pass1234',
+            'student1', 'wlhtestmails+student@gmail.com', 'password1!',
             first_name='Zara', last_name='Student',
         )
         cls.student.roles.add(cls.student_role)
@@ -50,7 +50,7 @@ class ParentPortalTestBase(TestCase):
 
         # Parent linked to student
         cls.parent = CustomUser.objects.create_user(
-            'parent1', 'parent@test.com', 'pass1234',
+            'parent1', 'wlhtestmails+parent@gmail.com', 'password1!',
             first_name='Jane', last_name='Parent',
         )
         cls.parent.roles.add(cls.parent_role)
@@ -61,7 +61,7 @@ class ParentPortalTestBase(TestCase):
 
         # Unlinked parent (should not see student data)
         cls.other_parent = CustomUser.objects.create_user(
-            'other_parent', 'other@test.com', 'pass1234',
+            'other_parent', 'wlhtestmails+other@gmail.com', 'password1!',
         )
         cls.other_parent.roles.add(cls.parent_role)
 
@@ -141,7 +141,7 @@ class ParentDashboardTest(ParentPortalTestBase):
 
     def setUp(self):
         self.client = Client()
-        self.client.login(username='parent1', password='pass1234')
+        self.client.login(username='parent1', password='password1!')
 
     def test_dashboard_loads(self):
         resp = self.client.get(reverse('parent_dashboard'))
@@ -154,7 +154,7 @@ class ParentDashboardTest(ParentPortalTestBase):
         self.assertContains(resp, 'Test School')
 
     def test_dashboard_requires_parent_role(self):
-        self.client.login(username='student1', password='pass1234')
+        self.client.login(username='student1', password='password1!')
         resp = self.client.get(reverse('parent_dashboard'))
         self.assertNotEqual(resp.status_code, 200)
 
@@ -169,7 +169,7 @@ class ParentSwitchChildTest(ParentPortalTestBase):
 
     def setUp(self):
         self.client = Client()
-        self.client.login(username='parent1', password='pass1234')
+        self.client.login(username='parent1', password='password1!')
 
     def test_switch_child_updates_session(self):
         url = reverse('parent_switch_child', args=[self.student.id])
@@ -181,7 +181,7 @@ class ParentSwitchChildTest(ParentPortalTestBase):
         )
 
     def test_switch_unlinked_child_ignored(self):
-        other_student = CustomUser.objects.create_user('s2', 's2@t.com', 'pass1234')
+        other_student = CustomUser.objects.create_user('s2', 'wlhtestmails+s2@gmail.com', 'password1!')
         url = reverse('parent_switch_child', args=[other_student.id])
         self.client.post(url)
         # Should NOT set the unlinked student as active
@@ -195,7 +195,7 @@ class ParentInvoicesTest(ParentPortalTestBase):
 
     def setUp(self):
         self.client = Client()
-        self.client.login(username='parent1', password='pass1234')
+        self.client.login(username='parent1', password='password1!')
 
     def test_invoice_list_loads(self):
         resp = self.client.get(reverse('parent_invoices'))
@@ -230,7 +230,7 @@ class ParentInvoicesTest(ParentPortalTestBase):
         self.assertContains(resp, '50.00')
 
     def test_unlinked_parent_cannot_see_invoice(self):
-        self.client.login(username='other_parent', password='pass1234')
+        self.client.login(username='other_parent', password='password1!')
         resp = self.client.get(reverse('parent_invoice_detail', args=[self.invoice.id]))
         # Unlinked parent has no active child, so view redirects
         self.assertIn(resp.status_code, [302, 404])
@@ -253,7 +253,7 @@ class ParentPaymentHistoryTest(ParentPortalTestBase):
 
     def setUp(self):
         self.client = Client()
-        self.client.login(username='parent1', password='pass1234')
+        self.client.login(username='parent1', password='password1!')
 
     def test_payment_history_loads(self):
         resp = self.client.get(reverse('parent_payment_history'))
@@ -269,7 +269,7 @@ class ParentAttendanceTest(ParentPortalTestBase):
 
     def setUp(self):
         self.client = Client()
-        self.client.login(username='parent1', password='pass1234')
+        self.client.login(username='parent1', password='password1!')
 
     def test_attendance_loads(self):
         resp = self.client.get(reverse('parent_attendance'))
@@ -294,7 +294,7 @@ class ParentProgressTest(ParentPortalTestBase):
 
     def setUp(self):
         self.client = Client()
-        self.client.login(username='parent1', password='pass1234')
+        self.client.login(username='parent1', password='password1!')
 
     def test_progress_loads(self):
         resp = self.client.get(reverse('parent_progress'))
@@ -319,7 +319,7 @@ class ParentDataIsolationTest(ParentPortalTestBase):
 
     def setUp(self):
         self.client = Client()
-        self.client.login(username='other_parent', password='pass1234')
+        self.client.login(username='other_parent', password='password1!')
 
     def test_unlinked_parent_sees_empty_invoices(self):
         resp = self.client.get(reverse('parent_invoices'))

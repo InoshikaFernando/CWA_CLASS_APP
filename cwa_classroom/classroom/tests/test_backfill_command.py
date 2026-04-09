@@ -14,7 +14,7 @@ class BackfillDepartmentLevelsTest(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.admin = CustomUser.objects.create_user(
-            'admin', 'admin@test.com', 'pass1234',
+            'admin', 'wlhtestmails+admin@gmail.com', 'password1!',
         )
         cls.school = School.objects.create(
             name='Test School', slug='test-school', admin=cls.admin,

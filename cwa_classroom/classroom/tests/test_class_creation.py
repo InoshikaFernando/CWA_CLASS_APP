@@ -14,7 +14,7 @@ class ClassCreationTestBase(TestCase):
     def setUpTestData(cls):
         # Admin user (also institute owner for class creation)
         cls.admin_user = CustomUser.objects.create_user(
-            'testadmin', 'admin@test.com', 'pass1234',
+            'testadmin', 'wlhtestmails+admin@gmail.com', 'password1!',
         )
         admin_role, _ = Role.objects.get_or_create(
             name=Role.ADMIN, defaults={'display_name': 'Admin'},
@@ -27,7 +27,7 @@ class ClassCreationTestBase(TestCase):
 
         # HoD user
         cls.hod_user = CustomUser.objects.create_user(
-            'testhod', 'hod@test.com', 'pass1234',
+            'testhod', 'wlhtestmails+hod@gmail.com', 'password1!',
         )
         hod_role, _ = Role.objects.get_or_create(
             name=Role.HEAD_OF_DEPARTMENT,
@@ -38,12 +38,10 @@ class ClassCreationTestBase(TestCase):
         cls.school = School.objects.create(
             name='Test School', slug='test-school', admin=cls.admin_user,
         )
-        SchoolTeacher.objects.create(
-            school=cls.school, teacher=cls.admin_user, role='admin',
-        )
-        SchoolTeacher.objects.create(
-            school=cls.school, teacher=cls.hod_user, role='head_of_department',
-        )
+        SchoolTeacher.objects.update_or_create(
+            school=cls.school, teacher=cls.admin_user, defaults={'role': 'admin'})
+        SchoolTeacher.objects.update_or_create(
+            school=cls.school, teacher=cls.hod_user, defaults={'role': 'head_of_department'})
 
         cls.maths = Subject.objects.get_or_create(
             slug='mathematics',
@@ -88,7 +86,7 @@ class AdminClassCreationTest(ClassCreationTestBase):
 
     def setUp(self):
         self.client = Client()
-        self.client.login(username='testadmin', password='pass1234')
+        self.client.login(username='testadmin', password='password1!')
 
     def test_class_inherits_subject_from_department(self):
         url = reverse('create_class')
@@ -131,7 +129,7 @@ class HoDClassCreationTest(ClassCreationTestBase):
 
     def setUp(self):
         self.client = Client()
-        self.client.login(username='testhod', password='pass1234')
+        self.client.login(username='testhod', password='password1!')
 
     def test_hod_class_inherits_subject(self):
         url = reverse('hod_create_class')

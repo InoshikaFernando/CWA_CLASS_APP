@@ -19,8 +19,8 @@ def get_effective_fee_for_student(class_student) -> Optional[Decimal]:
 
     Returns None if no fee is set anywhere in the chain.
     """
-    # 1. Student-level override
-    if class_student.fee_override is not None:
+    # 1. Student-level override (0 is treated as "no override" — use inherited fee)
+    if class_student.fee_override:
         return class_student.fee_override
 
     return get_effective_fee_for_class(class_student.classroom)
@@ -73,7 +73,7 @@ def get_fee_source_label(class_student) -> str:
     E.g. 'Student override', 'Class override', 'Level: Beginner',
          'Subject: Guitar', 'Department default'.
     """
-    if class_student.fee_override is not None:
+    if class_student.fee_override:
         return 'Student override'
 
     return _get_class_fee_source(class_student.classroom)

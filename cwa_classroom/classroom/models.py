@@ -97,7 +97,115 @@ class Topic(models.Model):
         unique_together = ('subject', 'slug')
 
     def __str__(self):
+        if self.parent_id:
+            return f'{self.subject.name} — {self.parent.name} › {self.name}'
         return f'{self.subject.name} — {self.name}'
+
+
+# ---------------------------------------------------------------------------
+# Currency (reference / lookup table)
+# ---------------------------------------------------------------------------
+
+class Currency(models.Model):
+    """ISO 4217 currency reference table. Active currencies appear in dropdowns."""
+
+    SYMBOL_BEFORE = 'before'
+    SYMBOL_AFTER = 'after'
+    SYMBOL_POSITION_CHOICES = [
+        (SYMBOL_BEFORE, 'Before amount'),
+        (SYMBOL_AFTER, 'After amount'),
+    ]
+
+    code = models.CharField(
+        max_length=3,
+        primary_key=True,
+        help_text='ISO 4217 three-letter currency code (e.g. NZD, USD).',
+    )
+    name = models.CharField(max_length=100, help_text='e.g. "New Zealand Dollar"')
+    symbol = models.CharField(max_length=5, help_text='e.g. "$", "£", "€"')
+    symbol_position = models.CharField(
+        max_length=6,
+        choices=SYMBOL_POSITION_CHOICES,
+        default=SYMBOL_BEFORE,
+    )
+    decimal_places = models.PositiveSmallIntegerField(
+        default=2,
+        help_text='Number of decimal places (typically 2; 0 for JPY, KRW).',
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text='Only active currencies are shown in dropdowns.',
+    )
+
+    class Meta:
+        ordering = ['code']
+        verbose_name = 'Currency'
+        verbose_name_plural = 'Currencies'
+
+    def __str__(self):
+        return f'{self.code} - {self.name}'
+
+    def get_references(self):
+        """Return lists of schools/departments/classes that reference this currency.
+
+        Used by guard-rail logic to prevent deactivating an in-use currency.
+        Returns a dict with keys 'schools', 'departments', 'classes'.
+        """
+        # Import here to avoid circular import at module load
+        schools = list(School.objects.filter(default_currency=self).values_list('name', flat=True))
+        departments = list(Department.objects.filter(currency_override=self).values_list('name', flat=True))
+        classes = list(ClassRoom.objects.filter(currency_override=self).values_list('name', flat=True))
+        return {'schools': schools, 'departments': departments, 'classes': classes}
+
+    def clean(self):
+        """Block deactivation if any school/department/class still references this currency."""
+        from django.core.exceptions import ValidationError
+        if not self.is_active:
+            # Check if this record already exists and was previously active
+            if self.pk:
+                try:
+                    original = Currency.objects.get(pk=self.pk)
+                except Currency.DoesNotExist:
+                    return
+                if original.is_active:
+                    # Being set to inactive — check references
+                    refs = self.get_references()
+                    messages_parts = []
+                    if refs['schools']:
+                        messages_parts.append(f"Schools: {', '.join(refs['schools'])}")
+                    if refs['departments']:
+                        messages_parts.append(f"Departments: {', '.join(refs['departments'])}")
+                    if refs['classes']:
+                        messages_parts.append(f"Classes: {', '.join(refs['classes'])}")
+                    if messages_parts:
+                        raise ValidationError(
+                            f"Cannot deactivate {self.code}: it is still in use. "
+                            + " | ".join(messages_parts)
+                        )
+
+    def format_amount(self, value) -> str:
+        """Return *value* formatted as a currency string using this currency's rules.
+
+        Examples::
+
+            nzd.format_amount(Decimal("99.50"))  → "$99.50"
+            jpy.format_amount(Decimal("1500"))   → "¥1500"
+            sek.format_amount(Decimal("250.00")) → "250.00\xa0kr"
+        """
+        from decimal import Decimal as _Decimal, ROUND_HALF_UP
+
+        quantize_str = '1' if self.decimal_places == 0 else '0.' + '0' * self.decimal_places
+        amount = _Decimal(str(value)).quantize(_Decimal(quantize_str), rounding=ROUND_HALF_UP)
+        formatted = f'{amount:,f}'
+        # Strip trailing zeros beyond desired decimal places then re-pad
+        if self.decimal_places == 0:
+            formatted = str(int(amount))
+        else:
+            formatted = f'{amount:.{self.decimal_places}f}'
+
+        if self.symbol_position == self.SYMBOL_BEFORE:
+            return f'{self.symbol}{formatted}'
+        return f'{formatted}\u00a0{self.symbol}'
 
 
 # ---------------------------------------------------------------------------
@@ -140,11 +248,31 @@ class School(models.Model):
     state_region = models.CharField(max_length=100, blank=True)
     postal_code = models.CharField(max_length=20, blank=True)
     country = models.CharField(max_length=100, blank=True)
+    timezone = models.CharField(
+        max_length=63, blank=True, default='',
+        help_text='IANA timezone (e.g. America/New_York, Pacific/Auckland). '
+                  'Used for scheduling and "today" calculations. '
+                  'Falls back to server TIME_ZONE if blank.',
+    )
+    # Stripe payment
+    stripe_payment_link = models.URLField(
+        blank=True,
+        help_text='Default Stripe Payment Link for this institute. Parents see a Pay Now button linking here.',
+    )
     # Branding & email
     logo = models.ImageField(upload_to='school_logos/', blank=True)
     outgoing_email = models.EmailField(
         blank=True,
         help_text='Outgoing email address used for invoices and communications.',
+    )
+
+    # Currency
+    default_currency = models.ForeignKey(
+        'Currency',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='schools',
+        help_text='Default currency for invoices. Null = USD system default.',
     )
 
     # Suspension
@@ -208,11 +336,11 @@ class School(models.Model):
         'outgoing_email',
         'abn', 'gst_number',
         'street_address', 'city', 'state_region', 'postal_code', 'country',
-        'logo',
+        'logo', 'timezone',
     ]
 
-    def get_effective_settings(self, department=None):
-        """Return settings dict, applying department overrides where non-null/non-blank."""
+    def get_effective_settings(self, department=None, classroom=None):
+        """Return settings dict, applying department then classroom overrides where non-null/non-blank."""
         result = {}
         for field in self.SETTINGS_FIELDS:
             result[field] = getattr(self, field)
@@ -227,7 +355,43 @@ class School(models.Model):
                         result[field] = dept_val
                 elif dept_val != '':
                     result[field] = dept_val
+        if classroom:
+            # Apply classroom-level overrides (subset of settings fields)
+            for field in classroom.CLASS_OVERRIDE_FIELDS:
+                cls_val = getattr(classroom, field, None)
+                if cls_val is None:
+                    continue
+                if cls_val != '':
+                    result[field] = cls_val
         return result
+
+    def get_local_now(self):
+        """Return the current datetime in the school's timezone."""
+        import zoneinfo
+        from django.utils import timezone as dj_tz
+        tz_name = self.timezone or settings.TIME_ZONE
+        try:
+            tz = zoneinfo.ZoneInfo(tz_name)
+        except (KeyError, Exception):
+            tz = zoneinfo.ZoneInfo(settings.TIME_ZONE)
+        return dj_tz.now().astimezone(tz)
+
+    def get_local_date(self):
+        """Return today's date in the school's timezone."""
+        return self.get_local_now().date()
+
+    def get_effective_currency(self):
+        """Return the effective Currency for this school.
+
+        Returns ``default_currency`` if set, otherwise falls back to USD.
+        If USD is not seeded, returns ``None``.
+        """
+        if self.default_currency_id:
+            return self.default_currency
+        try:
+            return Currency.objects.get(code='USD')
+        except Currency.DoesNotExist:
+            return None
 
 
 class SchoolTeacher(models.Model):
@@ -292,7 +456,7 @@ class Department(models.Model):
     default_fee = models.DecimalField(
         max_digits=8, decimal_places=2,
         null=True, blank=True,
-        help_text='Default fee (NZD) for all subjects/levels/classes in this department.',
+        help_text='Default fee (USD) for all subjects/levels/classes in this department.',
     )
     # ── Settings overrides (blank = use school default) ──
     bank_name = models.CharField(max_length=100, blank=True)
@@ -310,6 +474,17 @@ class Department(models.Model):
     postal_code = models.CharField(max_length=20, blank=True)
     country = models.CharField(max_length=100, blank=True)
     logo = models.ImageField(upload_to='department_logos/', blank=True)
+    stripe_payment_link = models.URLField(
+        blank=True,
+        help_text='Stripe Payment Link override for this department. Overrides the institute default.',
+    )
+    currency_override = models.ForeignKey(
+        'Currency',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='departments',
+        help_text='Currency override for this department. Null = inherit from school.',
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -320,6 +495,15 @@ class Department(models.Model):
 
     def __str__(self):
         return f'{self.name} — {self.school.name}'
+
+    def get_effective_currency(self):
+        """Return the effective Currency for this department.
+
+        Resolution: ``currency_override`` → ``school.get_effective_currency()``.
+        """
+        if self.currency_override_id:
+            return self.currency_override
+        return self.school.get_effective_currency()
 
     @property
     def primary_subject(self):
@@ -457,6 +641,8 @@ class Term(models.Model):
     start_date = models.DateField()
     end_date = models.DateField()
     order = models.PositiveIntegerField(default=0)
+    is_confirmed = models.BooleanField(default=False)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ['order', 'start_date']
@@ -608,12 +794,54 @@ class ClassRoom(models.Model):
         null=True, blank=True,
         help_text='Fee override for this class. NULL = inherit from level/subject/department.',
     )
+    currency_override = models.ForeignKey(
+        'Currency',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='classes',
+        help_text='Currency override for this class. Null = inherit from department.',
+    )
+    # ── Settings overrides (blank = use department/school default) ──
+    bank_name = models.CharField(max_length=100, blank=True)
+    bank_bsb = models.CharField('BSB', max_length=20, blank=True)
+    bank_account_number = models.CharField(max_length=30, blank=True)
+    bank_account_name = models.CharField(max_length=200, blank=True)
+    gst_number = models.CharField('GST / VAT Number', max_length=50, blank=True)
+
+    # Fields that can be overridden at class level
+    CLASS_OVERRIDE_FIELDS = [
+        'bank_name', 'bank_bsb', 'bank_account_number', 'bank_account_name',
+        'gst_number',
+    ]
 
     class Meta:
         ordering = ['name']
 
     def __str__(self):
         return f'{self.name} ({self.code})'
+
+    def get_effective_currency(self):
+        """Return the effective Currency for this class.
+
+        Resolution chain::
+
+            ClassRoom.currency_override
+            → Department.currency_override
+            → School.default_currency
+            → USD (system default)
+
+        Returns ``None`` only if USD is not seeded.
+        """
+        if self.currency_override_id:
+            return self.currency_override
+        if self.department_id:
+            return self.department.get_effective_currency()
+        if self.school_id:
+            return self.school.get_effective_currency()
+        try:
+            return Currency.objects.get(code='USD')
+        except Currency.DoesNotExist:
+            return None
 
     def save(self, *args, **kwargs):
         if not self.code:
@@ -861,6 +1089,15 @@ class AbsenceToken(models.Model):
     """Token issued when a student marks themselves absent, redeemable at another
     class covering the same level as a makeup session."""
 
+    STATUS_PENDING = 'pending'
+    STATUS_APPROVED = 'approved'
+    STATUS_REJECTED = 'rejected'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_APPROVED, 'Approved'),
+        (STATUS_REJECTED, 'Rejected'),
+    ]
+
     student = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -886,6 +1123,18 @@ class AbsenceToken(models.Model):
     )
     note = models.TextField(blank=True)
 
+    # Approval workflow
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    expires_at = models.DateTimeField(null=True, blank=True)  # None = unlimited
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='absence_tokens_reviewed',
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    rejection_reason = models.TextField(blank=True)
+
     # Redemption fields
     redeemed = models.BooleanField(default=False)
     redeemed_session = models.ForeignKey(
@@ -900,8 +1149,15 @@ class AbsenceToken(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        status = 'Used' if self.redeemed else 'Available'
-        return f'AbsenceToken({self.student.username}, {self.original_classroom.name}, {status})'
+        label = 'Used' if self.redeemed else self.get_status_display()
+        return f'AbsenceToken({self.student.username}, {self.original_classroom.name}, {label})'
+
+    @property
+    def is_expired(self):
+        if self.expires_at is None:
+            return False
+        from django.utils import timezone
+        return timezone.now() > self.expires_at
 
 
 class StudentAttendance(models.Model):
@@ -1084,6 +1340,10 @@ class Notification(models.Model):
         ('enrollment_approved', 'Enrollment Approved'),
         ('enrollment_rejected', 'Enrollment Rejected'),
         ('attendance', 'Attendance'),
+        ('parent_link_request', 'Parent Link Request'),
+        ('parent_link_approved', 'Parent Link Approved'),
+        ('parent_link_rejected', 'Parent Link Rejected'),
+        ('homework_assigned', 'Homework Assigned'),
         ('general', 'General'),
     ]
     user = models.ForeignKey(
@@ -1204,6 +1464,60 @@ class ParentInvite(models.Model):
     def is_valid(self):
         from django.utils import timezone
         return self.status == 'pending' and self.expires_at > timezone.now()
+
+
+# ---------------------------------------------------------------------------
+# Parent Link Request — approval workflow for self-join parents
+# ---------------------------------------------------------------------------
+
+class ParentLinkRequest(models.Model):
+    """
+    Pending request from a self-registered parent to be linked to a student.
+    Created when a parent registers via /register/parent-join/.
+    A teacher/HoI must approve before ParentStudent is created.
+    """
+    STATUS_PENDING = 'pending'
+    STATUS_APPROVED = 'approved'
+    STATUS_REJECTED = 'rejected'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_APPROVED, 'Approved'),
+        (STATUS_REJECTED, 'Rejected'),
+    ]
+
+    RELATIONSHIP_CHOICES = ParentStudent.RELATIONSHIP_CHOICES
+
+    parent = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='parent_link_requests',
+    )
+    school_student = models.ForeignKey(
+        'SchoolStudent', on_delete=models.CASCADE,
+        related_name='parent_link_requests',
+    )
+    relationship = models.CharField(
+        max_length=30, choices=RELATIONSHIP_CHOICES, blank=True,
+    )
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING,
+    )
+    requested_at = models.DateTimeField(auto_now_add=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+    )
+    rejection_reason = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['-requested_at']
+        unique_together = ('parent', 'school_student')
+
+    def __str__(self):
+        return (
+            f'{self.parent.username} → {self.school_student.student.username} '
+            f'@ {self.school_student.school.name} ({self.status})'
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1445,6 +1759,12 @@ class Invoice(models.Model):
         ('paid', 'Paid'),
         ('cancelled', 'Cancelled'),
     ]
+    PERIOD_TYPE_CHOICES = [
+        ('custom', 'Custom'),
+        ('month', 'Month'),
+        ('term', 'Term'),
+        ('year', 'Year'),
+    ]
 
     invoice_number = models.CharField(max_length=50, unique=True)
     school = models.ForeignKey('School', on_delete=models.CASCADE,
@@ -1456,6 +1776,8 @@ class Invoice(models.Model):
     attendance_mode = models.CharField(max_length=20, choices=ATTENDANCE_MODE_CHOICES)
     billing_type = models.CharField(max_length=20, choices=BILLING_TYPE_CHOICES,
                                      default='post_term')
+    period_type = models.CharField(max_length=10, choices=PERIOD_TYPE_CHOICES,
+                                    default='custom')
     calculated_amount = models.DecimalField(max_digits=10, decimal_places=2,
                                              help_text='System-calculated sum of line items')
     amount = models.DecimalField(max_digits=10, decimal_places=2,
@@ -1464,6 +1786,10 @@ class Invoice(models.Model):
     issued_at = models.DateTimeField(null=True, blank=True)
     due_date = models.DateField(null=True, blank=True)
     notes = models.TextField(blank=True)
+    stripe_payment_link = models.URLField(
+        blank=True,
+        help_text='Stripe Payment Link override for this invoice. Overrides department and institute defaults.',
+    )
     cancelled_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
                                       null=True, blank=True, related_name='+')
     cancelled_at = models.DateTimeField(null=True, blank=True)
@@ -1478,6 +1804,19 @@ class Invoice(models.Model):
 
     def __str__(self):
         return f'{self.invoice_number} — {self.student} (${self.amount})'
+
+    def get_stripe_payment_link(self):
+        """Resolve Stripe Payment Link using fallback chain: invoice → department → institute."""
+        if self.stripe_payment_link:
+            return self.stripe_payment_link
+        first_li = self.line_items.select_related('department').filter(
+            department__stripe_payment_link__gt='',
+        ).first()
+        if first_li:
+            return first_li.department.stripe_payment_link
+        if self.school_id and self.school.stripe_payment_link:
+            return self.school.stripe_payment_link
+        return None
 
     @property
     def amount_paid(self):

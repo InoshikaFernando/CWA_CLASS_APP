@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Manage Parents — {{ school.name }}{% endblock %}
+{% block content %}
+<div class="max-w-7xl mx-auto" x-data="{
+  showEditModal: false,
+  openEditModal(url) {
+    fetch(url).then(r => r.text()).then(html => {
+      document.getElementById('parent-edit-modal-content').innerHTML = html;
+      this.showEditModal = true;
+    });
+  }
+}">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
+    <div class="flex items-center justify-between mt-2">
+      <div>
+        <h1 class="text-2xl font-display font-bold text-gray-900">Manage Parents</h1>
+        <p class="text-gray-500 mt-1">{{ school.name }}</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 4.5 0Z"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-2xl font-bold text-gray-900">{{ page.paginator.count }}</p>
+          <p class="text-sm text-gray-500">Total Parents / Guardians</p>
+        </div>
+      </div>
+    </div>
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 bg-purple-50 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-2xl font-bold text-gray-900">Search</p>
+          <p class="text-sm text-gray-500">Type below to find parents</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Search -->
+  <div class="mb-6">
+    <div class="relative">
+      <svg class="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+      </svg>
+      <input type="text" name="q" value="{{ search }}"
+             hx-get="{% url 'admin_school_parents' school.id %}"
+             hx-trigger="keyup changed delay:300ms"
+             hx-target="#results-table"
+             hx-swap="innerHTML"
+             hx-push-url="true"
+             placeholder="Search parents..."
+             class="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+    <div id="results-table">
+      {% include "admin_dashboard/partials/parents_table.html" %}
+    </div>
+  </div>
+
+  <!-- Parent Edit Modal (HTMX-loaded) -->
+  <div x-show="showEditModal" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center"
+       @keydown.escape.window="showEditModal = false">
+    <div class="fixed inset-0 bg-black/50 backdrop-blur-sm" @click="showEditModal = false"></div>
+    <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6 max-h-[90vh] overflow-y-auto" @click.stop
+         id="parent-edit-modal-content">
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}

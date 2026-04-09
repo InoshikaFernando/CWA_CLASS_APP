@@ -12,7 +12,7 @@ class DepartmentManageLevelsTestBase(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.admin_user = CustomUser.objects.create_user(
-            'testadmin', 'admin@test.com', 'pass1234',
+            'testadmin', 'wlhtestmails+admin@gmail.com', 'password1!',
         )
         admin_role, _ = Role.objects.get_or_create(
             name=Role.ADMIN, defaults={'display_name': 'Admin'},
@@ -22,9 +22,8 @@ class DepartmentManageLevelsTestBase(TestCase):
         cls.school = School.objects.create(
             name='Test School', slug='test-school', admin=cls.admin_user,
         )
-        SchoolTeacher.objects.create(
-            school=cls.school, teacher=cls.admin_user, role='admin',
-        )
+        SchoolTeacher.objects.update_or_create(
+            school=cls.school, teacher=cls.admin_user, defaults={'role': 'admin'})
 
         cls.maths = Subject.objects.get_or_create(
             slug='mathematics',
@@ -76,7 +75,7 @@ class DepartmentManageLevelsViewTest(DepartmentManageLevelsTestBase):
 
     def setUp(self):
         self.client = Client()
-        self.client.login(username='testadmin', password='pass1234')
+        self.client.login(username='testadmin', password='password1!')
 
     def test_page_loads(self):
         url = reverse('admin_department_levels', args=[self.school.id, self.dept_maths.id])
@@ -177,7 +176,7 @@ class DepartmentDetailLevelsTest(DepartmentManageLevelsTestBase):
 
     def setUp(self):
         self.client = Client()
-        self.client.login(username='testadmin', password='pass1234')
+        self.client.login(username='testadmin', password='password1!')
 
     def test_detail_shows_mapped_levels(self):
         DepartmentLevel.objects.create(

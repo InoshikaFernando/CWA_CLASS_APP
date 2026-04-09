@@ -78,25 +78,25 @@ class IntegrationBase(TestCase):
 
         # ── Users ─────────────────────────────────────────────
         cls.superuser = CustomUser.objects.create_superuser(
-            'int_super', 'int_super@test.com', 'pass1234',
+            'int_super', 'wlhtestmails+int_super@gmail.com', 'password1!',
         )
         cls.hoi_user = CustomUser.objects.create_user(
-            'int_hoi', 'int_hoi@test.com', 'pass1234',
+            'int_hoi', 'wlhtestmails+int_hoi@gmail.com', 'password1!',
         )
         cls.hoi_user.roles.add(cls.role_hoi)
 
         cls.hod_user = CustomUser.objects.create_user(
-            'int_hod', 'int_hod@test.com', 'pass1234',
+            'int_hod', 'wlhtestmails+int_hod@gmail.com', 'password1!',
         )
         cls.hod_user.roles.add(cls.role_hod)
 
         cls.teacher_user = CustomUser.objects.create_user(
-            'int_teacher', 'int_teacher@test.com', 'pass1234',
+            'int_teacher', 'wlhtestmails+int_teacher@gmail.com', 'password1!',
         )
         cls.teacher_user.roles.add(cls.role_teacher)
 
         cls.student_user = CustomUser.objects.create_user(
-            'int_student', 'int_student@test.com', 'pass1234',
+            'int_student', 'wlhtestmails+int_student@gmail.com', 'password1!',
         )
         cls.student_user.roles.add(cls.role_student)
 
@@ -293,7 +293,7 @@ class UploadViewTopicResolutionTests(IntegrationBase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.context['upload_results']['failed'], 0)
 
-    def test_upload_unknown_topic_returns_error_message(self):
+    def test_upload_unknown_topic_auto_creates_topic(self):
         self._login(self.superuser)
         payload = self._json_upload_payload(topic='NonExistentTopic', year_level=7)
         f = io.BytesIO(payload)
@@ -302,8 +302,9 @@ class UploadViewTopicResolutionTests(IntegrationBase):
             reverse('upload_questions'),
             {'upload_file': f},
         )
-        # Should redirect back with an error message, not 500
-        self.assertEqual(resp.status_code, 302)
+        # View now auto-creates unknown topics and renders upload results
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('upload_results', resp.context)
 
     def test_upload_unknown_year_level_returns_error_message(self):
         self._login(self.superuser)

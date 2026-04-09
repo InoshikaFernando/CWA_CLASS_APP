@@ -20,7 +20,7 @@
 <div class="level-actions">
     <h2>Actions</h2>
     <div class="action-buttons">
-        <a href="{% url 'maths:take_quiz' level.level_number %}" class="btn btn-primary">
+        <a href="{% url 'mixed_quiz' level_number=level.level_number %}" class="btn btn-primary">
             Take Quiz
         </a>
         <a href="{% url 'maths:level_questions' level.level_number %}" class="btn btn-secondary">

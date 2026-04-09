@@ -29,10 +29,10 @@ def _create_role(name, display_name=None):
     return role
 
 
-def _create_user(username, password='testpass123', **kwargs):
+def _create_user(username, password='password1!', **kwargs):
     return CustomUser.objects.create_user(
         username=username, password=password,
-        email=kwargs.pop('email', f'{username}@example.com'),
+        email=kwargs.pop('email', f'wlhtestmails+{username}@gmail.com'),
         **kwargs,
     )
 
@@ -58,8 +58,8 @@ class InstituteRegistrationCompanyDetailsTest(TestCase):
             'center_name': 'Test Academy',
             'username': 'testacademy',
             'email': 'admin@testacademy.com',
-            'password': 'testpass123',
-            'confirm_password': 'testpass123',
+            'password': 'password1!',
+            'confirm_password': 'password1!',
             'plan_id': plan.id,
             'abn': '12 345 678 901',
             'phone': '+64 21 123 4567',
@@ -68,6 +68,7 @@ class InstituteRegistrationCompanyDetailsTest(TestCase):
             'state_region': 'Auckland',
             'postal_code': '1010',
             'country': 'New Zealand',
+            'accept_terms': 'on',
         })
         self.assertEqual(resp.status_code, 302)  # Redirect on success
 
@@ -94,9 +95,10 @@ class InstituteRegistrationCompanyDetailsTest(TestCase):
             'center_name': 'Minimal School',
             'username': 'minschool',
             'email': 'admin@minschool.com',
-            'password': 'testpass123',
-            'confirm_password': 'testpass123',
+            'password': 'password1!',
+            'confirm_password': 'password1!',
             'plan_id': plan.id,
+            'accept_terms': 'on',
         })
         self.assertEqual(resp.status_code, 302)
         school = School.objects.get(name='Minimal School')
@@ -117,8 +119,8 @@ class InstituteRegistrationCompanyDetailsTest(TestCase):
             'center_name': 'Error School',
             'username': 'errorschool',
             'email': 'bad-email',  # Invalid
-            'password': 'testpass123',
-            'confirm_password': 'testpass123',
+            'password': 'password1!',
+            'confirm_password': 'password1!',
             'plan_id': plan.id,
             'abn': '99 999 999 999',
             'city': 'Wellington',
@@ -146,9 +148,9 @@ class IndividualStudentAddressTest(TestCase):
         """POST with address should save them on the user."""
         resp = self.client.post(reverse('register_individual_student'), {
             'username': 'studentaddr',
-            'email': 'student@example.com',
-            'password': 'testpass123',
-            'confirm_password': 'testpass123',
+            'email': 'wlhtestmails+student@gmail.com',
+            'password': 'password1!',
+            'confirm_password': 'password1!',
             'package_id': self.package.id,
             'first_name': 'John',
             'last_name': 'Doe',
@@ -157,6 +159,7 @@ class IndividualStudentAddressTest(TestCase):
             'city': 'Christchurch',
             'postal_code': '8011',
             'country': 'New Zealand',
+            'accept_terms': 'on',
         })
         self.assertEqual(resp.status_code, 302)
 
@@ -173,10 +176,11 @@ class IndividualStudentAddressTest(TestCase):
         """Registration should create a trialing subscription."""
         self.client.post(reverse('register_individual_student'), {
             'username': 'studentsub',
-            'email': 'studentsub@example.com',
-            'password': 'testpass123',
-            'confirm_password': 'testpass123',
+            'email': 'wlhtestmails+studentsub@gmail.com',
+            'password': 'password1!',
+            'confirm_password': 'password1!',
             'package_id': self.package.id,
+            'accept_terms': 'on',
         })
         user = CustomUser.objects.get(username='studentsub')
         self.assertTrue(hasattr(user, 'subscription'))

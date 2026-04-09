@@ -13,6 +13,37 @@ BATCH_SIZE = 25
 BATCH_PAUSE_SECONDS = 2
 
 
+def _get_email_logo_url(school=None, department=None):
+    """Resolve the logo URL for emails.
+
+    Priority: department logo > school logo > default CWA logo.
+    Returns an absolute URL suitable for use in email <img> tags.
+    """
+    site_url = getattr(settings, 'SITE_URL', '').rstrip('/')
+
+    if department and department.logo:
+        return f'{site_url}{department.logo.url}'
+    if school and school.logo:
+        return f'{site_url}{school.logo.url}'
+
+    static_url = getattr(settings, 'STATIC_URL', '/static/')
+    return f'{site_url}{static_url}images/logo.png'
+
+
+def resolve_cc_email(school, department=None):
+    """Return CC list using school's outgoing_email (with department override).
+
+    Uses ``school.get_effective_settings()`` so that a department-level
+    ``outgoing_email`` takes precedence over the school-level value.
+    Returns a list with one email address, or an empty list.
+    """
+    if not school:
+        return []
+    eff = school.get_effective_settings(department)
+    cc_email = eff.get('outgoing_email', '')
+    return [cc_email] if cc_email else []
+
+
 def send_templated_email(
     recipient_email,
     subject,
@@ -22,6 +53,8 @@ def send_templated_email(
     notification_type='',
     campaign=None,
     fail_silently=True,
+    school=None,
+    department=None,
 ):
     """Send a single HTML email using a Django template."""
     from .models import EmailLog, EmailPreference
@@ -43,6 +76,7 @@ def send_templated_email(
         'current_year': timezone.now().year,
         'recipient_name': '',
         'unsubscribe_url': '',
+        'email_logo_url': _get_email_logo_url(school, department),
     }
 
     if recipient_user:
@@ -61,8 +95,10 @@ def send_templated_email(
         settings, 'DEFAULT_FROM_EMAIL', 'noreply@wizardslearninghub.co.nz',
     )
 
+    cc = resolve_cc_email(school, department)
+
     try:
-        msg = EmailMultiAlternatives(subject, text_content, from_email, [recipient_email])
+        msg = EmailMultiAlternatives(subject, text_content, from_email, [recipient_email], cc=cc)
         msg.attach_alternative(html_content, 'text/html')
         msg.send(fail_silently=False)
 
@@ -102,6 +138,7 @@ def send_notification_email(notification):
         'criteria_approved': 'email/transactional/criteria_notification.html',
         'criteria_rejected': 'email/transactional/criteria_notification.html',
         'attendance': 'email/transactional/general_notification.html',
+        'homework_assigned': 'email/transactional/homework_assigned.html',
         'general': 'email/transactional/general_notification.html',
     }
 
@@ -156,6 +193,7 @@ def send_bulk_emails(campaign):
             },
             recipient_user=user,
             campaign=campaign,
+            school=campaign.school,
         )
 
         if success:
@@ -252,6 +290,7 @@ def send_school_publish_notifications(school):
             context=ctx,
             recipient_user=user,
             notification_type='school_published',
+            school=school,
         )
 
         if success:
@@ -293,6 +332,7 @@ def send_school_publish_notifications(school):
             context=ctx,
             recipient_user=user,
             notification_type='school_published',
+            school=school,
         )
 
         if success:

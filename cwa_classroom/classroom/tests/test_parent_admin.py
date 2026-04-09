@@ -27,7 +27,7 @@ class ParentAdminTestBase(TestCase):
         )
 
         cls.hoi_user = CustomUser.objects.create_user(
-            'hoi', 'hoi@test.com', 'pass1234',
+            'hoi', 'wlhtestmails+hoi@gmail.com', 'password1!',
         )
         cls.hoi_user.roles.add(cls.hoi_role)
 
@@ -36,14 +36,14 @@ class ParentAdminTestBase(TestCase):
         )
 
         cls.student = CustomUser.objects.create_user(
-            'student1', 'student@test.com', 'pass1234',
+            'student1', 'wlhtestmails+student@gmail.com', 'password1!',
             first_name='Zara', last_name='Student',
         )
         cls.student.roles.add(cls.student_role)
         SchoolStudent.objects.create(school=cls.school, student=cls.student)
 
         cls.parent_a = CustomUser.objects.create_user(
-            'parent_a', 'pa@test.com', 'pass1234',
+            'parent_a', 'wlhtestmails+pa@gmail.com', 'password1!',
             first_name='Alice', last_name='Parent',
         )
         cls.parent_a.roles.add(cls.parent_role)
@@ -53,7 +53,7 @@ class ParentInviteCreateViewTest(ParentAdminTestBase):
 
     def setUp(self):
         self.client = Client()
-        self.client.login(username='hoi', password='pass1234')
+        self.client.login(username='hoi', password='password1!')
 
     def test_get_loads_form(self):
         url = reverse('invite_parent', args=[self.school.id, self.student.id])
@@ -65,13 +65,13 @@ class ParentInviteCreateViewTest(ParentAdminTestBase):
     def test_post_creates_invite(self):
         url = reverse('invite_parent', args=[self.school.id, self.student.id])
         resp = self.client.post(url, {
-            'parent_email': 'newparent@test.com',
+            'parent_email': 'wlhtestmails+newparent@gmail.com',
             'relationship': 'mother',
         })
         self.assertEqual(resp.status_code, 302)
         self.assertTrue(
             ParentInvite.objects.filter(
-                parent_email='newparent@test.com',
+                parent_email='wlhtestmails+newparent@gmail.com',
                 student=self.student,
                 status='pending',
             ).exists()
@@ -79,7 +79,7 @@ class ParentInviteCreateViewTest(ParentAdminTestBase):
 
     def test_post_blocks_third_parent(self):
         """Cannot invite when student already has 2 active parents."""
-        parent_b = CustomUser.objects.create_user('pb', 'pb@t.com', 'pass1234')
+        parent_b = CustomUser.objects.create_user('pb', 'wlhtestmails+pb@gmail.com', 'password1!')
         ParentStudent.objects.create(
             parent=self.parent_a, student=self.student, school=self.school,
         )
@@ -88,19 +88,19 @@ class ParentInviteCreateViewTest(ParentAdminTestBase):
         )
         url = reverse('invite_parent', args=[self.school.id, self.student.id])
         resp = self.client.post(url, {
-            'parent_email': 'third@test.com',
+            'parent_email': 'wlhtestmails+third@gmail.com',
             'relationship': 'guardian',
         })
         self.assertEqual(resp.status_code, 302)
         self.assertFalse(
-            ParentInvite.objects.filter(parent_email='third@test.com').exists()
+            ParentInvite.objects.filter(parent_email='wlhtestmails+third@gmail.com').exists()
         )
 
     def test_post_blocks_duplicate_pending_invite(self):
         url = reverse('invite_parent', args=[self.school.id, self.student.id])
-        self.client.post(url, {'parent_email': 'dup@test.com'})
-        self.client.post(url, {'parent_email': 'dup@test.com'})
-        count = ParentInvite.objects.filter(parent_email='dup@test.com').count()
+        self.client.post(url, {'parent_email': 'wlhtestmails+dup@gmail.com'})
+        self.client.post(url, {'parent_email': 'wlhtestmails+dup@gmail.com'})
+        count = ParentInvite.objects.filter(parent_email='wlhtestmails+dup@gmail.com').count()
         self.assertEqual(count, 1)
 
     def test_invalid_email_rejected(self):
@@ -110,7 +110,7 @@ class ParentInviteCreateViewTest(ParentAdminTestBase):
         self.assertEqual(ParentInvite.objects.count(), 0)
 
     def test_requires_hoi_role(self):
-        self.client.login(username='student1', password='pass1234')
+        self.client.login(username='student1', password='password1!')
         url = reverse('invite_parent', args=[self.school.id, self.student.id])
         resp = self.client.get(url)
         self.assertNotEqual(resp.status_code, 200)
@@ -128,18 +128,18 @@ class ParentInviteListViewTest(ParentAdminTestBase):
 
     def setUp(self):
         self.client = Client()
-        self.client.login(username='hoi', password='pass1234')
+        self.client.login(username='hoi', password='password1!')
 
     def test_list_loads(self):
         ParentInvite.objects.create(
             school=self.school, student=self.student,
-            parent_email='test@test.com', invited_by=self.hoi_user,
+            parent_email='wlhtestmails+test@gmail.com', invited_by=self.hoi_user,
             expires_at=timezone.now() + timedelta(days=7),
         )
         url = reverse('parent_invite_list', args=[self.school.id])
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'test@test.com')
+        self.assertContains(resp, 'wlhtestmails+test@gmail.com')
 
     def test_empty_list(self):
         url = reverse('parent_invite_list', args=[self.school.id])
@@ -152,12 +152,12 @@ class ParentInviteRevokeViewTest(ParentAdminTestBase):
 
     def setUp(self):
         self.client = Client()
-        self.client.login(username='hoi', password='pass1234')
+        self.client.login(username='hoi', password='password1!')
 
     def test_revoke_pending_invite(self):
         invite = ParentInvite.objects.create(
             school=self.school, student=self.student,
-            parent_email='rev@test.com', invited_by=self.hoi_user,
+            parent_email='wlhtestmails+rev@gmail.com', invited_by=self.hoi_user,
             expires_at=timezone.now() + timedelta(days=7),
         )
         url = reverse('revoke_parent_invite', args=[self.school.id, invite.id])
@@ -169,7 +169,7 @@ class ParentInviteRevokeViewTest(ParentAdminTestBase):
     def test_revoke_accepted_invite_404(self):
         invite = ParentInvite.objects.create(
             school=self.school, student=self.student,
-            parent_email='acc@test.com', invited_by=self.hoi_user,
+            parent_email='wlhtestmails+acc@gmail.com', invited_by=self.hoi_user,
             expires_at=timezone.now() + timedelta(days=7),
             status='accepted',
         )
@@ -182,7 +182,7 @@ class StudentParentLinksViewTest(ParentAdminTestBase):
 
     def setUp(self):
         self.client = Client()
-        self.client.login(username='hoi', password='pass1234')
+        self.client.login(username='hoi', password='password1!')
 
     def test_view_shows_links(self):
         ParentStudent.objects.create(
@@ -204,7 +204,7 @@ class ParentStudentUnlinkViewTest(ParentAdminTestBase):
 
     def setUp(self):
         self.client = Client()
-        self.client.login(username='hoi', password='pass1234')
+        self.client.login(username='hoi', password='password1!')
 
     def test_unlink_deactivates(self):
         link = ParentStudent.objects.create(

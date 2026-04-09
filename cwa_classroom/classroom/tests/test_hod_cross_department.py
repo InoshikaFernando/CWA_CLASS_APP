@@ -35,24 +35,28 @@ class HoDCrossDepartmentTestBase(TestCase):
 
         # Users
         self.inoshi = CustomUser.objects.create_user(
-            username='inoshi', email='inoshi@test.com', password='testpass123',
+            username='inoshi', email='wlhtestmails+inoshi@gmail.com', password='password1!',
         )
         UserRole.objects.create(user=self.inoshi, role=self.hod_role)
         UserRole.objects.create(user=self.inoshi, role=self.teacher_role)
 
         self.bob = CustomUser.objects.create_user(
-            username='bob', email='bob@test.com', password='testpass123',
+            username='bob', email='wlhtestmails+bob@gmail.com', password='password1!',
         )
         UserRole.objects.create(user=self.bob, role=self.teacher_role)
 
-        # School
+        # School — use a separate admin so Inoshi doesn't get auto-promoted to HoI
+        self.school_admin = CustomUser.objects.create_user(
+            username='schooladmin', email='wlhtestmails+schooladmin@gmail.com', password='password1!',
+        )
         self.school = School.objects.create(
-            name='Test School', slug='test-school-hod', admin=self.inoshi,
+            name='Test School', slug='test-school-hod', admin=self.school_admin,
         )
-        SchoolTeacher.objects.create(
-            school=self.school, teacher=self.inoshi, is_active=True,
+        SchoolTeacher.objects.update_or_create(
+            school=self.school, teacher=self.inoshi,
+            defaults={'is_active': True, 'role': 'head_of_department'},
         )
-        SchoolTeacher.objects.create(
+        SchoolTeacher.objects.update_or_create(
             school=self.school, teacher=self.bob, is_active=True,
         )
 
@@ -103,7 +107,7 @@ class HoDCrossDepartmentTestBase(TestCase):
         )
         self.coding_02.teachers.add(self.bob)
 
-        self.client.login(username='inoshi', password='testpass123')
+        self.client.login(username='inoshi', password='password1!')
 
 
 class ClassDetailViewHoDTest(HoDCrossDepartmentTestBase):
