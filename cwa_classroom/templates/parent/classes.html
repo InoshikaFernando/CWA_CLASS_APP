@@ -6,7 +6,7 @@
 
   <div>
     <h1 class="font-display text-3xl text-gray-800">Classes</h1>
-    <p class="text-violet-500 text-sm mt-1 font-semibold">{{ active_child.first_name }} {{ active_child.last_name }} &middot; {{ active_school.name }}</p>
+    <p class="text-violet-500 text-sm mt-1 font-semibold">{{ active_child.first_name }} {{ active_child.last_name }}{% if active_school %} &middot; {{ active_school.name }}{% endif %}</p>
   </div>
 
   {% if not active_child %}

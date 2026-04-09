@@ -34,7 +34,7 @@
             </span>
             <div class="min-w-0">
               <p class="text-sm font-medium text-gray-800 truncate">{{ link.student.first_name }} {{ link.student.last_name }}</p>
-              <p class="text-xs text-gray-400 truncate">{{ link.school.name }}</p>
+              <p class="text-xs text-gray-400 truncate">{% if link.school %}{{ link.school.name }}{% else %}Individual{% endif %}</p>
             </div>
             {% if active_child and link.student.id == active_child.id %}
               <svg class="w-4 h-4 text-indigo-500 ml-auto shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -87,7 +87,8 @@
       My Children
     </a>
 
-    <!-- Section divider -->
+    {% if active_school %}
+    <!-- Section divider: school-only academics -->
     <div class="pt-3 pb-1">
       <p class="px-4 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Academics</p>
     </div>
@@ -143,6 +144,7 @@
       </svg>
       Progress
     </a>
+    {% endif %}
 
     <!-- Section divider -->
     <div class="pt-3 pb-1">

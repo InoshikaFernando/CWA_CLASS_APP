@@ -1014,11 +1014,21 @@ class CompleteProfileView(LoginRequiredMixin, View):
 class ProfileView(LoginRequiredMixin, View):
     def get(self, request):
         from classroom.models import SchoolStudent
+        user = request.user
         school_student = SchoolStudent.objects.filter(
-            student=request.user, is_active=True,
+            student=user, is_active=True,
         ).select_related('school').first()
+
+        if user.is_student and school_student and school_student.student_id_code:
+            account_id = school_student.student_id_code
+        elif user.is_student or user.is_individual_student:
+            account_id = f'STU-{user.pk:04d}'
+        else:
+            account_id = f'ACC-{user.pk:04d}'
+
         return render(request, 'accounts/profile.html', {
             'school_student': school_student,
+            'account_id': account_id,
         })
 
     def post(self, request):

@@ -1386,7 +1386,8 @@ class ParentStudent(models.Model):
         related_name='student_parent_links',
     )
     school = models.ForeignKey(
-        'School', on_delete=models.CASCADE,
+        'School', on_delete=models.SET_NULL,
+        null=True, blank=True,
         related_name='parent_student_links',
     )
     relationship = models.CharField(
@@ -1401,22 +1402,35 @@ class ParentStudent(models.Model):
     )
 
     class Meta:
-        unique_together = ('parent', 'student', 'school')
         ordering = ['student__first_name', 'student__last_name']
+        constraints = [
+            models.UniqueConstraint(
+                condition=models.Q(school__isnull=False),
+                fields=['parent', 'student', 'school'],
+                name='unique_parent_student_school',
+            ),
+            models.UniqueConstraint(
+                condition=models.Q(school__isnull=True),
+                fields=['parent', 'student'],
+                name='unique_parent_student_no_school',
+            ),
+        ]
 
     def __str__(self):
-        return f'{self.parent.username} → {self.student.username} @ {self.school.name}'
+        school_part = self.school.name if self.school else 'Individual'
+        return f'{self.parent.username} → {self.student.username} @ {school_part}'
 
     def clean(self):
         from django.core.exceptions import ValidationError
-        existing = ParentStudent.objects.filter(
-            student=self.student, school=self.school, is_active=True,
-        ).exclude(pk=self.pk).count()
-        if existing >= 2:
-            raise ValidationError(
-                f'{self.student.username} already has 2 active parent links '
-                f'in {self.school.name}.'
-            )
+        if self.school is not None:
+            existing = ParentStudent.objects.filter(
+                student=self.student, school=self.school, is_active=True,
+            ).exclude(pk=self.pk).count()
+            if existing >= 2:
+                raise ValidationError(
+                    f'{self.student.username} already has 2 active parent links '
+                    f'in {self.school.name}.'
+                )
 
 
 class ParentInvite(models.Model):

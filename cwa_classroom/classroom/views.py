@@ -4225,12 +4225,30 @@ class AccountingUsersView(RoleRequiredMixin, View):
     def get(self, request):
         from django.utils import timezone
         from datetime import timedelta
+        from classroom.views_invoicing import _get_single_school
         thirty_days_ago = timezone.now() - timedelta(days=30)
+        school = _get_single_school(request.user)
+        if school:
+            student_ids = SchoolStudent.objects.filter(
+                school=school, is_active=True,
+            ).values_list('student_id', flat=True)
+            teacher_ids = SchoolTeacher.objects.filter(
+                school=school, is_active=True,
+            ).values_list('teacher_id', flat=True)
+            students = CustomUser.objects.filter(id__in=student_ids, roles__name=Role.STUDENT).distinct().count()
+            individual_students = CustomUser.objects.filter(roles__name=Role.INDIVIDUAL_STUDENT).count()
+            teachers = CustomUser.objects.filter(id__in=teacher_ids, roles__name=Role.TEACHER).distinct().count()
+            active_users = CustomUser.objects.filter(
+                id__in=list(student_ids) + list(teacher_ids),
+                last_login__gte=thirty_days_ago,
+            ).distinct().count()
+        else:
+            students = individual_students = teachers = active_users = 0
         return render(request, 'accounting/users.html', {
-            'students': CustomUser.objects.filter(roles__name=Role.STUDENT).count(),
-            'individual_students': CustomUser.objects.filter(roles__name=Role.INDIVIDUAL_STUDENT).count(),
-            'teachers': CustomUser.objects.filter(roles__name=Role.TEACHER).count(),
-            'active_users': CustomUser.objects.filter(last_login__gte=thirty_days_ago).count(),
+            'students': students,
+            'individual_students': individual_students,
+            'teachers': teachers,
+            'active_users': active_users,
         })
 
 

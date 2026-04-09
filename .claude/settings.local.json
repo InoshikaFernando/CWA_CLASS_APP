@@ -385,7 +385,12 @@
       "Bash(git push:*)",
       "Bash(git fetch:*)",
       "Bash(git merge:*)",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+      "Bash(python manage.py test classroom.tests.test_parent_link_requests classroom.tests.test_parent_child_switcher --verbosity=2)",
+      "Bash(python manage.py test classroom.tests.test_parent_link_requests classroom.tests.test_parent_child_switcher --verbosity=2 --settings=cwa_classroom.settings_test)",
+      "Bash(python manage.py test classroom.tests.test_parent_link_requests --verbosity=2 --settings=cwa_classroom.settings_test)",
+      "Bash(python manage.py show_urls --settings=cwa_classroom.settings_test)",
+      "Bash(python manage.py test classroom.tests.test_parent_link_requests.IndividualStudentParentLinkTest --verbosity=2 --settings=cwa_classroom.settings_test)"
     ]
   }
 }
