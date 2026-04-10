@@ -570,20 +570,23 @@ class StudentSearchView(RoleRequiredMixin, View):
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request):
-        from django.http import JsonResponse
         q = request.GET.get('q', '').strip()
-        results = []
+        page_num = request.GET.get('page', 1)
+        qs = CustomUser.objects.filter(
+            roles__name=Role.INDIVIDUAL_STUDENT,
+            is_active=True,
+        ).order_by('first_name', 'last_name')
         if len(q) >= 2:
-            qs = SchoolStudent.objects.filter(
-                Q(student__first_name__icontains=q)
-                | Q(student__last_name__icontains=q)
-                | Q(student__email__icontains=q)
-                | Q(student__username__icontains=q),
-                is_active=True,
-            ).select_related('student', 'school')[:20]
-            results = list(qs)
+            qs = qs.filter(
+                Q(first_name__icontains=q)
+                | Q(last_name__icontains=q)
+                | Q(email__icontains=q)
+                | Q(username__icontains=q)
+            )
+        paginator = Paginator(qs, 15)
+        page = paginator.get_page(page_num)
         return render(request, 'admin_dashboard/partials/student_search_results.html', {
-            'results': results,
+            'results': page,
             'q': q,
         })
 
