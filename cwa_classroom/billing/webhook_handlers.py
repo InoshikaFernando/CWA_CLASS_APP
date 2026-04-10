@@ -29,6 +29,7 @@ def handle_checkout_completed(event_data):
     Works for individual students, school students, institutes, and parent invoice payments.
     """
     session = event_data['object']
+    stripe_session_id = session.get('id', '')
     metadata = session.get('metadata', {})
     sub_type = metadata.get('type', '')
     stripe_subscription_id = session.get('subscription', '')
@@ -37,6 +38,8 @@ def handle_checkout_completed(event_data):
         _activate_institute_from_checkout(metadata, stripe_subscription_id)
     elif sub_type in ('individual', 'school_student'):
         _activate_individual_from_checkout(metadata, stripe_subscription_id)
+    elif sub_type == 'pending_individual_registration':
+        _activate_pending_registration(stripe_session_id, stripe_subscription_id)
     elif sub_type == 'invoice_payment':
         _handle_invoice_payment_checkout(metadata, session)
     else:
@@ -136,6 +139,30 @@ def _activate_individual_from_checkout(metadata, stripe_subscription_id):
         sub.current_period_start = timezone.now()
         sub.save()
         logger.info('Individual subscription activated: user=%s package=%s', user_id, package)
+
+
+def _activate_pending_registration(stripe_session_id, stripe_subscription_id):
+    """
+    Create a user account from a PendingRegistration after Stripe payment succeeds.
+    Called by the webhook; the browser success-redirect also calls _create_account_from_pending
+    directly, so this must be idempotent (completed=True guard handles the race).
+    """
+    from accounts.models import PendingRegistration
+    from billing.views import _create_account_from_pending
+
+    try:
+        pending = PendingRegistration.objects.get(
+            stripe_session_id=stripe_session_id, completed=False
+        )
+    except PendingRegistration.DoesNotExist:
+        logger.info('PendingRegistration %s already completed or not found', stripe_session_id)
+        return
+
+    user = _create_account_from_pending(pending, stripe_subscription_id=stripe_subscription_id)
+    if user:
+        logger.info('Account created from pending registration: user=%s', user.username)
+    else:
+        logger.error('Failed to create account from pending registration %s', stripe_session_id)
 
 
 # ---------------------------------------------------------------------------

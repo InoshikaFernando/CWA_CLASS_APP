@@ -12,7 +12,7 @@ from django.db import transaction
 
 from django.utils.text import slugify
 
-from .models import CustomUser, Role, UserRole
+from .models import CustomUser, Role, UserRole, PendingRegistration
 
 logger = logging.getLogger(__name__)
 
@@ -519,10 +519,50 @@ class IndividualStudentRegisterView(View):
         discount = None
         if discount_code_str:
             discount = DiscountCode.objects.filter(code=discount_code_str).first()
-            if not discount or not discount.is_valid():
-                ctx['errors'] = ['Invalid or expired discount code.']
+            if not discount:
+                ctx['errors'] = ['Discount code not found. Please check and try again.']
+                return render(request, 'accounts/register_individual_student.html', ctx)
+            if not discount.is_valid():
+                ctx['errors'] = ['This discount code has expired or reached its usage limit.']
                 return render(request, 'accounts/register_individual_student.html', ctx)
 
+        needs_stripe_payment = (
+            not package.is_free
+            and package.stripe_price_id
+            and not (discount and discount.is_fully_free)
+        )
+
+        # ── Paid package: gate account creation behind Stripe payment ──────────
+        if needs_stripe_payment:
+            try:
+                from django.contrib.auth.hashers import make_password
+                from billing.stripe_service import create_pending_registration_checkout_session
+                stripe_coupon = getattr(discount, 'stripe_coupon_id', None) if discount else None
+                stripe_session = create_pending_registration_checkout_session(
+                    email=email, package=package, request=request,
+                    stripe_coupon_id=stripe_coupon or None,
+                )
+                PendingRegistration.objects.create(
+                    stripe_session_id=stripe_session.id,
+                    email=email,
+                    username=username,
+                    password_hash=make_password(password),
+                    package_id=package.id,
+                    data={
+                        'first_name': first_name, 'last_name': last_name,
+                        'date_of_birth': date_of_birth, 'phone': phone,
+                        'street_address': street_address, 'city': city,
+                        'postal_code': postal_code, 'country': country,
+                        'discount_code': discount_code_str or None,
+                    },
+                )
+                return redirect(stripe_session.url)
+            except Exception as exc:
+                logger.exception('Failed to create pending registration Stripe session')
+                ctx['errors'] = ['Unable to start payment. Please try again.']
+                return render(request, 'accounts/register_individual_student.html', ctx)
+
+        # ── Free / fully-free-discount: create account immediately ────────────
         try:
             with transaction.atomic():
                 user = CustomUser.objects.create_user(
@@ -545,24 +585,21 @@ class IndividualStudentRegisterView(View):
                 )
                 UserRole.objects.create(user=user, role=role)
 
-                # Create subscription record – all packages start as a trial
-                trial_end = timezone.now() + timedelta(days=package.trial_days)
-                Subscription.objects.create(
+                # Create subscription record
+                trial_end = timezone.now() + timedelta(days=package.trial_days or 30)
+                sub = Subscription.objects.create(
                     user=user, package=package,
                     status=Subscription.STATUS_TRIALING,
                     trial_end=trial_end,
                 )
 
-                # Handle discount code
-                if discount:
+                # Apply fully-free discount code
+                if discount and discount.is_fully_free:
                     discount.uses += 1
                     discount.save(update_fields=['uses'])
-
-                    if discount.is_fully_free:
-                        sub = user.subscription
-                        sub.status = Subscription.STATUS_ACTIVE
-                        sub.trial_end = None
-                        sub.save(update_fields=['status', 'trial_end'])
+                    sub.status = Subscription.STATUS_ACTIVE
+                    sub.trial_end = None
+                    sub.save(update_fields=['status', 'trial_end'])
 
             login(request, user, backend='accounts.backends.EmailOrUsernameBackend')
 
@@ -577,20 +614,6 @@ class IndividualStudentRegisterView(View):
                 },
                 request=request,
             )
-
-            # Paid package with Stripe price → redirect to Stripe Checkout
-            if not package.is_free and package.stripe_price_id and not (discount and discount.is_fully_free):
-                try:
-                    from billing.stripe_service import create_individual_checkout_session
-                    stripe_coupon = getattr(discount, 'stripe_coupon_id', None) if discount else None
-                    session = create_individual_checkout_session(
-                        user, package, request,
-                        stripe_coupon_id=stripe_coupon if stripe_coupon else None,
-                        trial_period_days=package.trial_days if package.trial_days else None,
-                    )
-                    return redirect(session.url)
-                except Exception:
-                    pass
 
             messages.success(request, f'Welcome, {username}!')
             return redirect('select_classes')
