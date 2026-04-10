@@ -195,3 +195,25 @@ class UserRole(models.Model):
 
     def __str__(self):
         return f'{self.user.username} → {self.role.name}'
+
+
+class PendingRegistration(models.Model):
+    """
+    Holds individual student registration data while awaiting Stripe payment.
+    Created before the user account exists; converted to a real account
+    on Stripe checkout.session.completed (webhook) or the success redirect.
+    """
+    stripe_session_id = models.CharField(max_length=200, unique=True)
+    email = models.EmailField()
+    username = models.CharField(max_length=150)
+    password_hash = models.CharField(max_length=200)
+    package_id = models.IntegerField()
+    data = models.JSONField(default=dict)   # first_name, last_name, address, etc.
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'PendingRegistration({self.email}, completed={self.completed})'

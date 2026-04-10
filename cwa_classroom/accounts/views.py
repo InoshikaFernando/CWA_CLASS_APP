@@ -12,7 +12,7 @@ from django.db import transaction
 
 from django.utils.text import slugify
 
-from .models import CustomUser, Role, UserRole
+from .models import CustomUser, Role, UserRole, PendingRegistration
 
 logger = logging.getLogger(__name__)
 
@@ -519,10 +519,50 @@ class IndividualStudentRegisterView(View):
         discount = None
         if discount_code_str:
             discount = DiscountCode.objects.filter(code=discount_code_str).first()
-            if not discount or not discount.is_valid():
-                ctx['errors'] = ['Invalid or expired discount code.']
+            if not discount:
+                ctx['errors'] = ['Discount code not found. Please check and try again.']
+                return render(request, 'accounts/register_individual_student.html', ctx)
+            if not discount.is_valid():
+                ctx['errors'] = ['This discount code has expired or reached its usage limit.']
                 return render(request, 'accounts/register_individual_student.html', ctx)
 
+        needs_stripe_payment = (
+            not package.is_free
+            and package.stripe_price_id
+            and not (discount and discount.is_fully_free)
+        )
+
+        # ── Paid package: gate account creation behind Stripe payment ──────────
+        if needs_stripe_payment:
+            try:
+                from django.contrib.auth.hashers import make_password
+                from billing.stripe_service import create_pending_registration_checkout_session
+                stripe_coupon = getattr(discount, 'stripe_coupon_id', None) if discount else None
+                stripe_session = create_pending_registration_checkout_session(
+                    email=email, package=package, request=request,
+                    stripe_coupon_id=stripe_coupon or None,
+                )
+                PendingRegistration.objects.create(
+                    stripe_session_id=stripe_session.id,
+                    email=email,
+                    username=username,
+                    password_hash=make_password(password),
+                    package_id=package.id,
+                    data={
+                        'first_name': first_name, 'last_name': last_name,
+                        'date_of_birth': date_of_birth, 'phone': phone,
+                        'street_address': street_address, 'city': city,
+                        'postal_code': postal_code, 'country': country,
+                        'discount_code': discount_code_str or None,
+                    },
+                )
+                return redirect(stripe_session.url)
+            except Exception as exc:
+                logger.exception('Failed to create pending registration Stripe session')
+                ctx['errors'] = ['Unable to start payment. Please try again.']
+                return render(request, 'accounts/register_individual_student.html', ctx)
+
+        # ── Free / fully-free-discount: create account immediately ────────────
         try:
             with transaction.atomic():
                 user = CustomUser.objects.create_user(
@@ -545,24 +585,21 @@ class IndividualStudentRegisterView(View):
                 )
                 UserRole.objects.create(user=user, role=role)
 
-                # Create subscription record – all packages start as a trial
-                trial_end = timezone.now() + timedelta(days=package.trial_days)
-                Subscription.objects.create(
+                # Create subscription record
+                trial_end = timezone.now() + timedelta(days=package.trial_days or 30)
+                sub = Subscription.objects.create(
                     user=user, package=package,
                     status=Subscription.STATUS_TRIALING,
                     trial_end=trial_end,
                 )
 
-                # Handle discount code
-                if discount:
+                # Apply fully-free discount code
+                if discount and discount.is_fully_free:
                     discount.uses += 1
                     discount.save(update_fields=['uses'])
-
-                    if discount.is_fully_free:
-                        sub = user.subscription
-                        sub.status = Subscription.STATUS_ACTIVE
-                        sub.trial_end = None
-                        sub.save(update_fields=['status', 'trial_end'])
+                    sub.status = Subscription.STATUS_ACTIVE
+                    sub.trial_end = None
+                    sub.save(update_fields=['status', 'trial_end'])
 
             login(request, user, backend='accounts.backends.EmailOrUsernameBackend')
 
@@ -577,20 +614,6 @@ class IndividualStudentRegisterView(View):
                 },
                 request=request,
             )
-
-            # Paid package with Stripe price → redirect to Stripe Checkout
-            if not package.is_free and package.stripe_price_id and not (discount and discount.is_fully_free):
-                try:
-                    from billing.stripe_service import create_individual_checkout_session
-                    stripe_coupon = getattr(discount, 'stripe_coupon_id', None) if discount else None
-                    session = create_individual_checkout_session(
-                        user, package, request,
-                        stripe_coupon_id=stripe_coupon if stripe_coupon else None,
-                        trial_period_days=package.trial_days if package.trial_days else None,
-                    )
-                    return redirect(session.url)
-                except Exception:
-                    pass
 
             messages.success(request, f'Welcome, {username}!')
             return redirect('select_classes')
@@ -851,9 +874,13 @@ class CompleteProfileView(LoginRequiredMixin, View):
     and subscribe (school students need $19.90/mo subscription)."""
 
     def _get_student_package(self):
-        """Get the default student subscription package."""
+        """Get the default student subscription package (marked is_default=True).
+        Falls back to the cheapest active paid package if none is marked."""
         from billing.models import Package
-        return Package.objects.filter(is_active=True, price__gt=0).order_by('price').first()
+        return (
+            Package.objects.filter(is_active=True, is_default=True).first()
+            or Package.objects.filter(is_active=True, price__gt=0).order_by('price').first()
+        )
 
     def get(self, request):
         if not request.user.must_change_password and request.user.profile_completed:
@@ -894,15 +921,13 @@ class CompleteProfileView(LoginRequiredMixin, View):
         if not last_name:
             errors.append('Last name is required.')
 
-        # Validate discount code if provided
-        from billing.models import InstituteDiscountCode
+        # Validate discount code if provided (uses DiscountCode — same codes as individual student billing)
+        from billing.models import DiscountCode
         discount_obj = None
         if discount_code_str:
-            discount_obj = InstituteDiscountCode.objects.filter(
-                code__iexact=discount_code_str,
-            ).first()
+            discount_obj = DiscountCode.objects.filter(code=discount_code_str).first()
             if not discount_obj:
-                errors.append('Invalid discount code.')
+                errors.append('Discount code not found. Please check and try again.')
             elif not discount_obj.is_valid():
                 errors.append('This discount code has expired or reached its usage limit.')
 
@@ -913,7 +938,9 @@ class CompleteProfileView(LoginRequiredMixin, View):
                 'student_package': self._get_student_package() if user.is_student else None,
             })
 
-        # Save profile
+        # Save profile fields and password — but do NOT mark profile_completed yet for students
+        # who still need to pay. profile_completed is only set True when free code is used or
+        # after Stripe payment is confirmed (via CompleteProfilePaymentSuccessView / webhook).
         user.first_name = first_name
         user.last_name = last_name
         if dob:
@@ -924,11 +951,14 @@ class CompleteProfileView(LoginRequiredMixin, View):
         user.street_address = street_address
         user.city = city
         user.postal_code = postal_code
-        user.profile_completed = True
 
         if user.must_change_password:
             user.set_password(request.POST.get('new_password', ''))
             user.must_change_password = False
+
+        # Non-students complete immediately (no payment required)
+        if not user.is_student:
+            user.profile_completed = True
 
         user.save()
         update_session_auth_hash(request, user)
@@ -941,22 +971,18 @@ class CompleteProfileView(LoginRequiredMixin, View):
             request=request,
         )
 
-        # Increment discount code usage
-        if discount_obj:
-            discount_obj.uses += 1
-            discount_obj.save(update_fields=['uses'])
-
-        # School students need their own subscription
+        # School students need payment or a fully-free code to activate
         if user.is_student:
             from billing.models import Package, Subscription
-            from django.utils import timezone
-            from datetime import timedelta
 
             package = self._get_student_package()
             if package:
-                # Create subscription
                 is_free = discount_obj and discount_obj.is_fully_free
                 if is_free:
+                    # 100% free code — activate immediately, no Stripe needed
+                    if discount_obj:
+                        discount_obj.uses += 1
+                        discount_obj.save(update_fields=['uses'])
                     Subscription.objects.get_or_create(
                         user=user,
                         defaults={
@@ -965,45 +991,63 @@ class CompleteProfileView(LoginRequiredMixin, View):
                         },
                     )
                     user.package = package
-                    user.save(update_fields=['package'])
+                    user.profile_completed = True
+                    user.save(update_fields=['package', 'profile_completed'])
                     messages.success(request, 'Profile completed! Free access activated.')
                     return redirect('subjects_hub')
-                else:
-                    trial_end = timezone.now() + timedelta(days=package.trial_days)
-                    Subscription.objects.get_or_create(
-                        user=user,
-                        defaults={
-                            'package': package,
-                            'status': Subscription.STATUS_TRIALING,
-                            'trial_end': trial_end,
-                        },
-                    )
-                    user.package = package
-                    user.save(update_fields=['package'])
-
-                    # Redirect to Stripe Checkout for card details
-                    if package.stripe_price_id:
-                        try:
-                            from billing.stripe_service import create_student_checkout_session
-                            stripe_coupon = discount_obj.stripe_coupon_id if discount_obj and discount_obj.stripe_coupon_id else None
-                            session = create_student_checkout_session(
-                                user, package, request,
-                                stripe_coupon_id=stripe_coupon,
-                            )
-                            return redirect(session.url)
-                        except Exception as e:
-                            import logging
-                            logging.getLogger(__name__).error(
-                                f'Stripe checkout session creation failed for user {user.id}: {e}'
-                            )
-                            messages.warning(request, 'Could not redirect to payment page. Please visit Billing to set up payment.')
-                    else:
-                        import logging
-                        logging.getLogger(__name__).warning(
-                            f'Package {package.id} ({package.name}) has no stripe_price_id — skipping Stripe redirect'
+                elif package.stripe_price_id:
+                    # Redirect to Stripe — profile_completed is set True by the success view
+                    # (and idempotently by the webhook handler)
+                    try:
+                        from billing.stripe_service import create_student_checkout_session
+                        stripe_coupon = discount_obj.stripe_coupon_id if discount_obj and discount_obj.stripe_coupon_id else None
+                        session = create_student_checkout_session(
+                            user, package, request,
+                            stripe_coupon_id=stripe_coupon,
                         )
+                        return redirect(session.url)
+                    except Exception as e:
+                        import logging
+                        logging.getLogger(__name__).error(
+                            'Stripe checkout session creation failed for user %s: %s', user.id, e
+                        )
+                        messages.error(request, 'Could not redirect to payment page. Please try again or contact support.')
+                        return render(request, 'accounts/complete_profile.html', {
+                            'student_package': package,
+                        })
+                else:
+                    # Package not configured for Stripe — block until admin fixes it
+                    import logging
+                    logging.getLogger(__name__).error(
+                        'Package %s (%s) has no stripe_price_id — cannot process payment for user %s',
+                        package.id, package.name, user.id,
+                    )
+                    messages.error(request, 'Payment is not currently configured. Please contact support to activate your account.')
+                    return render(request, 'accounts/complete_profile.html', {
+                        'student_package': package,
+                    })
+            else:
+                # No paid package configured — complete profile without payment gate
+                user.profile_completed = True
+                user.save(update_fields=['profile_completed'])
 
         messages.success(request, 'Profile completed successfully! Welcome aboard.')
+        return redirect('subjects_hub')
+
+
+class CompleteProfilePaymentSuccessView(LoginRequiredMixin, View):
+    """
+    Landing page after Stripe Checkout for a school student completing their profile.
+    Marks the profile as complete now that payment has been confirmed.
+    The subscription itself is created/activated by the checkout webhook handler.
+    """
+
+    def get(self, request):
+        user = request.user
+        if not user.profile_completed:
+            user.profile_completed = True
+            user.save(update_fields=['profile_completed'])
+        messages.success(request, 'Payment confirmed! Your account is now active. Welcome!')
         return redirect('subjects_hub')
 
 

@@ -19,6 +19,7 @@ urlpatterns = [
     path('register/school-student/', views.SchoolStudentRegisterView.as_view(), name='register_school_student'),
     path('profile/', views.ProfileView.as_view(), name='profile'),
     path('complete-profile/', views.CompleteProfileView.as_view(), name='complete_profile'),
+    path('complete-profile/payment-success/', views.CompleteProfilePaymentSuccessView.as_view(), name='complete_profile_payment_success'),
     path('select-classes/', views.SelectClassesView.as_view(), name='select_classes'),
     path('account/change-package/', views.ChangePackageView.as_view(), name='change_package'),
     path('api/check-username/', views.CheckUsernameView.as_view(), name='check_username'),

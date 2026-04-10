@@ -32,6 +32,10 @@ class Package(models.Model):
     billing_type = models.CharField(max_length=20, choices=BILLING_TYPES, default=BILLING_RECURRING)
     trial_days = models.PositiveSmallIntegerField(default=14)
     is_active = models.BooleanField(default=True)
+    is_default = models.BooleanField(
+        default=False,
+        help_text='Mark as the default student subscription package. Only one should be default.',
+    )
     order = models.PositiveIntegerField(default=0)
 
     class Meta:
