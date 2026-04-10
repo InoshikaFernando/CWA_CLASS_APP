@@ -234,8 +234,8 @@ def create_student_checkout_session(user, package, request, stripe_coupon_id=Non
         mode='subscription',
         line_items=[{'price': package.stripe_price_id, 'quantity': 1}],
         success_url=request.build_absolute_uri(
-            reverse('subjects_hub')
-        ) + '?subscription=active',
+            reverse('complete_profile_payment_success')
+        ),
         cancel_url=request.build_absolute_uri(
             reverse('complete_profile')
         ),

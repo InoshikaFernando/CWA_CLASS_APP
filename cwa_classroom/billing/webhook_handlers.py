@@ -150,6 +150,11 @@ def _activate_individual_from_checkout(metadata, stripe_subscription_id):
         sub.save()
         logger.info('Individual subscription activated: user=%s package=%s', user_id, package)
 
+    # Mark profile as complete — school students are gated until payment confirms
+    if not user.profile_completed:
+        user.profile_completed = True
+        user.save(update_fields=['profile_completed'])
+
 
 def _activate_pending_registration(stripe_session_id, stripe_subscription_id):
     """

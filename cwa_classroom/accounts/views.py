@@ -934,7 +934,9 @@ class CompleteProfileView(LoginRequiredMixin, View):
                 'student_package': self._get_student_package() if user.is_student else None,
             })
 
-        # Save profile
+        # Save profile fields and password — but do NOT mark profile_completed yet for students
+        # who still need to pay. profile_completed is only set True when free code is used or
+        # after Stripe payment is confirmed (via CompleteProfilePaymentSuccessView / webhook).
         user.first_name = first_name
         user.last_name = last_name
         if dob:
@@ -945,11 +947,14 @@ class CompleteProfileView(LoginRequiredMixin, View):
         user.street_address = street_address
         user.city = city
         user.postal_code = postal_code
-        user.profile_completed = True
 
         if user.must_change_password:
             user.set_password(request.POST.get('new_password', ''))
             user.must_change_password = False
+
+        # Non-students complete immediately (no payment required)
+        if not user.is_student:
+            user.profile_completed = True
 
         user.save()
         update_session_auth_hash(request, user)
@@ -962,12 +967,7 @@ class CompleteProfileView(LoginRequiredMixin, View):
             request=request,
         )
 
-        # Increment discount code usage
-        if discount_obj:
-            discount_obj.uses += 1
-            discount_obj.save(update_fields=['uses'])
-
-        # School students need their own subscription
+        # School students need payment or a fully-free code to activate
         if user.is_student:
             from billing.models import Package, Subscription
 
@@ -976,6 +976,9 @@ class CompleteProfileView(LoginRequiredMixin, View):
                 is_free = discount_obj and discount_obj.is_fully_free
                 if is_free:
                     # 100% free code — activate immediately, no Stripe needed
+                    if discount_obj:
+                        discount_obj.uses += 1
+                        discount_obj.save(update_fields=['uses'])
                     Subscription.objects.get_or_create(
                         user=user,
                         defaults={
@@ -984,11 +987,13 @@ class CompleteProfileView(LoginRequiredMixin, View):
                         },
                     )
                     user.package = package
-                    user.save(update_fields=['package'])
+                    user.profile_completed = True
+                    user.save(update_fields=['package', 'profile_completed'])
                     messages.success(request, 'Profile completed! Free access activated.')
                     return redirect('subjects_hub')
                 elif package.stripe_price_id:
-                    # Redirect to Stripe — subscription is created by the webhook on success
+                    # Redirect to Stripe — profile_completed is set True by the success view
+                    # (and idempotently by the webhook handler)
                     try:
                         from billing.stripe_service import create_student_checkout_session
                         stripe_coupon = discount_obj.stripe_coupon_id if discount_obj and discount_obj.stripe_coupon_id else None
@@ -1007,7 +1012,7 @@ class CompleteProfileView(LoginRequiredMixin, View):
                             'student_package': package,
                         })
                 else:
-                    # Package not configured for Stripe — block access until admin fixes it
+                    # Package not configured for Stripe — block until admin fixes it
                     import logging
                     logging.getLogger(__name__).error(
                         'Package %s (%s) has no stripe_price_id — cannot process payment for user %s',
@@ -1017,8 +1022,27 @@ class CompleteProfileView(LoginRequiredMixin, View):
                     return render(request, 'accounts/complete_profile.html', {
                         'student_package': package,
                     })
+            return render(request, 'accounts/complete_profile.html', {
+                'student_package': None,
+            })
 
         messages.success(request, 'Profile completed successfully! Welcome aboard.')
+        return redirect('subjects_hub')
+
+
+class CompleteProfilePaymentSuccessView(LoginRequiredMixin, View):
+    """
+    Landing page after Stripe Checkout for a school student completing their profile.
+    Marks the profile as complete now that payment has been confirmed.
+    The subscription itself is created/activated by the checkout webhook handler.
+    """
+
+    def get(self, request):
+        user = request.user
+        if not user.profile_completed:
+            user.profile_completed = True
+            user.save(update_fields=['profile_completed'])
+        messages.success(request, 'Payment confirmed! Your account is now active. Welcome!')
         return redirect('subjects_hub')
 
 
