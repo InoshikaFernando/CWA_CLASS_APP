@@ -16,7 +16,7 @@ from django.utils import timezone
 from accounts.models import CustomUser, Role, UserRole
 from billing.models import (
     InstitutePlan, SchoolSubscription, Package, Subscription,
-    InstituteDiscountCode,
+    InstituteDiscountCode, DiscountCode,
 )
 from classroom.models import School, SchoolStudent
 
@@ -226,8 +226,15 @@ class SchoolStudentProfileSubscriptionTest(TestCase):
         SchoolStudent.objects.create(school=self.school, student=student)
         return student
 
-    def test_complete_profile_saves_address(self):
-        """Profile completion should save address fields."""
+    @patch('billing.stripe_service.stripe.checkout.Session.create')
+    @patch('billing.stripe_service.get_or_create_customer', return_value='cus_test')
+    def test_complete_profile_saves_address(self, mock_customer, mock_session):
+        """Profile completion should save address fields and redirect to Stripe for payment."""
+        mock_session.return_value = MagicMock(url='https://checkout.stripe.com/test')
+        # Give the package a price ID so Stripe checkout is triggered
+        self.__class__.package.stripe_price_id = 'price_test'
+        self.__class__.package.save(update_fields=['stripe_price_id'])
+
         student = self._create_new_student()
         client = Client()
         client.force_login(student)
@@ -243,16 +250,21 @@ class SchoolStudentProfileSubscriptionTest(TestCase):
             'country': 'New Zealand',
             'region': 'Waikato',
         })
+        # Redirected to Stripe (302) — profile data is saved even though payment pending
         self.assertEqual(resp.status_code, 302)
 
         student.refresh_from_db()
         self.assertEqual(student.phone, '+64 21 999 0000')
         self.assertEqual(student.street_address, '789 School Rd')
         self.assertEqual(student.city, 'Hamilton')
-        self.assertTrue(student.profile_completed)
+        # profile_completed stays False until payment is confirmed
+        self.assertFalse(student.profile_completed)
 
     def test_complete_profile_creates_subscription(self):
-        """School students should get a subscription after profile completion."""
+        """100% free code should create an active subscription immediately."""
+        discount = DiscountCode.objects.create(
+            code='FREESUB', discount_percent=100, max_uses=10,
+        )
         student = self._create_new_student()
         client = Client()
         client.force_login(student)
@@ -261,13 +273,14 @@ class SchoolStudentProfileSubscriptionTest(TestCase):
             'confirm_password': 'newpass12345',
             'first_name': 'Sub',
             'last_name': 'Student',
+            'discount_code': 'FREESUB',
         })
         student.refresh_from_db()
         self.assertIsNotNone(student.package)
 
     def test_complete_profile_with_100_percent_discount(self):
-        """100% discount should activate subscription immediately."""
-        discount = InstituteDiscountCode.objects.create(
+        """100% DiscountCode should activate subscription immediately without Stripe."""
+        discount = DiscountCode.objects.create(
             code='FREESTUDENT', discount_percent=100, max_uses=10,
         )
         student = self._create_new_student()

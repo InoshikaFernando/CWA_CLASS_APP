@@ -1159,6 +1159,19 @@ class StudentDiscountCodeEditView(SuperuserRequiredMixin, View):
                 'selected_packages': list(dc.applicable_packages.values_list('id', flat=True)),
             })
 
+        # Handle reset-uses shortcut
+        if data.get('action') == 'reset_uses':
+            dc.uses = 0
+            dc.save(update_fields=['uses'])
+            log_event(
+                user=request.user, school=None, category='data_change',
+                action='student_discount_code_uses_reset',
+                detail={'discount_id': dc.id, 'code': dc.code},
+                request=request,
+            )
+            messages.success(request, f'Usage counter for "{dc.code}" reset to 0.')
+            return redirect('billing_admin_coupon_list')
+
         dc.max_uses = max_uses_val
         dc.grant_days = grant_days_val
         dc.duration = duration

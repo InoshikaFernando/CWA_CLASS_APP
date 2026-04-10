@@ -19,6 +19,81 @@ from audit.services import log_event
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _create_account_from_pending(pending, stripe_subscription_id=''):
+    """
+    Atomically convert a PendingRegistration into a real CustomUser + Subscription.
+    Returns the new user, or None if already completed or package missing.
+    Idempotent: re-entrant calls (webhook + browser) are both safe.
+    """
+    from django.db import transaction
+    from accounts.models import CustomUser, Role, UserRole, PendingRegistration
+    from audit.services import log_event
+
+    with transaction.atomic():
+        try:
+            pending = PendingRegistration.objects.select_for_update().get(
+                id=pending.id, completed=False
+            )
+        except PendingRegistration.DoesNotExist:
+            # Already completed by another process (webhook vs. browser race)
+            return CustomUser.objects.filter(email=pending.email).first()
+
+        package = Package.objects.filter(id=pending.package_id, is_active=True).first()
+        if not package:
+            return None
+
+        data = pending.data
+        user = CustomUser(
+            username=pending.username,
+            email=pending.email,
+            password=pending.password_hash,  # already hashed by make_password()
+            package=package,
+            first_name=data.get('first_name', ''),
+            last_name=data.get('last_name', ''),
+            phone=data.get('phone', ''),
+            street_address=data.get('street_address', ''),
+            city=data.get('city', ''),
+            postal_code=data.get('postal_code', ''),
+            country=data.get('country', ''),
+            terms_accepted_at=timezone.now(),
+        )
+        if data.get('date_of_birth'):
+            user.date_of_birth = data['date_of_birth']
+        user.save()
+
+        role, _ = Role.objects.get_or_create(
+            name=Role.INDIVIDUAL_STUDENT,
+            defaults={'display_name': 'Individual Student'},
+        )
+        UserRole.objects.create(user=user, role=role)
+
+        Subscription.objects.create(
+            user=user,
+            package=package,
+            status=Subscription.STATUS_ACTIVE,
+            stripe_subscription_id=stripe_subscription_id or '',
+        )
+
+        pending.completed = True
+        pending.save(update_fields=['completed'])
+
+    log_event(
+        user=user, school=None, category='auth',
+        action='individual_student_registered',
+        detail={
+            'username': user.username, 'email': user.email,
+            'package': package.name,
+            'via': 'stripe_payment',
+            'discount_code': data.get('discount_code'),
+        },
+    )
+    return user
+
+
 class CheckoutView(LoginRequiredMixin, View):
     """DEPRECATED: Legacy PaymentIntent checkout. Use Stripe Checkout Sessions instead."""
 
@@ -314,9 +389,32 @@ class ApplyPromoCodeView(LoginRequiredMixin, View):
         })
 
 
-class CheckoutSuccessView(LoginRequiredMixin, View):
+class CheckoutSuccessView(View):
+    """
+    Handles Stripe's redirect after a successful checkout session.
+    For pending registrations (no account yet), creates the account here.
+    For existing users, simply shows the success page.
+    """
     def get(self, request):
+        session_id = request.GET.get('session_id', '')
+        if session_id and not request.user.is_authenticated:
+            self._complete_pending_registration(request, session_id)
         return render(request, 'billing/success.html')
+
+    @staticmethod
+    def _complete_pending_registration(request, stripe_session_id):
+        from accounts.models import PendingRegistration
+        from django.contrib.auth import login as auth_login
+        try:
+            pending = PendingRegistration.objects.get(
+                stripe_session_id=stripe_session_id, completed=False
+            )
+        except PendingRegistration.DoesNotExist:
+            return
+
+        user = _create_account_from_pending(pending, stripe_subscription_id='')
+        if user:
+            auth_login(request, user, backend='accounts.backends.EmailOrUsernameBackend')
 
 
 class CheckoutCancelView(LoginRequiredMixin, View):

@@ -313,6 +313,7 @@ class ProfileCompletionMiddleware:
         '/accounts/blocked/',
         '/admin/',
         '/static/',
+        '/stripe/',   # Stripe webhooks / redirects
     )
 
     def __init__(self, get_response):
