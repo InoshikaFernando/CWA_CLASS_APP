@@ -21,16 +21,23 @@ from .views_admin import _get_user_school_or_404
 
 
 class ManageParentsRedirectView(RoleRequiredMixin, View):
-    """Shortcut: redirects to the first school's parent management page."""
+    """School picker for parent management; redirects directly if only one school."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request):
-        from .views_admin import _get_user_school
-        school = _get_user_school(request.user)
-        if school:
-            return redirect('admin_school_parents', school_id=school.id)
-        messages.info(request, 'Create a school first before managing parents.')
-        return redirect('admin_school_create')
+        from .views_admin import _get_user_schools
+        schools = list(_get_user_schools(request.user))
+        if len(schools) == 1:
+            return redirect('admin_school_parents', school_id=schools[0].id)
+        if not schools:
+            messages.info(request, 'Create a school first before managing parents.')
+            return redirect('admin_school_create')
+        return render(request, 'admin_dashboard/school_picker.html', {
+            'schools': schools,
+            'section': 'parents',
+            'title': 'Select a School — Parents',
+            'dest_url_name': 'admin_school_parents',
+        })
 
 
 class SchoolParentListView(RoleRequiredMixin, View):
@@ -473,3 +480,253 @@ class ParentStudentUnlinkView(RoleRequiredMixin, View):
             f'{link.student.first_name} {link.student.last_name}.',
         )
         return redirect('student_parent_links', school_id=school.id, student_id=student_id)
+
+
+# ---------------------------------------------------------------------------
+# Add new parent / link existing parent (school-level)
+# ---------------------------------------------------------------------------
+
+class AddParentView(RoleRequiredMixin, View):
+    """Create a new parent account and link them to students in this school."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def _school_students(self, school):
+        return (
+            SchoolStudent.objects.filter(school=school, is_active=True)
+            .select_related('student')
+            .order_by('student__last_name', 'student__first_name')
+        )
+
+    def get(self, request, school_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        return render(request, 'admin_dashboard/add_parent.html', {
+            'school': school,
+            'students': self._school_students(school),
+            'relationship_choices': ParentStudent.RELATIONSHIP_CHOICES,
+        })
+
+    def post(self, request, school_id):
+        from accounts.models import CustomUser
+        import secrets
+
+        school = _get_user_school_or_404(request.user, school_id)
+        email = request.POST.get('email', '').strip().lower()
+        first_name = request.POST.get('first_name', '').strip()
+        last_name = request.POST.get('last_name', '').strip()
+        phone = request.POST.get('phone', '').strip()
+        relationship = request.POST.get('relationship', 'guardian').strip()
+        student_ids = request.POST.getlist('student_ids')
+
+        if not email or '@' not in email:
+            messages.error(request, 'Please enter a valid email address.')
+            return render(request, 'admin_dashboard/add_parent.html', {
+                'school': school,
+                'students': self._school_students(school),
+                'relationship_choices': ParentStudent.RELATIONSHIP_CHOICES,
+                'form_data': request.POST,
+            })
+
+        # Check if a user with this email already exists
+        existing = CustomUser.objects.filter(email=email).first()
+        if existing:
+            messages.warning(
+                request,
+                f'Found existing account: {existing.get_full_name()} ({existing.email}). '
+                'Use "Link Existing Parent" below to connect them to students.',
+            )
+            return render(request, 'admin_dashboard/add_parent.html', {
+                'school': school,
+                'students': self._school_students(school),
+                'relationship_choices': ParentStudent.RELATIONSHIP_CHOICES,
+                'existing_parent': existing,
+                'form_data': request.POST,
+            })
+
+        if not first_name or not last_name:
+            messages.error(request, 'First name and last name are required.')
+            return render(request, 'admin_dashboard/add_parent.html', {
+                'school': school,
+                'students': self._school_students(school),
+                'relationship_choices': ParentStudent.RELATIONSHIP_CHOICES,
+                'form_data': request.POST,
+            })
+
+        # Build unique username from email prefix
+        base_username = email.split('@')[0]
+        username = base_username
+        counter = 1
+        while CustomUser.objects.filter(username=username).exists():
+            username = f'{base_username}{counter}'
+            counter += 1
+
+        temp_password = secrets.token_urlsafe(12)
+        parent_user = CustomUser.objects.create_user(
+            username=username,
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+            password=temp_password,
+            phone=phone,
+            must_change_password=True,
+        )
+
+        # Assign parent role
+        parent_role, _ = Role.objects.get_or_create(
+            name=Role.PARENT,
+            defaults={'display_name': 'Parent', 'description': 'Parent/guardian role'},
+        )
+        UserRole.objects.get_or_create(user=parent_user, role=parent_role)
+
+        # Link to selected students
+        linked = 0
+        for sid in student_ids:
+            try:
+                ss = SchoolStudent.objects.get(school=school, student_id=int(sid), is_active=True)
+                existing_count = ParentStudent.objects.filter(
+                    student=ss.student, school=school, is_active=True,
+                ).count()
+                if existing_count < 2:
+                    ParentStudent.objects.create(
+                        parent=parent_user,
+                        student=ss.student,
+                        school=school,
+                        relationship=relationship,
+                        is_primary_contact=(existing_count == 0),
+                        created_by=request.user,
+                    )
+                    linked += 1
+            except (SchoolStudent.DoesNotExist, ValueError):
+                pass
+
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='parent_created_direct',
+            detail={
+                'parent_id': parent_user.id,
+                'parent_name': parent_user.get_full_name(),
+                'parent_email': email,
+                'students_linked': linked,
+            },
+            request=request,
+        )
+        messages.success(
+            request,
+            f'Parent account created for {first_name} {last_name} and linked to '
+            f'{linked} student(s). Temporary password: {temp_password}',
+        )
+        return redirect('admin_school_parents', school_id=school.id)
+
+
+class LinkExistingParentView(RoleRequiredMixin, View):
+    """Link an existing parent account to students in this school."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def _school_students(self, school):
+        return (
+            SchoolStudent.objects.filter(school=school, is_active=True)
+            .select_related('student')
+            .order_by('student__last_name', 'student__first_name')
+        )
+
+    def get(self, request, school_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        return render(request, 'admin_dashboard/link_parent.html', {
+            'school': school,
+            'students': self._school_students(school),
+            'relationship_choices': ParentStudent.RELATIONSHIP_CHOICES,
+        })
+
+    def post(self, request, school_id):
+        from accounts.models import CustomUser
+
+        school = _get_user_school_or_404(request.user, school_id)
+        parent_id = request.POST.get('parent_id', '').strip()
+        relationship = request.POST.get('relationship', 'guardian').strip()
+        student_ids = request.POST.getlist('student_ids')
+
+        if not parent_id:
+            messages.error(request, 'Please select a parent account.')
+            return redirect('admin_school_link_parent', school_id=school.id)
+
+        try:
+            parent_user = CustomUser.objects.get(id=int(parent_id))
+        except (CustomUser.DoesNotExist, ValueError):
+            messages.error(request, 'Parent account not found.')
+            return redirect('admin_school_link_parent', school_id=school.id)
+
+        # Ensure the user has the parent role
+        parent_role, _ = Role.objects.get_or_create(
+            name=Role.PARENT,
+            defaults={'display_name': 'Parent', 'description': 'Parent/guardian role'},
+        )
+        UserRole.objects.get_or_create(user=parent_user, role=parent_role)
+
+        linked = 0
+        skipped = 0
+        for sid in student_ids:
+            try:
+                ss = SchoolStudent.objects.get(school=school, student_id=int(sid), is_active=True)
+                existing_count = ParentStudent.objects.filter(
+                    student=ss.student, school=school, is_active=True,
+                ).count()
+                if ParentStudent.objects.filter(
+                    parent=parent_user, student=ss.student, school=school,
+                ).exists():
+                    skipped += 1
+                    continue
+                if existing_count >= 2:
+                    skipped += 1
+                    continue
+                ParentStudent.objects.create(
+                    parent=parent_user,
+                    student=ss.student,
+                    school=school,
+                    relationship=relationship,
+                    is_primary_contact=(existing_count == 0),
+                    created_by=request.user,
+                )
+                linked += 1
+            except (SchoolStudent.DoesNotExist, ValueError):
+                pass
+
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='parent_linked_existing',
+            detail={
+                'parent_id': parent_user.id,
+                'parent_name': parent_user.get_full_name(),
+                'students_linked': linked,
+                'students_skipped': skipped,
+            },
+            request=request,
+        )
+        msg = f'{parent_user.get_full_name()} linked to {linked} student(s).'
+        if skipped:
+            msg += f' {skipped} skipped (already linked or at 2-parent limit).'
+        messages.success(request, msg)
+        return redirect('admin_school_parents', school_id=school.id)
+
+
+class ParentAccountSearchView(RoleRequiredMixin, View):
+    """HTMX: search for existing user accounts to link as parents."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request, school_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        q = request.GET.get('q', '').strip()
+        results = []
+        if len(q) >= 2:
+            from accounts.models import CustomUser
+            results = list(
+                CustomUser.objects.filter(
+                    Q(email__icontains=q)
+                    | Q(first_name__icontains=q)
+                    | Q(last_name__icontains=q)
+                    | Q(username__icontains=q)
+                ).exclude(is_superuser=True)[:15]
+            )
+        return render(request, 'admin_dashboard/partials/parent_account_search_results.html', {
+            'results': results,
+            'school': school,
+            'q': q,
+        })

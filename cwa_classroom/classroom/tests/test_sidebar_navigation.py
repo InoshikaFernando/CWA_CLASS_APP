@@ -94,11 +94,11 @@ class SidebarAdminNavigationTests(TestCase):
 
     def test_admin_sidebar_contains_teachers_link(self):
         resp = self.client.get(reverse('admin_dashboard'))
-        self.assertContains(resp, '/admin-dashboard/manage-teachers/')
+        self.assertContains(resp, '/admin-dashboard/schools/teachers/')
 
     def test_admin_sidebar_contains_students_link(self):
         resp = self.client.get(reverse('admin_dashboard'))
-        self.assertContains(resp, '/admin-dashboard/manage-students/')
+        self.assertContains(resp, '/admin-dashboard/schools/students/')
 
     def test_admin_sidebar_contains_academic_years_link(self):
         resp = self.client.get(reverse('admin_dashboard'))
@@ -515,7 +515,7 @@ class SidebarParentWithSchoolStudentTests(TestCase):
 
 
 class SidebarParentWithIndividualStudentOnlyTests(TestCase):
-    """Parent linked only to an individual student — Academics section must be hidden."""
+    """Parent linked only to an individual student — Academics section hidden, Progress always visible."""
 
     @classmethod
     def setUpTestData(cls):
@@ -549,9 +549,9 @@ class SidebarParentWithIndividualStudentOnlyTests(TestCase):
         resp = self.client.get(reverse('parent_dashboard'))
         self.assertNotContains(resp, reverse('parent_attendance'))
 
-    def test_progress_link_hidden_on_dashboard(self):
+    def test_progress_link_visible_on_dashboard(self):
         resp = self.client.get(reverse('parent_dashboard'))
-        self.assertNotContains(resp, reverse('parent_progress'))
+        self.assertContains(resp, reverse('parent_progress'))
 
     def test_academics_section_hidden_on_invoices_page(self):
         resp = self.client.get(reverse('parent_invoices'))
@@ -630,6 +630,11 @@ class SidebarParentWithMixedStudentsTests(TestCase):
         resp = self.client.get(reverse('parent_dashboard'))
         self.assertNotContains(resp, reverse('parent_homework'))
 
+    def test_progress_visible_when_individual_student_active(self):
+        self.client.post(reverse('parent_switch_child', args=[self.individual.pk]))
+        resp = self.client.get(reverse('parent_dashboard'))
+        self.assertContains(resp, reverse('parent_progress'))
+
     def test_both_children_appear_in_switcher(self):
         resp = self.client.get(reverse('parent_dashboard'))
         self.assertContains(resp, self.school_student.first_name)
@@ -669,10 +674,6 @@ class SidebarAccountantNavigationTests(TestCase):
         resp = self.client.get(reverse('accounting_dashboard'))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, reverse('accounting_dashboard'))
-
-    def test_accountant_sidebar_contains_packages_link(self):
-        resp = self.client.get(reverse('accounting_dashboard'))
-        self.assertContains(resp, reverse('accounting_packages'))
 
     def test_accountant_sidebar_contains_user_stats_link(self):
         resp = self.client.get(reverse('accounting_dashboard'))

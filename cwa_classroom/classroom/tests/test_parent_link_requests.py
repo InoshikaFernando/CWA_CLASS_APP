@@ -222,14 +222,17 @@ class ParentLinkRequestsViewTest(ParentLinkRequestTestBase):
         self.assertContains(resp, 'Jane Doe')
         self.assertContains(resp, 'Zara Smith')
 
-    def test_approved_requests_not_shown(self):
+    def test_approved_requests_shown_in_history(self):
+        # Approved requests no longer appear in pending but do appear in history
         parent, req = self._make_parent('view2_parent', 'wlhtestmails+view2_p@gmail.com')
         req.status = ParentLinkRequest.STATUS_APPROVED
         req.save()
         self.client.login(username='teacher1', password='password1!')
         resp = self.client.get(reverse('parent_link_requests'))
         self.assertEqual(resp.status_code, 200)
-        self.assertNotContains(resp, 'wlhtestmails+view2_p@gmail.com')
+        self.assertContains(resp, 'wlhtestmails+view2_p@gmail.com')
+        # Should not appear in pending context
+        self.assertNotIn(req, resp.context['pending_requests'])
 
 
 # ---------------------------------------------------------------------------

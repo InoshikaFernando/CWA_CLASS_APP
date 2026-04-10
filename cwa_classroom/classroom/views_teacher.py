@@ -1403,11 +1403,12 @@ class CancelSessionView(RoleRequiredMixin, View):
 # ---------------------------------------------------------------------------
 
 def _get_teacher_schools(user):
-    """Return queryset of schools where user is an active teacher/admin."""
+    """Return queryset of schools where user is an active teacher/admin or school admin."""
+    from django.db.models import Q
     return School.objects.filter(
-        school_teachers__teacher=user,
-        school_teachers__is_active=True,
-    )
+        Q(school_teachers__teacher=user, school_teachers__is_active=True) |
+        Q(admin=user)
+    ).distinct()
 
 
 class ParentLinkRequestsView(RoleRequiredMixin, View):
@@ -1420,19 +1421,25 @@ class ParentLinkRequestsView(RoleRequiredMixin, View):
 
     def get(self, request):
         schools = _get_teacher_schools(request.user)
+        base_qs = ParentLinkRequest.objects.filter(
+            school_student__school__in=schools,
+        ).select_related(
+            'parent', 'school_student', 'school_student__student',
+            'school_student__school', 'reviewed_by',
+        )
+
         pending_requests = (
-            ParentLinkRequest.objects.filter(
-                school_student__school__in=schools,
-                status=ParentLinkRequest.STATUS_PENDING,
-            ).exclude(parent=request.user)  # Teachers cannot approve their own requests
-            .select_related(
-                'parent', 'school_student', 'school_student__student',
-                'school_student__school',
-            )
+            base_qs.filter(status=ParentLinkRequest.STATUS_PENDING)
+            .exclude(parent=request.user)
             .order_by('-requested_at')
+        )
+        resolved_requests = (
+            base_qs.exclude(status=ParentLinkRequest.STATUS_PENDING)
+            .order_by('-reviewed_at')[:50]  # cap at 50 most recent
         )
         return render(request, 'teacher/parent_link_requests.html', {
             'pending_requests': pending_requests,
+            'resolved_requests': resolved_requests,
         })
 
 
@@ -1455,10 +1462,13 @@ class ParentLinkApproveView(RoleRequiredMixin, View):
             messages.error(request, 'You cannot approve your own parent link request.')
             return redirect('parent_link_requests')
 
-        # Verify teacher belongs to this school
-        if not SchoolTeacher.objects.filter(
-            school=school, teacher=request.user, is_active=True,
-        ).exists() and not request.user.is_staff:
+        # Verify teacher belongs to this school (or is the school admin)
+        is_school_member = (
+            SchoolTeacher.objects.filter(school=school, teacher=request.user, is_active=True).exists()
+            or school.admin == request.user
+            or request.user.is_staff
+        )
+        if not is_school_member:
             messages.error(request, 'You do not have permission to approve this request.')
             return redirect('parent_link_requests')
 
@@ -1547,9 +1557,12 @@ class ParentLinkRejectView(RoleRequiredMixin, View):
         )
         school = link_request.school_student.school
 
-        if not SchoolTeacher.objects.filter(
-            school=school, teacher=request.user, is_active=True,
-        ).exists() and not request.user.is_staff:
+        is_school_member = (
+            SchoolTeacher.objects.filter(school=school, teacher=request.user, is_active=True).exists()
+            or school.admin == request.user
+            or request.user.is_staff
+        )
+        if not is_school_member:
             messages.error(request, 'You do not have permission to reject this request.')
             return redirect('parent_link_requests')
 
