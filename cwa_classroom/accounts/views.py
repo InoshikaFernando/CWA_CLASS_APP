@@ -970,14 +970,12 @@ class CompleteProfileView(LoginRequiredMixin, View):
         # School students need their own subscription
         if user.is_student:
             from billing.models import Package, Subscription
-            from django.utils import timezone
-            from datetime import timedelta
 
             package = self._get_student_package()
             if package:
-                # Create subscription
                 is_free = discount_obj and discount_obj.is_fully_free
                 if is_free:
+                    # 100% free code — activate immediately, no Stripe needed
                     Subscription.objects.get_or_create(
                         user=user,
                         defaults={
@@ -989,40 +987,36 @@ class CompleteProfileView(LoginRequiredMixin, View):
                     user.save(update_fields=['package'])
                     messages.success(request, 'Profile completed! Free access activated.')
                     return redirect('subjects_hub')
-                else:
-                    trial_end = timezone.now() + timedelta(days=package.trial_days)
-                    Subscription.objects.get_or_create(
-                        user=user,
-                        defaults={
-                            'package': package,
-                            'status': Subscription.STATUS_TRIALING,
-                            'trial_end': trial_end,
-                        },
-                    )
-                    user.package = package
-                    user.save(update_fields=['package'])
-
-                    # Redirect to Stripe Checkout for card details
-                    if package.stripe_price_id:
-                        try:
-                            from billing.stripe_service import create_student_checkout_session
-                            stripe_coupon = discount_obj.stripe_coupon_id if discount_obj and discount_obj.stripe_coupon_id else None
-                            session = create_student_checkout_session(
-                                user, package, request,
-                                stripe_coupon_id=stripe_coupon,
-                            )
-                            return redirect(session.url)
-                        except Exception as e:
-                            import logging
-                            logging.getLogger(__name__).error(
-                                f'Stripe checkout session creation failed for user {user.id}: {e}'
-                            )
-                            messages.warning(request, 'Could not redirect to payment page. Please visit Billing to set up payment.')
-                    else:
-                        import logging
-                        logging.getLogger(__name__).warning(
-                            f'Package {package.id} ({package.name}) has no stripe_price_id — skipping Stripe redirect'
+                elif package.stripe_price_id:
+                    # Redirect to Stripe — subscription is created by the webhook on success
+                    try:
+                        from billing.stripe_service import create_student_checkout_session
+                        stripe_coupon = discount_obj.stripe_coupon_id if discount_obj and discount_obj.stripe_coupon_id else None
+                        session = create_student_checkout_session(
+                            user, package, request,
+                            stripe_coupon_id=stripe_coupon,
                         )
+                        return redirect(session.url)
+                    except Exception as e:
+                        import logging
+                        logging.getLogger(__name__).error(
+                            'Stripe checkout session creation failed for user %s: %s', user.id, e
+                        )
+                        messages.error(request, 'Could not redirect to payment page. Please try again or contact support.')
+                        return render(request, 'accounts/complete_profile.html', {
+                            'student_package': package,
+                        })
+                else:
+                    # Package not configured for Stripe — block access until admin fixes it
+                    import logging
+                    logging.getLogger(__name__).error(
+                        'Package %s (%s) has no stripe_price_id — cannot process payment for user %s',
+                        package.id, package.name, user.id,
+                    )
+                    messages.error(request, 'Payment is not currently configured. Please contact support to activate your account.')
+                    return render(request, 'accounts/complete_profile.html', {
+                        'student_package': package,
+                    })
 
         messages.success(request, 'Profile completed successfully! Welcome aboard.')
         return redirect('subjects_hub')

@@ -84,7 +84,7 @@ def _activate_institute_from_checkout(metadata, stripe_subscription_id):
 
 
 def _activate_individual_from_checkout(metadata, stripe_subscription_id):
-    from billing.models import Subscription
+    from billing.models import Subscription, Package
     from accounts.models import CustomUser
 
     user_id = metadata.get('user_id')
@@ -94,10 +94,20 @@ def _activate_individual_from_checkout(metadata, stripe_subscription_id):
 
     try:
         user = CustomUser.objects.get(id=user_id)
-        sub = user.subscription
-    except (CustomUser.DoesNotExist, Subscription.DoesNotExist):
-        logger.error('User %s or subscription not found', user_id)
+    except CustomUser.DoesNotExist:
+        logger.error('User %s not found', user_id)
         return
+
+    try:
+        sub = user.subscription
+    except Subscription.DoesNotExist:
+        # School students have no pre-created subscription — create it now
+        package = Package.objects.filter(id=package_id).first() if package_id else None
+        if not package:
+            logger.error('Package %s not found, cannot create subscription for user %s', package_id, user_id)
+            return
+        sub = Subscription(user=user, package=package)
+        logger.info('Creating subscription for school student user=%s package=%s', user_id, package_id)
 
     from billing.models import Package
     package = Package.objects.filter(id=package_id).first() if package_id else sub.package
