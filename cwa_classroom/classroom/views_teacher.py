@@ -1462,10 +1462,13 @@ class ParentLinkApproveView(RoleRequiredMixin, View):
             messages.error(request, 'You cannot approve your own parent link request.')
             return redirect('parent_link_requests')
 
-        # Verify teacher belongs to this school
-        if not SchoolTeacher.objects.filter(
-            school=school, teacher=request.user, is_active=True,
-        ).exists() and not request.user.is_staff:
+        # Verify teacher belongs to this school (or is the school admin)
+        is_school_member = (
+            SchoolTeacher.objects.filter(school=school, teacher=request.user, is_active=True).exists()
+            or school.admin == request.user
+            or request.user.is_staff
+        )
+        if not is_school_member:
             messages.error(request, 'You do not have permission to approve this request.')
             return redirect('parent_link_requests')
 
@@ -1554,9 +1557,12 @@ class ParentLinkRejectView(RoleRequiredMixin, View):
         )
         school = link_request.school_student.school
 
-        if not SchoolTeacher.objects.filter(
-            school=school, teacher=request.user, is_active=True,
-        ).exists() and not request.user.is_staff:
+        is_school_member = (
+            SchoolTeacher.objects.filter(school=school, teacher=request.user, is_active=True).exists()
+            or school.admin == request.user
+            or request.user.is_staff
+        )
+        if not is_school_member:
             messages.error(request, 'You do not have permission to reject this request.')
             return redirect('parent_link_requests')
 
