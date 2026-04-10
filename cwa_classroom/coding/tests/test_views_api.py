@@ -33,7 +33,6 @@ from coding.models import (
     ProblemTestCase,
     StudentExerciseSubmission,
     StudentProblemSubmission,
-    calculate_coding_points,
 )
 
 User = get_user_model()
@@ -378,6 +377,21 @@ class TestApiSubmitProblem(TestCase):
             input_data='hello', expected_output='olleh',
             is_visible=True, display_order=1, description='Basic',
         )
+        cls.bubble_sort_problem = CodingProblem.objects.create(
+            language=cls.python_lang,
+            title='Bubble Sort',
+            description='Sort the numbers using Bubble Sort only.',
+            starter_code='numbers = list(map(int, input().split()))\n',
+            difficulty=5,
+            category=CodingProblem.SORTING_SEARCHING,
+            forbidden_code_patterns=['sorted(', '.sort('],
+            is_active=True,
+        )
+        ProblemTestCase.objects.create(
+            problem=cls.bubble_sort_problem,
+            input_data='3 2 1', expected_output='1 2 3',
+            is_visible=True, display_order=1, description='Small reverse order',
+        )
 
     def setUp(self):
         self.client.force_login(self.student)
@@ -477,6 +491,37 @@ class TestApiSubmitProblem(TestCase):
         error = resp.json()['error'].lower()
         self.assertTrue('execution' in error or 'support' in error)
 
+    def test_forbidden_shortcut_returns_failed_submission_without_execution(self):
+        """Problems can ban shortcuts such as sorted() for Bubble Sort."""
+        url = reverse('coding:api_submit_problem', args=[self.bubble_sort_problem.id])
+        with patch('coding.execution.run_code') as mock_rc:
+            resp = _post(self.client, url, {
+                'code': 'numbers = list(map(int, input().split()))\nprint(*sorted(numbers))',
+            })
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertFalse(data['passed_all'])
+        self.assertEqual(data['attempt_points'], 0.0)
+        self.assertIn('forbidden shortcut', data['error'].lower())
+        self.assertEqual(len(data['visible_results']), 1)
+        self.assertFalse(data['visible_results'][0]['passed'])
+        mock_rc.assert_not_called()
+
+    def test_forbidden_shortcut_persists_failed_attempt(self):
+        """Forbidden shortcut attempts are saved for audit trail and attempt counting."""
+        url = reverse('coding:api_submit_problem', args=[self.bubble_sort_problem.id])
+        _post(self.client, url, {
+            'code': 'numbers = list(map(int, input().split()))\nprint(*sorted(numbers))',
+        })
+        sub = StudentProblemSubmission.objects.get(
+            student=self.student,
+            problem=self.bubble_sort_problem,
+        )
+        self.assertFalse(sub.passed_all_tests)
+        self.assertEqual(sub.points, 0.0)
+        self.assertEqual(sub.visible_total, 1)
+        self.assertEqual(sub.visible_passed, 0)
+
     # ── All-pass submission ──────────────────────────────────────────────────
 
     def test_all_pass_correct_response_structure(self):
@@ -503,7 +548,8 @@ class TestApiSubmitProblem(TestCase):
         self.assertTrue(resp.json()['is_new_best'])
 
     def test_all_pass_attempt_points_use_piston_time_not_client_time(self):
-        """Score must be calculated from Piston's wall-clock time, not time_taken_seconds."""
+        """time_taken_seconds (client-supplied) must be ignored for scoring.
+        Binary model: all tests pass → always 100.0 regardless of execution time."""
         url = reverse('coding:api_submit_problem', args=[self.python_problem.id])
         piston_results = [
             {'stdout': 'olleh', 'stderr': '', 'exit_code': 0, 'run_time_seconds': 0.10},
@@ -515,8 +561,7 @@ class TestApiSubmitProblem(TestCase):
                 'code': 'print(input()[::-1])',
                 'time_taken_seconds': 9999,     # must be ignored for scoring
             })
-        expected = calculate_coding_points(2, 2, 0.15)   # 0.10 + 0.05
-        self.assertEqual(resp.json()['attempt_points'], expected)
+        self.assertEqual(resp.json()['attempt_points'], 100.0)
 
     # ── Failure / partial-pass ───────────────────────────────────────────────
 

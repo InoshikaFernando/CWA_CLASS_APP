@@ -27,8 +27,10 @@ from django.urls import reverse
 from coding.models import (
     CodingExercise,
     CodingLanguage,
+    CodingProblem,
     CodingTopic,
     StudentExerciseSubmission,
+    StudentProblemSubmission,
 )
 
 User = get_user_model()
@@ -244,9 +246,106 @@ class TestLanguageSelectorAllStarted(TestCase):
             self.assertTrue(lang.is_started, f'{lang.slug} should be started')
 
 
-# ===========================================================================
-# 5. Staff bypass — staff user's submissions don't count
-# ===========================================================================
+class TestLanguageSelectorProgressLinks(TestCase):
+    """Landing page must link to each language dashboard from the Coding home screen."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.student = User.objects.create_user('progress_links', password='pass', email='progress_links@test.com')
+        cls.python = _make_language('python', 'Python', 1)
+        cls.html = _make_language('html', 'HTML', 2)
+
+    def setUp(self):
+        self.client.force_login(self.student)
+
+    def test_language_selector_has_dashboard_links(self):
+        resp = self.client.get(URL)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, reverse('coding:dashboard', args=[self.python.slug]))
+        self.assertContains(resp, reverse('coding:dashboard', args=[self.html.slug]))
+
+
+class TestCodingDashboardView(TestCase):
+    """Dashboard returns topic/level progress and problem-solving difficulty stats."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.student = User.objects.create_user('dashboard_student', password='pass', email='dashboard_student@test.com')
+        cls.python = _make_language('python', 'Python', 1)
+
+        cls.topic_a = _make_topic(cls.python, 'Variables', 'variables')
+        cls.topic_b = _make_topic(cls.python, 'Loops', 'loops')
+
+        cls.beg_1 = _make_exercise(cls.topic_a, 'Vars 1', CodingExercise.BEGINNER)
+        cls.int_1 = _make_exercise(cls.topic_a, 'Vars 2', CodingExercise.INTERMEDIATE)
+        cls.adv_1 = _make_exercise(cls.topic_a, 'Vars 3', CodingExercise.ADVANCED)
+        cls.beg_2 = _make_exercise(cls.topic_b, 'Loops 1', CodingExercise.BEGINNER)
+        cls.int_2 = _make_exercise(cls.topic_b, 'Loops 2', CodingExercise.INTERMEDIATE)
+
+        cls.problem_1 = CodingProblem.objects.create(
+            title='Easy Sum', description='Add numbers', difficulty=1, is_active=True, language=cls.python,
+        )
+        cls.problem_5 = CodingProblem.objects.create(
+            title='Tricky Loops', description='Loop puzzle', difficulty=5, is_active=True, language=cls.python,
+        )
+
+        StudentExerciseSubmission.objects.create(
+            student=cls.student,
+            exercise=cls.beg_1,
+            code_submitted='print(1)',
+            is_completed=True,
+        )
+        StudentExerciseSubmission.objects.create(
+            student=cls.student,
+            exercise=cls.int_1,
+            code_submitted='print(2)',
+            is_completed=False,
+        )
+        StudentExerciseSubmission.objects.create(
+            student=cls.student,
+            exercise=cls.beg_2,
+            code_submitted='print(3)',
+            is_completed=True,
+        )
+
+        StudentProblemSubmission.objects.create(
+            student=cls.student,
+            problem=cls.problem_1,
+            code_submitted='print(1)',
+            passed_all_tests=True,
+            visible_passed=1,
+            visible_total=1,
+            hidden_passed=0,
+            hidden_total=0,
+            points=10.0,
+        )
+
+    def setUp(self):
+        self.client.force_login(self.student)
+
+    def test_dashboard_renders(self):
+        url = reverse('coding:dashboard', args=[self.python.slug])
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('topic_progress', resp.context)
+        self.assertIn('difficulty_data', resp.context)
+
+    def test_topic_progress_data_includes_levels(self):
+        resp = self.client.get(reverse('coding:dashboard', args=[self.python.slug]))
+        topic_data = resp.context['topic_progress']
+        self.assertEqual(len(topic_data), 2)
+        self.assertEqual(topic_data[0]['levels'][0]['label'], 'Beginner')
+        self.assertEqual(topic_data[0]['levels'][0]['completed'], 1)
+        self.assertEqual(topic_data[1]['levels'][0]['completed'], 1)
+
+    def test_difficulty_data_counts_problems(self):
+        resp = self.client.get(reverse('coding:dashboard', args=[self.python.slug]))
+        difficulty_data = resp.context['difficulty_data']
+        self.assertEqual(len(difficulty_data), 8)
+        self.assertEqual(difficulty_data[0]['total'], 1)
+        self.assertEqual(difficulty_data[0]['solved'], 1)
+        self.assertEqual(difficulty_data[4]['total'], 1)
+        self.assertEqual(difficulty_data[4]['solved'], 0)
 
 class TestLanguageSelectorStaffBypass(TestCase):
     """

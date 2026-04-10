@@ -9,7 +9,7 @@ def calculate_coding_points(
     total_tests,
     time_taken_seconds,
     quality_score: float = 1.0,
-    k: int = 30,
+    k: float = 2.0,
 ) -> float:
     """Calculate attempt points for a single submission.
 
@@ -20,10 +20,14 @@ def calculate_coding_points(
     Components
     ----------
     accuracy      Primary driver.  A partial pass scores proportionally.
-    speed bonus   Diminishing-returns multiplier.  K=30 means the bonus
-                  halves when average execution time per test case reaches
-                  30 s.  Typical Piston runtimes are < 1 s, so the speed
-                  multiplier is usually close to 1.0.
+    speed bonus   Diminishing-returns multiplier.  K=2 means the bonus
+                  halves when the average server-measured round-trip time
+                  per test case reaches 2 s.  Typical Piston runtimes are
+                  0.05–0.5 s, so an O(n²) solution (e.g. 1–2 s/test) scores
+                  noticeably lower than an O(n log n) one (e.g. 0.05 s/test):
+                    0.05 s → K/(K+0.05) ≈ 97.6 %  →  ~98 pts
+                    1.00 s → K/(K+1.00) ≈ 66.7 %  →  ~67 pts
+                    2.00 s → K/(K+2.00)  = 50.0 %  →  ~50 pts
     quality_score Fraction in [0.70, 1.00] produced by analyse_code_quality().
                   A clean, efficient solution earns 1.00; one with deeply
                   nested loops or high cyclomatic complexity earns less.
@@ -230,6 +234,15 @@ class CodingProblem(models.Model):
     )
     starter_code = models.TextField(blank=True, help_text="Skeleton code to give students a starting point")
     solution_code = models.TextField(blank=True, help_text="Reference solution — never exposed to students")
+    forbidden_code_patterns = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "List of forbidden source-code substrings for this problem, e.g. "
+            "['sorted(', '.sort('] for Bubble Sort. A submission containing any "
+            "forbidden pattern fails immediately with zero points."
+        ),
+    )
     difficulty = models.PositiveSmallIntegerField(
         default=1,
         help_text="Difficulty level 1 (easiest) to 8 (hardest)",

@@ -191,6 +191,42 @@
     border-top: 1px solid var(--cw-border);
     margin-top: auto;
   }
+
+  .cw-callout {
+    background: #fff;
+    border: 1px solid var(--cw-border);
+    border-radius: 18px;
+    padding: 20px;
+    margin-top: 28px;
+  }
+  .cw-callout-copy {
+    color: #44403c;
+    font-size: 14px;
+    margin-bottom: 14px;
+  }
+  .cw-callout-links {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px;
+  }
+  .cw-callout-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px 14px;
+    background: #f9fafb;
+    border: 1px solid rgba(15, 23, 42, .06);
+    color: #0f172a;
+    border-radius: 12px;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: background .18s, border-color .18s;
+  }
+  .cw-callout-link:hover {
+    background: #eef2ff;
+    border-color: #c7d2fe;
+  }
   .cw-meta { font-size: 12px; color: var(--cw-text-muted); }
 
   .cw-arrow {
@@ -257,6 +293,17 @@
         </span>
       </div>
       {% endif %}
+
+      <div class="cw-callout">
+        <p class="cw-callout-copy">Track your progress across topics, levels, and problem solving for each language.</p>
+        <div class="cw-callout-links">
+          {% for language in languages %}
+          <a class="cw-callout-link" href="{% url 'coding:dashboard' lang_slug=language.slug %}">
+            My {{ language.name }} Progress
+          </a>
+          {% endfor %}
+        </div>
+      </div>
     </section>
 
     <!-- Language grid -->

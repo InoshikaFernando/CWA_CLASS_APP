@@ -3,7 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
 from django.http import JsonResponse
 from django.utils import timezone
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.conf import settings
 
 import logging
@@ -16,8 +16,8 @@ from .models import (
     StudentExerciseSubmission,
     StudentProblemSubmission,
     CodingTimeLog,
-    calculate_coding_points,
 )
+from .scoring import evaluate_submission, score_submission
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,23 @@ logger = logging.getLogger(__name__)
 def _get_language_or_404(lang_slug):
     """Return active CodingLanguage by slug or raise 404."""
     return get_object_or_404(CodingLanguage, slug=lang_slug, is_active=True)
+
+
+def _find_forbidden_code_pattern(problem, code):
+    """Return the first forbidden code substring found in *code* for *problem*.
+
+    Patterns are simple case-insensitive substring checks stored on the problem,
+    e.g. ['sorted(', '.sort('] for Bubble Sort.
+    """
+    forbidden_patterns = getattr(problem, 'forbidden_code_patterns', None) or []
+    if not forbidden_patterns or not code:
+        return None
+
+    normalized_code = code.casefold()
+    for pattern in forbidden_patterns:
+        if isinstance(pattern, str) and pattern and pattern.casefold() in normalized_code:
+            return pattern
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -374,33 +391,99 @@ def dashboard(request, lang_slug):
     language = _get_language_or_404(lang_slug)
     topics = CodingTopic.objects.filter(language=language, is_active=True)
 
-    topic_progress = []
-    for topic in topics:
-        exercises = CodingExercise.objects.filter(topic=topic, is_active=True)
-        completed = StudentExerciseSubmission.objects.filter(
+    exercises = CodingExercise.objects.filter(topic__in=topics, is_active=True)
+    completed_exercise_ids = set(
+        StudentExerciseSubmission.objects.filter(
             student=request.user,
             exercise__in=exercises,
             is_completed=True,
-        ).values_list('exercise_id', flat=True).distinct().count()
+        ).values_list('exercise_id', flat=True).distinct()
+    )
+
+    level_meta = {
+        CodingExercise.BEGINNER:     {'label': 'Beginner',     'colour': 'emerald', 'stars': 1},
+        CodingExercise.INTERMEDIATE: {'label': 'Intermediate', 'colour': 'amber',   'stars': 2},
+        CodingExercise.ADVANCED:     {'label': 'Advanced',     'colour': 'rose',    'stars': 3},
+    }
+
+    topic_progress = []
+    exercises_total = 0
+    exercises_completed = 0
+    topics_started = 0
+    topics_completed = 0
+
+    for topic in topics:
+        topic_exercises = exercises.filter(topic=topic)
+        topic_total = topic_exercises.count()
+        topic_completed = sum(1 for ex in topic_exercises if ex.id in completed_exercise_ids)
+        if topic_completed:
+            topics_started += 1
+        if topic_total and topic_completed >= topic_total:
+            topics_completed += 1
+
+        level_data = []
+        for level, _label in CodingExercise.LEVEL_CHOICES:
+            level_exercises = topic_exercises.filter(level=level)
+            level_total = level_exercises.count()
+            level_completed = sum(1 for ex in level_exercises if ex.id in completed_exercise_ids)
+            level_pct = round(level_completed / level_total * 100) if level_total else 0
+            meta = level_meta[level]
+            level_data.append({
+                'level': level,
+                'label': meta['label'],
+                'colour': meta['colour'],
+                'stars': meta['stars'],
+                'total': level_total,
+                'completed': level_completed,
+                'pct': level_pct,
+                'is_complete': level_total > 0 and level_completed >= level_total,
+            })
+
+        topic_pct = round(topic_completed / topic_total * 100) if topic_total else 0
         topic_progress.append({
             'topic': topic,
-            'total': exercises.count(),
-            'completed': completed,
+            'total': topic_total,
+            'completed': topic_completed,
+            'pct': topic_pct,
+            'levels': level_data,
+            'is_complete': topic_total > 0 and topic_completed >= topic_total,
         })
+        exercises_total += topic_total
+        exercises_completed += topic_completed
 
-    problems_solved = StudentProblemSubmission.objects.filter(
-        student=request.user,
-        problem__language=language,
-        passed_all_tests=True,
-    ).values('problem').distinct().count()
+    problems_qs = CodingProblem.objects.filter(
+        Q(language=language) | Q(language__isnull=True),
+        is_active=True,
+    )
+    solved_problem_ids = set(
+        StudentProblemSubmission.objects.filter(
+            student=request.user,
+            problem__in=problems_qs,
+            passed_all_tests=True,
+        ).values_list('problem_id', flat=True).distinct()
+    )
 
-    total_problems = CodingProblem.objects.filter(language=language, is_active=True).count()
+    difficulty_data = []
+    for difficulty in range(1, 9):
+        total = problems_qs.filter(difficulty=difficulty).count()
+        solved = problems_qs.filter(difficulty=difficulty, id__in=solved_problem_ids).count()
+        difficulty_data.append({
+            'difficulty': difficulty,
+            'total': total,
+            'solved': solved,
+            'pct': round(solved / total * 100) if total else 0,
+        })
 
     return render(request, 'coding/dashboard.html', {
         'language': language,
         'topic_progress': topic_progress,
-        'problems_solved': problems_solved,
-        'total_problems': total_problems,
+        'exercises_total': exercises_total,
+        'exercises_completed': exercises_completed,
+        'topics_started': topics_started,
+        'topics_completed': topics_completed,
+        'difficulty_data': difficulty_data,
+        'problems_solved': len(solved_problem_ids),
+        'total_problems': problems_qs.count(),
         'subject_sidebar': 'coding',
     })
 
@@ -553,30 +636,60 @@ def api_submit_problem(request, problem_id):
         if not piston_lang:
             return JsonResponse({'error': f'Language "{exec_language.slug}" does not support server-side execution'}, status=400)
 
-        from .execution import run_code
+        forbidden_pattern = _find_forbidden_code_pattern(problem, code)
+        if forbidden_pattern:
+            best_previous = StudentProblemSubmission.get_best_points(request.user, problem)
+            attempt_number = StudentProblemSubmission.get_next_attempt_number(request.user, problem)
+            failure_message = f'Forbidden shortcut used: {forbidden_pattern}'
+            failure_result = {
+                'description': 'Forbidden approach',
+                'input': '',
+                'expected': 'Solve this problem without using restricted built-in shortcuts.',
+                'actual': failure_message,
+                'passed': False,
+            }
+            StudentProblemSubmission.objects.create(
+                student=request.user,
+                problem=problem,
+                attempt_number=attempt_number,
+                code_submitted=code,
+                passed_all_tests=False,
+                visible_passed=0,
+                visible_total=1,
+                hidden_passed=0,
+                hidden_total=0,
+                test_results=[
+                    {
+                        'test_case_id': None,
+                        'is_visible': True,
+                        'passed': False,
+                        'actual_output': failure_message,
+                        'expected_output': 'No forbidden shortcuts',
+                    }
+                ],
+                points=best_previous,
+                time_taken_seconds=time_taken,
+            )
+            return JsonResponse({
+                'passed_all': False,
+                'visible_results': [failure_result],
+                'hidden_passed': 0,
+                'hidden_total': 0,
+                'attempt_points': 0.0,
+                'best_points': best_previous,
+                'is_new_best': False,
+                'quality_score': 1.0,
+                'quality_issues': [failure_message],
+                'error': failure_message,
+            })
 
-        visible_results = []
-        hidden_passed = 0
-        hidden_total = 0
-        all_passed = True
-        test_results_store = []
-        total_execution_seconds = 0.0   # sum of Piston wall-clock time across all test cases
+        # ── Evaluate: run code against every test case ───────────────────────
+        # evaluate_submission() is the single, problem-type-agnostic entry point.
+        # It determines comparison strategy from problem.category automatically.
+        eval_result = evaluate_submission(problem, code, piston_lang)
 
-        # Debug: Ensure test cases exist and are properly loaded
-        # Try to order by display_order (new field name after migration)
-        # If that fails, fall back to ordering by id
-        try:
-            test_cases_qs = problem.test_cases.all().order_by('display_order', 'id')
-            # Force evaluation to catch schema issues early
-            test_case_count = test_cases_qs.count()
-        except Exception as order_exc:
-            logger.warning(f'Could not order by display_order for problem {problem_id}: {order_exc}. Falling back to id ordering.')
-            # Fallback: order by id only (works regardless of schema state)
-            test_cases_qs = problem.test_cases.all().order_by('id')
-            test_case_count = test_cases_qs.count()
-        
-        if test_case_count == 0:
-            logger.warning(f'Problem {problem_id} has no test cases. Returning zero-test result.')
+        if not eval_result.has_test_cases:
+            logger.warning('Problem %s has no test cases configured.', problem_id)
             return JsonResponse({
                 'passed_all': False,
                 'visible_results': [],
@@ -587,135 +700,70 @@ def api_submit_problem(request, problem_id):
                 'is_new_best': False,
                 'quality_score': 1.0,
                 'quality_issues': ['Problem has no test cases configured'],
-                'error': 'Test cases not found for this problem'
+                'error': 'Test cases not found for this problem',
             }, status=400)
 
-        for tc in test_cases_qs:
-            result = run_code(piston_lang, code, tc.input_data)
-            actual = result.get('stdout', '').strip()
-            expected = tc.expected_output.strip()
-            passed = (actual == expected) and result.get('exit_code', 1) == 0
-            total_execution_seconds += result.get('run_time_seconds', 0) or 0
+        # Build the visible-test payload returned to the browser
+        visible_results = [
+            {
+                'description': tr.description,
+                'input': tr.input_data,
+                'expected': tr.expected_output,
+                'actual': tr.actual_output,
+                'passed': tr.passed,
+            }
+            for tr in eval_result.test_results
+            if tr.is_visible
+        ]
 
-            if not passed:
-                all_passed = False
+        # Build the JSON blob stored in StudentProblemSubmission.test_results
+        test_results_store = [
+            {
+                'test_case_id': tr.test_case_id,
+                'is_visible': tr.is_visible,
+                'passed': tr.passed,
+                **({'actual_output': tr.actual_output, 'expected_output': tr.expected_output}
+                   if tr.is_visible else {}),
+            }
+            for tr in eval_result.test_results
+        ]
 
-            if tc.is_visible:
-                visible_results.append({
-                    'description': tc.description,
-                    'input': tc.input_data,
-                    'expected': expected,
-                    'actual': actual,
-                    'passed': passed,
-                })
-                test_results_store.append({
-                    'test_case_id': tc.id,
-                    'is_visible': True,
-                    'passed': passed,
-                    'actual_output': actual,
-                    'expected_output': expected,
-                })
-            else:
-                hidden_total += 1
-                if passed:
-                    hidden_passed += 1
-                test_results_store.append({
-                    'test_case_id': tc.id,
-                    'is_visible': False,
-                    'passed': passed,
-                    # actual_output intentionally omitted for hidden cases
-                })
-
-        visible_passed = sum(1 for r in visible_results if r['passed'])
-        visible_total  = len(visible_results)
-        total_passed   = visible_passed + hidden_passed
-        total_tests    = visible_total + hidden_total
-
-        # ── Quality analysis ──────────────────────────────────────────────────────
-        #
-        # Run static code-quality analysis before scoring so the quality_score
-        # multiplier (0.70–1.00) is available to calculate_coding_points().
-        #
-        # Analysis is skipped (quality_score=1.0) when:
-        #   • ENABLE_QUALITY_SCORING is False  (feature flag / env var)
-        #   • The submission failed all tests  (correctness penalty dominates)
-        #   • The language has no analyser     (HTML/CSS/Scratch)
-        # ─────────────────────────────────────────────────────────────────────────
-        from django.conf import settings as _settings
-        from .quality import analyse_code_quality
-
-        _quality_enabled = getattr(_settings, 'ENABLE_QUALITY_SCORING', True)
-        _max_penalty     = float(getattr(_settings, 'QUALITY_MAX_PENALTY', 0.30))
-
-        if _quality_enabled and all_passed:
-            quality_result = analyse_code_quality(
-                code,
-                exec_language.slug,
-                max_penalty=_max_penalty,
-            )
-        else:
-            from .quality import QualityResult
-            quality_result = QualityResult(quality_score=1.0)
-
-        # ── Scoring ───────────────────────────────────────────────────────────────
-        #
-        # Three components multiply together:
-        #
-        #   accuracy      — (passed_tests / total_tests)
-        #   speed bonus   — (K / (K + time_per_test))  using Piston wall-clock time
-        #   quality score — 0.70–1.00 from static analysis (1.00 = no penalty)
-        #
-        # Two score values are tracked independently:
-        #
-        #   attempt_points  — score for THIS submission (can go up or down vs. prior)
-        #   best_points     — highest attempt_points ever; can only increase
-        #
-        # ─────────────────────────────────────────────────────────────────────────
+        # ── Quality analysis ──────────────────────────────────────────────────
+        # ── Scoring ───────────────────────────────────────────────────────────
+        # Binary model: 100 (all pass) / 50 (visible pass, hidden fail) / 0 (visible fail).
+        # Deterministic — same code always produces the same score.
         best_previous = StudentProblemSubmission.get_best_points(request.user, problem)
+        attempt_points = score_submission(eval_result)
+        best_points = max(attempt_points, best_previous)
+        is_new_best = eval_result.all_passed and attempt_points > best_previous
 
-        if all_passed:
-            attempt_points = calculate_coding_points(
-                total_passed,
-                total_tests,
-                total_execution_seconds,
-                quality_score=quality_result.quality_score,
-            )
-            best_points = max(attempt_points, best_previous)
-        else:
-            attempt_points = 0.0
-            best_points    = best_previous   # a failed attempt never reduces the leaderboard score
-
-        is_new_best = all_passed and attempt_points > best_previous
-
-        # Persist every submission for audit trail.
-        # Store best_points so leaderboard queries (ORDER BY points DESC) always
-        # surface the student's best performance, not their most recent one.
+        # ── Persist ───────────────────────────────────────────────────────────
         attempt_number = StudentProblemSubmission.get_next_attempt_number(request.user, problem)
         StudentProblemSubmission.objects.create(
             student=request.user,
             problem=problem,
             attempt_number=attempt_number,
             code_submitted=code,
-            passed_all_tests=all_passed,
-            visible_passed=visible_passed,
-            visible_total=visible_total,
-            hidden_passed=hidden_passed,
-            hidden_total=hidden_total,
+            passed_all_tests=eval_result.all_passed,
+            visible_passed=eval_result.visible_passed,
+            visible_total=eval_result.visible_total,
+            hidden_passed=eval_result.hidden_passed,
+            hidden_total=eval_result.hidden_total,
             test_results=test_results_store,
             points=best_points,          # leaderboard always uses best-of
             time_taken_seconds=time_taken,
         )
 
         return JsonResponse({
-            'passed_all':      all_passed,
+            'passed_all':      eval_result.all_passed,
             'visible_results': visible_results,
-            'hidden_passed':   hidden_passed,
-            'hidden_total':    hidden_total,
-            'attempt_points':  attempt_points,              # accuracy × speed × quality
-            'best_points':     best_points,                 # all-time best (leaderboard value)
+            'hidden_passed':   eval_result.hidden_passed,
+            'hidden_total':    eval_result.hidden_total,
+            'attempt_points':  attempt_points,
+            'best_points':     best_points,
             'is_new_best':     is_new_best,
-            'quality_score':   quality_result.quality_score,     # 1.0 = no penalty
-            'quality_issues':  quality_result.issues,            # feedback strings (empty = clean code)
+            'quality_score':   1.0,
+            'quality_issues':  [],
         })
 
     except Exception as exc:

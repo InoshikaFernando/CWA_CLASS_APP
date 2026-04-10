@@ -20,6 +20,29 @@ from coding.models import (
 )
 
 
+def _space_separated(values):
+    return ' '.join(str(value) for value in values)
+
+
+def _sort_case(values, visible, description, boundary=False):
+    return {
+        'input': _space_separated(values),
+        'expected': _space_separated(sorted(values)),
+        'visible': visible,
+        'description': description,
+        'boundary': boundary,
+    }
+
+
+# Benchmark sizes chosen so that a correct early-exit O(n²) bubble sort
+# finishes comfortably within the 3-second Piston timeout (~80 k comparisons
+# worst-case at n=400), while still meaningfully penalising brute-force
+# approaches compared to O(n log n) solutions.
+_BUBBLE_SORT_SORTED_INPUT  = list(range(400))
+_BUBBLE_SORT_REVERSE_INPUT = list(range(400, 0, -1))
+_BUBBLE_SORT_ZIGZAG_INPUT  = [((index * 73) % 997) - 498 for index in range(400)]
+
+
 # ---------------------------------------------------------------------------
 # Language definitions
 # ---------------------------------------------------------------------------
@@ -620,6 +643,9 @@ PROBLEMS = [
             'Read a line of space-separated integers and print them sorted ascending.\n\n'
             'Example:\n  Input:  5 3 8 1 9 2\n  Output: 1 2 3 5 8 9'
         ),
+        'category': CodingProblem.SORTING_SEARCHING,
+        'constraints': 'Use Bubble Sort only. Do not use sorted() or list.sort(). Inputs include large benchmark cases.',
+        'forbidden_code_patterns': ['sorted(', '.sort('],
         'starter_code': 'numbers = list(map(int, input().split()))\n\n# Implement bubble sort (do NOT use .sort() or sorted())\n\nprint(*numbers)\n',
         'difficulty': 5,
         'test_cases': [
@@ -628,6 +654,9 @@ PROBLEMS = [
             {'input': '3 2 1',         'expected': '1 2 3',       'visible': False, 'description': 'Reverse order'},
             {'input': '4 4 4',         'expected': '4 4 4',       'visible': False, 'description': 'All same'},
             {'input': '-3 1 -1 0 2',   'expected': '-3 -1 0 1 2', 'visible': False, 'description': 'Negatives mixed'},
+            _sort_case(_BUBBLE_SORT_SORTED_INPUT, False, 'Benchmark: large sorted input', boundary=True),
+            _sort_case(_BUBBLE_SORT_REVERSE_INPUT, False, 'Benchmark: large reverse input', boundary=True),
+            _sort_case(_BUBBLE_SORT_ZIGZAG_INPUT, False, 'Benchmark: large mixed input', boundary=True),
         ],
     },
 
@@ -771,6 +800,7 @@ class Command(BaseCommand):
                     'constraints':        prob_data.get('constraints', ''),
                     'time_limit_seconds': prob_data.get('time_limit_seconds', 5),
                     'memory_limit_mb':    prob_data.get('memory_limit_mb', 256),
+                    'forbidden_code_patterns': prob_data.get('forbidden_code_patterns', []),
                     'is_active':          True,
                 },
             )

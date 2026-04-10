@@ -339,13 +339,14 @@ function pdShowResults(data) {
   var visPassed  = visResults.filter(function(r) { return r.passed; }).length;
   var total      = visResults.length + hidTotal;
   var totalPassed = visPassed + hidPassed;
+  var errorText  = data.error || '';
 
   panel.className  = 'pd-results show ' + (passed ? 'pass' : 'fail');
   icon.className   = 'pd-verdict-icon '  + (passed ? 'pass' : 'fail');
   icon.textContent  = passed ? '\u2713' : '\u2717';
   title.className   = 'pd-verdict-title ' + (passed ? 'pass' : 'fail');
   title.textContent = passed ? 'All tests passed!' : 'Some tests failed';
-  sub.textContent   = totalPassed + '/' + total + ' tests passed';
+  sub.textContent   = errorText || (totalPassed + '/' + total + ' tests passed');
 
   visDiv.innerHTML = '';
   visResults.forEach(function(r, i) {

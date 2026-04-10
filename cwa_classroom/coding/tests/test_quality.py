@@ -289,7 +289,7 @@ class TestApiSubmitQualityFields(TestCase):
         self.assertEqual(data['quality_score'], 1.0)
         self.assertEqual(data['quality_issues'], [])
 
-    def test_nested_loop_submission_penalty_applied(self):
+    def test_nested_loop_submission_quality_is_neutral_under_binary_scoring(self):
         code = (
             's = input()\n'
             "result = ''\n"
@@ -312,9 +312,11 @@ class TestApiSubmitQualityFields(TestCase):
             )
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        self.assertLess(data['quality_score'], 1.0)
-        self.assertGreater(len(data['quality_issues']), 0)
-        self.assertLess(data['attempt_points'], 100.0)
+        # Binary-scoring contract: quality no longer changes attempt points.
+        # Fully passing submission must score 100 regardless of code style.
+        self.assertEqual(data['quality_score'], 1.0)
+        self.assertEqual(data['quality_issues'], [])
+        self.assertEqual(data['attempt_points'], 100.0)
 
     def test_failed_submission_quality_score_one(self):
         """A failing submission should not receive a quality penalty — score is already 0."""

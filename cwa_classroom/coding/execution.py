@@ -10,6 +10,8 @@ Piston API docs: https://github.com/engineer-man/piston
 Expected env variable: PISTON_API_URL  (e.g. http://localhost:2000)
 """
 
+import time
+
 import requests
 from django.conf import settings
 
@@ -62,6 +64,7 @@ def run_code(language, code, stdin=''):
     }
 
     try:
+        _t0 = time.monotonic()
         response = requests.post(
             f'{PISTON_URL}/api/v2/execute',
             json=payload,
@@ -69,16 +72,18 @@ def run_code(language, code, stdin=''):
         )
         response.raise_for_status()
         data = response.json()
+        _elapsed = time.monotonic() - _t0
 
         run = data.get('run', {})
         return {
             'stdout': run.get('stdout', ''),
             'stderr': run.get('stderr', ''),
             'exit_code': run.get('code', 1),
-            # Piston returns wall-clock time in seconds for the run stage.
-            # We use this for scoring so that the score reflects actual code
-            # speed, not how long the student spent writing it.
-            'run_time_seconds': float(run.get('wall', run.get('cpu', 0)) or 0),
+            # Server-measured wall time (monotonic clock) for the full round-trip
+            # to the Piston sandbox.  The standard Piston v2 API does not expose
+            # per-execution timing, so we measure it here.  Network latency to the
+            # local Docker container is constant across submissions and fair.
+            'run_time_seconds': _elapsed,
         }
 
     except requests.exceptions.Timeout:
@@ -86,7 +91,7 @@ def run_code(language, code, stdin=''):
             'stdout': '',
             'stderr': 'Execution timed out.',
             'exit_code': 1,
-            'run_time_seconds': 0.0,
+            'run_time_seconds': float(EXECUTION_TIMEOUT_SECONDS + 2),
             'error': 'timeout',
         }
     except requests.exceptions.ConnectionError:
@@ -94,7 +99,7 @@ def run_code(language, code, stdin=''):
             'stdout': '',
             'stderr': 'Code execution service is unavailable. Please try again later.',
             'exit_code': 1,
-            'run_time_seconds': 0.0,
+            'run_time_seconds': float(EXECUTION_TIMEOUT_SECONDS + 2),
             'error': 'connection_error',
         }
     except Exception as exc:
@@ -103,7 +108,7 @@ def run_code(language, code, stdin=''):
             'stdout': '',
             'stderr': str(exc),
             'exit_code': 1,
-            'run_time_seconds': 0.0,
+            'run_time_seconds': float(EXECUTION_TIMEOUT_SECONDS + 2),
             'error': str(exc),
         }
 
