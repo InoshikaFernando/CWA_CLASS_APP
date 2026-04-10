@@ -874,9 +874,13 @@ class CompleteProfileView(LoginRequiredMixin, View):
     and subscribe (school students need $19.90/mo subscription)."""
 
     def _get_student_package(self):
-        """Get the default student subscription package."""
+        """Get the default student subscription package (marked is_default=True).
+        Falls back to the cheapest active paid package if none is marked."""
         from billing.models import Package
-        return Package.objects.filter(is_active=True, price__gt=0).order_by('price').first()
+        return (
+            Package.objects.filter(is_active=True, is_default=True).first()
+            or Package.objects.filter(is_active=True, price__gt=0).order_by('price').first()
+        )
 
     def get(self, request):
         if not request.user.must_change_password and request.user.profile_completed:
