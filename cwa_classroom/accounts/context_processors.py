@@ -58,6 +58,20 @@ def user_role(request):
         except Exception:
             ctx['sidebar_pending_enrollments'] = 0
 
+    # Pending parent link request count for sidebar badge (HoI/admin/institute owner)
+    if ctx['is_hoi'] or ctx['is_institute_owner'] or ctx['is_admin_user'] or ctx['is_hod'] or ctx['is_any_teacher']:
+        from classroom.models import ParentLinkRequest, SchoolTeacher
+        try:
+            schools = SchoolTeacher.objects.filter(
+                teacher=request.user, is_active=True
+            ).values_list('school_id', flat=True)
+            ctx['sidebar_pending_parent_requests'] = ParentLinkRequest.objects.filter(
+                school_student__school_id__in=schools,
+                status=ParentLinkRequest.STATUS_PENDING,
+            ).exclude(parent=user).count()
+        except Exception:
+            ctx['sidebar_pending_parent_requests'] = 0
+
     # Add school subscription info for institute users
     from billing.entitlements import get_school_for_user, get_school_subscription, get_all_schools_for_user
     school = get_school_for_user(request.user)

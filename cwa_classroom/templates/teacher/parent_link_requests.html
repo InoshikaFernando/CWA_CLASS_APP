@@ -103,5 +103,53 @@
     </div>
   {% endif %}
 
+  <!-- History -->
+  {% if resolved_requests %}
+  <h2 class="text-lg font-semibold text-gray-900 mt-10 mb-4">Recent History</h2>
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+          <th class="px-5 py-3 text-left">Parent</th>
+          <th class="px-5 py-3 text-left">Student</th>
+          <th class="px-5 py-3 text-left">School</th>
+          <th class="px-5 py-3 text-center">Status</th>
+          <th class="px-5 py-3 text-left">Reviewed</th>
+          <th class="px-5 py-3 text-left">By</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for req in resolved_requests %}
+          <tr>
+            <td class="px-5 py-3 text-gray-700">
+              {{ req.parent.get_full_name|default:req.parent.username }}
+              <span class="block text-xs text-gray-400">{{ req.parent.email }}</span>
+            </td>
+            <td class="px-5 py-3 text-gray-600">
+              {{ req.school_student.student.get_full_name|default:req.school_student.student.username }}
+            </td>
+            <td class="px-5 py-3 text-gray-500 text-xs">{{ req.school_student.school.name }}</td>
+            <td class="px-5 py-3 text-center">
+              {% if req.status == 'approved' %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">Approved</span>
+              {% elif req.status == 'rejected' %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">Rejected</span>
+              {% else %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">{{ req.get_status_display }}</span>
+              {% endif %}
+            </td>
+            <td class="px-5 py-3 text-gray-400 text-xs">
+              {% if req.reviewed_at %}{{ req.reviewed_at|date:"d M Y" }}{% else %}—{% endif %}
+            </td>
+            <td class="px-5 py-3 text-gray-500 text-xs">
+              {% if req.reviewed_by %}{{ req.reviewed_by.get_full_name|default:req.reviewed_by.username }}{% else %}—{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
 </div>
 {% endblock %}

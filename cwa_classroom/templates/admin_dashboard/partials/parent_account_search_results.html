@@ -1,0 +1,19 @@
+{% if results %}
+  <ul class="divide-y divide-slate-100 rounded-xl border border-slate-200 overflow-hidden mt-2">
+    {% for user in results %}
+      <li>
+        <button type="button"
+                onclick="selectParent({{ user.id }}, '{{ user.get_full_name|escapejs }}', '{{ user.email|escapejs }}')"
+                class="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50 transition text-left">
+          <div>
+            <p class="font-medium text-gray-900 text-sm">{{ user.get_full_name }}</p>
+            <p class="text-xs text-gray-500">{{ user.email }}{% if user.username %} · @{{ user.username }}{% endif %}</p>
+          </div>
+          <span class="text-xs text-accent font-medium">Select</span>
+        </button>
+      </li>
+    {% endfor %}
+  </ul>
+{% elif q %}
+  <p class="text-sm text-gray-500 text-center py-3">No accounts found for "{{ q }}".</p>
+{% endif %}

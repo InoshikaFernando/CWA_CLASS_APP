@@ -265,7 +265,7 @@ class TestApprovalFlow:
         self.page.wait_for_load_state("domcontentloaded")
 
         # Approved request no longer in pending list
-        expect(self.page.get_by_text("Jane Doe")).to_have_count(0)
+        expect(self.page.get_by_text("All caught up!")).to_be_visible()
 
     def test_parent_sees_child_after_approval(self):
         """After approval, parent dashboard shows child card."""
@@ -274,8 +274,8 @@ class TestApprovalFlow:
         self.page.goto(f"{self.url}/teacher/parent-link-requests/")
         self.page.wait_for_load_state("domcontentloaded")
         self.page.get_by_role("button", name="Approve").click()
-        # Wait for the POST redirect to fully complete and "Jane Doe" to leave the list
-        expect(self.page.get_by_text("Jane Doe")).to_have_count(0, timeout=10_000)
+        # Wait for the POST redirect to fully complete and pending list to clear
+        expect(self.page.get_by_text("All caught up!")).to_be_visible(timeout=10_000)
 
         # Now log in as parent
         do_logout(self.page, self.url)
@@ -315,7 +315,7 @@ class TestRejectionFlow:
         self.page.get_by_role("button", name="Reject").click()
         self.page.wait_for_load_state("domcontentloaded")
 
-        expect(self.page.get_by_text("Jane Doe")).to_have_count(0)
+        expect(self.page.get_by_text("All caught up!")).to_be_visible()
 
     def test_parent_has_no_child_card_after_rejection(self):
         """After rejection, parent dashboard shows no child card."""
