@@ -1,20 +1,44 @@
 {% if results %}
-  <ul class="divide-y divide-slate-100 rounded-xl border border-slate-200 overflow-hidden">
-    {% for ss in results %}
-      <li>
-        <a href="{% url 'admin_school_student_edit' school_id=ss.school.id student_id=ss.student.id %}"
-           class="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50 transition">
-          <div>
-            <p class="font-medium text-gray-900 text-sm">{{ ss.student.get_full_name }}</p>
-            <p class="text-xs text-gray-500">{{ ss.school.name }}{% if ss.student.email %} · {{ ss.student.email }}{% endif %}</p>
-          </div>
-          <svg class="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
-          </svg>
-        </a>
+  <ul class="divide-y divide-slate-100 rounded-xl border border-slate-200 overflow-hidden mb-4">
+    {% for student in results %}
+      <li class="flex items-center gap-3 px-4 py-3">
+        <div class="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center flex-shrink-0 text-accent font-semibold text-sm">
+          {{ student.first_name|first|upper }}{{ student.last_name|first|upper }}
+        </div>
+        <div>
+          <p class="font-medium text-gray-900 text-sm">{{ student.get_full_name }}</p>
+          <p class="text-xs text-gray-500">{% if student.email %}{{ student.email }}{% else %}{{ student.username }}{% endif %}</p>
+        </div>
       </li>
     {% endfor %}
   </ul>
+
+  {% if results.paginator.num_pages > 1 %}
+  <div class="flex items-center justify-between text-sm">
+    <span class="text-gray-500">Page {{ results.number }} of {{ results.paginator.num_pages }}</span>
+    <div class="flex gap-2">
+      {% if results.has_previous %}
+        <button hx-get="{% url 'htmx_student_search' %}?q={{ q }}&page={{ results.previous_page_number }}"
+                hx-target="#student-search-results"
+                hx-swap="innerHTML"
+                class="px-3 py-1.5 rounded-lg border border-slate-200 text-gray-600 hover:bg-slate-50 transition">
+          &larr; Prev
+        </button>
+      {% endif %}
+      {% if results.has_next %}
+        <button hx-get="{% url 'htmx_student_search' %}?q={{ q }}&page={{ results.next_page_number }}"
+                hx-target="#student-search-results"
+                hx-swap="innerHTML"
+                class="px-3 py-1.5 rounded-lg border border-slate-200 text-gray-600 hover:bg-slate-50 transition">
+          Next &rarr;
+        </button>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
 {% elif q %}
-  <p class="text-sm text-gray-500 text-center py-4">No students found for "{{ q }}".</p>
+  <p class="text-sm text-gray-500 text-center py-4">No individual students found for "{{ q }}".</p>
+{% else %}
+  <p class="text-sm text-gray-500 text-center py-4">No individual students found.</p>
 {% endif %}
