@@ -68,7 +68,10 @@
              class="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
     </div>
 
-    <div id="student-search-results"></div>
+    <div id="student-search-results"
+         hx-get="{% url 'htmx_student_search' %}"
+         hx-trigger="load"
+         hx-swap="innerHTML"></div>
   </div>
   {% endif %}
 
