@@ -1022,9 +1022,10 @@ class CompleteProfileView(LoginRequiredMixin, View):
                     return render(request, 'accounts/complete_profile.html', {
                         'student_package': package,
                     })
-            return render(request, 'accounts/complete_profile.html', {
-                'student_package': None,
-            })
+            else:
+                # No paid package configured — complete profile without payment gate
+                user.profile_completed = True
+                user.save(update_fields=['profile_completed'])
 
         messages.success(request, 'Profile completed successfully! Welcome aboard.')
         return redirect('subjects_hub')
