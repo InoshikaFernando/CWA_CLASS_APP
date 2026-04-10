@@ -917,15 +917,13 @@ class CompleteProfileView(LoginRequiredMixin, View):
         if not last_name:
             errors.append('Last name is required.')
 
-        # Validate discount code if provided
-        from billing.models import InstituteDiscountCode
+        # Validate discount code if provided (uses DiscountCode — same codes as individual student billing)
+        from billing.models import DiscountCode
         discount_obj = None
         if discount_code_str:
-            discount_obj = InstituteDiscountCode.objects.filter(
-                code__iexact=discount_code_str,
-            ).first()
+            discount_obj = DiscountCode.objects.filter(code=discount_code_str).first()
             if not discount_obj:
-                errors.append('Invalid discount code.')
+                errors.append('Discount code not found. Please check and try again.')
             elif not discount_obj.is_valid():
                 errors.append('This discount code has expired or reached its usage limit.')
 
