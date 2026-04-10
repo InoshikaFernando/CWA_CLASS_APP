@@ -1,4 +1,6 @@
 """
+test_quality.py
+~~~~~~~~~~~~~~~
 Tests for coding.quality — static code-quality analyser.
 
 Covers:
@@ -9,326 +11,383 @@ Covers:
   - API endpoint returns quality_score and quality_issues fields
   - Feature flag: ENABLE_QUALITY_SCORING=False bypasses analysis
 """
-
 import json
 from unittest.mock import patch
 
-import pytest
+from django.contrib.auth import get_user_model
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from coding.models import calculate_coding_points
+from coding.models import (
+    CodingLanguage,
+    CodingProblem,
+    CodingTopic,
+    ProblemTestCase,
+    calculate_coding_points,
+)
 from coding.quality import QualityResult, analyse_code_quality
+
+User = get_user_model()
 
 
 # ===========================================================================
 # 1. calculate_coding_points — quality_score integration
 # ===========================================================================
 
-class TestCalculateCodingPointsQuality:
+class TestCalculateCodingPointsQuality(TestCase):
 
     def test_perfect_code_no_penalty(self):
         """quality_score=1.0 must not change the base score."""
         base = calculate_coding_points(5, 5, 1.0, quality_score=1.0)
-        assert base == calculate_coding_points(5, 5, 1.0)
+        self.assertEqual(base, calculate_coding_points(5, 5, 1.0))
 
     def test_quality_penalty_reduces_score(self):
         """quality_score=0.80 reduces score to 80 % of base."""
-        base   = calculate_coding_points(5, 5, 0.0, quality_score=1.0)
+        base = calculate_coding_points(5, 5, 0.0, quality_score=1.0)
         penalised = calculate_coding_points(5, 5, 0.0, quality_score=0.80)
-        assert penalised == round(base * 0.80, 2)
+        self.assertEqual(penalised, round(base * 0.80, 2))
 
     def test_quality_score_minimum_cap(self):
-        """Even with max quality_score=0.70 a fully correct answer still scores."""
+        """Even with quality_score=0.70 a fully correct answer still scores."""
         score = calculate_coding_points(5, 5, 0.0, quality_score=0.70)
-        assert score == 70.0
+        self.assertEqual(score, 70.0)
 
     def test_quality_score_does_not_amplify(self):
         """quality_score > 1.0 would be a bug — our analyser never produces it."""
-        # Sanity guard: the formula should NOT give more than 100 pts
         score = calculate_coding_points(5, 5, 0.0, quality_score=1.0)
-        assert score <= 100.0
+        self.assertLessEqual(score, 100.0)
 
     def test_failed_tests_with_quality_still_zero(self):
         """Partial pass + quality penalty: score proportional to tests passed."""
         score = calculate_coding_points(3, 5, 0.0, quality_score=0.80)
         expected = round((3 / 5) * 100 * 0.80, 2)
-        assert score == expected
+        self.assertEqual(score, expected)
 
 
 # ===========================================================================
 # 2. Python quality analysis
 # ===========================================================================
 
-class TestPythonQualityAnalysis:
+class TestPythonQualityAnalysis(TestCase):
 
     def test_simple_clean_code_no_penalty(self):
-        code = "print(input()[::-1])"
-        result = analyse_code_quality(code, 'python')
-        assert result.quality_score == 1.0
-        assert result.issues == []
+        result = analyse_code_quality('print(input()[::-1])', 'python')
+        self.assertEqual(result.quality_score, 1.0)
+        self.assertEqual(result.issues, [])
 
     def test_clean_function_no_penalty(self):
         code = (
-            "def reverse(s):\n"
-            "    return s[::-1]\n"
-            "print(reverse(input()))\n"
+            'def reverse(s):\n'
+            '    return s[::-1]\n'
+            'print(reverse(input()))\n'
         )
         result = analyse_code_quality(code, 'python')
-        assert result.quality_score == 1.0
+        self.assertEqual(result.quality_score, 1.0)
 
     def test_nested_loops_penalised(self):
         code = (
-            "data = [1, 2, 3]\n"
-            "for i in data:\n"
-            "    for j in data:\n"
-            "        print(i, j)\n"
+            'data = [1, 2, 3]\n'
+            'for i in data:\n'
+            '    for j in data:\n'
+            '        print(i, j)\n'
         )
         result = analyse_code_quality(code, 'python')
-        assert result.quality_score < 1.0
-        assert result.max_loop_depth == 2
-        assert any('nested' in issue.lower() or 'loop' in issue.lower()
-                   for issue in result.issues)
+        self.assertLess(result.quality_score, 1.0)
+        self.assertEqual(result.max_loop_depth, 2)
+        self.assertTrue(any(
+            'nested' in issue.lower() or 'loop' in issue.lower()
+            for issue in result.issues
+        ))
 
     def test_triple_nested_loops_higher_penalty(self):
-        code = (
-            "for i in range(3):\n"
-            "    for j in range(3):\n"
-            "        for k in range(3):\n"
-            "            print(i, j, k)\n"
+        double_code = 'for i in range(3):\n    for j in range(3):\n        print(i,j)\n'
+        triple_code = (
+            'for i in range(3):\n'
+            '    for j in range(3):\n'
+            '        for k in range(3):\n'
+            '            print(i, j, k)\n'
         )
-        double_result = analyse_code_quality(
-            "for i in range(3):\n    for j in range(3):\n        print(i,j)\n",
-            'python',
-        )
-        triple_result = analyse_code_quality(code, 'python')
-        assert triple_result.quality_score < double_result.quality_score
+        double_result = analyse_code_quality(double_code, 'python')
+        triple_result = analyse_code_quality(triple_code, 'python')
+        self.assertLess(triple_result.quality_score, double_result.quality_score)
 
     def test_high_cyclomatic_complexity_penalised(self):
-        # 12 branches → CC should exceed 10
-        branches = "\n".join(f"    if x == {i}:\n        pass" for i in range(12))
-        code = f"def classify(x):\n{branches}\n"
+        branches = '\n'.join(f'    if x == {i}:\n        pass' for i in range(12))
+        code = f'def classify(x):\n{branches}\n'
         result = analyse_code_quality(code, 'python')
-        assert result.cyclomatic_complexity > 10
-        assert result.quality_score < 1.0
+        self.assertGreater(result.cyclomatic_complexity, 10)
+        self.assertLess(result.quality_score, 1.0)
 
     def test_redundant_len_in_loop_penalised(self):
         code = (
-            "xs = [1, 2, 3]\n"
-            "for i in range(10):\n"
-            "    n = len(xs)\n"   # len is invariant here
-            "    print(n)\n"
+            'xs = [1, 2, 3]\n'
+            'for i in range(10):\n'
+            '    n = len(xs)\n'
+            '    print(n)\n'
         )
         result = analyse_code_quality(code, 'python')
-        assert result.redundant_loop_calls >= 1
-        assert result.quality_score < 1.0
+        self.assertGreaterEqual(result.redundant_loop_calls, 1)
+        self.assertLess(result.quality_score, 1.0)
 
     def test_syntax_error_no_penalty(self):
         """A syntax error means the test runner already failed — no quality penalty."""
-        result = analyse_code_quality("def broken(:", 'python')
-        assert result.quality_score == 1.0
-        assert result.parse_error is True
+        result = analyse_code_quality('def broken(:', 'python')
+        self.assertEqual(result.quality_score, 1.0)
+        self.assertTrue(result.parse_error)
 
     def test_quality_score_never_below_max_penalty(self):
         """Even the worst code cannot score below (1 - max_penalty)."""
         atrocious = (
-            "for a in range(10):\n"
-            "  for b in range(10):\n"
-            "    for c in range(10):\n"
-            "      for d in range(10):\n"
-            "        n = len(range(10))\n"
-            "        m = sorted(range(10))\n"
-            "        if a and b and c and d and a and b:\n"
-            "          print(a,b,c,d)\n"
+            'for a in range(10):\n'
+            '  for b in range(10):\n'
+            '    for c in range(10):\n'
+            '      for d in range(10):\n'
+            '        n = len(range(10))\n'
+            '        m = sorted(range(10))\n'
+            '        if a and b and c and d and a and b:\n'
+            '          print(a,b,c,d)\n'
         )
         result = analyse_code_quality(atrocious, 'python', max_penalty=0.30)
-        assert result.quality_score >= 0.70
+        self.assertGreaterEqual(result.quality_score, 0.70)
 
     def test_max_penalty_parameter_respected(self):
         nested = (
-            "for i in range(5):\n"
-            "    for j in range(5):\n"
-            "        print(i, j)\n"
+            'for i in range(5):\n'
+            '    for j in range(5):\n'
+            '        print(i, j)\n'
         )
         r_strict = analyse_code_quality(nested, 'python', max_penalty=0.05)
         r_lenient = analyse_code_quality(nested, 'python', max_penalty=0.30)
-        # Strict cap → less total penalty applied
-        assert r_strict.quality_score >= r_lenient.quality_score
+        # Strict cap → less total penalty applied → higher (or equal) quality score
+        self.assertGreaterEqual(r_strict.quality_score, r_lenient.quality_score)
 
 
 # ===========================================================================
 # 3. JavaScript quality analysis
 # ===========================================================================
 
-class TestJavaScriptQualityAnalysis:
+class TestJavaScriptQualityAnalysis(TestCase):
 
     def test_simple_js_no_penalty(self):
         code = "const s = require('fs').readFileSync('/dev/stdin','utf8').trim(); console.log(s.split('').reverse().join(''));"
         result = analyse_code_quality(code, 'javascript')
-        assert result.quality_score == 1.0
+        self.assertEqual(result.quality_score, 1.0)
 
     def test_nested_js_loops_penalised(self):
         code = (
-            "for (let i = 0; i < n; i++) {\n"
-            "    for (let j = 0; j < n; j++) {\n"
-            "        console.log(i, j);\n"
-            "    }\n"
-            "}\n"
+            'for (let i = 0; i < n; i++) {\n'
+            '    for (let j = 0; j < n; j++) {\n'
+            '        console.log(i, j);\n'
+            '    }\n'
+            '}\n'
         )
         result = analyse_code_quality(code, 'javascript')
-        assert result.quality_score < 1.0
-        assert result.max_loop_depth >= 2
+        self.assertLess(result.quality_score, 1.0)
+        self.assertGreaterEqual(result.max_loop_depth, 2)
 
     def test_js_comments_not_counted_as_branches(self):
         code = (
-            "// if this were real it would branch\n"
-            "/* while (false) { } */\n"
+            '// if this were real it would branch\n'
+            '/* while (false) { } */\n'
             "console.log('hello');\n"
         )
         result = analyse_code_quality(code, 'javascript')
-        assert result.quality_score == 1.0
+        self.assertEqual(result.quality_score, 1.0)
 
 
 # ===========================================================================
 # 4. Unsupported languages — pass-through
 # ===========================================================================
 
-class TestUnsupportedLanguages:
+class TestUnsupportedLanguages(TestCase):
 
-    @pytest.mark.parametrize('slug', ['html', 'css', 'html-css', 'scratch', 'unknown'])
-    def test_unsupported_language_score_one(self, slug):
+    def _assert_passthrough(self, slug):
         result = analyse_code_quality('<h1>Hello</h1>', slug)
-        assert result.quality_score == 1.0
-        assert result.issues == []
+        self.assertEqual(result.quality_score, 1.0)
+        self.assertEqual(result.issues, [])
+
+    def test_html(self):
+        self._assert_passthrough('html')
+
+    def test_css(self):
+        self._assert_passthrough('css')
+
+    def test_html_css(self):
+        self._assert_passthrough('html-css')
+
+    def test_scratch(self):
+        self._assert_passthrough('scratch')
+
+    def test_unknown(self):
+        self._assert_passthrough('unknown')
 
     def test_none_slug_score_one(self):
         result = analyse_code_quality('anything', None)
-        assert result.quality_score == 1.0
+        self.assertEqual(result.quality_score, 1.0)
 
 
 # ===========================================================================
 # 5. API endpoint integration
 # ===========================================================================
 
-@pytest.mark.django_db
-class TestApiSubmitQualityFields:
+class TestApiSubmitQualityFields(TestCase):
 
-    def test_clean_submission_quality_score_one(self, auth_client, problem_with_cases):
-        url = reverse('coding:api_submit_problem', args=[problem_with_cases.id])
-        code = 'print(input()[::-1])'
+    @classmethod
+    def setUpTestData(cls):
+        cls.student = User.objects.create_user(
+            username='quality_student', password='testpass123',
+            email='quality_student@test.com',
+        )
+        cls.lang, _ = CodingLanguage.objects.get_or_create(
+            slug='python',
+            defaults={'name': 'Python', 'color': '#3b82f6', 'order': 1, 'is_active': True},
+        )
+        cls.topic, _ = CodingTopic.objects.get_or_create(
+            language=cls.lang, slug='qual-variables',
+            defaults={'name': 'Variables', 'order': 1, 'is_active': True},
+        )
+        cls.problem = CodingProblem.objects.create(
+            language=cls.lang,
+            title='Reverse a String',
+            description='Read a string and print it reversed.',
+            starter_code='s = input()\n',
+            difficulty=1,
+            is_active=True,
+        )
+        ProblemTestCase.objects.create(
+            problem=cls.problem,
+            input_data='hello', expected_output='olleh',
+            is_visible=True, display_order=1, description='Basic word',
+        )
+        ProblemTestCase.objects.create(
+            problem=cls.problem,
+            input_data='a', expected_output='a',
+            is_visible=False, display_order=2, description='Single char',
+        )
+
+    def setUp(self):
+        self.client.force_login(self.student)
+
+    def _url(self):
+        return reverse('coding:api_submit_problem', args=[self.problem.id])
+
+    def test_clean_submission_quality_score_one(self):
         with patch('coding.execution.run_code') as mock_rc:
             mock_rc.side_effect = [
                 {'stdout': 'olleh', 'stderr': '', 'exit_code': 0, 'run_time_seconds': 0.05},
                 {'stdout': 'a',     'stderr': '', 'exit_code': 0, 'run_time_seconds': 0.02},
             ]
-            resp = auth_client.post(
-                url,
-                data=json.dumps({'code': code, 'time_taken_seconds': 10}),
+            resp = self.client.post(
+                self._url(),
+                data=json.dumps({'code': 'print(input()[::-1])', 'time_taken_seconds': 10}),
                 content_type='application/json',
             )
-        assert resp.status_code == 200
+        self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        assert 'quality_score' in data
-        assert 'quality_issues' in data
-        assert data['quality_score'] == 1.0
-        assert data['quality_issues'] == []
+        self.assertIn('quality_score', data)
+        self.assertIn('quality_issues', data)
+        self.assertEqual(data['quality_score'], 1.0)
+        self.assertEqual(data['quality_issues'], [])
 
-    def test_nested_loop_submission_penalty_applied(self, auth_client, problem_with_cases):
-        url = reverse('coding:api_submit_problem', args=[problem_with_cases.id])
-        # Code that reverses via nested loop (very inefficient)
+    def test_nested_loop_submission_penalty_applied(self):
         code = (
-            "s = input()\n"
+            's = input()\n'
             "result = ''\n"
-            "for i in range(len(s)):\n"
-            "    for j in range(len(s)):\n"
-            "        if j == len(s) - 1 - i:\n"
-            "            result += s[j]\n"
-            "            break\n"
-            "print(result)\n"
+            'for i in range(len(s)):\n'
+            '    for j in range(len(s)):\n'
+            '        if j == len(s) - 1 - i:\n'
+            '            result += s[j]\n'
+            '            break\n'
+            'print(result)\n'
         )
         with patch('coding.execution.run_code') as mock_rc:
             mock_rc.side_effect = [
                 {'stdout': 'olleh', 'stderr': '', 'exit_code': 0, 'run_time_seconds': 0.05},
                 {'stdout': 'a',     'stderr': '', 'exit_code': 0, 'run_time_seconds': 0.02},
             ]
-            resp = auth_client.post(
-                url,
+            resp = self.client.post(
+                self._url(),
                 data=json.dumps({'code': code, 'time_taken_seconds': 10}),
                 content_type='application/json',
             )
-        assert resp.status_code == 200
+        self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        assert data['quality_score'] < 1.0
-        assert len(data['quality_issues']) > 0
-        assert data['attempt_points'] < 100.0
+        self.assertLess(data['quality_score'], 1.0)
+        self.assertGreater(len(data['quality_issues']), 0)
+        self.assertLess(data['attempt_points'], 100.0)
 
-    def test_failed_submission_quality_score_one(self, auth_client, problem_with_cases):
+    def test_failed_submission_quality_score_one(self):
         """A failing submission should not receive a quality penalty — score is already 0."""
-        url = reverse('coding:api_submit_problem', args=[problem_with_cases.id])
-        code = 'print("wrong")'
         with patch('coding.execution.run_code') as mock_rc:
             mock_rc.side_effect = [
                 {'stdout': 'wrong', 'stderr': '', 'exit_code': 0, 'run_time_seconds': 0.01},
                 {'stdout': 'wrong', 'stderr': '', 'exit_code': 0, 'run_time_seconds': 0.01},
             ]
-            resp = auth_client.post(
-                url,
-                data=json.dumps({'code': code, 'time_taken_seconds': 5}),
+            resp = self.client.post(
+                self._url(),
+                data=json.dumps({'code': 'print("wrong")', 'time_taken_seconds': 5}),
                 content_type='application/json',
             )
-        assert resp.status_code == 200
+        self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        assert data['passed_all'] is False
-        assert data['attempt_points'] == 0.0
-        assert data['quality_score'] == 1.0   # no penalty on a failed attempt
+        self.assertFalse(data['passed_all'])
+        self.assertEqual(data['attempt_points'], 0.0)
+        self.assertEqual(data['quality_score'], 1.0)   # no penalty on a failed attempt
 
-    def test_quality_scoring_disabled_by_feature_flag(
-        self, auth_client, problem_with_cases, settings
-    ):
+    @override_settings(ENABLE_QUALITY_SCORING=False)
+    def test_quality_scoring_disabled_by_feature_flag(self):
         """When ENABLE_QUALITY_SCORING=False, even inefficient code gets quality_score=1.0."""
-        settings.ENABLE_QUALITY_SCORING = False
-        url = reverse('coding:api_submit_problem', args=[problem_with_cases.id])
         code = (
-            "s = input()\n"
+            's = input()\n'
             "result = ''\n"
-            "for i in range(len(s)):\n"
-            "    for j in range(len(s)):\n"
-            "        if j == len(s) - 1 - i:\n"
-            "            result += s[j]\n"
-            "            break\n"
-            "print(result)\n"
+            'for i in range(len(s)):\n'
+            '    for j in range(len(s)):\n'
+            '        if j == len(s) - 1 - i:\n'
+            '            result += s[j]\n'
+            '            break\n'
+            'print(result)\n'
         )
         with patch('coding.execution.run_code') as mock_rc:
             mock_rc.side_effect = [
-                {'stdout': 'olleh', 'stderr': '', 'exit_code': 0, 'run_time_seconds': 0.05},
-                {'stdout': 'a',     'stderr': '', 'exit_code': 0, 'run_time_seconds': 0.02},
+                {'stdout': 'olleh', 'stderr': '', 'exit_code': 0, 'run_time_seconds': 0.0},
+                {'stdout': 'a',     'stderr': '', 'exit_code': 0, 'run_time_seconds': 0.0},
             ]
-            resp = auth_client.post(
-                url,
+            resp = self.client.post(
+                self._url(),
                 data=json.dumps({'code': code, 'time_taken_seconds': 10}),
                 content_type='application/json',
             )
-        assert resp.status_code == 200
+        self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        assert data['quality_score'] == 1.0
-        assert data['quality_issues'] == []
-        # With no quality penalty and fast execution, should be 100
-        assert data['attempt_points'] == 100.0
+        self.assertEqual(data['quality_score'], 1.0)
+        self.assertEqual(data['quality_issues'], [])
+        self.assertEqual(data['attempt_points'], 100.0)
 
 
 # ===========================================================================
-# 6. Cross-language regression: clean code gets 100 pts
+# 6. Cross-language regression: clean code gets quality_score=1.0
 # ===========================================================================
 
-class TestCleanCodeAlwaysMaxPoints:
+class TestCleanCodeAlwaysMaxPoints(TestCase):
 
-    @pytest.mark.parametrize('language,code', [
-        ('python',     'print(input()[::-1])'),
-        ('python',     'n = int(input()); print(n * 2)'),
-        ('javascript', 'const s = "hello"; console.log(s.split("").reverse().join(""));'),
-    ])
-    def test_clean_code_quality_one(self, language, code):
+    def _assert_clean(self, language, code):
         result = analyse_code_quality(code, language)
-        assert result.quality_score == 1.0, (
-            f"Expected quality_score=1.0 for clean {language} code, "
-            f"got {result.quality_score}. Issues: {result.issues}"
+        self.assertEqual(
+            result.quality_score, 1.0,
+            msg=(
+                f'Expected quality_score=1.0 for clean {language} code, '
+                f'got {result.quality_score}. Issues: {result.issues}'
+            ),
+        )
+
+    def test_python_reverse(self):
+        self._assert_clean('python', 'print(input()[::-1])')
+
+    def test_python_double(self):
+        self._assert_clean('python', 'n = int(input()); print(n * 2)')
+
+    def test_javascript_reverse(self):
+        self._assert_clean(
+            'javascript',
+            'const s = "hello"; console.log(s.split("").reverse().join(""));',
         )

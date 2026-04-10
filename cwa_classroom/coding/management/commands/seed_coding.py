@@ -331,6 +331,152 @@ EXERCISES = {
             'order': 1,
         },
     ],
+
+    # ── Scratch — Motion & Looks ─────────────────────────────────────────────
+    ('scratch', 'Motion & Looks'): [
+        {
+            'level': 'beginner',
+            'title': 'Say Hello',
+            'description': 'Use a "print" block to display the message:\nHello, World!\n\nDrag a print block from the Output category and connect a Text block with "Hello, World!" inside it.',
+            'starter_code': '<xml xmlns="https://developers.google.com/blockly/xml"></xml>',
+            'expected_output': 'Hello, World!',
+            'hints': 'Find the "print" block in the Output category. Snap a Text block (from the Text category) inside it.',
+            'order': 1,
+        },
+        {
+            'level': 'beginner',
+            'title': 'Print Your Name',
+            'description': 'Print a greeting with your name.\nFor example: Hello, Alex!\n\nUse a print block and a Text block with your greeting.',
+            'starter_code': '<xml xmlns="https://developers.google.com/blockly/xml"></xml>',
+            'expected_output': '',
+            'hints': 'Use a print block with a text block inside it. Type your greeting in the text block.',
+            'order': 2,
+        },
+        {
+            'level': 'intermediate',
+            'title': 'Count Down',
+            'description': 'Print the numbers 10, 9, 8, … 1 each on a new line.\n\nUse a "count with" loop block from the Control category.',
+            'starter_code': '<xml xmlns="https://developers.google.com/blockly/xml"></xml>',
+            'expected_output': '10\n9\n8\n7\n6\n5\n4\n3\n2\n1',
+            'hints': 'Use a "count with i from 10 to 1 by -1" block. Print the variable i inside the loop.',
+            'order': 3,
+        },
+    ],
+
+    # ── Scratch — Events ─────────────────────────────────────────────────────
+    ('scratch', 'Events'): [
+        {
+            'level': 'beginner',
+            'title': 'Print a Message',
+            'description': 'Print the message:\nEvent triggered!\n\nUse a print block.',
+            'starter_code': '<xml xmlns="https://developers.google.com/blockly/xml"></xml>',
+            'expected_output': 'Event triggered!',
+            'hints': 'Drag a print block and add a text block with "Event triggered!" inside it.',
+            'order': 1,
+        },
+        {
+            'level': 'intermediate',
+            'title': 'Welcome Message',
+            'description': 'Print two lines:\nWelcome to Scratch!\nLet\'s start coding.\n\nUse two print blocks.',
+            'starter_code': '<xml xmlns="https://developers.google.com/blockly/xml"></xml>',
+            'expected_output': 'Welcome to Scratch!\nLet\'s start coding.',
+            'hints': 'Stack two print blocks, each with a different text block inside.',
+            'order': 2,
+        },
+    ],
+
+    # ── Scratch — Control ────────────────────────────────────────────────────
+    ('scratch', 'Control'): [
+        {
+            'level': 'beginner',
+            'title': 'Repeat Hello',
+            'description': 'Print "Hello!" exactly 3 times using a repeat block.',
+            'starter_code': '<xml xmlns="https://developers.google.com/blockly/xml"></xml>',
+            'expected_output': 'Hello!\nHello!\nHello!',
+            'hints': 'Use the "repeat 10" block from Control. Change 10 to 3. Put a print block with "Hello!" inside.',
+            'order': 1,
+        },
+        {
+            'level': 'intermediate',
+            'title': 'Count to 5',
+            'description': 'Use a loop to print the numbers 1 through 5, each on its own line.',
+            'starter_code': '<xml xmlns="https://developers.google.com/blockly/xml"></xml>',
+            'expected_output': '1\n2\n3\n4\n5',
+            'hints': 'Use a "count with i from 1 to 5 by 1" loop block. Print the variable i inside the loop.',
+            'order': 2,
+        },
+        {
+            'level': 'intermediate',
+            'title': 'Big or Small',
+            'description': 'Create a variable called number and set it to 8.\nIf number is greater than 5, print "Big".\nOtherwise, print "Small".',
+            'starter_code': '<xml xmlns="https://developers.google.com/blockly/xml"></xml>',
+            'expected_output': 'Big',
+            'hints': 'Use the Variables category to create "number". Use an if/else block from Control. Use a compare block from Logic.',
+            'order': 3,
+        },
+        {
+            'level': 'advanced',
+            'title': 'FizzBuzz Lite',
+            'description': 'Loop from 1 to 10.\n- If divisible by 3, print "Fizz".\n- Otherwise, print the number.',
+            'starter_code': '<xml xmlns="https://developers.google.com/blockly/xml"></xml>',
+            'expected_output': '1\n2\nFizz\n4\n5\nFizz\n7\n8\nFizz\n10',
+            'hints': 'Use a count loop. Inside, use an if/else block. Use a modulo block from Math to check divisibility.',
+            'order': 4,
+        },
+    ],
+
+    # ── Scratch — Variables ──────────────────────────────────────────────────
+    ('scratch', 'Variables'): [
+        {
+            'level': 'beginner',
+            'title': 'Store and Print',
+            'description': 'Create a variable called score and set it to 10.\nPrint the value of score.',
+            'starter_code': '<xml xmlns="https://developers.google.com/blockly/xml"></xml>',
+            'expected_output': '10',
+            'hints': 'In the Variables category, click "Create variable" and name it "score". Use a "set score to" block, then print the score variable.',
+            'order': 1,
+        },
+        {
+            'level': 'intermediate',
+            'title': 'Double It',
+            'description': 'Create a variable called num and set it to 7.\nMultiply it by 2 and print the result.',
+            'starter_code': '<xml xmlns="https://developers.google.com/blockly/xml"></xml>',
+            'expected_output': '14',
+            'hints': 'Use an arithmetic block from Math with × operator. Connect the num variable and the number 2.',
+            'order': 2,
+        },
+        {
+            'level': 'advanced',
+            'title': 'Running Total',
+            'description': 'Create a variable called total and set it to 0.\nAdd the numbers 1 through 5 to it using a loop.\nPrint the final total.',
+            'starter_code': '<xml xmlns="https://developers.google.com/blockly/xml"></xml>',
+            'expected_output': '15',
+            'hints': 'Use a count loop from 1 to 5. Inside, set total to (total + i). Print total after the loop.',
+            'order': 3,
+        },
+    ],
+
+    # ── Scratch — Sound ──────────────────────────────────────────────────────
+    ('scratch', 'Sound'): [
+        {
+            'level': 'beginner',
+            'title': 'Musical Notes',
+            'description': 'Print the names of 3 musical notes, each on a new line:\nDo\nRe\nMi',
+            'starter_code': '<xml xmlns="https://developers.google.com/blockly/xml"></xml>',
+            'expected_output': 'Do\nRe\nMi',
+            'hints': 'Use three print blocks, one for each note name.',
+            'order': 1,
+        },
+        {
+            'level': 'intermediate',
+            'title': 'Beat Counter',
+            'description': 'Print "Beat 1", "Beat 2", "Beat 3", "Beat 4" each on a new line.\nUse a loop and join text with the loop variable.',
+            'starter_code': '<xml xmlns="https://developers.google.com/blockly/xml"></xml>',
+            'expected_output': 'Beat 1\nBeat 2\nBeat 3\nBeat 4',
+            'hints': 'Use a count loop from 1 to 4. Use a text join block to combine "Beat " with the loop variable i.',
+            'order': 2,
+        },
+    ],
 }
 
 

@@ -18,10 +18,18 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/selection/active-line.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/anyword-hint.min.js"></script>
+{% if language.uses_scratch_vm %}
+{# ── Google Blockly v9 with Python generator — Scratch exercises only ── #}
+<script src="https://unpkg.com/blockly@9.3.3/blockly_compressed.js"></script>
+<script src="https://unpkg.com/blockly@9.3.3/blocks_compressed.js"></script>
+<script src="https://unpkg.com/blockly@9.3.3/python_compressed.js"></script>
+<script src="https://unpkg.com/blockly@9.3.3/msg/en.js"></script>
+{% endif %}
 {% endblock %}
 
 {% block content %}
 {{ exercise.starter_code|default:''|json_script:"starter-data" }}
+{{ server_blocks_xml|default:''|json_script:"blocks-data" }}
 <style>
   :root {
     --cw-green-50:  #f0faf5; --cw-green-100: #d6f5e8;
@@ -136,6 +144,13 @@
   .ed-mark-btn.done { border: 2px solid var(--cw-green-400); color: var(--cw-green-600); background: var(--cw-green-50); cursor: default; }
   .ed-mark-btn.todo { border: 2px solid rgba(0,0,0,0.13); color: var(--cw-text-muted); background: var(--cw-surface); }
   .ed-mark-btn.todo:hover { border-color: var(--cw-green-400); color: var(--cw-green-600); }
+
+  /* ── Blockly / Scratch editor ── */
+  #blocklyDiv { height: 400px; background: var(--ed-bg); }
+  .sc-code-wrap { background: #0f1117; border-radius: 14px; border: 1px solid #2a2d3a; overflow: hidden; }
+  .sc-code-bar { display: flex; align-items: center; padding: 8px 14px; background: #161821; border-bottom: 1px solid #2a2d3a; }
+  .sc-code-label { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: #6b7280; }
+  #sc-generated-code { font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace; font-size: 12px; color: #a5b4fc; padding: 10px 14px; min-height: 60px; max-height: 120px; overflow-y: auto; white-space: pre; margin: 0; }
 </style>
 
 <div class="ed-page">
@@ -217,6 +232,23 @@
         </div>
 
         <!-- Editor chrome -->
+        {% if language.uses_scratch_vm %}
+        <div class="ed-chrome">
+          <div class="ed-chrome-bar">
+            <span class="ed-dot ed-dot-r"></span>
+            <span class="ed-dot ed-dot-y"></span>
+            <span class="ed-dot ed-dot-g"></span>
+            <span class="ed-file">scratch.py</span>
+          </div>
+          <div id="blocklyDiv"></div>
+        </div>
+        <div class="sc-code-wrap">
+          <div class="sc-code-bar">
+            <span class="sc-code-label">Generated Python</span>
+          </div>
+          <pre id="sc-generated-code"># Drag blocks to generate Python code…</pre>
+        </div>
+        {% else %}
         <div class="ed-chrome">
           <div class="ed-chrome-bar">
             <span class="ed-dot ed-dot-r"></span>
@@ -235,6 +267,7 @@
             <textarea id="ed-code"></textarea>
           </div>
         </div>
+        {% endif %}
 
         <!-- Mark complete -->
         <button type="button" id="ed-mark-btn"
@@ -250,12 +283,14 @@
 
 <script>
 // ── Page constants ────────────────────────────────────────────────────────
-var LANG_SLUG   = "{{ language.slug }}";
-var STARTER     = JSON.parse(document.getElementById('starter-data').textContent);
-var CSRF_TOKEN  = "{{ csrf_token }}";
-var EXERCISE_ID = {{ exercise.id }};
-var IS_BROWSER  = ['html', 'css', 'html-css'].includes(LANG_SLUG);
-var IS_DONE     = {{ is_completed|yesno:"true,false" }};
+var LANG_SLUG       = "{{ language.slug }}";
+var STARTER         = JSON.parse(document.getElementById('starter-data').textContent);
+var CSRF_TOKEN      = "{{ csrf_token }}";
+var EXERCISE_ID     = {{ exercise.id }};
+var IS_BROWSER      = ['html', 'css', 'html-css'].includes(LANG_SLUG);
+var IS_SCRATCH      = LANG_SLUG === 'scratch';
+var IS_DONE         = {{ is_completed|yesno:"true,false" }};
+var SERVER_BLOCKS_XML = JSON.parse(document.getElementById('blocks-data').textContent) || '';
 
 // ── Language → CodeMirror mode ────────────────────────────────────────────
 var modeMap = {
@@ -264,41 +299,142 @@ var modeMap = {
   html:       'htmlmixed',
   'html-css': 'htmlmixed',
   css:        'css',
-  scratch:    'text/plain',  // no CM5 Scratch mode; plain text with all other features
 };
 
-// ── Initialise CodeMirror 5 ───────────────────────────────────────────────
-var editor = CodeMirror.fromTextArea(document.getElementById('ed-code'), {
-  mode:              modeMap[LANG_SLUG] || 'text/plain',
-  theme:             'dracula',
-  lineNumbers:       true,
-  indentUnit:        2,
-  tabSize:           2,
-  indentWithTabs:    false,
-  autoCloseBrackets: true,
-  matchBrackets:     true,
-  styleActiveLine:   true,
-  lineWrapping:      false,
-  extraKeys: {
-    'Tab': function(cm) {
-      if (cm.somethingSelected()) {
-        cm.indentSelection('add');
-      } else {
-        cm.replaceSelection('  ', 'end');
-      }
+// ── Editor state ──────────────────────────────────────────────────────────
+var editor    = null;   // CodeMirror instance (non-Scratch)
+var workspace = null;   // Blockly workspace (Scratch)
+var LS_KEY    = 'scratch_blocks_' + EXERCISE_ID;
+
+// ── Initialise ────────────────────────────────────────────────────────────
+if (IS_SCRATCH) {
+  initBlockly();
+} else {
+  initCodeMirror();
+}
+
+function initCodeMirror() {
+  editor = CodeMirror.fromTextArea(document.getElementById('ed-code'), {
+    mode:              modeMap[LANG_SLUG] || 'text/plain',
+    theme:             'dracula',
+    lineNumbers:       true,
+    indentUnit:        2,
+    tabSize:           2,
+    indentWithTabs:    false,
+    autoCloseBrackets: true,
+    matchBrackets:     true,
+    styleActiveLine:   true,
+    lineWrapping:      false,
+    extraKeys: {
+      'Tab': function(cm) {
+        if (cm.somethingSelected()) { cm.indentSelection('add'); }
+        else { cm.replaceSelection('  ', 'end'); }
+      },
+      'Shift-Tab': 'indentLess',
+      'Ctrl-Enter': function() { edRun(); },
+      'Cmd-Enter':  function() { edRun(); },
+      'Ctrl-Space': 'autocomplete',
     },
-    'Shift-Tab': 'indentLess',
-    'Ctrl-Enter': function() { edRun(); },
-    'Cmd-Enter':  function() { edRun(); },
-    'Ctrl-Space': 'autocomplete',
-  },
-});
-editor.setValue(STARTER || '');
-// Ensure the editor fills the wrapper
-editor.setSize('100%', '400px');
+  });
+  editor.setValue(STARTER || '');
+  editor.setSize('100%', '400px');
+}
+
+function initBlockly() {
+  var toolboxXml = [
+    '<xml>',
+    '  <category name="Output" colour="#4C97FF">',
+    '    <block type="text_print"></block>',
+    '  </category>',
+    '  <category name="Control" colour="#FFAB19">',
+    '    <block type="controls_repeat_ext">',
+    '      <value name="TIMES"><block type="math_number"><field name="NUM">10</field></block></value>',
+    '    </block>',
+    '    <block type="controls_whileUntil"></block>',
+    '    <block type="controls_if"></block>',
+    '    <block type="controls_if"><mutation else="1"></mutation></block>',
+    '    <block type="controls_for">',
+    '      <value name="FROM"><block type="math_number"><field name="NUM">1</field></block></value>',
+    '      <value name="TO"><block type="math_number"><field name="NUM">10</field></block></value>',
+    '      <value name="BY"><block type="math_number"><field name="NUM">1</field></block></value>',
+    '    </block>',
+    '    <block type="controls_flow_statements"></block>',
+    '  </category>',
+    '  <category name="Variables" colour="#FF8C1A" custom="VARIABLE"></category>',
+    '  <category name="Math" colour="#9966FF">',
+    '    <block type="math_number"></block>',
+    '    <block type="math_arithmetic"></block>',
+    '    <block type="math_modulo"></block>',
+    '    <block type="math_round"></block>',
+    '    <block type="math_random_int">',
+    '      <value name="FROM"><block type="math_number"><field name="NUM">1</field></block></value>',
+    '      <value name="TO"><block type="math_number"><field name="NUM">100</field></block></value>',
+    '    </block>',
+    '  </category>',
+    '  <category name="Logic" colour="#5C81A6">',
+    '    <block type="logic_compare"></block>',
+    '    <block type="logic_operation"></block>',
+    '    <block type="logic_negate"></block>',
+    '    <block type="logic_boolean"></block>',
+    '  </category>',
+    '  <category name="Text" colour="#5BA58C">',
+    '    <block type="text"></block>',
+    '    <block type="text_length"></block>',
+    '    <block type="text_join"></block>',
+    '    <block type="text_indexOf"></block>',
+    '    <block type="text_charAt"></block>',
+    '  </category>',
+    '  <category name="Lists" colour="#745BA5">',
+    '    <block type="lists_create_empty"></block>',
+    '    <block type="lists_create_with"></block>',
+    '    <block type="lists_length"></block>',
+    '    <block type="lists_getIndex"></block>',
+    '    <block type="lists_setIndex"></block>',
+    '  </category>',
+    '</xml>',
+  ].join('\n');
+
+  workspace = Blockly.inject('blocklyDiv', {
+    toolbox:    toolboxXml,
+    scrollbars: true,
+    trashcan:   true,
+    grid: { spacing: 20, length: 3, colour: '#2a2d3a', snap: true },
+    zoom: { controls: true, wheel: true, startScale: 1.0, maxScale: 3, minScale: 0.3, scaleSpeed: 1.2 },
+  });
+
+  // ── Restore blocks: localStorage → server XML → starter XML ──────────────
+  var saved = localStorage.getItem(LS_KEY) || SERVER_BLOCKS_XML || STARTER || '';
+  if (saved) {
+    try {
+      Blockly.Xml.domToWorkspace(Blockly.Xml.textToDom(saved), workspace);
+    } catch (e) {
+      console.warn('Could not restore Blockly workspace:', e);
+    }
+  }
+
+  // ── Auto-save + update generated-code preview on change ───────────────────
+  workspace.addChangeListener(function (e) {
+    if (e.isUiEvent) return;
+    var xml = Blockly.Xml.domToText(Blockly.Xml.workspaceToDom(workspace));
+    localStorage.setItem(LS_KEY, xml);
+    var code = Blockly.Python.workspaceToCode(workspace);
+    var pre = document.getElementById('sc-generated-code');
+    if (pre) pre.textContent = code || '# Drag blocks to generate Python code\u2026';
+  });
+}
 
 // ── Helper: get current code ──────────────────────────────────────────────
-function getCode() { return editor.getValue(); }
+function getCode() {
+  if (IS_SCRATCH) {
+    return workspace ? Blockly.Python.workspaceToCode(workspace) : '';
+  }
+  return editor ? editor.getValue() : '';
+}
+
+function getBlocksXml() {
+  if (!IS_SCRATCH || !workspace) return '';
+  return Blockly.Xml.domToText(Blockly.Xml.workspaceToDom(workspace));
+}
 
 // ── Functions ─────────────────────────────────────────────────────────────
 
@@ -317,6 +453,19 @@ function edClearOutput() {
 }
 
 function edReset() {
+  if (IS_SCRATCH) {
+    if (!confirm('Reset blocks to starter?')) return;
+    if (workspace) workspace.clear();
+    localStorage.removeItem(LS_KEY);
+    if (STARTER) {
+      try {
+        Blockly.Xml.domToWorkspace(Blockly.Xml.textToDom(STARTER), workspace);
+      } catch (e) {}
+    }
+    var pre = document.getElementById('sc-generated-code');
+    if (pre) pre.textContent = '# Drag blocks to generate Python code\u2026';
+    return;
+  }
   if (confirm('Reset code to starter?')) {
     editor.setValue(STARTER || '');
     editor.clearHistory();
@@ -328,13 +477,12 @@ function edReset() {
 }
 
 async function edRun() {
-  var btn  = document.getElementById('ed-run-btn');
-  var code = getCode();
+  var btn = document.getElementById('ed-run-btn');
 
   // HTML/CSS — render in the sandboxed iframe; no server call needed
   if (IS_BROWSER) {
     var f = document.getElementById('ed-preview-frame');
-    if (f) f.srcdoc = code;
+    if (f) f.srcdoc = getCode();
     return;
   }
 
@@ -346,11 +494,14 @@ async function edRun() {
   stdout.textContent = 'Running\u2026';
   if (stderr) { stderr.textContent = ''; stderr.style.display = 'none'; }
 
+  var payload = { language_slug: LANG_SLUG, code: getCode() };
+  if (IS_SCRATCH) payload.blocks_xml = getBlocksXml();
+
   try {
     var res  = await fetch('{% url "coding:api_run_code" %}', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
-      body:    JSON.stringify({ language_slug: LANG_SLUG, code: code }),
+      body:    JSON.stringify(payload),
     });
     var data = await res.json();
     stdout.textContent = data.stdout || (data.error ? data.error : '(no output)');
@@ -371,16 +522,18 @@ async function edMarkDone() {
   var btn = document.getElementById('ed-mark-btn');
   btn.disabled    = true;
   btn.textContent = 'Saving\u2026';
+  var payload = {
+    language_slug: LANG_SLUG,
+    code:          getCode(),
+    mark_complete: true,
+    exercise_id:   EXERCISE_ID,
+  };
+  if (IS_SCRATCH) payload.blocks_xml = getBlocksXml();
   try {
     await fetch('{% url "coding:api_run_code" %}', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
-      body:    JSON.stringify({
-        language_slug: LANG_SLUG,
-        code:          getCode(),
-        mark_complete: true,
-        exercise_id:   EXERCISE_ID,
-      }),
+      body:    JSON.stringify(payload),
     });
     window.location.reload();
   } catch (_) {
