@@ -29,6 +29,7 @@ def handle_checkout_completed(event_data):
     Works for individual students, school students, institutes, and parent invoice payments.
     """
     session = event_data['object']
+    stripe_session_id = session.get('id', '')
     metadata = session.get('metadata', {})
     sub_type = metadata.get('type', '')
     stripe_subscription_id = session.get('subscription', '')
@@ -37,6 +38,8 @@ def handle_checkout_completed(event_data):
         _activate_institute_from_checkout(metadata, stripe_subscription_id)
     elif sub_type in ('individual', 'school_student'):
         _activate_individual_from_checkout(metadata, stripe_subscription_id)
+    elif sub_type == 'pending_individual_registration':
+        _activate_pending_registration(stripe_session_id, stripe_subscription_id)
     elif sub_type == 'invoice_payment':
         _handle_invoice_payment_checkout(metadata, session)
     else:
@@ -81,7 +84,7 @@ def _activate_institute_from_checkout(metadata, stripe_subscription_id):
 
 
 def _activate_individual_from_checkout(metadata, stripe_subscription_id):
-    from billing.models import Subscription
+    from billing.models import Subscription, Package
     from accounts.models import CustomUser
 
     user_id = metadata.get('user_id')
@@ -91,10 +94,20 @@ def _activate_individual_from_checkout(metadata, stripe_subscription_id):
 
     try:
         user = CustomUser.objects.get(id=user_id)
-        sub = user.subscription
-    except (CustomUser.DoesNotExist, Subscription.DoesNotExist):
-        logger.error('User %s or subscription not found', user_id)
+    except CustomUser.DoesNotExist:
+        logger.error('User %s not found', user_id)
         return
+
+    try:
+        sub = user.subscription
+    except Subscription.DoesNotExist:
+        # School students have no pre-created subscription — create it now
+        package = Package.objects.filter(id=package_id).first() if package_id else None
+        if not package:
+            logger.error('Package %s not found, cannot create subscription for user %s', package_id, user_id)
+            return
+        sub = Subscription(user=user, package=package)
+        logger.info('Creating subscription for school student user=%s package=%s', user_id, package_id)
 
     from billing.models import Package
     package = Package.objects.filter(id=package_id).first() if package_id else sub.package
@@ -136,6 +149,35 @@ def _activate_individual_from_checkout(metadata, stripe_subscription_id):
         sub.current_period_start = timezone.now()
         sub.save()
         logger.info('Individual subscription activated: user=%s package=%s', user_id, package)
+
+    # Mark profile as complete — school students are gated until payment confirms
+    if not user.profile_completed:
+        user.profile_completed = True
+        user.save(update_fields=['profile_completed'])
+
+
+def _activate_pending_registration(stripe_session_id, stripe_subscription_id):
+    """
+    Create a user account from a PendingRegistration after Stripe payment succeeds.
+    Called by the webhook; the browser success-redirect also calls _create_account_from_pending
+    directly, so this must be idempotent (completed=True guard handles the race).
+    """
+    from accounts.models import PendingRegistration
+    from billing.views import _create_account_from_pending
+
+    try:
+        pending = PendingRegistration.objects.get(
+            stripe_session_id=stripe_session_id, completed=False
+        )
+    except PendingRegistration.DoesNotExist:
+        logger.info('PendingRegistration %s already completed or not found', stripe_session_id)
+        return
+
+    user = _create_account_from_pending(pending, stripe_subscription_id=stripe_subscription_id)
+    if user:
+        logger.info('Account created from pending registration: user=%s', user.username)
+    else:
+        logger.error('Failed to create account from pending registration %s', stripe_session_id)
 
 
 # ---------------------------------------------------------------------------

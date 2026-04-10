@@ -184,6 +184,43 @@ def create_individual_checkout_session(user, package, request, stripe_coupon_id=
     return session
 
 
+def create_pending_registration_checkout_session(email, package, request, stripe_coupon_id=None):
+    """
+    Create a Stripe Checkout Session for a new individual student who has not
+    yet had an account created.  The account is created after payment succeeds
+    (via the success redirect or webhook).
+    """
+    _ensure_stripe_key()
+
+    session_kwargs = dict(
+        customer_email=email,
+        mode='subscription',
+        line_items=[{'price': package.stripe_price_id, 'quantity': 1}],
+        success_url=request.build_absolute_uri(
+            reverse('billing_success')
+        ) + '?session_id={CHECKOUT_SESSION_ID}',
+        cancel_url=request.build_absolute_uri(
+            reverse('register_individual_student')
+        ),
+        metadata={
+            'type': 'pending_individual_registration',
+            'package_id': package.id,
+        },
+        subscription_data={
+            'metadata': {
+                'type': 'pending_individual_registration',
+                'package_id': package.id,
+            },
+        },
+        billing_address_collection='required',
+        payment_method_types=['card'],
+    )
+    if stripe_coupon_id:
+        session_kwargs['discounts'] = [{'coupon': stripe_coupon_id}]
+
+    return stripe.checkout.Session.create(**session_kwargs)
+
+
 def create_student_checkout_session(user, package, request, stripe_coupon_id=None):
     """
     Create a Stripe Checkout Session for a school student subscription.
@@ -197,8 +234,8 @@ def create_student_checkout_session(user, package, request, stripe_coupon_id=Non
         mode='subscription',
         line_items=[{'price': package.stripe_price_id, 'quantity': 1}],
         success_url=request.build_absolute_uri(
-            reverse('subjects_hub')
-        ) + '?subscription=active',
+            reverse('complete_profile_payment_success')
+        ),
         cancel_url=request.build_absolute_uri(
             reverse('complete_profile')
         ),
