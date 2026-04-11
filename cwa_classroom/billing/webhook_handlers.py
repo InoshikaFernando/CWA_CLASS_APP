@@ -26,9 +26,10 @@ def _ts_to_dt(timestamp):
 def handle_checkout_completed(event_data):
     """
     Activate subscription after successful Stripe Checkout.
-    Works for individual students, school students, and institutes.
+    Works for individual students, school students, institutes, and parent invoice payments.
     """
     session = event_data['object']
+    stripe_session_id = session.get('id', '')
     metadata = session.get('metadata', {})
     sub_type = metadata.get('type', '')
     stripe_subscription_id = session.get('subscription', '')
@@ -37,6 +38,10 @@ def handle_checkout_completed(event_data):
         _activate_institute_from_checkout(metadata, stripe_subscription_id)
     elif sub_type in ('individual', 'school_student'):
         _activate_individual_from_checkout(metadata, stripe_subscription_id)
+    elif sub_type == 'pending_individual_registration':
+        _activate_pending_registration(stripe_session_id, stripe_subscription_id)
+    elif sub_type == 'invoice_payment':
+        _handle_invoice_payment_checkout(metadata, session)
     else:
         logger.warning('Unknown checkout type: %s', sub_type)
 
@@ -79,7 +84,7 @@ def _activate_institute_from_checkout(metadata, stripe_subscription_id):
 
 
 def _activate_individual_from_checkout(metadata, stripe_subscription_id):
-    from billing.models import Subscription
+    from billing.models import Subscription, Package
     from accounts.models import CustomUser
 
     user_id = metadata.get('user_id')
@@ -89,10 +94,20 @@ def _activate_individual_from_checkout(metadata, stripe_subscription_id):
 
     try:
         user = CustomUser.objects.get(id=user_id)
-        sub = user.subscription
-    except (CustomUser.DoesNotExist, Subscription.DoesNotExist):
-        logger.error('User %s or subscription not found', user_id)
+    except CustomUser.DoesNotExist:
+        logger.error('User %s not found', user_id)
         return
+
+    try:
+        sub = user.subscription
+    except Subscription.DoesNotExist:
+        # School students have no pre-created subscription — create it now
+        package = Package.objects.filter(id=package_id).first() if package_id else None
+        if not package:
+            logger.error('Package %s not found, cannot create subscription for user %s', package_id, user_id)
+            return
+        sub = Subscription(user=user, package=package)
+        logger.info('Creating subscription for school student user=%s package=%s', user_id, package_id)
 
     from billing.models import Package
     package = Package.objects.filter(id=package_id).first() if package_id else sub.package
@@ -134,6 +149,35 @@ def _activate_individual_from_checkout(metadata, stripe_subscription_id):
         sub.current_period_start = timezone.now()
         sub.save()
         logger.info('Individual subscription activated: user=%s package=%s', user_id, package)
+
+    # Mark profile as complete — school students are gated until payment confirms
+    if not user.profile_completed:
+        user.profile_completed = True
+        user.save(update_fields=['profile_completed'])
+
+
+def _activate_pending_registration(stripe_session_id, stripe_subscription_id):
+    """
+    Create a user account from a PendingRegistration after Stripe payment succeeds.
+    Called by the webhook; the browser success-redirect also calls _create_account_from_pending
+    directly, so this must be idempotent (completed=True guard handles the race).
+    """
+    from accounts.models import PendingRegistration
+    from billing.views import _create_account_from_pending
+
+    try:
+        pending = PendingRegistration.objects.get(
+            stripe_session_id=stripe_session_id, completed=False
+        )
+    except PendingRegistration.DoesNotExist:
+        logger.info('PendingRegistration %s already completed or not found', stripe_session_id)
+        return
+
+    user = _create_account_from_pending(pending, stripe_subscription_id=stripe_subscription_id)
+    if user:
+        logger.info('Account created from pending registration: user=%s', user.username)
+    else:
+        logger.error('Failed to create account from pending registration %s', stripe_session_id)
 
 
 # ---------------------------------------------------------------------------
@@ -385,3 +429,78 @@ def handle_payment_failed(event_data):
         })
     except Exception:
         logger.exception('Failed to send payment failure notification')
+
+
+# ---------------------------------------------------------------------------
+# invoice_payment checkout
+# ---------------------------------------------------------------------------
+
+def _handle_invoice_payment_checkout(metadata, session):
+    """
+    Process a completed Stripe Checkout Session for parent invoice payment.
+    Creates InvoicePayment records for each allocation and marks invoices
+    as partially_paid or paid. Idempotent — safe to call twice.
+    """
+    from decimal import Decimal
+    from django.utils import timezone
+    from billing.models import InvoiceStripePayment
+    from classroom.models import Invoice, InvoicePayment
+
+    isp_id = metadata.get('isp_id')
+    if not isp_id:
+        logger.error('invoice_payment webhook missing isp_id')
+        return
+
+    try:
+        isp = InvoiceStripePayment.objects.get(pk=isp_id)
+    except InvoiceStripePayment.DoesNotExist:
+        logger.error('InvoiceStripePayment %s not found', isp_id)
+        return
+
+    # Idempotency: already processed
+    if isp.status == InvoiceStripePayment.STATUS_SUCCEEDED:
+        logger.info('InvoiceStripePayment %s already succeeded, skipping', isp_id)
+        return
+
+    stripe_session_id = session.get('id', '')
+    today = timezone.now().date()
+
+    for alloc in isp.invoice_allocations:
+        invoice_id = alloc.get('invoice_id')
+        alloc_amount = Decimal(str(alloc.get('amount', '0')))
+        if not invoice_id or alloc_amount <= 0:
+            continue
+
+        try:
+            invoice = Invoice.objects.get(pk=invoice_id)
+        except Invoice.DoesNotExist:
+            logger.error('Invoice %s not found during allocation', invoice_id)
+            continue
+
+        # Create InvoicePayment record (method=stripe, status=confirmed)
+        InvoicePayment.objects.get_or_create(
+            invoice=invoice,
+            bank_transaction_id=stripe_session_id,
+            defaults={
+                'student': invoice.student,
+                'school': invoice.school,
+                'amount': alloc_amount,
+                'payment_date': today,
+                'payment_method': 'other',
+                'reference_name': f'Stripe ({stripe_session_id[:12]}...)',
+                'status': 'confirmed',
+                'notes': f'Paid via Stripe Checkout. ISP #{isp_id}',
+            },
+        )
+
+        # Refresh and update invoice status
+        invoice.refresh_from_db()
+        if invoice.amount_due <= 0:
+            invoice.status = 'paid'
+        else:
+            invoice.status = 'partially_paid'
+        invoice.save(update_fields=['status'])
+
+    isp.status = InvoiceStripePayment.STATUS_SUCCEEDED
+    isp.save(update_fields=['status', 'updated_at'])
+    logger.info('InvoiceStripePayment %s succeeded, %d allocations applied', isp_id, len(isp.invoice_allocations))

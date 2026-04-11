@@ -222,14 +222,17 @@ class ParentLinkRequestsViewTest(ParentLinkRequestTestBase):
         self.assertContains(resp, 'Jane Doe')
         self.assertContains(resp, 'Zara Smith')
 
-    def test_approved_requests_not_shown(self):
+    def test_approved_requests_shown_in_history(self):
+        # Approved requests no longer appear in pending but do appear in history
         parent, req = self._make_parent('view2_parent', 'wlhtestmails+view2_p@gmail.com')
         req.status = ParentLinkRequest.STATUS_APPROVED
         req.save()
         self.client.login(username='teacher1', password='password1!')
         resp = self.client.get(reverse('parent_link_requests'))
         self.assertEqual(resp.status_code, 200)
-        self.assertNotContains(resp, 'wlhtestmails+view2_p@gmail.com')
+        self.assertContains(resp, 'wlhtestmails+view2_p@gmail.com')
+        # Should not appear in pending context
+        self.assertNotIn(req, resp.context['pending_requests'])
 
 
 # ---------------------------------------------------------------------------
@@ -391,3 +394,114 @@ class ParentDashboardVisibilityTest(ParentLinkRequestTestBase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'data-testid="child-card"')
         self.assertContains(resp, 'Zara')
+
+
+# ---------------------------------------------------------------------------
+# Individual student parent linking (STU-{pk} account ID)
+# ---------------------------------------------------------------------------
+
+class IndividualStudentParentLinkTest(TestCase):
+    """
+    Parents can link to individual students (no school) using STU-{pk} IDs.
+    The link is created directly (no approval flow) with school=None.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.individual_role, _ = Role.objects.get_or_create(
+            name=Role.INDIVIDUAL_STUDENT,
+            defaults={'display_name': 'Individual Student'},
+        )
+        cls.parent_role, _ = Role.objects.get_or_create(
+            name=Role.PARENT, defaults={'display_name': 'Parent'},
+        )
+
+        cls.indiv_student = CustomUser.objects.create_user(
+            'indiv_stu1', 'wlhtestmails+indiv_stu1@gmail.com', 'pass1234!',
+            first_name='Indie', last_name='Kid',
+        )
+        cls.indiv_student.roles.add(cls.individual_role)
+
+    def _post_join(self, **overrides):
+        data = {
+            'first_name': 'Pat',
+            'last_name': 'Parent',
+            'email': 'wlhtestmails+indivparent@gmail.com',
+            'username': 'indivparent',
+            'password': 'testpass123',
+            'confirm_password': 'testpass123',
+            'student_id_0': f'STU-{self.indiv_student.pk:04d}',
+            'relationship_0': 'guardian',
+            'accept_terms': '1',
+        }
+        data.update(overrides)
+        return Client().post(reverse('register_parent_join'), data)
+
+    def test_stu_pk_id_creates_direct_parent_student_link(self):
+        """STU-{pk} resolves to individual student and creates ParentStudent(school=None)."""
+        resp = self._post_join()
+        self.assertRedirects(resp, reverse('parent_dashboard'), fetch_redirect_response=False)
+        self.assertTrue(
+            ParentStudent.objects.filter(
+                student=self.indiv_student, school__isnull=True,
+            ).exists()
+        )
+
+    def test_stu_pk_id_does_not_create_link_request(self):
+        """Individual student linking skips the approval flow entirely."""
+        self._post_join(
+            email='wlhtestmails+indivparent2@gmail.com',
+            username='indivparent2',
+        )
+        self.assertEqual(
+            ParentLinkRequest.objects.filter(parent__username='indivparent2').count(), 0
+        )
+
+    def test_invalid_stu_id_shows_error(self):
+        """A non-existent STU-9999 returns a validation error."""
+        resp = self._post_join(
+            email='wlhtestmails+indivparent3@gmail.com',
+            username='indivparent3',
+            student_id_0='STU-9999',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'was not found')
+
+    def test_school_student_id_still_works(self):
+        """STU-001-0001 format (school student) still creates a ParentLinkRequest."""
+        student_role, _ = Role.objects.get_or_create(
+            name=Role.STUDENT, defaults={'display_name': 'Student'},
+        )
+        school = School.objects.create(name='Link Test School', slug='link-test-sch')
+        stu = CustomUser.objects.create_user(
+            'sch_stu_lnk', 'wlhtestmails+schs@gmail.com', 'pass1234!',
+            first_name='School', last_name='Kid',
+        )
+        stu.roles.add(student_role)
+        ss = SchoolStudent.objects.create(school=school, student=stu)
+
+        resp = Client().post(reverse('register_parent_join'), {
+            'first_name': 'Par', 'last_name': 'Ent',
+            'email': 'wlhtestmails+schparent@gmail.com',
+            'username': 'schparent99',
+            'password': 'testpass123', 'confirm_password': 'testpass123',
+            'student_id_0': ss.student_id_code,
+            'relationship_0': 'mother',
+            'accept_terms': '1',
+        })
+        self.assertRedirects(resp, reverse('parent_dashboard'), fetch_redirect_response=False)
+        self.assertEqual(
+            ParentLinkRequest.objects.filter(
+                school_student=ss, status=ParentLinkRequest.STATUS_PENDING,
+            ).count(), 1
+        )
+
+    def test_parent_student_school_is_null_for_individual_link(self):
+        """The created ParentStudent has school=None (not a school-based link)."""
+        self._post_join(
+            email='wlhtestmails+indivparent4@gmail.com',
+            username='indivparent4',
+        )
+        link = ParentStudent.objects.filter(student=self.indiv_student).first()
+        self.assertIsNotNone(link)
+        self.assertIsNone(link.school)

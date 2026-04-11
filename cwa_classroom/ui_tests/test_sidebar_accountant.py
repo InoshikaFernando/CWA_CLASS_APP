@@ -26,10 +26,6 @@ class TestAccountantSidebarLinks:
     def test_dashboard_link(self):
         assert_sidebar_has_link(self.page, "Dashboard")
 
-    def test_manage_packages_link(self):
-        click_sidebar_link(self.page, "Manage Packages")
-        expect(self.page).to_have_url(re.compile(r"/packages"))
-
     def test_user_statistics_link(self):
         click_sidebar_link(self.page, "User Statistics")
         expect(self.page).to_have_url(re.compile(r"/users"))

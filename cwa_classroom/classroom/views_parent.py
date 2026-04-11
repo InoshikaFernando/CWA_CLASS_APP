@@ -2,10 +2,13 @@
 Parent portal views — read-only access to linked children's data.
 CPP-67 (invoices & payments), CPP-68 (attendance), CPP-69 (progress).
 """
+from decimal import Decimal
+
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
-from django.db.models import Max, Q
+from django.db.models import Max, Q, Sum
+from django.http import JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
 
@@ -71,9 +74,12 @@ class ParentChildrenView(RoleRequiredMixin, View):
             )
             .select_related('school_student', 'school_student__student', 'school_student__school')
         )
+        active_child, active_school, _ = _get_active_child(request)
         return render(request, 'parent/children.html', {
             'children': children,
             'pending_requests': pending_requests,
+            'active_child': active_child,
+            'active_school': active_school,
         })
 
 
@@ -163,21 +169,27 @@ class ParentInvoicesView(RoleRequiredMixin, View):
     required_roles = [Role.PARENT]
 
     def get(self, request):
-        child, school, _ = _get_active_child(request)
-        if not child:
+        children = _get_parent_children(request.user)
+        active_child, active_school, _ = _get_active_child(request)
+        if not children.exists():
             return render(request, 'parent/invoices.html', {
-                'invoices': [], 'children': _get_parent_children(request.user),
-                'page': None,
+                'invoices': [], 'children': children, 'page': None,
+                'total_outstanding': Decimal('0.00'),
+                'active_child': active_child,
+                'active_school': active_school,
             })
+
+        # All children's student IDs for this parent
+        child_ids = children.values_list('student_id', flat=True)
 
         search = request.GET.get('q', '').strip()
         status_filter = request.GET.get('status', '').strip()
 
         allowed_statuses = ['issued', 'partially_paid', 'paid']
         invoices = (
-            Invoice.objects.filter(student=child, school=school, status__in=allowed_statuses)
+            Invoice.objects.filter(student_id__in=child_ids, status__in=allowed_statuses)
             .select_related('student', 'school')
-            .order_by('-billing_period_end', '-created_at')
+            .order_by('due_date', 'created_at')
         )
 
         if search:
@@ -189,24 +201,26 @@ class ParentInvoicesView(RoleRequiredMixin, View):
         if status_filter and status_filter in allowed_statuses:
             invoices = invoices.filter(status=status_filter)
 
+        # Compute total outstanding across all children (unpaginated)
+        outstanding_invoices = Invoice.objects.filter(
+            student_id__in=child_ids, status__in=['issued', 'partially_paid'],
+        )
+        total_outstanding = Decimal('0.00')
+        for inv in outstanding_invoices:
+            total_outstanding += inv.amount_due
+
         paginator = Paginator(invoices, 25)
         page = paginator.get_page(request.GET.get('page'))
-
-        # Annotate resolved Stripe links to avoid N+1 in template
-        for inv in page.object_list:
-            if inv.status in ('issued', 'partially_paid'):
-                inv.resolved_stripe_link = inv.get_stripe_payment_link()
-            else:
-                inv.resolved_stripe_link = None
 
         ctx = {
             'invoices': page,
             'page': page,
-            'active_child': child,
-            'active_school': school,
-            'children': _get_parent_children(request.user),
+            'children': children,
             'search': search,
             'status_filter': status_filter,
+            'total_outstanding': total_outstanding,
+            'active_child': active_child,
+            'active_school': active_school,
         }
         if request.headers.get('HX-Request'):
             return render(request, 'parent/partials/invoice_table.html', ctx)
@@ -217,16 +231,18 @@ class ParentInvoiceDetailView(RoleRequiredMixin, View):
     required_roles = [Role.PARENT]
 
     def get(self, request, invoice_id):
-        child, school, _ = _get_active_child(request)
-        if not child:
+        children = _get_parent_children(request.user)
+        if not children.exists():
             return redirect('parent_invoices')
+        child_ids = children.values_list('student_id', flat=True)
 
         invoice = get_object_or_404(
-            Invoice, id=invoice_id, student=child, school=school,
+            Invoice, id=invoice_id, student_id__in=child_ids,
             status__in=['issued', 'partially_paid', 'paid'],
         )
         line_items = invoice.line_items.select_related('classroom', 'classroom__department')
         payments = invoice.payments.order_by('-created_at')
+        school = invoice.school
 
         # Get effective settings (with department overrides if applicable)
         primary_dept = None
@@ -236,15 +252,17 @@ class ParentInvoiceDetailView(RoleRequiredMixin, View):
                 break
         effective_settings = school.get_effective_settings(primary_dept)
 
+        # Keep active_child context for nav, but don't restrict invoice lookup by it
+        active_child, _, _ = _get_active_child(request)
+
         return render(request, 'parent/invoice_detail.html', {
             'invoice': invoice,
             'line_items': line_items,
             'payments': payments,
-            'active_child': child,
+            'active_child': active_child,
             'active_school': school,
             'effective_settings': effective_settings,
-            'stripe_payment_link': invoice.get_stripe_payment_link(),
-            'children': _get_parent_children(request.user),
+            'children': children,
         })
 
 
@@ -256,26 +274,155 @@ class ParentPaymentHistoryView(RoleRequiredMixin, View):
     required_roles = [Role.PARENT]
 
     def get(self, request):
-        child, school, _ = _get_active_child(request)
-        if not child:
-            return render(request, 'parent/payments.html', {
-                'payments': [], 'children': _get_parent_children(request.user),
+        children = _get_parent_children(request.user)
+
+        # Build a list of (child, school, [payments]) for each linked child
+        child_sections = []
+        for link in children.select_related('student', 'school'):
+            payments = (
+                InvoicePayment.objects.filter(
+                    invoice__student=link.student,
+                    invoice__school=link.school,
+                    status__in=['confirmed', 'matched'],
+                )
+                .select_related('invoice')
+                .order_by('-payment_date', '-created_at')
+            )
+            child_sections.append({
+                'child': link.student,
+                'school': link.school,
+                'payments': payments,
             })
 
-        payments = (
-            InvoicePayment.objects.filter(
-                invoice__student=child, invoice__school=school,
-                status__in=['confirmed', 'matched'],
-            )
-            .select_related('invoice')
-            .order_by('-payment_date', '-created_at')
-        )
+        active_child, active_school, _ = _get_active_child(request)
 
         return render(request, 'parent/payments.html', {
-            'payments': payments,
-            'active_child': child,
-            'active_school': school,
+            'child_sections': child_sections,
+            'active_child': active_child,
+            'active_school': active_school,
+            'children': children,
+        })
+
+
+# ---------------------------------------------------------------------------
+# Invoice Stripe Checkout (Option B — dynamic Checkout Session)
+# ---------------------------------------------------------------------------
+
+class ParentInvoiceCheckoutView(RoleRequiredMixin, View):
+    """
+    POST: Create a Stripe Checkout Session for the parent to pay outstanding invoices.
+    Accepts optional 'amount' override; defaults to full outstanding balance.
+    Allocates oldest invoices first.
+    """
+    required_roles = [Role.PARENT]
+
+    def post(self, request):
+        from billing.stripe_service import create_invoice_checkout_session, calculate_stripe_fee
+
+        children = _get_parent_children(request.user)
+        if not children.exists():
+            return JsonResponse({'error': 'No linked children found.'}, status=400)
+
+        child_ids = list(children.values_list('student_id', flat=True))
+
+        # Gather all outstanding invoices, oldest first
+        outstanding = list(
+            Invoice.objects.filter(
+                student_id__in=child_ids,
+                status__in=['issued', 'partially_paid'],
+            ).order_by('due_date', 'created_at')
+        )
+
+        if not outstanding:
+            return JsonResponse({'error': 'No outstanding invoices.'}, status=400)
+
+        total_outstanding = sum(inv.amount_due for inv in outstanding)
+
+        # Determine amount to apply
+        raw_amount = request.POST.get('amount', '').strip()
+        try:
+            amount_applied = Decimal(raw_amount) if raw_amount else total_outstanding
+            amount_applied = amount_applied.quantize(Decimal('0.01'))
+        except Exception:
+            return JsonResponse({'error': 'Invalid amount.'}, status=400)
+
+        if amount_applied <= Decimal('0'):
+            return JsonResponse({'error': 'Amount must be greater than zero.'}, status=400)
+
+        # Build allocation list: oldest invoice first, up to amount_applied
+        remaining = amount_applied
+        allocations = []
+        for inv in outstanding:
+            if remaining <= 0:
+                break
+            alloc = min(inv.amount_due, remaining)
+            allocations.append({'invoice_id': inv.pk, 'amount': str(alloc)})
+            remaining -= alloc
+
+        try:
+            isp, session = create_invoice_checkout_session(
+                parent=request.user,
+                amount_applied=amount_applied,
+                invoice_allocations=allocations,
+                request=request,
+            )
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).error('Invoice checkout session error: %s', exc)
+            return JsonResponse({'error': 'Payment could not be initiated. Please try again.'}, status=500)
+
+        return JsonResponse({'checkout_url': session.url})
+
+
+class ParentInvoicePaymentSuccessView(RoleRequiredMixin, View):
+    """
+    Success page shown after a parent completes Stripe checkout.
+    Stripe webhook will handle the actual InvoicePayment creation asynchronously.
+    """
+    required_roles = [Role.PARENT]
+
+    def get(self, request):
+        from billing.models import InvoiceStripePayment
+
+        isp_id = request.GET.get('isp_id')
+        isp = None
+        if isp_id:
+            isp = InvoiceStripePayment.objects.filter(
+                pk=isp_id, parent=request.user,
+            ).first()
+
+        active_child, active_school, _ = _get_active_child(request)
+        return render(request, 'parent/invoice_pay_success.html', {
+            'isp': isp,
             'children': _get_parent_children(request.user),
+            'active_child': active_child,
+            'active_school': active_school,
+        })
+
+
+# ---------------------------------------------------------------------------
+# Parent Billing (subscription info)
+# ---------------------------------------------------------------------------
+
+class ParentBillingView(RoleRequiredMixin, View):
+    """Show the parent's own subscription details (same as individual student view)."""
+    required_roles = [Role.PARENT]
+
+    def get(self, request):
+        from billing.models import Subscription
+
+        subscription = None
+        try:
+            subscription = request.user.subscription
+        except Subscription.DoesNotExist:
+            pass
+
+        active_child, active_school, _ = _get_active_child(request)
+        return render(request, 'parent/billing.html', {
+            'subscription': subscription,
+            'children': _get_parent_children(request.user),
+            'active_child': active_child,
+            'active_school': active_school,
         })
 
 
@@ -443,11 +590,217 @@ class ParentProgressView(RoleRequiredMixin, View):
             overall['not_started'] += not_started
             overall['not_assessed'] += not_assessed
 
+        from django.db.models import Count, Sum, Case, When, IntegerField
+
+        module_activity = []
+
+        # --- Maths: per-topic accuracy from StudentAnswer ---
+        from maths.models import StudentAnswer
+        maths_rows = (
+            StudentAnswer.objects
+            .filter(student=child)
+            .values('question__topic__name')
+            .annotate(
+                total=Count('id'),
+                correct=Sum(Case(When(is_correct=True, then=1), default=0, output_field=IntegerField())),
+            )
+            .order_by('question__topic__name')
+        )
+        if maths_rows.exists():
+            module_activity.append({
+                'module': 'Maths',
+                'rows': [
+                    {
+                        'label': row['question__topic__name'] or 'Uncategorised',
+                        'total': row['total'],
+                        'correct': row['correct'] or 0,
+                        'pct': round((row['correct'] or 0) / row['total'] * 100) if row['total'] else 0,
+                    }
+                    for row in maths_rows
+                ],
+            })
+
+        # --- Number Puzzles: per-level stats from StudentPuzzleProgress ---
+        from number_puzzles.models import StudentPuzzleProgress
+        puzzle_rows = (
+            StudentPuzzleProgress.objects
+            .filter(student=child, total_puzzles_attempted__gt=0)
+            .select_related('level')
+            .order_by('level__order')
+        )
+        if puzzle_rows.exists():
+            module_activity.append({
+                'module': 'Number Puzzles',
+                'rows': [
+                    {
+                        'label': str(row.level),
+                        'total': row.total_puzzles_attempted,
+                        'correct': row.total_puzzles_correct,
+                        'pct': round(row.total_puzzles_correct / row.total_puzzles_attempted * 100) if row.total_puzzles_attempted else 0,
+                    }
+                    for row in puzzle_rows
+                ],
+            })
+
+        # --- Coding module (future): add here when available ---
+
+        # --- Recent activity: latest 20 across all modules ---
+        from maths.models import StudentFinalAnswer, BasicFactsResult
+        from classroom.views import _format_seconds
+
+        sfa_entries = list(
+            StudentFinalAnswer.objects
+            .filter(student=child)
+            .select_related('topic', 'level')
+            .order_by('-completed_at')[:20]
+        )
+        bf_entries = list(
+            BasicFactsResult.objects
+            .filter(student=child)
+            .order_by('-completed_at')[:20]
+        )
+        try:
+            from number_puzzles.models import PuzzleSession
+            np_entries = list(
+                PuzzleSession.objects
+                .filter(student=child, status='completed')
+                .select_related('level')
+                .order_by('-completed_at')[:20]
+            )
+        except Exception:
+            np_entries = []
+
+        # Merge and sort all activity by completed_at, take latest 20
+        all_activity = []
+        for e in sfa_entries:
+            label = str(e.topic) if e.topic else 'Quiz'
+            all_activity.append({
+                'type': 'maths',
+                'label': label,
+                'score': e.score,
+                'total': e.total_questions,
+                'pct': round(e.score / e.total_questions * 100) if e.total_questions else 0,
+                'completed_at': e.completed_at,
+            })
+        for e in bf_entries:
+            all_activity.append({
+                'type': 'basic_facts',
+                'label': 'Basic Facts',
+                'score': e.score,
+                'total': e.total_questions,
+                'pct': round(e.score / e.total_questions * 100) if e.total_questions else 0,
+                'completed_at': e.completed_at,
+            })
+        for e in np_entries:
+            all_activity.append({
+                'type': 'number_puzzles',
+                'label': f'Number Puzzles – {e.level}',
+                'score': e.correct_count if hasattr(e, 'correct_count') else None,
+                'total': None,
+                'pct': None,
+                'completed_at': e.completed_at,
+            })
+        all_activity.sort(key=lambda x: x['completed_at'], reverse=True)
+        recent_activity = all_activity[:20]
+
+        # --- Time spent (quiz/task time only, calculated fresh from activity records) ---
+        from django.utils import timezone
+        from django.utils.timezone import localtime
+        from datetime import timedelta as _td
+        _now = localtime(timezone.now())
+        _today = _now.date()
+        _week_start = _today - _td(days=_now.weekday())
+
+        daily_secs = weekly_secs = 0
+        for r in StudentFinalAnswer.objects.filter(student=child, time_taken_seconds__gt=0):
+            r_date = localtime(r.completed_at).date()
+            if r_date == _today:
+                daily_secs += r.time_taken_seconds
+            if r_date >= _week_start:
+                weekly_secs += r.time_taken_seconds
+        for r in BasicFactsResult.objects.filter(student=child, time_taken_seconds__gt=0):
+            r_date = localtime(r.completed_at).date()
+            if r_date == _today:
+                daily_secs += r.time_taken_seconds
+            if r_date >= _week_start:
+                weekly_secs += r.time_taken_seconds
+
+        time_daily = _format_seconds(daily_secs)
+        time_weekly = _format_seconds(weekly_secs)
+
         return render(request, 'parent/progress.html', {
             'grouped_progress': grouped_progress,
             'overall': overall,
             'active_child': child,
             'active_school': school,
+            'module_activity': module_activity,
+            'recent_activity': recent_activity,
+            'time_daily': time_daily,
+            'time_weekly': time_weekly,
+            'children': _get_parent_children(request.user),
+        })
+
+
+# ---------------------------------------------------------------------------
+# Parent Homework View — child's homework assignments + submission status
+# ---------------------------------------------------------------------------
+
+class ParentHomeworkView(RoleRequiredMixin, View):
+    required_roles = [Role.PARENT]
+
+    def get(self, request):
+        child, school, _ = _get_active_child(request)
+        if not child:
+            return render(request, 'parent/homework.html', {
+                'children': _get_parent_children(request.user),
+                'active_child': None,
+                'active_school': None,
+            })
+
+        from homework.models import Homework, HomeworkSubmission
+
+        class_ids = ClassStudent.objects.filter(
+            student=child, is_active=True,
+        ).values_list('classroom_id', flat=True)
+
+        homeworks = (
+            Homework.objects
+            .filter(classroom_id__in=class_ids)
+            .select_related('classroom')
+            .order_by('-created_at')
+        )
+
+        # Attach submission status for each homework
+        homework_list = []
+        for hw in homeworks:
+            best = HomeworkSubmission.get_best_submission(hw, child)
+            attempt_count = HomeworkSubmission.get_attempt_count(hw, child)
+            if best:
+                if hw.due_date and best.submitted_at and best.submitted_at > hw.due_date:
+                    status = 'late'
+                else:
+                    status = 'submitted'
+            else:
+                from django.utils import timezone
+                if hw.due_date and hw.due_date < timezone.now():
+                    status = 'not_submitted'
+                else:
+                    status = 'pending'
+            homework_list.append({
+                'homework': hw,
+                'status': status,
+                'score': best.score if best else None,
+                'total_questions': best.total_questions if best else None,
+                'submitted_at': best.submitted_at if best else None,
+                'attempt_count': attempt_count,
+            })
+
+        return render(request, 'parent/homework.html', {
+            'child': child,
+            'school': school,
+            'active_child': child,
+            'active_school': school,
+            'homework_list': homework_list,
             'children': _get_parent_children(request.user),
         })
 
@@ -466,9 +819,12 @@ class ParentAddChildView(RoleRequiredMixin, View):
     ]
 
     def get(self, request):
+        active_child, active_school, _ = _get_active_child(request)
         return render(request, 'parent/add_child.html', {
             'children': _get_parent_children(request.user),
             'relationship_choices': self.RELATIONSHIP_CHOICES,
+            'active_child': active_child,
+            'active_school': active_school,
         })
 
     def post(self, request):
@@ -507,11 +863,14 @@ class ParentAddChildView(RoleRequiredMixin, View):
                         )
 
         if errors:
+            active_child, active_school, _ = _get_active_child(request)
             return render(request, 'parent/add_child.html', {
                 'errors': errors,
                 'children': _get_parent_children(request.user),
                 'relationship_choices': self.RELATIONSHIP_CHOICES,
                 'form_data': {'student_id': student_id_code, 'relationship': relationship},
+                'active_child': active_child,
+                'active_school': active_school,
             })
 
         existing_count = ParentStudent.objects.filter(

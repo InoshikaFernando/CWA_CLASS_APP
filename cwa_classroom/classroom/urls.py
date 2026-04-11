@@ -70,17 +70,24 @@ urlpatterns = [
     path('question/<int:question_id>/delete/', views.DeleteQuestionView.as_view(), name='delete_question'),
     # HTMX cascading dropdowns for question form
     path('htmx/topics-for-level/', views.htmx_topics_for_level, name='htmx_topics_for_level'),
+    # HTMX student search (superuser school picker)
+    path('htmx/student-search/', views_admin.StudentSearchView.as_view(), name='htmx_student_search'),
 
     # Admin dashboard & school management
     path('admin-dashboard/', views_admin.AdminDashboardView.as_view(), name='admin_dashboard'),
     path('admin-dashboard/schools/create/', views_admin.SchoolCreateView.as_view(), name='admin_school_create'),
     path('admin-dashboard/manage-settings/', views_admin.ManageSettingsRedirectView.as_view(), name='admin_manage_settings'),
+    # Legacy shortcuts (kept for backwards compat)
     path('admin-dashboard/manage-teachers/', views_admin.ManageTeachersRedirectView.as_view(), name='admin_manage_teachers'),
     path('admin-dashboard/manage-students/', views_admin.ManageStudentsRedirectView.as_view(), name='admin_manage_students'),
+    # New clean URLs (school picker or direct redirect)
+    path('admin-dashboard/schools/teachers/', views_admin.ManageTeachersRedirectView.as_view(), name='admin_select_school_teachers'),
+    path('admin-dashboard/schools/students/', views_admin.ManageStudentsRedirectView.as_view(), name='admin_select_school_students'),
     path('admin-dashboard/manage-departments/', views_admin.ManageDepartmentsRedirectView.as_view(), name='admin_manage_departments'),
     path('admin-dashboard/manage-subjects/', views_admin.ManageSubjectsRedirectView.as_view(), name='admin_manage_subjects'),
     path('admin-dashboard/manage-terms/', views_admin.ManageTermsRedirectView.as_view(), name='admin_manage_terms'),
     path('admin-dashboard/manage-parents/', views_parent_admin.ManageParentsRedirectView.as_view(), name='admin_manage_parents'),
+    path('admin-dashboard/schools/parents/', views_parent_admin.ManageParentsRedirectView.as_view(), name='admin_select_school_parents'),
     path('admin-dashboard/manage-holidays/', views_admin.ManageHolidaysRedirectView.as_view(), name='admin_manage_holidays'),
     path('admin-dashboard/manage-parent-invites/', views_admin.ManageParentInvitesRedirectView.as_view(), name='admin_manage_parent_invites'),
     path('admin-dashboard/schools/<int:school_id>/subjects/', views_admin.SchoolSubjectManageView.as_view(), name='admin_school_subjects'),
@@ -127,6 +134,9 @@ urlpatterns = [
 
     # Parent list & edit (school-level)
     path('admin-dashboard/schools/<int:school_id>/parents/', views_parent_admin.SchoolParentListView.as_view(), name='admin_school_parents'),
+    path('admin-dashboard/schools/<int:school_id>/parents/add/', views_parent_admin.AddParentView.as_view(), name='admin_school_add_parent'),
+    path('admin-dashboard/schools/<int:school_id>/parents/link/', views_parent_admin.LinkExistingParentView.as_view(), name='admin_school_link_parent'),
+    path('admin-dashboard/schools/<int:school_id>/parents/search/', views_parent_admin.ParentAccountSearchView.as_view(), name='admin_school_parent_search'),
     path('admin-dashboard/schools/<int:school_id>/guardians/<int:guardian_id>/edit-modal/', views_parent_admin.GuardianEditModalView.as_view(), name='admin_guardian_edit_modal'),
     path('admin-dashboard/schools/<int:school_id>/guardians/<int:guardian_id>/edit/', views_parent_admin.GuardianUpdateView.as_view(), name='admin_guardian_update'),
     path('admin-dashboard/schools/<int:school_id>/parent-links/<int:link_id>/edit-modal/', views_parent_admin.ParentLinkEditModalView.as_view(), name='admin_parent_link_edit_modal'),
@@ -190,10 +200,13 @@ urlpatterns = [
     path('parent/switch-child/<int:student_id>/', views_parent.ParentSwitchChildView.as_view(), name='parent_switch_child'),
     path('parent/invoices/', views_parent.ParentInvoicesView.as_view(), name='parent_invoices'),
     path('parent/invoices/<int:invoice_id>/', views_parent.ParentInvoiceDetailView.as_view(), name='parent_invoice_detail'),
+    path('parent/invoices/pay/', views_parent.ParentInvoiceCheckoutView.as_view(), name='parent_invoice_pay'),
+    path('parent/invoices/pay/success/', views_parent.ParentInvoicePaymentSuccessView.as_view(), name='parent_invoice_pay_success'),
     path('parent/payments/', views_parent.ParentPaymentHistoryView.as_view(), name='parent_payment_history'),
-    path('parent/billing/', views_parent.ParentPaymentHistoryView.as_view(), name='parent_billing'),
+    path('parent/billing/', views_parent.ParentBillingView.as_view(), name='parent_billing'),
     path('parent/attendance/', views_parent.ParentAttendanceView.as_view(), name='parent_attendance'),
     path('parent/progress/', views_parent.ParentProgressView.as_view(), name='parent_progress'),
+    path('parent/homework/', views_parent.ParentHomeworkView.as_view(), name='parent_homework'),
     path('parent/add-child/', views_parent.ParentAddChildView.as_view(), name='parent_add_child'),
     path('parent/classes/', views_parent.ParentClassesView.as_view(), name='parent_classes'),
     path('parent/become-parent/', views_parent.BecomeParentView.as_view(), name='become_parent'),

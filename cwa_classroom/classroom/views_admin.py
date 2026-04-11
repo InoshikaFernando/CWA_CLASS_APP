@@ -516,37 +516,79 @@ class ManageSettingsRedirectView(RoleRequiredMixin, View):
 
 
 class ManageTeachersRedirectView(RoleRequiredMixin, View):
-    """Shortcut: redirects to the first school's teacher management page."""
+    """School picker for teacher management; redirects directly if only one school."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def get(self, request):
-        school = _get_user_school(request.user)
-        if school:
-            return redirect('admin_school_teachers', school_id=school.id)
-        messages.info(request, 'Create a school first before managing staff.')
-        return redirect('admin_school_create')
+        schools = list(_get_user_schools(request.user))
+        if len(schools) == 1:
+            return redirect('admin_school_teachers', school_id=schools[0].id)
+        if not schools:
+            messages.info(request, 'Create a school first before managing staff.')
+            return redirect('admin_school_create')
+        return render(request, 'admin_dashboard/school_picker.html', {
+            'schools': schools,
+            'section': 'teachers',
+            'title': 'Select a School — Teachers',
+            'dest_url_name': 'admin_school_teachers',
+        })
 
 
 class ManageStudentsRedirectView(RoleRequiredMixin, View):
-    """Shortcut: redirects to the first school's student management page."""
+    """School picker for student management; redirects directly if only one school."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
                       Role.HEAD_OF_DEPARTMENT, Role.TEACHER]
 
     def get(self, request):
-        school = _get_user_school(request.user)
-        if not school:
+        schools = list(_get_user_schools(request.user))
+        if not schools:
             # HoD/teacher: find school via department or teaching assignment
             dept = Department.objects.filter(head=request.user, is_active=True).first()
             if dept:
-                school = dept.school
+                schools = [dept.school]
             else:
                 st = SchoolTeacher.objects.filter(teacher=request.user, is_active=True).first()
                 if st:
-                    school = st.school
-        if school:
-            return redirect('admin_school_students', school_id=school.id)
-        messages.info(request, 'Create a school first before managing students.')
-        return redirect('admin_school_create')
+                    schools = [st.school]
+        if len(schools) == 1:
+            return redirect('admin_school_students', school_id=schools[0].id)
+        if not schools:
+            messages.info(request, 'Create a school first before managing students.')
+            return redirect('admin_school_create')
+        show_student_search = request.user.is_superuser or request.user.is_admin_user
+        return render(request, 'admin_dashboard/school_picker.html', {
+            'schools': schools,
+            'section': 'students',
+            'title': 'Select a School — Students',
+            'dest_url_name': 'admin_school_students',
+            'show_student_search': show_student_search,
+        })
+
+
+class StudentSearchView(RoleRequiredMixin, View):
+    """HTMX: search students across all schools (superuser/admin only)."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request):
+        q = request.GET.get('q', '').strip()
+        page_num = request.GET.get('page', 1)
+        qs = CustomUser.objects.filter(
+            roles__name=Role.INDIVIDUAL_STUDENT,
+            is_active=True,
+        ).order_by('first_name', 'last_name')
+        if len(q) >= 2:
+            qs = qs.filter(
+                Q(first_name__icontains=q)
+                | Q(last_name__icontains=q)
+                | Q(email__icontains=q)
+                | Q(username__icontains=q)
+            )
+        paginator = Paginator(qs, 15)
+        page = paginator.get_page(page_num)
+        return render(request, 'admin_dashboard/partials/student_search_results.html', {
+            'results': page,
+            'q': q,
+        })
 
 
 class ManageDepartmentsRedirectView(RoleRequiredMixin, View):

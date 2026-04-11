@@ -297,8 +297,8 @@ class TestBecomeParentApprovalFlow:
         self.page.wait_for_load_state("domcontentloaded")
         self.page.get_by_role("button", name="Approve").click()
         self.page.wait_for_load_state("domcontentloaded")
-        # After approval the list should be empty (request resolved)
-        expect(self.page.get_by_text("Alice Teacher")).to_have_count(0)
+        # After approval the pending list should be empty
+        expect(self.page.get_by_text("All caught up!")).to_be_visible()
 
     def test_after_approval_teacher_sees_child_on_parent_dashboard(self):
         """After approval the teacher-parent can view their child on parent dashboard."""

@@ -14,7 +14,7 @@ from accounts.models import CustomUser, Role, UserRole
 from billing.models import InstitutePlan, SchoolSubscription
 from classroom.models import (
     School, Department, SchoolTeacher, DepartmentTeacher, DepartmentSubject,
-    Subject,
+    Subject, ParentStudent, SchoolStudent,
 )
 
 
@@ -94,11 +94,11 @@ class SidebarAdminNavigationTests(TestCase):
 
     def test_admin_sidebar_contains_teachers_link(self):
         resp = self.client.get(reverse('admin_dashboard'))
-        self.assertContains(resp, '/admin-dashboard/manage-teachers/')
+        self.assertContains(resp, '/admin-dashboard/schools/teachers/')
 
     def test_admin_sidebar_contains_students_link(self):
         resp = self.client.get(reverse('admin_dashboard'))
-        self.assertContains(resp, '/admin-dashboard/manage-students/')
+        self.assertContains(resp, '/admin-dashboard/schools/students/')
 
     def test_admin_sidebar_contains_academic_years_link(self):
         resp = self.client.get(reverse('admin_dashboard'))
@@ -418,3 +418,382 @@ class SidebarSeniorTeacherNavigationTests(TestCase):
     def test_senior_teacher_sidebar_contains_dashboard_label(self):
         resp = self._get_dashboard()
         self.assertContains(resp, '>Dashboard</span>')
+
+
+# ===========================================================================
+# sidebar_parent.html — Parent sidebar scenarios
+# ===========================================================================
+
+def _create_parent(username, email):
+    user = CustomUser.objects.create_user(username=username, password='password1!', email=email)
+    _assign_role(user, Role.PARENT)
+    return user
+
+
+def _create_student(username, email):
+    user = CustomUser.objects.create_user(username=username, password='password1!', email=email)
+    _assign_role(user, Role.STUDENT)
+    return user
+
+
+def _create_individual_student(username, email):
+    user = CustomUser.objects.create_user(username=username, password='password1!', email=email)
+    _assign_role(user, Role.INDIVIDUAL_STUDENT)
+    return user
+
+
+class SidebarParentWithSchoolStudentTests(TestCase):
+    """Parent linked to a school student — Academics section must be visible."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.hoi = CustomUser.objects.create_user(
+            username='sb_par_hoi', password='password1!', email='wlhtestmails+sb_par_hoi@gmail.com',
+        )
+        _assign_role(cls.hoi, Role.HEAD_OF_INSTITUTE)
+        cls.school, cls.sub = _setup_school(cls.hoi, slug='sb-par-school')
+
+        cls.student = _create_student('sb_par_student', 'wlhtestmails+sb_par_stu@gmail.com')
+        SchoolStudent.objects.create(
+            student=cls.student, school=cls.school, student_id_code='STU-001-0001',
+        )
+
+        cls.parent = _create_parent('sb_par_school_parent', 'wlhtestmails+sb_par_school@gmail.com')
+        ParentStudent.objects.create(
+            parent=cls.parent, student=cls.student, school=cls.school,
+            relationship='guardian', is_active=True,
+        )
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='sb_par_school_parent', password='password1!')
+
+    def test_academics_section_visible_on_dashboard(self):
+        resp = self.client.get(reverse('parent_dashboard'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Academics')
+
+    def test_homework_link_visible_on_dashboard(self):
+        resp = self.client.get(reverse('parent_dashboard'))
+        self.assertContains(resp, reverse('parent_homework'))
+
+    def test_classes_link_visible_on_dashboard(self):
+        resp = self.client.get(reverse('parent_dashboard'))
+        self.assertContains(resp, reverse('parent_classes'))
+
+    def test_attendance_link_visible_on_dashboard(self):
+        resp = self.client.get(reverse('parent_dashboard'))
+        self.assertContains(resp, reverse('parent_attendance'))
+
+    def test_progress_link_visible_on_dashboard(self):
+        resp = self.client.get(reverse('parent_dashboard'))
+        self.assertContains(resp, reverse('parent_progress'))
+
+    def test_academics_section_visible_on_invoices_page(self):
+        resp = self.client.get(reverse('parent_invoices'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Academics')
+
+    def test_academics_section_visible_on_payments_page(self):
+        resp = self.client.get(reverse('parent_payment_history'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Academics')
+
+    def test_academics_section_visible_on_billing_page(self):
+        resp = self.client.get(reverse('parent_billing'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Academics')
+
+    def test_billing_links_always_visible(self):
+        resp = self.client.get(reverse('parent_dashboard'))
+        self.assertContains(resp, reverse('parent_invoices'))
+        self.assertContains(resp, reverse('parent_payment_history'))
+
+    def test_school_name_shown_in_child_switcher(self):
+        resp = self.client.get(reverse('parent_dashboard'))
+        self.assertContains(resp, self.school.name)
+
+
+class SidebarParentWithIndividualStudentOnlyTests(TestCase):
+    """Parent linked only to an individual student — Academics section hidden, Progress always visible."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.individual = _create_individual_student(
+            'sb_par_ind_stu', 'wlhtestmails+sb_par_ind_stu@gmail.com',
+        )
+        cls.parent = _create_parent('sb_par_ind_parent', 'wlhtestmails+sb_par_ind@gmail.com')
+        ParentStudent.objects.create(
+            parent=cls.parent, student=cls.individual, school=None,
+            relationship='guardian', is_active=True,
+        )
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='sb_par_ind_parent', password='password1!')
+
+    def test_academics_section_hidden_on_dashboard(self):
+        resp = self.client.get(reverse('parent_dashboard'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, '>Academics<')
+
+    def test_homework_link_hidden_on_dashboard(self):
+        resp = self.client.get(reverse('parent_dashboard'))
+        self.assertNotContains(resp, reverse('parent_homework'))
+
+    def test_classes_link_hidden_on_dashboard(self):
+        resp = self.client.get(reverse('parent_dashboard'))
+        self.assertNotContains(resp, reverse('parent_classes'))
+
+    def test_attendance_link_hidden_on_dashboard(self):
+        resp = self.client.get(reverse('parent_dashboard'))
+        self.assertNotContains(resp, reverse('parent_attendance'))
+
+    def test_progress_link_visible_on_dashboard(self):
+        resp = self.client.get(reverse('parent_dashboard'))
+        self.assertContains(resp, reverse('parent_progress'))
+
+    def test_academics_section_hidden_on_invoices_page(self):
+        resp = self.client.get(reverse('parent_invoices'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, '>Academics<')
+
+    def test_academics_section_hidden_on_payments_page(self):
+        resp = self.client.get(reverse('parent_payment_history'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, '>Academics<')
+
+    def test_billing_links_always_visible(self):
+        resp = self.client.get(reverse('parent_dashboard'))
+        self.assertContains(resp, reverse('parent_invoices'))
+        self.assertContains(resp, reverse('parent_payment_history'))
+
+    def test_individual_label_shown_in_child_switcher(self):
+        resp = self.client.get(reverse('parent_dashboard'))
+        self.assertContains(resp, 'Individual')
+
+
+class SidebarParentWithMixedStudentsTests(TestCase):
+    """Parent linked to both a school student and an individual student.
+
+    Academics are shown/hidden depending on which child is active.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.hoi = CustomUser.objects.create_user(
+            username='sb_par_mix_hoi', password='password1!', email='wlhtestmails+sb_par_mix_hoi@gmail.com',
+        )
+        _assign_role(cls.hoi, Role.HEAD_OF_INSTITUTE)
+        cls.school, cls.sub = _setup_school(cls.hoi, slug='sb-par-mix-school')
+
+        cls.school_student = _create_student('sb_par_mix_stu', 'wlhtestmails+sb_par_mix_stu@gmail.com')
+        SchoolStudent.objects.create(
+            student=cls.school_student, school=cls.school, student_id_code='STU-002-0001',
+        )
+
+        cls.individual = _create_individual_student(
+            'sb_par_mix_ind', 'wlhtestmails+sb_par_mix_ind@gmail.com',
+        )
+
+        cls.parent = _create_parent('sb_par_mix_parent', 'wlhtestmails+sb_par_mix@gmail.com')
+        ParentStudent.objects.create(
+            parent=cls.parent, student=cls.school_student, school=cls.school,
+            relationship='guardian', is_active=True,
+        )
+        ParentStudent.objects.create(
+            parent=cls.parent, student=cls.individual, school=None,
+            relationship='guardian', is_active=True,
+        )
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='sb_par_mix_parent', password='password1!')
+
+    def test_academics_visible_when_school_student_active(self):
+        self.client.post(reverse('parent_switch_child', args=[self.school_student.pk]))
+        resp = self.client.get(reverse('parent_dashboard'))
+        self.assertContains(resp, 'Academics')
+
+    def test_academics_hidden_when_individual_student_active(self):
+        self.client.post(reverse('parent_switch_child', args=[self.individual.pk]))
+        resp = self.client.get(reverse('parent_dashboard'))
+        self.assertNotContains(resp, '>Academics<')
+
+    def test_homework_visible_when_school_student_active(self):
+        self.client.post(reverse('parent_switch_child', args=[self.school_student.pk]))
+        resp = self.client.get(reverse('parent_dashboard'))
+        self.assertContains(resp, reverse('parent_homework'))
+
+    def test_homework_hidden_when_individual_student_active(self):
+        self.client.post(reverse('parent_switch_child', args=[self.individual.pk]))
+        resp = self.client.get(reverse('parent_dashboard'))
+        self.assertNotContains(resp, reverse('parent_homework'))
+
+    def test_progress_visible_when_individual_student_active(self):
+        self.client.post(reverse('parent_switch_child', args=[self.individual.pk]))
+        resp = self.client.get(reverse('parent_dashboard'))
+        self.assertContains(resp, reverse('parent_progress'))
+
+    def test_both_children_appear_in_switcher(self):
+        resp = self.client.get(reverse('parent_dashboard'))
+        self.assertContains(resp, self.school_student.first_name)
+        self.assertContains(resp, self.individual.first_name)
+
+    def test_individual_label_shown_for_individual_in_switcher(self):
+        resp = self.client.get(reverse('parent_dashboard'))
+        self.assertContains(resp, 'Individual')
+
+
+# ===========================================================================
+# sidebar_accountant.html — Accountant sidebar
+# ===========================================================================
+
+class SidebarAccountantNavigationTests(TestCase):
+    """Verify the accountant sidebar contains all expected links."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.hoi = CustomUser.objects.create_user(
+            username='sb_acc_hoi', password='password1!', email='wlhtestmails+sb_acc_hoi@gmail.com',
+        )
+        _assign_role(cls.hoi, Role.HEAD_OF_INSTITUTE)
+        cls.school, cls.sub = _setup_school(cls.hoi, slug='sb-acc-school')
+
+        cls.accountant = CustomUser.objects.create_user(
+            username='sb_accountant', password='password1!', email='wlhtestmails+sb_accountant@gmail.com',
+        )
+        _assign_role(cls.accountant, Role.ACCOUNTANT)
+        SchoolTeacher.objects.create(school=cls.school, teacher=cls.accountant, role='accountant')
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='sb_accountant', password='password1!')
+
+    def test_accountant_sidebar_contains_dashboard_link(self):
+        resp = self.client.get(reverse('accounting_dashboard'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, reverse('accounting_dashboard'))
+
+    def test_accountant_sidebar_contains_user_stats_link(self):
+        resp = self.client.get(reverse('accounting_dashboard'))
+        self.assertContains(resp, reverse('accounting_users'))
+
+    def test_accountant_sidebar_contains_export_link(self):
+        resp = self.client.get(reverse('accounting_dashboard'))
+        self.assertContains(resp, reverse('accounting_export'))
+
+    def test_accountant_sidebar_contains_invoices_link(self):
+        resp = self.client.get(reverse('accounting_dashboard'))
+        self.assertContains(resp, reverse('invoice_list'))
+
+    def test_accountant_sidebar_contains_generate_invoices_link(self):
+        resp = self.client.get(reverse('accounting_dashboard'))
+        self.assertContains(resp, reverse('generate_invoices'))
+
+    def test_accountant_sidebar_contains_profile_link(self):
+        resp = self.client.get(reverse('accounting_dashboard'))
+        self.assertContains(resp, reverse('profile'))
+
+
+# ===========================================================================
+# sidebar_student.html — School Student sidebar
+# ===========================================================================
+
+class SidebarSchoolStudentNavigationTests(TestCase):
+    """Verify the school student sidebar contains all expected links."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.hoi = CustomUser.objects.create_user(
+            username='sb_stu_hoi', password='password1!', email='wlhtestmails+sb_stu_hoi@gmail.com',
+        )
+        _assign_role(cls.hoi, Role.HEAD_OF_INSTITUTE)
+        cls.school, cls.sub = _setup_school(cls.hoi, slug='sb-stu-school')
+
+        cls.student = CustomUser.objects.create_user(
+            username='sb_school_student', password='password1!', email='wlhtestmails+sb_stu@gmail.com',
+        )
+        _assign_role(cls.student, Role.STUDENT)
+        SchoolStudent.objects.create(
+            student=cls.student, school=cls.school, student_id_code='STU-003-0001',
+        )
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='sb_school_student', password='password1!')
+
+    def test_student_sidebar_contains_progress_link(self):
+        resp = self.client.get(reverse('student_dashboard'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, reverse('student_dashboard'))
+
+    def test_student_sidebar_contains_homework_link(self):
+        resp = self.client.get(reverse('student_dashboard'))
+        self.assertContains(resp, reverse('homework:student_list'))
+
+    def test_student_sidebar_contains_progress_link(self):
+        # Attendance/homework links are conditional on student_has_classes;
+        # test unconditional links instead.
+        resp = self.client.get(reverse('student_dashboard'))
+        self.assertContains(resp, reverse('student_dashboard'))
+
+    def test_student_sidebar_contains_help_link(self):
+        resp = self.client.get(reverse('student_dashboard'))
+        self.assertContains(resp, reverse('help:help_centre'))
+
+    def test_student_sidebar_contains_profile_link(self):
+        resp = self.client.get(reverse('student_dashboard'))
+        self.assertContains(resp, reverse('profile'))
+
+
+# ===========================================================================
+# sidebar_student.html — Individual Student sidebar
+# ===========================================================================
+
+class SidebarIndividualStudentNavigationTests(TestCase):
+    """Verify the individual student sidebar contains all expected links."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from billing.models import Package, Subscription
+        cls.student = CustomUser.objects.create_user(
+            username='sb_ind_student', password='password1!', email='wlhtestmails+sb_ind_stu@gmail.com',
+        )
+        _assign_role(cls.student, Role.INDIVIDUAL_STUDENT)
+        pkg, _ = Package.objects.get_or_create(
+            name='Test', defaults={'price': 0, 'stripe_price_id': 'price_test', 'is_active': True},
+        )
+        Subscription.objects.create(
+            user=cls.student, package=pkg,
+            status=Subscription.STATUS_ACTIVE,
+        )
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='sb_ind_student', password='password1!')
+
+    def test_individual_student_sidebar_contains_home_link(self):
+        resp = self.client.get(reverse('subjects_hub'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, '/hub/')
+
+    def test_individual_student_sidebar_contains_progress_link(self):
+        resp = self.client.get(reverse('subjects_hub'))
+        self.assertContains(resp, reverse('student_dashboard'))
+
+    def test_individual_student_sidebar_contains_attendance_link(self):
+        resp = self.client.get(reverse('subjects_hub'))
+        self.assertContains(resp, reverse('student_attendance_history'))
+
+    def test_individual_student_sidebar_contains_billing_link(self):
+        resp = self.client.get(reverse('subjects_hub'))
+        self.assertContains(resp, reverse('change_package'))
+
+    def test_individual_student_sidebar_contains_help_link(self):
+        resp = self.client.get(reverse('subjects_hub'))
+        self.assertContains(resp, reverse('help:help_centre'))
+
+    def test_individual_student_sidebar_contains_profile_link(self):
+        resp = self.client.get(reverse('subjects_hub'))
+        self.assertContains(resp, reverse('profile'))

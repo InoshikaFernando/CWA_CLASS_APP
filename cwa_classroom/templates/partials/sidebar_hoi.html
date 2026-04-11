@@ -98,7 +98,7 @@
   </button>
   <div x-show="peopleOpen" x-transition class="flex flex-col gap-0.5">
 
-    <a href="{% url 'admin_manage_teachers' %}"
+    <a href="{% url 'admin_select_school_teachers' %}"
        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
               {% if 'manage-teachers' in request.path or 'teachers' in request.path and 'admin-dashboard' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
       <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -107,7 +107,7 @@
       <span>Teachers</span>
     </a>
 
-    <a href="{% url 'admin_manage_students' %}"
+    <a href="{% url 'admin_select_school_students' %}"
        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
               {% if 'manage-students' in request.path or 'students' in request.path and 'admin-dashboard' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
       <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -116,7 +116,7 @@
       <span>Students</span>
     </a>
 
-    <a href="{% url 'admin_manage_parents' %}"
+    <a href="{% url 'admin_select_school_parents' %}"
        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
               {% if 'parents' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
       <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -164,13 +164,17 @@
       <span>Import Parents (CSV)</span>
     </a>
 
-    <a href="{% url 'admin_manage_parent_invites' %}"
+
+    <a href="{% url 'parent_link_requests' %}"
        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
-              {% if 'parent-invites' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
+              {% if 'parent-link-requests' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
       <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>
+        <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244"/>
       </svg>
-      <span>Parent Invites</span>
+      <span>Parent Link Requests</span>
+      {% if sidebar_pending_parent_requests %}
+        <span class="ml-auto flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-amber-500 text-[10px] font-bold text-white">{{ sidebar_pending_parent_requests }}</span>
+      {% endif %}
     </a>
 
     <a href="{% url 'hod_workload' %}"

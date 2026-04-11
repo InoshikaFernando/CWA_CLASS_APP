@@ -382,43 +382,107 @@ class StudentDashboardView(LoginRequiredMixin, View):
             })
 
         # ── Recent activity ───────────────────────────────────────────────────
-        recent_topic = StudentFinalAnswer.objects.filter(
+        _activity = []
+
+        for r in StudentFinalAnswer.objects.filter(
             student=request.user,
             quiz_type__in=[StudentFinalAnswer.QUIZ_TYPE_TOPIC, StudentFinalAnswer.QUIZ_TYPE_MIXED],
-        ).select_related('topic', 'level').order_by('-completed_at')[:5]
+        ).select_related('topic', 'level').order_by('-completed_at')[:20]:
+            _activity.append({
+                'completed_at': r.completed_at,
+                'name': f"{r.topic.name if r.topic else 'Quiz'} — {r.level.display_name if r.level else ''}",
+                'score_label': f"{r.score}/{r.total_questions} — {r.points:.1f}pts",
+                'pct': r.percentage,
+            })
 
-        recent_bf = BasicFactsResult.objects.filter(
+        for r in BasicFactsResult.objects.filter(
             student=request.user
-        ).order_by('-completed_at')[:5]
+        ).order_by('-completed_at')[:20]:
+            _activity.append({
+                'completed_at': r.completed_at,
+                'name': f"⚡ {r.subtopic} Level {r.level_number}",
+                'score_label': f"{r.score}/{r.total_questions} — {r.points:.1f}pts",
+                'pct': r.percentage,
+            })
 
-        recent_tt = StudentFinalAnswer.objects.filter(
+        for r in StudentFinalAnswer.objects.filter(
             student=request.user,
             quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
-        ).select_related('level').order_by('-completed_at')[:5]
+        ).select_related('level').order_by('-completed_at')[:20]:
+            _activity.append({
+                'completed_at': r.completed_at,
+                'name': f"✕ {r.level.level_number}× Times Table" if r.level else "✕ Times Table",
+                'score_label': f"{r.score}/{r.total_questions} — {r.points:.1f}pts",
+                'pct': r.percentage,
+            })
 
         try:
             from number_puzzles.models import PuzzleSession
-            recent_np = PuzzleSession.objects.filter(
+            for r in PuzzleSession.objects.filter(
                 student=request.user, status='completed',
-            ).select_related('level').order_by('-completed_at')[:5]
+            ).select_related('level').order_by('-completed_at')[:20]:
+                _total = r.total_questions or 10
+                _activity.append({
+                    'completed_at': r.completed_at,
+                    'name': f"🧩 Number Puzzles — {r.level.name}",
+                    'score_label': f"{r.score}/{_total}",
+                    'pct': round(r.score / _total * 100) if _total else 0,
+                })
         except (ImportError, Exception):
-            recent_np = []
+            pass
 
-        from maths.views import get_or_create_time_log
-        time_log = get_or_create_time_log(request.user)
+        _activity.sort(key=lambda x: x['completed_at'], reverse=True)
+        recent_activity = _activity[:20]
+
+        # --- Time spent (quiz/task time only, calculated fresh from activity records) ---
+        from django.utils import timezone as _tz
+        from django.utils.timezone import localtime
+        from datetime import timedelta as _td
+        _now = localtime(_tz.now())
+        _today = _now.date()
+        _week_start = _today - _td(days=_now.weekday())
+        _daily_secs = _weekly_secs = 0
+        for _r in StudentFinalAnswer.objects.filter(student=request.user, time_taken_seconds__gt=0):
+            _r_date = localtime(_r.completed_at).date()
+            if _r_date == _today:
+                _daily_secs += _r.time_taken_seconds
+            if _r_date >= _week_start:
+                _weekly_secs += _r.time_taken_seconds
+        for _r in BasicFactsResult.objects.filter(student=request.user, time_taken_seconds__gt=0):
+            _r_date = localtime(_r.completed_at).date()
+            if _r_date == _today:
+                _daily_secs += _r.time_taken_seconds
+            if _r_date >= _week_start:
+                _weekly_secs += _r.time_taken_seconds
+        try:
+            from number_puzzles.models import PuzzleSession as _PS
+            for _r in _PS.objects.filter(student=request.user, duration_seconds__gt=0, completed_at__isnull=False):
+                _r_date = localtime(_r.completed_at).date()
+                if _r_date == _today:
+                    _daily_secs += _r.duration_seconds
+                if _r_date >= _week_start:
+                    _weekly_secs += _r.duration_seconds
+        except Exception:
+            pass
+        try:
+            from homework.models import HomeworkSubmission as _HS
+            for _r in _HS.objects.filter(student=request.user, time_taken_seconds__gt=0):
+                _r_date = localtime(_r.submitted_at).date()
+                if _r_date == _today:
+                    _daily_secs += _r.time_taken_seconds
+                if _r_date >= _week_start:
+                    _weekly_secs += _r.time_taken_seconds
+        except Exception:
+            pass
 
         return render(request, 'student/dashboard.html', {
             'progress_grid': progress_grid,
             'bf_grid': bf_grid,
             'np_grid': np_grid,
             'tt_results': tt_results,
-            'recent_topic': recent_topic,
-            'recent_bf': recent_bf,
-            'recent_tt': recent_tt,
-            'recent_np': recent_np,
-            'time_log': time_log,
-            'time_daily': _format_seconds(time_log.daily_total_seconds if time_log else 0),
-            'time_weekly': _format_seconds(time_log.weekly_total_seconds if time_log else 0),
+            'recent_activity': recent_activity,
+            'time_daily': _format_seconds(_daily_secs),
+            'time_weekly': _format_seconds(_weekly_secs),
             # Filter controls
             'enrolled_classes': enrolled_classes,
             'enrolled_subjects': enrolled_subjects,
@@ -1428,7 +1492,12 @@ class StudentCSVConfirmView(RoleRequiredMixin, View):
             return redirect('student_csv_upload')
 
         school = School.objects.get(id=school_id)
-        preview = isvc.validate_and_preview(data_rows, column_mapping, school)
+        try:
+            preview = isvc.validate_and_preview(data_rows, column_mapping, school)
+        except Exception:
+            logger.exception('CSV student import failed during validation')
+            messages.error(request, 'Import failed during validation. Please try again.')
+            return redirect('student_csv_upload')
 
         if preview['errors'] and not preview.get('students_new') and not preview.get('students_existing'):
             for err in preview['errors']:
@@ -4156,12 +4225,30 @@ class AccountingUsersView(RoleRequiredMixin, View):
     def get(self, request):
         from django.utils import timezone
         from datetime import timedelta
+        from classroom.views_invoicing import _get_single_school
         thirty_days_ago = timezone.now() - timedelta(days=30)
+        school = _get_single_school(request.user)
+        if school:
+            student_ids = SchoolStudent.objects.filter(
+                school=school, is_active=True,
+            ).values_list('student_id', flat=True)
+            teacher_ids = SchoolTeacher.objects.filter(
+                school=school, is_active=True,
+            ).values_list('teacher_id', flat=True)
+            students = CustomUser.objects.filter(id__in=student_ids, roles__name=Role.STUDENT).distinct().count()
+            individual_students = CustomUser.objects.filter(roles__name=Role.INDIVIDUAL_STUDENT).count()
+            teachers = CustomUser.objects.filter(id__in=teacher_ids, roles__name=Role.TEACHER).distinct().count()
+            active_users = CustomUser.objects.filter(
+                id__in=list(student_ids) + list(teacher_ids),
+                last_login__gte=thirty_days_ago,
+            ).distinct().count()
+        else:
+            students = individual_students = teachers = active_users = 0
         return render(request, 'accounting/users.html', {
-            'students': CustomUser.objects.filter(roles__name=Role.STUDENT).count(),
-            'individual_students': CustomUser.objects.filter(roles__name=Role.INDIVIDUAL_STUDENT).count(),
-            'teachers': CustomUser.objects.filter(roles__name=Role.TEACHER).count(),
-            'active_users': CustomUser.objects.filter(last_login__gte=thirty_days_ago).count(),
+            'students': students,
+            'individual_students': individual_students,
+            'teachers': teachers,
+            'active_users': active_users,
         })
 
 
@@ -4456,10 +4543,46 @@ class SubjectsHubView(LoginRequiredMixin, View):
             greeting_tod = 'Good evening'
 
         # Time stats
-        from maths.views import get_or_create_time_log
-        time_log = get_or_create_time_log(user)
-        time_daily = _format_seconds(time_log.daily_seconds)
-        time_weekly = _format_seconds(time_log.weekly_seconds)
+        from maths.models import StudentFinalAnswer, BasicFactsResult
+        from datetime import timedelta as _td
+        _now = localtime(now)
+        _today = _now.date()
+        _week_start = _today - _td(days=_now.weekday())
+        _daily_secs = _weekly_secs = 0
+        for _r in StudentFinalAnswer.objects.filter(student=user, time_taken_seconds__gt=0):
+            _r_date = localtime(_r.completed_at).date()
+            if _r_date == _today:
+                _daily_secs += _r.time_taken_seconds
+            if _r_date >= _week_start:
+                _weekly_secs += _r.time_taken_seconds
+        for _r in BasicFactsResult.objects.filter(student=user, time_taken_seconds__gt=0):
+            _r_date = localtime(_r.completed_at).date()
+            if _r_date == _today:
+                _daily_secs += _r.time_taken_seconds
+            if _r_date >= _week_start:
+                _weekly_secs += _r.time_taken_seconds
+        try:
+            from number_puzzles.models import PuzzleSession as _PS
+            for _r in _PS.objects.filter(student=user, duration_seconds__gt=0, completed_at__isnull=False):
+                _r_date = localtime(_r.completed_at).date()
+                if _r_date == _today:
+                    _daily_secs += _r.duration_seconds
+                if _r_date >= _week_start:
+                    _weekly_secs += _r.duration_seconds
+        except Exception:
+            pass
+        try:
+            from homework.models import HomeworkSubmission as _HS
+            for _r in _HS.objects.filter(student=user, time_taken_seconds__gt=0):
+                _r_date = localtime(_r.submitted_at).date()
+                if _r_date == _today:
+                    _daily_secs += _r.time_taken_seconds
+                if _r_date >= _week_start:
+                    _weekly_secs += _r.time_taken_seconds
+        except Exception:
+            pass
+        time_daily = _format_seconds(_daily_secs)
+        time_weekly = _format_seconds(_weekly_secs)
 
         # ── Upcoming classes (next 5 scheduled sessions, excluding holidays) ──
         from django.db.models import Exists, OuterRef
@@ -4573,11 +4696,14 @@ class SubjectsHubView(LoginRequiredMixin, View):
         pending_class_ids = set()
 
         # ── SCHOOL STUDENT path ──
+        student_id_code = None
         if is_school_student:
-            school_memberships = SchoolStudent.objects.filter(
+            school_memberships = list(SchoolStudent.objects.filter(
                 student=user, is_active=True, school__is_active=True,
-            ).select_related('school')
+            ).select_related('school'))
             schools = [ss.school for ss in school_memberships]
+            if school_memberships:
+                student_id_code = school_memberships[0].student_id_code
 
             if schools:
                 # Enrolled class lookup: classroom_id -> classroom
@@ -4700,6 +4826,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
                     'global_subjects': global_subjects,
                     'is_school_student': True,
                     'hide_sidebar': True,
+                    'student_id_code': student_id_code,
                     **hub_extra,
                 })
 
@@ -4733,6 +4860,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
             'pending_class_ids': pending_class_ids,
             'school_sections': [],
             'global_subjects': global_subjects,
+            'student_id_code': student_id_code,
             **hub_extra,
         })
 

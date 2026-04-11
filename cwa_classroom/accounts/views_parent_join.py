@@ -140,36 +140,75 @@ class ParentSelfJoinView(View):
             errors['student_ids'] = 'At least one Student ID is required.'
 
         # Validate each student ID
+        # valid_school_students: list of (SchoolStudent, relationship) — need approval
+        # valid_individual_students: list of (CustomUser, relationship) — direct link
         valid_school_students = []
+        valid_individual_students = []
         student_errors = []
         for idx, sid in enumerate(student_ids):
+            # First try SchoolStudent lookup (STU-001-0042 format)
             school_student = SchoolStudent.objects.filter(
                 student_id_code=sid, is_active=True,
             ).select_related('school', 'student').first()
 
-            if not school_student:
-                student_errors.append(f'Student ID "{sid}" was not found.')
+            if school_student:
+                # Check max 2 parents per student per school (active links only)
+                parent_count = ParentStudent.objects.filter(
+                    student=school_student.student,
+                    school=school_student.school,
+                    is_active=True,
+                ).count()
+                if parent_count >= 2:
+                    student_errors.append(
+                        f'Student "{school_student.student.first_name}" already has '
+                        f'the maximum number of parent accounts linked.'
+                    )
+                    continue
+                valid_school_students.append((school_student, relationships[idx]))
                 continue
 
-            # Check max 2 parents per student per school (active links only)
-            parent_count = ParentStudent.objects.filter(
-                student=school_student.student,
-                school=school_student.school,
-                is_active=True,
-            ).count()
-            if parent_count >= 2:
-                student_errors.append(
-                    f'Student "{school_student.student.first_name}" already has '
-                    f'the maximum number of parent accounts linked.'
-                )
+            # Try account ID lookup: STU-{pk} format (e.g. STU-0042) — works for any student
+            account_user = self._lookup_student_by_account_id(sid)
+            if account_user:
+                if account_user.is_individual_student:
+                    # No school — direct link, no approval needed
+                    existing_link = ParentStudent.objects.filter(
+                        student=account_user, school__isnull=True, is_active=True,
+                    ).count()
+                    if existing_link >= 2:
+                        student_errors.append(
+                            f'Student "{account_user.first_name}" already has '
+                            f'the maximum number of parent accounts linked.'
+                        )
+                        continue
+                    valid_individual_students.append((account_user, relationships[idx]))
+                else:
+                    # School student — find active enrolments, go through approval flow
+                    school_students = SchoolStudent.objects.filter(
+                        student=account_user, is_active=True,
+                    ).select_related('school', 'student')
+                    if not school_students.exists():
+                        student_errors.append(f'Student ID "{sid}" was not found.')
+                        continue
+                    for ss in school_students:
+                        parent_count = ParentStudent.objects.filter(
+                            student=ss.student, school=ss.school, is_active=True,
+                        ).count()
+                        if parent_count >= 2:
+                            student_errors.append(
+                                f'Student "{ss.student.first_name}" at {ss.school.name} already has '
+                                f'the maximum number of parent accounts linked.'
+                            )
+                            continue
+                        valid_school_students.append((ss, relationships[idx]))
                 continue
 
-            valid_school_students.append((school_student, relationships[idx]))
+            student_errors.append(f'Student ID "{sid}" was not found.')
 
         if student_errors:
             errors['student_ids'] = ' '.join(student_errors)
 
-        if not valid_school_students and not errors.get('student_ids'):
+        if not valid_school_students and not valid_individual_students and not errors.get('student_ids'):
             errors['student_ids'] = 'No valid Student IDs provided.'
 
         # If any errors, re-render
@@ -201,7 +240,7 @@ class ParentSelfJoinView(View):
                 )
                 UserRole.objects.create(user=user, role=parent_role)
 
-                # Create pending link requests (not immediate ParentStudent links)
+                # School students: create pending ParentLinkRequest (needs teacher approval)
                 notified_schools = set()
                 for school_student, relationship in valid_school_students:
                     ParentLinkRequest.objects.create(
@@ -210,11 +249,18 @@ class ParentSelfJoinView(View):
                         relationship=relationship,
                         status=ParentLinkRequest.STATUS_PENDING,
                     )
-
-                    # Notify teachers/admin for each school (once per school)
                     if school_student.school_id not in notified_schools:
                         notified_schools.add(school_student.school_id)
                         self._notify_school(school_student.school, user)
+
+                # Individual students: create ParentStudent directly (no school, no approval)
+                for individual_user, relationship in valid_individual_students:
+                    ParentStudent.objects.get_or_create(
+                        parent=user,
+                        student=individual_user,
+                        school=None,
+                        defaults={'relationship': relationship, 'is_active': True},
+                    )
 
             # Increment rate limit counter
             cache.set(cache_key, attempts + 1, 3600)
@@ -226,6 +272,9 @@ class ParentSelfJoinView(View):
             linked_students = [
                 {'student_id': ss.student_id_code, 'school': ss.school.name, 'relationship': rel}
                 for ss, rel in valid_school_students
+            ] + [
+                {'student_id': f'STU-{u.pk:04d}', 'school': 'Individual', 'relationship': rel}
+                for u, rel in valid_individual_students
             ]
             log_event(
                 user=user,
@@ -236,21 +285,55 @@ class ParentSelfJoinView(View):
                 request=request,
             )
 
-            messages.success(
-                request,
-                'Your parent account has been created. Your request to link to your '
-                'child(ren) has been sent to the school for approval. You will be '
-                'notified once approved.'
-            )
+            if valid_school_students and valid_individual_students:
+                msg = (
+                    'Your parent account has been created. '
+                    'Individual student links are active immediately. '
+                    'School student link requests have been sent for teacher approval.'
+                )
+            elif valid_school_students:
+                msg = (
+                    'Your parent account has been created. Your request to link to your '
+                    'child(ren) has been sent to the school for approval. You will be '
+                    'notified once approved.'
+                )
+            else:
+                msg = 'Your parent account has been created and linked to your child(ren).'
+
+            messages.success(request, msg)
             return redirect('parent_dashboard')
 
         except Exception:
+            import sys
+            import traceback
+            print('Parent self-join failed:', traceback.format_exc(), file=sys.stderr)
             messages.error(request, 'An error occurred while creating your account. Please try again.')
             return render(request, self.template_name, {
                 'errors': errors,
                 'form_data': form_data,
                 'relationship_choices': self.RELATIONSHIP_CHOICES,
             })
+
+    def _lookup_student_by_account_id(self, sid):
+        """
+        Try to resolve a STU-{pk} account ID to any student user (individual or school).
+        Returns the user or None. Does NOT match STU-{school}-{seq} format.
+        """
+        import re as _re
+        m = _re.match(r'^STU-(\d+)$', sid.upper())
+        if not m:
+            return None
+        try:
+            pk = int(m.group(1))
+        except ValueError:
+            return None
+        try:
+            user = CustomUser.objects.get(pk=pk)
+        except CustomUser.DoesNotExist:
+            return None
+        if user.is_individual_student or user.is_student:
+            return user
+        return None
 
     def _notify_school(self, school, parent_user):
         """Notify school admin and teachers that a parent has requested to link."""
