@@ -553,7 +553,7 @@ class TestCodingTimeLogResets(TestCase):
             student=self.student,
             daily_total_seconds=100,
             weekly_total_seconds=5000,
-            last_reset_week=1,    # ISO week 1 of year 1 — guaranteed to be in the past
+            last_reset_week=100101,  # year-encoded: year 1001, week 1 — guaranteed past
         )
         log.reset_weekly_if_needed()
 
@@ -563,7 +563,8 @@ class TestCodingTimeLogResets(TestCase):
 
     def test_reset_weekly_no_op_on_same_iso_week(self):
         """reset_weekly_if_needed() must do nothing within the same ISO week."""
-        current_week = localtime(timezone.now()).isocalendar()[1]
+        iso = localtime(timezone.now()).isocalendar()
+        current_week = iso[0] * 100 + iso[1]   # year-encoded, e.g. 202615
         log = CodingTimeLog.objects.create(
             student=self.student,
             weekly_total_seconds=800,

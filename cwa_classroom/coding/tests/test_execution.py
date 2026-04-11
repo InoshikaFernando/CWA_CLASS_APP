@@ -24,6 +24,32 @@ class TestRunCode(unittest.TestCase):
         self.assertEqual(result['exit_code'], 0)
         self.assertNotIn('error', result)
 
+    def test_success_with_run_output_fallback(self):
+        """Some executor builds return run.output instead of run.stdout."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            'run': {'output': 'Hello from output\n', 'stderr': '', 'exit_code': 0}
+        }
+        mock_response.raise_for_status.return_value = None
+        with patch('coding.execution.requests.post', return_value=mock_response):
+            result = execution.run_code('python', 'print("Hello")')
+        self.assertEqual(result['stdout'], 'Hello from output\n')
+        self.assertEqual(result['stderr'], '')
+        self.assertEqual(result['exit_code'], 0)
+
+    def test_success_with_top_level_fallback(self):
+        """Fallback for adapters that return stdout/stderr/code at top-level."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            'stdout': 'Top-level hello\n', 'stderr': '', 'code': 0
+        }
+        mock_response.raise_for_status.return_value = None
+        with patch('coding.execution.requests.post', return_value=mock_response):
+            result = execution.run_code('python', 'print("Hello")')
+        self.assertEqual(result['stdout'], 'Top-level hello\n')
+        self.assertEqual(result['stderr'], '')
+        self.assertEqual(result['exit_code'], 0)
+
     def test_timeout(self):
         with patch('coding.execution.requests.post',
                    side_effect=execution.requests.exceptions.Timeout):
@@ -50,6 +76,48 @@ class TestRunCode(unittest.TestCase):
         result = execution.run_code('', 'print("hi")')
         self.assertEqual(result['exit_code'], 1)
         self.assertTrue(result['error'])
+
+    def test_clamps_timeout_and_memory_to_runner_caps(self):
+        """Oversized per-problem limits must be clamped to safe runner maxima."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            'run': {'stdout': 'ok', 'stderr': '', 'code': 0}
+        }
+        mock_response.raise_for_status.return_value = None
+        with patch('coding.execution.requests.post', return_value=mock_response) as mock_post:
+            result = execution.run_code(
+                'python',
+                'print("ok")',
+                stdin='x',
+                timeout_seconds=999,
+                memory_limit_mb=4096,
+            )
+
+        self.assertEqual(result['exit_code'], 0)
+        payload = mock_post.call_args.kwargs['json']
+        self.assertEqual(payload['run_timeout'], execution.EXECUTION_TIMEOUT_SECONDS * 1000)
+        self.assertEqual(payload['compile_timeout'], execution.EXECUTION_TIMEOUT_SECONDS * 1000)
+        self.assertEqual(payload['run_memory_limit'], execution.MEMORY_LIMIT_BYTES)
+        self.assertEqual(payload['stdin'], 'x')
+
+    def test_invalid_limits_fall_back_to_defaults(self):
+        """Non-numeric limits should not crash and must fall back safely."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            'run': {'stdout': 'ok', 'stderr': '', 'code': 0}
+        }
+        mock_response.raise_for_status.return_value = None
+        with patch('coding.execution.requests.post', return_value=mock_response) as mock_post:
+            execution.run_code(
+                'python',
+                'print("ok")',
+                timeout_seconds='bad',
+                memory_limit_mb='bad',
+            )
+
+        payload = mock_post.call_args.kwargs['json']
+        self.assertEqual(payload['run_timeout'], execution.EXECUTION_TIMEOUT_SECONDS * 1000)
+        self.assertEqual(payload['run_memory_limit'], execution.MEMORY_LIMIT_BYTES)
 
 
 class TestPistonHealthCheck(unittest.TestCase):

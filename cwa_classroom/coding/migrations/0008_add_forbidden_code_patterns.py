@@ -3,6 +3,42 @@
 from django.db import migrations, models
 
 
+def _add_forbidden_patterns_column_if_missing(apps, schema_editor):
+    """Add coding_codingproblem.forbidden_code_patterns only when absent.
+
+    Some environments already have the column (manually applied schema change
+    or previously reverted migration state).  A plain AddField would fail with
+    MySQL 1060 duplicate-column errors, so this migration performs a safe
+    existence check first.
+    """
+    table_name = 'coding_codingproblem'
+    column_name = 'forbidden_code_patterns'
+
+    with schema_editor.connection.cursor() as cursor:
+        description = schema_editor.connection.introspection.get_table_description(cursor, table_name)
+    existing_columns = {col.name for col in description}
+    if column_name in existing_columns:
+        return
+
+    CodingProblem = apps.get_model('coding', 'CodingProblem')
+    field = models.JSONField(
+        blank=True,
+        default=list,
+        help_text=(
+            "List of forbidden source-code substrings for this problem, e.g. "
+            "['sorted(', '.sort('] for Bubble Sort. A submission containing any "
+            "forbidden pattern fails immediately with zero points."
+        ),
+    )
+    field.set_attributes_from_name(column_name)
+    schema_editor.add_field(CodingProblem, field)
+
+
+def _noop_reverse(apps, schema_editor):
+    """Irreversible no-op reverse: do not auto-drop existing production columns."""
+    pass
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -10,17 +46,24 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name='codingproblem',
-            name='forbidden_code_patterns',
-            field=models.JSONField(
-                blank=True,
-                default=list,
-                help_text=(
-                    "List of forbidden source-code substrings for this problem, e.g. "
-                    "['sorted(', '.sort('] for Bubble Sort. A submission containing any "
-                    "forbidden pattern fails immediately with zero points."
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunPython(_add_forbidden_patterns_column_if_missing, _noop_reverse),
+            ],
+            state_operations=[
+                migrations.AddField(
+                    model_name='codingproblem',
+                    name='forbidden_code_patterns',
+                    field=models.JSONField(
+                        blank=True,
+                        default=list,
+                        help_text=(
+                            "List of forbidden source-code substrings for this problem, e.g. "
+                            "['sorted(', '.sort('] for Bubble Sort. A submission containing any "
+                            "forbidden pattern fails immediately with zero points."
+                        ),
+                    ),
                 ),
-            ),
+            ],
         ),
     ]

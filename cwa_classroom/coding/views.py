@@ -1,9 +1,11 @@
-from django.shortcuts import render, get_object_or_404
+from functools import wraps
+
+from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
 from django.http import JsonResponse
 from django.utils import timezone
-from django.db.models import Count, Q
+from django.db.models import Count, F, Q
 from django.conf import settings
 
 import logging
@@ -20,6 +22,27 @@ from .models import (
 from .scoring import evaluate_submission, score_submission
 
 logger = logging.getLogger(__name__)
+
+
+def student_required(view_func):
+    """Decorator: allow only authenticated students.
+
+    Elevated non-student roles must not accumulate CodingTimeLog records or
+    StudentProblemSubmission rows.
+    """
+    @wraps(view_func)
+    def _wrapped(request, *args, **kwargs):
+        blocked_flags = (
+            'is_teacher',
+            'is_head_of_institute',
+            'is_head_of_department',
+            'is_institute_owner',
+            'is_admin_user',
+        )
+        if any(getattr(request.user, flag, False) for flag in blocked_flags):
+            return redirect('home')
+        return view_func(request, *args, **kwargs)
+    return _wrapped
 
 
 
@@ -54,6 +77,7 @@ def _find_forbidden_code_pattern(problem, code):
 # ---------------------------------------------------------------------------
 
 @login_required
+@student_required
 def language_selector(request):
     """Landing page — student picks a language to practise."""
     languages = list(CodingLanguage.objects.filter(is_active=True))
@@ -116,6 +140,7 @@ def language_selector(request):
 # ---------------------------------------------------------------------------
 
 @login_required
+@student_required
 def topic_list(request, lang_slug):
     """Show all active topics for a language.  /coding/<lang>/"""
     language = _get_language_or_404(lang_slug)
@@ -174,6 +199,7 @@ def topic_list(request, lang_slug):
 
 
 @login_required
+@student_required
 def level_list(request, lang_slug, topic_slug):
     """Show Beginner / Intermediate / Advanced for a topic.  /coding/<lang>/topics/<topic>/"""
     language = _get_language_or_404(lang_slug)
@@ -237,6 +263,7 @@ def level_list(request, lang_slug, topic_slug):
 # ---------------------------------------------------------------------------
 
 @login_required
+@student_required
 def exercise_list(request, lang_slug, topic_slug, level):
     """List all exercises for a topic at a given level.  /coding/<lang>/topics/<topic>/<level>/"""
     language = _get_language_or_404(lang_slug)
@@ -275,6 +302,7 @@ def exercise_list(request, lang_slug, topic_slug, level):
 
 
 @login_required
+@student_required
 def exercise_detail(request, lang_slug, exercise_id):
     """Split-pane editor + instructions for a single exercise.  /coding/<lang>/exercise/<id>/"""
     language = _get_language_or_404(lang_slug)
@@ -310,6 +338,7 @@ def exercise_detail(request, lang_slug, exercise_id):
 # ---------------------------------------------------------------------------
 
 @login_required
+@student_required
 def problem_list(request, lang_slug):
     """List problems filtered by difficulty.  /coding/<lang>/problems/"""
     language = _get_language_or_404(lang_slug)
@@ -353,6 +382,7 @@ def problem_list(request, lang_slug):
 
 
 @login_required
+@student_required
 def problem_detail(request, lang_slug, problem_id):
     """Editor + visible test cases for a single problem.  /coding/<lang>/problems/<id>/"""
     language = _get_language_or_404(lang_slug)
@@ -386,6 +416,7 @@ def problem_detail(request, lang_slug, problem_id):
 # ---------------------------------------------------------------------------
 
 @login_required
+@student_required
 def dashboard(request, lang_slug):
     """Student progress dashboard for a language.  /coding/<lang>/dashboard/"""
     language = _get_language_or_404(lang_slug)
@@ -493,6 +524,7 @@ def dashboard(request, lang_slug):
 # ---------------------------------------------------------------------------
 
 @login_required
+@student_required
 @require_POST
 def api_run_code(request):
     """Execute student code and return output.  POST /coding/api/run/
@@ -589,6 +621,7 @@ def _save_exercise_submission(user, exercise_id, language, code, stdout, stderr,
 # ---------------------------------------------------------------------------
 
 @login_required
+@student_required
 @require_POST
 def api_submit_problem(request, problem_id):
     """Run student code against all test cases.  POST /coding/api/submit/<problem_id>/
@@ -600,17 +633,21 @@ def api_submit_problem(request, problem_id):
         visible_results: [ { input, expected, actual, passed } ],
         hidden_passed:   int,
         hidden_total:    int,
-        attempt_points:  float,   — points for this attempt (accuracy × speed × quality)
+                attempt_points:  float,   — points for this attempt (binary: 100 / 50 / 0)
         best_points:     float,   — student's all-time best
         is_new_best:     bool,
-        quality_score:   float,   — quality multiplier 0.70–1.00 (1.00 = no penalty)
-        quality_issues:  [str],   — human-readable quality feedback (teacher view)
+                quality_score:   float,   — currently fixed at 1.0 in binary-scoring mode
+                quality_issues:  [str],   — currently [] in binary-scoring mode
       }
     """
     import json
-    try:
-        problem = get_object_or_404(CodingProblem, id=problem_id, is_active=True)
 
+    # Resolve the problem BEFORE the outer try/except so Http404 propagates
+    # correctly as a 404 response.  If this line were inside the try block,
+    # Http404 (a subclass of Exception) would be caught and returned as 500.
+    problem = get_object_or_404(CodingProblem, id=problem_id, is_active=True)
+
+    try:
         try:
             body = json.loads(request.body)
         except (json.JSONDecodeError, ValueError):
@@ -728,7 +765,11 @@ def api_submit_problem(request, problem_id):
             for tr in eval_result.test_results
         ]
 
-        # ── Quality analysis ──────────────────────────────────────────────────
+        # ── Quality fields ────────────────────────────────────────────────────
+        # Under binary scoring these are neutral and informational only.
+        quality_score = 1.0
+        quality_issues = []
+
         # ── Scoring ───────────────────────────────────────────────────────────
         # Binary model: 100 (all pass) / 50 (visible pass, hidden fail) / 0 (visible fail).
         # Deterministic — same code always produces the same score.
@@ -762,8 +803,8 @@ def api_submit_problem(request, problem_id):
             'attempt_points':  attempt_points,
             'best_points':     best_points,
             'is_new_best':     is_new_best,
-            'quality_score':   1.0,
-            'quality_issues':  [],
+            'quality_score':   quality_score,
+            'quality_issues':  quality_issues,
         })
 
     except Exception as exc:
@@ -807,6 +848,7 @@ def api_piston_health(request):
 
 
 @login_required
+@student_required
 @require_POST
 def api_update_time_log(request):
     """Update daily/weekly time log.  POST /coding/api/update-time-log/
@@ -827,9 +869,11 @@ def api_update_time_log(request):
     log, _ = CodingTimeLog.objects.get_or_create(student=request.user)
     log.reset_daily_if_needed()
     log.reset_weekly_if_needed()
-    log.daily_total_seconds += seconds
-    log.weekly_total_seconds += seconds
-    log.save(update_fields=['daily_total_seconds', 'weekly_total_seconds'])
+    CodingTimeLog.objects.filter(pk=log.pk).update(
+        daily_total_seconds=F('daily_total_seconds') + seconds,
+        weekly_total_seconds=F('weekly_total_seconds') + seconds,
+    )
+    log.refresh_from_db()
 
     return JsonResponse({
         'status': 'ok',

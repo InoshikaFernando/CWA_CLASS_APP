@@ -10,8 +10,6 @@ Covers:
   - api_piston_health   GET  /coding/api/piston-health/
 
 Known bugs documented inline:
-  BUG-001  api_submit_problem wraps get_object_or_404 in outer try-except →
-           Http404 is swallowed and returns HTTP 500 instead of 404.
   BUG-004  _save_exercise_submission silently discards submission when
            exercise_id is invalid (no log entry emitted).
 """
@@ -23,6 +21,7 @@ from django.contrib.auth import get_user_model
 from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
+from accounts.models import Role
 
 from coding.models import (
     CodingExercise,
@@ -442,23 +441,14 @@ class TestApiSubmitProblem(TestCase):
         self.assertFalse(data['passed_all'])
         self.assertEqual(data['attempt_points'], 0.0)
 
-    # ── BUG-001 documented ───────────────────────────────────────────────────
+    # ── 404 for unknown problem ──────────────────────────────────────────────
 
-    def test_problem_not_found_returns_500_not_404(self):
-        """
-        BUG-001 (CRITICAL): get_object_or_404 is inside the outer try-except block.
-        Http404 is caught by `except Exception` and converted to HTTP 500.
-
-        Expected behavior after fix: assert resp.status_code == 404
-        Current (broken) behavior: returns 500.
-
-        Fix: move `problem = get_object_or_404(...)` BEFORE the outer try block.
-        """
+    def test_problem_not_found_returns_404(self):
+        """get_object_or_404 is now outside the outer try/except block so Http404
+        propagates correctly instead of being swallowed as a 500."""
         url = reverse('coding:api_submit_problem', args=[99999])
         resp = _post(self.client, url, {'code': 'print("hi")'})
-        # BUG-001: should be 404, currently returns 500
-        self.assertEqual(resp.status_code, 500)
-        self.assertIn('error', resp.json())
+        self.assertEqual(resp.status_code, 404)
 
     # ── Language resolution ──────────────────────────────────────────────────
 
@@ -764,7 +754,8 @@ class TestApiUpdateTimeLog(TestCase):
             weekly_total_seconds=10000,
         )
         yesterday = timezone.now().date() - datetime.timedelta(days=1)
-        current_week = timezone.now().isocalendar()[1]
+        iso = timezone.now().isocalendar()
+        current_week = iso[0] * 100 + iso[1]   # year-encoded, e.g. 202615
         CodingTimeLog.objects.filter(pk=log.pk).update(last_reset_date=yesterday, last_reset_week=current_week)
 
         resp = _post(self.client, self.URL, {'seconds': 30})
@@ -772,6 +763,64 @@ class TestApiUpdateTimeLog(TestCase):
         data = resp.json()
         self.assertEqual(data['daily_seconds'], 30)
         self.assertEqual(data['weekly_seconds'], 10030)
+
+
+# ===========================================================================
+# student_required guard (elevated roles must be blocked)
+# ===========================================================================
+
+class TestStudentRequiredGuard(TestCase):
+    """Coding endpoints should redirect elevated non-student roles to home."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.teacher = User.objects.create_user(
+            username='coding_teacher', password='testpass123', email='coding_teacher@test.com',
+        )
+        teacher_role, _ = Role.objects.get_or_create(
+            name=Role.TEACHER,
+            defaults={'display_name': 'Teacher', 'is_active': True},
+        )
+        cls.teacher.roles.add(teacher_role)
+
+        cls.python_lang, _ = CodingLanguage.objects.get_or_create(
+            slug='python',
+            defaults={'name': 'Python', 'color': '#3b82f6', 'order': 1, 'is_active': True},
+        )
+        cls.problem = CodingProblem.objects.create(
+            language=cls.python_lang,
+            title='Guard Test Problem',
+            description='Reverse input',
+            starter_code='s = input()\n',
+            difficulty=1,
+            is_active=True,
+        )
+        ProblemTestCase.objects.create(
+            problem=cls.problem,
+            input_data='hello', expected_output='olleh',
+            is_visible=True, display_order=1, description='Visible case',
+        )
+
+    def setUp(self):
+        self.client.force_login(self.teacher)
+
+    def test_api_run_code_teacher_redirected(self):
+        resp = _post(self.client, reverse('coding:api_run_code'), {
+            'language_slug': 'python',
+            'code': 'print(1)',
+        })
+        self.assertEqual(resp.status_code, 302)
+
+    def test_api_submit_problem_teacher_redirected(self):
+        resp = _post(self.client, reverse('coding:api_submit_problem', args=[self.problem.id]), {
+            'code': 'print(input()[::-1])',
+        })
+        self.assertEqual(resp.status_code, 302)
+
+    def test_api_update_time_log_teacher_redirected_and_no_log(self):
+        resp = _post(self.client, reverse('coding:api_update_time_log'), {'seconds': 30})
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(CodingTimeLog.objects.filter(student=self.teacher).exists())
 
 
 # ===========================================================================

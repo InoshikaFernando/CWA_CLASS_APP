@@ -129,16 +129,15 @@ class EvaluationResult:
 def evaluate_submission(problem, code: str, piston_lang: str) -> EvaluationResult:
     """Run *code* against every test case for *problem* and return an EvaluationResult.
 
-    This is the single, reusable evaluation function for **all** problem types.
-    The problem's ``category`` metadata automatically drives both:
+        This is the single, reusable evaluation function for **all** problem types.
+        The problem's metadata drives comparison and execution limits:
 
-    * **Which comparison strategy to use** — e.g. numeric tolerance for
-      mathematics vs. exact string match for algorithm problems.
-    * **Which K constant to apply in score_submission()** — tight for sorting,
-      relaxed for string manipulation.
+        * **Output comparison strategy** — e.g. numeric tolerance for
+            mathematics vs. exact string match for algorithm problems.
+        * **Per-problem execution limits** — ``time_limit_seconds`` and
+            ``memory_limit_mb`` are forwarded to the executor.
 
-    No per-problem handler file is required.  To change how a class of problems
-    is evaluated, update K_BY_CATEGORY or compare_outputs() in this module.
+        No per-problem handler file is required.
 
     Args:
         problem:      A CodingProblem ORM instance (must have .test_cases related manager).
@@ -154,6 +153,8 @@ def evaluate_submission(problem, code: str, piston_lang: str) -> EvaluationResul
     from .execution import run_code
 
     category = getattr(problem, 'category', '') or ''
+    time_limit = getattr(problem, 'time_limit_seconds', None)
+    memory_limit = getattr(problem, 'memory_limit_mb', None)
     result = EvaluationResult()
 
     try:
@@ -172,7 +173,9 @@ def evaluate_submission(problem, code: str, piston_lang: str) -> EvaluationResul
         return result
 
     for tc in test_cases:
-        exec_result = run_code(piston_lang, code, tc.input_data)
+        exec_result = run_code(piston_lang, code, tc.input_data,
+                               timeout_seconds=time_limit,
+                               memory_limit_mb=memory_limit)
         raw_actual = exec_result.get('stdout', '').strip()
         raw_expected = tc.expected_output.strip()
         run_time = float(exec_result.get('run_time_seconds', 0.0) or 0.0)

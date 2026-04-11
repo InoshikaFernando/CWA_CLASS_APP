@@ -33,13 +33,17 @@ RUNTIME_VERSIONS = {
 }
 
 
-def run_code(language, code, stdin=''):
+def run_code(language, code, stdin='', timeout_seconds=None, memory_limit_mb=None):
     """Execute code via Piston and return a normalised result dict.
 
     Args:
-        language (str): Piston language identifier, e.g. 'python', 'javascript'
-        code (str): Source code to execute
-        stdin (str): Optional stdin to pipe into the program
+        language (str):         Piston language identifier, e.g. 'python', 'javascript'
+        code (str):             Source code to execute
+        stdin (str):            Optional stdin to pipe into the program
+        timeout_seconds (int):  Per-execution wall-clock limit; falls back to
+                                EXECUTION_TIMEOUT_SECONDS if not provided.
+        memory_limit_mb (int):  Per-execution memory ceiling in MB; converted to bytes
+                                and falls back to MEMORY_LIMIT_BYTES if not provided.
 
     Returns:
         dict with keys:
@@ -51,6 +55,23 @@ def run_code(language, code, stdin=''):
     if not language:
         return {'stdout': '', 'stderr': '', 'exit_code': 1, 'error': 'Language not supported for server-side execution'}
 
+    # Per-problem limits are advisory but must never exceed the runner's
+    # configured hard caps, otherwise Piston can reject execution requests.
+    try:
+        requested_timeout = int(timeout_seconds) if timeout_seconds is not None else EXECUTION_TIMEOUT_SECONDS
+    except (TypeError, ValueError):
+        requested_timeout = EXECUTION_TIMEOUT_SECONDS
+    effective_timeout = max(1, min(requested_timeout, EXECUTION_TIMEOUT_SECONDS))
+
+    try:
+        requested_memory_bytes = (
+            int(memory_limit_mb) * 1024 * 1024
+            if memory_limit_mb is not None else MEMORY_LIMIT_BYTES
+        )
+    except (TypeError, ValueError):
+        requested_memory_bytes = MEMORY_LIMIT_BYTES
+    effective_memory = max(16 * 1024 * 1024, min(requested_memory_bytes, MEMORY_LIMIT_BYTES))
+
     version = RUNTIME_VERSIONS.get(language, '*')
 
     payload = {
@@ -58,9 +79,9 @@ def run_code(language, code, stdin=''):
         'version': version,
         'files': [{'content': code}],
         'stdin': stdin or '',
-        'run_timeout': EXECUTION_TIMEOUT_SECONDS * 1000,   # Piston expects milliseconds
-        'compile_timeout': EXECUTION_TIMEOUT_SECONDS * 1000,
-        'run_memory_limit': MEMORY_LIMIT_BYTES,              # bytes — enforced by Piston runner
+        'run_timeout': effective_timeout * 1000,     # Piston expects milliseconds
+        'compile_timeout': effective_timeout * 1000,
+        'run_memory_limit': effective_memory,         # bytes — enforced by Piston runner
     }
 
     try:
@@ -68,17 +89,36 @@ def run_code(language, code, stdin=''):
         response = requests.post(
             f'{PISTON_URL}/api/v2/execute',
             json=payload,
-            timeout=EXECUTION_TIMEOUT_SECONDS + 2,  # slightly longer than Piston's own timeout
+            timeout=effective_timeout + 2,  # slightly longer than Piston's own timeout
         )
         response.raise_for_status()
         data = response.json()
         _elapsed = time.monotonic() - _t0
 
         run = data.get('run', {})
+        # Be tolerant to schema variations across executor versions.
+        # Standard Piston v2 uses run.stdout / run.stderr / run.code, but
+        # some installations expose run.output or top-level stdout/stderr/code.
+        stdout = run.get('stdout')
+        if stdout is None:
+            stdout = run.get('output')
+        if stdout is None:
+            stdout = data.get('stdout', '')
+
+        stderr = run.get('stderr')
+        if stderr is None:
+            stderr = data.get('stderr', '')
+
+        exit_code = run.get('code')
+        if exit_code is None:
+            exit_code = run.get('exit_code')
+        if exit_code is None:
+            exit_code = data.get('code', 1)
+
         return {
-            'stdout': run.get('stdout', ''),
-            'stderr': run.get('stderr', ''),
-            'exit_code': run.get('code', 1),
+            'stdout': stdout,
+            'stderr': stderr,
+            'exit_code': exit_code,
             # Server-measured wall time (monotonic clock) for the full round-trip
             # to the Piston sandbox.  The standard Piston v2 API does not expose
             # per-execution timing, so we measure it here.  Network latency to the
@@ -91,7 +131,7 @@ def run_code(language, code, stdin=''):
             'stdout': '',
             'stderr': 'Execution timed out.',
             'exit_code': 1,
-            'run_time_seconds': float(EXECUTION_TIMEOUT_SECONDS + 2),
+            'run_time_seconds': float(effective_timeout + 2),
             'error': 'timeout',
         }
     except requests.exceptions.ConnectionError:
@@ -99,7 +139,7 @@ def run_code(language, code, stdin=''):
             'stdout': '',
             'stderr': 'Code execution service is unavailable. Please try again later.',
             'exit_code': 1,
-            'run_time_seconds': float(EXECUTION_TIMEOUT_SECONDS + 2),
+            'run_time_seconds': float(effective_timeout + 2),
             'error': 'connection_error',
         }
     except Exception as exc:
@@ -108,7 +148,7 @@ def run_code(language, code, stdin=''):
             'stdout': '',
             'stderr': str(exc),
             'exit_code': 1,
-            'run_time_seconds': float(EXECUTION_TIMEOUT_SECONDS + 2),
+            'run_time_seconds': float(effective_timeout + 2),
             'error': str(exc),
         }
 

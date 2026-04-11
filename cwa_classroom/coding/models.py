@@ -622,7 +622,7 @@ class CodingTimeLog(models.Model):
     daily_total_seconds = models.PositiveIntegerField(default=0)
     weekly_total_seconds = models.PositiveIntegerField(default=0)
     last_reset_date = models.DateField(auto_now=True)
-    last_reset_week = models.IntegerField(default=0, help_text="ISO week number of last weekly reset")
+    last_reset_week = models.IntegerField(default=0, help_text="Year-encoded ISO week of last weekly reset (year * 100 + week, e.g. 202615)")
     last_activity = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -641,7 +641,8 @@ class CodingTimeLog(models.Model):
 
     def reset_weekly_if_needed(self):
         from django.utils.timezone import localtime
-        current_week = localtime(timezone.now()).isocalendar()[1]
+        iso = localtime(timezone.now()).isocalendar()
+        current_week = iso[0] * 100 + iso[1]   # e.g. 202615 — unique per year
         if self.last_reset_week != current_week:
             self.weekly_total_seconds = 0
             self.last_reset_week = current_week
