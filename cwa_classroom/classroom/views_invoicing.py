@@ -851,22 +851,35 @@ class InvoiceDetailView(RoleRequiredMixin, View):
         payments = invoice.payments.order_by('-created_at')
         credit_balance = svc.get_credit_balance(invoice.student, invoice.school)
 
-        # Get effective settings (department overrides applied)
+        # Get effective settings (department + classroom overrides applied)
         primary_dept = None
+        primary_classroom = None
         for li in line_items:
-            if li.classroom and li.classroom.department:
-                primary_dept = li.classroom.department
+            if li.classroom:
+                primary_classroom = li.classroom
+                if li.classroom.department:
+                    primary_dept = li.classroom.department
                 break
-        effective_settings = school.get_effective_settings(primary_dept)
+        effective_settings = school.get_effective_settings(primary_dept, primary_classroom)
 
         # Resolve effective currency (class → dept → school → USD)
         effective_currency = None
-        for li in line_items:
-            if li.classroom:
-                effective_currency = li.classroom.get_effective_currency()
-                break
+        if primary_classroom:
+            effective_currency = primary_classroom.get_effective_currency()
         if effective_currency is None:
             effective_currency = school.get_effective_currency()
+
+        # Resolve account number and GST for conditional invoice display
+        # (class override → dept override → school default; None = show nothing)
+        if primary_classroom:
+            resolved_account_number = primary_classroom.get_resolved_account_number()
+            resolved_gst = primary_classroom.get_resolved_gst()
+        elif primary_dept:
+            resolved_account_number = primary_dept.get_resolved_account_number()
+            resolved_gst = primary_dept.get_resolved_gst()
+        else:
+            resolved_account_number = school.get_resolved_account_number()
+            resolved_gst = school.get_resolved_gst()
 
         return render(request, 'invoicing/invoice_detail.html', {
             'invoice': invoice,
@@ -877,6 +890,8 @@ class InvoiceDetailView(RoleRequiredMixin, View):
             'resolved_stripe_link': invoice.get_stripe_payment_link(),
             'effective_settings': effective_settings,
             'effective_currency': effective_currency,
+            'resolved_account_number': resolved_account_number,
+            'resolved_gst': resolved_gst,
         })
 
     def post(self, request, invoice_id):
