@@ -393,6 +393,22 @@ class School(models.Model):
         except Currency.DoesNotExist:
             return None
 
+    def get_resolved_account_number(self):
+        """Return this school's bank_account_number, or None if not configured.
+
+        School is the top of the resolution chain — there is no parent to
+        fall back to.
+        """
+        return self.bank_account_number or None
+
+    def get_resolved_gst(self):
+        """Return this school's gst_number, or None if not configured.
+
+        GST is an institute-level concept; departments and classes delegate
+        upward to this method.
+        """
+        return self.gst_number or None
+
 
 class SchoolTeacher(models.Model):
     """Through table: links a teacher to a school with a seniority role."""
@@ -461,13 +477,21 @@ class Department(models.Model):
     # ── Settings overrides (blank = use school default) ──
     bank_name = models.CharField(max_length=100, blank=True)
     bank_bsb = models.CharField('BSB', max_length=20, blank=True)
-    bank_account_number = models.CharField(max_length=30, blank=True)
+    bank_account_number = models.CharField(
+        max_length=30,
+        null=True, blank=True,
+        help_text='Account number override for invoices. Null = inherit from school.',
+    )
     bank_account_name = models.CharField(max_length=200, blank=True)
     invoice_terms = models.TextField(blank=True)
     invoice_due_days = models.PositiveIntegerField(null=True, blank=True)
     outgoing_email = models.EmailField(blank=True)
     abn = models.CharField('Business Registration Number', max_length=50, blank=True)
-    gst_number = models.CharField('GST / VAT Number', max_length=50, blank=True)
+    gst_number = models.CharField(
+        'GST / VAT Number', max_length=50,
+        null=True, blank=True,
+        help_text='GST/VAT number override. Null = inherit from school.',
+    )
     street_address = models.CharField(max_length=255, blank=True)
     city = models.CharField(max_length=100, blank=True)
     state_region = models.CharField(max_length=100, blank=True)
@@ -504,6 +528,27 @@ class Department(models.Model):
         if self.currency_override_id:
             return self.currency_override
         return self.school.get_effective_currency()
+
+    def get_resolved_account_number(self):
+        """Return the effective bank account number for this department.
+
+        Resolution chain::
+
+            Department.bank_account_number  (local override)
+            → School.bank_account_number    (institute default)
+
+        Returns ``None`` if neither level has a value configured.
+        """
+        if self.bank_account_number:
+            return self.bank_account_number
+        return self.school.get_resolved_account_number()
+
+    def get_resolved_gst(self):
+        """Return the effective GST number for this department.
+
+        GST is configured only at the institute level — always delegates upward.
+        """
+        return self.school.get_resolved_gst()
 
     @property
     def primary_subject(self):
@@ -804,9 +849,17 @@ class ClassRoom(models.Model):
     # ── Settings overrides (blank = use department/school default) ──
     bank_name = models.CharField(max_length=100, blank=True)
     bank_bsb = models.CharField('BSB', max_length=20, blank=True)
-    bank_account_number = models.CharField(max_length=30, blank=True)
+    bank_account_number = models.CharField(
+        max_length=30,
+        null=True, blank=True,
+        help_text='Account number override for invoices. Null = inherit from department.',
+    )
     bank_account_name = models.CharField(max_length=200, blank=True)
-    gst_number = models.CharField('GST / VAT Number', max_length=50, blank=True)
+    gst_number = models.CharField(
+        'GST / VAT Number', max_length=50,
+        null=True, blank=True,
+        help_text='GST/VAT number override. Null = inherit from department.',
+    )
 
     # Fields that can be overridden at class level
     CLASS_OVERRIDE_FIELDS = [
@@ -842,6 +895,38 @@ class ClassRoom(models.Model):
             return Currency.objects.get(code='USD')
         except Currency.DoesNotExist:
             return None
+
+    def get_resolved_account_number(self):
+        """Return the effective bank account number for this class.
+
+        Resolution chain::
+
+            ClassRoom.bank_account_number  (class override)
+            → Department.bank_account_number  (department override)
+            → School.bank_account_number      (institute default)
+
+        Returns ``None`` if no level in the chain has a value configured.
+        When ``None`` is returned, no payment details section appears on invoices.
+        """
+        if self.bank_account_number:
+            return self.bank_account_number
+        if self.department_id:
+            return self.department.get_resolved_account_number()
+        if self.school_id:
+            return self.school.get_resolved_account_number()
+        return None
+
+    def get_resolved_gst(self):
+        """Return the effective GST number for this class.
+
+        GST is configured only at the institute level.
+        Resolution chain: class → department → school (all delegate upward).
+        """
+        if self.department_id:
+            return self.department.get_resolved_gst()
+        if self.school_id:
+            return self.school.get_resolved_gst()
+        return None
 
     def save(self, *args, **kwargs):
         if not self.code:
