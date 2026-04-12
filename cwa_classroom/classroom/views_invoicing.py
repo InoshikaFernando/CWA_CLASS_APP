@@ -531,6 +531,7 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
                         sub_lines, sub_warnings = svc.calculate_invoice_lines(
                             student, school, gap_start, gap_end, mode,
                             billing_type=billing_type,
+                            department=department,
                         )
                         gap_lines.extend(sub_lines)
                         all_warnings.extend(sub_warnings)
@@ -568,7 +569,9 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
                 skipped_no_enrollment.append(display_name)
 
             lines, warnings = svc.calculate_invoice_lines(
-                student, school, start, end, mode, billing_type=billing_type
+                student, school, start, end, mode,
+                billing_type=billing_type,
+                department=department,
             )
             all_warnings.extend(warnings)
 
