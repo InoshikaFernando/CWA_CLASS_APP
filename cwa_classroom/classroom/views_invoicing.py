@@ -851,7 +851,8 @@ class InvoiceDetailView(RoleRequiredMixin, View):
         payments = invoice.payments.order_by('-created_at')
         credit_balance = svc.get_credit_balance(invoice.student, invoice.school)
 
-        # Get effective settings (department + classroom overrides applied)
+        # Get effective settings using the first department/class found
+        # (used for invoice_terms, address, currency, etc.)
         primary_dept = None
         primary_classroom = None
         for li in line_items:
@@ -869,17 +870,51 @@ class InvoiceDetailView(RoleRequiredMixin, View):
         if effective_currency is None:
             effective_currency = school.get_effective_currency()
 
-        # Resolve account number and GST for conditional invoice display
-        # (class override → dept override → school default; None = show nothing)
-        if primary_classroom:
-            resolved_account_number = primary_classroom.get_resolved_account_number()
-            resolved_gst = primary_classroom.get_resolved_gst()
-        elif primary_dept:
-            resolved_account_number = primary_dept.get_resolved_account_number()
-            resolved_gst = primary_dept.get_resolved_gst()
-        else:
-            resolved_account_number = school.get_resolved_account_number()
-            resolved_gst = school.get_resolved_gst()
+        # Build payment groups — one entry per unique resolved account number.
+        # When an invoice spans multiple departments with different account
+        # numbers (e.g. student enrolled in Aesthetics AND IT), each group is
+        # shown separately on the invoice so the parent knows which account to
+        # pay for which department.
+        #
+        # Groups are keyed by resolved account number (empty string = no account).
+        # Departments that resolve to the same account number are merged.
+        _account_groups = {}
+        for li in line_items:
+            if li.rate_source == 'opening_balance':
+                continue
+            cls = li.classroom
+            dept = li.department  # denormalized FK on line item
+            # Resolve account number and supporting bank fields
+            if cls:
+                acc = cls.get_resolved_account_number()
+                gst = cls.get_resolved_gst()
+                eff = school.get_effective_settings(dept, cls)
+            elif dept:
+                acc = dept.get_resolved_account_number()
+                gst = dept.get_resolved_gst()
+                eff = school.get_effective_settings(dept)
+            else:
+                acc = school.get_resolved_account_number()
+                gst = school.get_resolved_gst()
+                eff = school.get_effective_settings()
+            dept_name = dept.name if dept else None
+            key = acc or ''
+            if key not in _account_groups:
+                _account_groups[key] = {
+                    'account_number': acc,
+                    'gst': gst,
+                    'bank_name': eff.get('bank_name', ''),
+                    'bank_bsb': eff.get('bank_bsb', ''),
+                    'bank_account_name': eff.get('bank_account_name', ''),
+                    'department_names': [],
+                }
+            if dept_name and dept_name not in _account_groups[key]['department_names']:
+                _account_groups[key]['department_names'].append(dept_name)
+        # Only include groups that have something to display
+        payment_groups = [
+            g for g in _account_groups.values()
+            if g['account_number'] or g['gst']
+        ]
 
         return render(request, 'invoicing/invoice_detail.html', {
             'invoice': invoice,
@@ -890,8 +925,7 @@ class InvoiceDetailView(RoleRequiredMixin, View):
             'resolved_stripe_link': invoice.get_stripe_payment_link(),
             'effective_settings': effective_settings,
             'effective_currency': effective_currency,
-            'resolved_account_number': resolved_account_number,
-            'resolved_gst': resolved_gst,
+            'payment_groups': payment_groups,
         })
 
     def post(self, request, invoice_id):
