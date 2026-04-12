@@ -748,13 +748,14 @@ class TestApiUpdateTimeLog(TestCase):
 
     def test_daily_reset_occurs_on_new_day(self):
         """Daily total must reset to 0 on the first call of a new calendar day."""
+        from django.utils.timezone import localtime
         log = CodingTimeLog.objects.create(
             student=self.student,
             daily_total_seconds=5000,
             weekly_total_seconds=10000,
         )
         yesterday = timezone.now().date() - datetime.timedelta(days=1)
-        iso = timezone.now().isocalendar()
+        iso = localtime(timezone.now()).isocalendar()
         current_week = iso[0] * 100 + iso[1]   # year-encoded, e.g. 202615
         CodingTimeLog.objects.filter(pk=log.pk).update(last_reset_date=yesterday, last_reset_week=current_week)
 

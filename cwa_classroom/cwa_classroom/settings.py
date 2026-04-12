@@ -252,11 +252,9 @@ PASSWORD_RESET_TIMEOUT = 3600
 # PBKDF2 remains the default hasher for all normal account creation.
 PASSWORD_HASHERS = [
     'django.contrib.auth.hashers.PBKDF2PasswordHasher',
-    'django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher',
     'django.contrib.auth.hashers.Argon2PasswordHasher',
     'django.contrib.auth.hashers.BCryptSHA256PasswordHasher',
     'django.contrib.auth.hashers.ScryptPasswordHasher',
-    'django.contrib.auth.hashers.SHA1PasswordHasher',
 ]
 
 AUTH_PASSWORD_VALIDATORS = [
