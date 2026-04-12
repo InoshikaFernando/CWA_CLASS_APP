@@ -254,6 +254,12 @@ class School(models.Model):
                   'Used for scheduling and "today" calculations. '
                   'Falls back to server TIME_ZONE if blank.',
     )
+    # Default fee – school-wide fallback when no class/level/subject/dept fee is set
+    default_fee = models.DecimalField(
+        max_digits=8, decimal_places=2, null=True, blank=True,
+        help_text='School-wide default fee per session. Used when no class, level, subject, or department fee is configured.',
+    )
+
     # Stripe payment
     stripe_payment_link = models.URLField(
         blank=True,
