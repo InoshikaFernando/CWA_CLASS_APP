@@ -156,27 +156,54 @@
         </div>
       </div>
 
-      <!-- Bank Details & Terms -->
-      {% if effective_settings.bank_account_name or effective_settings.invoice_terms %}
+      <!-- Payment Details & Terms -->
+      {# payment_groups: one entry per unique resolved account number.          #}
+      {# Multi-dept invoices show a labelled block per group so the parent     #}
+      {# knows which account to pay for which department.                       #}
+      {% if payment_groups or effective_settings.invoice_terms %}
       <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-        {% if effective_settings.bank_account_name %}
-        <div class="mb-4">
-          <h3 class="text-sm font-semibold text-gray-700 mb-2">Payment Details</h3>
+
+        {% for group in payment_groups %}
+        <div class="{% if not forloop.first %}pt-5 mt-5 border-t border-slate-100{% endif %} {% if effective_settings.invoice_terms and forloop.last %}mb-4{% endif %}">
+
+          {# Label with dept name(s) only when there are multiple groups #}
+          <h3 class="text-sm font-semibold text-gray-700 mb-2">
+            Payment Details{% if payment_groups|length > 1 and group.department_names %} — {{ group.department_names|join:", " }}{% endif %}
+          </h3>
+
+          {% if group.account_number %}
           <div class="grid grid-cols-2 gap-2 text-sm">
-            {% if effective_settings.bank_name %}<p class="text-gray-500">Bank</p><p class="text-gray-900">{{ effective_settings.bank_name }}</p>{% endif %}
-            <p class="text-gray-500">Account Name</p><p class="text-gray-900">{{ effective_settings.bank_account_name }}</p>
-            {% if effective_settings.bank_bsb %}<p class="text-gray-500">BSB</p><p class="text-gray-900">{{ effective_settings.bank_bsb }}</p>{% endif %}
-            {% if effective_settings.bank_account_number %}<p class="text-gray-500">Account Number</p><p class="text-gray-900">{{ effective_settings.bank_account_number }}</p>{% endif %}
+            {% if group.bank_name %}
+              <p class="text-gray-500">Bank</p><p class="text-gray-900">{{ group.bank_name }}</p>
+            {% endif %}
+            {% if group.bank_account_name %}
+              <p class="text-gray-500">Account Name</p><p class="text-gray-900">{{ group.bank_account_name }}</p>
+            {% endif %}
+            {% if group.bank_bsb %}
+              <p class="text-gray-500">BSB</p><p class="text-gray-900">{{ group.bank_bsb }}</p>
+            {% endif %}
+            <p class="text-gray-500">Account Number</p><p class="text-gray-900">{{ group.account_number }}</p>
           </div>
           <p class="text-xs text-gray-400 mt-2">Reference: {{ invoice.invoice_number }}</p>
+          {% endif %}
+
+          {% if group.gst %}
+          <p class="text-sm {% if group.account_number %}mt-2{% endif %}">
+            <span class="font-medium text-gray-600">GST/VAT:</span>
+            <span class="text-gray-900">{{ group.gst }}</span>
+          </p>
+          {% endif %}
+
         </div>
-        {% endif %}
+        {% endfor %}
+
         {% if effective_settings.invoice_terms %}
-        <div class="{% if effective_settings.bank_account_name %}pt-4 border-t border-slate-100{% endif %}">
+        <div class="{% if payment_groups %}pt-4 border-t border-slate-100{% endif %}">
           <h3 class="text-sm font-semibold text-gray-700 mb-1">Terms & Conditions</h3>
           <p class="text-xs text-gray-500 whitespace-pre-line">{{ effective_settings.invoice_terms }}</p>
         </div>
         {% endif %}
+
       </div>
       {% endif %}
 
