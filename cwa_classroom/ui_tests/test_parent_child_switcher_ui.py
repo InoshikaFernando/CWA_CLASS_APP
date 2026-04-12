@@ -228,7 +228,7 @@ class TestChildSwitcherHomeworkIsolation:
         do_login(self.page, self.url, self.data["parent"])
         # Navigate to a real page first so the CSRF cookie is set
         self.page.goto(f"{self.url}/parent/")
-        self.page.wait_for_load_state("domcontentloaded")
+        self.page.wait_for_load_state("networkidle")
         # Use a form POST via evaluate since Playwright can't POST a URL directly
         self.page.evaluate(f"""() => {{
             const f = document.createElement('form');
@@ -242,9 +242,10 @@ class TestChildSwitcherHomeworkIsolation:
             document.body.appendChild(f);
             f.submit();
         }}""")
-        self.page.wait_for_load_state("domcontentloaded")
+        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_timeout(500)  # Give session time to update
         self.page.goto(f"{self.url}/parent/homework/")
-        self.page.wait_for_load_state("domcontentloaded")
+        self.page.wait_for_load_state("networkidle")
         body = self.page.locator("body").inner_text()
         assert f"Alice HW {_RUN_ID}" in body
         assert f"Bob HW {_RUN_ID}" not in body
@@ -253,7 +254,7 @@ class TestChildSwitcherHomeworkIsolation:
         do_login(self.page, self.url, self.data["parent"])
         # Navigate first so the CSRF cookie is set before the switch POST
         self.page.goto(f"{self.url}/parent/")
-        self.page.wait_for_load_state("domcontentloaded")
+        self.page.wait_for_load_state("networkidle")
         self.page.evaluate(f"""() => {{
             const f = document.createElement('form');
             f.method = 'POST';
@@ -266,9 +267,10 @@ class TestChildSwitcherHomeworkIsolation:
             document.body.appendChild(f);
             f.submit();
         }}""")
-        self.page.wait_for_load_state("domcontentloaded")
+        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_timeout(500)  # Give session time to update
         self.page.goto(f"{self.url}/parent/homework/")
-        self.page.wait_for_load_state("domcontentloaded")
+        self.page.wait_for_load_state("networkidle")
         body = self.page.locator("body").inner_text()
         assert f"Bob HW {_RUN_ID}" in body
         assert f"Alice HW {_RUN_ID}" not in body
