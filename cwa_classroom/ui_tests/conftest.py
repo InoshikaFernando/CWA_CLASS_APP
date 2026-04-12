@@ -18,7 +18,7 @@ if "DB_ENGINE" not in os.environ:
 # Allow synchronous DB operations in Playwright's async event loop
 os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
 
-import time
+import time as time_module
 import uuid
 from datetime import date, time, timedelta
 from decimal import Decimal
@@ -291,7 +291,7 @@ def school(db, admin_user):
                 if attempt == max_retries - 1:
                     raise
                 wait_time = (2 ** attempt) * 0.1  # Exponential backoff: 0.1s, 0.2s, 0.4s, 0.8s, 1.6s
-                time.sleep(wait_time)
+                time_module.sleep(wait_time)
     
     delete_with_retry(school)
     # Clean up the test user accounts too
