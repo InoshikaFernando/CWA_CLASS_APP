@@ -409,7 +409,7 @@ def sync_sessions_for_school(school, created_by=None):
 
 
 def calculate_invoice_lines(student, school, billing_period_start, billing_period_end,
-                             attendance_mode, billing_type='post_term'):
+                             attendance_mode, billing_type='post_term', department=None):
     """
     Returns (lines, warnings) where:
     - lines: list of dicts with per-class breakdown
@@ -419,12 +419,20 @@ def calculate_invoice_lines(student, school, billing_period_start, billing_perio
     - 'post_term': charges based on completed sessions and attendance
     - 'upfront': charges based on all scheduled (non-cancelled) sessions,
       ignoring attendance (for invoicing at term start)
+
+    department:
+    - When set, only classrooms belonging to that department produce line items.
+      This ensures that scoping an invoice run to a single department does not
+      inadvertently include the student's classes in other departments.
     """
     enrollments = ClassStudent.objects.filter(
         classroom__school=school,
         student=student,
         is_active=True,
     ).select_related('classroom', 'classroom__department')
+
+    if department is not None:
+        enrollments = enrollments.filter(classroom__department=department)
 
     lines = []
     warnings = []
