@@ -94,6 +94,27 @@ INSTALLED_APPS = [
 # ---------------------------------------------------------------------------
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 
+# ---------------------------------------------------------------------------
+# Coding — Piston sandboxed code execution
+# ---------------------------------------------------------------------------
+# Self-hosted Piston instance (run via Docker — see docker-compose.piston.yml)
+# Local dev default: http://localhost:2000
+# Production: set PISTON_API_URL=http://piston:2000 if on the same Docker network
+PISTON_API_URL = os.environ.get('PISTON_API_URL', 'http://localhost:2000')
+
+# Coding — Quality scoring
+# ---------------------------------------------------------------------------
+# When True, submissions are analysed for code quality (cyclomatic complexity,
+# nesting depth, redundant operations) and a quality multiplier (0.70–1.00) is
+# applied on top of the base accuracy+speed score.
+# Set ENABLE_QUALITY_SCORING=false in the environment to revert to pure
+# accuracy+speed scoring (e.g. during an initial rollout or for a specific exam).
+ENABLE_QUALITY_SCORING = os.environ.get('ENABLE_QUALITY_SCORING', 'true').lower() != 'false'
+
+# Maximum fraction of points that quality penalties can remove (0.0–1.0).
+# Default: 0.30  →  the worst-quality correct solution still earns ≥ 70 pts.
+QUALITY_MAX_PENALTY = float(os.environ.get('QUALITY_MAX_PENALTY', '0.30'))
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'cwa_classroom.middleware.MathsRoomRedirectMiddleware',    # mathsroom → /maths/ redirect
@@ -234,11 +255,9 @@ PASSWORD_RESET_TIMEOUT = 3600
 # PBKDF2 remains the default hasher for all normal account creation.
 PASSWORD_HASHERS = [
     'django.contrib.auth.hashers.PBKDF2PasswordHasher',
-    'django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher',
     'django.contrib.auth.hashers.Argon2PasswordHasher',
     'django.contrib.auth.hashers.BCryptSHA256PasswordHasher',
     'django.contrib.auth.hashers.ScryptPasswordHasher',
-    'django.contrib.auth.hashers.SHA1PasswordHasher',
 ]
 
 AUTH_PASSWORD_VALIDATORS = [
