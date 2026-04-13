@@ -1,0 +1,78 @@
+{% extends "email/base_email.html" %}
+
+{% block email_title %}Welcome to {{ school_name }} — Your Account is Ready{% endblock %}
+
+{% block email_content %}
+<div style="background-color:#eff6ff;border-left:4px solid #2563eb;padding:16px;border-radius:4px;margin-bottom:24px;">
+  <p style="margin:0;color:#1e40af;font-weight:700;font-size:16px;">Welcome to {{ school_name }}!</p>
+</div>
+
+<p style="margin:0 0 16px;color:#334155;font-size:15px;">
+  Hi <strong>{{ recipient_name }}</strong>,
+</p>
+
+<p style="margin:0 0 16px;color:#334155;font-size:15px;">
+  Your student account at <strong>{{ school_name }}</strong> has been set up for you.
+  Use the login credentials below to access your dashboard.
+</p>
+
+{% if temp_password %}
+<div style="background-color:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:20px;margin-bottom:20px;">
+  <p style="margin:0 0 12px;color:#92400e;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:0.5px;">
+    Your Login Credentials
+  </p>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;color:#374151;">
+    <tr>
+      <td style="padding:4px 0;font-weight:600;width:110px;color:#64748b;">Username:</td>
+      <td style="padding:4px 0;font-family:monospace;font-weight:700;color:#1e293b;">{{ username }}</td>
+    </tr>
+    <tr>
+      <td style="padding:4px 0;font-weight:600;color:#64748b;">Email:</td>
+      <td style="padding:4px 0;color:#1e293b;">{{ user.email }}</td>
+    </tr>
+    <tr>
+      <td style="padding:4px 0;font-weight:600;color:#64748b;">Temp Password:</td>
+      <td style="padding:4px 0;font-family:monospace;font-weight:700;color:#1e293b;">{{ temp_password }}</td>
+    </tr>
+  </table>
+  <p style="margin:14px 0 0;color:#b45309;font-size:13px;font-weight:600;">
+    &#9888; You will be required to change your password on your first login.
+  </p>
+</div>
+{% endif %}
+
+<p style="margin:0 0 20px;color:#334155;font-size:15px;">
+  Here's what you can access on Wizards Learning Hub:
+</p>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+  <tr>
+    <td style="padding:8px 0;">
+      <table role="presentation" width="100%" cellpadding="12" cellspacing="0" style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
+        <tr>
+          <td style="color:#1e293b;font-size:14px;">
+            <div style="margin-bottom:10px;">&#128218; <strong>Subjects &amp; Lessons</strong> — Maths, coding, science, and music</div>
+            <div style="margin-bottom:10px;">&#128221; <strong>Homework</strong> — View and submit work set by your teacher</div>
+            <div style="margin-bottom:10px;">&#128187; <strong>Coding Practice</strong> — Build real coding skills</div>
+            <div>&#127918; <strong>Puzzles &amp; Games</strong> — Fun number challenges to sharpen your mind</div>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+
+<p style="margin:0 0 24px;text-align:center;">
+  <a href="{{ login_url }}"
+     style="display:inline-block;background-color:#2563eb;color:#ffffff;padding:13px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;">
+    Log In Now &rarr;
+  </a>
+</p>
+{% endblock %}
+
+{% block email_footer_extra %}
+<p style="margin:0 0 12px;color:#94a3b8;font-size:12px;text-align:center;">
+  This is an automated notification from Wizards Learning Hub on behalf of <strong>{{ school_name }}</strong>.
+  These transactional emails are sent to keep your account secure — they do not contain marketing content.
+</p>
+{% endblock %}

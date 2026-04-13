@@ -1313,6 +1313,15 @@ def user_profile(request):
             if password_form.is_valid():
                 password_form.save()
                 update_session_auth_hash(request, password_form.user)
+                # Notify user of password change
+                try:
+                    from notifications.services import send_password_changed_notification
+                    send_password_changed_notification(user)
+                except Exception:
+                    import logging
+                    logging.getLogger(__name__).exception(
+                        'Failed to send password-changed notification for user %s', user.pk
+                    )
                 messages.success(request, "Password changed successfully!")
                 return redirect("maths:user_profile")
     
