@@ -4,8 +4,6 @@ HoI/Admin views for managing parent-student relationships (CPP-70).
 from datetime import timedelta
 
 from django.contrib import messages
-from django.core.mail import send_mail
-from django.conf import settings
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 from django.views import View
@@ -18,6 +16,53 @@ from django.db.models import Q
 from .models import School, SchoolStudent, ParentStudent, ParentInvite, Guardian, StudentGuardian
 from .views import RoleRequiredMixin
 from .views_admin import _get_user_school_or_404
+
+
+def _send_parent_setup_email(request, parent_user, school, linked_students, plain_password):
+    """
+    Send a parent account setup email containing their temporary password and a login link.
+
+    Returns True on success, False on failure.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    if not parent_user.email:
+        logger.warning('Cannot send parent setup email: no email for user %s', parent_user.pk)
+        return False
+
+    try:
+        from django.urls import reverse
+        from classroom.email_service import send_templated_email, _get_email_logo_url
+        from django.conf import settings
+
+        site_url = getattr(settings, 'SITE_URL', '').rstrip('/')
+        login_path = getattr(settings, 'LOGIN_URL', '/accounts/login/')
+
+        ctx = {
+            'parent_name': parent_user.get_full_name() or parent_user.username,
+            'school_name': school.name,
+            'username': parent_user.username,
+            'temp_password': plain_password,
+            'login_url': f'{site_url}{login_path}',
+            'student_names': [s.get_full_name() for s in linked_students],
+            'site_url': site_url,
+            'email_logo_url': _get_email_logo_url(school),
+        }
+
+        return send_templated_email(
+            recipient_email=parent_user.email,
+            subject=f'You have been added to {school.name} — Your Login Details',
+            template_name='email/lifecycle/parent_account_setup.html',
+            context=ctx,
+            recipient_user=parent_user,
+            notification_type='welcome',
+            school=school,
+            fail_silently=True,
+        )
+    except Exception:
+        logger.exception('Failed to send parent setup email to %s', parent_user.email)
+        return False
 
 
 class ManageParentsRedirectView(RoleRequiredMixin, View):
@@ -316,23 +361,34 @@ class ParentInviteCreateView(RoleRequiredMixin, View):
                 accepted_by=existing_user,
             )
 
-            # Send notification email
+            # Notify the existing user that they've been linked
             try:
-                send_mail(
+                from .email_service import send_templated_email, _get_email_logo_url
+                from django.conf import settings as _settings
+                site_url = getattr(_settings, 'SITE_URL', '').rstrip('/')
+                login_path = getattr(_settings, 'LOGIN_URL', '/accounts/login/')
+                send_templated_email(
+                    recipient_email=parent_email,
                     subject=f'You have been linked to {student.first_name}\'s account at {school.name}',
-                    message=(
-                        f'Hello {existing_user.first_name},\n\n'
-                        f'You have been linked as a parent/guardian to '
-                        f'{student.first_name} {student.last_name} at {school.name}.\n\n'
-                        f'You can now log in to view your child\'s progress.\n\n'
-                        f'Regards,\n{school.name}'
-                    ),
-                    from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[parent_email],
+                    template_name='email/transactional/parent_invite.html',
+                    context={
+                        'school_name': school.name,
+                        'student_name': f'{student.first_name} {student.last_name}',
+                        'registration_url': f'{site_url}{login_path}',
+                        'expires_at': None,
+                        'already_has_account': True,
+                        'email_logo_url': _get_email_logo_url(school),
+                    },
+                    recipient_user=existing_user,
+                    notification_type='parent_invite',
+                    school=school,
                     fail_silently=True,
                 )
             except Exception:
-                pass
+                import logging
+                logging.getLogger(__name__).exception(
+                    'Failed to send parent link notification to %s', parent_email
+                )
 
             log_event(
                 user=request.user, school=school, category='data_change',
@@ -358,26 +414,35 @@ class ParentInviteCreateView(RoleRequiredMixin, View):
             expires_at=timezone.now() + timedelta(days=7),
         )
 
-        # Send email (best-effort)
+        # Send invite email with registration link (best-effort)
         try:
-            from .email_service import send_transactional_email
+            from .email_service import send_templated_email, _get_email_logo_url
             from django.urls import reverse
+            from django.conf import settings as _settings
             registration_url = request.build_absolute_uri(
                 reverse('register_parent', args=[invite.token])
             )
-            send_transactional_email(
-                to_email=parent_email,
+            send_templated_email(
+                recipient_email=parent_email,
                 subject=f'You are invited to view {student.first_name}\'s records at {school.name}',
-                template='email/transactional/parent_invite.html',
+                template_name='email/transactional/parent_invite.html',
                 context={
                     'school_name': school.name,
                     'student_name': f'{student.first_name} {student.last_name}',
                     'registration_url': registration_url,
                     'expires_at': invite.expires_at,
+                    'email_logo_url': _get_email_logo_url(school),
                 },
+                notification_type='parent_invite',
+                school=school,
+                fail_silently=True,
             )
         except Exception:
-            pass  # Email failure shouldn't block invite creation
+            import logging
+            logging.getLogger(__name__).exception(
+                'Failed to send parent invite email to %s for student %s',
+                parent_email, student.pk,
+            )
 
         log_event(
             user=request.user, school=school, category='data_change',
@@ -506,8 +571,8 @@ class AddParentView(RoleRequiredMixin, View):
         })
 
     def post(self, request, school_id):
-        from accounts.models import CustomUser
         import secrets
+        from accounts.models import CustomUser
 
         school = _get_user_school_or_404(request.user, school_id)
         email = request.POST.get('email', '').strip().lower()
@@ -559,7 +624,8 @@ class AddParentView(RoleRequiredMixin, View):
             username = f'{base_username}{counter}'
             counter += 1
 
-        temp_password = secrets.token_urlsafe(12)
+        # Generate a temporary password — included in the invitation email
+        temp_password = secrets.token_urlsafe(10)
         parent_user = CustomUser.objects.create_user(
             username=username,
             email=email,
@@ -567,8 +633,11 @@ class AddParentView(RoleRequiredMixin, View):
             last_name=last_name,
             password=temp_password,
             phone=phone,
-            must_change_password=True,
         )
+        parent_user.must_change_password = True
+        parent_user.creation_method = 'institute'
+        parent_user.profile_completed = True
+        parent_user.save(update_fields=['must_change_password', 'creation_method', 'profile_completed'])
 
         # Assign parent role
         parent_role, _ = Role.objects.get_or_create(
@@ -578,7 +647,7 @@ class AddParentView(RoleRequiredMixin, View):
         UserRole.objects.get_or_create(user=parent_user, role=parent_role)
 
         # Link to selected students
-        linked = 0
+        linked_students = []
         for sid in student_ids:
             try:
                 ss = SchoolStudent.objects.get(school=school, student_id=int(sid), is_active=True)
@@ -594,9 +663,18 @@ class AddParentView(RoleRequiredMixin, View):
                         is_primary_contact=(existing_count == 0),
                         created_by=request.user,
                     )
-                    linked += 1
+                    linked_students.append(ss.student)
             except (SchoolStudent.DoesNotExist, ValueError):
                 pass
+
+        # Send invitation email with temporary credentials
+        email_sent = _send_parent_setup_email(
+            request=request,
+            parent_user=parent_user,
+            school=school,
+            linked_students=linked_students,
+            plain_password=temp_password,
+        )
 
         log_event(
             user=request.user, school=school, category='data_change',
@@ -605,15 +683,24 @@ class AddParentView(RoleRequiredMixin, View):
                 'parent_id': parent_user.id,
                 'parent_name': parent_user.get_full_name(),
                 'parent_email': email,
-                'students_linked': linked,
+                'students_linked': len(linked_students),
+                'invite_email_sent': email_sent,
             },
             request=request,
         )
-        messages.success(
-            request,
-            f'Parent account created for {first_name} {last_name} and linked to '
-            f'{linked} student(s). Temporary password: {temp_password}',
-        )
+        if email_sent:
+            messages.success(
+                request,
+                f'Parent account created for {first_name} {last_name} and linked to '
+                f'{len(linked_students)} student(s). An invitation email has been sent to {email}.',
+            )
+        else:
+            messages.warning(
+                request,
+                f'Parent account created for {first_name} {last_name} and linked to '
+                f'{len(linked_students)} student(s), but the invitation email could not be sent. '
+                f'Use the "Resend Invite" button to try again.',
+            )
         return redirect('admin_school_parents', school_id=school.id)
 
 
