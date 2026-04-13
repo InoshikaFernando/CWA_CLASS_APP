@@ -873,6 +873,14 @@ class InvoiceDetailView(RoleRequiredMixin, View):
         if effective_currency is None:
             effective_currency = school.get_effective_currency()
 
+        # Resolve student display info for payment reference
+        from .models import SchoolStudent
+        school_student = SchoolStudent.objects.filter(
+            school=school, student=invoice.student,
+        ).first()
+        student_name = f'{invoice.student.first_name} {invoice.student.last_name}'.strip()
+        student_id_code = school_student.student_id_code if school_student else ''
+
         # Build payment groups — one entry per unique resolved account number.
         # When an invoice spans multiple departments with different account
         # numbers (e.g. student enrolled in Aesthetics AND IT), each group is
@@ -944,6 +952,8 @@ class InvoiceDetailView(RoleRequiredMixin, View):
             'effective_settings': effective_settings,
             'effective_currency': effective_currency,
             'payment_groups': payment_groups,
+            'student_name': student_name,
+            'student_id_code': student_id_code,
         })
 
     def post(self, request, invoice_id):
