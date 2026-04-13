@@ -184,7 +184,7 @@
             {% endif %}
             <p class="text-gray-500">Account Number</p><p class="text-gray-900">{{ group.account_number }}</p>
           </div>
-          <p class="text-xs text-gray-400 mt-2">Reference: {{ invoice.invoice_number }}</p>
+          <p class="text-xs text-gray-400 mt-2">Reference: {% if student_id_code %}{{ student_id_code }} — {% endif %}{{ student_name }}</p>
           {% endif %}
 
           {% if group.gst %}

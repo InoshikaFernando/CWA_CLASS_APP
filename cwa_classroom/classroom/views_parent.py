@@ -255,6 +255,14 @@ class ParentInvoiceDetailView(RoleRequiredMixin, View):
         # Keep active_child context for nav, but don't restrict invoice lookup by it
         active_child, _, _ = _get_active_child(request)
 
+        # Resolve student display info for payment reference
+        from .models import SchoolStudent
+        school_student = SchoolStudent.objects.filter(
+            school=school, student=invoice.student,
+        ).first()
+        student_name = f'{invoice.student.first_name} {invoice.student.last_name}'.strip()
+        student_id_code = school_student.student_id_code if school_student else ''
+
         return render(request, 'parent/invoice_detail.html', {
             'invoice': invoice,
             'line_items': line_items,
@@ -263,6 +271,8 @@ class ParentInvoiceDetailView(RoleRequiredMixin, View):
             'active_school': school,
             'effective_settings': effective_settings,
             'children': children,
+            'student_name': student_name,
+            'student_id_code': student_id_code,
         })
 
 
