@@ -62,6 +62,24 @@ class CustomUser(AbstractUser):
     # Terms & conditions / privacy policy acceptance
     terms_accepted_at = models.DateTimeField(null=True, blank=True)
 
+    # Lifecycle email tracking
+    CREATION_INSTITUTE = 'institute'
+    CREATION_SELF_REGISTERED = 'self_registered'
+    CREATION_METHOD_CHOICES = [
+        (CREATION_INSTITUTE, 'Institute Created'),
+        (CREATION_SELF_REGISTERED, 'Self Registered'),
+    ]
+    creation_method = models.CharField(
+        max_length=20,
+        choices=CREATION_METHOD_CHOICES,
+        default=CREATION_SELF_REGISTERED,
+        blank=True,
+    )
+    welcome_email_sent = models.DateTimeField(
+        null=True, blank=True,
+        help_text='Timestamp of when the welcome email was sent. Null = not yet sent.',
+    )
+
     # Account blocking (e.g. unpaid fees, policy violation)
     BLOCK_PAYMENT = 'payment'
     BLOCK_MANUAL = 'manual'
