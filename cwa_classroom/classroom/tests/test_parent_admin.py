@@ -1,7 +1,8 @@
 """Tests for HoI parent management views (CPP-70)."""
 from datetime import timedelta
 
-from django.test import TestCase, Client
+from django.core import mail
+from django.test import TestCase, Client, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -76,6 +77,53 @@ class ParentInviteCreateViewTest(ParentAdminTestBase):
                 status='pending',
             ).exists()
         )
+
+    def test_post_sends_invite_email(self):
+        """Creating an invite emails the parent with a registration link."""
+        url = reverse('invite_parent', args=[self.school.id, self.student.id])
+        self.client.post(url, {
+            'parent_email': 'wlhtestmails+inviteemail@gmail.com',
+            'relationship': 'guardian',
+        })
+        self.assertEqual(len(mail.outbox), 1)
+        sent = mail.outbox[0]
+        self.assertIn('wlhtestmails+inviteemail@gmail.com', sent.to)
+        self.assertIn(self.school.name, sent.subject)
+
+    def test_invite_email_contains_registration_link(self):
+        """Invite email body contains the /register/parent/<token>/ URL."""
+        url = reverse('invite_parent', args=[self.school.id, self.student.id])
+        self.client.post(url, {
+            'parent_email': 'wlhtestmails+reglink@gmail.com',
+            'relationship': 'guardian',
+        })
+        invite = ParentInvite.objects.get(parent_email='wlhtestmails+reglink@gmail.com')
+        html_body = mail.outbox[0].alternatives[0][0]
+        self.assertIn(str(invite.token), html_body)
+
+    def test_invite_email_contains_student_name(self):
+        """Invite email mentions the student the parent is being invited for."""
+        url = reverse('invite_parent', args=[self.school.id, self.student.id])
+        self.client.post(url, {
+            'parent_email': 'wlhtestmails+studentname@gmail.com',
+            'relationship': 'mother',
+        })
+        html_body = mail.outbox[0].alternatives[0][0]
+        self.assertIn('Zara Student', html_body)
+
+    def test_existing_user_invite_sends_notification_email(self):
+        """If parent already has an account, they receive a link notification (not registration)."""
+        url = reverse('invite_parent', args=[self.school.id, self.student.id])
+        self.client.post(url, {
+            'parent_email': self.parent_a.email,
+            'relationship': 'guardian',
+        })
+        self.assertEqual(len(mail.outbox), 1)
+        sent = mail.outbox[0]
+        self.assertIn(self.parent_a.email, sent.to)
+        # Should be a notification, not a registration invite
+        html_body = sent.alternatives[0][0]
+        self.assertIn(self.school.name, html_body)
 
     def test_post_blocks_third_parent(self):
         """Cannot invite when student already has 2 active parents."""
@@ -259,12 +307,67 @@ class AddParentViewTest(ParentAdminTestBase):
         self.assertEqual(resp.status_code, 302)
         new_user = CustomUser.objects.get(email='wlhtestmails+newp@gmail.com')
         self.assertTrue(new_user.has_role(Role.PARENT))
+        # Must have a usable (temporary) password so they can log in
+        self.assertTrue(new_user.has_usable_password())
         self.assertTrue(new_user.must_change_password)
+        self.assertEqual(new_user.creation_method, 'institute')
         self.assertTrue(
             ParentStudent.objects.filter(
                 parent=new_user, student=self.student, school=self.school, is_active=True,
             ).exists()
         )
+
+    def test_post_sends_invitation_email(self):
+        """Adding a parent sends them an email with their temporary credentials."""
+        self.client.post(self.url, {
+            'first_name': 'Email',
+            'last_name': 'Test',
+            'email': 'wlhtestmails+emailtest@gmail.com',
+            'relationship': 'guardian',
+            'student_ids': [self.student.id],
+        })
+        self.assertEqual(len(mail.outbox), 1)
+        sent = mail.outbox[0]
+        self.assertIn('wlhtestmails+emailtest@gmail.com', sent.to)
+        self.assertIn(self.school.name, sent.subject)
+
+    def test_invitation_email_contains_credentials(self):
+        """Invitation email includes the username and temporary password."""
+        self.client.post(self.url, {
+            'first_name': 'Creds',
+            'last_name': 'Check',
+            'email': 'wlhtestmails+creds@gmail.com',
+            'relationship': 'guardian',
+            'student_ids': [],
+        })
+        html_body = mail.outbox[0].alternatives[0][0]
+        parent = CustomUser.objects.get(email='wlhtestmails+creds@gmail.com')
+        self.assertIn(parent.username, html_body)
+        self.assertIn('Temp Password', html_body)
+
+    def test_invitation_email_contains_student_name(self):
+        """Invitation email lists the linked student's name."""
+        self.client.post(self.url, {
+            'first_name': 'Content',
+            'last_name': 'Check',
+            'email': 'wlhtestmails+content@gmail.com',
+            'relationship': 'father',
+            'student_ids': [self.student.id],
+        })
+        html_body = mail.outbox[0].alternatives[0][0]
+        self.assertIn('Zara Student', html_body)
+
+    def test_invitation_email_no_students_still_sends(self):
+        """Email is sent even when no students are linked yet."""
+        self.client.post(self.url, {
+            'first_name': 'Solo',
+            'last_name': 'Parent',
+            'email': 'wlhtestmails+solo2@gmail.com',
+            'relationship': 'guardian',
+            'student_ids': [],
+        })
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('wlhtestmails+solo2@gmail.com', mail.outbox[0].to)
 
     def test_post_no_students_still_creates_user(self):
         resp = self.client.post(self.url, {

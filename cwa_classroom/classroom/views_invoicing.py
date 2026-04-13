@@ -531,6 +531,7 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
                         sub_lines, sub_warnings = svc.calculate_invoice_lines(
                             student, school, gap_start, gap_end, mode,
                             billing_type=billing_type,
+                            department=department,
                         )
                         gap_lines.extend(sub_lines)
                         all_warnings.extend(sub_warnings)
@@ -568,7 +569,9 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
                 skipped_no_enrollment.append(display_name)
 
             lines, warnings = svc.calculate_invoice_lines(
-                student, school, start, end, mode, billing_type=billing_type
+                student, school, start, end, mode,
+                billing_type=billing_type,
+                department=department,
             )
             all_warnings.extend(warnings)
 
@@ -851,7 +854,8 @@ class InvoiceDetailView(RoleRequiredMixin, View):
         payments = invoice.payments.order_by('-created_at')
         credit_balance = svc.get_credit_balance(invoice.student, invoice.school)
 
-        # Get effective settings (department + classroom overrides applied)
+        # Get effective settings using the first department/class found
+        # (used for invoice_terms, address, currency, etc.)
         primary_dept = None
         primary_classroom = None
         for li in line_items:
@@ -869,17 +873,74 @@ class InvoiceDetailView(RoleRequiredMixin, View):
         if effective_currency is None:
             effective_currency = school.get_effective_currency()
 
-        # Resolve account number and GST for conditional invoice display
-        # (class override → dept override → school default; None = show nothing)
-        if primary_classroom:
-            resolved_account_number = primary_classroom.get_resolved_account_number()
-            resolved_gst = primary_classroom.get_resolved_gst()
-        elif primary_dept:
-            resolved_account_number = primary_dept.get_resolved_account_number()
-            resolved_gst = primary_dept.get_resolved_gst()
-        else:
-            resolved_account_number = school.get_resolved_account_number()
-            resolved_gst = school.get_resolved_gst()
+        # Resolve student display info for payment reference
+        from .models import SchoolStudent
+        school_student = SchoolStudent.objects.filter(
+            school=school, student=invoice.student,
+        ).first()
+        student_name = f'{invoice.student.first_name} {invoice.student.last_name}'.strip()
+        student_id_code = school_student.student_id_code if school_student else ''
+
+        # Build payment groups — one entry per unique resolved account number.
+        # When an invoice spans multiple departments with different account
+        # numbers (e.g. student enrolled in Aesthetics AND IT), each group is
+        # shown separately on the invoice so the parent knows which account to
+        # pay for which department.
+        #
+        # Groups are keyed by resolved account number (empty string = no account).
+        # Departments that resolve to the same account number are merged.
+        _account_groups = {}
+        for li in line_items:
+            if li.rate_source == 'opening_balance':
+                continue
+            cls = li.classroom
+            dept = li.department  # denormalized FK on line item
+
+            # ----------------------------------------------------------------
+            # Resolve the account number AND the supporting bank details
+            # (bank_name, bsb, account_name) from the SAME entity that owns
+            # the account number.  Using get_effective_settings() for bank
+            # details is wrong when the department has its own account number
+            # but no bank_name — it would bleed the school's bank_name (for
+            # the school's *different* account) onto the dept's account block.
+            #
+            # Priority: ClassRoom override → Department override → School
+            # ----------------------------------------------------------------
+            if cls and cls.bank_account_number:
+                # Class has its own account — use class-level bank details
+                acc = cls.bank_account_number
+                bank_owner = cls
+            elif dept and dept.bank_account_number:
+                # Department has its own account — use department-level details
+                acc = dept.bank_account_number
+                bank_owner = dept
+            else:
+                # Fall back to the school's account
+                acc = school.bank_account_number or None
+                bank_owner = school
+
+            gst = cls.get_resolved_gst() if cls else (
+                dept.get_resolved_gst() if dept else school.get_resolved_gst()
+            )
+
+            dept_name = dept.name if dept else None
+            key = acc or ''
+            if key not in _account_groups:
+                _account_groups[key] = {
+                    'account_number': acc,
+                    'gst': gst,
+                    'bank_name': getattr(bank_owner, 'bank_name', '') or '',
+                    'bank_bsb': getattr(bank_owner, 'bank_bsb', '') or '',
+                    'bank_account_name': getattr(bank_owner, 'bank_account_name', '') or '',
+                    'department_names': [],
+                }
+            if dept_name and dept_name not in _account_groups[key]['department_names']:
+                _account_groups[key]['department_names'].append(dept_name)
+        # Only include groups that have something to display
+        payment_groups = [
+            g for g in _account_groups.values()
+            if g['account_number'] or g['gst']
+        ]
 
         return render(request, 'invoicing/invoice_detail.html', {
             'invoice': invoice,
@@ -890,8 +951,9 @@ class InvoiceDetailView(RoleRequiredMixin, View):
             'resolved_stripe_link': invoice.get_stripe_payment_link(),
             'effective_settings': effective_settings,
             'effective_currency': effective_currency,
-            'resolved_account_number': resolved_account_number,
-            'resolved_gst': resolved_gst,
+            'payment_groups': payment_groups,
+            'student_name': student_name,
+            'student_id_code': student_id_code,
         })
 
     def post(self, request, invoice_id):
