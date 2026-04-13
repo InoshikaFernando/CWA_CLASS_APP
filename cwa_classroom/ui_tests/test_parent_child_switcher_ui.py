@@ -224,25 +224,21 @@ class TestChildSwitcherHomeworkIsolation:
             due_date=timezone.now() + timedelta(days=5), num_questions=5,
         )
 
+    def _switch_to_child(self, name: str):
+        """Open the sidebar switcher dropdown and click the named child."""
+        _ensure_sidebar_visible(self.page)
+        self.page.locator("aside#sidebar button").first.click()
+        self.page.wait_for_timeout(300)  # Alpine.js transition
+        btn = self.page.locator("aside#sidebar button", has_text=name).first
+        expect(btn).to_be_visible()
+        btn.click()
+        self.page.wait_for_load_state("domcontentloaded")
+
     def test_alice_sees_only_her_homework(self):
         do_login(self.page, self.url, self.data["parent"])
-        # Navigate to a real page first so the CSRF cookie is set
         self.page.goto(f"{self.url}/parent/")
         self.page.wait_for_load_state("domcontentloaded")
-        # Use a form POST via evaluate since Playwright can't POST a URL directly
-        self.page.evaluate(f"""() => {{
-            const f = document.createElement('form');
-            f.method = 'POST';
-            f.action = '{self.url}/parent/switch-child/{self.data["child1"].id}/';
-            const c = document.createElement('input');
-            c.name = 'csrfmiddlewaretoken';
-            const m = document.cookie.match(/csrftoken=([^;]+)/);
-            c.value = m ? m[1] : '';
-            f.appendChild(c);
-            document.body.appendChild(f);
-            f.submit();
-        }}""")
-        self.page.wait_for_load_state("domcontentloaded")
+        self._switch_to_child("Alice")
         self.page.goto(f"{self.url}/parent/homework/")
         self.page.wait_for_load_state("domcontentloaded")
         body = self.page.locator("body").inner_text()
@@ -251,22 +247,9 @@ class TestChildSwitcherHomeworkIsolation:
 
     def test_bob_sees_only_his_homework(self):
         do_login(self.page, self.url, self.data["parent"])
-        # Navigate first so the CSRF cookie is set before the switch POST
         self.page.goto(f"{self.url}/parent/")
         self.page.wait_for_load_state("domcontentloaded")
-        self.page.evaluate(f"""() => {{
-            const f = document.createElement('form');
-            f.method = 'POST';
-            f.action = '{self.url}/parent/switch-child/{self.data["child2"].id}/';
-            const c = document.createElement('input');
-            c.name = 'csrfmiddlewaretoken';
-            const m = document.cookie.match(/csrftoken=([^;]+)/);
-            c.value = m ? m[1] : '';
-            f.appendChild(c);
-            document.body.appendChild(f);
-            f.submit();
-        }}""")
-        self.page.wait_for_load_state("domcontentloaded")
+        self._switch_to_child("Bob")
         self.page.goto(f"{self.url}/parent/homework/")
         self.page.wait_for_load_state("domcontentloaded")
         body = self.page.locator("body").inner_text()

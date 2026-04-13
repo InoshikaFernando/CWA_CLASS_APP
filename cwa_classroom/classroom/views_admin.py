@@ -415,6 +415,8 @@ class SchoolSettingsView(RoleRequiredMixin, View):
         # Banking & invoice
         'bank_name', 'bank_bsb', 'bank_account_number', 'bank_account_name',
         'invoice_terms', 'invoice_due_days',
+        # Fees
+        'default_fee',
         # Payments
         'stripe_payment_link',
     ]
@@ -462,6 +464,16 @@ class SchoolSettingsView(RoleRequiredMixin, View):
                         setattr(school, field, int(val))
                     except ValueError:
                         pass
+            elif field == 'default_fee':
+                val = request.POST.get(field, '').strip()
+                if val:
+                    try:
+                        from decimal import Decimal, InvalidOperation
+                        setattr(school, field, Decimal(val))
+                    except InvalidOperation:
+                        pass
+                else:
+                    setattr(school, field, None)
             else:
                 setattr(school, field, request.POST.get(field, '').strip())
 
