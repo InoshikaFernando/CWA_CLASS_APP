@@ -1,0 +1,365 @@
+{% extends "coding/base.html" %}
+{% block coding_title %}{{ topic.name }} — {{ language.name }}{% endblock %}
+
+{% block content %}
+<style>
+  :root {
+    --cw-green-50:  #f0faf5; --cw-green-100: #d6f5e8;
+    --cw-green-200: #9FE1CB; --cw-green-300: #5DCAA5;
+    --cw-green-400: #1D9E75; --cw-green-600: #0F6E56;
+    --cw-amber-50:  #FAEEDA; --cw-amber-100: #F5DFA8;
+    --cw-amber-400: #BA7517; --cw-amber-600: #854F0B;
+    --cw-rose-50:   #FEF1F1; --cw-rose-100:  #FECACA;
+    --cw-rose-400:  #F87171; --cw-rose-600:  #DC2626;
+    --cw-gray-50:   #F1EFE8; --cw-gray-100:  #D3D1C7;
+    --cw-gray-400:  #888780; --cw-gray-600:  #5F5E5A;
+    --cw-blue-50:   #E6F1FB; --cw-blue-600:  #185FA5;
+    --cw-coral-50:  #FAECE7; --cw-coral-600: #993C1D;
+    --cw-purple-50: #EEEDFE; --cw-purple-600:#534AB7;
+    --cw-pink-50:   #FBEAF0; --cw-pink-600:  #993556;
+    --cw-text-primary:   #1a1a18;
+    --cw-text-secondary: #5F5E5A;
+    --cw-text-muted:     #888780;
+    --cw-border:    rgba(0,0,0,0.08);
+    --cw-border-md: rgba(0,0,0,0.13);
+    --cw-surface:   #ffffff;
+  }
+
+  .ll-page {
+    background: var(--cw-green-50);
+    margin: -24px -16px -96px;
+    padding: 20px 16px 64px;
+    min-height: calc(100vh - 10rem);
+  }
+  @media (min-width: 768px) {
+    .ll-page { margin: -24px -32px -24px; padding: 28px 40px 64px; }
+  }
+  .ll-inner { max-width: 760px; margin: 0 auto; }
+
+  /* Back link */
+  .ll-back {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 13px; color: var(--cw-text-muted);
+    text-decoration: none; margin-bottom: 20px;
+    transition: color .15s;
+  }
+  .ll-back:hover { color: var(--cw-green-600); }
+
+  /* Hero */
+  .ll-hero { margin-bottom: 28px; }
+
+  .ll-lang-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    margin-bottom: 12px;
+  }
+  .ll-lang-icon {
+    width: 28px; height: 28px; border-radius: 6px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .ll-icon-python     { background: var(--cw-blue-50);   color: var(--cw-blue-600); }
+  .ll-icon-javascript { background: var(--cw-amber-50);  color: var(--cw-amber-600); }
+  .ll-icon-html       { background: var(--cw-coral-50);  color: var(--cw-coral-600); }
+  .ll-icon-css        { background: var(--cw-purple-50); color: var(--cw-purple-600); }
+  .ll-icon-scratch    { background: var(--cw-pink-50);   color: var(--cw-pink-600); }
+  .ll-icon-default    { background: var(--cw-gray-50);   color: var(--cw-gray-600); }
+  .ll-lang-name { font-size: 13px; color: var(--cw-text-muted); font-weight: 500; }
+
+  .ll-hero h1 {
+    font-size: 26px; font-weight: 700; letter-spacing: -0.4px;
+    color: var(--cw-text-primary); margin-bottom: 4px;
+  }
+  .ll-hero-sub { font-size: 14px; color: var(--cw-text-secondary); margin-bottom: 18px; }
+
+  /* Overall progress */
+  .ll-overall {
+    background: var(--cw-surface);
+    border: 1px solid var(--cw-border);
+    border-radius: 14px; padding: 14px 18px;
+    display: flex; align-items: center; gap: 14px;
+    flex-wrap: wrap;
+  }
+  .ll-overall-label { font-size: 12px; color: var(--cw-text-muted); white-space: nowrap; }
+  .ll-overall-track {
+    flex: 1; min-width: 80px; height: 6px;
+    background: var(--cw-green-100); border-radius: 99px; overflow: hidden;
+  }
+  .ll-overall-fill {
+    height: 100%; border-radius: 99px;
+    background: linear-gradient(90deg, var(--cw-green-300), var(--cw-green-400));
+    transition: width .8s ease;
+  }
+  .ll-overall-right { display: flex; align-items: center; gap: 8px; }
+  .ll-overall-count {
+    font-size: 13px; font-weight: 500; color: var(--cw-text-primary);
+    font-family: 'JetBrains Mono', monospace; white-space: nowrap;
+  }
+  .ll-overall-pct {
+    font-size: 12px; color: var(--cw-green-600); font-weight: 600;
+    background: var(--cw-green-50); border: 1px solid var(--cw-green-200);
+    padding: 1px 8px; border-radius: 99px;
+  }
+
+  /* Level cards stack */
+  .ll-levels { display: flex; flex-direction: column; gap: 12px; margin-top: 24px; }
+
+  /* Shared card base */
+  .ll-card {
+    background: var(--cw-surface);
+    border-radius: 16px;
+    border: 1px solid var(--cw-border);
+    padding: 20px 22px;
+    display: flex; align-items: center; gap: 18px;
+    text-decoration: none; color: inherit;
+    position: relative; overflow: hidden;
+    transition: border-color .18s, transform .18s, box-shadow .18s;
+    animation: ll-up .35s ease both;
+  }
+  .ll-card:nth-child(1){ animation-delay: .05s; }
+  .ll-card:nth-child(2){ animation-delay: .12s; }
+  .ll-card:nth-child(3){ animation-delay: .19s; }
+  @keyframes ll-up {
+    from { opacity:0; transform:translateY(10px); }
+    to   { opacity:1; transform:translateY(0); }
+  }
+
+  /* Left accent stripe */
+  .ll-card::before {
+    content: ''; position: absolute;
+    left: 0; top: 0; bottom: 0; width: 4px;
+    border-radius: 16px 0 0 16px;
+    background: transparent; transition: background .18s;
+  }
+
+  /* Colour variants */
+  .ll-card-green:hover  { border-color: var(--cw-green-200); box-shadow: 0 6px 20px rgba(29,158,117,.12); transform: translateY(-2px); }
+  .ll-card-green:hover::before { background: var(--cw-green-400); }
+  .ll-card-amber:hover  { border-color: var(--cw-amber-100); box-shadow: 0 6px 20px rgba(186,117,23,.10); transform: translateY(-2px); }
+  .ll-card-amber:hover::before { background: var(--cw-amber-400); }
+  .ll-card-rose:hover   { border-color: var(--cw-rose-100);  box-shadow: 0 6px 20px rgba(248,113,113,.10); transform: translateY(-2px); }
+  .ll-card-rose:hover::before  { background: var(--cw-rose-400); }
+  .ll-card:active { transform: translateY(0); }
+
+  /* Level icon square */
+  .ll-icon-box {
+    width: 50px; height: 50px; border-radius: 14px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 3px; flex-shrink: 0;
+  }
+  .ll-icon-green { background: var(--cw-green-400); color: #fff; }
+  .ll-icon-amber { background: var(--cw-amber-400); color: #fff; }
+  .ll-icon-rose  { background: var(--cw-rose-400);  color: #fff; }
+  .ll-icon-gray  { background: var(--cw-gray-100);  color: var(--cw-gray-400); }
+  .ll-stars { font-size: 12px; letter-spacing: 1px; line-height: 1; }
+  .ll-level-word { font-size: 9px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; opacity: .8; }
+
+  /* Card body */
+  .ll-card-body { flex: 1; min-width: 0; }
+
+  .ll-title-row {
+    display: flex; align-items: center;
+    justify-content: space-between; gap: 10px;
+    margin-bottom: 3px;
+  }
+  .ll-title {
+    font-size: 16px; font-weight: 600; color: var(--cw-text-primary);
+  }
+
+  /* Status badge */
+  .ll-badge {
+    font-size: 11px; font-weight: 500;
+    padding: 2px 9px; border-radius: 99px; white-space: nowrap; flex-shrink: 0;
+  }
+  .ll-badge-done     { background: var(--cw-green-50); color: var(--cw-green-600); border: 1px solid var(--cw-green-200); }
+  .ll-badge-progress { background: var(--cw-amber-50); color: var(--cw-amber-600); }
+  .ll-badge-soon     { background: var(--cw-gray-50);  color: var(--cw-gray-400);  border: 1px solid var(--cw-gray-100); }
+
+  .ll-hint { font-size: 12.5px; color: var(--cw-text-muted); margin-bottom: 11px; line-height: 1.5; }
+
+  .ll-ex-count {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; color: var(--cw-text-muted); margin-bottom: 9px;
+  }
+  .ll-ex-dot {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--cw-text-muted); display: inline-block;
+  }
+
+  /* Progress row */
+  .ll-prog {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .ll-track {
+    flex: 1; height: 5px;
+    border-radius: 99px; overflow: hidden;
+  }
+  .ll-track-green { background: var(--cw-green-100); }
+  .ll-track-amber { background: var(--cw-amber-50); }
+  .ll-track-rose  { background: var(--cw-rose-50); }
+  .ll-fill {
+    height: 100%; border-radius: 99px; transition: width .6s ease;
+  }
+  .ll-fill-green { background: linear-gradient(90deg, var(--cw-green-300), var(--cw-green-400)); }
+  .ll-fill-amber { background: linear-gradient(90deg, var(--cw-amber-100), var(--cw-amber-400)); }
+  .ll-fill-rose  { background: linear-gradient(90deg, var(--cw-rose-100),  var(--cw-rose-400)); }
+  .ll-count {
+    font-size: 12px; font-weight: 500; color: var(--cw-text-muted);
+    font-family: 'JetBrains Mono', monospace; white-space: nowrap;
+  }
+  .ll-count-green { color: var(--cw-green-600); }
+  .ll-count-amber { color: var(--cw-amber-600); }
+  .ll-count-rose  { color: var(--cw-rose-600); }
+
+  /* Arrow button */
+  .ll-arrow {
+    width: 34px; height: 34px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; flex-shrink: 0;
+    border: 1px solid var(--cw-green-200);
+    background: var(--cw-green-50); color: var(--cw-green-600);
+    transition: background .15s, border-color .15s, color .15s;
+  }
+  .ll-card-green:hover .ll-arrow { background: var(--cw-green-400); border-color: var(--cw-green-400); color: #fff; }
+  .ll-card-amber:hover .ll-arrow { background: var(--cw-amber-400); border-color: var(--cw-amber-400); color: #fff; }
+  .ll-card-rose:hover  .ll-arrow { background: var(--cw-rose-400);  border-color: var(--cw-rose-400);  color: #fff; }
+
+  /* Disabled / coming soon */
+  .ll-card-disabled {
+    background: var(--cw-surface); border-radius: 16px;
+    border: 1px solid var(--cw-border); padding: 20px 22px;
+    display: flex; align-items: center; gap: 18px;
+    opacity: .5; animation: ll-up .35s ease both;
+  }
+  .ll-arrow-muted {
+    background: var(--cw-gray-50); border-color: var(--cw-gray-100);
+    color: var(--cw-gray-400);
+  }
+
+  @media (max-width: 560px) {
+    .ll-card, .ll-card-disabled { flex-wrap: wrap; gap: 14px; }
+    .ll-icon-box { width: 44px; height: 44px; }
+    .ll-hero h1 { font-size: 21px; }
+  }
+</style>
+
+<div class="ll-page">
+  <div class="ll-inner">
+
+    <!-- Back link -->
+    <a class="ll-back" href="{% url 'coding:topic_list' lang_slug=language.slug %}">
+      &#8592; {{ language.name }} Topics
+    </a>
+
+    <!-- Hero -->
+    <div class="ll-hero">
+      <div class="ll-lang-badge">
+        <span class="ll-lang-icon ll-icon-{{ language.slug|default:'default' }}">
+          {% if language.slug == 'python' %}Py
+          {% elif language.slug == 'javascript' %}JS
+          {% elif language.slug == 'html' %}&lt;/&gt;
+          {% elif language.slug == 'css' %}CSS
+          {% elif language.slug == 'scratch' %}Sc
+          {% else %}{ }{% endif %}
+        </span>
+        <span class="ll-lang-name">{{ language.name }}</span>
+      </div>
+      <h1>{{ topic.name }}</h1>
+      <p class="ll-hero-sub">Select a difficulty level to begin</p>
+
+      {% if topic_total %}
+      <div class="ll-overall">
+        <span class="ll-overall-label">Overall progress</span>
+        <div class="ll-overall-track">
+          <div class="ll-overall-fill" style="width:{{ topic_pct }}%;"></div>
+        </div>
+        <div class="ll-overall-right">
+          <span class="ll-overall-count">{{ topic_completed }}/{{ topic_total }}</span>
+          {% if topic_pct %}<span class="ll-overall-pct">{{ topic_pct }}%</span>{% endif %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Level cards -->
+    <div class="ll-levels">
+      {% for ld in level_data %}
+
+      {% if ld.total > 0 %}
+      <a class="ll-card ll-card-{{ ld.colour }}"
+         href="{% url 'coding:exercise_list' lang_slug=language.slug topic_slug=topic.slug level=ld.level %}">
+
+        <div class="ll-icon-box ll-icon-{{ ld.colour }}">
+          <span class="ll-stars">
+            {% if ld.stars == 1 %}&#9733;
+            {% elif ld.stars == 2 %}&#9733;&#9733;
+            {% else %}&#9733;&#9733;&#9733;
+            {% endif %}
+          </span>
+          <span class="ll-level-word">
+            {% if ld.stars == 1 %}Lv.1{% elif ld.stars == 2 %}Lv.2{% else %}Lv.3{% endif %}
+          </span>
+        </div>
+
+        <div class="ll-card-body">
+          <div class="ll-title-row">
+            <span class="ll-title">{{ ld.label }}</span>
+            {% if ld.is_complete %}
+              <span class="ll-badge ll-badge-done">&#10003; Complete</span>
+            {% elif ld.is_started %}
+              <span class="ll-badge ll-badge-progress">In progress</span>
+            {% endif %}
+          </div>
+
+          <p class="ll-hint">{{ ld.hint }}</p>
+
+          <div class="ll-ex-count">
+            <span class="ll-ex-dot"></span>
+            {{ ld.total }} exercise{{ ld.total|pluralize }}
+          </div>
+
+          <div class="ll-prog">
+            <div class="ll-track ll-track-{{ ld.colour }}">
+              <div class="ll-fill ll-fill-{{ ld.colour }}" style="width:{{ ld.pct }}%;"></div>
+            </div>
+            <span class="ll-count {% if ld.is_started %}ll-count-{{ ld.colour }}{% endif %}">
+              {{ ld.completed }}/{{ ld.total }}
+            </span>
+          </div>
+        </div>
+
+        <div class="ll-arrow">&#8594;</div>
+
+      </a>
+
+      {% else %}
+      <div class="ll-card-disabled">
+        <div class="ll-icon-box ll-icon-gray">
+          <span class="ll-stars">
+            {% if ld.stars == 1 %}&#9733;
+            {% elif ld.stars == 2 %}&#9733;&#9733;
+            {% else %}&#9733;&#9733;&#9733;
+            {% endif %}
+          </span>
+          <span class="ll-level-word">
+            {% if ld.stars == 1 %}Lv.1{% elif ld.stars == 2 %}Lv.2{% else %}Lv.3{% endif %}
+          </span>
+        </div>
+        <div class="ll-card-body">
+          <div class="ll-title-row">
+            <span class="ll-title">{{ ld.label }}</span>
+            <span class="ll-badge ll-badge-soon">Coming soon</span>
+          </div>
+          <p class="ll-hint" style="margin-bottom:0;">Exercises for this level will be available soon.</p>
+        </div>
+        <div class="ll-arrow ll-arrow-muted">&#8594;</div>
+      </div>
+      {% endif %}
+
+      {% endfor %}
+    </div>
+
+  </div>
+</div>
+{% endblock %}
