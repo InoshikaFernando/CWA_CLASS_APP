@@ -887,28 +887,43 @@ class InvoiceDetailView(RoleRequiredMixin, View):
                 continue
             cls = li.classroom
             dept = li.department  # denormalized FK on line item
-            # Resolve account number and supporting bank fields
-            if cls:
-                acc = cls.get_resolved_account_number()
-                gst = cls.get_resolved_gst()
-                eff = school.get_effective_settings(dept, cls)
-            elif dept:
-                acc = dept.get_resolved_account_number()
-                gst = dept.get_resolved_gst()
-                eff = school.get_effective_settings(dept)
+
+            # ----------------------------------------------------------------
+            # Resolve the account number AND the supporting bank details
+            # (bank_name, bsb, account_name) from the SAME entity that owns
+            # the account number.  Using get_effective_settings() for bank
+            # details is wrong when the department has its own account number
+            # but no bank_name — it would bleed the school's bank_name (for
+            # the school's *different* account) onto the dept's account block.
+            #
+            # Priority: ClassRoom override → Department override → School
+            # ----------------------------------------------------------------
+            if cls and cls.bank_account_number:
+                # Class has its own account — use class-level bank details
+                acc = cls.bank_account_number
+                bank_owner = cls
+            elif dept and dept.bank_account_number:
+                # Department has its own account — use department-level details
+                acc = dept.bank_account_number
+                bank_owner = dept
             else:
-                acc = school.get_resolved_account_number()
-                gst = school.get_resolved_gst()
-                eff = school.get_effective_settings()
+                # Fall back to the school's account
+                acc = school.bank_account_number or None
+                bank_owner = school
+
+            gst = cls.get_resolved_gst() if cls else (
+                dept.get_resolved_gst() if dept else school.get_resolved_gst()
+            )
+
             dept_name = dept.name if dept else None
             key = acc or ''
             if key not in _account_groups:
                 _account_groups[key] = {
                     'account_number': acc,
                     'gst': gst,
-                    'bank_name': eff.get('bank_name', ''),
-                    'bank_bsb': eff.get('bank_bsb', ''),
-                    'bank_account_name': eff.get('bank_account_name', ''),
+                    'bank_name': getattr(bank_owner, 'bank_name', '') or '',
+                    'bank_bsb': getattr(bank_owner, 'bank_bsb', '') or '',
+                    'bank_account_name': getattr(bank_owner, 'bank_account_name', '') or '',
                     'department_names': [],
                 }
             if dept_name and dept_name not in _account_groups[key]['department_names']:
