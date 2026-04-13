@@ -84,6 +84,9 @@ INSTALLED_APPS = [
 
     # Help & Documentation
     'help',
+
+    # Lifecycle email notifications
+    'notifications',
 ]
 
 # ---------------------------------------------------------------------------
