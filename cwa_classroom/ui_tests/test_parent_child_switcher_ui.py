@@ -224,9 +224,18 @@ class TestChildSwitcherHomeworkIsolation:
             due_date=timezone.now() + timedelta(days=5), num_questions=5,
         )
 
+    def _switch_to_child(self, name: str):
+        """Open the sidebar switcher dropdown and click the named child."""
+        _ensure_sidebar_visible(self.page)
+        self.page.locator("aside#sidebar button").first.click()
+        self.page.wait_for_timeout(300)  # Alpine.js transition
+        btn = self.page.locator("aside#sidebar button", has_text=name).first
+        expect(btn).to_be_visible()
+        btn.click()
+        self.page.wait_for_load_state("domcontentloaded")
+
     def test_alice_sees_only_her_homework(self):
         do_login(self.page, self.url, self.data["parent"])
-        # Navigate to a real page first so the CSRF cookie is set
         self.page.goto(f"{self.url}/parent/")
         self.page.wait_for_load_state("networkidle")
         # Use a form POST via evaluate since Playwright can't POST a URL directly
@@ -252,7 +261,6 @@ class TestChildSwitcherHomeworkIsolation:
 
     def test_bob_sees_only_his_homework(self):
         do_login(self.page, self.url, self.data["parent"])
-        # Navigate first so the CSRF cookie is set before the switch POST
         self.page.goto(f"{self.url}/parent/")
         self.page.wait_for_load_state("networkidle")
         self.page.evaluate(f"""() => {{
