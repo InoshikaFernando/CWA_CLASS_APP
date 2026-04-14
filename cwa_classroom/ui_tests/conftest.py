@@ -18,13 +18,11 @@ if "DB_ENGINE" not in os.environ:
 # Allow synchronous DB operations in Playwright's async event loop
 os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
 
-import time as time_module
 import uuid
 from datetime import date, time, timedelta
 from decimal import Decimal
 
 import pytest
-from django.db import OperationalError, transaction
 from django.utils import timezone
 from playwright.sync_api import Page, expect
 
@@ -277,27 +275,11 @@ def school(db, admin_user):
     yield school
 
     # Cascade cleanup — deletes departments, classes, sessions, attendance, etc.
-    # With parallel tests (-n auto), SQLite can have locking issues, so retry with backoff
-    def delete_with_retry(obj, max_retries=5):
-        """Delete an object with exponential backoff retry for SQLite locking."""
-        for attempt in range(max_retries):
-            try:
-                with transaction.atomic():
-                    obj.delete()
-                return
-            except OperationalError as e:
-                if "database table is locked" not in str(e):
-                    raise
-                if attempt == max_retries - 1:
-                    raise
-                wait_time = (2 ** attempt) * 0.1  # Exponential backoff: 0.1s, 0.2s, 0.4s, 0.8s, 1.6s
-                time_module.sleep(wait_time)
-    
-    delete_with_retry(school)
+    school.delete()
     # Clean up the test user accounts too
     from accounts.models import CustomUser
     CustomUser.objects.filter(username__endswith=f"_{_RUN_ID}").delete()
-    delete_with_retry(plan)
+    plan.delete()
 
 
 @pytest.fixture
