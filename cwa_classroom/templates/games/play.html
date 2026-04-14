@@ -1,0 +1,684 @@
+{% extends "base_public.html" %}
+{% load static %}
+
+{% block title %}{{ level.title }} — {{ game.name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* ── Layout ── */
+  body { background: #0f172a; }
+  .game-wrap { min-height: 100vh; padding-top: 64px; }
+
+  /* ── HUD ── */
+  .game-hud {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 20px;
+    background: rgba(15,23,42,0.95);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+
+  /* ── Grid ── */
+  .cw-grid { border-collapse: collapse; }
+  .cw-cell {
+    width: 52px; height: 52px;
+    border: 2px solid #334155;
+    position: relative;
+    background: #1e293b;
+  }
+  .cw-cell.blocked { background: #0f172a; border-color: #0f172a; }
+  .cw-cell.selected { background: #1e40af; border-color: #3b82f6; }
+  .cw-cell.word-highlight { background: #1e3a5f; border-color: #334155; }
+  .cw-cell.correct  { background: #14532d !important; border-color: #22c55e !important; }
+  .cw-cell.wrong    { background: #7f1d1d !important; border-color: #ef4444 !important; }
+
+  .cw-input {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    background: transparent;
+    border: none; outline: none;
+    text-align: center;
+    font-size: 1.3rem; font-weight: 800;
+    color: #f1f5f9;
+    text-transform: uppercase;
+    caret-color: transparent;
+    cursor: pointer;
+  }
+  .cw-input:focus { outline: none; }
+
+  .clue-num {
+    position: absolute; top: 2px; left: 3px;
+    font-size: 0.55rem; font-weight: 700;
+    color: #94a3b8; line-height: 1;
+    pointer-events: none;
+  }
+
+  /* ── Clue panel ── */
+  .clue-list { max-height: 280px; overflow-y: auto; }
+  .clue-list::-webkit-scrollbar { width: 4px; }
+  .clue-list::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+  .clue-item {
+    padding: 8px 12px; border-radius: 8px; cursor: pointer;
+    transition: background 0.15s; border: 1px solid transparent;
+  }
+  .clue-item:hover { background: #1e293b; }
+  .clue-item.active-clue {
+    background: #1e3a5f !important;
+    border-color: #3b82f6;
+  }
+
+  /* ── Active clue bar (mobile) ── */
+  .active-clue-bar {
+    position: sticky; bottom: 0;
+    background: rgba(15,23,42,0.98);
+    border-top: 1px solid #1e293b;
+    padding: 10px 16px;
+  }
+
+  /* ── Completion overlay ── */
+  .complete-overlay {
+    position: fixed; inset: 0; z-index: 200;
+    background: rgba(0,0,0,0.85);
+    backdrop-filter: blur(10px);
+    display: none; align-items: center; justify-content: center;
+  }
+  .complete-overlay.show { display: flex; }
+  .complete-card {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 24px;
+    padding: 36px 32px;
+    width: 320px; text-align: center;
+    animation: pop-in 0.35s cubic-bezier(.34,1.56,.64,1);
+  }
+  @keyframes pop-in {
+    from { transform: scale(0.7); opacity: 0; }
+    to   { transform: scale(1);   opacity: 1; }
+  }
+
+  /* ── Passage (science) ── */
+  .passage-box {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-left: 4px solid #8b5cf6;
+    border-radius: 12px;
+    padding: 16px 20px;
+    color: #cbd5e1;
+    font-size: 0.88rem; line-height: 1.7;
+  }
+
+  /* ── Confetti ── */
+  .confetti-piece {
+    position: fixed; top: -20px;
+    border-radius: 2px;
+    animation: cffall linear forwards;
+    pointer-events: none; z-index: 300;
+  }
+  @keyframes cffall {
+    to { transform: translateY(110vh) rotate(720deg); opacity: 0; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- HUD -->
+<div class="game-hud">
+  <div class="flex items-center gap-3">
+    <a href="{% url 'games:stage_map' game.slug %}"
+       class="text-slate-400 hover:text-white transition text-sm">← Map</a>
+    <span class="text-white/20">|</span>
+    <div>
+      <p class="text-xs text-slate-400 leading-none">{{ game.name }}</p>
+      <p class="text-sm font-bold text-white leading-tight">{{ level.title|default:"Level "|add:level.order }}</p>
+    </div>
+  </div>
+  <div class="flex items-center gap-4">
+    <div class="text-center">
+      <p class="text-[10px] text-slate-500 uppercase tracking-wide">Time</p>
+      <p class="text-sm font-bold text-white font-mono" id="timer">0:00</p>
+    </div>
+    <div class="text-center">
+      <p class="text-[10px] text-slate-500 uppercase tracking-wide">Score</p>
+      <p class="text-sm font-bold text-yellow-400 font-mono" id="score-display">—</p>
+    </div>
+  </div>
+</div>
+
+<!-- Main game area -->
+<div class="game-wrap">
+  <div class="max-w-4xl mx-auto px-4 py-6 flex flex-col gap-6">
+
+    <!-- Science passage -->
+    {% if level.passage %}
+    <div class="passage-box">
+      <p class="text-xs font-bold text-purple-400 uppercase tracking-wider mb-2">📖 Read This First</p>
+      <p>{{ level.passage }}</p>
+    </div>
+    {% endif %}
+
+    <!-- Grid + Clues -->
+    <div class="flex flex-col lg:flex-row gap-6 items-start">
+
+      <!-- Grid -->
+      <div class="flex flex-col items-center gap-4">
+        <div id="grid-container" class="overflow-auto"></div>
+
+        <!-- Action buttons -->
+        <div class="flex gap-3">
+          <button id="check-btn"
+                  class="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition text-sm shadow-lg">
+            ✓ Check
+          </button>
+          <button id="clear-btn"
+                  class="px-5 py-2.5 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-xl transition text-sm">
+            ↺ Clear
+          </button>
+          <button id="reveal-btn"
+                  class="px-5 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-300 font-bold rounded-xl transition text-sm">
+            👁 Reveal
+          </button>
+        </div>
+      </div>
+
+      <!-- Clue panel -->
+      <div class="flex-1 min-w-0 flex flex-col gap-4">
+
+        <!-- Active clue (always visible) -->
+        <div id="active-clue-display"
+             class="bg-slate-800 border border-slate-600 rounded-xl p-4 min-h-[56px]">
+          <p class="text-[10px] text-slate-500 uppercase tracking-wider mb-1" id="active-dir-label">Select a cell</p>
+          <p class="text-white font-semibold text-sm leading-snug" id="active-clue-text">Click a white cell to begin.</p>
+        </div>
+
+        <!-- Across / Down tabs -->
+        <div class="bg-slate-900 border border-slate-700 rounded-2xl overflow-hidden">
+          <div class="flex border-b border-slate-700">
+            <button id="tab-across"
+                    class="flex-1 py-2.5 text-xs font-bold uppercase tracking-wider text-blue-400 border-b-2 border-blue-500 transition">
+              Across
+            </button>
+            <button id="tab-down"
+                    class="flex-1 py-2.5 text-xs font-bold uppercase tracking-wider text-slate-500 hover:text-slate-300 transition">
+              Down
+            </button>
+          </div>
+          <div id="panel-across" class="clue-list p-2"></div>
+          <div id="panel-down"   class="clue-list p-2 hidden"></div>
+        </div>
+
+      </div>
+    </div><!-- /flex -->
+
+  </div>
+</div>
+
+<!-- Completion overlay -->
+<div class="complete-overlay" id="complete-overlay">
+  <div class="complete-card">
+    <div class="text-5xl mb-3">🎉</div>
+    <h2 class="text-2xl font-black text-white mb-1">Level Complete!</h2>
+    <p class="text-slate-400 text-sm mb-4" id="complete-msg"></p>
+    <div class="text-3xl mb-4" id="complete-stars"></div>
+    <div class="flex flex-col gap-3">
+      {% with next_order=level.order|add:1 %}
+      <a id="next-level-btn"
+         href="#"
+         class="block w-full py-3 rounded-xl font-bold text-white text-sm transition"
+         style="background: linear-gradient(135deg, {{ theme.color }}, {{ theme.color }}cc)">
+        Next Level →
+      </a>
+      {% endwith %}
+      <a href="{% url 'games:stage_map' game.slug %}"
+         class="block w-full py-3 rounded-xl font-bold text-slate-400 hover:text-white text-sm border border-slate-600 transition text-center">
+        Back to Map
+      </a>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ── Data from Django ────────────────────────────────────────────────────────
+const GRID_DATA    = {{ grid_data_json|safe }};
+const CLUES        = {{ clues_json|safe }};
+const ANSWERS      = {{ answers_json|safe }};
+const SAVED_CELLS  = {{ saved_cells_json|safe }};
+const GAME_TYPE    = "{{ game.game_type }}";
+const IS_DIGIT     = GAME_TYPE === "maths_crossnumber";
+const SAVE_URL     = "{% url 'games:save_progress' game.slug stage.order level.order %}";
+const NEXT_LEVEL_ORDER = {{ level.order }} + 1;
+const STAGE_ORDER  = {{ stage.order }};
+const GAME_SLUG    = "{{ game.slug }}";
+
+const CSRF = "{{ csrf_token }}";
+
+// ── State ───────────────────────────────────────────────────────────────────
+let selectedCell  = null;   // { row, col }
+let selectedDir   = 'across';
+let cellValues    = { ...SAVED_CELLS };
+let timerSecs     = 0;
+let timerInterval = null;
+let gameOver      = false;
+
+// Build a flat clue-number → { row, col } map from grid_data
+const clueNumToPos = {};
+if (GRID_DATA.clue_numbers) {
+  for (const [num, pos] of Object.entries(GRID_DATA.clue_numbers)) {
+    clueNumToPos[num] = { row: pos[0], col: pos[1] };
+  }
+}
+
+// Build word maps: direction → clue_number → list of {row,col}
+function buildWordCells() {
+  const wordCells = { across: {}, down: {} };
+  for (const dir of ['across', 'down']) {
+    for (const clue of (CLUES[dir] || [])) {
+      const cells = [];
+      for (let i = 0; i < clue.length; i++) {
+        cells.push(dir === 'across'
+          ? { row: clue.row, col: clue.col + i }
+          : { row: clue.row + i, col: clue.col }
+        );
+      }
+      wordCells[dir][clue.number] = cells;
+    }
+  }
+  return wordCells;
+}
+const WORD_CELLS = buildWordCells();
+
+// Cell key helper
+const key = (r, c) => `${r},${c}`;
+
+// Which clue owns this cell in each direction?
+function getClueForCell(row, col, dir) {
+  for (const clue of (CLUES[dir] || [])) {
+    const cells = WORD_CELLS[dir][clue.number];
+    if (cells && cells.some(c => c.row === row && c.col === col)) return clue;
+  }
+  return null;
+}
+
+// ── Build grid DOM ──────────────────────────────────────────────────────────
+function buildGrid() {
+  const container = document.getElementById('grid-container');
+  const table = document.createElement('table');
+  table.className = 'cw-grid';
+  const blocked = new Set((GRID_DATA.blocked || []).map(([r,c]) => key(r,c)));
+  const numLookup = {};
+  for (const [num, pos] of Object.entries(GRID_DATA.clue_numbers || {})) {
+    numLookup[key(pos[0], pos[1])] = num;
+  }
+
+  for (let r = 0; r < GRID_DATA.rows; r++) {
+    const tr = document.createElement('tr');
+    for (let c = 0; c < GRID_DATA.cols; c++) {
+      const td = document.createElement('td');
+      td.className = 'cw-cell';
+      td.dataset.row = r;
+      td.dataset.col = c;
+
+      if (blocked.has(key(r, c))) {
+        td.classList.add('blocked');
+      } else {
+        // Clue number
+        const num = numLookup[key(r, c)];
+        if (num) {
+          const span = document.createElement('span');
+          span.className = 'clue-num';
+          span.textContent = num;
+          td.appendChild(span);
+        }
+
+        // Input
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.maxLength = 1;
+        inp.className = 'cw-input';
+        inp.autocomplete = 'off';
+        inp.spellcheck = false;
+        inp.dataset.row = r;
+        inp.dataset.col = c;
+        if (cellValues[key(r, c)]) inp.value = cellValues[key(r, c)];
+
+        inp.addEventListener('click',   () => onCellClick(r, c));
+        inp.addEventListener('keydown', (e) => onKeyDown(e, r, c));
+        inp.addEventListener('input',   (e) => onInput(e, r, c));
+
+        td.appendChild(inp);
+      }
+      tr.appendChild(td);
+    }
+    table.appendChild(tr);
+  }
+  container.appendChild(table);
+}
+
+// ── Selection & highlight ───────────────────────────────────────────────────
+function selectCell(row, col, dir) {
+  if (isBlocked(row, col)) return;
+  selectedCell = { row, col };
+  selectedDir  = dir;
+
+  // Clear all highlights
+  document.querySelectorAll('.cw-cell').forEach(td => {
+    td.classList.remove('selected', 'word-highlight');
+  });
+
+  // Highlight word
+  const clue = getClueForCell(row, col, dir);
+  if (clue) {
+    for (const c of WORD_CELLS[dir][clue.number]) {
+      const td = getCell(c.row, c.col);
+      if (td) td.classList.add('word-highlight');
+    }
+    updateActiveClueDisplay(clue, dir);
+  }
+
+  // Highlight selected cell
+  const td = getCell(row, col);
+  if (td) td.classList.add('selected');
+  getInput(row, col)?.focus();
+}
+
+function onCellClick(row, col) {
+  if (selectedCell && selectedCell.row === row && selectedCell.col === col) {
+    // Toggle direction on second click
+    const newDir = selectedDir === 'across' ? 'down' : 'across';
+    const c2 = getClueForCell(row, col, newDir);
+    if (c2) { selectCell(row, col, newDir); return; }
+  }
+  // Try preferred direction first, fall back
+  const c = getClueForCell(row, col, selectedDir);
+  selectCell(row, col, c ? selectedDir : (selectedDir === 'across' ? 'down' : 'across'));
+}
+
+function onKeyDown(e, row, col) {
+  if (gameOver) return;
+  const { key: k } = e;
+
+  if (k === 'ArrowRight') { e.preventDefault(); moveDir(row, col, 0, 1); return; }
+  if (k === 'ArrowLeft')  { e.preventDefault(); moveDir(row, col, 0,-1); return; }
+  if (k === 'ArrowDown')  { e.preventDefault(); moveDir(row, col, 1, 0); return; }
+  if (k === 'ArrowUp')    { e.preventDefault(); moveDir(row, col,-1, 0); return; }
+  if (k === 'Tab') {
+    e.preventDefault();
+    advanceToNextClue(e.shiftKey);
+    return;
+  }
+  if (k === 'Backspace') {
+    e.preventDefault();
+    const inp = getInput(row, col);
+    if (inp && inp.value) {
+      inp.value = '';
+      cellValues[key(row, col)] = '';
+      scheduleSave();
+    } else {
+      // Move backward
+      selectedDir === 'across' ? moveDir(row, col, 0,-1) : moveDir(row, col,-1, 0);
+      const prev = selectedCell;
+      if (prev) {
+        const pi = getInput(prev.row, prev.col);
+        if (pi) { pi.value = ''; cellValues[key(prev.row, prev.col)] = ''; scheduleSave(); }
+      }
+    }
+    return;
+  }
+}
+
+function onInput(e, row, col) {
+  if (gameOver) return;
+  const inp = e.target;
+  let val = inp.value.slice(-1).toUpperCase();
+  if (IS_DIGIT && !/[0-9]/.test(val)) { inp.value = cellValues[key(row, col)] || ''; return; }
+  if (!IS_DIGIT && !/[A-Za-z]/.test(val)) { inp.value = cellValues[key(row, col)] || ''; return; }
+
+  inp.value = val;
+  cellValues[key(row, col)] = val;
+  scheduleSave();
+
+  // Auto-advance
+  if (selectedDir === 'across') moveDir(row, col, 0, 1, true);
+  else                          moveDir(row, col, 1, 0, true);
+}
+
+function moveDir(row, col, dr, dc, skipBlocked = false) {
+  let r = row + dr, c = col + dc;
+  while (r >= 0 && r < GRID_DATA.rows && c >= 0 && c < GRID_DATA.cols) {
+    if (!isBlocked(r, c)) {
+      selectCell(r, c, selectedDir);
+      return;
+    }
+    if (!skipBlocked) break;
+    r += dr; c += dc;
+  }
+}
+
+function advanceToNextClue(reverse = false) {
+  const allClues = [...(CLUES.across || []), ...(CLUES.down || [])];
+  const curClue  = selectedCell ? getClueForCell(selectedCell.row, selectedCell.col, selectedDir) : null;
+  const idx = curClue ? allClues.findIndex(cl => cl.number === curClue.number && (allClues.indexOf(cl) >= (CLUES.across||[]).length) === (selectedDir === 'down')) : -1;
+  const next = allClues[(idx + (reverse ? -1 : 1) + allClues.length) % allClues.length];
+  if (!next) return;
+  const dir = (CLUES.across || []).includes(next) ? 'across' : 'down';
+  selectCell(next.row, next.col, dir);
+}
+
+// ── Clue panel ──────────────────────────────────────────────────────────────
+function buildCluePanel() {
+  ['across', 'down'].forEach(dir => {
+    const panel = document.getElementById(`panel-${dir}`);
+    for (const clue of (CLUES[dir] || [])) {
+      const div = document.createElement('div');
+      div.className = 'clue-item';
+      div.id = `clue-${dir}-${clue.number}`;
+      div.innerHTML = `<span class="text-slate-400 text-xs font-bold mr-2">${clue.number}</span>
+                       <span class="text-slate-300 text-sm">${clue.text}</span>`;
+      div.addEventListener('click', () => {
+        selectCell(clue.row, clue.col, dir);
+        // Switch tab
+        switchTab(dir);
+      });
+      panel.appendChild(div);
+    }
+  });
+
+  // Tab buttons
+  document.getElementById('tab-across').addEventListener('click', () => switchTab('across'));
+  document.getElementById('tab-down').addEventListener('click',   () => switchTab('down'));
+}
+
+function switchTab(dir) {
+  document.getElementById('panel-across').classList.toggle('hidden', dir !== 'across');
+  document.getElementById('panel-down').classList.toggle('hidden', dir !== 'down');
+  document.getElementById('tab-across').classList.toggle('text-blue-400',  dir === 'across');
+  document.getElementById('tab-across').classList.toggle('border-b-2',     dir === 'across');
+  document.getElementById('tab-across').classList.toggle('border-blue-500',dir === 'across');
+  document.getElementById('tab-across').classList.toggle('text-slate-500', dir !== 'across');
+  document.getElementById('tab-down').classList.toggle('text-blue-400',   dir === 'down');
+  document.getElementById('tab-down').classList.toggle('border-b-2',      dir === 'down');
+  document.getElementById('tab-down').classList.toggle('border-blue-500', dir === 'down');
+  document.getElementById('tab-down').classList.toggle('text-slate-500',  dir !== 'down');
+}
+
+function updateActiveClueDisplay(clue, dir) {
+  document.getElementById('active-dir-label').textContent = `${clue.number} ${dir.toUpperCase()}`;
+  document.getElementById('active-clue-text').textContent = clue.text;
+
+  // Highlight in panel
+  document.querySelectorAll('.clue-item').forEach(el => el.classList.remove('active-clue'));
+  const el = document.getElementById(`clue-${dir}-${clue.number}`);
+  if (el) {
+    el.classList.add('active-clue');
+    el.scrollIntoView({ block: 'nearest' });
+  }
+}
+
+// ── Check / Reveal ──────────────────────────────────────────────────────────
+document.getElementById('check-btn').addEventListener('click', checkAnswers);
+document.getElementById('clear-btn').addEventListener('click', clearGrid);
+document.getElementById('reveal-btn').addEventListener('click', revealAll);
+
+function checkAnswers() {
+  let correct = 0, total = 0;
+  for (const dir of ['across', 'down']) {
+    for (const clue of (CLUES[dir] || [])) {
+      const answer = (ANSWERS[dir] || {})[clue.number] || '';
+      const cells  = WORD_CELLS[dir][clue.number] || [];
+      let wordCorrect = true;
+      for (let i = 0; i < cells.length; i++) {
+        const { row, col } = cells[i];
+        const inp = getInput(row, col);
+        const expected = answer[i] ? answer[i].toUpperCase() : '';
+        const entered  = (inp?.value || '').toUpperCase();
+        const td = getCell(row, col);
+        total++;
+        if (entered && entered === expected) {
+          correct++;
+          td?.classList.add('correct');
+          td?.classList.remove('wrong');
+        } else if (entered && entered !== expected) {
+          wordCorrect = false;
+          td?.classList.add('wrong');
+          td?.classList.remove('correct');
+        } else {
+          td?.classList.remove('correct', 'wrong');
+        }
+      }
+    }
+  }
+
+  // Check if all cells are correctly filled
+  if (isComplete()) onComplete();
+}
+
+function isComplete() {
+  for (const dir of ['across', 'down']) {
+    for (const clue of (CLUES[dir] || [])) {
+      const answer = (ANSWERS[dir] || {})[clue.number] || '';
+      const cells  = WORD_CELLS[dir][clue.number] || [];
+      for (let i = 0; i < cells.length; i++) {
+        const { row, col } = cells[i];
+        const inp = getInput(row, col);
+        const expected = (answer[i] || '').toUpperCase();
+        if ((inp?.value || '').toUpperCase() !== expected) return false;
+      }
+    }
+  }
+  return true;
+}
+
+function clearGrid() {
+  document.querySelectorAll('.cw-input').forEach(inp => { inp.value = ''; });
+  document.querySelectorAll('.cw-cell').forEach(td => td.classList.remove('correct', 'wrong'));
+  cellValues = {};
+  scheduleSave();
+}
+
+function revealAll() {
+  for (const dir of ['across', 'down']) {
+    for (const clue of (CLUES[dir] || [])) {
+      const answer = (ANSWERS[dir] || {})[clue.number] || '';
+      const cells  = WORD_CELLS[dir][clue.number] || [];
+      for (let i = 0; i < cells.length; i++) {
+        const { row, col } = cells[i];
+        const inp = getInput(row, col);
+        const expected = (answer[i] || '').toUpperCase();
+        if (inp) { inp.value = expected; cellValues[key(row, col)] = expected; }
+        getCell(row, col)?.classList.add('correct');
+        getCell(row, col)?.classList.remove('wrong');
+      }
+    }
+  }
+  scheduleSave();
+  if (isComplete()) onComplete();
+}
+
+// ── Completion ──────────────────────────────────────────────────────────────
+function onComplete() {
+  if (gameOver) return;
+  gameOver = true;
+  clearInterval(timerInterval);
+
+  const elapsed = timerSecs;
+  const score   = Math.max(10, 100 - Math.floor(elapsed / 6));
+  const stars   = score >= 80 ? 3 : score >= 50 ? 2 : 1;
+
+  document.getElementById('complete-msg').textContent =
+    `Completed in ${formatTime(elapsed)} — Score: ${score}`;
+  document.getElementById('complete-stars').textContent = '⭐'.repeat(stars) + '☆'.repeat(3-stars);
+  document.getElementById('score-display').textContent = score;
+
+  // Set next level link
+  const nextUrl = `/games/${GAME_SLUG}/stage/${STAGE_ORDER}/level/${NEXT_LEVEL_ORDER}/`;
+  document.getElementById('next-level-btn').href = nextUrl;
+
+  document.getElementById('complete-overlay').classList.add('show');
+  spawnConfetti();
+  saveProgress(true, score);
+}
+
+// ── Timer ───────────────────────────────────────────────────────────────────
+function startTimer() {
+  timerInterval = setInterval(() => {
+    timerSecs++;
+    document.getElementById('timer').textContent = formatTime(timerSecs);
+  }, 1000);
+}
+function formatTime(s) {
+  return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+}
+
+// ── Save progress ────────────────────────────────────────────────────────────
+let saveTimer = null;
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => saveProgress(false, 0), 1500);
+}
+
+function saveProgress(completed, score) {
+  const isLoggedIn = "{{ request.user.is_authenticated }}" === "True";
+  if (!isLoggedIn) return;
+
+  fetch(SAVE_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+    body: JSON.stringify({ cells: cellValues, completed, score }),
+  }).catch(() => {});
+}
+
+// ── Confetti ────────────────────────────────────────────────────────────────
+function spawnConfetti() {
+  const colors = ['#fbbf24','#34d399','#60a5fa','#f472b6','#a78bfa','#fb923c'];
+  for (let i = 0; i < 60; i++) {
+    setTimeout(() => {
+      const el = document.createElement('div');
+      el.className = 'confetti-piece';
+      el.style.cssText = `left:${Math.random()*100}vw;background:${colors[i%colors.length]};
+        width:${6+Math.random()*8}px;height:${8+Math.random()*12}px;
+        animation-duration:${2+Math.random()*2}s;animation-delay:${Math.random()*.5}s`;
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), 4000);
+    }, i * 35);
+  }
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function getCell(r, c)  { return document.querySelector(`.cw-cell[data-row="${r}"][data-col="${c}"]`); }
+function getInput(r, c) { return document.querySelector(`.cw-input[data-row="${r}"][data-col="${c}"]`); }
+function isBlocked(r, c){ return (GRID_DATA.blocked||[]).some(([br,bc])=>br===r&&bc===c); }
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+buildGrid();
+buildCluePanel();
+startTimer();
+
+// Select first non-blocked cell
+const firstClue = (CLUES.across || [])[0];
+if (firstClue) selectCell(firstClue.row, firstClue.col, 'across');
+</script>
+{% endblock %}

@@ -1,0 +1,164 @@
+{% extends "base_public.html" %}
+{% load static %}
+
+{% block title %}{{ game.name }} — Stages{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* ── Theme backgrounds ── */
+  .theme-forest  { background: linear-gradient(160deg,#1a3d2b 0%,#2d6a4f 40%,#52b788 100%); }
+  .theme-ocean   { background: linear-gradient(160deg,#03045e 0%,#0077b6 40%,#00b4d8 100%); }
+  .theme-space   { background: linear-gradient(160deg,#03001c 0%,#1a1a4e 40%,#6d28d9 100%); }
+  .theme-volcano { background: linear-gradient(160deg,#1a0000 0%,#7f1d1d 40%,#dc2626 100%); }
+  .theme-crystal { background: linear-gradient(160deg,#0f0724 0%,#312e81 40%,#a78bfa 100%); }
+
+  /* ── Path SVG ── */
+  .path-done   { stroke-dasharray: none; opacity: 0.9; }
+  .path-locked { stroke-dasharray: 14 10; opacity: 0.35; }
+
+  /* ── Node states ── */
+  .node-done    { filter: drop-shadow(0 4px 12px rgba(34,197,94,.5)); }
+  .node-current { animation: pulse-node 1.6s ease-in-out infinite; }
+  .node-locked  { opacity: 0.45; }
+
+  @keyframes pulse-node {
+    0%,100% { transform: scale(1); }
+    50%     { transform: scale(1.12); }
+  }
+  .you-badge { animation: bounce-badge 1.2s ease-in-out infinite; }
+  @keyframes bounce-badge {
+    0%,100% { transform: translateY(0); }
+    50%     { transform: translateY(-5px); }
+  }
+
+  /* ── Stage accordion ── */
+  .stage-panel { transition: max-height .4s ease, opacity .3s; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{% for stage_data in stages_data %}
+{% with stage=stage_data.stage theme=stage_data.theme levels=stage_data.levels %}
+
+<section class="theme-{{ stage.theme }} min-h-screen py-8 relative overflow-hidden">
+
+  <!-- Floating particles -->
+  <div class="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden="true">
+    {% for i in "123456789012345" %}
+    <div class="absolute rounded-full opacity-10 animate-pulse"
+         style="width:{{ forloop.counter|add:'4' }}px;height:{{ forloop.counter|add:'4' }}px;
+                background:{{ theme.color }};
+                left:{{ forloop.counter0 }}%+{{ forloop.counter }}%;
+                top:{{ forloop.counter }}0%;
+                animation-delay:{{ forloop.counter }}s;
+                animation-duration:{{ forloop.counter|add:'5' }}s;"></div>
+    {% endfor %}
+  </div>
+
+  <div class="relative max-w-sm mx-auto px-4">
+
+    <!-- Stage header -->
+    <div class="text-center mb-8">
+      <div class="inline-flex items-center gap-2 bg-black/30 backdrop-blur border border-white/20 text-white text-xs font-bold px-4 py-1.5 rounded-full mb-3">
+        {{ theme.icon }} Stage {{ stage.order }}
+      </div>
+      <h2 class="text-2xl font-black text-white drop-shadow-lg">{{ stage.name }}</h2>
+      <p class="text-white/60 text-sm mt-1">{{ game.name }}</p>
+    </div>
+
+    <!-- Level path (SVG + nodes) -->
+    <div class="relative" style="min-height: {{ levels|length|add:1 }}00px;">
+
+      <!-- SVG path between nodes -->
+      <svg class="absolute inset-0 w-full pointer-events-none"
+           style="height:{{ levels|length|add:1 }}00px"
+           viewBox="0 0 300 {{ levels|length|add:1 }}00"
+           preserveAspectRatio="none">
+        {% for lvl_data in levels %}
+          {% if not forloop.last %}
+            {% with next=levels|slice:forloop.counter|first %}
+            <path
+              d="M{{ forloop.counter0|divisibleby:2|yesno:'200,80' }} {{ forloop.counter0|add:1|add:1 }}00
+                 C150,{{ forloop.counter0|add:1|add:1 }}00 150,{{ forloop.counter|add:1 }}00
+                 {{ forloop.counter|divisibleby:2|yesno:'80,200' }} {{ forloop.counter|add:1 }}00"
+              fill="none"
+              stroke="{{ theme.color }}"
+              stroke-width="6"
+              stroke-linecap="round"
+              class="{% if lvl_data.state == 'done' %}path-done{% else %}path-locked{% endif %}"
+            />
+            {% endwith %}
+          {% endif %}
+        {% endfor %}
+      </svg>
+
+      <!-- Level nodes -->
+      {% for lvl_data in levels %}
+      {% with lvl=lvl_data.level state=lvl_data.state %}
+      <div class="absolute flex flex-col items-center"
+           style="{% cycle 'left:55%' 'left:20%' 'left:60%' 'left:15%' 'left:55%' 'left:20%' %};
+                  top: {{ forloop.counter0 }}00px;
+                  transform: translateY(-50%);">
+
+        {% if state == 'current' %}
+        <div class="you-badge bg-white text-gray-800 text-[10px] font-black px-2 py-0.5 rounded-full mb-1 shadow-lg">
+          ▼ YOU
+        </div>
+        {% elif state == 'done' %}
+        <div class="flex gap-0.5 mb-1">
+          {% for s in "123" %}
+            {% if forloop.counter <= lvl_data.stars %}
+            <span class="text-yellow-400 text-xs">⭐</span>
+            {% else %}
+            <span class="text-white/30 text-xs">☆</span>
+            {% endif %}
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Node button -->
+        {% if state != 'locked' %}
+        <a href="{% url 'games:play' game.slug stage.order lvl.order %}"
+           class="node-{{ state }} relative flex items-center justify-center w-16 h-16 rounded-full border-4 border-white/30 shadow-xl transition-transform hover:scale-110
+                  {% if state == 'done' %}bg-gradient-to-br from-green-400 to-emerald-500{% else %}{% endif %}"
+           style="{% if state == 'current' %}background: linear-gradient(135deg,{{ theme.color }}cc,{{ theme.color }});box-shadow:0 0 0 6px {{ theme.color }}44,0 8px 24px {{ theme.color }}66{% endif %}">
+          <span class="text-2xl select-none">{{ lvl_data.icon }}</span>
+          <span class="absolute -bottom-1 -right-1 w-5 h-5 bg-black/50 border border-white/30 rounded-full text-white text-[10px] font-bold flex items-center justify-center">
+            {{ lvl.order }}
+          </span>
+        </a>
+        {% else %}
+        <div class="node-locked relative flex items-center justify-center w-16 h-16 rounded-full border-4 border-white/20 bg-white/10 shadow-md">
+          <span class="text-2xl">🔒</span>
+          <span class="absolute -bottom-1 -right-1 w-5 h-5 bg-black/40 border border-white/20 rounded-full text-white/60 text-[10px] font-bold flex items-center justify-center">
+            {{ lvl.order }}
+          </span>
+        </div>
+        {% endif %}
+
+        <!-- Level name below node -->
+        <p class="mt-2 text-white/80 text-xs font-semibold text-center max-w-[90px] leading-tight">
+          {{ lvl.title|default:"Level "|add:lvl.order|stringformat:"s" }}
+        </p>
+
+      </div>
+      {% endwith %}
+      {% endfor %}
+
+    </div><!-- /path container -->
+
+  </div><!-- /max-w -->
+</section>
+
+{% endwith %}
+{% endfor %}
+
+<!-- Back link -->
+<div class="bg-gray-900 py-6 text-center">
+  <a href="{% url 'games:index' %}" class="text-white/60 hover:text-white text-sm font-semibold transition">
+    ← Back to All Games
+  </a>
+</div>
+
+{% endblock %}

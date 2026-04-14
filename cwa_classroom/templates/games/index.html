@@ -1,0 +1,77 @@
+{% extends "base_public.html" %}
+{% load static %}
+
+{% block title %}Free Games{% endblock %}
+{% block meta_description %}Play free educational games — maths cross numbers, English crosswords, and science crosswords. No sign-up needed to start!{% endblock %}
+
+{% block content %}
+
+  <!-- Hero -->
+  <section class="bg-gradient-to-br from-indigo-50 via-blue-50 to-purple-50 py-16">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+      <div class="inline-flex items-center gap-2 bg-white border border-indigo-200 text-indigo-600 text-sm font-semibold px-4 py-1.5 rounded-full mb-6 shadow-sm">
+        <span>🎮</span> Free to Play — No Sign-Up Needed
+      </div>
+      <h1 class="font-display text-4xl md:text-5xl text-gray-800 leading-tight mb-4">
+        Learn Through Play
+      </h1>
+      <p class="text-lg text-gray-500 max-w-xl mx-auto">
+        Tackle puzzles across Maths, English, and Science. Level 1 is always free — sign up to unlock more stages!
+      </p>
+    </div>
+  </section>
+
+  <!-- Game Cards -->
+  <section class="py-16 bg-white">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+        {% for game in games %}
+        <div class="group rounded-3xl border border-slate-200 shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden flex flex-col">
+
+          <!-- Card header with gradient -->
+          <div class="bg-gradient-to-br {{ game.gradient }} p-8 text-center">
+            <div class="text-6xl mb-3">{{ game.icon }}</div>
+            <span class="{{ game.badge_bg }} {{ game.badge_text }} text-xs font-bold px-3 py-1 rounded-full">
+              {{ game.badge_label }}
+            </span>
+          </div>
+
+          <!-- Card body -->
+          <div class="p-6 flex flex-col flex-1">
+            <h2 class="text-xl font-bold text-gray-800 mb-1">{{ game.name }}</h2>
+            <p class="text-sm font-medium text-gray-500 mb-3">{{ game.tagline }}</p>
+            <p class="text-sm text-gray-500 leading-relaxed mb-5 flex-1">{{ game.description }}</p>
+
+            <!-- Stats row -->
+            <div class="flex gap-4 text-xs text-gray-400 font-semibold mb-6">
+              <span>🗺️ {{ game.stages }} Stages</span>
+              <span>⬆️ {{ game.level_count }}+ Levels each</span>
+              <span>🆓 Level 1 free</span>
+            </div>
+
+            <a href="{% url 'games:play' game.slug %}"
+               class="block w-full text-center bg-gradient-to-r {{ game.gradient }} text-white font-bold py-3 rounded-xl hover:opacity-90 transition shadow-sm group-hover:shadow-md">
+              Play Now →
+            </a>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Bottom CTA -->
+  <section class="py-14 bg-gradient-to-br from-blue-50 to-indigo-50">
+    <div class="max-w-2xl mx-auto px-4 text-center">
+      <h2 class="font-display text-2xl text-gray-800 mb-3">Want more levels?</h2>
+      <p class="text-gray-500 mb-6">Create a free account to unlock all stages, track your progress, and earn stars!</p>
+      <a href="/join/"
+         class="inline-block bg-primary text-white font-bold px-8 py-3 rounded-xl hover:bg-primary-dark transition">
+        Sign Up Free
+      </a>
+    </div>
+  </section>
+
+{% endblock %}

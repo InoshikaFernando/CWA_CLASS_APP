@@ -2241,13 +2241,31 @@ class UploadQuestionsView(RoleRequiredMixin, View):
                 safe_name = re.sub(r'[^\w.\-]', '_', img_filename)
                 image_field = f'{image_rel_dir}/{safe_name}'
 
+            # Build the correct-answer fingerprint for smarter duplicate detection
+            correct_answers_text = sorted(
+                a.get('answer_text') or a.get('text', '')
+                for a in answers_data if a.get('is_correct')
+            )
             try:
                 with transaction.atomic():
-                    existing = MathsQuestion.objects.filter(
+                    # First, narrow by question text + scope
+                    candidates = MathsQuestion.objects.filter(
                         question_text=question_text, topic=maths_topic, level=maths_level,
                         school_id=school_id, department_id=dept_id,
                         classroom_id=selected_classroom_id,
-                    ).first()
+                    )
+                    # Then refine: match correct answers and image to distinguish
+                    # questions with the same text but different content
+                    existing = None
+                    for cand in candidates:
+                        cand_correct = sorted(
+                            cand.answers.filter(is_correct=True)
+                            .values_list('answer_text', flat=True)
+                        )
+                        cand_image = str(cand.image) if cand.image else ''
+                        if cand_correct == correct_answers_text and cand_image == image_field:
+                            existing = cand
+                            break
                     fields = {'question_type': question_type, 'difficulty': q_data.get('difficulty', 1),
                               'points': q_data.get('points', 1), 'explanation': q_data.get('explanation', '')}
                     if image_field:
