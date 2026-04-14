@@ -77,7 +77,6 @@ INSTALLED_APPS = [
 
     # Activity apps
     'number_puzzles',
-    'games',
     'homework',
 
     # AI tools

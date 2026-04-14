@@ -86,9 +86,6 @@ urlpatterns = [
     # --- Audit ---
     path('', include('audit.urls')),
 
-    # --- Games (free, public) ---
-    path('games/', include('games.urls', namespace='games')),
-
     # --- Subject apps ---
     path('maths/', include('maths.urls', namespace='maths')),
     path('maths/', include('quiz.urls')),          # basic-facts, times-tables (maths-specific)
