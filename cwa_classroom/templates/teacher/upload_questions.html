@@ -1,28 +1,61 @@
 {% extends "base.html" %}
 {% block title %}Upload Questions{% endblock %}
 {% block content %}
-<div class="max-w-3xl mx-auto space-y-6">
+<div class="max-w-3xl mx-auto space-y-6" x-data="uploadForm()">
+
   <div>
     <h1 class="font-display text-3xl text-primary">Upload Questions</h1>
-    <p class="text-gray-400 text-sm mt-1">Upload a JSON or ZIP file to add or update questions for a topic.</p>
+    <p class="text-gray-400 text-sm mt-1">Upload a JSON or ZIP file to add or update questions and exercises.</p>
   </div>
 
+  {# ── Upload results ────────────────────────────────────────────────── #}
   {% if upload_results %}
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-    <h2 class="font-bold text-gray-800 mb-4">Upload Results</h2>
+    <h2 class="font-bold text-gray-800 mb-4">Upload Results
+      {% if upload_results.subject == 'coding' %}
+        <span class="ml-2 text-xs font-semibold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Coding</span>
+      {% else %}
+        <span class="ml-2 text-xs font-semibold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Mathematics</span>
+      {% endif %}
+    </h2>
+
+    {% if upload_results.detail %}
+    <p class="text-sm text-gray-500 mb-4">
+      {% if upload_results.subject == 'coding' %}
+        {{ upload_results.detail.language }} › {{ upload_results.detail.topic }} › {{ upload_results.detail.level }}
+      {% else %}
+        Year {{ upload_results.detail.year_level }} › {{ upload_results.detail.topic }}
+      {% endif %}
+    </p>
+    {% endif %}
+
     <div class="flex gap-6 mb-4">
-      <div class="text-center"><p class="font-display text-3xl text-primary">{{ upload_results.inserted }}</p><p class="text-xs text-gray-400 font-semibold">New</p></div>
-      <div class="text-center"><p class="font-display text-3xl text-accent">{{ upload_results.updated }}</p><p class="text-xs text-gray-400 font-semibold">Updated</p></div>
+      <div class="text-center">
+        <p class="font-display text-3xl text-primary">{{ upload_results.inserted }}</p>
+        <p class="text-xs text-gray-400 font-semibold">New</p>
+      </div>
+      <div class="text-center">
+        <p class="font-display text-3xl text-accent">{{ upload_results.updated }}</p>
+        <p class="text-xs text-gray-400 font-semibold">Updated</p>
+      </div>
       {% if upload_results.failed %}
-      <div class="text-center"><p class="font-display text-3xl text-red-500">{{ upload_results.failed }}</p><p class="text-xs text-gray-400 font-semibold">Failed</p></div>
+      <div class="text-center">
+        <p class="font-display text-3xl text-red-500">{{ upload_results.failed }}</p>
+        <p class="text-xs text-gray-400 font-semibold">Failed</p>
+      </div>
       {% endif %}
       {% if upload_results.images_saved %}
-      <div class="text-center"><p class="font-display text-3xl text-green-600">{{ upload_results.images_saved }}</p><p class="text-xs text-gray-400 font-semibold">Images</p></div>
+      <div class="text-center">
+        <p class="font-display text-3xl text-green-600">{{ upload_results.images_saved }}</p>
+        <p class="text-xs text-gray-400 font-semibold">Images</p>
+      </div>
       {% endif %}
     </div>
+
     {% if upload_results.image_dir %}
     <p class="text-xs text-gray-500 mt-1">Images saved to: <code class="font-mono">media/{{ upload_results.image_dir }}/</code></p>
     {% endif %}
+
     {% if upload_results.errors %}
     <div class="bg-red-50 rounded-xl p-4 space-y-1 mt-3">
       {% for err in upload_results.errors %}
@@ -33,14 +66,43 @@
   </div>
   {% endif %}
 
+  {# ── Upload form ───────────────────────────────────────────────────── #}
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
     <form method="post" enctype="multipart/form-data" class="space-y-5">
       {% csrf_token %}
 
-      {% if classrooms %}
+      {# Subject selector #}
       <div>
-        <label class="block text-sm font-semibold text-gray-700 mb-1.5">Classroom <span class="text-red-500">*</span></label>
-        <select name="classroom" required
+        <label class="block text-sm font-semibold text-gray-700 mb-1.5">
+          Subject <span class="text-red-500">*</span>
+        </label>
+        <select name="subject"
+                x-model="subject"
+                @change="subjectChanged()"
+                class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition">
+          {% for s in subjects %}
+          <option value="{{ s.slug }}"
+            {% if selected_subject == s.slug %}selected{% elif not selected_subject and s.slug == 'mathematics' %}selected{% endif %}>
+            {{ s.name }}
+          </option>
+          {% endfor %}
+        </select>
+        <p class="text-xs text-gray-400 mt-1">
+          <a :href="templateUrl()"
+             class="text-accent hover:underline font-medium">
+            ↓ Download sample template
+          </a>
+        </p>
+      </div>
+
+      {# Classroom selector — maths only, teachers only #}
+      {% if classrooms %}
+      <div x-show="subject === 'mathematics'" x-cloak>
+        <label class="block text-sm font-semibold text-gray-700 mb-1.5">
+          Classroom <span class="text-red-500">*</span>
+        </label>
+        <select name="classroom"
+                :required="subject === 'mathematics'"
                 class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition">
           <option value="">-- Select a classroom --</option>
           {% for c in classrooms %}
@@ -51,20 +113,38 @@
       </div>
       {% endif %}
 
+      {# Coding context note #}
+      <div x-show="subject === 'coding'" x-cloak
+           class="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm text-blue-800">
+        Exercises are imported directly into the Coding app, organised by language → topic → level.
+        No classroom scoping is applied.
+      </div>
+
+      {# File picker #}
       <div>
-        <label class="block text-sm font-semibold text-gray-700 mb-1.5">File <span class="text-red-500">*</span></label>
+        <label class="block text-sm font-semibold text-gray-700 mb-1.5">
+          File <span class="text-red-500">*</span>
+        </label>
         <input type="file" name="upload_file" accept=".json,.zip" required
                class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:font-semibold file:bg-primary-light file:text-primary hover:file:bg-primary hover:file:text-white file:transition" />
-        <p class="text-xs text-gray-400 mt-1">Upload a <code class="font-mono">.json</code> file, or a <code class="font-mono">.zip</code> file containing <code class="font-mono">questions.json</code> + images.</p>
+        <p class="text-xs text-gray-400 mt-1">
+          <code class="font-mono">.json</code> file,
+          or a <code class="font-mono">.zip</code> containing
+          <code class="font-mono">questions.json</code> + images (maths only).
+        </p>
       </div>
-      <button type="submit" class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition">
+
+      <button type="submit"
+              class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition">
         Upload →
       </button>
     </form>
   </div>
 
-  <!-- JSON-only format -->
-  <div class="bg-gray-50 rounded-2xl border border-slate-200 p-5 space-y-4">
+  {# ── Format reference — Mathematics ───────────────────────────────── #}
+  <div x-show="subject === 'mathematics'" x-cloak
+       class="bg-gray-50 rounded-2xl border border-slate-200 p-5 space-y-4">
+
     <div>
       <p class="text-sm font-bold text-gray-700 mb-3">📄 JSON format (no images)</p>
       <pre class="font-mono text-xs bg-white rounded-xl p-4 border border-gray-200 overflow-x-auto text-gray-600">{
@@ -95,35 +175,92 @@
         <p>my_upload.zip</p>
         <p class="pl-4">├── questions.json</p>
         <p class="pl-4">├── image1.png</p>
-        <p class="pl-4">├── image2.png</p>
         <p class="pl-4">└── ruler.jpg</p>
       </div>
-      <pre class="font-mono text-xs bg-white rounded-xl p-4 border border-gray-200 overflow-x-auto text-gray-600">{
-  "topic": "Measurements",
-  "year_level": 5,
-  "questions": [
-    {
-      "question_text": "What length does the ruler show?",
-      "question_type": "multiple_choice",
-      "difficulty": 2,
-      "points": 1,
-      "image": "ruler.jpg",
-      "answers": [
-        {"text": "12 cm", "is_correct": true},
-        {"text": "10 cm", "is_correct": false}
-      ]
-    }
-  ]
-}</pre>
       <p class="text-xs text-gray-400 mt-2">Images are saved to <code class="font-mono">media/questions/year&lt;N&gt;/&lt;topic&gt;/</code> automatically.</p>
-      <p class="text-xs text-gray-400 mt-1">Add <code class="font-mono">"strand"</code> to scope the topic lookup (e.g. <code class="font-mono">"strand": "Algebra"</code> + <code class="font-mono">"topic": "Integers"</code>).</p>
     </div>
 
     <div class="border-t border-gray-200 pt-3 space-y-1">
       <p class="text-xs text-gray-400">Duplicate detection: same question_text + topic + level → updated, not duplicated.</p>
-      <p class="text-xs text-gray-400">question_type: <code class="font-mono">multiple_choice</code>, <code class="font-mono">true_false</code>, <code class="font-mono">short_answer</code>, <code class="font-mono">fill_blank</code>, <code class="font-mono">calculation</code></p>
-      <p class="text-xs text-gray-400">difficulty: <code class="font-mono">1</code> Easy &nbsp;·&nbsp; <code class="font-mono">2</code> Medium &nbsp;·&nbsp; <code class="font-mono">3</code> Hard</p>
+      <p class="text-xs text-gray-400">question_type: <code class="font-mono">multiple_choice</code> · <code class="font-mono">true_false</code> · <code class="font-mono">short_answer</code> · <code class="font-mono">fill_blank</code> · <code class="font-mono">calculation</code></p>
+      <p class="text-xs text-gray-400">difficulty: <code class="font-mono">1</code> Easy · <code class="font-mono">2</code> Medium · <code class="font-mono">3</code> Hard</p>
     </div>
   </div>
+
+  {# ── Format reference — Coding ─────────────────────────────────────── #}
+  <div x-show="subject === 'coding'" x-cloak
+       class="bg-gray-50 rounded-2xl border border-slate-200 p-5 space-y-4">
+
+    <div>
+      <p class="text-sm font-bold text-gray-700 mb-3">💻 Coding exercise JSON format</p>
+      <pre class="font-mono text-xs bg-white rounded-xl p-4 border border-gray-200 overflow-x-auto text-gray-600">{
+  "subject": "coding",
+  "language": "python",
+  "topic": "loops",
+  "level": "beginner",
+  "exercises": [
+    {
+      "title": "For Loop: Print 1–5",
+      "instructions": "Use a for loop to print numbers 1 through 5, each on a new line.",
+      "starter_code": "# Use a for loop\nfor i in range(?, ?):\n    print(?)\n",
+      "expected_output": "1\n2\n3\n4\n5",
+      "hints": "range(1, 6) generates numbers 1 through 5",
+      "display_order": 1
+    },
+    {
+      "title": "While Loop: Countdown",
+      "instructions": "Use a while loop to count down from 5 to 1.",
+      "starter_code": "count = 5\nwhile count > 0:\n    # Print count and decrease it\n    pass\n",
+      "expected_output": "5\n4\n3\n2\n1",
+      "hints": "Don't forget: count -= 1 inside the loop",
+      "display_order": 2
+    }
+  ]
+}</pre>
+    </div>
+
+    <div class="border-t border-gray-200 pt-3 space-y-2">
+      <p class="text-xs font-semibold text-gray-600">Field reference</p>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs text-gray-500 border-collapse">
+          <thead>
+            <tr class="bg-gray-100">
+              <th class="text-left px-3 py-2 rounded-tl-lg font-semibold text-gray-700">Field</th>
+              <th class="text-left px-3 py-2 font-semibold text-gray-700">Required</th>
+              <th class="text-left px-3 py-2 rounded-tr-lg font-semibold text-gray-700">Notes</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100">
+            <tr><td class="px-3 py-1.5 font-mono">language</td><td class="px-3 py-1.5">✅</td><td class="px-3 py-1.5">slug: scratch, javascript, python, html, css</td></tr>
+            <tr><td class="px-3 py-1.5 font-mono">topic</td><td class="px-3 py-1.5">✅</td><td class="px-3 py-1.5">slug of an existing CodingTopic for that language</td></tr>
+            <tr><td class="px-3 py-1.5 font-mono">level</td><td class="px-3 py-1.5">✅</td><td class="px-3 py-1.5">beginner · intermediate · advanced</td></tr>
+            <tr><td class="px-3 py-1.5 font-mono">exercises[].title</td><td class="px-3 py-1.5">✅</td><td class="px-3 py-1.5">Duplicate title + topic + level → updated</td></tr>
+            <tr><td class="px-3 py-1.5 font-mono">exercises[].instructions</td><td class="px-3 py-1.5">✅</td><td class="px-3 py-1.5">Shown to the student</td></tr>
+            <tr><td class="px-3 py-1.5 font-mono">exercises[].expected_output</td><td class="px-3 py-1.5">✅</td><td class="px-3 py-1.5">Exact stdout the correct solution produces</td></tr>
+            <tr><td class="px-3 py-1.5 font-mono">exercises[].starter_code</td><td class="px-3 py-1.5">—</td><td class="px-3 py-1.5">Pre-filled editor code</td></tr>
+            <tr><td class="px-3 py-1.5 font-mono">exercises[].hints</td><td class="px-3 py-1.5">—</td><td class="px-3 py-1.5">Hint text shown on request</td></tr>
+            <tr><td class="px-3 py-1.5 font-mono">exercises[].display_order</td><td class="px-3 py-1.5">—</td><td class="px-3 py-1.5">Defaults to array index</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  function uploadForm() {
+    return {
+      subject: '{{ selected_subject|default:"mathematics" }}',
+      subjectChanged() {
+        // Subject switching is handled by x-show; nothing extra needed
+      },
+      templateUrl() {
+        return `/upload-questions/template/?subject=${this.subject}`;
+      },
+    };
+  }
+</script>
 {% endblock %}

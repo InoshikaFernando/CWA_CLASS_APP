@@ -61,8 +61,10 @@ urlpatterns = [
     path('import-parents/confirm/', views.ParentCSVConfirmView.as_view(), name='parent_csv_confirm'),
     path('import-parents/credentials/', views.ParentCSVCredentialsView.as_view(), name='parent_csv_credentials'),
 
-    # Question management
+    # Question / exercise upload (multi-subject)
     path('upload-questions/', views.UploadQuestionsView.as_view(), name='upload_questions'),
+    path('upload-questions/help/', views.upload_questions_help, name='upload_questions_help'),
+    path('upload-questions/template/', views.upload_questions_template, name='upload_questions_template'),
     path('create-question/', views.AddQuestionView.as_view(), name='create_question'),
     path('level/<int:level_number>/questions/', views.QuestionListView.as_view(), name='question_list'),
     path('level/<int:level_number>/add-question/', views.AddQuestionView.as_view(), name='add_question'),

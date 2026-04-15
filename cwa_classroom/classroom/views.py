@@ -474,6 +474,36 @@ class StudentDashboardView(LoginRequiredMixin, View):
                     _weekly_secs += _r.time_taken_seconds
         except Exception:
             pass
+        try:
+            from coding.models import (
+                StudentExerciseSubmission as _SES,
+                StudentProblemSubmission as _SPS,
+            )
+            for _r in _SES.objects.filter(student=request.user, time_taken_seconds__gt=0):
+                _r_date = localtime(_r.submitted_at).date()
+                if _r_date == _today:
+                    _daily_secs += _r.time_taken_seconds
+                if _r_date >= _week_start:
+                    _weekly_secs += _r.time_taken_seconds
+            for _r in _SPS.objects.filter(student=request.user, time_taken_seconds__gt=0):
+                _r_date = localtime(_r.submitted_at).date()
+                if _r_date == _today:
+                    _daily_secs += _r.time_taken_seconds
+                if _r_date >= _week_start:
+                    _weekly_secs += _r.time_taken_seconds
+        except Exception:
+            pass
+
+        # ── Coding progress ──────────────────────────────────────────────────
+        # 'subject' query param selects the coding tab; subject_id selects a
+        # classroom Subject (maths/other).  Both are independent.
+        subject_filter = request.GET.get('subject', '')   # '' | 'coding'
+        coding_progress = None
+        has_coding = False
+        if subject_filter == 'coding' or (not filter_subject_id and not filter_class_id):
+            # Build for the 'coding' tab OR the default 'All' view
+            coding_progress = _build_coding_progress(request.user)
+            has_coding = coding_progress is not None
 
         return render(request, 'student/dashboard.html', {
             'progress_grid': progress_grid,
@@ -488,6 +518,10 @@ class StudentDashboardView(LoginRequiredMixin, View):
             'enrolled_subjects': enrolled_subjects,
             'filter_subject_id': int(filter_subject_id) if filter_subject_id else None,
             'filter_class_id': int(filter_class_id) if filter_class_id else None,
+            # Coding / multi-subject
+            'subject_filter': subject_filter,
+            'has_coding': has_coding,
+            'coding_progress': coding_progress,
         })
 
 
@@ -502,6 +536,117 @@ def _format_seconds(seconds):
     h = seconds // 3600
     m = (seconds % 3600) // 60
     return f"{h}h {m}m"
+
+
+def _build_coding_progress(student):
+    """
+    Build per-language / per-topic coding progress for the student dashboard.
+    Returns a structured dict or None if the coding app is unavailable.
+
+    Structure::
+
+        {
+          'languages': [
+            {
+              'language': CodingLanguage,
+              'topics': [
+                {'topic': CodingTopic, 'total': int, 'completed': int,
+                 'pct': int, 'time_label': str},
+                ...
+              ],
+              'total': int, 'completed': int, 'pct': int,
+            },
+            ...
+          ],
+          'total_exercises': int,
+          'total_completed': int,
+          'overall_pct': int,
+        }
+    """
+    try:
+        from coding.models import (
+            CodingLanguage, CodingTopic, CodingExercise,
+            StudentExerciseSubmission,
+        )
+        from django.db.models import Prefetch as _P
+    except ImportError:
+        return None
+
+    languages = (
+        CodingLanguage.objects.filter(is_active=True)
+        .prefetch_related(
+            _P(
+                'topics',
+                queryset=(
+                    CodingTopic.objects.filter(is_active=True)
+                    .prefetch_related(
+                        _P(
+                            'exercises',
+                            queryset=CodingExercise.objects.filter(is_active=True),
+                        )
+                    )
+                    .order_by('order', 'name')
+                ),
+            )
+        )
+        .order_by('order', 'name')
+    )
+
+    # Single query — aggregate completion + time per exercise for this student
+    completed_ids: set = set()
+    exercise_time: dict = {}
+    for sub in (
+        StudentExerciseSubmission.objects
+        .filter(student=student)
+        .values('exercise_id', 'is_completed', 'time_taken_seconds')
+    ):
+        eid = sub['exercise_id']
+        if sub['is_completed']:
+            completed_ids.add(eid)
+        exercise_time[eid] = exercise_time.get(eid, 0) + sub['time_taken_seconds']
+
+    total_exercises = total_completed = 0
+    lang_data = []
+
+    for lang in languages:
+        lang_total = lang_completed = 0
+        topic_data = []
+
+        for topic in lang.topics.all():
+            t_total = t_completed = t_secs = 0
+            for ex in topic.exercises.all():
+                t_total += 1
+                if ex.id in completed_ids:
+                    t_completed += 1
+                t_secs += exercise_time.get(ex.id, 0)
+            if t_total == 0:
+                continue  # topic has no active exercises yet
+            topic_data.append({
+                'topic': topic,
+                'total': t_total,
+                'completed': t_completed,
+                'pct': round(t_completed / t_total * 100),
+                'time_label': _format_seconds(t_secs),
+            })
+            lang_total += t_total
+            lang_completed += t_completed
+
+        lang_data.append({
+            'language': lang,
+            'topics': topic_data,
+            'total': lang_total,
+            'completed': lang_completed,
+            'pct': round(lang_completed / lang_total * 100) if lang_total else 0,
+        })
+        total_exercises += lang_total
+        total_completed += lang_completed
+
+    return {
+        'languages': lang_data,
+        'total_exercises': total_exercises,
+        'total_completed': total_completed,
+        'overall_pct': round(total_completed / total_exercises * 100) if total_exercises else 0,
+    }
 
 
 def _pct_colour(pct):
@@ -2067,13 +2212,16 @@ class UploadQuestionsView(RoleRequiredMixin, View):
         Role.TEACHER, Role.JUNIOR_TEACHER,
     ]
 
-    def get(self, request):
+    def _base_context(self, request):
+        """Context shared by GET and POST renders."""
+        from .upload_services import AVAILABLE_SUBJECTS
         school_id, dept_id, classroom_ids = _get_question_scope(request.user)
         ctx = {
+            'subjects': AVAILABLE_SUBJECTS,
             'topics': Topic.objects.filter(is_active=True).select_related('subject'),
             'levels': Level.objects.filter(level_number__lte=8),
         }
-        # Teachers must pick a classroom for bulk upload too
+        # Teachers must pick a classroom when uploading maths questions
         if request.user.is_any_teacher and not (
             request.user.has_role(Role.HEAD_OF_INSTITUTE)
             or request.user.has_role(Role.INSTITUTE_OWNER)
@@ -2082,213 +2230,102 @@ class UploadQuestionsView(RoleRequiredMixin, View):
             ctx['classrooms'] = ClassRoom.objects.filter(
                 id__in=classroom_ids, is_active=True,
             ).order_by('name')
+        return ctx, school_id, dept_id, classroom_ids
+
+    def get(self, request):
+        ctx, _, _, _ = self._base_context(request)
         return render(request, 'teacher/upload_questions.html', ctx)
 
     def post(self, request):
-        import json
-        import zipfile
-        import re
-        from maths.models import Question as MathsQuestion, Answer as MathsAnswer
-        from classroom.models import Topic as ClassroomTopic, Level as ClassroomLevel, Subject as ClassroomSubject
+        from .upload_services import get_upload_parser
 
         uploaded_file = request.FILES.get('upload_file')
         if not uploaded_file:
             messages.error(request, 'Please select a file.')
             return redirect('upload_questions')
 
-        # Determine if ZIP or plain JSON
-        filename = uploaded_file.name.lower()
-        extracted_images = {}  # filename -> bytes
-
-        if filename.endswith('.zip'):
-            if not zipfile.is_zipfile(uploaded_file):
-                messages.error(request, 'Invalid ZIP file.')
-                return redirect('upload_questions')
-            uploaded_file.seek(0)
-            with zipfile.ZipFile(uploaded_file) as zf:
-                json_bytes = None
-                for name in zf.namelist():
-                    basename = name.split('/')[-1]
-                    if basename == 'questions.json':
-                        json_bytes = zf.read(name)
-                    elif re.search(r'\.(png|jpg|jpeg|gif|webp)$', basename, re.I):
-                        extracted_images[basename] = zf.read(name)
-                if json_bytes is None:
-                    messages.error(request, 'ZIP must contain a file named questions.json at its root.')
-                    return redirect('upload_questions')
-            try:
-                data = json.loads(json_bytes.decode('utf-8'))
-            except json.JSONDecodeError as e:
-                messages.error(request, f'Invalid JSON: {e}')
-                return redirect('upload_questions')
-        elif filename.endswith('.json'):
-            try:
-                data = json.loads(uploaded_file.read().decode('utf-8'))
-            except json.JSONDecodeError as e:
-                messages.error(request, f'Invalid JSON: {e}')
-                return redirect('upload_questions')
-        else:
-            messages.error(request, 'Please upload a .json or .zip file.')
+        subject_slug = request.POST.get('subject', 'mathematics').strip()
+        parser = get_upload_parser(subject_slug)
+        if parser is None:
+            messages.error(request, f'Unknown subject "{subject_slug}".')
             return redirect('upload_questions')
 
-        topic_name = data.get('topic', '').strip()
-        strand_name = data.get('strand', '').strip()
-        year_level = data.get('year_level')
+        ctx, school_id, dept_id, classroom_ids = self._base_context(request)
 
-        # Ensure the global Mathematics subject exists
-        maths_subject, _ = ClassroomSubject.objects.get_or_create(
-            slug='mathematics',
-            school=None,
-            defaults={'name': 'Mathematics', 'is_active': True},
-        )
-
-        # Resolve (or auto-create) the strand
-        strand_topic = None
-        if strand_name:
-            from django.utils.text import slugify as _slugify
-            strand_slug = _slugify(strand_name)
-            strand_topic, strand_created = ClassroomTopic.objects.get_or_create(
-                subject=maths_subject,
-                slug=strand_slug,
-                defaults={
-                    'name': strand_name,
-                    'parent': None,
-                    'is_active': True,
-                    'order': 0,
-                },
-            )
-
-        # Resolve (or auto-create) the topic
-        topic_qs = ClassroomTopic.objects.filter(subject=maths_subject, name__iexact=topic_name)
-        if strand_topic is not None:
-            topic_qs = topic_qs.filter(parent=strand_topic)
-        try:
-            maths_topic = topic_qs.get()
-        except ClassroomTopic.DoesNotExist:
-            from django.utils.text import slugify as _slugify
-            base_slug = _slugify(topic_name) or f'topic-{topic_name.lower()}'
-            slug = base_slug
-            counter = 1
-            while ClassroomTopic.objects.filter(subject=maths_subject, slug=slug).exists():
-                slug = f'{base_slug}-{counter}'
-                counter += 1
-            maths_topic = ClassroomTopic.objects.create(
-                subject=maths_subject,
-                name=topic_name,
-                slug=slug,
-                parent=strand_topic,
-                is_active=True,
-                order=0,
-            )
-        except ClassroomTopic.MultipleObjectsReturned:
-            messages.error(request, f'Multiple topics named "{topic_name}" found — please disambiguate in the database.')
-            return redirect('upload_questions')
-
-        try:
-            maths_level = ClassroomLevel.objects.get(level_number=year_level)
-        except ClassroomLevel.DoesNotExist:
-            messages.error(request, f'Year level {year_level} not found.')
-            return redirect('upload_questions')
-
-        # Link topic and strand to the level so they appear in the topic browser
-        if not maths_topic.levels.filter(pk=maths_level.pk).exists():
-            maths_topic.levels.add(maths_level)
-        if strand_topic and not strand_topic.levels.filter(pk=maths_level.pk).exists():
-            strand_topic.levels.add(maths_level)
-
-        # Build image save directory: questions/year<N>/<topic_slug>/
-        topic_slug = re.sub(r'\s+', '_', topic_name.lower())
-        image_rel_dir = f'questions/year{year_level}/{topic_slug}'
-        if extracted_images:
-            from django.conf import settings
-            import os
-            image_abs_dir = os.path.join(settings.MEDIA_ROOT, image_rel_dir)
-            os.makedirs(image_abs_dir, exist_ok=True)
-            for img_name, img_bytes in extracted_images.items():
-                safe_name = re.sub(r'[^\w.\-]', '_', img_name)
-                with open(os.path.join(image_abs_dir, safe_name), 'wb') as f:
-                    f.write(img_bytes)
-
-        school_id, dept_id, classroom_ids = _get_question_scope(request.user)
-
-        # For teachers, get the selected classroom
+        # Maths requires classroom selection for plain teachers
         selected_classroom_id = None
-        if request.user.is_any_teacher and not (
-            request.user.has_role(Role.HEAD_OF_INSTITUTE)
-            or request.user.has_role(Role.INSTITUTE_OWNER)
-            or request.user.has_role(Role.HEAD_OF_DEPARTMENT)
-        ):
-            selected_classroom_id = request.POST.get('classroom')
-            if not selected_classroom_id or int(selected_classroom_id) not in classroom_ids:
+        if subject_slug == 'mathematics' and 'classrooms' in ctx:
+            raw = request.POST.get('classroom', '').strip()
+            if not raw or not raw.isdigit() or int(raw) not in classroom_ids:
                 messages.error(request, 'Please select a valid classroom.')
                 return redirect('upload_questions')
-            selected_classroom_id = int(selected_classroom_id)
+            selected_classroom_id = int(raw)
 
-        inserted = updated = failed = 0
-        errors = []
-        for i, q_data in enumerate(data.get('questions', []), 1):
-            question_text = q_data.get('question_text', '').strip()
-            question_type = q_data.get('question_type', '').strip()
-            answers_data = q_data.get('answers', [])
-            if not question_text: errors.append(f'Q{i}: missing question_text'); failed += 1; continue
-            if question_type not in dict(MathsQuestion.QUESTION_TYPES): errors.append(f'Q{i}: bad type'); failed += 1; continue
-            if not answers_data: errors.append(f'Q{i}: no answers'); failed += 1; continue
+        result = parser.process(
+            uploaded_file,
+            request.user,
+            request.POST,
+            school_id=school_id,
+            dept_id=dept_id,
+            selected_classroom_id=selected_classroom_id,
+        )
 
-            # Resolve image path if specified
-            image_field = ''
-            img_filename = q_data.get('image', '').strip()
-            if img_filename and img_filename in extracted_images:
-                safe_name = re.sub(r'[^\w.\-]', '_', img_filename)
-                image_field = f'{image_rel_dir}/{safe_name}'
-
-            try:
-                with transaction.atomic():
-                    existing = MathsQuestion.objects.filter(
-                        question_text=question_text, topic=maths_topic, level=maths_level,
-                        school_id=school_id, department_id=dept_id,
-                        classroom_id=selected_classroom_id,
-                    ).first()
-                    fields = {'question_type': question_type, 'difficulty': q_data.get('difficulty', 1),
-                              'points': q_data.get('points', 1), 'explanation': q_data.get('explanation', '')}
-                    if image_field:
-                        fields['image'] = image_field
-                    if existing:
-                        for k, v in fields.items(): setattr(existing, k, v)
-                        existing.save(); existing.answers.all().delete(); question = existing; updated += 1
-                    else:
-                        question = MathsQuestion.objects.create(
-                            question_text=question_text, topic=maths_topic, level=maths_level,
-                            school_id=school_id, department_id=dept_id,
-                            classroom_id=selected_classroom_id, **fields
-                        )
-                        inserted += 1
-                    for a in answers_data:
-                        MathsAnswer.objects.create(
-                            question=question,
-                            answer_text=a.get('answer_text') or a.get('text', ''),
-                            is_correct=a.get('is_correct', False),
-                            order=a.get('order') or a.get('display_order', 1),
-                        )
-            except Exception as e:
-                errors.append(f'Q{i}: {e}'); failed += 1
-        if inserted or updated:
+        if result['inserted'] or result['updated']:
             log_event(
                 user=request.user,
                 school=School.objects.filter(id=school_id).first() if school_id else None,
                 category='data_change',
                 action='questions_uploaded',
-                detail={'inserted': inserted, 'updated': updated, 'failed': failed, 'topic': topic_name, 'year_level': year_level},
+                detail={
+                    'subject': subject_slug,
+                    'inserted': result['inserted'],
+                    'updated': result['updated'],
+                    'failed': result['failed'],
+                    **result.get('detail', {}),
+                },
                 request=request,
             )
-        return render(request, 'teacher/upload_questions.html', {
-            'upload_results': {
-                'inserted': inserted, 'updated': updated, 'failed': failed, 'errors': errors,
-                'images_saved': len(extracted_images),
-                'image_dir': image_rel_dir if extracted_images else '',
-            },
-            'topics': Topic.objects.filter(is_active=True).select_related('subject'),
-            'levels': Level.objects.filter(level_number__lte=8),
-        })
+
+        ctx['upload_results'] = result
+        ctx['selected_subject'] = subject_slug
+        return render(request, 'teacher/upload_questions.html', ctx)
+
+
+@login_required
+def upload_questions_help(request):
+    """
+    HTMX partial: returns subject-specific help text and sample JSON.
+    GET /upload-questions/help/?subject=coding
+    """
+    from .upload_services import get_upload_parser
+    subject_slug = request.GET.get('subject', 'mathematics')
+    parser = get_upload_parser(subject_slug)
+    return render(request, 'teacher/partials/upload_questions_help.html', {
+        'subject_slug': subject_slug,
+        'parser': parser,
+    })
+
+
+@login_required
+def upload_questions_template(request):
+    """
+    Template download: returns a sample JSON file for the selected subject.
+    GET /upload-questions/template/?subject=coding
+    """
+    import json as _json
+    from django.http import HttpResponse
+    from .upload_services import get_upload_parser
+    subject_slug = request.GET.get('subject', 'mathematics')
+    parser = get_upload_parser(subject_slug)
+    if parser is None:
+        from django.http import Http404
+        raise Http404
+    data = _json.dumps(parser.get_template_json(), indent=2)
+    response = HttpResponse(data, content_type='application/json')
+    response['Content-Disposition'] = (
+        f'attachment; filename="template_{subject_slug}.json"'
+    )
+    return response
 
 
 def _get_question_scope(user):
