@@ -1249,30 +1249,18 @@ def execute_import(preview_data, school, uploaded_by):
                 for g in sdata.get('guardians', [])
             }
 
-            # 5. Create / fetch guardians for this batch
-            guardian_cache = {}
+            # 5. Create / fetch parent user accounts for this batch
             parent_user_cache = {}
 
+            # Note: Guardian/StudentGuardian records are intentionally NOT
+            # created here. Every parent in the CSV gets a CustomUser +
+            # ParentStudent link (the login-capable account path), which is
+            # the single source of truth for the admin Parents list. Creating
+            # a parallel Guardian contact record produced duplicate rows in
+            # the UI (one "Account" row per child plus one "Contact" row).
             for g_email in batch_guardian_emails:
                 g_data = guardian_new_by_email.get(g_email)
                 if g_data:
-                    # New guardian
-                    guardian, created = Guardian.objects.get_or_create(
-                        school=school, email=g_email,
-                        defaults={
-                            'first_name': g_data['first_name'],
-                            'last_name': g_data['last_name'],
-                            'phone': g_data.get('phone', ''),
-                            'relationship': g_data.get('relationship', 'guardian'),
-                            'address': g_data.get('address', ''),
-                            'city': g_data.get('city', ''),
-                            'country': g_data.get('country', ''),
-                        },
-                    )
-                    guardian_cache[g_email] = guardian
-                    if created:
-                        counts['guardians_created'] += 1
-
                     # Create or reuse parent user account
                     existing_parent = CustomUser.objects.filter(email__iexact=g_email).first()
                     if existing_parent:
@@ -1311,10 +1299,7 @@ def execute_import(preview_data, school, uploaded_by):
                         })
                         counts['parents_created'] += 1
                 else:
-                    # Existing guardian — just fetch
-                    existing_g = Guardian.objects.filter(school=school, email=g_email).first()
-                    if existing_g:
-                        guardian_cache[g_email] = existing_g
+                    # Existing parent — just fetch the user account
                     existing_parent = CustomUser.objects.filter(email__iexact=g_email).first()
                     if existing_parent:
                         parent_user_cache[g_email] = existing_parent
@@ -1395,16 +1380,11 @@ def execute_import(preview_data, school, uploaded_by):
                     )
                     counts['students_enrolled'] += 1
 
-                # Guardian links
+                # Parent links (Guardian/StudentGuardian intentionally not
+                # created here — see note in the guardian-email loop above).
                 guardian_list = sdata.get('guardians', [])
                 for idx, g in enumerate(guardian_list):
                     g_email = g['email']
-                    guardian = guardian_cache.get(g_email)
-                    if guardian:
-                        StudentGuardian.objects.get_or_create(
-                            student=user, guardian=guardian,
-                            defaults={'is_primary': g.get('is_primary', False)},
-                        )
                     parent_user = parent_user_cache.get(g_email)
                     if parent_user:
                         active_count = ParentStudent.objects.filter(
