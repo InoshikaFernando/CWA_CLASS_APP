@@ -2259,18 +2259,74 @@ class UploadQuestionsView(RoleRequiredMixin, View):
             if not raw or not raw.isdigit() or int(raw) not in classroom_ids:
                 messages.error(request, 'Please select a valid classroom.')
                 return redirect('upload_questions')
-            selected_classroom_id = int(raw)
+            selected_classroom_id = int(selected_classroom_id)
 
-        result = parser.process(
-            uploaded_file,
-            request.user,
-            request.POST,
-            school_id=school_id,
-            dept_id=dept_id,
-            selected_classroom_id=selected_classroom_id,
-        )
+        inserted = updated = failed = 0
+        errors = []
+        for i, q_data in enumerate(data.get('questions', []), 1):
+            question_text = q_data.get('question_text', '').strip()
+            question_type = q_data.get('question_type', '').strip()
+            answers_data = q_data.get('answers', [])
+            if not question_text: errors.append(f'Q{i}: missing question_text'); failed += 1; continue
+            if question_type not in dict(MathsQuestion.QUESTION_TYPES): errors.append(f'Q{i}: bad type'); failed += 1; continue
+            if not answers_data: errors.append(f'Q{i}: no answers'); failed += 1; continue
 
-        if result['inserted'] or result['updated']:
+            # Resolve image path if specified
+            image_field = ''
+            img_filename = q_data.get('image', '').strip()
+            if img_filename and img_filename in extracted_images:
+                safe_name = re.sub(r'[^\w.\-]', '_', img_filename)
+                image_field = f'{image_rel_dir}/{safe_name}'
+
+            # Build the correct-answer fingerprint for smarter duplicate detection
+            correct_answers_text = sorted(
+                a.get('answer_text') or a.get('text', '')
+                for a in answers_data if a.get('is_correct')
+            )
+            try:
+                with transaction.atomic():
+                    # First, narrow by question text + scope
+                    candidates = MathsQuestion.objects.filter(
+                        question_text=question_text, topic=maths_topic, level=maths_level,
+                        school_id=school_id, department_id=dept_id,
+                        classroom_id=selected_classroom_id,
+                    )
+                    # Then refine: match correct answers and image to distinguish
+                    # questions with the same text but different content
+                    existing = None
+                    for cand in candidates:
+                        cand_correct = sorted(
+                            cand.answers.filter(is_correct=True)
+                            .values_list('answer_text', flat=True)
+                        )
+                        cand_image = str(cand.image) if cand.image else ''
+                        if cand_correct == correct_answers_text and cand_image == image_field:
+                            existing = cand
+                            break
+                    fields = {'question_type': question_type, 'difficulty': q_data.get('difficulty', 1),
+                              'points': q_data.get('points', 1), 'explanation': q_data.get('explanation', '')}
+                    if image_field:
+                        fields['image'] = image_field
+                    if existing:
+                        for k, v in fields.items(): setattr(existing, k, v)
+                        existing.save(); existing.answers.all().delete(); question = existing; updated += 1
+                    else:
+                        question = MathsQuestion.objects.create(
+                            question_text=question_text, topic=maths_topic, level=maths_level,
+                            school_id=school_id, department_id=dept_id,
+                            classroom_id=selected_classroom_id, **fields
+                        )
+                        inserted += 1
+                    for a in answers_data:
+                        MathsAnswer.objects.create(
+                            question=question,
+                            answer_text=a.get('answer_text') or a.get('text', ''),
+                            is_correct=a.get('is_correct', False),
+                            order=a.get('order') or a.get('display_order', 1),
+                        )
+            except Exception as e:
+                errors.append(f'Q{i}: {e}'); failed += 1
+        if inserted or updated:
             log_event(
                 user=request.user,
                 school=School.objects.filter(id=school_id).first() if school_id else None,
