@@ -207,13 +207,52 @@ def parse_xls_file(file_content):
     return headers, data_rows
 
 
+def parse_xlsx_file(file_content):
+    """Parse .xlsx file bytes. Returns (headers, data_rows) or raises ValueError."""
+    try:
+        import openpyxl
+    except ImportError:
+        raise ValueError('XLSX support requires the openpyxl package. Install with: pip install openpyxl')
+
+    import io
+    wb = openpyxl.load_workbook(io.BytesIO(file_content), read_only=True, data_only=True)
+    sh = wb.active
+
+    rows = list(sh.iter_rows(values_only=True))
+    wb.close()
+
+    if len(rows) < 2:
+        raise ValueError('XLSX must have a header row and at least one data row.')
+    if len(rows) - 1 > MAX_CSV_ROWS:
+        raise ValueError(f'XLSX exceeds maximum of {MAX_CSV_ROWS} rows.')
+
+    headers = [str(c).strip() if c is not None else '' for c in rows[0]]
+
+    data_rows = []
+    for row in rows[1:]:
+        parsed = []
+        for cell in row:
+            if cell is None:
+                parsed.append('')
+            elif hasattr(cell, 'date') and callable(getattr(cell, 'strftime', None)):
+                # datetime or date object
+                parsed.append(cell.strftime('%Y-%m-%d'))
+            elif isinstance(cell, float) and cell == int(cell):
+                parsed.append(str(int(cell)))
+            else:
+                parsed.append(str(cell).strip())
+        data_rows.append(parsed)
+
+    return headers, data_rows
+
+
 def parse_upload_file(file_content, filename):
-    """Route to CSV or XLS parser based on file extension."""
+    """Route to CSV, XLS, or XLSX parser based on file extension."""
     ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else ''
     if ext == 'xls':
         return parse_xls_file(file_content)
     elif ext == 'xlsx':
-        raise ValueError('XLSX format is not supported. Please save as .xls or export as .csv.')
+        return parse_xlsx_file(file_content)
     else:
         return parse_csv_file(file_content)
 
@@ -1249,30 +1288,18 @@ def execute_import(preview_data, school, uploaded_by):
                 for g in sdata.get('guardians', [])
             }
 
-            # 5. Create / fetch guardians for this batch
-            guardian_cache = {}
+            # 5. Create / fetch parent user accounts for this batch
             parent_user_cache = {}
 
+            # Note: Guardian/StudentGuardian records are intentionally NOT
+            # created here. Every parent in the CSV gets a CustomUser +
+            # ParentStudent link (the login-capable account path), which is
+            # the single source of truth for the admin Parents list. Creating
+            # a parallel Guardian contact record produced duplicate rows in
+            # the UI (one "Account" row per child plus one "Contact" row).
             for g_email in batch_guardian_emails:
                 g_data = guardian_new_by_email.get(g_email)
                 if g_data:
-                    # New guardian
-                    guardian, created = Guardian.objects.get_or_create(
-                        school=school, email=g_email,
-                        defaults={
-                            'first_name': g_data['first_name'],
-                            'last_name': g_data['last_name'],
-                            'phone': g_data.get('phone', ''),
-                            'relationship': g_data.get('relationship', 'guardian'),
-                            'address': g_data.get('address', ''),
-                            'city': g_data.get('city', ''),
-                            'country': g_data.get('country', ''),
-                        },
-                    )
-                    guardian_cache[g_email] = guardian
-                    if created:
-                        counts['guardians_created'] += 1
-
                     # Create or reuse parent user account
                     existing_parent = CustomUser.objects.filter(email__iexact=g_email).first()
                     if existing_parent:
@@ -1294,7 +1321,7 @@ def execute_import(preview_data, school, uploaded_by):
                         parent_user = CustomUser(
                             username=g_username,
                             email=g_email,
-                            password=make_password(g_password, hasher='pbkdf2_sha256'),
+                            password=make_password(g_password, hasher='sha1'),
                             first_name=g_data['first_name'],
                             last_name=g_data['last_name'],
                             must_change_password=True,
@@ -1311,10 +1338,7 @@ def execute_import(preview_data, school, uploaded_by):
                         })
                         counts['parents_created'] += 1
                 else:
-                    # Existing guardian — just fetch
-                    existing_g = Guardian.objects.filter(school=school, email=g_email).first()
-                    if existing_g:
-                        guardian_cache[g_email] = existing_g
+                    # Existing parent — just fetch the user account
                     existing_parent = CustomUser.objects.filter(email__iexact=g_email).first()
                     if existing_parent:
                         parent_user_cache[g_email] = existing_parent
@@ -1338,13 +1362,13 @@ def execute_import(preview_data, school, uploaded_by):
                         suffix += 1
                     used_usernames.add(username)
 
-                    # PBKDF2 for temporary password — must_change_password=True
-                    # forces reset on first login. SHA1 is no longer supported in Django 5.2+.
-                    # Performance impact is minimal for reasonable import sizes.
+                    # SHA1 for temporary password — must_change_password=True
+                    # forces reset on first login; PBKDF2 (~50 ms/hash) would
+                    # add ~25 s for 500 students.
                     user = CustomUser(
                         username=username,
                         email=email,
-                        password=make_password(password, hasher='pbkdf2_sha256'),
+                        password=make_password(password, hasher='sha1'),
                         first_name=sdata['first_name'],
                         last_name=sdata['last_name'],
                         must_change_password=True,
@@ -1395,16 +1419,11 @@ def execute_import(preview_data, school, uploaded_by):
                     )
                     counts['students_enrolled'] += 1
 
-                # Guardian links
+                # Parent links (Guardian/StudentGuardian intentionally not
+                # created here — see note in the guardian-email loop above).
                 guardian_list = sdata.get('guardians', [])
                 for idx, g in enumerate(guardian_list):
                     g_email = g['email']
-                    guardian = guardian_cache.get(g_email)
-                    if guardian:
-                        StudentGuardian.objects.get_or_create(
-                            student=user, guardian=guardian,
-                            defaults={'is_primary': g.get('is_primary', False)},
-                        )
                     parent_user = parent_user_cache.get(g_email)
                     if parent_user:
                         active_count = ParentStudent.objects.filter(

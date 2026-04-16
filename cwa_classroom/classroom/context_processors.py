@@ -89,16 +89,6 @@ _BREADCRUMB_MAP = [
     ('/maths/level/',           [('Hub', '/hub/'), ('Maths', '/maths/'), ('Quiz', None)]),
     ('/maths/dashboard/',       [('Hub', '/hub/'), ('Maths', '/maths/'), ('Topics', None)]),
     ('/maths/',                 [('Hub', '/hub/'), ('Maths', None)]),
-    # Coding
-    ('/coding/api/',            []),   # no breadcrumbs for API endpoints
-    ('/coding/python/problems/',   [('Hub', '/hub/'), ('Coding', '/coding/'), ('Python', '/coding/python/'), ('Challenges', None)]),
-    ('/coding/javascript/problems/',[('Hub', '/hub/'), ('Coding', '/coding/'), ('JavaScript', '/coding/javascript/'), ('Challenges', None)]),
-    ('/coding/html-css/problems/', [('Hub', '/hub/'), ('Coding', '/coding/'), ('HTML/CSS', '/coding/html-css/'), ('Challenges', None)]),
-    ('/coding/python/',         [('Hub', '/hub/'), ('Coding', '/coding/'), ('Python', None)]),
-    ('/coding/javascript/',     [('Hub', '/hub/'), ('Coding', '/coding/'), ('JavaScript', None)]),
-    ('/coding/html-css/',       [('Hub', '/hub/'), ('Coding', '/coding/'), ('HTML / CSS', None)]),
-    ('/coding/scratch/',        [('Hub', '/hub/'), ('Coding', '/coding/'), ('Scratch', None)]),
-    ('/coding/',                [('Hub', '/hub/'), ('Coding', None)]),
     # Student pages
     ('/student/my-classes/',    [('Hub', '/hub/'), ('My Classes', None)]),
     ('/student/join/',          [('Hub', '/hub/'), ('Join Class', None)]),

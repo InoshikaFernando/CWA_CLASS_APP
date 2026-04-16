@@ -237,24 +237,10 @@ class TestChildSwitcherHomeworkIsolation:
     def test_alice_sees_only_her_homework(self):
         do_login(self.page, self.url, self.data["parent"])
         self.page.goto(f"{self.url}/parent/")
-        self.page.wait_for_load_state("networkidle")
-        # Use a form POST via evaluate since Playwright can't POST a URL directly
-        self.page.evaluate(f"""() => {{
-            const f = document.createElement('form');
-            f.method = 'POST';
-            f.action = '{self.url}/parent/switch-child/{self.data["child1"].id}/';
-            const c = document.createElement('input');
-            c.name = 'csrfmiddlewaretoken';
-            const m = document.cookie.match(/csrftoken=([^;]+)/);
-            c.value = m ? m[1] : '';
-            f.appendChild(c);
-            document.body.appendChild(f);
-            f.submit();
-        }}""")
-        self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(500)  # Give session time to update
+        self.page.wait_for_load_state("domcontentloaded")
+        self._switch_to_child("Alice")
         self.page.goto(f"{self.url}/parent/homework/")
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
         body = self.page.locator("body").inner_text()
         assert f"Alice HW {_RUN_ID}" in body
         assert f"Bob HW {_RUN_ID}" not in body
@@ -262,23 +248,10 @@ class TestChildSwitcherHomeworkIsolation:
     def test_bob_sees_only_his_homework(self):
         do_login(self.page, self.url, self.data["parent"])
         self.page.goto(f"{self.url}/parent/")
-        self.page.wait_for_load_state("networkidle")
-        self.page.evaluate(f"""() => {{
-            const f = document.createElement('form');
-            f.method = 'POST';
-            f.action = '{self.url}/parent/switch-child/{self.data["child2"].id}/';
-            const c = document.createElement('input');
-            c.name = 'csrfmiddlewaretoken';
-            const m = document.cookie.match(/csrftoken=([^;]+)/);
-            c.value = m ? m[1] : '';
-            f.appendChild(c);
-            document.body.appendChild(f);
-            f.submit();
-        }}""")
-        self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(500)  # Give session time to update
+        self.page.wait_for_load_state("domcontentloaded")
+        self._switch_to_child("Bob")
         self.page.goto(f"{self.url}/parent/homework/")
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
         body = self.page.locator("body").inner_text()
         assert f"Bob HW {_RUN_ID}" in body
         assert f"Alice HW {_RUN_ID}" not in body

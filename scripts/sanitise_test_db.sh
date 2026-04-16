@@ -31,11 +31,41 @@ echo " Sanitising test database: ${DST_DB}"
 echo "======================================================"
 echo ""
 
-# ── Step 1: Scramble emails ───────────────────────────────────────────────────
-echo "==> Scrambling user emails..."
+# ── Step 1: Scramble all PII (emails + phones) ───────────────────────────────
+# Every table with an email/phone column gets scrambled. Add new tables here
+# when they gain email/phone fields — keep this in sync with:
+#   SELECT TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+#    WHERE TABLE_SCHEMA = DATABASE()
+#      AND (COLUMN_NAME LIKE '%email%' OR COLUMN_NAME LIKE '%phone%');
+echo "==> Scrambling emails and phones..."
 $MYSQL -e "
   UPDATE accounts_customuser
-  SET email = CONCAT(id, '+test@example.com');
+     SET email = CONCAT(id, '+test@example.com'),
+         phone = '';
+
+  UPDATE accounts_pendingregistration
+     SET email = CONCAT('pending', id, '+test@example.com');
+
+  UPDATE classroom_guardian
+     SET email = CONCAT('guardian', id, '+test@example.com'),
+         phone = '';
+
+  UPDATE classroom_parentinvite
+     SET parent_email = CONCAT('invite', id, '+test@example.com');
+
+  UPDATE classroom_contactmessage
+     SET email = CONCAT('contact', id, '+test@example.com');
+
+  UPDATE classroom_school
+     SET email          = CONCAT('school', id, '+test@example.com'),
+         outgoing_email = CONCAT('school-out', id, '+test@example.com'),
+         phone          = '';
+
+  UPDATE classroom_department
+     SET outgoing_email = CONCAT('dept', id, '+test@example.com');
+
+  UPDATE classroom_emaillog
+     SET recipient_email = CONCAT('log', id, '+test@example.com');
 "
 echo "    Done."
 

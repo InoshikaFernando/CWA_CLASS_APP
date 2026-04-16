@@ -24,7 +24,6 @@ Affected models
 from django.db import migrations, models
 import django.db.models.deletion
 from django.utils.text import slugify as django_slugify
-from django.db import connection
 
 
 # ---------------------------------------------------------------------------
@@ -391,7 +390,7 @@ class Migration(migrations.Migration):
         ('classroom', '0069_pending_password_fields'),
     ]
 
-    operations = [] if connection.vendor == 'sqlite' else [
+    operations = [
         # ── Pre-step: ensure 0009 columns exist (production safety guard) ──
         # Migration 0009 may have been faked on production; this idempotently
         # adds classroom_id / department_id to maths_question if absent so
