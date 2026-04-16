@@ -24,6 +24,7 @@ from coding.models import (
     CodingLanguage,
     CodingProblem,
     CodingTopic,
+    TopicLevel,
     CodingExercise,
     ProblemTestCase,
     ProblemSubmission,
@@ -215,9 +216,9 @@ class TestStudentExerciseSubmission(TestCase):
             language=cls.lang, slug='ex-sub-variables',
             defaults={'name': 'Variables', 'order': 1, 'is_active': True},
         )
+        _tl, _ = TopicLevel.get_or_create_for(cls.topic, CodingExercise.BEGINNER)
         cls.exercise = CodingExercise.objects.create(
-            topic=cls.topic,
-            level=CodingExercise.BEGINNER,
+            topic_level=_tl,
             title='Hello World',
             description='Print Hello, World!',
             starter_code='# Write your code here\n',

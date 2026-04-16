@@ -28,6 +28,7 @@ from coding.models import (
     CodingLanguage,
     CodingProblem,
     CodingTopic,
+    TopicLevel,
     CodingTimeLog,
     ProblemTestCase,
     StudentExerciseSubmission,
@@ -84,9 +85,9 @@ class TestApiRunCode(TestCase):
             language=cls.python_lang, slug='vapi-variables',
             defaults={'name': 'Variables', 'order': 1, 'is_active': True},
         )
+        _py_beg_tl, _ = TopicLevel.get_or_create_for(cls.python_topic, CodingExercise.BEGINNER)
         cls.beginner_exercise = CodingExercise.objects.create(
-            topic=cls.python_topic,
-            level=CodingExercise.BEGINNER,
+            topic_level=_py_beg_tl,
             title='Hello World',
             description='Print Hello, World!',
             starter_code='# Write your code here\n',
@@ -98,9 +99,9 @@ class TestApiRunCode(TestCase):
             language=cls.scratch_lang, name='Motion', slug='motion',
             order=1, is_active=True,
         )
+        _sc_beg_tl, _ = TopicLevel.get_or_create_for(cls.scratch_topic, CodingExercise.BEGINNER)
         cls.scratch_exercise = CodingExercise.objects.create(
-            topic=cls.scratch_topic,
-            level=CodingExercise.BEGINNER,
+            topic_level=_sc_beg_tl,
             title='Say Hello',
             description='Print hello using blocks',
             starter_code='<xml></xml>',
@@ -301,8 +302,9 @@ class TestApiRunCode(TestCase):
             language=self.html_lang, name='Structure', slug='structure',
             order=1, is_active=True,
         )
+        _html_beg_tl, _ = TopicLevel.get_or_create_for(html_topic, CodingExercise.BEGINNER)
         exercise = CodingExercise.objects.create(
-            topic=html_topic, level=CodingExercise.BEGINNER,
+            topic_level=_html_beg_tl,
             title='My Page', description='A page',
             starter_code='<html></html>', order=1, is_active=True,
         )

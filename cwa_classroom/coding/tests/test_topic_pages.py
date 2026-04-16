@@ -34,6 +34,7 @@ from coding.models import (
     CodingExercise,
     CodingLanguage,
     CodingTopic,
+    TopicLevel,
     StudentExerciseSubmission,
 )
 
@@ -61,8 +62,9 @@ def _topic(lang, name, slug, order=1, active=True):
 
 
 def _exercise(topic, title, level=CodingExercise.BEGINNER, order=1, active=True):
+    topic_level, _ = TopicLevel.get_or_create_for(topic, level)
     return CodingExercise.objects.create(
-        topic=topic, level=level, title=title,
+        topic_level=topic_level, title=title,
         description='Exercise instructions here.',
         starter_code='# start\n', hints='Use print()',
         order=order, is_active=active,
@@ -512,8 +514,9 @@ class TestExerciseListView(TestCase):
         cls.beg3 = _exercise(cls.topic, 'Simple Calc',   level=CodingExercise.BEGINNER,  order=3)
         cls.int1 = _exercise(cls.topic, 'Nested Loops',  level=CodingExercise.INTERMEDIATE, order=1)
         # Inactive beginner — must not appear
+        _beg_tl, _ = TopicLevel.get_or_create_for(cls.topic, CodingExercise.BEGINNER)
         CodingExercise.objects.create(
-            topic=cls.topic, level=CodingExercise.BEGINNER,
+            topic_level=_beg_tl,
             title='Hidden', description='inactive', is_active=False, order=99,
         )
         # Student has completed beg1 only

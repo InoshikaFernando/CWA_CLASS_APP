@@ -37,6 +37,7 @@ from coding.models import (
     CodingExercise,
     CodingLanguage,
     CodingTopic,
+    TopicLevel,
     StudentExerciseSubmission,
 )
 
@@ -71,8 +72,9 @@ def _exercise(
     order=1,
     active=True,
 ):
+    topic_level, _ = TopicLevel.get_or_create_for(topic, level)
     return CodingExercise.objects.create(
-        topic=topic, level=level, title=title,
+        topic_level=topic_level, title=title,
         description=f'Instructions for {title}.',
         starter_code=starter,
         expected_output=expected,

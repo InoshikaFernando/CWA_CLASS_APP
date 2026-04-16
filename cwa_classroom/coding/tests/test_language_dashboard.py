@@ -29,6 +29,7 @@ from coding.models import (
     CodingLanguage,
     CodingProblem,
     CodingTopic,
+    TopicLevel,
     StudentExerciseSubmission,
     StudentProblemSubmission,
 )
@@ -58,8 +59,9 @@ def _make_topic(language, name, slug, order=1):
 
 
 def _make_exercise(topic, title, level=CodingExercise.BEGINNER, order=1):
+    topic_level, _ = TopicLevel.get_or_create_for(topic, level)
     return CodingExercise.objects.create(
-        topic=topic, level=level, title=title,
+        topic_level=topic_level, title=title,
         description='Description', starter_code='# code\n',
         order=order, is_active=True,
     )
@@ -453,8 +455,9 @@ class TestLanguageSelectorCounts(TestCase):
         _make_exercise(t1, 'Ex1', order=1)
         _make_exercise(t1, 'Ex2', order=2)
         _make_exercise(t1, 'Ex3', order=3)
+        _t1_beg_tl, _ = TopicLevel.get_or_create_for(t1, CodingExercise.BEGINNER)
         CodingExercise.objects.create(
-            topic=t1, level=CodingExercise.BEGINNER,
+            topic_level=_t1_beg_tl,
             title='Inactive Ex', description='x', is_active=False, order=4,
         )
         # t2: 2 exercises
@@ -692,7 +695,7 @@ class TestLanguageSelectorDataConsistency(TestCase):
         resp = self.client.get(URL)
         for lang in resp.context['languages']:
             db_count = CodingExercise.objects.filter(
-                topic__language=lang, is_active=True,
+                topic_level__topic__language=lang, is_active=True,
             ).count()
             self.assertEqual(lang.exercise_count, db_count,
                              f'{lang.slug} exercise_count mismatch')

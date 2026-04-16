@@ -389,7 +389,7 @@ class CodingExerciseParser(BaseQuestionParser):
     VALID_LEVELS = frozenset({'beginner', 'intermediate', 'advanced'})
 
     def process(self, uploaded_file, user, post_data, **_) -> dict:
-        from coding.models import CodingLanguage, CodingTopic, CodingExercise
+        from coding.models import CodingLanguage, CodingTopic, TopicLevel, CodingExercise
 
         result = UploadResult()
         result.subject = 'coding'
@@ -468,14 +468,16 @@ class CodingExerciseParser(BaseQuestionParser):
             result.failed = len(validation_errors)
             return result.to_dict()
 
+        # ── Resolve (or create) TopicLevel ───────────────────────────
+        topic_level, _ = TopicLevel.get_or_create_for(topic, level)
+
         # ── Save exercises ────────────────────────────────────────────
         for i, ex in enumerate(exercises, 1):
             title = ex['title'].strip()
             try:
                 with transaction.atomic():
                     existing = CodingExercise.objects.filter(
-                        topic=topic,
-                        level=level,
+                        topic_level=topic_level,
                         title=title,
                     ).first()
                     fields = {
@@ -493,8 +495,7 @@ class CodingExerciseParser(BaseQuestionParser):
                         result.updated += 1
                     else:
                         CodingExercise.objects.create(
-                            topic=topic,
-                            level=level,
+                            topic_level=topic_level,
                             title=title,
                             **fields,
                         )

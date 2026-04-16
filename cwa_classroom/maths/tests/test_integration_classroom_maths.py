@@ -315,7 +315,11 @@ class UploadViewTopicResolutionTests(IntegrationBase):
             reverse('upload_questions'),
             {'upload_file': f},
         )
-        self.assertEqual(resp.status_code, 302)
+        # Service-layer errors are rendered inline (200) rather than via redirect
+        self.assertEqual(resp.status_code, 200)
+        results = resp.context['upload_results']
+        self.assertGreater(len(results['errors']), 0)
+        self.assertGreater(results['failed'], 0)
 
     def test_upload_links_question_to_correct_classroom_topic_and_level(self):
         """Questions created by the upload view use classroom.Topic and classroom.Level."""
@@ -373,7 +377,10 @@ class UploadViewZipTests(IntegrationBase):
         buf.seek(0)
         buf.name = 'bad.zip'
         resp = self.client.post(reverse('upload_questions'), {'upload_file': buf})
-        self.assertEqual(resp.status_code, 302)
+        # Service-layer parse errors are rendered inline (200) rather than via redirect
+        self.assertEqual(resp.status_code, 200)
+        results = resp.context['upload_results']
+        self.assertGreater(len(results['errors']), 0)
 
     def test_zip_with_image_reports_image_count(self):
         self._login(self.superuser)
