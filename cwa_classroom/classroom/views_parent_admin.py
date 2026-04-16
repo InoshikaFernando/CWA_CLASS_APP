@@ -97,10 +97,15 @@ class SchoolParentListView(RoleRequiredMixin, View):
         school = self._get_school(request, school_id)
         search = request.GET.get('q', '').strip()
 
-        # Build unified parent list
+        # Build unified parent list — one row per real person.
+        # A person may appear as a ParentStudent (login account) and/or a
+        # Guardian (contact record). We aggregate ParentStudent rows by
+        # parent_id so a parent with N children is one row, and suppress
+        # any Guardian whose (school, email) already matches an account row.
         parents = []
+        account_emails = set()  # lowercased emails emitted from ParentStudent
 
-        # 1. ParentStudent links (account-based parents)
+        # 1. ParentStudent links, aggregated by parent
         ps_qs = ParentStudent.objects.filter(
             school=school, is_active=True,
         ).select_related('parent', 'student')
@@ -110,21 +115,36 @@ class SchoolParentListView(RoleRequiredMixin, View):
                 Q(parent__last_name__icontains=search) |
                 Q(parent__email__icontains=search)
             )
+
+        ps_by_parent = {}
         for link in ps_qs:
+            bucket = ps_by_parent.setdefault(link.parent_id, {
+                'parent': link.parent,
+                'links': [],
+                'children': [],
+            })
+            bucket['links'].append(link)
+            bucket['children'].append(link.student.get_full_name())
+
+        for parent_id, bucket in ps_by_parent.items():
+            parent_user = bucket['parent']
+            first_link = bucket['links'][0]
+            if parent_user.email:
+                account_emails.add(parent_user.email.lower())
             parents.append({
-                'id': f'ps_{link.id}',
+                'id': f'ps_{first_link.id}',
                 'type': 'Account',
-                'first_name': link.parent.first_name,
-                'last_name': link.parent.last_name,
-                'email': link.parent.email,
-                'phone': getattr(link.parent, 'phone', ''),
-                'relationship': link.get_relationship_display(),
-                'children': link.student.get_full_name(),
+                'first_name': parent_user.first_name,
+                'last_name': parent_user.last_name,
+                'email': parent_user.email,
+                'phone': getattr(parent_user, 'phone', ''),
+                'relationship': first_link.get_relationship_display(),
+                'children': ', '.join(bucket['children']),
                 'obj_type': 'parent_student',
-                'obj_id': link.id,
+                'obj_id': first_link.id,
             })
 
-        # 2. Guardian contacts
+        # 2. Guardian contacts — skip any whose email matches an account row
         g_qs = Guardian.objects.filter(school=school)
         if search:
             g_qs = g_qs.filter(
@@ -133,6 +153,8 @@ class SchoolParentListView(RoleRequiredMixin, View):
                 Q(email__icontains=search)
             )
         for g in g_qs:
+            if g.email and g.email.lower() in account_emails:
+                continue
             children_names = ', '.join(
                 sg.student.get_full_name()
                 for sg in g.guardian_students.select_related('student').all()
