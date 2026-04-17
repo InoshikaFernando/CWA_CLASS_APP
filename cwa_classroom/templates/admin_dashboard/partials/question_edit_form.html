@@ -21,6 +21,15 @@
   </span>
 </div>
 
+{% if question.image %}
+<div class="mb-5">
+  <label class="block text-sm font-semibold text-gray-700 mb-1.5">Question Image</label>
+  <img src="{{ question.image.url }}" alt="Question image"
+       class="max-h-48 rounded-lg border border-slate-200 shadow-sm cursor-pointer hover:opacity-90 transition"
+       onclick="closeEditModal(); openImageModal('{{ question.image.url }}')">
+</div>
+{% endif %}
+
 <form hx-post="{% url 'admin_global_question_edit' question.id %}"
       hx-target="#question-row-{{ question.id }}"
       hx-swap="innerHTML">
