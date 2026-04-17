@@ -133,12 +133,16 @@ def _multiplication_question(level_number):
     display = level_number - 114 + 1
     if display == 1:
         tables = [1, 10]
+        a = random.randint(1, 12)
     elif display == 2:
         tables = [1, 10, 100]
+        a = random.randint(2, 12)
     elif display == 3:
         tables = [5, 10]
+        a = random.randint(2, 12)
     elif display == 4:
         tables = [2, 3, 5, 10]
+        a = random.randint(3, 12)
     elif display == 5:
         b = random.choice([2, 3, 4, 5, 10])
         a = random.randint(10, 99)
@@ -155,7 +159,6 @@ def _multiplication_question(level_number):
         answer = a * b
         return {'question': f'{a} × {b} = ?', 'answer': answer, 'display_answer': str(answer)}
     b = random.choice(tables)
-    a = random.randint(1, 12)
     answer = a * b
     return {'question': f'{a} × {b} = ?', 'answer': answer, 'display_answer': str(answer)}
 
@@ -166,20 +169,32 @@ def _division_question(level_number):
     display = level_number - 121 + 1
     if display == 1:
         divisors = [1, 10]
+        quotient = random.randint(1, 12)
     elif display == 2:
         divisors = [1, 10, 100]
+        quotient = random.randint(2, 12)
     elif display == 3:
         divisors = [5, 10]
+        quotient = random.randint(2, 12)
     elif display == 4:
         divisors = [2, 3, 5, 10]
+        quotient = random.randint(3, 12)
     elif display == 5:
-        divisors = [2, 3, 4, 5, 10]
+        divisor = random.choice([2, 3, 4, 5, 10])
+        quotient = random.randint(10, 99)
+        dividend = divisor * quotient
+        return {'question': f'{dividend} ÷ {divisor} = ?', 'answer': quotient, 'display_answer': str(quotient)}
     elif display == 6:
-        divisors = [2, 3, 4, 5, 6, 7, 10]
+        divisor = random.choice([2, 3, 4, 5, 6, 7, 10])
+        quotient = random.randint(10, 99)
+        dividend = divisor * quotient
+        return {'question': f'{dividend} ÷ {divisor} = ?', 'answer': quotient, 'display_answer': str(quotient)}
     else:
-        divisors = list(range(2, 12))
+        divisor = random.choice(range(2, 12))
+        quotient = random.randint(100, 999)
+        dividend = divisor * quotient
+        return {'question': f'{dividend} ÷ {divisor} = ?', 'answer': quotient, 'display_answer': str(quotient)}
     divisor = random.choice(divisors)
-    quotient = random.randint(1, 12)
     dividend = divisor * quotient
     return {'question': f'{dividend} ÷ {divisor} = ?', 'answer': quotient, 'display_answer': str(quotient)}
 

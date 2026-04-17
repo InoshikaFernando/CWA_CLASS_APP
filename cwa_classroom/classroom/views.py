@@ -3102,6 +3102,25 @@ class HoDOverviewView(RoleRequiredMixin, View):
 
         is_hoi = not is_hod_only
 
+        # ── Platform Stats (superuser only) ────────────────────────
+        platform_stats = None
+        if request.user.is_superuser:
+            from maths.models import Question
+            total_global_questions = Question.objects.filter(school__isnull=True).count()
+            total_school_questions = Question.objects.filter(school__isnull=False).count()
+            total_users = CustomUser.objects.filter(is_active=True).count()
+            total_schools_all = School.objects.count()
+            total_active_schools = School.objects.filter(is_active=True).count()
+            total_classes_all = ClassRoom.objects.filter(is_active=True).count()
+            platform_stats = {
+                'total_global_questions': total_global_questions,
+                'total_school_questions': total_school_questions,
+                'total_users': total_users,
+                'total_schools': total_schools_all,
+                'total_active_schools': total_active_schools,
+                'total_classes': total_classes_all,
+            }
+
         # ── My Earnings (for teachers / HoDs) ──────────────────────
         my_earnings = None
         user_slips = SalarySlip.objects.filter(
@@ -3249,6 +3268,7 @@ class HoDOverviewView(RoleRequiredMixin, View):
             'current_month_name': now.strftime('%B %Y'),
             'subscription_usage': subscription_usage,
             'my_earnings': my_earnings,
+            'platform_stats': platform_stats,
         })
 
 
