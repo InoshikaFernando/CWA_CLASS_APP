@@ -33,7 +33,18 @@
     <span class="text-gray-300">&mdash;</span>
   {% endif %}
 </td>
-<td class="px-4 py-3 text-center text-gray-600">{{ q.answers.count }}</td>
+<td class="px-4 py-3 text-gray-600 text-sm">
+  {% for ans in q.answers.all %}
+    {% if ans.is_correct %}
+      <span class="inline-flex items-center gap-1 text-emerald-700 font-medium">
+        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        {{ ans.answer_text }}
+      </span>
+    {% endif %}
+  {% endfor %}
+</td>
 <td class="px-4 py-3">
   <button onclick="openEditModal({{ q.id }})"
           class="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-accent bg-accent/5 rounded-lg hover:bg-accent/10 transition">
