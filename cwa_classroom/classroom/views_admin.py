@@ -2964,3 +2964,195 @@ class SubjectAppManageView(LoginRequiredMixin, View):
         app.save(update_fields=['subject'])
         messages.success(request, f'"{app.name}" linked to {app.subject or "no subject"}.')
         return redirect('admin_subject_apps')
+
+
+# ---------------------------------------------------------------------------
+# Global Questions management (superuser only)
+# ---------------------------------------------------------------------------
+
+class GlobalQuestionsView(RoleRequiredMixin, View):
+    """Browse and filter all global questions (school=NULL)."""
+    required_roles = [Role.ADMIN]
+
+    def get(self, request):
+        from maths.models import Question, Answer
+        from .models import Topic
+
+        subject_id = request.GET.get('subject', '')
+        level_id = request.GET.get('level', '')
+        topic_id = request.GET.get('topic', '')
+        subtopic_id = request.GET.get('subtopic', '')
+
+        subjects = Subject.objects.filter(school__isnull=True, is_active=True).order_by('order', 'name')
+
+        levels = Level.objects.none()
+        topics = Topic.objects.none()
+        subtopics = Topic.objects.none()
+
+        if subject_id:
+            levels = Level.objects.filter(
+                subject_id=subject_id, school__isnull=True,
+            ).order_by('level_number')
+
+        if level_id:
+            topics = Topic.objects.filter(
+                subject_id=subject_id, levels__id=level_id,
+                is_active=True, parent__isnull=True,
+            ).distinct().order_by('order', 'name')
+
+        if topic_id:
+            subtopics = Topic.objects.filter(
+                parent_id=topic_id, is_active=True,
+            ).order_by('order', 'name')
+            # Only show subtopics that are linked to the selected level
+            if level_id:
+                subtopics = subtopics.filter(levels__id=level_id).distinct()
+
+        # Build question queryset
+        qs = Question.objects.filter(school__isnull=True).select_related('level', 'topic', 'topic__parent')
+
+        if subject_id:
+            qs = qs.filter(topic__subject_id=subject_id)
+        if level_id:
+            qs = qs.filter(level_id=level_id)
+        if subtopic_id:
+            qs = qs.filter(topic_id=subtopic_id)
+        elif topic_id:
+            qs = qs.filter(Q(topic_id=topic_id) | Q(topic__parent_id=topic_id))
+
+        qs = qs.order_by('level__level_number', 'topic__order', 'difficulty')
+        total_count = qs.count()
+
+        paginator = Paginator(qs, 50)
+        page_number = request.GET.get('page', 1)
+        page_obj = paginator.get_page(page_number)
+
+        # Prefetch answers for displayed questions
+        question_ids = [q.id for q in page_obj]
+        answers_map = {}
+        if question_ids:
+            for ans in Answer.objects.filter(question_id__in=question_ids).order_by('question_id', 'order', 'id'):
+                answers_map.setdefault(ans.question_id, []).append(ans)
+
+        return render(request, 'admin_dashboard/global_questions.html', {
+            'subjects': subjects,
+            'levels': levels,
+            'topics': topics,
+            'subtopics': subtopics,
+            'selected_subject': subject_id,
+            'selected_level': level_id,
+            'selected_topic': topic_id,
+            'selected_subtopic': subtopic_id,
+            'page_obj': page_obj,
+            'total_count': total_count,
+            'answers_map': answers_map,
+        })
+
+
+class GlobalQuestionEditView(RoleRequiredMixin, View):
+    """Edit a single global question (question text + answers) via HTMX modal."""
+    required_roles = [Role.ADMIN]
+
+    def get(self, request, question_id):
+        from maths.models import Question, Answer
+        question = get_object_or_404(Question, id=question_id, school__isnull=True)
+        answers = question.answers.order_by('order', 'id')
+        return render(request, 'admin_dashboard/partials/question_edit_form.html', {
+            'question': question,
+            'answers': answers,
+        })
+
+    def post(self, request, question_id):
+        from maths.models import Question, Answer
+        question = get_object_or_404(Question, id=question_id, school__isnull=True)
+
+        question.question_text = request.POST.get('question_text', '').strip()
+        question.save(update_fields=['question_text', 'updated_at'])
+
+        # Update answers
+        answer_ids = request.POST.getlist('answer_id')
+        for aid in answer_ids:
+            try:
+                ans = Answer.objects.get(id=int(aid), question=question)
+            except (Answer.DoesNotExist, ValueError):
+                continue
+            ans.answer_text = request.POST.get(f'answer_text_{aid}', '').strip()
+            ans.is_correct = request.POST.get(f'is_correct_{aid}') == 'on'
+            ans.save(update_fields=['answer_text', 'is_correct'])
+
+        log_event(
+            user=request.user, school=None,
+            category='data_change', action='global_question_edited',
+            detail={'question_id': question.id, 'question_text': question.question_text[:100]},
+            request=request,
+        )
+
+        # Return the updated row partial
+        answers = question.answers.order_by('order', 'id')
+        return render(request, 'admin_dashboard/partials/question_row.html', {
+            'q': question,
+            'answers': list(answers),
+        })
+
+
+class HtmxGlobalLevelsView(RoleRequiredMixin, View):
+    """HTMX: return level <option> tags for a subject."""
+    required_roles = [Role.ADMIN]
+
+    def get(self, request):
+        from django.http import HttpResponse
+        subject_id = request.GET.get('subject', '')
+        if not subject_id:
+            return HttpResponse('<option value="">-- Select level --</option>')
+        levels = Level.objects.filter(
+            subject_id=subject_id, school__isnull=True,
+        ).order_by('level_number')
+        html = '<option value="">-- All levels --</option>'
+        for lv in levels:
+            html += f'<option value="{lv.id}">{lv.display_name}</option>'
+        return HttpResponse(html)
+
+
+class HtmxGlobalTopicsView(RoleRequiredMixin, View):
+    """HTMX: return topic <option> tags for a subject + level."""
+    required_roles = [Role.ADMIN]
+
+    def get(self, request):
+        from django.http import HttpResponse
+        from .models import Topic
+        subject_id = request.GET.get('subject', '')
+        level_id = request.GET.get('level', '')
+        if not subject_id or not level_id:
+            return HttpResponse('<option value="">-- Select topic --</option>')
+        topics = Topic.objects.filter(
+            subject_id=subject_id, levels__id=level_id,
+            is_active=True, parent__isnull=True,
+        ).distinct().order_by('order', 'name')
+        html = '<option value="">-- All topics --</option>'
+        for t in topics:
+            html += f'<option value="{t.id}">{t.name}</option>'
+        return HttpResponse(html)
+
+
+class HtmxGlobalSubtopicsView(RoleRequiredMixin, View):
+    """HTMX: return subtopic <option> tags for a topic + level."""
+    required_roles = [Role.ADMIN]
+
+    def get(self, request):
+        from django.http import HttpResponse
+        from .models import Topic
+        topic_id = request.GET.get('topic', '')
+        level_id = request.GET.get('level', '')
+        if not topic_id:
+            return HttpResponse('<option value="">-- Select subtopic --</option>')
+        subtopics = Topic.objects.filter(
+            parent_id=topic_id, is_active=True,
+        ).order_by('order', 'name')
+        if level_id:
+            subtopics = subtopics.filter(levels__id=level_id).distinct()
+        if not subtopics.exists():
+            return HttpResponse('')
+        html = '<option value="">-- All subtopics --</option>'
+        for st in subtopics:
+            html += f'<option value="{st.id}">{st.name}</option>'
+        return HttpResponse(html)
