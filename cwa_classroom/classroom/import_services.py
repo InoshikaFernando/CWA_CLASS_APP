@@ -1321,7 +1321,7 @@ def execute_import(preview_data, school, uploaded_by):
                         parent_user = CustomUser(
                             username=g_username,
                             email=g_email,
-                            password=make_password(g_password, hasher='sha1'),
+                            password=make_password(g_password, hasher='pbkdf2_sha256'),
                             first_name=g_data['first_name'],
                             last_name=g_data['last_name'],
                             must_change_password=True,
@@ -1362,13 +1362,13 @@ def execute_import(preview_data, school, uploaded_by):
                         suffix += 1
                     used_usernames.add(username)
 
-                    # SHA1 for temporary password — must_change_password=True
-                    # forces reset on first login; PBKDF2 (~50 ms/hash) would
-                    # add ~25 s for 500 students.
+                    # PBKDF2 for temporary password — must_change_password=True
+                    # forces reset on first login. SHA1 is no longer supported in Django 5.2+.
+                    # Performance impact is minimal for reasonable import sizes.
                     user = CustomUser(
                         username=username,
                         email=email,
-                        password=make_password(password, hasher='sha1'),
+                        password=make_password(password, hasher='pbkdf2_sha256'),
                         first_name=sdata['first_name'],
                         last_name=sdata['last_name'],
                         must_change_password=True,
