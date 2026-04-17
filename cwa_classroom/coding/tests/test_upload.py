@@ -153,14 +153,17 @@ class CodingExerciseParserTests(TestCase):
         self.assertEqual(result['failed'], 1)
         self.assertTrue(any('instructions' in e for e in result['errors']))
 
-    def test_missing_expected_output_returns_error(self):
+    def test_missing_expected_output_defaults_to_empty(self):
+        """expected_output is optional; omitting it creates the exercise with '' output."""
         payload = _coding_payload(exercises=[{
             'title': 'My Exercise',
             'instructions': 'Do something.',
         }])
         result = self._run_parser(payload)
-        self.assertEqual(result['failed'], 1)
-        self.assertTrue(any('expected_output' in e for e in result['errors']))
+        self.assertEqual(result['failed'], 0)
+        self.assertEqual(result['inserted'], 1)
+        ex = CodingExercise.objects.get(title='My Exercise')
+        self.assertEqual(ex.expected_output, '')
 
     def test_unknown_language_slug_returns_descriptive_error(self):
         payload = _coding_payload(language='rust')
@@ -291,7 +294,7 @@ class CodingUploadViewTests(TestCase):
     def test_coding_upload_creates_exercise_records(self):
         resp = self._post_coding(_coding_payload())
         self.assertEqual(resp.status_code, 200)
-        results = resp.context['upload_results']
+        results = resp.context['upload_results_list'][0]
         self.assertEqual(results['inserted'], 1)
         self.assertEqual(results['failed'], 0)
         self.assertEqual(results['subject'], 'coding')
@@ -322,7 +325,7 @@ class CodingUploadViewTests(TestCase):
         ]
         resp = self._post_coding(_coding_payload(exercises=exercises))
         self.assertEqual(resp.status_code, 200)
-        results = resp.context['upload_results']
+        results = resp.context['upload_results_list'][0]
         self.assertEqual(results['inserted'], 50)
         self.assertEqual(results['failed'], 0)
 
@@ -330,7 +333,7 @@ class CodingUploadViewTests(TestCase):
         self._post_coding(_coding_payload())
         resp = self._post_coding(_coding_payload())
         self.assertEqual(resp.status_code, 200)
-        results = resp.context['upload_results']
+        results = resp.context['upload_results_list'][0]
         self.assertEqual(results['updated'], 1)
         self.assertEqual(results['inserted'], 0)
 
@@ -339,20 +342,20 @@ class CodingUploadViewTests(TestCase):
     def test_unknown_language_returns_200_with_error(self):
         resp = self._post_coding(_coding_payload(language='cobol'))
         self.assertEqual(resp.status_code, 200)
-        results = resp.context['upload_results']
+        results = resp.context['upload_results_list'][0]
         self.assertGreater(results['failed'], 0)
         self.assertTrue(any('cobol' in e.lower() for e in results['errors']))
 
     def test_unknown_topic_returns_200_with_error(self):
         resp = self._post_coding(_coding_payload(topic='big-o-notation'))
         self.assertEqual(resp.status_code, 200)
-        results = resp.context['upload_results']
+        results = resp.context['upload_results_list'][0]
         self.assertGreater(results['failed'], 0)
 
     def test_invalid_level_returns_200_with_error(self):
         resp = self._post_coding(_coding_payload(level='master'))
         self.assertEqual(resp.status_code, 200)
-        results = resp.context['upload_results']
+        results = resp.context['upload_results_list'][0]
         self.assertGreater(results['failed'], 0)
         self.assertTrue(any('master' in e.lower() for e in results['errors']))
 
@@ -459,6 +462,6 @@ class CodingUploadViewTests(TestCase):
             {'subject': 'mathematics', 'upload_file': f},
         )
         self.assertEqual(resp.status_code, 200)
-        results = resp.context['upload_results']
+        results = resp.context['upload_results_list'][0]
         self.assertEqual(results['subject'], 'mathematics')
         self.assertEqual(results['failed'], 0)

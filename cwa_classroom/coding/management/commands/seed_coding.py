@@ -120,12 +120,13 @@ class Command(BaseCommand):
                     topic_level=topic_level,
                     title=ex['title'],
                     defaults={
-                        'description':     ex.get('instructions', ''),
-                        'starter_code':    ex.get('starter_code', ''),
-                        'expected_output': ex.get('expected_output', ''),
-                        'hints':           ex.get('hints', ''),
-                        'order':           ex.get('display_order', 0),
-                        'is_active':       True,
+                        'description':          ex.get('instructions', ''),
+                        'starter_code':         ex.get('starter_code', ''),
+                        'expected_output':      ex.get('expected_output', ''),
+                        'hints':                ex.get('hints', ''),
+                        'order':                ex.get('display_order', 0),
+                        'uses_browser_sandbox': ex.get('uses_browser_sandbox', False),
+                        'is_active':            True,
                     },
                 )
                 if created:
@@ -162,10 +163,13 @@ class Command(BaseCommand):
             else:
                 prob_updated += 1
 
-            # Re-seed test cases only on fresh creation to avoid duplicates on re-run.
-            # Use --reset to force a full re-seed.
-            if created:
-                for order, tc in enumerate(prob_data.get('test_cases', []), start=1):
+            # Always sync test cases so re-running seed_coding picks up any
+            # changes to expected outputs, new cases, or removed cases.
+            # Clear existing cases and recreate from the seed data.
+            test_cases_data = prob_data.get('test_cases', [])
+            if test_cases_data:
+                problem.test_cases.all().delete()
+                for order, tc in enumerate(test_cases_data, start=1):
                     ProblemTestCase.objects.create(
                         problem=problem,
                         input_data=tc['input'],

@@ -2239,9 +2239,9 @@ class UploadQuestionsView(RoleRequiredMixin, View):
     def post(self, request):
         from .upload_services import get_upload_parser
 
-        uploaded_file = request.FILES.get('upload_file')
-        if not uploaded_file:
-            messages.error(request, 'Please select a file.')
+        uploaded_files = request.FILES.getlist('upload_file')
+        if not uploaded_files:
+            messages.error(request, 'Please select at least one file.')
             return redirect('upload_questions')
 
         subject_slug = request.POST.get('subject', 'mathematics').strip()
@@ -2261,32 +2261,39 @@ class UploadQuestionsView(RoleRequiredMixin, View):
                 return redirect('upload_questions')
             selected_classroom_id = int(raw)
 
-        result = parser.process(
-            uploaded_file,
-            request.user,
-            request.POST,
-            school_id=school_id,
-            dept_id=dept_id,
-            selected_classroom_id=selected_classroom_id,
-        )
+        all_results = []
+        school_obj = School.objects.filter(id=school_id).first() if school_id else None
 
-        if result['inserted'] or result['updated']:
-            log_event(
-                user=request.user,
-                school=School.objects.filter(id=school_id).first() if school_id else None,
-                category='data_change',
-                action='questions_uploaded',
-                detail={
-                    'subject': subject_slug,
-                    'inserted': result['inserted'],
-                    'updated': result['updated'],
-                    'failed': result['failed'],
-                    **result.get('detail', {}),
-                },
-                request=request,
+        for uploaded_file in uploaded_files:
+            result = parser.process(
+                uploaded_file,
+                request.user,
+                request.POST,
+                school_id=school_id,
+                dept_id=dept_id,
+                selected_classroom_id=selected_classroom_id,
             )
+            result['filename'] = uploaded_file.name
+            all_results.append(result)
 
-        ctx['upload_results'] = result
+            if result['inserted'] or result['updated']:
+                log_event(
+                    user=request.user,
+                    school=school_obj,
+                    category='data_change',
+                    action='questions_uploaded',
+                    detail={
+                        'subject': subject_slug,
+                        'filename': uploaded_file.name,
+                        'inserted': result['inserted'],
+                        'updated': result['updated'],
+                        'failed': result['failed'],
+                        **result.get('detail', {}),
+                    },
+                    request=request,
+                )
+
+        ctx['upload_results_list'] = all_results
         ctx['selected_subject'] = subject_slug
         return render(request, 'teacher/upload_questions.html', ctx)
 

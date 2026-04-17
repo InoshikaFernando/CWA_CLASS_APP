@@ -183,15 +183,23 @@ class CodingExercise(models.Model):
     LEVEL_CHOICES = TopicLevel.LEVEL_CHOICES
     LEVEL_ORDER   = TopicLevel.LEVEL_ORDER
 
-    topic_level   = models.ForeignKey(TopicLevel, on_delete=models.CASCADE, related_name='exercises')
-    title         = models.CharField(max_length=200)
-    description   = models.TextField(help_text="Instructions shown to the student")
-    starter_code  = models.TextField(blank=True, help_text="Pre-filled code shown in the editor when the student opens the exercise")
-    solution_code = models.TextField(blank=True, help_text="Reference solution — shown only to teachers, never to students")
-    expected_output = models.TextField(blank=True, help_text="Expected stdout for simple output-matching exercises (leave blank for free-form exercises)")
-    hints         = models.TextField(blank=True, help_text="Optional hint text shown on request")
-    order         = models.PositiveSmallIntegerField(default=0)
-    is_active     = models.BooleanField(default=True)
+    topic_level       = models.ForeignKey(TopicLevel, on_delete=models.CASCADE, related_name='exercises')
+    title             = models.CharField(max_length=200)
+    description       = models.TextField(help_text="Instructions shown to the student")
+    starter_code      = models.TextField(blank=True, help_text="Pre-filled code shown in the editor when the student opens the exercise")
+    solution_code     = models.TextField(blank=True, help_text="Reference solution — shown only to teachers, never to students")
+    expected_output   = models.TextField(blank=True, help_text="Expected stdout for simple output-matching exercises (leave blank for free-form exercises)")
+    hints             = models.TextField(blank=True, help_text="Optional hint text shown on request")
+    order             = models.PositiveSmallIntegerField(default=0)
+    is_active         = models.BooleanField(default=True)
+    uses_browser_sandbox = models.BooleanField(
+        default=False,
+        help_text=(
+            "Override execution environment for this exercise. "
+            "When True, the editor renders an iframe sandbox instead of sending code to Piston. "
+            "Use for DOM/HTML-in-JS exercises that belong to a non-browser language topic (e.g. JavaScript DOM Basics)."
+        ),
+    )
     created_at    = models.DateTimeField(auto_now_add=True)
     updated_at    = models.DateTimeField(auto_now=True)
 

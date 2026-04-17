@@ -9,19 +9,29 @@
   </div>
 
   {# ── Upload results ────────────────────────────────────────────────── #}
-  {% if upload_results %}
+  {% if upload_results_list %}
+  {% for upload_results in upload_results_list %}
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-    <h2 class="font-bold text-gray-800 mb-4">Upload Results
-      {% if upload_results.subject == 'coding' %}
-        <span class="ml-2 text-xs font-semibold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Coding</span>
-      {% else %}
-        <span class="ml-2 text-xs font-semibold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Mathematics</span>
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-gray-800">Upload Results
+        {% if upload_results.subject == 'coding_problem' %}
+          <span class="ml-2 text-xs font-semibold bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">Coding Problems</span>
+        {% elif upload_results.subject == 'coding' %}
+          <span class="ml-2 text-xs font-semibold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Coding</span>
+        {% else %}
+          <span class="ml-2 text-xs font-semibold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Mathematics</span>
+        {% endif %}
+      </h2>
+      {% if upload_results.filename %}
+      <span class="text-xs text-gray-400 font-mono truncate max-w-xs" title="{{ upload_results.filename }}">{{ upload_results.filename }}</span>
       {% endif %}
-    </h2>
+    </div>
 
     {% if upload_results.detail %}
     <p class="text-sm text-gray-500 mb-4">
-      {% if upload_results.subject == 'coding' %}
+      {% if upload_results.subject == 'coding_problem' %}
+        {{ upload_results.detail.language }} › {{ upload_results.detail.problems_count }} problem{{ upload_results.detail.problems_count|pluralize }}
+      {% elif upload_results.subject == 'coding' %}
         {{ upload_results.detail.language }} › {{ upload_results.detail.topic }} › {{ upload_results.detail.level }}
       {% else %}
         Year {{ upload_results.detail.year_level }} › {{ upload_results.detail.topic }}
@@ -64,6 +74,7 @@
     </div>
     {% endif %}
   </div>
+  {% endfor %}
   {% endif %}
 
   {# ── Upload form ───────────────────────────────────────────────────── #}
@@ -120,17 +131,23 @@
         No classroom scoping is applied.
       </div>
 
+      {# Coding Problems context note #}
+      <div x-show="subject === 'coding_problem'" x-cloak
+           class="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 text-sm text-purple-800">
+        Problems (algorithm challenges with test cases) are imported into the Coding app.
+        No classroom scoping is applied.
+      </div>
+
       {# File picker #}
       <div>
         <label class="block text-sm font-semibold text-gray-700 mb-1.5">
           File <span class="text-red-500">*</span>
         </label>
-        <input type="file" name="upload_file" accept=".json,.zip" required
+        <input type="file" name="upload_file" accept=".json,.zip" required multiple
                class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:font-semibold file:bg-primary-light file:text-primary hover:file:bg-primary hover:file:text-white file:transition" />
         <p class="text-xs text-gray-400 mt-1">
-          <code class="font-mono">.json</code> file,
-          or a <code class="font-mono">.zip</code> containing
-          <code class="font-mono">questions.json</code> + images (maths only).
+          Select one or more <code class="font-mono">.json</code> or <code class="font-mono">.zip</code> files.
+          ZIP files must contain <code class="font-mono">questions.json</code> + images (maths only).
         </p>
       </div>
 
@@ -236,10 +253,72 @@
             <tr><td class="px-3 py-1.5 font-mono">level</td><td class="px-3 py-1.5">✅</td><td class="px-3 py-1.5">beginner · intermediate · advanced</td></tr>
             <tr><td class="px-3 py-1.5 font-mono">exercises[].title</td><td class="px-3 py-1.5">✅</td><td class="px-3 py-1.5">Duplicate title + topic + level → updated</td></tr>
             <tr><td class="px-3 py-1.5 font-mono">exercises[].instructions</td><td class="px-3 py-1.5">✅</td><td class="px-3 py-1.5">Shown to the student</td></tr>
-            <tr><td class="px-3 py-1.5 font-mono">exercises[].expected_output</td><td class="px-3 py-1.5">✅</td><td class="px-3 py-1.5">Exact stdout the correct solution produces</td></tr>
+            <tr><td class="px-3 py-1.5 font-mono">exercises[].expected_output</td><td class="px-3 py-1.5">—</td><td class="px-3 py-1.5">Exact stdout the correct solution produces (leave blank for HTML/CSS/DOM/Scratch)</td></tr>
             <tr><td class="px-3 py-1.5 font-mono">exercises[].starter_code</td><td class="px-3 py-1.5">—</td><td class="px-3 py-1.5">Pre-filled editor code</td></tr>
             <tr><td class="px-3 py-1.5 font-mono">exercises[].hints</td><td class="px-3 py-1.5">—</td><td class="px-3 py-1.5">Hint text shown on request</td></tr>
             <tr><td class="px-3 py-1.5 font-mono">exercises[].display_order</td><td class="px-3 py-1.5">—</td><td class="px-3 py-1.5">Defaults to array index</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  {# ── Format reference — Coding Problems ───────────────────────────── #}
+  <div x-show="subject === 'coding_problem'" x-cloak
+       class="bg-gray-50 rounded-2xl border border-slate-200 p-5 space-y-4">
+
+    <div>
+      <p class="text-sm font-bold text-gray-700 mb-3">🧩 Coding problem JSON format</p>
+      <pre class="font-mono text-xs bg-white rounded-xl p-4 border border-gray-200 overflow-x-auto text-gray-600">{
+  "subject": "coding_problem",
+  "language": "python",
+  "problems": [
+    {
+      "title": "Reverse a String",
+      "difficulty": 1,
+      "category": "algorithm",
+      "description": "Read a line and print it reversed.\n\nExample:\n  Input:  hello\n  Output: olleh",
+      "starter_code": "s = input()\n# Print reversed\n",
+      "constraints": "",
+      "time_limit_seconds": 5,
+      "memory_limit_mb": 256,
+      "forbidden_code_patterns": [],
+      "test_cases": [
+        {"input": "hello", "expected": "olleh", "visible": true,  "boundary": false, "description": "Basic"},
+        {"input": "a",     "expected": "a",     "visible": false, "boundary": true,  "description": "Single char"}
+      ]
+    }
+  ]
+}</pre>
+    </div>
+
+    <div class="border-t border-gray-200 pt-3 space-y-2">
+      <p class="text-xs font-semibold text-gray-600">Field reference</p>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs text-gray-500 border-collapse">
+          <thead>
+            <tr class="bg-gray-100">
+              <th class="text-left px-3 py-2 rounded-tl-lg font-semibold text-gray-700">Field</th>
+              <th class="text-left px-3 py-2 font-semibold text-gray-700">Required</th>
+              <th class="text-left px-3 py-2 rounded-tr-lg font-semibold text-gray-700">Notes</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100">
+            <tr><td class="px-3 py-1.5 font-mono">language</td><td class="px-3 py-1.5">✅</td><td class="px-3 py-1.5">slug: python · javascript</td></tr>
+            <tr><td class="px-3 py-1.5 font-mono">problems[].title</td><td class="px-3 py-1.5">✅</td><td class="px-3 py-1.5">Duplicate title + language → updated (test cases replaced)</td></tr>
+            <tr><td class="px-3 py-1.5 font-mono">problems[].description</td><td class="px-3 py-1.5">✅</td><td class="px-3 py-1.5">Full problem statement shown to the student</td></tr>
+            <tr><td class="px-3 py-1.5 font-mono">problems[].difficulty</td><td class="px-3 py-1.5">—</td><td class="px-3 py-1.5">1 (easiest) to 8 (hardest). Default: 1</td></tr>
+            <tr><td class="px-3 py-1.5 font-mono">problems[].category</td><td class="px-3 py-1.5">—</td><td class="px-3 py-1.5">algorithm · logic · data_structures · dynamic_programming · graph_theory · string_manipulation · mathematics · sorting_searching</td></tr>
+            <tr><td class="px-3 py-1.5 font-mono">problems[].starter_code</td><td class="px-3 py-1.5">—</td><td class="px-3 py-1.5">Skeleton code shown in the editor</td></tr>
+            <tr><td class="px-3 py-1.5 font-mono">problems[].constraints</td><td class="px-3 py-1.5">—</td><td class="px-3 py-1.5">Input size / value constraints</td></tr>
+            <tr><td class="px-3 py-1.5 font-mono">problems[].time_limit_seconds</td><td class="px-3 py-1.5">—</td><td class="px-3 py-1.5">Default: 5</td></tr>
+            <tr><td class="px-3 py-1.5 font-mono">problems[].memory_limit_mb</td><td class="px-3 py-1.5">—</td><td class="px-3 py-1.5">Default: 256</td></tr>
+            <tr><td class="px-3 py-1.5 font-mono">problems[].forbidden_code_patterns</td><td class="px-3 py-1.5">—</td><td class="px-3 py-1.5">Array of forbidden substrings, e.g. ["sorted(", ".sort("]</td></tr>
+            <tr><td class="px-3 py-1.5 font-mono">test_cases[].input</td><td class="px-3 py-1.5">✅</td><td class="px-3 py-1.5">stdin passed to the program</td></tr>
+            <tr><td class="px-3 py-1.5 font-mono">test_cases[].expected</td><td class="px-3 py-1.5">✅</td><td class="px-3 py-1.5">Expected stdout</td></tr>
+            <tr><td class="px-3 py-1.5 font-mono">test_cases[].visible</td><td class="px-3 py-1.5">—</td><td class="px-3 py-1.5">true = shown as sample to student. Default: false</td></tr>
+            <tr><td class="px-3 py-1.5 font-mono">test_cases[].boundary</td><td class="px-3 py-1.5">—</td><td class="px-3 py-1.5">true = edge/boundary test case. Default: false</td></tr>
+            <tr><td class="px-3 py-1.5 font-mono">test_cases[].description</td><td class="px-3 py-1.5">—</td><td class="px-3 py-1.5">Short label shown in admin drill-down</td></tr>
           </tbody>
         </table>
       </div>

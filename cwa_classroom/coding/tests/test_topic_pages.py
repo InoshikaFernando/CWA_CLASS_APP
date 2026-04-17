@@ -129,7 +129,8 @@ class TestTopicListNoProgress(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.student = User.objects.create_user('tl_fresh', password='pass', email='tl_fresh@test.com')
-        cls.lang = _lang('python', 'Python')
+        # Use a test-specific slug — seeded 'python' has 7 topics from migration 0011.
+        cls.lang = _lang('tst-py-tp', 'Python')
 
         cls.t1 = _topic(cls.lang, 'Variables', 'py-variables-tp')   # 4 exercises
         cls.t2 = _topic(cls.lang, 'Loops', 'py-loops-tp')            # 3 exercises
@@ -144,7 +145,7 @@ class TestTopicListNoProgress(TestCase):
 
     def setUp(self):
         self.client.force_login(self.student)
-        self.url = reverse('coding:topic_list', args=['python'])
+        self.url = reverse('coding:topic_list', args=[self.__class__.lang.slug])
 
     def test_returns_200(self):
         self.assertEqual(self.client.get(self.url).status_code, 200)
@@ -594,10 +595,11 @@ class TestScratchTopicList(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.student = User.objects.create_user('sc_tl_student', password='pass', email='sc_tl_student@test.com')
-        cls.lang = _lang('scratch', 'Scratch')
+        # Use a test-specific slug — seeded 'scratch' has 5 topics from migration 0011.
+        cls.lang = _lang('tst-sc-tp', 'Scratch')
 
-        cls.t1 = _topic(cls.lang, 'Motion & Looks', 'scratch-motion')
-        cls.t2 = _topic(cls.lang, 'Events', 'scratch-events')
+        cls.t1 = _topic(cls.lang, 'Motion & Looks', 'tst-scratch-motion')
+        cls.t2 = _topic(cls.lang, 'Events', 'tst-scratch-events')
 
         cls.ex1 = _exercise(cls.t1, 'Say Hello')
         cls.ex2 = _exercise(cls.t1, 'Print Name')
@@ -605,7 +607,7 @@ class TestScratchTopicList(TestCase):
 
     def setUp(self):
         self.client.force_login(self.student)
-        self.url = reverse('coding:topic_list', args=['scratch'])
+        self.url = reverse('coding:topic_list', args=[self.__class__.lang.slug])
 
     def test_returns_200(self):
         self.assertEqual(self.client.get(self.url).status_code, 200)

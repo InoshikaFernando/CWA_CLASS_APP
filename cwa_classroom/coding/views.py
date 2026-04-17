@@ -552,8 +552,18 @@ def api_run_code(request):
 
     language = get_object_or_404(CodingLanguage, slug=lang_slug, is_active=True)
 
-    # HTML/CSS — signal the frontend to use the iframe sandbox (no server execution)
-    if language.uses_browser_sandbox:
+    # Determine whether this exercise overrides the execution environment.
+    # DOM exercises (e.g. JavaScript / DOM Basics) belong to the javascript
+    # language but set uses_browser_sandbox=True at the exercise level so they
+    # render in an iframe sandbox instead of being sent to Piston/Node.js.
+    exercise_browser_sandbox = False
+    if exercise_id:
+        _ex = CodingExercise.objects.filter(id=exercise_id, is_active=True).first()
+        if _ex:
+            exercise_browser_sandbox = _ex.uses_browser_sandbox
+
+    # HTML/CSS or DOM-override exercises — signal the frontend to use the iframe sandbox
+    if language.uses_browser_sandbox or exercise_browser_sandbox:
         if mark_complete and exercise_id:
             _save_exercise_submission(request.user, exercise_id, language, code, '', '', completed=True)
         return JsonResponse({'browser_sandbox': True})
@@ -596,6 +606,10 @@ def _save_exercise_submission(user, exercise_id, language, code, stdout, stderr,
         id=exercise_id, topic_level__topic__language=language, is_active=True
     ).first()
     if not exercise:
+        logger.warning(
+            '_save_exercise_submission: exercise id=%s not found for language=%s user=%s',
+            exercise_id, getattr(language, 'slug', language), getattr(user, 'username', user),
+        )
         return
     submission, created = StudentExerciseSubmission.objects.get_or_create(
         student=user,
@@ -655,6 +669,7 @@ def api_submit_problem(request, problem_id):
             return JsonResponse({'error': 'Invalid JSON'}, status=400)
 
         code = body.get('code', '').strip()
+        blocks_xml = body.get('blocks_xml', '')
         time_taken = int(body.get('time_taken_seconds', 0))
         # language_slug in body takes priority; fall back to problem's fixed language
         req_lang_slug = body.get('language_slug', '').strip()
@@ -672,6 +687,48 @@ def api_submit_problem(request, problem_id):
 
         piston_lang = exec_language.piston_language
         if not piston_lang:
+            # HTML, CSS, and Scratch problems cannot be auto-executed server-side.
+            # Return a visual-review response with all test case criteria so the
+            # student can self-assess their work in the browser.
+            if exec_language.uses_browser_sandbox or exec_language.uses_scratch_vm:
+                visible_tests = problem.visible_test_cases
+                visible_count = visible_tests.count()
+                criteria = [
+                    {
+                        'description': tc.description or tc.expected_output,
+                        'expected': tc.expected_output,
+                    }
+                    for tc in visible_tests
+                ]
+                attempt_number = StudentProblemSubmission.get_next_attempt_number(request.user, problem)
+                best_previous = StudentProblemSubmission.get_best_points(request.user, problem)
+                # Visual-review languages cannot be auto-graded.
+                # Award full credit on submission — the student self-assesses
+                # via the criteria checklist, and the teacher can review the code.
+                StudentProblemSubmission.objects.create(
+                    student=request.user,
+                    problem=problem,
+                    attempt_number=attempt_number,
+                    code_submitted=code,
+                    passed_all_tests=True,
+                    visible_passed=visible_count,
+                    visible_total=visible_count,
+                    hidden_passed=0,
+                    hidden_total=0,
+                    test_results=[{'blocks_xml': blocks_xml}] if blocks_xml else [],
+                    points=100.0,
+                    time_taken_seconds=time_taken,
+                )
+                is_new_best = best_previous < 100.0
+                return JsonResponse({
+                    'visual_review': True,
+                    'criteria': criteria,
+                    'message': 'Your submission has been saved. Use the checklist below to self-assess your work.',
+                    'passed_all': True,
+                    'attempt_points': 100.0,
+                    'best_points': 100.0,
+                    'is_new_best': is_new_best,
+                })
             return JsonResponse({'error': f'Language "{exec_language.slug}" does not support server-side execution'}, status=400)
 
         forbidden_pattern = _find_forbidden_code_pattern(problem, code)

@@ -472,16 +472,21 @@ class TestApiSubmitProblem(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.json()['passed_all'])
 
-    def test_scratch_language_rejected_no_piston_support(self):
-        """Scratch has piston_language=None; submission via Scratch must return 400."""
+    def test_scratch_language_returns_visual_review(self):
+        """
+        Scratch has piston_language=None and uses_scratch_vm=True.
+        Submission via Scratch must return 200 with visual_review=True
+        (self-assessed; auto-graded as full credit).
+        """
         url = reverse('coding:api_submit_problem', args=[self.python_problem.id])
         resp = _post(self.client, url, {
-            'code': 'print("hi")',
+            'code': '<xml></xml>',
             'language_slug': 'scratch',
         })
-        self.assertEqual(resp.status_code, 400)
-        error = resp.json()['error'].lower()
-        self.assertTrue('execution' in error or 'support' in error)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data.get('visual_review'))
+        self.assertTrue(data.get('passed_all'))
 
     def test_forbidden_shortcut_returns_failed_submission_without_execution(self):
         """Problems can ban shortcuts such as sorted() for Bubble Sort."""

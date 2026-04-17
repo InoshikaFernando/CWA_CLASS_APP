@@ -461,8 +461,6 @@ class CodingExerciseParser(BaseQuestionParser):
                 validation_errors.append(f'Exercise {i}: missing "title"')
             if not (ex.get('instructions') or '').strip():
                 validation_errors.append(f'Exercise {i}: missing "instructions"')
-            if not (ex.get('expected_output') or '').strip():
-                validation_errors.append(f'Exercise {i}: missing "expected_output"')
         if validation_errors:
             result.errors = validation_errors
             result.failed = len(validation_errors)
@@ -538,16 +536,194 @@ class CodingExerciseParser(BaseQuestionParser):
         }
 
 
+# ── Coding Problem parser ─────────────────────────────────────────────────────
+
+class CodingProblemParser(BaseQuestionParser):
+    """
+    Handles uploads of coding *problems* (algorithm / logic challenges with
+    test cases).  Distinct from CodingExerciseParser which handles guided
+    topic exercises.
+
+    Expected JSON format::
+
+        {
+          "subject": "coding_problem",
+          "language": "python",          // language slug
+          "problems": [
+            {
+              "title": "Reverse a String",
+              "difficulty": 1,           // 1–8
+              "category": "algorithm",   // see CodingProblem.CATEGORY_CHOICES
+              "description": "...",
+              "starter_code": "...",
+              "constraints": "",
+              "time_limit_seconds": 5,
+              "memory_limit_mb": 256,
+              "forbidden_code_patterns": [],
+              "test_cases": [
+                {
+                  "input": "hello",
+                  "expected": "olleh",
+                  "visible": true,
+                  "boundary": false,
+                  "description": "Basic word"
+                }
+              ]
+            }
+          ]
+        }
+    """
+
+    subject_slug = 'coding_problem'
+
+    VALID_CATEGORIES = frozenset({
+        'algorithm', 'logic', 'data_structures', 'dynamic_programming',
+        'graph_theory', 'string_manipulation', 'mathematics', 'sorting_searching',
+    })
+
+    def process(self, uploaded_file, user, post_data, **_) -> dict:
+        from coding.models import CodingLanguage, CodingProblem, ProblemTestCase
+
+        result = UploadResult()
+        result.subject = 'coding_problem'
+
+        try:
+            data, _ = self._read_file(uploaded_file)
+        except ParseError as e:
+            result.errors.append(str(e))
+            result.failed = 1
+            return result.to_dict()
+
+        # ── Resolve language ──────────────────────────────────────────
+        language_slug = (data.get('language') or '').strip().lower()
+        if not language_slug:
+            result.errors.append('Missing "language" field.')
+            result.failed = 1
+            return result.to_dict()
+        try:
+            language = CodingLanguage.objects.get(slug=language_slug)
+        except CodingLanguage.DoesNotExist:
+            available = ', '.join(
+                CodingLanguage.objects.values_list('slug', flat=True).order_by('name')
+            )
+            result.errors.append(
+                f'Language "{language_slug}" not found. Available: {available}'
+            )
+            result.failed = 1
+            return result.to_dict()
+
+        # ── Validate problems array ───────────────────────────────────
+        problems = data.get('problems') or []
+        if not problems:
+            result.errors.append('The "problems" array is empty or missing.')
+            result.failed = 1
+            return result.to_dict()
+
+        # ── Save problems ─────────────────────────────────────────────
+        for i, prob in enumerate(problems, 1):
+            title = (prob.get('title') or '').strip()
+            if not title:
+                result.errors.append(f'Problem {i}: missing "title"')
+                result.failed += 1
+                continue
+            if not (prob.get('description') or '').strip():
+                result.errors.append(f'Problem {i} ({title!r}): missing "description"')
+                result.failed += 1
+                continue
+
+            category = (prob.get('category') or 'algorithm').strip().lower()
+            if category not in self.VALID_CATEGORIES:
+                result.errors.append(
+                    f'Problem {i} ({title!r}): invalid category "{category}". '
+                    f'Valid: {", ".join(sorted(self.VALID_CATEGORIES))}'
+                )
+                result.failed += 1
+                continue
+
+            try:
+                with transaction.atomic():
+                    problem, created = CodingProblem.objects.update_or_create(
+                        language=language,
+                        title=title,
+                        defaults={
+                            'description':             prob.get('description', '').strip(),
+                            'starter_code':            prob.get('starter_code', ''),
+                            'difficulty':              int(prob.get('difficulty', 1)),
+                            'category':                category,
+                            'constraints':             prob.get('constraints', ''),
+                            'time_limit_seconds':      int(prob.get('time_limit_seconds', 5)),
+                            'memory_limit_mb':         int(prob.get('memory_limit_mb', 256)),
+                            'forbidden_code_patterns': prob.get('forbidden_code_patterns') or [],
+                            'is_active':               True,
+                        },
+                    )
+
+                    # Upsert test cases: clear existing and re-create so re-uploads
+                    # always reflect the latest test suite.
+                    problem.test_cases.all().delete()
+                    test_cases = prob.get('test_cases') or []
+                    for order, tc in enumerate(test_cases, start=1):
+                        ProblemTestCase.objects.create(
+                            problem=problem,
+                            input_data=tc.get('input', ''),
+                            expected_output=tc.get('expected', ''),
+                            is_visible=bool(tc.get('visible', False)),
+                            is_boundary_test=bool(tc.get('boundary', False)),
+                            description=tc.get('description', ''),
+                            display_order=order,
+                        )
+
+                    if created:
+                        result.inserted += 1
+                    else:
+                        result.updated += 1
+
+            except Exception as exc:
+                result.errors.append(f'Problem {i} ({title!r}): {exc}')
+                result.failed += 1
+
+        result.detail = {
+            'language': language.name,
+            'problems_count': len(problems),
+        }
+        return result.to_dict()
+
+    def get_template_json(self) -> dict:
+        return {
+            'subject': 'coding_problem',
+            'language': 'python',
+            'problems': [
+                {
+                    'title': 'Reverse a String',
+                    'difficulty': 1,
+                    'category': 'algorithm',
+                    'description': 'Read a single line and print it reversed.\n\nExample:\n  Input:  hello\n  Output: olleh',
+                    'starter_code': 's = input()\n# Print the reversed string\n',
+                    'constraints': '',
+                    'time_limit_seconds': 5,
+                    'memory_limit_mb': 256,
+                    'forbidden_code_patterns': [],
+                    'test_cases': [
+                        {'input': 'hello', 'expected': 'olleh', 'visible': True, 'boundary': False, 'description': 'Basic word'},
+                        {'input': 'a',     'expected': 'a',     'visible': False, 'boundary': True,  'description': 'Single char'},
+                    ],
+                },
+            ],
+        }
+
+
 # ── Factory ───────────────────────────────────────────────────────────────────
 
 _PARSERS: dict[str, BaseQuestionParser] = {
-    'mathematics': MathsQuestionParser(),
-    'coding': CodingExerciseParser(),
+    'mathematics':    MathsQuestionParser(),
+    'coding':         CodingExerciseParser(),
+    'coding_problem': CodingProblemParser(),
 }
 
 AVAILABLE_SUBJECTS = [
-    {'slug': 'mathematics', 'name': 'Mathematics'},
-    {'slug': 'coding',      'name': 'Coding'},
+    {'slug': 'mathematics',    'name': 'Mathematics'},
+    {'slug': 'coding',         'name': 'Coding'},
+    {'slug': 'coding_problem', 'name': 'Coding Problems'},
 ]
 
 

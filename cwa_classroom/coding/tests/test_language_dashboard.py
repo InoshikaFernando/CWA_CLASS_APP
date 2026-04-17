@@ -114,9 +114,15 @@ class TestLanguageSelectorNoProgress(TestCase):
         cls.css = _make_language('css', 'CSS', 4)
         cls.scratch = _make_language('scratch', 'Scratch', 5)
 
-        # Each language gets one topic and one exercise so counts are non-zero
-        for lang in (cls.python, cls.js, cls.html, cls.css, cls.scratch):
-            t = _make_topic(lang, f'{lang.name} Basics', f'{lang.slug}-basics')
+        # Migration 0011_seed_coding_data pre-populates topics (7 for Python, 5 for
+        # Scratch, etc.) which breaks topic_count==1 assertions.  Deactivate them so
+        # only the single test topic per language is counted.
+        langs = [cls.python, cls.js, cls.html, cls.css, cls.scratch]
+        CodingTopic.objects.filter(language__in=langs).update(is_active=False)
+
+        # Each language gets one topic and one exercise so counts are non-zero.
+        for lang in langs:
+            t = _make_topic(lang, f'{lang.name} Basics', f'tst-np-{lang.slug}-b')
             _make_exercise(t, f'{lang.name} Hello World')
 
     def setUp(self):
@@ -273,10 +279,12 @@ class TestCodingDashboardView(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.student = User.objects.create_user('dashboard_student', password='pass', email='dashboard_student@test.com')
-        cls.python = _make_language('python', 'Python', 1)
+        # Use test-specific slug — seeded 'python' has 7 topics from migration 0011
+        # and the dashboard shows all of them, breaking len(topic_data)==2 assertions.
+        cls.python = _make_language('tst-dash-py', 'Python', 1)
 
-        cls.topic_a = _make_topic(cls.python, 'Variables', 'variables')
-        cls.topic_b = _make_topic(cls.python, 'Loops', 'loops')
+        cls.topic_a = _make_topic(cls.python, 'Variables', 'tst-dash-variables')
+        cls.topic_b = _make_topic(cls.python, 'Loops', 'tst-dash-loops')
 
         cls.beg_1 = _make_exercise(cls.topic_a, 'Vars 1', CodingExercise.BEGINNER)
         cls.int_1 = _make_exercise(cls.topic_a, 'Vars 2', CodingExercise.INTERMEDIATE)
@@ -444,12 +452,14 @@ class TestLanguageSelectorCounts(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.student = User.objects.create_user('count_student', password='pass', email='count_student@test.com')
-        cls.python = _make_language('python', 'Python', 1)
+        # Use a test-specific slug that does NOT collide with seeded languages
+        # (seeded 'python' has 7 topics from migration 0011_seed_coding_data).
+        cls.python = _make_language('cnt-python', 'Count Python', 99)
 
         # 3 topics
-        t1 = _make_topic(cls.python, 'Variables', 'py-variables-c')
-        t2 = _make_topic(cls.python, 'Loops', 'py-loops-c')
-        t3 = _make_topic(cls.python, 'Functions', 'py-functions-c')
+        t1 = _make_topic(cls.python, 'Variables', 'cnt-py-variables')
+        t2 = _make_topic(cls.python, 'Loops', 'cnt-py-loops')
+        t3 = _make_topic(cls.python, 'Functions', 'cnt-py-functions')
 
         # t1: 4 exercises (3 active, 1 inactive)
         _make_exercise(t1, 'Ex1', order=1)
@@ -467,7 +477,7 @@ class TestLanguageSelectorCounts(TestCase):
 
         # One inactive topic (must NOT appear in counts)
         CodingTopic.objects.create(
-            language=cls.python, name='Secret', slug='py-secret-c',
+            language=cls.python, name='Secret', slug='cnt-py-secret',
             order=99, is_active=False,
         )
 
@@ -476,7 +486,7 @@ class TestLanguageSelectorCounts(TestCase):
 
     def _get_python(self):
         resp = self.client.get(URL)
-        return next(l for l in resp.context['languages'] if l.slug == 'python')
+        return next(l for l in resp.context['languages'] if l.id == self.python.id)
 
     def test_python_topic_count_is_three(self):
         """3 active topics → topic_count=3 (inactive topic excluded)."""
@@ -499,11 +509,12 @@ class TestLanguageSelectorCounts(TestCase):
 
     def test_language_with_no_topics_shows_zero(self):
         """A language with zero topics must show topic_count=0 and exercise_count=0."""
-        lang_no_topics = _make_language('scratch', 'Scratch', 5)
+        # Use a test-specific slug; seeded 'scratch' already has 5 topics.
+        lang_no_topics = _make_language('cnt-empty-lang', 'Empty Language', 100)
         resp = self.client.get(URL)
-        scratch = next(l for l in resp.context['languages'] if l.slug == 'scratch')
-        self.assertEqual(scratch.topic_count, 0)
-        self.assertEqual(scratch.exercise_count, 0)
+        empty = next(l for l in resp.context['languages'] if l.id == lang_no_topics.id)
+        self.assertEqual(empty.topic_count, 0)
+        self.assertEqual(empty.exercise_count, 0)
 
 
 # ===========================================================================
