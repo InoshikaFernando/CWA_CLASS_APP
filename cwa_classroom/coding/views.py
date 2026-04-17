@@ -13,6 +13,7 @@ import logging
 from .models import (
     CodingLanguage,
     CodingTopic,
+    TopicLevel,
     CodingExercise,
     CodingProblem,
     StudentExerciseSubmission,
@@ -91,9 +92,9 @@ def language_selector(request):
                                        .annotate(total=Count('id'))
     }
     exercise_counts = {
-        row['topic__language_id']: row['total']
-        for row in CodingExercise.objects.filter(topic__language__is_active=True, is_active=True)
-                                          .values('topic__language_id')
+        row['topic_level__topic__language_id']: row['total']
+        for row in CodingExercise.objects.filter(topic_level__topic__language__is_active=True, is_active=True)
+                                          .values('topic_level__topic__language_id')
                                           .annotate(total=Count('id'))
     }
 
@@ -102,7 +103,7 @@ def language_selector(request):
     if not request.user.is_staff:
         started_lang_ids = set(
             StudentExerciseSubmission.objects.filter(student=request.user)
-            .values_list('exercise__topic__language_id', flat=True)
+            .values_list('exercise__topic_level__topic__language_id', flat=True)
             .distinct()
         )
 
@@ -148,18 +149,18 @@ def topic_list(request, lang_slug):
 
     # Aggregate total exercises and completed count per topic in two queries
     total_by_topic = {
-        row['topic_id']: row['total']
-        for row in CodingExercise.objects.filter(topic__in=topics, is_active=True)
-                                          .values('topic_id')
+        row['topic_level__topic_id']: row['total']
+        for row in CodingExercise.objects.filter(topic_level__topic__in=topics, is_active=True)
+                                          .values('topic_level__topic_id')
                                           .annotate(total=Count('id'))
     }
     done_by_topic = {
-        row['exercise__topic_id']: row['done']
+        row['exercise__topic_level__topic_id']: row['done']
         for row in StudentExerciseSubmission.objects.filter(
             student=request.user,
-            exercise__topic__in=topics,
+            exercise__topic_level__topic__in=topics,
             is_completed=True,
-        ).values('exercise__topic_id').annotate(done=Count('exercise_id', distinct=True))
+        ).values('exercise__topic_level__topic_id').annotate(done=Count('exercise_id', distinct=True))
     }
 
     # Icon colour palette (cycles through topics)
@@ -220,7 +221,7 @@ def level_list(request, lang_slug, topic_slug):
 
     level_data = []
     for level in levels:
-        exercises = CodingExercise.objects.filter(topic=topic, level=level, is_active=True)
+        exercises = CodingExercise.objects.filter(topic_level__topic=topic, topic_level__level_choice=level, is_active=True)
         total = exercises.count()
         completed_ids = StudentExerciseSubmission.objects.filter(
             student=request.user,
@@ -275,7 +276,7 @@ def exercise_list(request, lang_slug, topic_slug, level):
         from django.http import Http404
         raise Http404("Invalid level")
 
-    exercises = CodingExercise.objects.filter(topic=topic, level=level, is_active=True)
+    exercises = CodingExercise.objects.filter(topic_level__topic=topic, topic_level__level_choice=level, is_active=True)
 
     # Mark which exercises this student has completed
     completed_ids = set(
@@ -306,7 +307,7 @@ def exercise_list(request, lang_slug, topic_slug, level):
 def exercise_detail(request, lang_slug, exercise_id):
     """Split-pane editor + instructions for a single exercise.  /coding/<lang>/exercise/<id>/"""
     language = _get_language_or_404(lang_slug)
-    exercise = get_object_or_404(CodingExercise, id=exercise_id, topic__language=language, is_active=True)
+    exercise = get_object_or_404(CodingExercise, id=exercise_id, topic_level__topic__language=language, is_active=True)
 
     is_completed = StudentExerciseSubmission.is_exercise_completed(request.user, exercise)
 
@@ -422,7 +423,7 @@ def dashboard(request, lang_slug):
     language = _get_language_or_404(lang_slug)
     topics = CodingTopic.objects.filter(language=language, is_active=True)
 
-    exercises = CodingExercise.objects.filter(topic__in=topics, is_active=True)
+    exercises = CodingExercise.objects.filter(topic_level__topic__in=topics, is_active=True)
     completed_exercise_ids = set(
         StudentExerciseSubmission.objects.filter(
             student=request.user,
@@ -444,7 +445,7 @@ def dashboard(request, lang_slug):
     topics_completed = 0
 
     for topic in topics:
-        topic_exercises = exercises.filter(topic=topic)
+        topic_exercises = exercises.filter(topic_level__topic=topic)
         topic_total = topic_exercises.count()
         topic_completed = sum(1 for ex in topic_exercises if ex.id in completed_exercise_ids)
         if topic_completed:
@@ -454,7 +455,7 @@ def dashboard(request, lang_slug):
 
         level_data = []
         for level, _label in CodingExercise.LEVEL_CHOICES:
-            level_exercises = topic_exercises.filter(level=level)
+            level_exercises = topic_exercises.filter(topic_level__level_choice=level)
             level_total = level_exercises.count()
             level_completed = sum(1 for ex in level_exercises if ex.id in completed_exercise_ids)
             level_pct = round(level_completed / level_total * 100) if level_total else 0
@@ -551,8 +552,18 @@ def api_run_code(request):
 
     language = get_object_or_404(CodingLanguage, slug=lang_slug, is_active=True)
 
-    # HTML/CSS — signal the frontend to use the iframe sandbox (no server execution)
-    if language.uses_browser_sandbox:
+    # Determine whether this exercise overrides the execution environment.
+    # DOM exercises (e.g. JavaScript / DOM Basics) belong to the javascript
+    # language but set uses_browser_sandbox=True at the exercise level so they
+    # render in an iframe sandbox instead of being sent to Piston/Node.js.
+    exercise_browser_sandbox = False
+    if exercise_id:
+        _ex = CodingExercise.objects.filter(id=exercise_id, is_active=True).first()
+        if _ex:
+            exercise_browser_sandbox = _ex.uses_browser_sandbox
+
+    # HTML/CSS or DOM-override exercises — signal the frontend to use the iframe sandbox
+    if language.uses_browser_sandbox or exercise_browser_sandbox:
         if mark_complete and exercise_id:
             _save_exercise_submission(request.user, exercise_id, language, code, '', '', completed=True)
         return JsonResponse({'browser_sandbox': True})
@@ -592,9 +603,13 @@ def api_run_code(request):
 def _save_exercise_submission(user, exercise_id, language, code, stdout, stderr, completed, blocks_xml=''):
     """Create or update a StudentExerciseSubmission for a topic exercise."""
     exercise = CodingExercise.objects.filter(
-        id=exercise_id, topic__language=language, is_active=True
+        id=exercise_id, topic_level__topic__language=language, is_active=True
     ).first()
     if not exercise:
+        logger.warning(
+            '_save_exercise_submission: exercise id=%s not found for language=%s user=%s',
+            exercise_id, getattr(language, 'slug', language), getattr(user, 'username', user),
+        )
         return
     submission, created = StudentExerciseSubmission.objects.get_or_create(
         student=user,
@@ -654,6 +669,7 @@ def api_submit_problem(request, problem_id):
             return JsonResponse({'error': 'Invalid JSON'}, status=400)
 
         code = body.get('code', '').strip()
+        blocks_xml = body.get('blocks_xml', '')
         time_taken = int(body.get('time_taken_seconds', 0))
         # language_slug in body takes priority; fall back to problem's fixed language
         req_lang_slug = body.get('language_slug', '').strip()
@@ -671,6 +687,48 @@ def api_submit_problem(request, problem_id):
 
         piston_lang = exec_language.piston_language
         if not piston_lang:
+            # HTML, CSS, and Scratch problems cannot be auto-executed server-side.
+            # Return a visual-review response with all test case criteria so the
+            # student can self-assess their work in the browser.
+            if exec_language.uses_browser_sandbox or exec_language.uses_scratch_vm:
+                visible_tests = problem.visible_test_cases
+                visible_count = visible_tests.count()
+                criteria = [
+                    {
+                        'description': tc.description or tc.expected_output,
+                        'expected': tc.expected_output,
+                    }
+                    for tc in visible_tests
+                ]
+                attempt_number = StudentProblemSubmission.get_next_attempt_number(request.user, problem)
+                best_previous = StudentProblemSubmission.get_best_points(request.user, problem)
+                # Visual-review languages cannot be auto-graded.
+                # Award full credit on submission — the student self-assesses
+                # via the criteria checklist, and the teacher can review the code.
+                StudentProblemSubmission.objects.create(
+                    student=request.user,
+                    problem=problem,
+                    attempt_number=attempt_number,
+                    code_submitted=code,
+                    passed_all_tests=True,
+                    visible_passed=visible_count,
+                    visible_total=visible_count,
+                    hidden_passed=0,
+                    hidden_total=0,
+                    test_results=[{'blocks_xml': blocks_xml}] if blocks_xml else [],
+                    points=100.0,
+                    time_taken_seconds=time_taken,
+                )
+                is_new_best = best_previous < 100.0
+                return JsonResponse({
+                    'visual_review': True,
+                    'criteria': criteria,
+                    'message': 'Your submission has been saved. Use the checklist below to self-assess your work.',
+                    'passed_all': True,
+                    'attempt_points': 100.0,
+                    'best_points': 100.0,
+                    'is_new_best': is_new_best,
+                })
             return JsonResponse({'error': f'Language "{exec_language.slug}" does not support server-side execution'}, status=400)
 
         forbidden_pattern = _find_forbidden_code_pattern(problem, code)

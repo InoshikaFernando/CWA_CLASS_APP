@@ -28,6 +28,7 @@ from coding.models import (
     CodingLanguage,
     CodingProblem,
     CodingTopic,
+    TopicLevel,
     CodingTimeLog,
     ProblemTestCase,
     StudentExerciseSubmission,
@@ -84,9 +85,9 @@ class TestApiRunCode(TestCase):
             language=cls.python_lang, slug='vapi-variables',
             defaults={'name': 'Variables', 'order': 1, 'is_active': True},
         )
+        _py_beg_tl, _ = TopicLevel.get_or_create_for(cls.python_topic, CodingExercise.BEGINNER)
         cls.beginner_exercise = CodingExercise.objects.create(
-            topic=cls.python_topic,
-            level=CodingExercise.BEGINNER,
+            topic_level=_py_beg_tl,
             title='Hello World',
             description='Print Hello, World!',
             starter_code='# Write your code here\n',
@@ -98,9 +99,9 @@ class TestApiRunCode(TestCase):
             language=cls.scratch_lang, name='Motion', slug='motion',
             order=1, is_active=True,
         )
+        _sc_beg_tl, _ = TopicLevel.get_or_create_for(cls.scratch_topic, CodingExercise.BEGINNER)
         cls.scratch_exercise = CodingExercise.objects.create(
-            topic=cls.scratch_topic,
-            level=CodingExercise.BEGINNER,
+            topic_level=_sc_beg_tl,
             title='Say Hello',
             description='Print hello using blocks',
             starter_code='<xml></xml>',
@@ -301,8 +302,9 @@ class TestApiRunCode(TestCase):
             language=self.html_lang, name='Structure', slug='structure',
             order=1, is_active=True,
         )
+        _html_beg_tl, _ = TopicLevel.get_or_create_for(html_topic, CodingExercise.BEGINNER)
         exercise = CodingExercise.objects.create(
-            topic=html_topic, level=CodingExercise.BEGINNER,
+            topic_level=_html_beg_tl,
             title='My Page', description='A page',
             starter_code='<html></html>', order=1, is_active=True,
         )
@@ -470,16 +472,21 @@ class TestApiSubmitProblem(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.json()['passed_all'])
 
-    def test_scratch_language_rejected_no_piston_support(self):
-        """Scratch has piston_language=None; submission via Scratch must return 400."""
+    def test_scratch_language_returns_visual_review(self):
+        """
+        Scratch has piston_language=None and uses_scratch_vm=True.
+        Submission via Scratch must return 200 with visual_review=True
+        (self-assessed; auto-graded as full credit).
+        """
         url = reverse('coding:api_submit_problem', args=[self.python_problem.id])
         resp = _post(self.client, url, {
-            'code': 'print("hi")',
+            'code': '<xml></xml>',
             'language_slug': 'scratch',
         })
-        self.assertEqual(resp.status_code, 400)
-        error = resp.json()['error'].lower()
-        self.assertTrue('execution' in error or 'support' in error)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data.get('visual_review'))
+        self.assertTrue(data.get('passed_all'))
 
     def test_forbidden_shortcut_returns_failed_submission_without_execution(self):
         """Problems can ban shortcuts such as sorted() for Bubble Sort."""

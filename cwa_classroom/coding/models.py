@@ -129,39 +129,103 @@ class CodingTopic(models.Model):
 # Topic Exercises  (structured learning, beginner → advanced)
 # ---------------------------------------------------------------------------
 
-class CodingExercise(models.Model):
-    """A single coding exercise within a topic at a given level."""
+class TopicLevel(models.Model):
+    """A topic at a specific difficulty level (Beginner / Intermediate / Advanced).
 
-    BEGINNER = 'beginner'
+    Acts as the join point between CodingTopic and CodingExercise.
+    One TopicLevel row is created for every (topic, level) combination that
+    has at least one exercise — created on-demand by the seeder and upload tool.
+    """
+
+    BEGINNER     = 'beginner'
     INTERMEDIATE = 'intermediate'
-    ADVANCED = 'advanced'
+    ADVANCED     = 'advanced'
 
     LEVEL_CHOICES = [
-        (BEGINNER, 'Beginner'),
+        (BEGINNER,     'Beginner'),
         (INTERMEDIATE, 'Intermediate'),
-        (ADVANCED, 'Advanced'),
+        (ADVANCED,     'Advanced'),
     ]
 
     LEVEL_ORDER = {BEGINNER: 1, INTERMEDIATE: 2, ADVANCED: 3}
 
-    topic = models.ForeignKey(CodingTopic, on_delete=models.CASCADE, related_name='exercises')
-    level = models.CharField(max_length=20, choices=LEVEL_CHOICES, default=BEGINNER)
-    title = models.CharField(max_length=200)
-    description = models.TextField(help_text="Instructions shown to the student")
-    starter_code = models.TextField(blank=True, help_text="Pre-filled code shown in the editor when the student opens the exercise")
-    solution_code = models.TextField(blank=True, help_text="Reference solution — shown only to teachers, never to students")
-    expected_output = models.TextField(blank=True, help_text="Expected stdout for simple output-matching exercises (leave blank for free-form exercises)")
-    hints = models.TextField(blank=True, help_text="Optional hint text shown on request")
-    order = models.PositiveSmallIntegerField(default=0)
-    is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    topic        = models.ForeignKey(CodingTopic, on_delete=models.CASCADE, related_name='topic_levels')
+    level_choice = models.CharField(max_length=20, choices=LEVEL_CHOICES)
+    is_active    = models.BooleanField(default=True)
+    order        = models.PositiveSmallIntegerField(default=0)
 
     class Meta:
-        ordering = ['topic', 'level', 'order']
+        unique_together = ('topic', 'level_choice')
+        ordering        = ['topic', 'level_choice']
 
     def __str__(self):
-        return f"{self.topic} [{self.get_level_display()}] — {self.title}"
+        return f"{self.topic} [{self.get_level_choice_display()}]"
+
+    @classmethod
+    def get_or_create_for(cls, topic, level_choice):
+        """Return (TopicLevel, created) for the given topic + level, creating if needed."""
+        return cls.objects.get_or_create(topic=topic, level_choice=level_choice)
+
+
+class CodingExercise(models.Model):
+    """A single coding exercise within a topic at a given level.
+
+    The topic and difficulty level are stored via the ``topic_level`` FK to
+    :class:`TopicLevel` rather than as separate flat fields.  Use the
+    ``topic`` and ``level`` properties for read access; use ORM traversal
+    (``topic_level__topic``, ``topic_level__level_choice``) for filtering.
+    """
+
+    # Level constants and choices mirrored from TopicLevel for backwards compat.
+    BEGINNER     = TopicLevel.BEGINNER
+    INTERMEDIATE = TopicLevel.INTERMEDIATE
+    ADVANCED     = TopicLevel.ADVANCED
+    LEVEL_CHOICES = TopicLevel.LEVEL_CHOICES
+    LEVEL_ORDER   = TopicLevel.LEVEL_ORDER
+
+    topic_level       = models.ForeignKey(TopicLevel, on_delete=models.CASCADE, related_name='exercises')
+    title             = models.CharField(max_length=200)
+    description       = models.TextField(help_text="Instructions shown to the student")
+    starter_code      = models.TextField(blank=True, help_text="Pre-filled code shown in the editor when the student opens the exercise")
+    solution_code     = models.TextField(blank=True, help_text="Reference solution — shown only to teachers, never to students")
+    expected_output   = models.TextField(blank=True, help_text="Expected stdout for simple output-matching exercises (leave blank for free-form exercises)")
+    hints             = models.TextField(blank=True, help_text="Optional hint text shown on request")
+    order             = models.PositiveSmallIntegerField(default=0)
+    is_active         = models.BooleanField(default=True)
+    uses_browser_sandbox = models.BooleanField(
+        default=False,
+        help_text=(
+            "Override execution environment for this exercise. "
+            "When True, the editor renders an iframe sandbox instead of sending code to Piston. "
+            "Use for DOM/HTML-in-JS exercises that belong to a non-browser language topic (e.g. JavaScript DOM Basics)."
+        ),
+    )
+    created_at    = models.DateTimeField(auto_now_add=True)
+    updated_at    = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['topic_level__topic', 'topic_level__level_choice', 'order']
+
+    def __str__(self):
+        return f"{self.topic_level} — {self.title}"
+
+    # ------------------------------------------------------------------
+    # Convenience properties — read-only shorthand for templates / code
+    # ------------------------------------------------------------------
+
+    @property
+    def topic(self):
+        """Shorthand for ``self.topic_level.topic``."""
+        return self.topic_level.topic
+
+    @property
+    def level(self):
+        """Shorthand for ``self.topic_level.level_choice``."""
+        return self.topic_level.level_choice
+
+    def get_level_display(self):
+        """Mimic Django's auto-generated get_FOO_display() for backwards compat."""
+        return self.topic_level.get_level_choice_display()
 
     @property
     def level_order(self):

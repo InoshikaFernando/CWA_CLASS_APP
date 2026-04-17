@@ -28,6 +28,11 @@ services:
       - /piston/isolate    # isolate working directory — must be writable
     environment:
       - PISTON_LOG_LEVEL=DEBUG
+      # Allow up to 15 s per execution so problems that legitimately need more
+      # time (e.g. N-Queens n=8 → 10 s, LIS → 8 s) are not rejected.
+      # The Django layer enforces per-problem limits within this ceiling.
+      - PISTON_RUN_TIMEOUT=15000
+      - PISTON_COMPILE_TIMEOUT=15000
     volumes:
       - piston_packages:/piston/packages   # installed language runtimes persist here
 
