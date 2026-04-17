@@ -2,25 +2,58 @@
 Fee cascade resolution utilities.
 
 Cascade order (first non-NULL wins):
-    ClassStudent.fee_override
+    StudentFeeOverride (school-wide, most recent effective_from <= as_of)
+    → ClassStudent.fee_override
     → ClassRoom.fee_override
     → DepartmentLevel.fee_override
     → DepartmentSubject.fee_override
     → Department.default_fee
     → School.default_fee
 """
+from datetime import date as _date_cls
 from decimal import Decimal
 from typing import Optional, Tuple
 
 
-def get_effective_fee_for_student(class_student) -> Optional[Decimal]:
+def _get_student_fee_override(class_student, as_of=None):
+    """Return the most recent StudentFeeOverride for this student+school
+    with effective_from <= as_of (defaults to today), or None.
+    """
+    classroom = class_student.classroom
+    if not classroom.school_id:
+        return None
+    if as_of is None:
+        as_of = _date_cls.today()
+
+    from .models import StudentFeeOverride
+    return (
+        StudentFeeOverride.objects
+        .filter(
+            student_id=class_student.student_id,
+            school_id=classroom.school_id,
+            effective_from__lte=as_of,
+        )
+        .order_by('-effective_from', '-created_at')
+        .first()
+    )
+
+
+def get_effective_fee_for_student(class_student, as_of=None) -> Optional[Decimal]:
     """
     Resolve the effective fee for a ClassStudent by walking the cascade:
-    Student → Class → Level → Subject → Department.
+    StudentFeeOverride → Student → Class → Level → Subject → Department.
 
     Returns None if no fee is set anywhere in the chain.
+
+    `as_of` (date): the date to use when selecting the active StudentFeeOverride.
+    Defaults to today. Pass a billing_period_end for historical invoice calculation.
     """
-    # 1. Student-level override (0 is treated as "no override" — use inherited fee)
+    # 0. School-wide StudentFeeOverride (date-aware)
+    sfo = _get_student_fee_override(class_student, as_of=as_of)
+    if sfo is not None:
+        return sfo.daily_rate
+
+    # 1. Per-class student override (0 is treated as "no override" — use inherited fee)
     if class_student.fee_override:
         return class_student.fee_override
 
@@ -70,12 +103,16 @@ def get_effective_fee_for_class(classroom) -> Optional[Decimal]:
     return None
 
 
-def get_fee_source_label(class_student) -> str:
+def get_fee_source_label(class_student, as_of=None) -> str:
     """
     Return a human-readable label indicating where the effective fee came from.
-    E.g. 'Student override', 'Class override', 'Level: Beginner',
-         'Subject: Guitar', 'Department default'.
+    E.g. 'Student override (school)', 'Student override', 'Class override',
+         'Level: Beginner', 'Subject: Guitar', 'Department default'.
     """
+    sfo = _get_student_fee_override(class_student, as_of=as_of)
+    if sfo is not None:
+        return 'Student override (school)'
+
     if class_student.fee_override:
         return 'Student override'
 
