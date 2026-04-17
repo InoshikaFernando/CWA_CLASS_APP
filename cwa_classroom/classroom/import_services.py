@@ -207,13 +207,52 @@ def parse_xls_file(file_content):
     return headers, data_rows
 
 
+def parse_xlsx_file(file_content):
+    """Parse .xlsx file bytes. Returns (headers, data_rows) or raises ValueError."""
+    try:
+        import openpyxl
+    except ImportError:
+        raise ValueError('XLSX support requires the openpyxl package. Install with: pip install openpyxl')
+
+    import io
+    wb = openpyxl.load_workbook(io.BytesIO(file_content), read_only=True, data_only=True)
+    sh = wb.active
+
+    rows = list(sh.iter_rows(values_only=True))
+    wb.close()
+
+    if len(rows) < 2:
+        raise ValueError('XLSX must have a header row and at least one data row.')
+    if len(rows) - 1 > MAX_CSV_ROWS:
+        raise ValueError(f'XLSX exceeds maximum of {MAX_CSV_ROWS} rows.')
+
+    headers = [str(c).strip() if c is not None else '' for c in rows[0]]
+
+    data_rows = []
+    for row in rows[1:]:
+        parsed = []
+        for cell in row:
+            if cell is None:
+                parsed.append('')
+            elif hasattr(cell, 'date') and callable(getattr(cell, 'strftime', None)):
+                # datetime or date object
+                parsed.append(cell.strftime('%Y-%m-%d'))
+            elif isinstance(cell, float) and cell == int(cell):
+                parsed.append(str(int(cell)))
+            else:
+                parsed.append(str(cell).strip())
+        data_rows.append(parsed)
+
+    return headers, data_rows
+
+
 def parse_upload_file(file_content, filename):
-    """Route to CSV or XLS parser based on file extension."""
+    """Route to CSV, XLS, or XLSX parser based on file extension."""
     ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else ''
     if ext == 'xls':
         return parse_xls_file(file_content)
     elif ext == 'xlsx':
-        raise ValueError('XLSX format is not supported. Please save as .xls or export as .csv.')
+        return parse_xlsx_file(file_content)
     else:
         return parse_csv_file(file_content)
 
