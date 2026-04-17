@@ -276,9 +276,9 @@ class UploadViewTopicResolutionTests(IntegrationBase):
         )
         self.assertEqual(resp.status_code, 200)
         ctx = resp.context
-        self.assertIsNotNone(ctx.get('upload_results'))
-        self.assertEqual(ctx['upload_results']['inserted'], 1)
-        self.assertEqual(ctx['upload_results']['failed'], 0)
+        self.assertIsNotNone(ctx.get('upload_results_list'))
+        self.assertEqual(ctx['upload_results_list'][0]['inserted'], 1)
+        self.assertEqual(ctx['upload_results_list'][0]['failed'], 0)
 
     def test_upload_with_strand_field_does_not_error(self):
         """strand field is accepted and narrows topic lookup to that strand."""
@@ -291,7 +291,7 @@ class UploadViewTopicResolutionTests(IntegrationBase):
             {'upload_file': f},
         )
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.context['upload_results']['failed'], 0)
+        self.assertEqual(resp.context['upload_results_list'][0]['failed'], 0)
 
     def test_upload_unknown_topic_auto_creates_topic(self):
         self._login(self.superuser)
@@ -304,7 +304,7 @@ class UploadViewTopicResolutionTests(IntegrationBase):
         )
         # View now auto-creates unknown topics and renders upload results
         self.assertEqual(resp.status_code, 200)
-        self.assertIn('upload_results', resp.context)
+        self.assertIn('upload_results_list', resp.context)
 
     def test_upload_unknown_year_level_returns_error_message(self):
         self._login(self.superuser)
@@ -315,7 +315,11 @@ class UploadViewTopicResolutionTests(IntegrationBase):
             reverse('upload_questions'),
             {'upload_file': f},
         )
-        self.assertEqual(resp.status_code, 302)
+        # Service-layer errors are rendered inline (200) rather than via redirect
+        self.assertEqual(resp.status_code, 200)
+        results = resp.context['upload_results_list'][0]
+        self.assertGreater(len(results['errors']), 0)
+        self.assertGreater(results['failed'], 0)
 
     def test_upload_links_question_to_correct_classroom_topic_and_level(self):
         """Questions created by the upload view use classroom.Topic and classroom.Level."""
@@ -363,7 +367,7 @@ class UploadViewZipTests(IntegrationBase):
         zf.name = 'upload.zip'
         resp = self.client.post(reverse('upload_questions'), {'upload_file': zf})
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.context['upload_results']['inserted'], 1)
+        self.assertEqual(resp.context['upload_results_list'][0]['inserted'], 1)
 
     def test_zip_without_questions_json_returns_error(self):
         self._login(self.superuser)
@@ -373,7 +377,10 @@ class UploadViewZipTests(IntegrationBase):
         buf.seek(0)
         buf.name = 'bad.zip'
         resp = self.client.post(reverse('upload_questions'), {'upload_file': buf})
-        self.assertEqual(resp.status_code, 302)
+        # Service-layer parse errors are rendered inline (200) rather than via redirect
+        self.assertEqual(resp.status_code, 200)
+        results = resp.context['upload_results_list'][0]
+        self.assertGreater(len(results['errors']), 0)
 
     def test_zip_with_image_reports_image_count(self):
         self._login(self.superuser)
@@ -383,7 +390,7 @@ class UploadViewZipTests(IntegrationBase):
         zf.name = 'upload.zip'
         resp = self.client.post(reverse('upload_questions'), {'upload_file': zf})
         self.assertEqual(resp.status_code, 200)
-        results = resp.context['upload_results']
+        results = resp.context['upload_results_list'][0]
         self.assertEqual(results['images_saved'], 1)
         self.assertIn('questions/year7/inttestintegers', results['image_dir'])
 

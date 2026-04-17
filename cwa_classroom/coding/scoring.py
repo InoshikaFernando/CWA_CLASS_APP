@@ -176,7 +176,9 @@ def evaluate_submission(problem, code: str, piston_lang: str) -> EvaluationResul
         exec_result = run_code(piston_lang, code, tc.input_data,
                                timeout_seconds=time_limit,
                                memory_limit_mb=memory_limit)
-        raw_actual = exec_result.get('stdout', '').strip()
+        # Use `or ''` so a None stdout (Piston null response) never causes
+        # AttributeError on .strip() and is treated as empty output.
+        raw_actual = (exec_result.get('stdout') or '').strip()
         raw_expected = tc.expected_output.strip()
         run_time = float(exec_result.get('run_time_seconds', 0.0) or 0.0)
 

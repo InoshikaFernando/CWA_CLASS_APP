@@ -215,7 +215,11 @@ def parse_xlsx_file(file_content):
         raise ValueError('XLSX support requires the openpyxl package. Install with: pip install openpyxl')
 
     import io
-    wb = openpyxl.load_workbook(io.BytesIO(file_content), read_only=True, data_only=True)
+    import zipfile
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(file_content), read_only=True, data_only=True)
+    except zipfile.BadZipFile:
+        raise ValueError('XLSX file is invalid or corrupt.')
     sh = wb.active
 
     rows = list(sh.iter_rows(values_only=True))

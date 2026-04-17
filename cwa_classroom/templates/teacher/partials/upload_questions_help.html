@@ -1,0 +1,50 @@
+{% comment %}
+HTMX partial returned by upload_questions_help view.
+Renders subject-specific help text for the upload form.
+{% endcomment %}
+{% if subject_slug == 'coding' %}
+<div class="space-y-3">
+  <p class="text-sm font-semibold text-gray-700">💻 Coding JSON format</p>
+  <pre class="font-mono text-xs bg-white rounded-xl p-4 border border-gray-200 overflow-x-auto text-gray-600">{
+  "subject": "coding",
+  "language": "python",
+  "topic": "loops",
+  "level": "beginner",
+  "exercises": [
+    {
+      "title": "For Loop: Print 1–5",
+      "instructions": "Use a for loop to print numbers 1 through 5.",
+      "starter_code": "for i in range(?, ?):\n    print(?)\n",
+      "expected_output": "1\n2\n3\n4\n5",
+      "hints": "range(1, 6) generates 1–5",
+      "display_order": 1
+    }
+  ]
+}</pre>
+  <p class="text-xs text-gray-400">language: <code class="font-mono">scratch</code> · <code class="font-mono">javascript</code> · <code class="font-mono">python</code> · <code class="font-mono">html</code> · <code class="font-mono">css</code></p>
+  <p class="text-xs text-gray-400">level: <code class="font-mono">beginner</code> · <code class="font-mono">intermediate</code> · <code class="font-mono">advanced</code></p>
+</div>
+{% else %}
+<div class="space-y-3">
+  <p class="text-sm font-semibold text-gray-700">📄 Mathematics JSON format</p>
+  <pre class="font-mono text-xs bg-white rounded-xl p-4 border border-gray-200 overflow-x-auto text-gray-600">{
+  "strand": "Number",
+  "topic": "Fractions",
+  "year_level": 4,
+  "questions": [
+    {
+      "question_text": "What is 1/2 + 1/4?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "answers": [
+        {"text": "3/4", "is_correct": true},
+        {"text": "1/2", "is_correct": false}
+      ]
+    }
+  ]
+}</pre>
+  <p class="text-xs text-gray-400">question_type: <code class="font-mono">multiple_choice</code> · <code class="font-mono">true_false</code> · <code class="font-mono">short_answer</code> · <code class="font-mono">fill_blank</code> · <code class="font-mono">calculation</code></p>
+  <p class="text-xs text-gray-400">difficulty: <code class="font-mono">1</code> Easy · <code class="font-mono">2</code> Medium · <code class="font-mono">3</code> Hard</p>
+</div>
+{% endif %}

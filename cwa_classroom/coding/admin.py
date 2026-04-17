@@ -4,6 +4,7 @@ from django.utils.html import format_html
 from .models import (
     CodingLanguage,
     CodingTopic,
+    TopicLevel,
     CodingExercise,
     CodingProblem,
     ProblemTestCase,
@@ -28,10 +29,19 @@ class CodingLanguageAdmin(admin.ModelAdmin):
 
 
 class CodingExerciseInline(admin.TabularInline):
-    model   = CodingExercise
-    extra   = 1
-    fields  = ('title', 'level', 'order', 'is_active')
-    ordering = ('level', 'order')
+    model    = CodingExercise
+    extra    = 1
+    fields   = ('title', 'order', 'is_active')
+    ordering = ('order',)
+
+
+@admin.register(TopicLevel)
+class TopicLevelAdmin(admin.ModelAdmin):
+    list_display  = ('topic', 'level_choice', 'is_active', 'order')
+    list_filter   = ('topic__language', 'level_choice', 'is_active')
+    list_editable = ('is_active', 'order')
+    ordering      = ('topic', 'level_choice')
+    inlines       = [CodingExerciseInline]
 
 
 @admin.register(CodingTopic)
@@ -40,16 +50,15 @@ class CodingTopicAdmin(admin.ModelAdmin):
     list_filter   = ('language',)
     list_editable = ('order', 'is_active')
     ordering      = ('language', 'order')
-    inlines       = [CodingExerciseInline]
 
 
 @admin.register(CodingExercise)
 class CodingExerciseAdmin(admin.ModelAdmin):
-    list_display  = ('title', 'topic', 'level', 'order', 'is_active')
-    list_filter   = ('topic__language', 'level', 'is_active')
+    list_display  = ('title', 'topic_level', 'order', 'is_active')
+    list_filter   = ('topic_level__topic__language', 'topic_level__level_choice', 'is_active')
     list_editable = ('order', 'is_active')
     search_fields = ('title', 'description')
-    ordering      = ('topic', 'level', 'order')
+    ordering      = ('topic_level__topic', 'topic_level__level_choice', 'order')
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +187,7 @@ class ProblemSubmissionResultAdmin(admin.ModelAdmin):
 @admin.register(StudentExerciseSubmission)
 class StudentExerciseSubmissionAdmin(admin.ModelAdmin):
     list_display  = ('student', 'exercise', 'is_completed', 'submitted_at')
-    list_filter   = ('is_completed', 'exercise__topic__language')
+    list_filter   = ('is_completed', 'exercise__topic_level__topic__language')
     search_fields = ('student__username',)
     ordering      = ('-submitted_at',)
     readonly_fields = ('submitted_at',)

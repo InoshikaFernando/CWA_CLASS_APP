@@ -3,7 +3,7 @@
 
 {% block extra_head %}
 {{ block.super }}
-{# ── CodeMirror 5 ── #}
+{# ── CodeMirror 5 — Python / JS / HTML / CSS problems ── #}
 <link  rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
 <link  rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
 <link  rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.css">
@@ -18,6 +18,13 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/selection/active-line.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/anyword-hint.min.js"></script>
+{% if language.uses_scratch_vm %}
+{# ── Google Blockly v9 with Python generator — Scratch problems only ── #}
+<script src="https://unpkg.com/blockly@9.3.3/blockly_compressed.js"></script>
+<script src="https://unpkg.com/blockly@9.3.3/blocks_compressed.js"></script>
+<script src="https://unpkg.com/blockly@9.3.3/python_compressed.js"></script>
+<script src="https://unpkg.com/blockly@9.3.3/msg/en.js"></script>
+{% endif %}
 {% endblock %}
 
 {% block content %}
@@ -33,6 +40,8 @@
     --ed-bg:  #1a1b2e;
     --ed-bar: #13141f;
     --ed-gutter: #13141f;
+    --scratch-orange: #e6740a;
+    --scratch-orange-dark: #b85c08;
   }
 
   .pd-page { background: var(--cw-green-50); margin: -24px -16px -96px; padding: 16px 16px 64px; min-height: calc(100vh - 10rem); }
@@ -64,6 +73,13 @@
   .pd-tc-desc { color: #9ca3af; font-style: italic; margin-top: 3px; }
   .pd-hidden-note { font-size: 12px; color: var(--cw-text-muted); margin-top: 8px; }
 
+  /* ── Visual review: criteria shown as goal list ── */
+  .pd-criteria-title { font-size: 13px; font-weight: 700; color: #1a1a18; margin-bottom: 12px; }
+  .pd-criterion { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid rgba(99,102,241,0.25); border-radius: 10px; margin-bottom: 8px; background: #f5f3ff; font-size: 13px; }
+  .pd-criterion-check { color: #6366f1; font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+  .pd-criterion-text { color: #374151; line-height: 1.5; }
+  .pd-criterion-text strong { display: block; font-weight: 600; color: #1a1a18; margin-bottom: 2px; }
+
   .pd-results { background: var(--cw-surface); border-radius: 16px; border: 1px solid var(--cw-border); padding: 20px 22px; display: none; }
   .pd-results.show { display: block; }
   .pd-results.pass { border-color: #9FE1CB; }
@@ -91,18 +107,33 @@
   .pd-right { display: flex; flex-direction: column; gap: 12px; }
   .pd-toolbar { display: flex; align-items: center; justify-content: space-between; }
   .pd-lang-label { font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--cw-text-muted); }
+  .pd-lang-label.scratch { color: var(--scratch-orange); }
   .pd-toolbar-btns { display: flex; gap: 8px; }
   .pd-reset-btn { font-size: 12px; padding: 7px 14px; border-radius: 8px; background: var(--cw-surface); border: 1px solid rgba(0,0,0,0.13); color: var(--cw-text-secondary); cursor: pointer; font-family: inherit; transition: background .15s; }
   .pd-reset-btn:hover { background: #f1f0ea; }
   .pd-submit-btn { font-size: 13px; font-weight: 600; padding: 7px 20px; border-radius: 8px; background: var(--cw-green-400); color: #fff; border: none; cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 6px; transition: background .15s, opacity .15s; }
   .pd-submit-btn:hover { background: var(--cw-green-600); }
+  .pd-submit-btn.scratch-submit { background: var(--scratch-orange); }
+  .pd-submit-btn.scratch-submit:hover { background: var(--scratch-orange-dark); }
   .pd-submit-btn:disabled { opacity: .6; cursor: not-allowed; }
 
   .pd-chrome { border-radius: 14px; overflow: hidden; border: 1px solid #2a2d3a; }
   .pd-chrome-bar { display: flex; align-items: center; gap: 6px; padding: 9px 14px; background: var(--ed-bar); border-bottom: 1px solid #2a2d3a; }
+  .pd-chrome-bar.scratch-bar { background: #2a1a0a; border-bottom-color: #4a2e0e; }
   .pd-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
   .pd-dot-r { background: #ff5f57; } .pd-dot-y { background: #febc2e; } .pd-dot-g { background: #28c840; }
   .pd-file { font-size: 12px; color: #6b7280; font-family: 'JetBrains Mono', monospace; margin-left: 6px; }
+  .pd-file.scratch-file { color: #c97c3a; }
+
+  /* ── Blockly workspace ── */
+  #pd-blockly-wrap { background: #f9fafb; }
+  #pd-blockly-div  { width: 100%; height: 380px; }
+
+  /* ── Generated Python panel (Scratch only) ── */
+  .pd-sc-code-wrap { border-radius: 14px; overflow: hidden; border: 1px solid #2a2d3a; }
+  .pd-sc-code-bar  { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; background: var(--ed-bar); }
+  .pd-sc-code-label { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: #c97c3a; }
+  #pd-sc-generated-code { margin: 0; padding: 12px 14px; background: var(--ed-bg); color: #a5b4fc; font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace; font-size: 12px; line-height: 1.6; max-height: 160px; overflow-y: auto; white-space: pre; }
 
   /* ── CodeMirror 5 overrides ── */
   #pd-code-wrap .CodeMirror {
@@ -128,6 +159,7 @@
 
   .pd-note { font-size: 12px; color: var(--cw-text-muted); text-align: center; line-height: 1.5; }
   .pd-note strong { color: #374151; }
+  .pd-note.scratch-note { color: var(--scratch-orange); }
 </style>
 
 <div class="pd-page">
@@ -157,21 +189,36 @@
           <p class="pd-desc">{{ problem.description }}</p>
         </div>
 
-        <!-- Sample test cases -->
+        <!-- Test cases / criteria -->
         {% if visible_tests %}
         <div class="pd-card">
-          <div class="pd-tests-title">Sample Test Cases</div>
-          {% for tc in visible_tests %}
-          <div class="pd-tc">
-            {% if tc.input_data %}
-            <div class="pd-tc-row"><span class="pd-tc-key">Input:&nbsp;&nbsp;&nbsp;</span><span class="pd-tc-inp">{{ tc.input_data }}</span></div>
+          {% if language.uses_scratch_vm or language.uses_browser_sandbox %}
+            {# Visual-review languages: show criteria as a goal checklist #}
+            <div class="pd-criteria-title">&#9745; Goal Checklist</div>
+            {% for tc in visible_tests %}
+            <div class="pd-criterion">
+              <span class="pd-criterion-check">&#9744;</span>
+              <div class="pd-criterion-text">
+                <strong>{{ tc.description }}</strong>
+                {{ tc.expected_output }}
+              </div>
+            </div>
+            {% endfor %}
+          {% else %}
+            {# Auto-graded languages: show standard input/expected test cases #}
+            <div class="pd-tests-title">Sample Test Cases</div>
+            {% for tc in visible_tests %}
+            <div class="pd-tc">
+              {% if tc.input_data %}
+              <div class="pd-tc-row"><span class="pd-tc-key">Input:&nbsp;&nbsp;&nbsp;</span><span class="pd-tc-inp">{{ tc.input_data }}</span></div>
+              {% endif %}
+              <div class="pd-tc-row"><span class="pd-tc-key">Expected: </span><span class="pd-tc-exp">{{ tc.expected_output }}</span></div>
+              {% if tc.description %}<div class="pd-tc-desc">{{ tc.description }}</div>{% endif %}
+            </div>
+            {% endfor %}
+            {% if hidden_count > 0 %}
+            <p class="pd-hidden-note">+ {{ hidden_count }} hidden test case{{ hidden_count|pluralize }} (including boundary checks)</p>
             {% endif %}
-            <div class="pd-tc-row"><span class="pd-tc-key">Expected: </span><span class="pd-tc-exp">{{ tc.expected_output }}</span></div>
-            {% if tc.description %}<div class="pd-tc-desc">{{ tc.description }}</div>{% endif %}
-          </div>
-          {% endfor %}
-          {% if hidden_count > 0 %}
-          <p class="pd-hidden-note">+ {{ hidden_count }} hidden test case{{ hidden_count|pluralize }} (including boundary checks)</p>
           {% endif %}
         </div>
         {% endif %}
@@ -197,16 +244,45 @@
 
         <!-- Toolbar -->
         <div class="pd-toolbar">
-          <span class="pd-lang-label">{{ language.name }}</span>
+          <span class="pd-lang-label {% if language.uses_scratch_vm %}scratch{% endif %}">{{ language.name }}</span>
           <div class="pd-toolbar-btns">
             <button type="button" class="pd-reset-btn" onclick="pdReset()">Reset</button>
-            <button type="button" class="pd-submit-btn" id="pd-submit-btn" onclick="pdSubmit()">
+            <button type="button"
+                    class="pd-submit-btn {% if language.uses_scratch_vm %}scratch-submit{% endif %}"
+                    id="pd-submit-btn" onclick="pdSubmit()">
               &#9654; Submit
             </button>
           </div>
         </div>
 
-        <!-- Editor chrome — CodeMirror 5 mounts inside #pd-code-wrap -->
+        {% if language.uses_scratch_vm %}
+        <!-- ── Scratch: Blockly workspace ── -->
+        <div class="pd-chrome">
+          <div class="pd-chrome-bar scratch-bar">
+            <span class="pd-dot pd-dot-r"></span>
+            <span class="pd-dot pd-dot-y"></span>
+            <span class="pd-dot pd-dot-g"></span>
+            <span class="pd-file scratch-file">scratch.xml</span>
+          </div>
+          <div id="pd-blockly-wrap">
+            <div id="pd-blockly-div"></div>
+          </div>
+        </div>
+
+        <!-- Generated Python panel -->
+        <div class="pd-sc-code-wrap">
+          <div class="pd-sc-code-bar">
+            <span class="pd-sc-code-label">Generated Code</span>
+          </div>
+          <pre id="pd-sc-generated-code"># Drag blocks to generate code&#8230;</pre>
+        </div>
+
+        <p class="pd-note scratch-note">
+          Build your solution with blocks, then click <strong>Submit</strong> to save it.
+        </p>
+
+        {% else %}
+        <!-- ── Python / JS / HTML / CSS: CodeMirror editor ── -->
         <div class="pd-chrome">
           <div class="pd-chrome-bar">
             <span class="pd-dot pd-dot-r"></span>
@@ -215,6 +291,8 @@
             <span class="pd-file">
               {% if language.slug == 'python' %}main.py
               {% elif language.slug == 'javascript' %}main.js
+              {% elif language.slug == 'html' %}index.html
+              {% elif language.slug == 'css' %}style.css
               {% else %}code.txt{% endif %}
             </span>
           </div>
@@ -223,10 +301,17 @@
           </div>
         </div>
 
+        {% if language.uses_browser_sandbox %}
+        <p class="pd-note">
+          Submit your work to receive the self-assessment checklist.
+        </p>
+        {% else %}
         <p class="pd-note">
           Your code will be run against <strong>all</strong> test cases (visible + hidden).<br>
           All must pass to solve the problem.
         </p>
+        {% endif %}
+        {% endif %}
 
       </div>
     </div>
@@ -239,66 +324,181 @@ var LANG_SLUG  = "{{ language.slug }}";
 var STARTER    = JSON.parse(document.getElementById('starter-data').textContent);
 var CSRF_TOKEN = "{{ csrf_token }}";
 var PROBLEM_ID = {{ problem.id }};
+var IS_SCRATCH = LANG_SLUG === 'scratch';
 
 // startTime tracks how long the student spent on THIS attempt only.
-// Resets after each submit so re-submitting correct code never penalises score.
 var startTime = Date.now();
 
-// ── Language → CodeMirror 5 mode ──────────────────────────────────────────
-var modeMap = {
-  python:     'python',
-  javascript: 'javascript',
-  html:       'htmlmixed',
-  'html-css': 'htmlmixed',
-  css:        'css',
-  scratch:    'text/plain',
-};
+// ── State ─────────────────────────────────────────────────────────────────
+var editor    = null;    // CodeMirror instance (non-Scratch)
+var workspace = null;    // Blockly workspace (Scratch)
+var LS_KEY    = 'scratch_problem_blocks_' + PROBLEM_ID;
 
-// ── Initialise CodeMirror 5 ───────────────────────────────────────────────
-var editor = CodeMirror.fromTextArea(document.getElementById('pd-code'), {
-  mode:              modeMap[LANG_SLUG] || 'text/plain',
-  theme:             'dracula',
-  lineNumbers:       true,
-  indentUnit:        2,
-  tabSize:           2,
-  indentWithTabs:    false,
-  autoCloseBrackets: true,
-  matchBrackets:     true,
-  styleActiveLine:   true,
-  lineWrapping:      false,
-  extraKeys: {
-    'Tab': function(cm) {
-      if (cm.somethingSelected()) {
-        cm.indentSelection('add');
-      } else {
-        cm.replaceSelection('  ', 'end');
-      }
+// ── Initialise ────────────────────────────────────────────────────────────
+if (IS_SCRATCH) {
+  initBlockly();
+} else {
+  initCodeMirror();
+}
+
+// ── Blockly initialisation (Scratch problems) ─────────────────────────────
+function initBlockly() {
+  var toolboxXml = [
+    '<xml>',
+    '  <category name="Output" colour="#4C97FF">',
+    '    <block type="text_print"></block>',
+    '  </category>',
+    '  <category name="Control" colour="#FFAB19">',
+    '    <block type="controls_repeat_ext">',
+    '      <value name="TIMES"><block type="math_number"><field name="NUM">10</field></block></value>',
+    '    </block>',
+    '    <block type="controls_whileUntil"></block>',
+    '    <block type="controls_if"></block>',
+    '    <block type="controls_if"><mutation else="1"></mutation></block>',
+    '    <block type="controls_for">',
+    '      <value name="FROM"><block type="math_number"><field name="NUM">1</field></block></value>',
+    '      <value name="TO"><block type="math_number"><field name="NUM">10</field></block></value>',
+    '      <value name="BY"><block type="math_number"><field name="NUM">1</field></block></value>',
+    '    </block>',
+    '    <block type="controls_flow_statements"></block>',
+    '  </category>',
+    '  <category name="Variables" colour="#FF8C1A" custom="VARIABLE"></category>',
+    '  <category name="Math" colour="#9966FF">',
+    '    <block type="math_number"></block>',
+    '    <block type="math_arithmetic"></block>',
+    '    <block type="math_modulo"></block>',
+    '    <block type="math_round"></block>',
+    '    <block type="math_random_int">',
+    '      <value name="FROM"><block type="math_number"><field name="NUM">1</field></block></value>',
+    '      <value name="TO"><block type="math_number"><field name="NUM">100</field></block></value>',
+    '    </block>',
+    '  </category>',
+    '  <category name="Logic" colour="#5C81A6">',
+    '    <block type="logic_compare"></block>',
+    '    <block type="logic_operation"></block>',
+    '    <block type="logic_negate"></block>',
+    '    <block type="logic_boolean"></block>',
+    '  </category>',
+    '  <category name="Text" colour="#5BA58C">',
+    '    <block type="text"></block>',
+    '    <block type="text_length"></block>',
+    '    <block type="text_join"></block>',
+    '    <block type="text_indexOf"></block>',
+    '    <block type="text_charAt"></block>',
+    '  </category>',
+    '  <category name="Lists" colour="#745BA5">',
+    '    <block type="lists_create_empty"></block>',
+    '    <block type="lists_create_with"></block>',
+    '    <block type="lists_length"></block>',
+    '    <block type="lists_getIndex"></block>',
+    '    <block type="lists_setIndex"></block>',
+    '  </category>',
+    '</xml>',
+  ].join('\n');
+
+  workspace = Blockly.inject('pd-blockly-div', {
+    toolbox:    toolboxXml,
+    scrollbars: true,
+    trashcan:   true,
+    grid: { spacing: 20, length: 3, colour: '#dde1e8', snap: true },
+    zoom: { controls: true, wheel: true, startScale: 1.0, maxScale: 3, minScale: 0.3, scaleSpeed: 1.2 },
+  });
+
+  // Restore from localStorage → starter XML
+  var saved = localStorage.getItem(LS_KEY) || STARTER || '';
+  if (saved) {
+    try {
+      Blockly.Xml.domToWorkspace(Blockly.Xml.textToDom(saved), workspace);
+    } catch (e) {
+      console.warn('Could not restore Blockly workspace:', e);
+    }
+  }
+
+  // Auto-save + update generated code preview on change
+  workspace.addChangeListener(function(e) {
+    if (e.isUiEvent) return;
+    var xml = Blockly.Xml.domToText(Blockly.Xml.workspaceToDom(workspace));
+    localStorage.setItem(LS_KEY, xml);
+    var code = Blockly.Python.workspaceToCode(workspace);
+    var pre = document.getElementById('pd-sc-generated-code');
+    if (pre) pre.textContent = code || '# Drag blocks to generate code\u2026';
+  });
+}
+
+// ── CodeMirror initialisation (non-Scratch problems) ─────────────────────
+function initCodeMirror() {
+  var modeMap = {
+    python:     'python',
+    javascript: 'javascript',
+    html:       'htmlmixed',
+    'html-css': 'htmlmixed',
+    css:        'css',
+  };
+
+  editor = CodeMirror.fromTextArea(document.getElementById('pd-code'), {
+    mode:              modeMap[LANG_SLUG] || 'text/plain',
+    theme:             'dracula',
+    lineNumbers:       true,
+    indentUnit:        2,
+    tabSize:           2,
+    indentWithTabs:    false,
+    autoCloseBrackets: true,
+    matchBrackets:     true,
+    styleActiveLine:   true,
+    lineWrapping:      false,
+    extraKeys: {
+      'Tab': function(cm) {
+        if (cm.somethingSelected()) {
+          cm.indentSelection('add');
+        } else {
+          cm.replaceSelection('  ', 'end');
+        }
+      },
+      'Shift-Tab': 'indentLess',
+      'Ctrl-Enter': function() { pdSubmit(); },
+      'Cmd-Enter':  function() { pdSubmit(); },
+      'Ctrl-Space': 'autocomplete',
     },
-    'Shift-Tab': 'indentLess',
-    'Ctrl-Enter': function() { pdSubmit(); },
-    'Cmd-Enter':  function() { pdSubmit(); },
-    'Ctrl-Space': 'autocomplete',
-  },
-});
-editor.setValue(STARTER || '');
-editor.setSize('100%', '420px');
+  });
+  editor.setValue(STARTER || '');
+  editor.setSize('100%', '420px');
+}
 
-function getCode() { return editor.getValue(); }
+// ── Helpers ───────────────────────────────────────────────────────────────
+function getCode() {
+  if (IS_SCRATCH) {
+    return workspace ? Blockly.Python.workspaceToCode(workspace) : '';
+  }
+  return editor ? editor.getValue() : '';
+}
 
-// ── Functions ─────────────────────────────────────────────────────────────
+function getBlocksXml() {
+  if (!IS_SCRATCH || !workspace) return '';
+  return Blockly.Xml.domToText(Blockly.Xml.workspaceToDom(workspace));
+}
 
+// ── Reset ─────────────────────────────────────────────────────────────────
 function pdReset() {
-  if (confirm('Reset code to starter?')) {
-    editor.setValue(STARTER || '');
-    editor.clearHistory();
+  if (IS_SCRATCH) {
+    if (!confirm('Clear the workspace and start over?')) return;
+    workspace.clear();
+    localStorage.removeItem(LS_KEY);
+    var pre = document.getElementById('pd-sc-generated-code');
+    if (pre) pre.textContent = '# Drag blocks to generate code\u2026';
+  } else {
+    if (confirm('Reset code to starter?')) {
+      editor.setValue(STARTER || '');
+      editor.clearHistory();
+    }
   }
 }
 
+// ── Submit ────────────────────────────────────────────────────────────────
 async function pdSubmit() {
   var btn = document.getElementById('pd-submit-btn');
   if (btn.disabled) return;
   btn.disabled    = true;
-  btn.textContent = 'Running tests\u2026';
+  btn.textContent = IS_SCRATCH ? 'Saving\u2026' : 'Running tests\u2026';
 
   var timeTaken = Math.floor((Date.now() - startTime) / 1000);
 
@@ -308,6 +508,7 @@ async function pdSubmit() {
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
       body:    JSON.stringify({
         code:               getCode(),
+        blocks_xml:         getBlocksXml(),
         language_slug:      LANG_SLUG,
         time_taken_seconds: timeTaken,
       }),
@@ -320,9 +521,10 @@ async function pdSubmit() {
   }
 
   btn.disabled    = false;
-  btn.textContent = '\u25B6 Submit';
+  btn.textContent = IS_SCRATCH ? '\u25B6 Submit' : '\u25B6 Submit';
 }
 
+// ── Show results ──────────────────────────────────────────────────────────
 function pdShowResults(data) {
   var panel      = document.getElementById('pd-results');
   var icon       = document.getElementById('pd-verdict-icon');
@@ -331,6 +533,47 @@ function pdShowResults(data) {
   var visDiv     = document.getElementById('pd-visible-results');
   var hidDiv     = document.getElementById('pd-hidden-summary');
   var ptsDiv     = document.getElementById('pd-points');
+
+  // Visual-review mode: HTML / CSS / Scratch — no automated execution
+  if (data.visual_review) {
+    panel.className  = 'pd-results show pass';
+    icon.className   = 'pd-verdict-icon pass';
+    icon.textContent  = '\u2713';
+    title.className   = 'pd-verdict-title pass';
+    title.textContent = 'Submission saved!';
+    sub.textContent   = data.message || 'Check the criteria below to self-assess your work.';
+    hidDiv.style.display = 'none';
+    // Show points
+    ptsDiv.style.display = 'block';
+    ptsDiv.innerHTML =
+      '<span class="pd-pts-attempt">+100.00 pts this attempt</span>' +
+      (data.is_new_best
+        ? '<span class="pd-pts-newbest">&#127942; New personal best!</span>'
+        : '<span class="pd-pts-best">Your best: +100.00 pts</span>');
+    // Render criteria as checked list in results
+    visDiv.innerHTML = '';
+    var criteria = data.criteria || [];
+    criteria.forEach(function(c, i) {
+      var div = document.createElement('div');
+      div.className = 'pd-result-tc';
+      div.style.cssText = 'background:#f5f3ff;border-color:#c4b5fd;';
+
+      var titleRow = document.createElement('div');
+      titleRow.className   = 'pd-result-tc-title';
+      titleRow.style.color = '#6366f1';
+      titleRow.textContent = '\u2713 ' + (c.description || ('Criterion ' + (i + 1)));
+      div.appendChild(titleRow);
+
+      var exp = document.createElement('div');
+      exp.style.fontSize = '12px';
+      exp.innerHTML = '<span style="color:#9ca3af">Requirement: </span>' + escHtml(c.expected || '');
+      div.appendChild(exp);
+
+      visDiv.appendChild(div);
+    });
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    return;
+  }
 
   var passed     = data.passed_all;
   var visResults = data.visible_results || [];

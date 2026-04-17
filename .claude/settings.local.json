@@ -387,7 +387,9 @@
       "Bash(DB_PASSWORD=root python -m pytest ui_tests/test_parent_invoice_stripe_payment.py::TestPaymentSuccessPage::test_success_page_with_isp_shows_breakdown ui_tests/test_parent_invoice_stripe_payment.py::TestParentInvoicesNoBanner::test_paid_status_badge ui_tests/test_parent_invoice_stripe_payment.py::TestParentInvoicesPayBanner::test_banner_shows_all_children_label ui_tests/test_parent_invoice_stripe_payment.py::TestParentSidebarBillingLink::test_billing_link_navigates_to_billing_page -v -s --no-header)",
       "Bash(DB_PASSWORD=root python -m pytest ui_tests/test_parent_invoice_stripe_payment.py::TestPaymentSuccessPage::test_success_page_with_isp_shows_breakdown ui_tests/test_parent_invoice_stripe_payment.py::TestParentInvoicesNoBanner::test_paid_status_badge ui_tests/test_parent_invoice_stripe_payment.py::TestParentInvoicesPayBanner::test_banner_shows_all_children_label ui_tests/test_parent_invoice_stripe_payment.py::TestParentSidebarBillingLink::test_billing_link_navigates_to_billing_page -v --no-header)",
       "Bash(DB_PASSWORD=root python -m pytest ui_tests/test_parent_invoice_stripe_payment.py -v --no-header)",
-      "Bash(ls C:/Source/CWA_SCHOOL_APP_2/.claude/worktrees/laughing-mayer/cwa_classroom/classroom/tests/test_sidebar*)"
+      "Bash(ls C:/Source/CWA_SCHOOL_APP_2/.claude/worktrees/laughing-mayer/cwa_classroom/classroom/tests/test_sidebar*)",
+      "Bash(python manage.py shell -c ':*)",
+      "Bash(docker exec:*)"
     ]
   }
 }

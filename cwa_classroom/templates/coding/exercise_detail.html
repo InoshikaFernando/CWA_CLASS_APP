@@ -192,8 +192,8 @@
         </div>
         {% endif %}
 
-        <!-- Output (Python / JS / Scratch) -->
-        {% if not language.uses_browser_sandbox %}
+        <!-- Output (Python / JS / Scratch) — hidden for browser-sandbox exercises -->
+        {% if not language.uses_browser_sandbox and not exercise.uses_browser_sandbox %}
         <div class="ed-output-wrap">
           <div class="ed-output-bar">
             <span class="ed-output-label">Output</span>
@@ -204,14 +204,14 @@
         </div>
         {% endif %}
 
-        <!-- HTML/CSS live preview -->
-        {% if language.uses_browser_sandbox %}
+        <!-- HTML/CSS / DOM live preview -->
+        {% if language.uses_browser_sandbox or exercise.uses_browser_sandbox %}
         <div class="ed-preview-wrap">
           <div class="ed-preview-bar">
             <span class="ed-preview-label">Live Preview</span>
             <span class="ed-preview-hint">Click Run Code to preview</span>
           </div>
-          <iframe id="ed-preview-frame" sandbox="allow-scripts" srcdoc=""></iframe>
+          <iframe id="ed-preview-frame" sandbox="allow-scripts allow-modals" srcdoc=""></iframe>
         </div>
         {% endif %}
 
@@ -256,6 +256,7 @@
             <span class="ed-dot ed-dot-g"></span>
             <span class="ed-file">
               {% if language.slug == 'python' %}main.py
+              {% elif language.slug == 'javascript' and exercise.uses_browser_sandbox %}index.html
               {% elif language.slug == 'javascript' %}main.js
               {% elif language.slug == 'html' %}index.html
               {% elif language.slug == 'css' %}style.css
@@ -287,7 +288,7 @@ var LANG_SLUG       = "{{ language.slug }}";
 var STARTER         = JSON.parse(document.getElementById('starter-data').textContent);
 var CSRF_TOKEN      = "{{ csrf_token }}";
 var EXERCISE_ID     = {{ exercise.id }};
-var IS_BROWSER      = ['html', 'css', 'html-css'].includes(LANG_SLUG);
+var IS_BROWSER      = ['html', 'css', 'html-css'].includes(LANG_SLUG) || {{ exercise.uses_browser_sandbox|yesno:"true,false" }};
 var IS_SCRATCH      = LANG_SLUG === 'scratch';
 var IS_DONE         = {{ is_completed|yesno:"true,false" }};
 var SERVER_BLOCKS_XML = JSON.parse(document.getElementById('blocks-data').textContent) || '';
@@ -295,7 +296,7 @@ var SERVER_BLOCKS_XML = JSON.parse(document.getElementById('blocks-data').textCo
 // ── Language → CodeMirror mode ────────────────────────────────────────────
 var modeMap = {
   python:     'python',
-  javascript: 'javascript',
+  javascript: IS_BROWSER ? 'htmlmixed' : 'javascript',  // DOM exercises use htmlmixed
   html:       'htmlmixed',
   'html-css': 'htmlmixed',
   css:        'css',
@@ -530,13 +531,22 @@ async function edMarkDone() {
   };
   if (IS_SCRATCH) payload.blocks_xml = getBlocksXml();
   try {
-    await fetch('{% url "coding:api_run_code" %}', {
+    var res  = await fetch('{% url "coding:api_run_code" %}', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
       body:    JSON.stringify(payload),
     });
+    var data = await res.json();
+    if (!res.ok) {
+      console.error('Mark as completed failed:', res.status, data);
+      btn.disabled    = false;
+      btn.textContent = 'Mark as completed';
+      alert('Could not save: ' + (data.error || 'Server error ' + res.status));
+      return;
+    }
     window.location.reload();
-  } catch (_) {
+  } catch (err) {
+    console.error('Mark as completed error:', err);
     btn.disabled    = false;
     btn.textContent = 'Mark as completed';
   }

@@ -19,11 +19,15 @@ from django.conf import settings
 PISTON_URL = getattr(settings, 'PISTON_API_URL', 'http://localhost:2000')
 
 # Hard timeout so student infinite loops never hang the server.
-# Must not exceed Piston's configured run_timeout limit (3000 ms).
-EXECUTION_TIMEOUT_SECONDS = 3
+# Set high enough to honour per-problem time_limit_seconds values (e.g. 10 s for
+# N-Queens, 8 s for LIS).  The per-problem limit is always applied first; this
+# constant is only the absolute maximum the runner will ever grant.
+EXECUTION_TIMEOUT_SECONDS = 15
 
-# Memory ceiling per execution (bytes). 128 MB is generous for typical student code.
-MEMORY_LIMIT_BYTES = 128 * 1024 * 1024  # 128 MB
+# Memory ceiling per execution (bytes).  256 MB matches the per-problem default
+# declared in problem JSON files.  The per-problem value is applied first; this
+# constant is the absolute maximum.
+MEMORY_LIMIT_BYTES = 256 * 1024 * 1024  # 256 MB
 
 # Piston runtime versions — language names must match Piston's registry
 # Use GET /api/v2/runtimes to see what's installed
@@ -95,25 +99,44 @@ def run_code(language, code, stdin='', timeout_seconds=None, memory_limit_mb=Non
         data = response.json()
         _elapsed = time.monotonic() - _t0
 
+        # Piston returns {"message": "..."} (no "run" key) when a configuration
+        # limit is exceeded (e.g. run_timeout > Piston's configured cap).
+        # Surface this as a clear stderr message rather than silent empty output.
+        if 'message' in data and 'run' not in data:
+            return {
+                'stdout': '',
+                'stderr': f'Piston rejected execution: {data["message"]}',
+                'exit_code': 1,
+                'run_time_seconds': _elapsed,
+                'error': data['message'],
+            }
+
         run = data.get('run', {})
         # Be tolerant to schema variations across executor versions.
         # Standard Piston v2 uses run.stdout / run.stderr / run.code, but
         # some installations expose run.output or top-level stdout/stderr/code.
+        # Always coerce to str so callers never receive None.
         stdout = run.get('stdout')
         if stdout is None:
             stdout = run.get('output')
         if stdout is None:
-            stdout = data.get('stdout', '')
+            stdout = data.get('stdout')
+        stdout = stdout if stdout is not None else ''
 
         stderr = run.get('stderr')
         if stderr is None:
-            stderr = data.get('stderr', '')
+            stderr = data.get('stderr')
+        stderr = stderr if stderr is not None else ''
 
         exit_code = run.get('code')
         if exit_code is None:
             exit_code = run.get('exit_code')
         if exit_code is None:
-            exit_code = data.get('code', 1)
+            exit_code = data.get('code')
+        # If Piston returns null for the exit code (process killed by signal),
+        # treat it as a failure (non-zero) so the test case is marked failed.
+        if exit_code is None:
+            exit_code = 1
 
         return {
             'stdout': stdout,
