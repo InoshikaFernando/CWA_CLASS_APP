@@ -113,6 +113,7 @@
             <th class="text-left px-4 py-3 font-semibold text-gray-600 w-32">Level</th>
             <th class="text-left px-4 py-3 font-semibold text-gray-600 w-40">Topic</th>
             <th class="text-left px-4 py-3 font-semibold text-gray-600 w-24">Type</th>
+            <th class="text-center px-4 py-3 font-semibold text-gray-600 w-16">Image</th>
             <th class="text-left px-4 py-3 font-semibold text-gray-600 w-20">Answers</th>
             <th class="text-left px-4 py-3 font-semibold text-gray-600 w-20"></th>
           </tr>
@@ -178,6 +179,21 @@
 
 </div>
 
+<!-- Image popup modal -->
+<div id="image-modal" class="fixed inset-0 z-50 hidden">
+  <div class="fixed inset-0 bg-black/60 transition-opacity" onclick="closeImageModal()"></div>
+  <div class="fixed inset-0 flex items-center justify-center p-4 pointer-events-none">
+    <div class="pointer-events-auto relative">
+      <button onclick="closeImageModal()" class="absolute -top-3 -right-3 w-8 h-8 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-500 hover:text-gray-800 transition z-10">
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+      <img id="image-modal-img" src="" alt="Question image" class="max-w-[80vw] max-h-[80vh] rounded-xl shadow-2xl bg-white">
+    </div>
+  </div>
+</div>
+
 <!-- Edit modal -->
 <div id="edit-modal" class="fixed inset-0 z-50 hidden">
   <div class="fixed inset-0 bg-black/40 transition-opacity" onclick="closeEditModal()"></div>
@@ -191,6 +207,16 @@
 </div>
 
 <script>
+function openImageModal(url) {
+  document.getElementById('image-modal-img').src = url;
+  document.getElementById('image-modal').classList.remove('hidden');
+}
+
+function closeImageModal() {
+  document.getElementById('image-modal').classList.add('hidden');
+  document.getElementById('image-modal-img').src = '';
+}
+
 function openEditModal(questionId) {
   var modal = document.getElementById('edit-modal');
   var content = document.getElementById('edit-modal-content');
