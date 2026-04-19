@@ -18,23 +18,40 @@ from django.conf import settings
 # Default to localhost where Piston is expected to run via Docker.
 # PISTON_URL = getattr(settings, 'PISTON_API_URL', 'http://localhost:2000')
 PISTON_URL = getattr(settings, 'PISTON_API_URL', 'http://localhost:2000')
+PISTON_TOKEN = getattr(settings, 'PISTON_API_TOKEN', '')
 
-# Hard timeout so student infinite loops never hang the server.
-# Set high enough to honour per-problem time_limit_seconds values (e.g. 10 s for
-# N-Queens, 8 s for LIS).  The per-problem limit is always applied first; this
-# constant is only the absolute maximum the runner will ever grant.
-EXECUTION_TIMEOUT_SECONDS = 15
+
+def _auth_headers():
+    """Build Authorization header for Piston requests.
+
+    Returns an empty dict when no token is configured so the client
+    still works against a local unauthenticated Piston (for dev).
+    """
+    return {'Authorization': f'Bearer {PISTON_TOKEN}'} if PISTON_TOKEN else {}
+
+# Run-time and compile-time ceilings, in seconds. Piston enforces these as
+# hard caps on the runner side (PISTON_RUN_TIMEOUT / PISTON_COMPILE_TIMEOUT
+# on the container, in ms). Exceeding the runner's configured maximum returns
+# HTTP 400 ("run_timeout cannot exceed the configured limit of N"). Both
+# values are env-driven via settings so deployments can raise them in lockstep
+# with Piston's container config without a code deploy.
+RUN_TIMEOUT_SECONDS = getattr(settings, 'PISTON_RUN_TIMEOUT_SECONDS', 3)
+COMPILE_TIMEOUT_SECONDS = getattr(settings, 'PISTON_COMPILE_TIMEOUT_SECONDS', 10)
+# Backwards-compat alias — run-time ceiling is what most callers reference.
+EXECUTION_TIMEOUT_SECONDS = RUN_TIMEOUT_SECONDS
 
 # Memory ceiling per execution (bytes).  256 MB matches the per-problem default
 # declared in problem JSON files.  The per-problem value is applied first; this
 # constant is the absolute maximum.
 MEMORY_LIMIT_BYTES = 256 * 1024 * 1024  # 256 MB
 
-# Piston runtime versions — language names must match Piston's registry
-# Use GET /api/v2/runtimes to see what's installed
+# Piston runtime versions — language names must match Piston's registry.
+# '*' tells Piston to use the latest installed version for that language.
+# Pin to a specific version (e.g. '3.10.0') only when reproducibility matters
+# AND that version is confirmed installed (see GET /api/v2/runtimes).
 RUNTIME_VERSIONS = {
-    'python': '3.10.0',
-    'javascript': '18.15.0',
+    'python': '*',
+    'javascript': '*',
 }
 
 
@@ -84,9 +101,9 @@ def run_code(language, code, stdin='', timeout_seconds=None, memory_limit_mb=Non
         'version': version,
         'files': [{'content': code}],
         'stdin': stdin or '',
-        'run_timeout': effective_timeout * 1000,     # Piston expects milliseconds
-        'compile_timeout': effective_timeout * 1000,
-        'run_memory_limit': effective_memory,         # bytes — enforced by Piston runner
+        'run_timeout': effective_timeout * 1000,        # Piston expects milliseconds
+        'compile_timeout': COMPILE_TIMEOUT_SECONDS * 1000,
+        'run_memory_limit': effective_memory,           # bytes — enforced by Piston runner
     }
 
     try:
@@ -94,7 +111,11 @@ def run_code(language, code, stdin='', timeout_seconds=None, memory_limit_mb=Non
         response = requests.post(
             f'{PISTON_URL}/api/v2/execute',
             json=payload,
-            timeout=effective_timeout + 2,  # slightly longer than Piston's own timeout
+            headers=_auth_headers(),
+            # HTTP timeout must cover compile + run + a small buffer, otherwise
+            # a slow compile (for compiled languages) could time out the client
+            # before Piston has finished.
+            timeout=COMPILE_TIMEOUT_SECONDS + effective_timeout + 2,
         )
         response.raise_for_status()
         data = response.json()
@@ -166,6 +187,25 @@ def run_code(language, code, stdin='', timeout_seconds=None, memory_limit_mb=Non
             'run_time_seconds': float(effective_timeout + 2),
             'error': 'connection_error',
         }
+    except requests.exceptions.HTTPError as exc:
+        # Piston returns 4xx with a JSON body like {"message": "..."} explaining
+        # why the request was rejected (unknown runtime, oversized limit, etc.).
+        # raise_for_status() drops that body, so capture it here.
+        body = ''
+        if exc.response is not None:
+            try:
+                body = exc.response.json().get('message', '') or exc.response.text
+            except ValueError:
+                body = exc.response.text
+        body = (body or '')[:500]
+        detail = f'{exc} | {body}' if body else str(exc)
+        return {
+            'stdout': '',
+            'stderr': detail,
+            'exit_code': 1,
+            'run_time_seconds': float(effective_timeout + 2),
+            'error': detail,
+        }
     except Exception as exc:
         import traceback
         return {
@@ -183,7 +223,7 @@ def piston_health_check():
     Calls GET /api/v2/runtimes and reports which languages are available.
     """
     try:
-        response = requests.get(f'{PISTON_URL}/api/v2/runtimes', timeout=5)
+        response = requests.get(f'{PISTON_URL}/api/v2/runtimes', headers=_auth_headers(), timeout=5)
         response.raise_for_status()
         runtimes = response.json()
         available = {r['language'] for r in runtimes}

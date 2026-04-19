@@ -101,6 +101,14 @@ ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 # Local dev default: http://localhost:2000
 # Production: set PISTON_API_URL=http://piston:2000 if on the same Docker network
 PISTON_API_URL = os.environ.get('PISTON_API_URL', 'http://localhost:2000')
+PISTON_API_TOKEN = os.environ.get('PISTON_API_TOKEN', '')
+# Piston enforces these as hard caps on the runner side. Set both env vars on
+# the Piston container (PISTON_RUN_TIMEOUT, PISTON_COMPILE_TIMEOUT in ms) and
+# here in lockstep — exceeding the runner's configured maximum returns HTTP 400.
+# Defaults match Piston's stock config (verified against the self-hosted
+# instance at piston.wizardslearninghub.co.nz): run=3s, compile=10s.
+PISTON_RUN_TIMEOUT_SECONDS = int(os.environ.get('PISTON_RUN_TIMEOUT_SECONDS', '3'))
+PISTON_COMPILE_TIMEOUT_SECONDS = int(os.environ.get('PISTON_COMPILE_TIMEOUT_SECONDS', '10'))
 
 # Coding — Quality scoring
 # ---------------------------------------------------------------------------
