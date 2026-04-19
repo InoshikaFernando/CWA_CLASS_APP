@@ -17,6 +17,16 @@ from django.conf import settings
 
 # Default to localhost where Piston is expected to run via Docker.
 PISTON_URL = getattr(settings, 'PISTON_API_URL', 'http://localhost:2000')
+PISTON_TOKEN = getattr(settings, 'PISTON_API_TOKEN', '')
+
+
+def _auth_headers():
+    """Build Authorization header for Piston requests.
+
+    Returns an empty dict when no token is configured so the client
+    still works against a local unauthenticated Piston (for dev).
+    """
+    return {'Authorization': f'Bearer {PISTON_TOKEN}'} if PISTON_TOKEN else {}
 
 # Hard timeout so student infinite loops never hang the server.
 # Set high enough to honour per-problem time_limit_seconds values (e.g. 10 s for
@@ -93,6 +103,7 @@ def run_code(language, code, stdin='', timeout_seconds=None, memory_limit_mb=Non
         response = requests.post(
             f'{PISTON_URL}/api/v2/execute',
             json=payload,
+            headers=_auth_headers(),
             timeout=effective_timeout + 2,  # slightly longer than Piston's own timeout
         )
         response.raise_for_status()
@@ -182,7 +193,7 @@ def piston_health_check():
     Calls GET /api/v2/runtimes and reports which languages are available.
     """
     try:
-        response = requests.get(f'{PISTON_URL}/api/v2/runtimes', timeout=5)
+        response = requests.get(f'{PISTON_URL}/api/v2/runtimes', headers=_auth_headers(), timeout=5)
         response.raise_for_status()
         runtimes = response.json()
         available = {r['language'] for r in runtimes}

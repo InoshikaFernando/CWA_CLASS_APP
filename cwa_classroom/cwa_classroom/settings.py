@@ -101,6 +101,7 @@ ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 # Local dev default: http://localhost:2000
 # Production: set PISTON_API_URL=http://piston:2000 if on the same Docker network
 PISTON_API_URL = os.environ.get('PISTON_API_URL', 'http://localhost:2000')
+PISTON_API_TOKEN = os.environ.get('PISTON_API_TOKEN', '')
 
 # Coding — Quality scoring
 # ---------------------------------------------------------------------------
