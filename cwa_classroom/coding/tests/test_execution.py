@@ -95,8 +95,8 @@ class TestRunCode(unittest.TestCase):
 
         self.assertEqual(result['exit_code'], 0)
         payload = mock_post.call_args.kwargs['json']
-        self.assertEqual(payload['run_timeout'], execution.EXECUTION_TIMEOUT_SECONDS * 1000)
-        self.assertEqual(payload['compile_timeout'], execution.EXECUTION_TIMEOUT_SECONDS * 1000)
+        self.assertEqual(payload['run_timeout'], execution.RUN_TIMEOUT_SECONDS * 1000)
+        self.assertEqual(payload['compile_timeout'], execution.COMPILE_TIMEOUT_SECONDS * 1000)
         self.assertEqual(payload['run_memory_limit'], execution.MEMORY_LIMIT_BYTES)
         self.assertEqual(payload['stdin'], 'x')
 
@@ -116,7 +116,7 @@ class TestRunCode(unittest.TestCase):
             )
 
         payload = mock_post.call_args.kwargs['json']
-        self.assertEqual(payload['run_timeout'], execution.EXECUTION_TIMEOUT_SECONDS * 1000)
+        self.assertEqual(payload['run_timeout'], execution.RUN_TIMEOUT_SECONDS * 1000)
         self.assertEqual(payload['run_memory_limit'], execution.MEMORY_LIMIT_BYTES)
 
 
@@ -212,11 +212,18 @@ class TestAuthHeaders(unittest.TestCase):
 
 
 class TestPistonTimeoutCap(unittest.TestCase):
-    """Self-hosted Piston caps run/compile_timeout at 10000ms — never send more."""
+    """Self-hosted Piston caps run_timeout at 3000ms and compile_timeout at 10000ms.
 
-    PISTON_HARD_CAP_MS = 10_000
+    Verified against piston.wizardslearninghub.co.nz — sending higher values
+    returns HTTP 400 ("run_timeout cannot exceed the configured limit of 3000").
+    These tests lock the client's payload within those caps so future changes
+    can't silently break production.
+    """
 
-    def test_default_payload_timeouts_within_piston_cap(self):
+    PISTON_RUN_CAP_MS = 3_000
+    PISTON_COMPILE_CAP_MS = 10_000
+
+    def test_default_payload_timeouts_within_piston_caps(self):
         mock_response = MagicMock()
         mock_response.json.return_value = {
             'run': {'stdout': 'ok', 'stderr': '', 'code': 0}
@@ -225,10 +232,10 @@ class TestPistonTimeoutCap(unittest.TestCase):
         with patch('coding.execution.requests.post', return_value=mock_response) as mock_post:
             execution.run_code('python', 'print("ok")')
         payload = mock_post.call_args.kwargs['json']
-        self.assertLessEqual(payload['run_timeout'], self.PISTON_HARD_CAP_MS)
-        self.assertLessEqual(payload['compile_timeout'], self.PISTON_HARD_CAP_MS)
+        self.assertLessEqual(payload['run_timeout'], self.PISTON_RUN_CAP_MS)
+        self.assertLessEqual(payload['compile_timeout'], self.PISTON_COMPILE_CAP_MS)
 
-    def test_oversized_per_problem_timeout_clamped_within_piston_cap(self):
+    def test_oversized_per_problem_timeout_clamped_within_piston_run_cap(self):
         mock_response = MagicMock()
         mock_response.json.return_value = {
             'run': {'stdout': 'ok', 'stderr': '', 'code': 0}
@@ -237,8 +244,24 @@ class TestPistonTimeoutCap(unittest.TestCase):
         with patch('coding.execution.requests.post', return_value=mock_response) as mock_post:
             execution.run_code('python', 'print("ok")', timeout_seconds=999)
         payload = mock_post.call_args.kwargs['json']
-        self.assertLessEqual(payload['run_timeout'], self.PISTON_HARD_CAP_MS)
-        self.assertLessEqual(payload['compile_timeout'], self.PISTON_HARD_CAP_MS)
+        self.assertLessEqual(payload['run_timeout'], self.PISTON_RUN_CAP_MS)
+        self.assertLessEqual(payload['compile_timeout'], self.PISTON_COMPILE_CAP_MS)
+
+    def test_compile_timeout_independent_of_per_problem_timeout(self):
+        """compile_timeout must not be clamped by the per-problem run limit —
+        a problem asking for run_timeout=1 must still allow a full compile."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            'run': {'stdout': 'ok', 'stderr': '', 'code': 0}
+        }
+        mock_response.raise_for_status.return_value = None
+        with patch('coding.execution.requests.post', return_value=mock_response) as mock_post:
+            execution.run_code('python', 'print("ok")', timeout_seconds=1)
+        payload = mock_post.call_args.kwargs['json']
+        self.assertEqual(payload['run_timeout'], 1 * 1000)
+        self.assertEqual(
+            payload['compile_timeout'], execution.COMPILE_TIMEOUT_SECONDS * 1000,
+        )
 
 
 class TestRuntimeVersion(unittest.TestCase):
