@@ -28,12 +28,16 @@ def _auth_headers():
     """
     return {'Authorization': f'Bearer {PISTON_TOKEN}'} if PISTON_TOKEN else {}
 
-# Hard timeout so student infinite loops never hang the server.
-# Capped at 10 s because the self-hosted Piston is configured with
-# run_timeout / compile_timeout maxima of 10 000 ms — sending higher values
-# triggers HTTP 400 ("compile_timeout cannot exceed the configured limit of
-# 10000").  Per-problem time_limit_seconds values are clamped to this ceiling.
-EXECUTION_TIMEOUT_SECONDS = 10
+# Run-time and compile-time ceilings, in seconds. Piston enforces these as
+# hard caps on the runner side (PISTON_RUN_TIMEOUT / PISTON_COMPILE_TIMEOUT
+# on the container, in ms). Exceeding the runner's configured maximum returns
+# HTTP 400 ("run_timeout cannot exceed the configured limit of N"). Both
+# values are env-driven via settings so deployments can raise them in lockstep
+# with Piston's container config without a code deploy.
+RUN_TIMEOUT_SECONDS = getattr(settings, 'PISTON_RUN_TIMEOUT_SECONDS', 3)
+COMPILE_TIMEOUT_SECONDS = getattr(settings, 'PISTON_COMPILE_TIMEOUT_SECONDS', 10)
+# Backwards-compat alias — run-time ceiling is what most callers reference.
+EXECUTION_TIMEOUT_SECONDS = RUN_TIMEOUT_SECONDS
 
 # Memory ceiling per execution (bytes).  256 MB matches the per-problem default
 # declared in problem JSON files.  The per-problem value is applied first; this
@@ -96,9 +100,9 @@ def run_code(language, code, stdin='', timeout_seconds=None, memory_limit_mb=Non
         'version': version,
         'files': [{'content': code}],
         'stdin': stdin or '',
-        'run_timeout': effective_timeout * 1000,     # Piston expects milliseconds
-        'compile_timeout': effective_timeout * 1000,
-        'run_memory_limit': effective_memory,         # bytes — enforced by Piston runner
+        'run_timeout': effective_timeout * 1000,        # Piston expects milliseconds
+        'compile_timeout': COMPILE_TIMEOUT_SECONDS * 1000,
+        'run_memory_limit': effective_memory,           # bytes — enforced by Piston runner
     }
 
     try:
@@ -107,7 +111,10 @@ def run_code(language, code, stdin='', timeout_seconds=None, memory_limit_mb=Non
             f'{PISTON_URL}/api/v2/execute',
             json=payload,
             headers=_auth_headers(),
-            timeout=effective_timeout + 2,  # slightly longer than Piston's own timeout
+            # HTTP timeout must cover compile + run + a small buffer, otherwise
+            # a slow compile (for compiled languages) could time out the client
+            # before Piston has finished.
+            timeout=COMPILE_TIMEOUT_SECONDS + effective_timeout + 2,
         )
         response.raise_for_status()
         data = response.json()
