@@ -39,11 +39,13 @@ EXECUTION_TIMEOUT_SECONDS = 15
 # constant is the absolute maximum.
 MEMORY_LIMIT_BYTES = 256 * 1024 * 1024  # 256 MB
 
-# Piston runtime versions — language names must match Piston's registry
-# Use GET /api/v2/runtimes to see what's installed
+# Piston runtime versions — language names must match Piston's registry.
+# '*' tells Piston to use the latest installed version for that language.
+# Pin to a specific version (e.g. '3.10.0') only when reproducibility matters
+# AND that version is confirmed installed (see GET /api/v2/runtimes).
 RUNTIME_VERSIONS = {
-    'python': '3.10.0',
-    'javascript': '18.15.0',
+    'python': '*',
+    'javascript': '*',
 }
 
 
@@ -175,6 +177,25 @@ def run_code(language, code, stdin='', timeout_seconds=None, memory_limit_mb=Non
             'exit_code': 1,
             'run_time_seconds': float(effective_timeout + 2),
             'error': 'connection_error',
+        }
+    except requests.exceptions.HTTPError as exc:
+        # Piston returns 4xx with a JSON body like {"message": "..."} explaining
+        # why the request was rejected (unknown runtime, oversized limit, etc.).
+        # raise_for_status() drops that body, so capture it here.
+        body = ''
+        if exc.response is not None:
+            try:
+                body = exc.response.json().get('message', '') or exc.response.text
+            except ValueError:
+                body = exc.response.text
+        body = (body or '')[:500]
+        detail = f'{exc} | {body}' if body else str(exc)
+        return {
+            'stdout': '',
+            'stderr': detail,
+            'exit_code': 1,
+            'run_time_seconds': float(effective_timeout + 2),
+            'error': detail,
         }
     except Exception as exc:
         import traceback
