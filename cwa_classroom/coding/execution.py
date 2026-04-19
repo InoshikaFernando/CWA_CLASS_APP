@@ -29,10 +29,11 @@ def _auth_headers():
     return {'Authorization': f'Bearer {PISTON_TOKEN}'} if PISTON_TOKEN else {}
 
 # Hard timeout so student infinite loops never hang the server.
-# Set high enough to honour per-problem time_limit_seconds values (e.g. 10 s for
-# N-Queens, 8 s for LIS).  The per-problem limit is always applied first; this
-# constant is only the absolute maximum the runner will ever grant.
-EXECUTION_TIMEOUT_SECONDS = 15
+# Capped at 10 s because the self-hosted Piston is configured with
+# run_timeout / compile_timeout maxima of 10 000 ms — sending higher values
+# triggers HTTP 400 ("compile_timeout cannot exceed the configured limit of
+# 10000").  Per-problem time_limit_seconds values are clamped to this ceiling.
+EXECUTION_TIMEOUT_SECONDS = 10
 
 # Memory ceiling per execution (bytes).  256 MB matches the per-problem default
 # declared in problem JSON files.  The per-problem value is applied first; this
