@@ -211,6 +211,36 @@ class TestAuthHeaders(unittest.TestCase):
         )
 
 
+class TestPistonTimeoutCap(unittest.TestCase):
+    """Self-hosted Piston caps run/compile_timeout at 10000ms — never send more."""
+
+    PISTON_HARD_CAP_MS = 10_000
+
+    def test_default_payload_timeouts_within_piston_cap(self):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            'run': {'stdout': 'ok', 'stderr': '', 'code': 0}
+        }
+        mock_response.raise_for_status.return_value = None
+        with patch('coding.execution.requests.post', return_value=mock_response) as mock_post:
+            execution.run_code('python', 'print("ok")')
+        payload = mock_post.call_args.kwargs['json']
+        self.assertLessEqual(payload['run_timeout'], self.PISTON_HARD_CAP_MS)
+        self.assertLessEqual(payload['compile_timeout'], self.PISTON_HARD_CAP_MS)
+
+    def test_oversized_per_problem_timeout_clamped_within_piston_cap(self):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            'run': {'stdout': 'ok', 'stderr': '', 'code': 0}
+        }
+        mock_response.raise_for_status.return_value = None
+        with patch('coding.execution.requests.post', return_value=mock_response) as mock_post:
+            execution.run_code('python', 'print("ok")', timeout_seconds=999)
+        payload = mock_post.call_args.kwargs['json']
+        self.assertLessEqual(payload['run_timeout'], self.PISTON_HARD_CAP_MS)
+        self.assertLessEqual(payload['compile_timeout'], self.PISTON_HARD_CAP_MS)
+
+
 class TestRuntimeVersion(unittest.TestCase):
     """RUNTIME_VERSIONS uses '*' so Piston picks the latest installed version."""
 
