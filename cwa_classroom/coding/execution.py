@@ -16,6 +16,7 @@ import requests
 from django.conf import settings
 
 # Default to localhost where Piston is expected to run via Docker.
+# PISTON_URL = getattr(settings, 'PISTON_API_URL', 'http://localhost:2000')
 PISTON_URL = getattr(settings, 'PISTON_API_URL', 'http://localhost:2000')
 
 # Hard timeout so student infinite loops never hang the server.

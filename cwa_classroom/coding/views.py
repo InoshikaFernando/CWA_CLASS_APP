@@ -530,10 +530,15 @@ def dashboard(request, lang_slug):
 def api_run_code(request):
     """Execute student code and return output.  POST /coding/api/run/
 
-    Request JSON: { language_slug, code, stdin (optional) }
-    Response JSON: { stdout, stderr, exit_code }
+    Request JSON: { language_slug, code, exercise_id (optional), stdin (optional) }
+    Response JSON: { stdout, stderr, exit_code,
+                     exercise_score (0|100, only when exercise has expected_output),
+                     exercise_has_expected (bool) }
 
-    Delegates to coding.execution module (Piston API or browser sandbox).
+    Binary scoring (exercises only):
+        If exercise.expected_output is set → evaluate_exercise_output() is called.
+        Score 100 auto-completes the exercise. Score 0 never touches the DB.
+        Challenges are completely unaffected.
     """
     import json
     try:
@@ -541,63 +546,85 @@ def api_run_code(request):
     except (json.JSONDecodeError, ValueError):
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
 
-    lang_slug = body.get('language_slug', '').strip()
-    code = body.get('code', '').strip()
-    stdin = body.get('stdin', '')
+    lang_slug    = body.get('language_slug', '').strip()
+    code         = body.get('code', '').strip()
+    stdin        = body.get('stdin', '')
     mark_complete = body.get('mark_complete', False)
-    exercise_id = body.get('exercise_id')
+    exercise_id  = body.get('exercise_id')
 
     if not lang_slug or not code:
         return JsonResponse({'error': 'language_slug and code are required'}, status=400)
 
     language = get_object_or_404(CodingLanguage, slug=lang_slug, is_active=True)
 
-    # Determine whether this exercise overrides the execution environment.
-    # DOM exercises (e.g. JavaScript / DOM Basics) belong to the javascript
-    # language but set uses_browser_sandbox=True at the exercise level so they
-    # render in an iframe sandbox instead of being sent to Piston/Node.js.
+    # Load exercise once — needed for browser_sandbox flag AND expected_output.
+    exercise_obj = None
     exercise_browser_sandbox = False
     if exercise_id:
-        _ex = CodingExercise.objects.filter(id=exercise_id, is_active=True).first()
-        if _ex:
-            exercise_browser_sandbox = _ex.uses_browser_sandbox
+        exercise_obj = CodingExercise.objects.filter(id=exercise_id, is_active=True).first()
+        if exercise_obj:
+            exercise_browser_sandbox = exercise_obj.uses_browser_sandbox
 
-    # HTML/CSS or DOM-override exercises — signal the frontend to use the iframe sandbox
+    # ── HTML/CSS / DOM exercises — rendered in iframe, no Piston call ─────────
     if language.uses_browser_sandbox or exercise_browser_sandbox:
         if mark_complete and exercise_id:
             _save_exercise_submission(request.user, exercise_id, language, code, '', '', completed=True)
         return JsonResponse({'browser_sandbox': True})
 
-    # Scratch — execute Blockly-generated Python via Piston
+    # ── Scratch — Blockly-generated Python via Piston ─────────────────────────
     if language.uses_scratch_vm:
         blocks_xml = body.get('blocks_xml', '')
         if not code:
             return JsonResponse({'stdout': '', 'stderr': '', 'exit_code': 0})
         from .execution import run_code as _run
         result = _run('python', code, stdin)
-        if mark_complete and exercise_id:
-            _save_exercise_submission(
-                request.user, exercise_id, language, code,
-                result.get('stdout', ''), result.get('stderr', ''),
-                completed=True, blocks_xml=blocks_xml,
-            )
-        return JsonResponse(result)
+        stdout = result.get('stdout') or ''
 
-    # Python / JavaScript → Piston API
-    if not code:
-        return JsonResponse({'error': 'code is required'}, status=400)
+        response_data, auto_completed = _apply_exercise_scoring(
+            request.user, exercise_id, exercise_obj, language, code,
+            stdout, result.get('stderr', ''), mark_complete,
+            blocks_xml=blocks_xml,
+        )
+        return JsonResponse({**result, **response_data})
 
+    # ── Python / JavaScript → Piston API ─────────────────────────────────────
     from .execution import run_code
     result = run_code(language.piston_language, code, stdin)
+    stdout = result.get('stdout') or ''
 
+    response_data, _ = _apply_exercise_scoring(
+        request.user, exercise_id, exercise_obj, language, code,
+        stdout, result.get('stderr', ''), mark_complete,
+    )
+    return JsonResponse({**result, **response_data})
+
+
+def _apply_exercise_scoring(user, exercise_id, exercise_obj, language,
+                             code, stdout, stderr, mark_complete, blocks_xml=''):
+    """Evaluate exercise output and persist completion when score == 100.
+
+    Returns (response_extras dict, auto_completed bool).
+    Challenges are never touched here.
+    """
+    from .scoring import evaluate_exercise_output
+
+    has_expected = bool(exercise_obj and exercise_obj.expected_output)
+
+    if has_expected:
+        # Binary scoring: exact match only.
+        score = evaluate_exercise_output(stdout, exercise_obj.expected_output)
+        if score == 100:
+            _save_exercise_submission(user, exercise_id, language, code,
+                                      stdout, stderr, completed=True,
+                                      blocks_xml=blocks_xml)
+        return {'exercise_score': score, 'exercise_has_expected': True}, (score == 100)
+
+    # Free-form exercise (no expected_output) — manual mark-complete only.
     if mark_complete and exercise_id:
-        _save_exercise_submission(
-            request.user, exercise_id, language, code,
-            result.get('stdout', ''), result.get('stderr', ''),
-            completed=True,
-        )
-
-    return JsonResponse(result)
+        _save_exercise_submission(user, exercise_id, language, code,
+                                  stdout, stderr, completed=True,
+                                  blocks_xml=blocks_xml)
+    return {'exercise_has_expected': False}, False
 
 
 def _save_exercise_submission(user, exercise_id, language, code, stdout, stderr, completed, blocks_xml=''):
@@ -937,4 +964,77 @@ def api_update_time_log(request):
         'status': 'ok',
         'daily_seconds': log.daily_total_seconds,
         'weekly_seconds': log.weekly_total_seconds,
+    })
+
+
+# ── My Progress (all languages) ──────────────────────────────────────────────
+
+def _build_challenge_stats(student):
+    """Return per-language challenge counts for the my_progress page.
+
+    Returns a dict keyed by CodingLanguage.id:
+        { lang_id: {'total': int, 'completed': int, 'pct': int} }
+    and two overall ints: (total_challenges, total_challenge_completed).
+    """
+    # Total active problems per language (problems with no language FK count for all — skip those)
+    problems_qs = CodingProblem.objects.filter(is_active=True, language__isnull=False)
+    total_by_lang = {}
+    for p in problems_qs.values('language_id'):
+        lid = p['language_id']
+        total_by_lang[lid] = total_by_lang.get(lid, 0) + 1
+
+    # Completed: at least one passing submission per problem (language via problem FK)
+    completed_by_lang = {}
+    solved = (
+        StudentProblemSubmission.objects
+        .filter(student=student, passed_all_tests=True, problem__language__isnull=False)
+        .values('problem_id', 'problem__language_id')
+        .distinct()
+    )
+    for row in solved:
+        lid = row['problem__language_id']
+        completed_by_lang[lid] = completed_by_lang.get(lid, 0) + 1
+
+    result = {}
+    for lid, total in total_by_lang.items():
+        done = min(completed_by_lang.get(lid, 0), total)
+        result[lid] = {
+            'total': total,
+            'completed': done,
+            'pct': round(done / total * 100) if total else 0,
+        }
+
+    overall_total = sum(v['total'] for v in result.values())
+    overall_done = sum(v['completed'] for v in result.values())
+    return result, overall_total, overall_done
+
+
+@login_required
+@student_required
+def my_progress(request):
+    """Unified progress page across all coding languages. /coding/my-progress/"""
+    from classroom.views import _build_coding_progress
+    coding_progress = _build_coding_progress(request.user)
+
+    # Attach challenge stats to each language entry
+    if coding_progress:
+        challenge_by_lang, total_challenges, challenges_done = _build_challenge_stats(request.user)
+        for lang_entry in coding_progress['languages']:
+            lid = lang_entry['language'].id
+            cs = challenge_by_lang.get(lid, {'total': 0, 'completed': 0, 'pct': 0})
+            lang_entry['challenge_total'] = cs['total']
+            lang_entry['challenge_completed'] = cs['completed']
+            lang_entry['challenge_pct'] = cs['pct']
+        coding_progress['total_challenges'] = total_challenges
+        coding_progress['challenges_done'] = challenges_done
+        coding_progress['challenge_overall_pct'] = (
+            round(challenges_done / total_challenges * 100) if total_challenges else 0
+        )
+
+    return render(request, 'coding/my_progress.html', {
+        'coding_progress': coding_progress,
+        'breadcrumbs': [
+            {'label': 'Coding', 'url': '/coding/'},
+            {'label': 'My Progress', 'url': None},
+        ],
     })

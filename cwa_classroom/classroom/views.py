@@ -566,7 +566,7 @@ def _build_coding_progress(student):
     try:
         from coding.models import (
             CodingLanguage, CodingTopic, CodingExercise,
-            StudentExerciseSubmission,
+            TopicLevel, StudentExerciseSubmission,
         )
         from django.db.models import Prefetch as _P
     except ImportError:
@@ -581,8 +581,14 @@ def _build_coding_progress(student):
                     CodingTopic.objects.filter(is_active=True)
                     .prefetch_related(
                         _P(
-                            'exercises',
-                            queryset=CodingExercise.objects.filter(is_active=True),
+                            'topic_levels',
+                            queryset=TopicLevel.objects.filter(is_active=True)
+                            .prefetch_related(
+                                _P(
+                                    'exercises',
+                                    queryset=CodingExercise.objects.filter(is_active=True),
+                                )
+                            ),
                         )
                     )
                     .order_by('order', 'name')
@@ -614,11 +620,12 @@ def _build_coding_progress(student):
 
         for topic in lang.topics.all():
             t_total = t_completed = t_secs = 0
-            for ex in topic.exercises.all():
-                t_total += 1
-                if ex.id in completed_ids:
-                    t_completed += 1
-                t_secs += exercise_time.get(ex.id, 0)
+            for tl in topic.topic_levels.all():
+                for ex in tl.exercises.all():
+                    t_total += 1
+                    if ex.id in completed_ids:
+                        t_completed += 1
+                    t_secs += exercise_time.get(ex.id, 0)
             if t_total == 0:
                 continue  # topic has no active exercises yet
             topic_data.append({
