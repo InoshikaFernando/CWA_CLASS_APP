@@ -613,11 +613,12 @@ def _apply_exercise_scoring(user, exercise_id, exercise_obj, language,
     if has_expected:
         # Binary scoring: exact match only.
         score = evaluate_exercise_output(stdout, exercise_obj.expected_output)
-        if score == 100:
+        auto_complete = score == 100
+        if auto_complete or mark_complete:
             _save_exercise_submission(user, exercise_id, language, code,
                                       stdout, stderr, completed=True,
                                       blocks_xml=blocks_xml)
-        return {'exercise_score': score, 'exercise_has_expected': True}, (score == 100)
+        return {'exercise_score': score, 'exercise_has_expected': True}, auto_complete
 
     # Free-form exercise (no expected_output) — manual mark-complete only.
     if mark_complete and exercise_id:
