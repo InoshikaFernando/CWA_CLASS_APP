@@ -1,0 +1,642 @@
+{% extends "coding/base.html" %}
+{% block coding_title %}{{ exercise.title }}{% endblock %}
+
+{% block extra_head %}
+{{ block.super }}
+{# ── CodeMirror 5 — loaded in <head> so it's ready before DOMContentLoaded ── #}
+<link  rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link  rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
+<link  rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/selection/active-line.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/anyword-hint.min.js"></script>
+{% if language.uses_scratch_vm %}
+{# ── Google Blockly v9 with Python generator — Scratch exercises only ── #}
+<script src="https://unpkg.com/blockly@9.3.3/blockly_compressed.js"></script>
+<script src="https://unpkg.com/blockly@9.3.3/blocks_compressed.js"></script>
+<script src="https://unpkg.com/blockly@9.3.3/python_compressed.js"></script>
+<script src="https://unpkg.com/blockly@9.3.3/msg/en.js"></script>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+{{ exercise.starter_code|default:''|json_script:"starter-data" }}
+{{ server_blocks_xml|default:''|json_script:"blocks-data" }}
+<style>
+  :root {
+    --cw-green-50:  #f0faf5; --cw-green-100: #d6f5e8;
+    --cw-green-200: #9FE1CB; --cw-green-400: #1D9E75; --cw-green-600: #0F6E56;
+    --cw-amber-50:  #FAEEDA; --cw-amber-200: #F5DFA8; --cw-amber-700: #854F0B;
+    --cw-surface:   #ffffff;
+    --cw-border:    rgba(0,0,0,0.08);
+    --cw-text-secondary: #5F5E5A;
+    --cw-text-muted:     #888780;
+    --ed-bg:    #1a1b2e;
+    --ed-bar:   #13141f;
+    --ed-gutter:#13141f;
+  }
+
+  /* Page */
+  .ed-page {
+    background: var(--cw-green-50);
+    margin: -24px -16px -96px;
+    padding: 16px 16px 64px;
+    min-height: calc(100vh - 10rem);
+  }
+  @media (min-width: 768px) { .ed-page { margin: -24px -32px -24px; padding: 20px 32px 64px; } }
+  .ed-inner { max-width: 1280px; margin: 0 auto; }
+
+  /* Back / status bar */
+  .ed-topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
+  .ed-back { font-size: 13px; color: var(--cw-text-muted); text-decoration: none; display: inline-flex; align-items: center; gap: 5px; transition: color .15s; }
+  .ed-back:hover { color: var(--cw-green-600); }
+  .ed-done-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; background: var(--cw-green-50); color: var(--cw-green-600); border: 1px solid var(--cw-green-200); border-radius: 99px; padding: 3px 12px; }
+
+  /* Split layout */
+  .ed-split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 900px) { .ed-split { grid-template-columns: 1fr; } }
+
+  /* LEFT */
+  .ed-left { display: flex; flex-direction: column; gap: 12px; }
+  .ed-card { background: var(--cw-surface); border-radius: 16px; border: 1px solid var(--cw-border); padding: 20px 22px; }
+  .ed-level-title { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .ed-level-badge { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 99px; color: #fff; white-space: nowrap; }
+  .ed-level-beginner     { background: #1D9E75; }
+  .ed-level-intermediate { background: #BA7517; }
+  .ed-level-advanced     { background: #DC2626; }
+  .ed-card h1 { font-size: 17px; font-weight: 700; color: #1a1a18; margin: 0; }
+  .ed-desc { font-size: 14px; color: var(--cw-text-secondary); line-height: 1.65; white-space: pre-wrap; }
+
+  .ed-hint-toggle { width: 100%; text-align: left; padding: 12px 16px; border-radius: 12px; border: 1px solid var(--cw-amber-200); background: var(--cw-amber-50); color: var(--cw-amber-700); font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit; display: flex; align-items: center; gap: 8px; appearance: none; -webkit-appearance: none; outline: none; transition: background .15s; }
+  .ed-hint-toggle:hover { background: #f5e2b8; }
+  .ed-hint-icon { font-size: 14px; }
+  .ed-hint-body { margin-top: 6px; padding: 12px 16px; background: var(--cw-amber-50); border: 1px solid var(--cw-amber-200); border-radius: 12px; font-size: 13px; color: var(--cw-amber-700); white-space: pre-wrap; line-height: 1.6; display: none; }
+  .ed-hint-body.open { display: block; }
+
+  .ed-output-wrap { background: #0f1117; border-radius: 14px; border: 1px solid #2a2d3a; overflow: hidden; }
+  .ed-output-bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #161821; border-bottom: 1px solid #2a2d3a; }
+  .ed-output-label { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: #6b7280; }
+  .ed-clear-btn { font-size: 11px; color: #6b7280; background: none; border: none; cursor: pointer; font-family: inherit; padding: 0; transition: color .15s; }
+  .ed-clear-btn:hover { color: #9ca3af; }
+  #ed-stdout { font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace; font-size: 13px; line-height: 1.6; color: #4ade80; padding: 14px; min-height: 120px; max-height: 240px; white-space: pre-wrap; overflow-y: auto; margin: 0; }
+  #ed-stderr { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; color: #f87171; padding: 0 14px 12px; white-space: pre-wrap; display: none; }
+
+  /* Score result banner */
+  #ed-score-result { display: none; border-radius: 12px; padding: 12px 16px; font-size: 13px; font-weight: 600; }
+  #ed-score-result.score-100   { background: #d1fae5; border: 1px solid #6ee7b7; color: #065f46; }
+  #ed-score-result.score-0     { background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; }
+  #ed-score-result.score-empty { background: #fef3c7; border: 1px solid #fcd34d; color: #92400e; }
+  .score-icon { margin-right: 6px; }
+
+  .ed-preview-wrap { background: var(--cw-surface); border-radius: 14px; border: 1px solid var(--cw-border); overflow: hidden; }
+  .ed-preview-bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--cw-border); }
+  .ed-preview-label { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--cw-text-muted); }
+  .ed-preview-hint  { font-size: 11px; color: var(--cw-green-600); }
+  #ed-preview-frame { width: 100%; height: 300px; border: none; display: block; background: #fff; }
+
+  /* RIGHT */
+  .ed-right { display: flex; flex-direction: column; gap: 12px; }
+  .ed-toolbar { display: flex; align-items: center; justify-content: space-between; }
+  .ed-lang-label { font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--cw-text-muted); }
+  .ed-toolbar-btns { display: flex; gap: 8px; align-items: center; }
+  .ed-reset-btn { font-size: 12px; padding: 7px 14px; border-radius: 8px; background: var(--cw-surface); border: 1px solid rgba(0,0,0,0.13); color: var(--cw-text-secondary); cursor: pointer; font-family: inherit; transition: background .15s; }
+  .ed-reset-btn:hover { background: #f1f0ea; }
+  .ed-run-btn { font-size: 13px; font-weight: 600; padding: 7px 20px; border-radius: 8px; background: var(--cw-green-400); color: #fff; border: none; cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 6px; transition: background .15s, opacity .15s; }
+  .ed-run-btn:hover { background: var(--cw-green-600); }
+  .ed-run-btn:disabled { opacity: .6; cursor: not-allowed; }
+
+  /* Editor chrome */
+  .ed-chrome { border-radius: 14px; overflow: hidden; border: 1px solid #2a2d3a; }
+  .ed-chrome-bar { display: flex; align-items: center; gap: 6px; padding: 9px 14px; background: var(--ed-bar); border-bottom: 1px solid #2a2d3a; }
+  .ed-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+  .ed-dot-r { background: #ff5f57; } .ed-dot-y { background: #febc2e; } .ed-dot-g { background: #28c840; }
+  .ed-file { font-size: 12px; color: #6b7280; font-family: 'JetBrains Mono', monospace; margin-left: 6px; }
+
+  /* ── CodeMirror 5 overrides to match platform dark theme ── */
+  #ed-code-wrap .CodeMirror {
+    height: 400px;
+    background: var(--ed-bg);
+    color: #e2e8f0;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+    font-size: 14px;
+    line-height: 1.7;
+    border-radius: 0;
+  }
+  #ed-code-wrap .CodeMirror-gutters {
+    background: var(--ed-gutter);
+    border-right: 1px solid #2a2d3a;
+  }
+  #ed-code-wrap .CodeMirror-gutter-wrapper,
+  #ed-code-wrap .CodeMirror-linenumber { color: #4b5563; }
+  #ed-code-wrap .CodeMirror-activeline-background { background: rgba(255,255,255,0.04); }
+  #ed-code-wrap .CodeMirror-activeline-gutter .CodeMirror-linenumber { color: #9ca3af; }
+  #ed-code-wrap .CodeMirror-cursor { border-left: 2px solid #1D9E75; }
+  #ed-code-wrap .CodeMirror-selected { background: #2d4a3e; }
+  #ed-code-wrap .CodeMirror-focused .CodeMirror-selected { background: #2d4a3e; }
+  #ed-code-wrap .CodeMirror-matchingbracket { outline: 1px solid #1D9E75; color: inherit !important; border-radius: 2px; }
+  #ed-code-wrap .CodeMirror-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+  #ed-code-wrap .CodeMirror-scroll::-webkit-scrollbar-track { background: var(--ed-bg); }
+  #ed-code-wrap .CodeMirror-scroll::-webkit-scrollbar-thumb { background: #2a2d3a; border-radius: 3px; }
+
+  /* Mark complete */
+  .ed-mark-btn { width: 100%; padding: 11px; border-radius: 12px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; transition: border-color .15s, color .15s, background .15s; }
+  .ed-mark-btn.done     { border: 2px solid var(--cw-green-400); color: var(--cw-green-600); background: var(--cw-green-50); cursor: default; }
+  .ed-mark-btn.todo     { border: 2px solid rgba(0,0,0,0.13); color: var(--cw-text-muted); background: var(--cw-surface); }
+  .ed-mark-btn.todo:hover { border-color: var(--cw-green-400); color: var(--cw-green-600); }
+  .ed-mark-btn.locked   { border: 2px solid rgba(0,0,0,0.08); color: #c4c3be; background: #f7f6f3; cursor: not-allowed; opacity: .6; }
+
+  /* ── Blockly / Scratch editor ── */
+  #blocklyDiv { height: 400px; background: var(--ed-bg); }
+  .sc-code-wrap { background: #0f1117; border-radius: 14px; border: 1px solid #2a2d3a; overflow: hidden; }
+  .sc-code-bar { display: flex; align-items: center; padding: 8px 14px; background: #161821; border-bottom: 1px solid #2a2d3a; }
+  .sc-code-label { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: #6b7280; }
+  #sc-generated-code { font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace; font-size: 12px; color: #a5b4fc; padding: 10px 14px; min-height: 60px; max-height: 120px; overflow-y: auto; white-space: pre; margin: 0; }
+</style>
+
+<div class="ed-page">
+  <div class="ed-inner">
+
+    <!-- Top bar -->
+    <div class="ed-topbar">
+      <a class="ed-back" href="{% url 'coding:exercise_list' lang_slug=language.slug topic_slug=exercise.topic.slug level=exercise.level %}">
+        &#8592; Back to exercises
+      </a>
+      {% if is_completed %}
+      <span class="ed-done-badge">&#10003; Completed</span>
+      {% endif %}
+    </div>
+
+    <!-- Split layout -->
+    <div class="ed-split">
+
+      <!-- LEFT -->
+      <div class="ed-left">
+
+        <!-- Exercise card -->
+        <div class="ed-card">
+          <div class="ed-level-title">
+            <span class="ed-level-badge ed-level-{{ exercise.level }}">{{ exercise.get_level_display }}</span>
+            <h1>{{ exercise.title }}</h1>
+          </div>
+          <p class="ed-desc">{{ exercise.description }}</p>
+        </div>
+
+        <!-- Hint -->
+        {% if exercise.hints %}
+        <div>
+          <button type="button" class="ed-hint-toggle" id="ed-hint-btn" onclick="edToggleHint()">
+            <span class="ed-hint-icon">&#9888;</span>
+            <span id="ed-hint-label">Show hint</span>
+          </button>
+          <div class="ed-hint-body" id="ed-hint-body">{{ exercise.hints }}</div>
+        </div>
+        {% endif %}
+
+        <!-- Output (Python / JS / Scratch) — hidden for browser-sandbox exercises -->
+        {% if not language.uses_browser_sandbox and not exercise.uses_browser_sandbox %}
+        <div class="ed-output-wrap">
+          <div class="ed-output-bar">
+            <span class="ed-output-label">Output</span>
+            <button type="button" class="ed-clear-btn" onclick="edClearOutput()">Clear</button>
+          </div>
+          <pre id="ed-stdout">Click &#34;Run Code&#34; to see your output here.</pre>
+          <div id="ed-stderr"></div>
+        </div>
+        <div id="ed-score-result"></div>
+        {% endif %}
+
+        <!-- HTML/CSS / DOM live preview -->
+        {% if language.uses_browser_sandbox or exercise.uses_browser_sandbox %}
+        <div class="ed-preview-wrap">
+          <div class="ed-preview-bar">
+            <span class="ed-preview-label">Live Preview</span>
+            <span class="ed-preview-hint">Click Run Code to preview</span>
+          </div>
+          <iframe id="ed-preview-frame" sandbox="allow-scripts allow-modals" srcdoc=""></iframe>
+        </div>
+        {% endif %}
+
+      </div>
+
+      <!-- RIGHT -->
+      <div class="ed-right">
+
+        <!-- Toolbar -->
+        <div class="ed-toolbar">
+          <span class="ed-lang-label">{{ language.name }}</span>
+          <div class="ed-toolbar-btns">
+            <button type="button" class="ed-reset-btn" onclick="edReset()">Reset</button>
+            <button type="button" class="ed-run-btn" id="ed-run-btn" onclick="edRun()">
+              &#9654; Run Code
+            </button>
+          </div>
+        </div>
+
+        <!-- Editor chrome -->
+        {% if language.uses_scratch_vm %}
+        <div class="ed-chrome">
+          <div class="ed-chrome-bar">
+            <span class="ed-dot ed-dot-r"></span>
+            <span class="ed-dot ed-dot-y"></span>
+            <span class="ed-dot ed-dot-g"></span>
+            <span class="ed-file">scratch.py</span>
+          </div>
+          <div id="blocklyDiv"></div>
+        </div>
+        <div class="sc-code-wrap">
+          <div class="sc-code-bar">
+            <span class="sc-code-label">Generated Python</span>
+          </div>
+          <pre id="sc-generated-code"># Drag blocks to generate Python code…</pre>
+        </div>
+        {% else %}
+        <div class="ed-chrome">
+          <div class="ed-chrome-bar">
+            <span class="ed-dot ed-dot-r"></span>
+            <span class="ed-dot ed-dot-y"></span>
+            <span class="ed-dot ed-dot-g"></span>
+            <span class="ed-file">
+              {% if language.slug == 'python' %}main.py
+              {% elif language.slug == 'javascript' and exercise.uses_browser_sandbox %}index.html
+              {% elif language.slug == 'javascript' %}main.js
+              {% elif language.slug == 'html' %}index.html
+              {% elif language.slug == 'css' %}style.css
+              {% else %}code.txt{% endif %}
+            </span>
+          </div>
+          {# CodeMirror 5 wraps this textarea — do NOT remove it #}
+          <div id="ed-code-wrap">
+            <textarea id="ed-code"></textarea>
+          </div>
+        </div>
+        {% endif %}
+
+        <!-- Mark complete -->
+        <button type="button" id="ed-mark-btn"
+                class="ed-mark-btn {% if is_completed %}done{% elif exercise.expected_output %}locked{% else %}todo{% endif %}"
+                {% if is_completed or exercise.expected_output %}disabled{% endif %}
+                onclick="edMarkDone()">
+          {% if is_completed %}&#10003; Exercise completed{% else %}Run code to complete{% endif %}
+        </button>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Page constants ────────────────────────────────────────────────────────
+var LANG_SLUG         = "{{ language.slug }}";
+var STARTER           = JSON.parse(document.getElementById('starter-data').textContent);
+var CSRF_TOKEN        = "{{ csrf_token }}";
+var EXERCISE_ID       = {{ exercise.id }};
+var IS_BROWSER        = ['html', 'css', 'html-css'].includes(LANG_SLUG) || {{ exercise.uses_browser_sandbox|yesno:"true,false" }};
+var IS_SCRATCH        = LANG_SLUG === 'scratch';
+var IS_DONE           = {{ is_completed|yesno:"true,false" }};
+var HAS_EXPECTED      = {{ exercise.expected_output|yesno:"true,false" }};
+var SERVER_BLOCKS_XML = JSON.parse(document.getElementById('blocks-data').textContent) || '';
+
+// ── Language → CodeMirror mode ────────────────────────────────────────────
+var modeMap = {
+  python:     'python',
+  javascript: IS_BROWSER ? 'htmlmixed' : 'javascript',  // DOM exercises use htmlmixed
+  html:       'htmlmixed',
+  'html-css': 'htmlmixed',
+  css:        'css',
+};
+
+// ── Editor state ──────────────────────────────────────────────────────────
+var editor    = null;   // CodeMirror instance (non-Scratch)
+var workspace = null;   // Blockly workspace (Scratch)
+var LS_KEY    = 'scratch_blocks_' + EXERCISE_ID;
+
+// ── Initialise ────────────────────────────────────────────────────────────
+if (IS_SCRATCH) {
+  initBlockly();
+} else {
+  initCodeMirror();
+}
+
+function initCodeMirror() {
+  editor = CodeMirror.fromTextArea(document.getElementById('ed-code'), {
+    mode:              modeMap[LANG_SLUG] || 'text/plain',
+    theme:             'dracula',
+    lineNumbers:       true,
+    indentUnit:        2,
+    tabSize:           2,
+    indentWithTabs:    false,
+    autoCloseBrackets: true,
+    matchBrackets:     true,
+    styleActiveLine:   true,
+    lineWrapping:      false,
+    extraKeys: {
+      'Tab': function(cm) {
+        if (cm.somethingSelected()) { cm.indentSelection('add'); }
+        else { cm.replaceSelection('  ', 'end'); }
+      },
+      'Shift-Tab': 'indentLess',
+      'Ctrl-Enter': function() { edRun(); },
+      'Cmd-Enter':  function() { edRun(); },
+      'Ctrl-Space': 'autocomplete',
+    },
+  });
+  editor.setValue(STARTER || '');
+  editor.setSize('100%', '400px');
+}
+
+function initBlockly() {
+  var toolboxXml = [
+    '<xml>',
+    '  <category name="Output" colour="#4C97FF">',
+    '    <block type="text_print"></block>',
+    '  </category>',
+    '  <category name="Control" colour="#FFAB19">',
+    '    <block type="controls_repeat_ext">',
+    '      <value name="TIMES"><block type="math_number"><field name="NUM">10</field></block></value>',
+    '    </block>',
+    '    <block type="controls_whileUntil"></block>',
+    '    <block type="controls_if"></block>',
+    '    <block type="controls_if"><mutation else="1"></mutation></block>',
+    '    <block type="controls_for">',
+    '      <value name="FROM"><block type="math_number"><field name="NUM">1</field></block></value>',
+    '      <value name="TO"><block type="math_number"><field name="NUM">10</field></block></value>',
+    '      <value name="BY"><block type="math_number"><field name="NUM">1</field></block></value>',
+    '    </block>',
+    '    <block type="controls_flow_statements"></block>',
+    '  </category>',
+    '  <category name="Variables" colour="#FF8C1A" custom="VARIABLE"></category>',
+    '  <category name="Math" colour="#9966FF">',
+    '    <block type="math_number"></block>',
+    '    <block type="math_arithmetic"></block>',
+    '    <block type="math_modulo"></block>',
+    '    <block type="math_round"></block>',
+    '    <block type="math_random_int">',
+    '      <value name="FROM"><block type="math_number"><field name="NUM">1</field></block></value>',
+    '      <value name="TO"><block type="math_number"><field name="NUM">100</field></block></value>',
+    '    </block>',
+    '  </category>',
+    '  <category name="Logic" colour="#5C81A6">',
+    '    <block type="logic_compare"></block>',
+    '    <block type="logic_operation"></block>',
+    '    <block type="logic_negate"></block>',
+    '    <block type="logic_boolean"></block>',
+    '  </category>',
+    '  <category name="Text" colour="#5BA58C">',
+    '    <block type="text"></block>',
+    '    <block type="text_length"></block>',
+    '    <block type="text_join"></block>',
+    '    <block type="text_indexOf"></block>',
+    '    <block type="text_charAt"></block>',
+    '  </category>',
+    '  <category name="Lists" colour="#745BA5">',
+    '    <block type="lists_create_empty"></block>',
+    '    <block type="lists_create_with"></block>',
+    '    <block type="lists_length"></block>',
+    '    <block type="lists_getIndex"></block>',
+    '    <block type="lists_setIndex"></block>',
+    '  </category>',
+    '</xml>',
+  ].join('\n');
+
+  workspace = Blockly.inject('blocklyDiv', {
+    toolbox:    toolboxXml,
+    scrollbars: true,
+    trashcan:   true,
+    grid: { spacing: 20, length: 3, colour: '#2a2d3a', snap: true },
+    zoom: { controls: true, wheel: true, startScale: 1.0, maxScale: 3, minScale: 0.3, scaleSpeed: 1.2 },
+  });
+
+  // ── Restore blocks: localStorage → server XML → starter XML ──────────────
+  var saved = localStorage.getItem(LS_KEY) || SERVER_BLOCKS_XML || STARTER || '';
+  if (saved) {
+    try {
+      Blockly.Xml.domToWorkspace(Blockly.Xml.textToDom(saved), workspace);
+    } catch (e) {
+      console.warn('Could not restore Blockly workspace:', e);
+    }
+  }
+
+  // ── Auto-save + update generated-code preview on change ───────────────────
+  workspace.addChangeListener(function (e) {
+    if (e.isUiEvent) return;
+    var xml = Blockly.Xml.domToText(Blockly.Xml.workspaceToDom(workspace));
+    localStorage.setItem(LS_KEY, xml);
+    var code = Blockly.Python.workspaceToCode(workspace);
+    var pre = document.getElementById('sc-generated-code');
+    if (pre) pre.textContent = code || '# Drag blocks to generate Python code\u2026';
+  });
+}
+
+// ── Helper: get current code ──────────────────────────────────────────────
+function getCode() {
+  if (IS_SCRATCH) {
+    return workspace ? Blockly.Python.workspaceToCode(workspace) : '';
+  }
+  return editor ? editor.getValue() : '';
+}
+
+function getBlocksXml() {
+  if (!IS_SCRATCH || !workspace) return '';
+  return Blockly.Xml.domToText(Blockly.Xml.workspaceToDom(workspace));
+}
+
+// ── Functions ─────────────────────────────────────────────────────────────
+
+function edToggleHint() {
+  var body  = document.getElementById('ed-hint-body');
+  var label = document.getElementById('ed-hint-label');
+  var open  = body.classList.contains('open');
+  body.classList.toggle('open', !open);
+  label.textContent = open ? 'Show hint' : 'Hide hint';
+}
+
+function edClearOutput() {
+  document.getElementById('ed-stdout').textContent = 'Click \u201cRun Code\u201d to see your output here.';
+  var se = document.getElementById('ed-stderr');
+  if (se) { se.textContent = ''; se.style.display = 'none'; }
+  edHideScore();
+}
+
+function edHideScore() {
+  var el = document.getElementById('ed-score-result');
+  if (el) { el.style.display = 'none'; el.className = ''; el.innerHTML = ''; }
+}
+
+function edShowScore(score, isEmpty) {
+  var el = document.getElementById('ed-score-result');
+  if (!el) return;
+  el.style.display = 'block';
+
+  var markBtn = document.getElementById('ed-mark-btn');
+
+  if (isEmpty) {
+    el.className = 'score-empty';
+    el.innerHTML = '<span class="score-icon">&#9888;</span>No output detected \u2014 Score: <strong>0%</strong>';
+    if (markBtn && !IS_DONE) { markBtn.className = 'ed-mark-btn locked'; markBtn.disabled = true; markBtn.textContent = 'Run code to complete'; }
+  } else if (score === 100) {
+    el.className = 'score-100';
+    el.innerHTML = '<span class="score-icon">&#10003;</span>Output matches \u2014 Score: <strong>100%</strong>';
+    // Button is updated to "done" by edRun() auto-complete logic
+  } else {
+    el.className = 'score-0';
+    el.innerHTML = '<span class="score-icon">&#10007;</span>Output does not match \u2014 Score: <strong>0%</strong>';
+    if (markBtn && !IS_DONE) { markBtn.className = 'ed-mark-btn locked'; markBtn.disabled = true; markBtn.textContent = 'Run code to complete'; }
+  }
+}
+
+function edReset() {
+  if (IS_SCRATCH) {
+    if (!confirm('Reset blocks to starter?')) return;
+    if (workspace) workspace.clear();
+    localStorage.removeItem(LS_KEY);
+    if (STARTER) {
+      try {
+        Blockly.Xml.domToWorkspace(Blockly.Xml.textToDom(STARTER), workspace);
+      } catch (e) {}
+    }
+    var pre = document.getElementById('sc-generated-code');
+    if (pre) pre.textContent = '# Drag blocks to generate Python code\u2026';
+    return;
+  }
+  if (confirm('Reset code to starter?')) {
+    editor.setValue(STARTER || '');
+    editor.clearHistory();
+    if (IS_BROWSER) {
+      var f = document.getElementById('ed-preview-frame');
+      if (f) f.srcdoc = '';
+    }
+  }
+}
+
+async function edRun() {
+  var btn = document.getElementById('ed-run-btn');
+
+  // HTML/CSS — render in the sandboxed iframe; no server call needed
+  if (IS_BROWSER) {
+    var f = document.getElementById('ed-preview-frame');
+    if (f) f.srcdoc = getCode();
+    return;
+  }
+
+  var stdoutEl = document.getElementById('ed-stdout');
+  var stderrEl = document.getElementById('ed-stderr');
+
+  btn.disabled       = true;
+  btn.textContent    = 'Running\u2026';
+  stdoutEl.textContent = 'Running\u2026';
+  edHideScore();
+  if (stderrEl) { stderrEl.textContent = ''; stderrEl.style.display = 'none'; }
+
+  // Always include exercise_id so the server can evaluate expected_output.
+  var payload = { language_slug: LANG_SLUG, code: getCode(), exercise_id: EXERCISE_ID };
+  if (IS_SCRATCH) payload.blocks_xml = getBlocksXml();
+
+  try {
+    var res  = await fetch('{% url "coding:api_run_code" %}', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+      body:    JSON.stringify(payload),
+    });
+    var data = await res.json();
+
+    var rawOutput = data.stdout || '';
+    var displayOutput = rawOutput || (data.error ? data.error : '(no output)');
+    stdoutEl.textContent = displayOutput;
+
+    if (data.stderr && stderrEl) {
+      stderrEl.textContent = data.stderr;
+      stderrEl.style.display = 'block';
+    }
+
+    // Score display
+    if (data.exercise_has_expected) {
+      // Scored exercise: binary match comparison
+      var isEmpty = !rawOutput || rawOutput.trim() === '' || rawOutput.trim() === '(no output)';
+      edShowScore(data.exercise_score, isEmpty);
+    } else if (data.free_form_completed) {
+      // Free-form + output produced: show info message, no score
+      var scoreEl = document.getElementById('ed-score-result');
+      scoreEl.className = 'score-empty';
+      scoreEl.innerHTML = 'This exercise has no fixed expected output. It is a free\u2011form task, so it is marked complete without points.';
+      scoreEl.style.display = 'block';
+    }
+    // Free-form + no output: show nothing, wait for user to run code
+
+    // Auto-complete UI update
+    var shouldComplete = (data.exercise_has_expected && data.exercise_score === 100)
+                      || (!data.exercise_has_expected && data.free_form_completed);
+    if (shouldComplete && !IS_DONE) {
+      IS_DONE = true;
+      var markBtn = document.getElementById('ed-mark-btn');
+      if (markBtn) {
+        markBtn.className = 'ed-mark-btn done';
+        markBtn.textContent = '\u2713 Exercise completed';
+      }
+      var badge = document.querySelector('.ed-done-badge');
+      if (!badge) {
+        var topbar = document.querySelector('.ed-topbar');
+        if (topbar) {
+          var b = document.createElement('span');
+          b.className = 'ed-done-badge';
+          b.textContent = '\u2713 Completed';
+          topbar.appendChild(b);
+        }
+      }
+    }
+  } catch (_) {
+    stdoutEl.textContent = 'Network error \u2014 please try again.';
+  }
+
+  btn.disabled    = false;
+  btn.textContent = '\u25B6 Run Code';
+}
+
+async function edMarkDone() {
+  if (IS_DONE) return;
+
+  // Scored exercises: button is locked; clicking has no effect.
+  // Completion only happens via edRun() when score == 100.
+  if (HAS_EXPECTED) return;
+
+  // Free-form exercises (no expected_output): manual mark-complete as before.
+  var btn = document.getElementById('ed-mark-btn');
+  btn.disabled    = true;
+  btn.textContent = 'Saving\u2026';
+  var payload = {
+    language_slug: LANG_SLUG,
+    code:          getCode(),
+    mark_complete: true,
+    exercise_id:   EXERCISE_ID,
+  };
+  if (IS_SCRATCH) payload.blocks_xml = getBlocksXml();
+  try {
+    var res  = await fetch('{% url "coding:api_run_code" %}', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+      body:    JSON.stringify(payload),
+    });
+    var data = await res.json();
+    if (!res.ok) {
+      console.error('Mark as completed failed:', res.status, data);
+      btn.disabled    = false;
+      btn.textContent = 'Mark as completed';
+      alert('Could not save: ' + (data.error || 'Server error ' + res.status));
+      return;
+    }
+    window.location.reload();
+  } catch (err) {
+    console.error('Mark as completed error:', err);
+    btn.disabled    = false;
+    btn.textContent = 'Mark as completed';
+  }
+}
+</script>
+{% endblock %}

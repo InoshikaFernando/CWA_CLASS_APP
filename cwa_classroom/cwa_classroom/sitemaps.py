@@ -25,7 +25,6 @@ class StaticViewSitemap(Sitemap):
         ("register_parent_join",        {}, 0.7, "monthly"),
 
         # ── Subject landing pages (coming-soon stubs) ────────────────────
-        ("coding:coming_soon",          {}, 0.6, "monthly"),
         ("music:coming_soon",           {}, 0.6, "monthly"),
         ("science:coming_soon",         {}, 0.6, "monthly"),
     ]

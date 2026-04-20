@@ -43,9 +43,9 @@ def resolve_daily_rate(student, classroom, billing_period_end):
     if not class_student:
         return None, None
 
-    fee = get_effective_fee_for_student(class_student)
+    fee = get_effective_fee_for_student(class_student, as_of=billing_period_end)
     if fee is not None:
-        source = get_fee_source_label(class_student)
+        source = get_fee_source_label(class_student, as_of=billing_period_end)
         # Map source labels to rate_source codes
         if 'Student' in source:
             return fee, 'student_override'

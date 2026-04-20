@@ -52,8 +52,29 @@ def subject_sidebar_context(request):
             'current_subject_id': maths_subject_id,
         }
 
-    # ── Other subjects (coding, music, science, custom) ──
-    for prefix in ('/coding/', '/music/', '/science/'):
+    # ── Coding ──
+    if path.startswith('/coding/'):
+        subject_id = None
+        has_content = False
+        try:
+            from coding.models import CodingLanguage
+            subj = Subject.objects.filter(
+                slug='coding', school__isnull=True,
+            ).first()
+            if subj:
+                subject_id = subj.id
+            has_content = CodingLanguage.objects.filter(is_active=True).exists()
+        except Exception:
+            pass
+        return {
+            'subject_sidebar': 'coding',
+            'subject_has_quizzes': has_content,
+            'current_subject_slug': 'coding',
+            'current_subject_id': subject_id,
+        }
+
+    # ── Other subjects (music, science, custom) ──
+    for prefix in ('/music/', '/science/'):
         if path.startswith(prefix):
             slug = prefix.strip('/')
             subject_id = None
@@ -89,6 +110,18 @@ _BREADCRUMB_MAP = [
     ('/maths/level/',           [('Hub', '/hub/'), ('Maths', '/maths/'), ('Quiz', None)]),
     ('/maths/dashboard/',       [('Hub', '/hub/'), ('Maths', '/maths/'), ('Topics', None)]),
     ('/maths/',                 [('Hub', '/hub/'), ('Maths', None)]),
+    # Coding
+    ('/coding/api/',            []),   # no breadcrumbs for API endpoints
+    ('/coding/python/problems/',      [('Hub', '/hub/'), ('Coding', '/coding/'), ('Python', '/coding/python/'), ('Challenges', None)]),
+    ('/coding/javascript/problems/',  [('Hub', '/hub/'), ('Coding', '/coding/'), ('JavaScript', '/coding/javascript/'), ('Challenges', None)]),
+    ('/coding/html/problems/',        [('Hub', '/hub/'), ('Coding', '/coding/'), ('HTML', '/coding/html/'), ('Challenges', None)]),
+    ('/coding/css/problems/',         [('Hub', '/hub/'), ('Coding', '/coding/'), ('CSS', '/coding/css/'), ('Challenges', None)]),
+    ('/coding/python/',         [('Hub', '/hub/'), ('Coding', '/coding/'), ('Python', None)]),
+    ('/coding/javascript/',     [('Hub', '/hub/'), ('Coding', '/coding/'), ('JavaScript', None)]),
+    ('/coding/html/',           [('Hub', '/hub/'), ('Coding', '/coding/'), ('HTML', None)]),
+    ('/coding/css/',            [('Hub', '/hub/'), ('Coding', '/coding/'), ('CSS', None)]),
+    ('/coding/scratch/',        [('Hub', '/hub/'), ('Coding', '/coding/'), ('Scratch', None)]),
+    ('/coding/',                [('Hub', '/hub/'), ('Coding', None)]),
     # Student pages
     ('/student/my-classes/',    [('Hub', '/hub/'), ('My Classes', None)]),
     ('/student/join/',          [('Hub', '/hub/'), ('Join Class', None)]),
