@@ -89,6 +89,13 @@
   #ed-stdout { font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace; font-size: 13px; line-height: 1.6; color: #4ade80; padding: 14px; min-height: 120px; max-height: 240px; white-space: pre-wrap; overflow-y: auto; margin: 0; }
   #ed-stderr { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; color: #f87171; padding: 0 14px 12px; white-space: pre-wrap; display: none; }
 
+  /* Score result banner */
+  #ed-score-result { display: none; border-radius: 12px; padding: 12px 16px; font-size: 13px; font-weight: 600; }
+  #ed-score-result.score-100   { background: #d1fae5; border: 1px solid #6ee7b7; color: #065f46; }
+  #ed-score-result.score-0     { background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; }
+  #ed-score-result.score-empty { background: #fef3c7; border: 1px solid #fcd34d; color: #92400e; }
+  .score-icon { margin-right: 6px; }
+
   .ed-preview-wrap { background: var(--cw-surface); border-radius: 14px; border: 1px solid var(--cw-border); overflow: hidden; }
   .ed-preview-bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--cw-border); }
   .ed-preview-label { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--cw-text-muted); }
@@ -141,9 +148,10 @@
 
   /* Mark complete */
   .ed-mark-btn { width: 100%; padding: 11px; border-radius: 12px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; transition: border-color .15s, color .15s, background .15s; }
-  .ed-mark-btn.done { border: 2px solid var(--cw-green-400); color: var(--cw-green-600); background: var(--cw-green-50); cursor: default; }
-  .ed-mark-btn.todo { border: 2px solid rgba(0,0,0,0.13); color: var(--cw-text-muted); background: var(--cw-surface); }
+  .ed-mark-btn.done     { border: 2px solid var(--cw-green-400); color: var(--cw-green-600); background: var(--cw-green-50); cursor: default; }
+  .ed-mark-btn.todo     { border: 2px solid rgba(0,0,0,0.13); color: var(--cw-text-muted); background: var(--cw-surface); }
   .ed-mark-btn.todo:hover { border-color: var(--cw-green-400); color: var(--cw-green-600); }
+  .ed-mark-btn.locked   { border: 2px solid rgba(0,0,0,0.08); color: #c4c3be; background: #f7f6f3; cursor: not-allowed; opacity: .6; }
 
   /* ── Blockly / Scratch editor ── */
   #blocklyDiv { height: 400px; background: var(--ed-bg); }
@@ -202,6 +210,7 @@
           <pre id="ed-stdout">Click &#34;Run Code&#34; to see your output here.</pre>
           <div id="ed-stderr"></div>
         </div>
+        <div id="ed-score-result"></div>
         {% endif %}
 
         <!-- HTML/CSS / DOM live preview -->
@@ -272,9 +281,10 @@
 
         <!-- Mark complete -->
         <button type="button" id="ed-mark-btn"
-                class="ed-mark-btn {% if is_completed %}done{% else %}todo{% endif %}"
+                class="ed-mark-btn {% if is_completed %}done{% elif exercise.expected_output %}locked{% else %}todo{% endif %}"
+                {% if is_completed or exercise.expected_output %}disabled{% endif %}
                 onclick="edMarkDone()">
-          {% if is_completed %}&#10003; Exercise completed{% else %}Mark as completed{% endif %}
+          {% if is_completed %}&#10003; Exercise completed{% else %}Run code to complete{% endif %}
         </button>
 
       </div>
@@ -284,13 +294,14 @@
 
 <script>
 // ── Page constants ────────────────────────────────────────────────────────
-var LANG_SLUG       = "{{ language.slug }}";
-var STARTER         = JSON.parse(document.getElementById('starter-data').textContent);
-var CSRF_TOKEN      = "{{ csrf_token }}";
-var EXERCISE_ID     = {{ exercise.id }};
-var IS_BROWSER      = ['html', 'css', 'html-css'].includes(LANG_SLUG) || {{ exercise.uses_browser_sandbox|yesno:"true,false" }};
-var IS_SCRATCH      = LANG_SLUG === 'scratch';
-var IS_DONE         = {{ is_completed|yesno:"true,false" }};
+var LANG_SLUG         = "{{ language.slug }}";
+var STARTER           = JSON.parse(document.getElementById('starter-data').textContent);
+var CSRF_TOKEN        = "{{ csrf_token }}";
+var EXERCISE_ID       = {{ exercise.id }};
+var IS_BROWSER        = ['html', 'css', 'html-css'].includes(LANG_SLUG) || {{ exercise.uses_browser_sandbox|yesno:"true,false" }};
+var IS_SCRATCH        = LANG_SLUG === 'scratch';
+var IS_DONE           = {{ is_completed|yesno:"true,false" }};
+var HAS_EXPECTED      = {{ exercise.expected_output|yesno:"true,false" }};
 var SERVER_BLOCKS_XML = JSON.parse(document.getElementById('blocks-data').textContent) || '';
 
 // ── Language → CodeMirror mode ────────────────────────────────────────────
@@ -451,6 +462,34 @@ function edClearOutput() {
   document.getElementById('ed-stdout').textContent = 'Click \u201cRun Code\u201d to see your output here.';
   var se = document.getElementById('ed-stderr');
   if (se) { se.textContent = ''; se.style.display = 'none'; }
+  edHideScore();
+}
+
+function edHideScore() {
+  var el = document.getElementById('ed-score-result');
+  if (el) { el.style.display = 'none'; el.className = ''; el.innerHTML = ''; }
+}
+
+function edShowScore(score, isEmpty) {
+  var el = document.getElementById('ed-score-result');
+  if (!el) return;
+  el.style.display = 'block';
+
+  var markBtn = document.getElementById('ed-mark-btn');
+
+  if (isEmpty) {
+    el.className = 'score-empty';
+    el.innerHTML = '<span class="score-icon">&#9888;</span>No output detected \u2014 Score: <strong>0%</strong>';
+    if (markBtn && !IS_DONE) { markBtn.className = 'ed-mark-btn locked'; markBtn.disabled = true; markBtn.textContent = 'Run code to complete'; }
+  } else if (score === 100) {
+    el.className = 'score-100';
+    el.innerHTML = '<span class="score-icon">&#10003;</span>Output matches \u2014 Score: <strong>100%</strong>';
+    // Button is updated to "done" by edRun() auto-complete logic
+  } else {
+    el.className = 'score-0';
+    el.innerHTML = '<span class="score-icon">&#10007;</span>Output does not match \u2014 Score: <strong>0%</strong>';
+    if (markBtn && !IS_DONE) { markBtn.className = 'ed-mark-btn locked'; markBtn.disabled = true; markBtn.textContent = 'Run code to complete'; }
+  }
 }
 
 function edReset() {
@@ -487,15 +526,17 @@ async function edRun() {
     return;
   }
 
-  var stdout = document.getElementById('ed-stdout');
-  var stderr = document.getElementById('ed-stderr');
+  var stdoutEl = document.getElementById('ed-stdout');
+  var stderrEl = document.getElementById('ed-stderr');
 
-  btn.disabled    = true;
-  btn.textContent = 'Running\u2026';
-  stdout.textContent = 'Running\u2026';
-  if (stderr) { stderr.textContent = ''; stderr.style.display = 'none'; }
+  btn.disabled       = true;
+  btn.textContent    = 'Running\u2026';
+  stdoutEl.textContent = 'Running\u2026';
+  edHideScore();
+  if (stderrEl) { stderrEl.textContent = ''; stderrEl.style.display = 'none'; }
 
-  var payload = { language_slug: LANG_SLUG, code: getCode() };
+  // Always include exercise_id so the server can evaluate expected_output.
+  var payload = { language_slug: LANG_SLUG, code: getCode(), exercise_id: EXERCISE_ID };
   if (IS_SCRATCH) payload.blocks_xml = getBlocksXml();
 
   try {
@@ -505,13 +546,53 @@ async function edRun() {
       body:    JSON.stringify(payload),
     });
     var data = await res.json();
-    stdout.textContent = data.stdout || (data.error ? data.error : '(no output)');
-    if (data.stderr && stderr) {
-      stderr.textContent = data.stderr;
-      stderr.style.display = 'block';
+
+    var rawOutput = data.stdout || '';
+    var displayOutput = rawOutput || (data.error ? data.error : '(no output)');
+    stdoutEl.textContent = displayOutput;
+
+    if (data.stderr && stderrEl) {
+      stderrEl.textContent = data.stderr;
+      stderrEl.style.display = 'block';
+    }
+
+    // Score display
+    if (data.exercise_has_expected) {
+      // Scored exercise: binary match comparison
+      var isEmpty = !rawOutput || rawOutput.trim() === '' || rawOutput.trim() === '(no output)';
+      edShowScore(data.exercise_score, isEmpty);
+    } else if (data.free_form_completed) {
+      // Free-form + output produced: show info message, no score
+      var scoreEl = document.getElementById('ed-score-result');
+      scoreEl.className = 'score-empty';
+      scoreEl.innerHTML = 'This exercise has no fixed expected output. It is a free\u2011form task, so it is marked complete without points.';
+      scoreEl.style.display = 'block';
+    }
+    // Free-form + no output: show nothing, wait for user to run code
+
+    // Auto-complete UI update
+    var shouldComplete = (data.exercise_has_expected && data.exercise_score === 100)
+                      || (!data.exercise_has_expected && data.free_form_completed);
+    if (shouldComplete && !IS_DONE) {
+      IS_DONE = true;
+      var markBtn = document.getElementById('ed-mark-btn');
+      if (markBtn) {
+        markBtn.className = 'ed-mark-btn done';
+        markBtn.textContent = '\u2713 Exercise completed';
+      }
+      var badge = document.querySelector('.ed-done-badge');
+      if (!badge) {
+        var topbar = document.querySelector('.ed-topbar');
+        if (topbar) {
+          var b = document.createElement('span');
+          b.className = 'ed-done-badge';
+          b.textContent = '\u2713 Completed';
+          topbar.appendChild(b);
+        }
+      }
     }
   } catch (_) {
-    stdout.textContent = 'Network error \u2014 please try again.';
+    stdoutEl.textContent = 'Network error \u2014 please try again.';
   }
 
   btn.disabled    = false;
@@ -520,6 +601,12 @@ async function edRun() {
 
 async function edMarkDone() {
   if (IS_DONE) return;
+
+  // Scored exercises: button is locked; clicking has no effect.
+  // Completion only happens via edRun() when score == 100.
+  if (HAS_EXPECTED) return;
+
+  // Free-form exercises (no expected_output): manual mark-complete as before.
   var btn = document.getElementById('ed-mark-btn');
   btn.disabled    = true;
   btn.textContent = 'Saving\u2026';

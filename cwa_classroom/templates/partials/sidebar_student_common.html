@@ -30,6 +30,7 @@ student_has_classes is True (set by accounts context processor).
   <span>Join Class</span>
 </a>
 
+{% if '/coding/' not in request.path %}
 <!-- My Progress -->
 <a href="{% url 'student_dashboard' %}{% if current_subject_id %}?subject_id={{ current_subject_id }}{% endif %}"
    class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
@@ -39,6 +40,7 @@ student_has_classes is True (set by accounts context processor).
   </svg>
   <span>My Progress</span>
 </a>
+{% endif %}
 
 {% if student_has_classes %}
 <!-- Homework -->

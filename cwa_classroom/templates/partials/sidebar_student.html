@@ -89,6 +89,7 @@ shown inline when subject_sidebar context is set, so the sidebar never
   </a>
   {% endif %}
 
+  {% if '/accounts/select-classes/' not in request.path %}
   <!-- My Progress -->
   <a href="{% url 'student_dashboard' %}{% if current_subject_id %}?subject_id={{ current_subject_id }}{% endif %}"
      class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
@@ -98,6 +99,7 @@ shown inline when subject_sidebar context is set, so the sidebar never
     </svg>
     <span>My Progress</span>
   </a>
+  {% endif %}
 
   {% if student_has_classes %}
   <!-- Homework -->

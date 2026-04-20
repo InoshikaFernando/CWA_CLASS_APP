@@ -225,6 +225,37 @@ def evaluate_submission(problem, code: str, piston_lang: str) -> EvaluationResul
 # Scoring
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Exercise binary scorer  (topic exercises only — NOT challenges)
+# ---------------------------------------------------------------------------
+
+def evaluate_exercise_output(user_output: str, expected_output: str) -> int:
+    """Binary scorer for topic exercises.
+
+    Rules:
+      - Empty / whitespace-only / "(no output)" output  →  0
+      - Trailing whitespace is stripped from both sides before comparison
+        (Piston always appends a trailing newline to stdout; the expected_output
+        stored by admins typically does not include it).
+      - Case-sensitive, internal-whitespace-sensitive.
+      - No partial scoring. No tolerance.
+
+    Challenge scoring is completely separate (evaluate_submission / score_submission).
+    This function must never be called for challenges.
+
+    Args:
+        user_output:     Raw stdout captured from Piston.
+        expected_output: The exercise.expected_output field value.
+
+    Returns:
+        100 if output matches, otherwise 0.
+    """
+    stripped_user = (user_output or '').rstrip()
+    if not stripped_user or stripped_user == '(no output)':
+        return 0
+    return 100 if stripped_user == (expected_output or '').rstrip() else 0
+
+
 def score_submission(eval_result: EvaluationResult) -> float:
     """Return a deterministic binary score for *eval_result*.
 

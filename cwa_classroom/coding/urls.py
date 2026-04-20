@@ -8,6 +8,9 @@ urlpatterns = [
     # ── Home: language selector ──────────────────────────────────────────────
     path('', views.language_selector, name='home'),
 
+    # ── Unified progress page (all languages) ────────────────────────────────
+    path('my-progress/', views.my_progress, name='my_progress'),
+
     # ── Topic browsing ───────────────────────────────────────────────────────
     # e.g. /coding/python/
     path('<slug:lang_slug>/', views.topic_list, name='topic_list'),
