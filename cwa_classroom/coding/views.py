@@ -620,12 +620,14 @@ def _apply_exercise_scoring(user, exercise_id, exercise_obj, language,
                                       blocks_xml=blocks_xml)
         return {'exercise_score': score, 'exercise_has_expected': True}, auto_complete
 
-    # Free-form exercise (no expected_output) — manual mark-complete only.
-    if mark_complete and exercise_id:
+    # Free-form exercise (no expected_output).
+    # Auto-complete whenever the student produces any output, or via explicit mark_complete.
+    has_output = bool((stdout or '').strip())
+    if (has_output or mark_complete) and exercise_id:
         _save_exercise_submission(user, exercise_id, language, code,
                                   stdout, stderr, completed=True,
                                   blocks_xml=blocks_xml)
-    return {'exercise_has_expected': False}, False
+    return {'exercise_has_expected': False, 'free_form_completed': has_output or bool(mark_complete)}, False
 
 
 def _save_exercise_submission(user, exercise_id, language, code, stdout, stderr, completed, blocks_xml=''):

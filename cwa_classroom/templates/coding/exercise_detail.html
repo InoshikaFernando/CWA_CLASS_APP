@@ -556,28 +556,38 @@ async function edRun() {
       stderrEl.style.display = 'block';
     }
 
-    // Binary score display — only when exercise has expected_output
+    // Score display
     if (data.exercise_has_expected) {
+      // Scored exercise: binary match comparison
       var isEmpty = !rawOutput || rawOutput.trim() === '' || rawOutput.trim() === '(no output)';
       edShowScore(data.exercise_score, isEmpty);
+    } else if (data.free_form_completed) {
+      // Free-form + output produced: show info message, no score
+      var scoreEl = document.getElementById('ed-score-result');
+      scoreEl.className = 'score-empty';
+      scoreEl.innerHTML = 'This exercise has no fixed expected output. It is a free\u2011form task, so it is marked complete without points.';
+      scoreEl.style.display = 'block';
+    }
+    // Free-form + no output: show nothing, wait for user to run code
 
-      // Auto-complete: score 100 means the submission was already saved server-side
-      if (data.exercise_score === 100 && !IS_DONE) {
-        IS_DONE = true;
-        var markBtn = document.getElementById('ed-mark-btn');
-        if (markBtn) {
-          markBtn.className = 'ed-mark-btn done';
-          markBtn.textContent = '\u2713 Exercise completed';
-        }
-        var badge = document.querySelector('.ed-done-badge');
-        if (!badge) {
-          var topbar = document.querySelector('.ed-topbar');
-          if (topbar) {
-            var b = document.createElement('span');
-            b.className = 'ed-done-badge';
-            b.textContent = '\u2713 Completed';
-            topbar.appendChild(b);
-          }
+    // Auto-complete UI update
+    var shouldComplete = (data.exercise_has_expected && data.exercise_score === 100)
+                      || (!data.exercise_has_expected && data.free_form_completed);
+    if (shouldComplete && !IS_DONE) {
+      IS_DONE = true;
+      var markBtn = document.getElementById('ed-mark-btn');
+      if (markBtn) {
+        markBtn.className = 'ed-mark-btn done';
+        markBtn.textContent = '\u2713 Exercise completed';
+      }
+      var badge = document.querySelector('.ed-done-badge');
+      if (!badge) {
+        var topbar = document.querySelector('.ed-topbar');
+        if (topbar) {
+          var b = document.createElement('span');
+          b.className = 'ed-done-badge';
+          b.textContent = '\u2713 Completed';
+          topbar.appendChild(b);
         }
       }
     }
