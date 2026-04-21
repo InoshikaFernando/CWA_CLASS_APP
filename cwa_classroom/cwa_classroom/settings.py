@@ -25,8 +25,8 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # ---------------------------------------------------------------------------
 # App Version  (SemVer — bump manually on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.1.0'          # MAJOR.MINOR.PATCH
-APP_VERSION_DATE  = '2026-04-13'     # ISO date of this release
+APP_VERSION       = '1.2.0'          # MAJOR.MINOR.PATCH
+APP_VERSION_DATE  = '2026-04-21'     # ISO date of this release
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
