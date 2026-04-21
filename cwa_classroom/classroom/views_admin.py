@@ -2973,30 +2973,32 @@ class SubjectAppManageView(LoginRequiredMixin, View):
 class GlobalQuestionsView(RoleRequiredMixin, View):
     """Browse and filter global questions/exercises (school=NULL).
 
-    Branches on the selected Subject: if the subject slug is 'coding' the
-    view queries CodingExercise; otherwise it queries the maths Question bank.
+    Branches on the Subject selection: when the synthetic value ``coding``
+    is chosen (or a Subject row with slug=coding/computing exists and is
+    selected) the view queries CodingExercise; otherwise it queries the
+    maths Question bank. The coding option is injected into the dropdown
+    by the template, so it works even when no 'Coding' Subject row exists.
     """
     required_roles = [Role.ADMIN]
 
+    CODING_SENTINEL = 'coding'
     CODING_SUBJECT_SLUGS = {'coding', 'computing'}
 
     def get(self, request):
-        subject_id = request.GET.get('subject', '')
+        subject_param = request.GET.get('subject', '')
         subjects = Subject.objects.filter(
             school__isnull=True, is_active=True,
         ).order_by('order', 'name')
 
-        selected_subject_obj = None
-        if subject_id:
-            selected_subject_obj = subjects.filter(id=subject_id).first()
-        is_coding = bool(
-            selected_subject_obj
-            and selected_subject_obj.slug in self.CODING_SUBJECT_SLUGS
-        )
+        is_coding = subject_param == self.CODING_SENTINEL
+        if not is_coding and subject_param.isdigit():
+            selected_subject_obj = subjects.filter(id=subject_param).first()
+            if selected_subject_obj and selected_subject_obj.slug in self.CODING_SUBJECT_SLUGS:
+                is_coding = True
 
         if is_coding:
-            return self._render_coding(request, subjects, subject_id)
-        return self._render_maths(request, subjects, subject_id)
+            return self._render_coding(request, subjects, subject_param or self.CODING_SENTINEL)
+        return self._render_maths(request, subjects, subject_param)
 
     # ------------------------------------------------------------------
     # Maths / general question bank (original behaviour)
