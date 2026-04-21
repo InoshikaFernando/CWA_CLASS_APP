@@ -117,9 +117,11 @@ urlpatterns = [
     # Global questions management (superuser only)
     path('admin-dashboard/global-questions/', views_admin.GlobalQuestionsView.as_view(), name='admin_global_questions'),
     path('admin-dashboard/global-questions/<int:question_id>/edit/', views_admin.GlobalQuestionEditView.as_view(), name='admin_global_question_edit'),
+    path('admin-dashboard/global-questions/coding/<int:exercise_id>/edit/', views_admin.GlobalCodingExerciseEditView.as_view(), name='admin_global_coding_exercise_edit'),
     path('admin-dashboard/htmx/global-levels/', views_admin.HtmxGlobalLevelsView.as_view(), name='htmx_global_levels'),
     path('admin-dashboard/htmx/global-topics/', views_admin.HtmxGlobalTopicsView.as_view(), name='htmx_global_topics'),
     path('admin-dashboard/htmx/global-subtopics/', views_admin.HtmxGlobalSubtopicsView.as_view(), name='htmx_global_subtopics'),
+    path('admin-dashboard/htmx/global-coding-topics/', views_admin.HtmxGlobalCodingTopicsView.as_view(), name='htmx_global_coding_topics'),
 
     # Platform management (superuser only)
     path('admin-dashboard/subject-apps/', views_admin.SubjectAppManageView.as_view(), name='admin_subject_apps'),
