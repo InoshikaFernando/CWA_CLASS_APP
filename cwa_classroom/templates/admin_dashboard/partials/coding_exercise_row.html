@@ -1,0 +1,55 @@
+<td class="px-4 py-3 text-gray-400 text-xs">{{ ex.id }}</td>
+<td class="px-4 py-3">
+  <p class="text-gray-900 font-medium line-clamp-2">{{ ex.title }}</p>
+</td>
+<td class="px-4 py-3">
+  {% with lang=ex.topic_level.topic.language %}
+  <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium
+    {% if lang.slug == 'python' %}bg-blue-50 text-blue-700
+    {% elif lang.slug == 'javascript' %}bg-amber-50 text-amber-700
+    {% elif lang.slug == 'html' %}bg-orange-50 text-orange-700
+    {% elif lang.slug == 'css' %}bg-sky-50 text-sky-700
+    {% elif lang.slug == 'scratch' %}bg-rose-50 text-rose-700
+    {% else %}bg-gray-100 text-gray-600{% endif %}">
+    {{ lang.name }}
+  </span>
+  {% endwith %}
+</td>
+<td class="px-4 py-3 text-gray-600">{{ ex.topic_level.topic.name }}</td>
+<td class="px-4 py-3">
+  {% with lvl=ex.topic_level.level_choice %}
+  <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium
+    {% if lvl == 'beginner' %}bg-emerald-50 text-emerald-700
+    {% elif lvl == 'intermediate' %}bg-yellow-50 text-yellow-700
+    {% elif lvl == 'advanced' %}bg-red-50 text-red-700
+    {% else %}bg-gray-100 text-gray-600{% endif %}">
+    {{ ex.topic_level.get_level_choice_display }}
+  </span>
+  {% endwith %}
+</td>
+<td class="px-4 py-3 text-gray-600 text-sm">
+  <p class="line-clamp-2">{{ ex.description|default:"--" }}</p>
+</td>
+<td class="px-4 py-3">
+  {% if ex.starter_code %}
+    <pre class="text-xs bg-slate-50 border border-slate-200 rounded-md p-2 text-gray-700 overflow-hidden line-clamp-3 whitespace-pre-wrap font-mono">{{ ex.starter_code }}</pre>
+  {% else %}
+    <span class="text-gray-300">&mdash;</span>
+  {% endif %}
+</td>
+<td class="px-4 py-3">
+  {% if ex.expected_output %}
+    <pre class="text-xs bg-slate-50 border border-slate-200 rounded-md p-2 text-gray-700 overflow-hidden line-clamp-3 whitespace-pre-wrap font-mono">{{ ex.expected_output }}</pre>
+  {% else %}
+    <span class="text-gray-300">&mdash;</span>
+  {% endif %}
+</td>
+<td class="px-4 py-3">
+  <button onclick="openCodingEditModal({{ ex.id }})"
+          class="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-accent bg-accent/5 rounded-lg hover:bg-accent/10 transition">
+    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/>
+    </svg>
+    Edit
+  </button>
+</td>
