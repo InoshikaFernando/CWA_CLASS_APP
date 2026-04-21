@@ -39,6 +39,7 @@
           {% for s in subjects %}
             <option value="{{ s.id }}" {% if selected_subject == s.id|stringformat:"d" %}selected{% endif %}>{{ s.name }}</option>
           {% endfor %}
+          <option value="coding" {% if mode == 'coding' %}selected{% endif %}>Coding</option>
         </select>
       </div>
 
