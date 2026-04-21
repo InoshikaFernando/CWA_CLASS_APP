@@ -2971,19 +2971,43 @@ class SubjectAppManageView(LoginRequiredMixin, View):
 # ---------------------------------------------------------------------------
 
 class GlobalQuestionsView(RoleRequiredMixin, View):
-    """Browse and filter all global questions (school=NULL)."""
+    """Browse and filter global questions/exercises (school=NULL).
+
+    Branches on the selected Subject: if the subject slug is 'coding' the
+    view queries CodingExercise; otherwise it queries the maths Question bank.
+    """
     required_roles = [Role.ADMIN]
 
+    CODING_SUBJECT_SLUGS = {'coding', 'computing'}
+
     def get(self, request):
+        subject_id = request.GET.get('subject', '')
+        subjects = Subject.objects.filter(
+            school__isnull=True, is_active=True,
+        ).order_by('order', 'name')
+
+        selected_subject_obj = None
+        if subject_id:
+            selected_subject_obj = subjects.filter(id=subject_id).first()
+        is_coding = bool(
+            selected_subject_obj
+            and selected_subject_obj.slug in self.CODING_SUBJECT_SLUGS
+        )
+
+        if is_coding:
+            return self._render_coding(request, subjects, subject_id)
+        return self._render_maths(request, subjects, subject_id)
+
+    # ------------------------------------------------------------------
+    # Maths / general question bank (original behaviour)
+    # ------------------------------------------------------------------
+    def _render_maths(self, request, subjects, subject_id):
         from maths.models import Question, Answer
         from .models import Topic
 
-        subject_id = request.GET.get('subject', '')
         level_id = request.GET.get('level', '')
         topic_id = request.GET.get('topic', '')
         subtopic_id = request.GET.get('subtopic', '')
-
-        subjects = Subject.objects.filter(school__isnull=True, is_active=True).order_by('order', 'name')
 
         levels = Level.objects.none()
         topics = Topic.objects.none()
@@ -3004,13 +3028,12 @@ class GlobalQuestionsView(RoleRequiredMixin, View):
             subtopics = Topic.objects.filter(
                 parent_id=topic_id, is_active=True,
             ).order_by('order', 'name')
-            # Only show subtopics that are linked to the selected level
             if level_id:
                 subtopics = subtopics.filter(levels__id=level_id).distinct()
 
-        # Build question queryset
-        qs = Question.objects.filter(school__isnull=True).select_related('level', 'topic', 'topic__parent')
-
+        qs = Question.objects.filter(school__isnull=True).select_related(
+            'level', 'topic', 'topic__parent',
+        )
         if subject_id:
             qs = qs.filter(topic__subject_id=subject_id)
         if level_id:
@@ -3024,17 +3047,18 @@ class GlobalQuestionsView(RoleRequiredMixin, View):
         total_count = qs.count()
 
         paginator = Paginator(qs, 50)
-        page_number = request.GET.get('page', 1)
-        page_obj = paginator.get_page(page_number)
+        page_obj = paginator.get_page(request.GET.get('page', 1))
 
-        # Prefetch answers for displayed questions
         question_ids = [q.id for q in page_obj]
         answers_map = {}
         if question_ids:
-            for ans in Answer.objects.filter(question_id__in=question_ids).order_by('question_id', 'order', 'id'):
+            for ans in Answer.objects.filter(
+                question_id__in=question_ids,
+            ).order_by('question_id', 'order', 'id'):
                 answers_map.setdefault(ans.question_id, []).append(ans)
 
         return render(request, 'admin_dashboard/global_questions.html', {
+            'mode': 'maths',
             'subjects': subjects,
             'levels': levels,
             'topics': topics,
@@ -3046,6 +3070,59 @@ class GlobalQuestionsView(RoleRequiredMixin, View):
             'page_obj': page_obj,
             'total_count': total_count,
             'answers_map': answers_map,
+        })
+
+    # ------------------------------------------------------------------
+    # Coding exercises (new)
+    # ------------------------------------------------------------------
+    def _render_coding(self, request, subjects, subject_id):
+        from coding.models import CodingLanguage, CodingTopic, TopicLevel, CodingExercise
+
+        language_id = request.GET.get('language', '')
+        topic_id = request.GET.get('topic', '')
+        level_choice = request.GET.get('level', '')
+
+        languages = CodingLanguage.objects.filter(is_active=True).order_by('order', 'name')
+        topics = CodingTopic.objects.none()
+        if language_id:
+            topics = CodingTopic.objects.filter(
+                language_id=language_id, is_active=True,
+            ).order_by('order', 'name')
+
+        qs = CodingExercise.objects.select_related(
+            'topic_level', 'topic_level__topic', 'topic_level__topic__language',
+        )
+        if language_id:
+            qs = qs.filter(topic_level__topic__language_id=language_id)
+        if topic_id:
+            qs = qs.filter(topic_level__topic_id=topic_id)
+        valid_levels = {TopicLevel.BEGINNER, TopicLevel.INTERMEDIATE, TopicLevel.ADVANCED}
+        if level_choice in valid_levels:
+            qs = qs.filter(topic_level__level_choice=level_choice)
+
+        qs = qs.order_by(
+            'topic_level__topic__language__order',
+            'topic_level__topic__order',
+            'topic_level__level_choice',
+            'order',
+        )
+        total_count = qs.count()
+
+        paginator = Paginator(qs, 50)
+        page_obj = paginator.get_page(request.GET.get('page', 1))
+
+        return render(request, 'admin_dashboard/global_questions.html', {
+            'mode': 'coding',
+            'subjects': subjects,
+            'coding_languages': languages,
+            'coding_topics': topics,
+            'coding_level_choices': TopicLevel.LEVEL_CHOICES,
+            'selected_subject': subject_id,
+            'selected_language': language_id,
+            'selected_topic': topic_id,
+            'selected_level': level_choice,
+            'page_obj': page_obj,
+            'total_count': total_count,
         })
 
 
@@ -3093,6 +3170,68 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
             'q': question,
             'answers': list(answers),
         })
+
+
+class GlobalCodingExerciseEditView(RoleRequiredMixin, View):
+    """Edit a single global coding exercise via HTMX modal."""
+    required_roles = [Role.ADMIN]
+
+    def _get_exercise(self, exercise_id):
+        from coding.models import CodingExercise
+        return get_object_or_404(
+            CodingExercise.objects.select_related(
+                'topic_level', 'topic_level__topic', 'topic_level__topic__language',
+            ),
+            id=exercise_id,
+        )
+
+    def get(self, request, exercise_id):
+        exercise = self._get_exercise(exercise_id)
+        return render(request, 'admin_dashboard/partials/coding_exercise_edit_form.html', {
+            'exercise': exercise,
+        })
+
+    def post(self, request, exercise_id):
+        exercise = self._get_exercise(exercise_id)
+
+        exercise.title = request.POST.get('title', '').strip()
+        exercise.description = request.POST.get('description', '').strip()
+        exercise.starter_code = request.POST.get('starter_code', '')
+        exercise.expected_output = request.POST.get('expected_output', '')
+        exercise.hints = request.POST.get('hints', '').strip()
+        exercise.save(update_fields=[
+            'title', 'description', 'starter_code', 'expected_output', 'hints', 'updated_at',
+        ])
+
+        log_event(
+            user=request.user, school=None,
+            category='data_change', action='global_coding_exercise_edited',
+            detail={'exercise_id': exercise.id, 'title': exercise.title[:100]},
+            request=request,
+        )
+
+        return render(request, 'admin_dashboard/partials/coding_exercise_row.html', {
+            'ex': exercise,
+        })
+
+
+class HtmxGlobalCodingTopicsView(RoleRequiredMixin, View):
+    """HTMX: return CodingTopic <option> tags for a language."""
+    required_roles = [Role.ADMIN]
+
+    def get(self, request):
+        from django.http import HttpResponse
+        from coding.models import CodingTopic
+        language_id = request.GET.get('language', '')
+        if not language_id:
+            return HttpResponse('<option value="">-- All topics --</option>')
+        topics = CodingTopic.objects.filter(
+            language_id=language_id, is_active=True,
+        ).order_by('order', 'name')
+        html = '<option value="">-- All topics --</option>'
+        for t in topics:
+            html += f'<option value="{t.id}">{t.name}</option>'
+        return HttpResponse(html)
 
 
 class HtmxGlobalLevelsView(RoleRequiredMixin, View):
