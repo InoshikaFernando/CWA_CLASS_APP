@@ -3200,9 +3200,11 @@ class GlobalCodingExerciseEditView(RoleRequiredMixin, View):
         exercise.description = request.POST.get('description', '').strip()
         exercise.starter_code = request.POST.get('starter_code', '')
         exercise.expected_output = request.POST.get('expected_output', '')
+        exercise.required_code_patterns = request.POST.get('required_code_patterns', '').strip() or None
         exercise.hints = request.POST.get('hints', '').strip()
         exercise.save(update_fields=[
-            'title', 'description', 'starter_code', 'expected_output', 'hints', 'updated_at',
+            'title', 'description', 'starter_code', 'expected_output',
+            'required_code_patterns', 'hints', 'updated_at',
         ])
 
         log_event(
