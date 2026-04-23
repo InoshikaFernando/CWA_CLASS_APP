@@ -1860,6 +1860,12 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
             'q': q,
             'order_by': order_by,
             'total_count': paginator.count,
+            'sort_columns': [
+                ('name', 'Name'),
+                ('email', 'Email'),
+                ('classes', 'Classes'),
+                ('joined', 'Joined'),
+            ],
         }
         if request.headers.get('HX-Request'):
             return render(request, 'admin_dashboard/partials/students_table.html', ctx)
