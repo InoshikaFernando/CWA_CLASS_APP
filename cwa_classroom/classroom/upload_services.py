@@ -373,6 +373,7 @@ class CodingExerciseParser(BaseQuestionParser):
               "instructions": "Use a for loop to print 1 through 5.",
               "starter_code": "# Your code here\\n",
               "expected_output": "1\\n2\\n3\\n4\\n5",
+              "required_code_patterns": ["for\\\\s+\\\\w+\\\\s+in", "range\\\\("],
               "hints": "range(1, 6) generates 1–5",
               "display_order": 1
             }
@@ -380,9 +381,10 @@ class CodingExerciseParser(BaseQuestionParser):
         }
 
     Field mapping to CodingExercise model:
-        instructions  → description
-        display_order → order
-        level         → level (CharField, stored directly)
+        instructions           → description
+        display_order          → order
+        level                  → level (CharField, stored directly)
+        required_code_patterns → required_code_patterns (list joined with newlines, empty → NULL)
     """
 
     subject_slug = 'coding'
@@ -482,6 +484,9 @@ class CodingExerciseParser(BaseQuestionParser):
                         'description': ex.get('instructions', '').strip(),
                         'starter_code': ex.get('starter_code', ''),
                         'expected_output': ex.get('expected_output', '').strip(),
+                        'required_code_patterns': self._normalize_required_patterns(
+                            ex.get('required_code_patterns')
+                        ),
                         'hints': ex.get('hints', ''),
                         'order': int(ex.get('display_order', i)),
                         'is_active': True,
@@ -509,6 +514,26 @@ class CodingExerciseParser(BaseQuestionParser):
         }
         return result.to_dict()
 
+    @staticmethod
+    def _normalize_required_patterns(value):
+        """Accept list[str], str, or None; return newline-joined str or None.
+
+        Model stores patterns as a newline-separated string (one regex per
+        line); the scoring helper splits on newlines. JSON uploads are more
+        readable with a list, so we accept both shapes.
+        """
+        if value is None:
+            return None
+        if isinstance(value, str):
+            joined = value.strip()
+            return joined or None
+        if isinstance(value, list):
+            lines = [str(p).strip() for p in value if str(p).strip()]
+            return '\n'.join(lines) or None
+        raise ValueError(
+            'required_code_patterns must be a list of strings, a string, or omitted'
+        )
+
     def get_template_json(self) -> dict:
         return {
             'subject': 'coding',
@@ -526,10 +551,14 @@ class CodingExerciseParser(BaseQuestionParser):
                 },
                 {
                     'title': 'Store Your Name',
-                    'instructions': 'Create a variable called `name` and print it.',
+                    'instructions': 'Create a variable called `name` and print `Hello, <name>`.',
                     'starter_code': "name = ''\nprint(name)\n",
-                    'expected_output': 'Alice',
-                    'hints': "Assign a string: name = 'Alice'",
+                    'expected_output': 'Hello, Alice',
+                    'required_code_patterns': [
+                        r'name\s*=',
+                        r'print\(',
+                    ],
+                    'hints': "Assign a string: name = 'Alice', then use print(f'Hello, {name}')",
                     'display_order': 2,
                 },
             ],
