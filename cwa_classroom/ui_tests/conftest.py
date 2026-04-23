@@ -768,3 +768,58 @@ def senior_teacher_school_setup(db, senior_teacher_user, school, department):
         teacher=senior_teacher_user,
     )
     return school
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Coding fixtures  (CodingLanguage → CodingTopic → TopicLevel)
+# ═══════════════════════════════════════════════════════════════════════════
+
+@pytest.fixture
+def coding_language(db):
+    """A Python CodingLanguage row."""
+    from coding.models import CodingLanguage
+
+    lang, _ = CodingLanguage.objects.get_or_create(
+        slug=CodingLanguage.PYTHON,
+        defaults={"name": "Python", "order": 1, "is_active": True},
+    )
+    return lang
+
+
+@pytest.fixture
+def coding_topic(db, coding_language):
+    """A 'variables' CodingTopic under the Python language."""
+    from coding.models import CodingTopic
+
+    topic, _ = CodingTopic.objects.get_or_create(
+        language=coding_language,
+        slug="variables",
+        defaults={"name": "Variables", "order": 1, "is_active": True},
+    )
+    return topic
+
+
+@pytest.fixture
+def coding_topic_level(db, coding_topic):
+    """A TopicLevel for (variables, beginner)."""
+    from coding.models import TopicLevel
+
+    tl, _ = TopicLevel.get_or_create_for(coding_topic, TopicLevel.BEGINNER)
+    return tl
+
+
+@pytest.fixture
+def coding_subject(db):
+    """A global Coding classroom.Subject row.
+
+    Phase 1 of the subject-plugin rollout seeds this row automatically; tests
+    that run before/without that migration need this fixture.
+    """
+    from classroom.models import Subject
+
+    subj, _ = Subject.objects.get_or_create(
+        slug="coding",
+        school=None,
+        defaults={"name": "Coding", "is_active": True, "order": 2},
+    )
+    return subj
