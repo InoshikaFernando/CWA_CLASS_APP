@@ -959,6 +959,35 @@ class SchoolStudentManageViewTests(TestCase):
         })
         self.assertEqual(resp.status_code, 200)
 
+    def test_live_search_filters_and_sort_headers_render(self):
+        _setup_student(self.school)  # student1 / student1@...
+        alice = CustomUser.objects.create_user(
+            username='alice1', password='pw1!', email='wlhtestmails+alice1@gmail.com',
+            first_name='Alice', last_name='Aardvark',
+        )
+        _assign_role(alice, Role.STUDENT)
+        SchoolStudent.objects.create(school=self.school, student=alice)
+
+        self.client.login(username='testhoi', password='password1!')
+        url = reverse('admin_school_students', args=[self.school.id])
+
+        # HTMX partial for a query should return only the matching student.
+        resp = self.client.get(url + '?q=alice', HTTP_HX_REQUEST='true')
+        self.assertEqual(resp.status_code, 200)
+        body = resp.content.decode()
+        self.assertIn('Alice', body)
+        self.assertNotIn('student1@', body)
+        # Sort-header bar must render, with an active state on the current order.
+        self.assertIn('Sort by', body)
+        self.assertIn('id="current-order-by"', body)
+
+        # Full page render carries the live-search input with HTMX attributes.
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        body = resp.content.decode()
+        self.assertIn('hx-trigger="input changed delay:300ms', body)
+        self.assertIn('id="students-panel"', body)
+
 
 class SchoolStudentEditViewTests(TestCase):
     @classmethod
