@@ -1860,6 +1860,12 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
             'q': q,
             'order_by': order_by,
             'total_count': paginator.count,
+            'sort_columns': [
+                ('name', 'Name'),
+                ('email', 'Email'),
+                ('classes', 'Classes'),
+                ('joined', 'Joined'),
+            ],
         }
         if request.headers.get('HX-Request'):
             return render(request, 'admin_dashboard/partials/students_table.html', ctx)
@@ -1956,6 +1962,24 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
         return redirect('admin_school_students', school_id=school.id)
 
 
+def _allowed_classes_for_user(user, school):
+    """Return active classes in ``school`` that ``user`` can manage enrollment for.
+
+    Mirrors ``AssignStudentsView._get_classroom`` permission tiers so the
+    student-edit modal and class-assign page stay consistent.
+    """
+    qs = ClassRoom.objects.filter(school=school, is_active=True)
+    if user.is_superuser or user.has_role(Role.ADMIN) \
+            or user.has_role(Role.HEAD_OF_INSTITUTE) \
+            or user.has_role(Role.INSTITUTE_OWNER):
+        return qs
+    if user.has_role(Role.HEAD_OF_DEPARTMENT):
+        return qs.filter(Q(department__head=user) | Q(teachers=user)).distinct()
+    if user.has_role(Role.TEACHER):
+        return qs.filter(teachers=user).distinct()
+    return qs.none()
+
+
 class SchoolStudentEditView(RoleRequiredMixin, View):
     """Edit a student's details."""
     required_roles = [
@@ -1998,6 +2022,51 @@ class SchoolStudentEditView(RoleRequiredMixin, View):
             },
             request=request,
         )
+
+        # Class enrollment changes (only processed when the form posted the
+        # class section — sentinel avoids wiping enrollments from unrelated POSTs)
+        if request.POST.get('manage_classes') == '1':
+            allowed_ids = set(
+                _allowed_classes_for_user(request.user, school)
+                .values_list('id', flat=True)
+            )
+            submitted_ids = {
+                int(x) for x in request.POST.getlist('class_ids') if x.isdigit()
+            } & allowed_ids
+            current_ids = set(
+                ClassStudent.objects.filter(
+                    student=student, classroom_id__in=allowed_ids, is_active=True,
+                ).values_list('classroom_id', flat=True)
+            )
+            to_add = submitted_ids - current_ids
+            to_remove = current_ids - submitted_ids
+            if to_add or to_remove:
+                with transaction.atomic():
+                    for cid in to_add:
+                        cs, _ = ClassStudent.objects.get_or_create(
+                            classroom_id=cid, student=student,
+                        )
+                        if not cs.is_active:
+                            cs.is_active = True
+                            cs.save(update_fields=['is_active'])
+                    if to_remove:
+                        ClassStudent.objects.filter(
+                            student=student,
+                            classroom_id__in=to_remove,
+                            is_active=True,
+                        ).update(is_active=False)
+                log_event(
+                    user=request.user, school=school, category='data_change',
+                    action='student_classes_updated',
+                    detail={
+                        'student_id': student.id,
+                        'student_name': student.get_full_name(),
+                        'added_class_ids': sorted(to_add),
+                        'removed_class_ids': sorted(to_remove),
+                    },
+                    request=request,
+                )
+
         messages.success(request, f'{student.get_full_name()} updated.')
         return redirect('admin_school_students', school_id=school.id)
 
@@ -2017,12 +2086,26 @@ class StudentEditModalView(RoleRequiredMixin, View):
         student = school_student.student
         parent_links = student.student_parent_links.select_related('parent').filter(is_active=True)
         guardian_links = student.student_guardians.select_related('guardian').all()
+        allowed_classes = (
+            _allowed_classes_for_user(request.user, school)
+            .select_related('department', 'subject')
+            .order_by('name')
+        )
+        enrolled_class_ids = set(
+            ClassStudent.objects.filter(
+                student=student,
+                classroom__in=allowed_classes,
+                is_active=True,
+            ).values_list('classroom_id', flat=True)
+        )
         return render(request, 'admin_dashboard/partials/student_edit_modal.html', {
             'school': school,
             'school_student': school_student,
             'student': student,
             'parent_links': parent_links,
             'guardian_links': guardian_links,
+            'allowed_classes': allowed_classes,
+            'enrolled_class_ids': enrolled_class_ids,
         })
 
 
