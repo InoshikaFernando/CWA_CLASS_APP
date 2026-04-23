@@ -122,6 +122,12 @@ _BREADCRUMB_MAP = [
     ('/coding/css/',            [('Hub', '/hub/'), ('Coding', '/coding/'), ('CSS', None)]),
     ('/coding/scratch/',        [('Hub', '/hub/'), ('Coding', '/coding/'), ('Scratch', None)]),
     ('/coding/',                [('Hub', '/hub/'), ('Coding', None)]),
+    # BrainBuzz
+    ('/brainbuzz/api/',         []),
+    ('/brainbuzz/create/',      [('Hub', '/hub/'), ('BrainBuzz', None)]),
+    ('/brainbuzz/session/',     [('Hub', '/hub/'), ('BrainBuzz', None)]),
+    ('/brainbuzz/join/',        [('Hub', '/hub/'), ('Join BrainBuzz', None)]),
+    ('/brainbuzz/play/',        [('Hub', '/hub/'), ('BrainBuzz', None)]),
     # Student pages
     ('/student/my-classes/',    [('Hub', '/hub/'), ('My Classes', None)]),
     ('/student/join/',          [('Hub', '/hub/'), ('Join Class', None)]),

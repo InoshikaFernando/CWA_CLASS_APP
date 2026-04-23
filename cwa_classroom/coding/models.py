@@ -174,6 +174,10 @@ class CodingExercise(models.Model):
     :class:`TopicLevel` rather than as separate flat fields.  Use the
     ``topic`` and ``level`` properties for read access; use ORM traversal
     (``topic_level__topic``, ``topic_level__level_choice``) for filtering.
+
+    ``question_type`` defaults to ``write_code`` so all existing exercises
+    behave exactly as before.  MCQ/TF/short-answer exercises expose answer
+    options via the related ``CodingAnswer`` model.
     """
 
     # Level constants and choices mirrored from TopicLevel for backwards compat.
@@ -182,6 +186,21 @@ class CodingExercise(models.Model):
     ADVANCED     = TopicLevel.ADVANCED
     LEVEL_CHOICES = TopicLevel.LEVEL_CHOICES
     LEVEL_ORDER   = TopicLevel.LEVEL_ORDER
+
+    # Question type — write_code is the historical default (non-breaking).
+    WRITE_CODE        = 'write_code'
+    MULTIPLE_CHOICE   = 'multiple_choice'
+    TRUE_FALSE        = 'true_false'
+    SHORT_ANSWER      = 'short_answer'
+    FILL_BLANK        = 'fill_blank'
+
+    QUESTION_TYPE_CHOICES = [
+        (WRITE_CODE,      'Write Code'),
+        (MULTIPLE_CHOICE, 'Multiple Choice'),
+        (TRUE_FALSE,      'True / False'),
+        (SHORT_ANSWER,    'Short Answer'),
+        (FILL_BLANK,      'Fill in the Blank'),
+    ]
 
     topic_level       = models.ForeignKey(TopicLevel, on_delete=models.CASCADE, related_name='exercises')
     title             = models.CharField(max_length=200)
@@ -198,6 +217,16 @@ class CodingExercise(models.Model):
             "Override execution environment for this exercise. "
             "When True, the editor renders an iframe sandbox instead of sending code to Piston. "
             "Use for DOM/HTML-in-JS exercises that belong to a non-browser language topic (e.g. JavaScript DOM Basics)."
+        ),
+    )
+    question_type = models.CharField(
+        max_length=20,
+        choices=QUESTION_TYPE_CHOICES,
+        default=WRITE_CODE,
+        help_text=(
+            "write_code (default) keeps existing behaviour. "
+            "Other types expose MCQ/TF/short-answer options via CodingAnswer and "
+            "allow the exercise to be used in BrainBuzz sessions."
         ),
     )
     created_at    = models.DateTimeField(auto_now_add=True)
@@ -230,6 +259,26 @@ class CodingExercise(models.Model):
     @property
     def level_order(self):
         return self.LEVEL_ORDER.get(self.level, 0)
+
+
+class CodingAnswer(models.Model):
+    """Answer option for a CodingExercise with question_type != write_code.
+
+    Mirrors maths.Answer so the BrainBuzz pipeline can treat both subjects
+    uniformly.  Exercises with question_type == write_code ignore this table.
+    """
+
+    exercise   = models.ForeignKey(CodingExercise, on_delete=models.CASCADE, related_name='answers')
+    answer_text = models.CharField(max_length=500)
+    is_correct  = models.BooleanField(default=False)
+    order       = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ['exercise', 'order']
+
+    def __str__(self):
+        correct = ' ✓' if self.is_correct else ''
+        return f"{self.exercise.title} — {self.answer_text[:60]}{correct}"
 
 
 # ---------------------------------------------------------------------------

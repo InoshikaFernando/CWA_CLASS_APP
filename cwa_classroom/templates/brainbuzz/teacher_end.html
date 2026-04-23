@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}BrainBuzz Results — {{ session.join_code }}{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto py-6 space-y-6">
+
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">Final Results</h1>
+      <p class="text-sm text-gray-500 mt-0.5">Session {{ session.join_code }} &mdash; {{ session.get_subject_display }}</p>
+    </div>
+    <div class="flex gap-2">
+      <a href="{% url 'brainbuzz:export_csv' join_code=session.join_code %}"
+         class="inline-flex items-center gap-2 bg-white border border-gray-200 hover:border-gray-300 text-gray-700 font-semibold px-4 py-2 rounded-xl transition text-sm shadow-sm">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
+        </svg>
+        Export CSV
+      </a>
+      <a href="{% url 'brainbuzz:create' %}"
+         class="inline-flex items-center gap-2 bg-accent hover:bg-blue-600 text-white font-semibold px-4 py-2 rounded-xl transition text-sm">
+        New Session
+      </a>
+    </div>
+  </div>
+
+  <!-- Podium (top 3) -->
+  {% if leaderboard %}
+  <div class="flex items-end justify-center gap-3 py-4">
+    {% for participant in leaderboard|slice:":3" %}
+    {% if forloop.counter == 2 %}
+    <div class="flex flex-col items-center gap-2 order-first">
+      <div class="w-14 h-14 rounded-full bg-gray-400 flex items-center justify-center text-white text-xl font-black">2</div>
+      <div class="bg-gray-100 rounded-xl px-4 py-4 text-center w-28 h-24 flex flex-col justify-end">
+        <p class="font-semibold text-gray-800 text-xs truncate">{{ participant.nickname }}</p>
+        <p class="font-black text-gray-600">{{ participant.total_score }}</p>
+      </div>
+    </div>
+    {% elif forloop.counter == 1 %}
+    <div class="flex flex-col items-center gap-2">
+      <div class="w-16 h-16 rounded-full bg-yellow-400 flex items-center justify-center text-white text-2xl font-black">1</div>
+      <div class="bg-yellow-50 border-2 border-yellow-300 rounded-xl px-4 py-4 text-center w-32 h-32 flex flex-col justify-end">
+        <p class="font-bold text-gray-900 text-sm truncate">{{ participant.nickname }}</p>
+        <p class="font-black text-yellow-600 text-lg">{{ participant.total_score }}</p>
+      </div>
+    </div>
+    {% elif forloop.counter == 3 %}
+    <div class="flex flex-col items-center gap-2">
+      <div class="w-12 h-12 rounded-full bg-amber-700 flex items-center justify-center text-white text-lg font-black">3</div>
+      <div class="bg-amber-50 rounded-xl px-4 py-4 text-center w-24 h-20 flex flex-col justify-end">
+        <p class="font-semibold text-gray-800 text-xs truncate">{{ participant.nickname }}</p>
+        <p class="font-black text-amber-700">{{ participant.total_score }}</p>
+      </div>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- Full leaderboard table -->
+  <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 border-b border-gray-100">
+        <tr>
+          <th class="px-4 py-3 text-left font-semibold text-gray-500">Rank</th>
+          <th class="px-4 py-3 text-left font-semibold text-gray-500">Player</th>
+          <th class="px-4 py-3 text-left font-semibold text-gray-500">Account</th>
+          <th class="px-4 py-3 text-right font-semibold text-gray-500">Score</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for participant in leaderboard %}
+        <tr class="{% if forloop.counter == 1 %}bg-yellow-50{% endif %}">
+          <td class="px-4 py-3 font-black text-gray-400">{{ forloop.counter }}</td>
+          <td class="px-4 py-3 font-semibold text-gray-900">{{ participant.nickname }}</td>
+          <td class="px-4 py-3 text-gray-500">
+            {% if participant.user %}{{ participant.user.get_full_name|default:participant.user.username }}{% else %}&mdash;{% endif %}
+          </td>
+          <td class="px-4 py-3 text-right font-black text-accent">{{ participant.total_score }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4" class="px-4 py-6 text-center text-gray-400">No participants.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+</div>
+{% endblock %}

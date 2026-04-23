@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}BrainBuzz Results — {{ session.join_code }}{% endblock %}
+
+{% block content %}
+<div class="max-w-lg mx-auto py-8 px-4 space-y-6">
+
+  <!-- Result card -->
+  {% if participant %}
+  {% with rank=1 %}
+  <div class="bg-primary rounded-2xl p-8 text-white text-center space-y-2">
+    <p class="text-sm font-semibold uppercase tracking-widest text-white/60">Final Score</p>
+    <p class="text-6xl font-black">{{ participant.total_score }}</p>
+    <p class="text-white/70 text-sm">{{ participant.nickname }}</p>
+
+    <!-- Calculate rank from leaderboard -->
+    {% for p in leaderboard %}
+    {% if p.id == participant.id %}
+    <div class="mt-4 inline-flex items-center gap-2 bg-white/10 rounded-full px-5 py-2">
+      <span class="text-white/60 text-sm">Rank</span>
+      <span class="text-2xl font-black">{{ forloop.counter }}</span>
+      <span class="text-white/60 text-sm">of {{ leaderboard|length }}</span>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+  {% endwith %}
+  {% else %}
+  <div class="bg-primary rounded-2xl p-8 text-white text-center">
+    <p class="text-2xl font-bold">Game Over!</p>
+    <p class="text-white/70 mt-2 text-sm">Session {{ session.join_code }} has ended.</p>
+  </div>
+  {% endif %}
+
+  <!-- Top 10 leaderboard -->
+  <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+    <div class="px-5 py-3 border-b border-gray-100 font-semibold text-gray-900">Leaderboard</div>
+    <ol class="divide-y divide-gray-50">
+      {% for p in leaderboard|slice:":10" %}
+      <li class="flex items-center gap-3 px-5 py-3
+                 {% if participant and p.id == participant.id %}bg-accent/5 border-l-4 border-accent{% endif %}">
+        <span class="w-6 text-center font-black text-gray-400 text-sm">{{ forloop.counter }}</span>
+        <span class="flex-1 font-medium text-gray-800 truncate">{{ p.nickname }}</span>
+        <span class="font-black text-accent">{{ p.total_score }}</span>
+      </li>
+      {% empty %}
+      <li class="px-5 py-4 text-sm text-gray-400 text-center">No scores recorded.</li>
+      {% endfor %}
+    </ol>
+  </div>
+
+  <!-- Play again button -->
+  <a href="{% url 'brainbuzz:join' %}"
+     class="block w-full text-center bg-accent hover:bg-blue-600 text-white font-bold py-3.5 rounded-xl transition">
+    Play Again
+  </a>
+
+</div>
+{% endblock %}

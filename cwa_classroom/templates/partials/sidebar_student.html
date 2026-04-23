@@ -128,6 +128,16 @@ shown inline when subject_sidebar context is set, so the sidebar never
   </a>
   {% endif %}
 
+  <!-- BrainBuzz -->
+  <a href="{% url 'brainbuzz:join' %}"
+     class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
+            {% if 'brainbuzz' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
+    <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/>
+    </svg>
+    <span>Join BrainBuzz</span>
+  </a>
+
   <!-- Spacer -->
   <div class="flex-1"></div>
 

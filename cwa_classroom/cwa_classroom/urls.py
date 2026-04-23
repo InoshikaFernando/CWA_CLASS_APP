@@ -87,6 +87,7 @@ urlpatterns = [
     path('', include('audit.urls')),
 
     # --- Subject apps ---
+    path('brainbuzz/', include('brainbuzz.urls', namespace='brainbuzz')),
     path('maths/', include('maths.urls', namespace='maths')),
     path('maths/', include('quiz.urls')),          # basic-facts, times-tables (maths-specific)
     path('maths/', include('quiz.level_urls')),    # level/<n>/... quiz routes under maths/
