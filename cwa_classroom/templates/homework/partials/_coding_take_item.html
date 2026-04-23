@@ -1,0 +1,31 @@
+{# Renders one coding exercise on the homework take page.
+   Receives ``ctx`` with keys: exercise (CodingExercise), content_id, language. #}
+{% with ex=ctx.exercise %}
+<p class="text-gray-900 font-medium mb-2">{{ ex.title }}</p>
+<p class="text-sm text-gray-600 mb-3 whitespace-pre-line">{{ ex.description }}</p>
+
+<div class="flex flex-wrap gap-2 text-xs mb-3">
+  <span class="bg-blue-50 text-blue-700 px-2 py-0.5 rounded">{{ ctx.language.name }}</span>
+  <span class="bg-gray-50 text-gray-600 px-2 py-0.5 rounded">{{ ex.topic_level.get_level_choice_display }}</span>
+</div>
+
+{% if ex.expected_output %}
+<div class="mb-3">
+  <p class="text-xs font-semibold text-gray-500 mb-1">Expected output</p>
+  <pre class="font-mono text-xs bg-gray-50 border border-gray-200 rounded-lg p-2 overflow-x-auto">{{ ex.expected_output }}</pre>
+</div>
+{% endif %}
+
+<label for="code_{{ ctx.content_id }}" class="block text-xs font-semibold text-gray-500 mb-1">Your code</label>
+<textarea name="code_{{ ctx.content_id }}" id="code_{{ ctx.content_id }}" rows="8"
+          class="w-full font-mono text-xs border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="Write your solution here..."
+          spellcheck="false">{{ ex.starter_code }}</textarea>
+
+{% if ex.hints %}
+<details class="mt-2">
+  <summary class="text-xs text-blue-600 cursor-pointer hover:underline">Show hint</summary>
+  <p class="text-xs text-gray-600 mt-1 whitespace-pre-line">{{ ex.hints }}</p>
+</details>
+{% endif %}
+{% endwith %}

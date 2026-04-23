@@ -1,0 +1,28 @@
+{# Renders one maths question on the homework take page.
+   Receives ``ctx`` with keys: question, shuffled_answers (list of Answer). #}
+{% with q=ctx.question %}
+<p class="text-gray-900 font-medium mb-4">{{ q.question_text }}</p>
+
+{% if q.image %}
+<img src="{{ q.image.url }}" alt="Question image" class="rounded-lg mb-4 max-h-48 object-contain">
+{% endif %}
+
+{% if q.question_type == 'multiple_choice' or q.question_type == 'true_false' %}
+<div class="space-y-2">
+  {% for answer in ctx.shuffled_answers %}
+  <div class="answer-option">
+    <input type="radio" name="answer_{{ q.id }}" id="ans_{{ q.id }}_{{ answer.id }}"
+           value="{{ answer.id }}" class="sr-only">
+    <label for="ans_{{ q.id }}_{{ answer.id }}"
+           class="block border border-gray-200 rounded-lg px-4 py-2.5 text-sm text-gray-700 cursor-pointer hover:bg-blue-50 hover:border-blue-300 transition select-none">
+      {{ answer.answer_text }}
+    </label>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<input type="text" name="answer_{{ q.id }}"
+       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+       placeholder="Type your answer...">
+{% endif %}
+{% endwith %}

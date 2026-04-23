@@ -13,6 +13,11 @@ from django.views import View
 
 from classroom.models import ClassRoom, ClassStudent, ClassTeacher, Topic
 from classroom.notifications import create_notification
+from classroom.subject_registry import (
+    get as get_plugin,
+    homework_plugins,
+    homework_subject_choices,
+)
 from classroom.views import RoleRequiredMixin
 from maths.models import Answer, Question, calculate_points
 from maths.views import select_questions_stratified
@@ -31,117 +36,47 @@ def _teacher_classrooms(user):
     return ClassRoom.objects.filter(id__in=class_ids, is_active=True)
 
 
-def _build_topic_groups(topics_qs):
+# NOTE: _topics_with_questions() and _build_topic_groups() used to live here.
+# Phase 2 moved them to MathsPlugin so the same contract works for any subject.
+# Call plugin.homework_topic_tree(classroom) instead.
+
+
+def _select_and_save_questions(homework, selected_topic_ids, num_questions):
+    """Ask the plugin for content ids, then persist HomeworkQuestion rows.
+
+    Delegates the subject-specific selection to the plugin bound to
+    ``homework.subject_slug`` so the same code path works for maths, coding,
+    or any future subject.
     """
-    Return a 3-level hierarchy for the template:
-
-        [(strand, [(mid, [leaves]), ...]), ...]
-
-    - strand : top-level topic (parent=None) — rendered as a collapsible
-               accordion header.  If it has NO mid_items it is shown as a
-               plain selectable checkbox instead.
-    - mid    : direct child of a strand — rendered as a plain checkbox
-               inside the accordion.  If it has leaf children it also gets
-               a small sub-group label above those leaves.
-    - leaves : grandchildren of the strand — shown indented under their mid.
-
-    Topics that are already at depth-0 with questions appear as standalone
-    checkboxes (empty mid_items list).  Parents/grandparents that are not
-    themselves in the queryset are still used as group headers.
-    """
-    from collections import OrderedDict
-
-    # strands : {strand_id: (strand_topic, OrderedDict {mid_id: (mid_topic, [leaf_topics])})}
-    strands = OrderedDict()
-
-    for topic in topics_qs:
-        parent = topic.parent          # may be None
-        grandparent = parent.parent if parent else None  # may be None
-
-        if parent is None:
-            # depth-0 — strand itself has questions
-            if topic.pk not in strands:
-                strands[topic.pk] = (topic, OrderedDict())
-            # No need to add it as a child of anything
-
-        elif grandparent is None:
-            # depth-1 — direct child of a strand
-            strand = parent
-            if strand.pk not in strands:
-                strands[strand.pk] = (strand, OrderedDict())
-            mids = strands[strand.pk][1]
-            if topic.pk not in mids:
-                mids[topic.pk] = (topic, [])
-
-        else:
-            # depth-2 — grandchild (e.g. "Multiplication (2x)" under Multiplication under Number)
-            strand = grandparent
-            mid = parent
-            if strand.pk not in strands:
-                strands[strand.pk] = (strand, OrderedDict())
-            mids = strands[strand.pk][1]
-            if mid.pk not in mids:
-                mids[mid.pk] = (mid, [])
-            mids[mid.pk][1].append(topic)
-
-    # Flatten to list for the template
-    result = [
-        (strand, [(mid, leaves) for mid, leaves in mids.values()])
-        for strand, mids in strands.values()
-    ]
-    return result
-
-
-def _topics_with_questions(classroom):
-    """
-    Return a Topic queryset restricted to topics that have at least one
-    Question at the classroom's levels.  If the classroom has no levels
-    configured, fall back to any topic that has at least one question.
-    """
-    from django.db.models import Exists, OuterRef
-
-    classroom_levels = classroom.levels.all()
-    base_qs = Topic.objects.filter(is_active=True).select_related('subject', 'parent', 'parent__parent').order_by(
-        'subject__name', 'parent__name', 'name'
-    )
-
-    if classroom_levels.exists():
-        question_filter = Question.objects.filter(
-            topic=OuterRef('pk'),
-            level__in=classroom_levels,
-        )
-    else:
-        question_filter = Question.objects.filter(topic=OuterRef('pk'))
-
-    return base_qs.filter(Exists(question_filter))
-
-
-def _select_and_save_questions(homework, topics, num_questions):
-    """
-    Select a stratified random set of questions from the given topics and
-    persist them as HomeworkQuestion records so all students get the same set.
-    Only questions at the classroom's configured levels are considered;
-    falls back to all levels if the classroom has none set.
-    """
-    classroom_levels = homework.classroom.levels.all()
-    qs = Question.objects.filter(topic__in=topics).select_related('topic')
-    if classroom_levels.exists():
-        qs = qs.filter(level__in=classroom_levels)
-    all_questions = list(qs)
-
-    if not all_questions:
+    plugin = get_plugin(homework.subject_slug)
+    if plugin is None or not plugin.supports_homework:
         return 0
 
-    if len(all_questions) > num_questions:
-        selected = select_questions_stratified(all_questions, num_questions)
-    else:
-        selected = all_questions
+    content_ids = plugin.pick_homework_items(
+        homework.classroom, selected_topic_ids, num_questions,
+    )
+    if not content_ids:
+        return 0
+
+    # Legacy maths rows keep the FK populated for admin/reporting compatibility;
+    # non-maths rows leave it None.
+    legacy_fk_populator = {}
+    if homework.subject_slug == 'mathematics':
+        legacy_fk_populator = {
+            q.pk: q for q in Question.objects.filter(pk__in=content_ids)
+        }
 
     HomeworkQuestion.objects.bulk_create([
-        HomeworkQuestion(homework=homework, question=q, order=i)
-        for i, q in enumerate(selected)
+        HomeworkQuestion(
+            homework=homework,
+            question=legacy_fk_populator.get(cid),
+            subject_slug=homework.subject_slug,
+            content_id=cid,
+            order=i,
+        )
+        for i, cid in enumerate(content_ids)
     ])
-    return len(selected)
+    return len(content_ids)
 
 
 # ---------------------------------------------------------------------------
@@ -152,46 +87,81 @@ class HomeworkCreateView(RoleRequiredMixin, View):
     required_roles = ['teacher', 'senior_teacher', 'junior_teacher']
     template_name = 'homework/teacher_create.html'
 
+    def _resolve_plugin(self, request):
+        """Pick the SubjectPlugin for this request.
+
+        POST carries ``subject_slug`` (default 'mathematics'); GET falls back
+        to the default so the page renders with Mathematics selected.
+        """
+        slug = (request.POST.get('subject_slug')
+                if request.method == 'POST'
+                else request.GET.get('subject_slug')) or 'mathematics'
+        plugin = get_plugin(slug)
+        if plugin is None or not plugin.supports_homework:
+            # Fall back to maths — we always ship with it registered.
+            plugin = get_plugin('mathematics')
+        return plugin
+
+    def _base_context(self, request, classroom, plugin, form):
+        return {
+            'form': form,
+            'classroom': classroom,
+            'topic_groups': plugin.homework_topic_tree(classroom),
+            'homework_subject_choices': homework_subject_choices(),
+            'selected_subject_slug': plugin.slug,
+            'topic_field_name': plugin.homework_topic_field_name(),
+        }
+
     def get(self, request, classroom_id):
         classroom = get_object_or_404(ClassRoom, id=classroom_id)
         _check_teacher_owns_class(request, classroom)
-        topics = _topics_with_questions(classroom)
+        plugin = self._resolve_plugin(request)
         form = HomeworkCreateForm()
-        form.fields['topics'].queryset = topics
-        return render(request, self.template_name, {
-            'form': form,
-            'classroom': classroom,
-            'topic_groups': _build_topic_groups(topics),
-        })
+        # For maths, the form's ``topics`` ModelMultipleChoiceField still
+        # needs a queryset so ``form.cleaned_data['topics']`` works; we set
+        # it to the plugin's topic tree flattened.
+        if plugin.slug == 'mathematics':
+            form.fields['topics'].queryset = plugin._topics_with_questions(classroom)
+        return render(request, self.template_name, self._base_context(request, classroom, plugin, form))
 
     def post(self, request, classroom_id):
         classroom = get_object_or_404(ClassRoom, id=classroom_id)
         _check_teacher_owns_class(request, classroom)
-        topics = _topics_with_questions(classroom)
+        plugin = self._resolve_plugin(request)
         form = HomeworkCreateForm(request.POST)
-        form.fields['topics'].queryset = topics
+        if plugin.slug == 'mathematics':
+            form.fields['topics'].queryset = plugin._topics_with_questions(classroom)
 
         if not form.is_valid():
-            return render(request, self.template_name, {
-                'form': form,
-                'classroom': classroom,
-                'topic_groups': _build_topic_groups(topics),
-            })
+            return render(request, self.template_name, self._base_context(request, classroom, plugin, form))
+
+        # Topic ids come from the plugin-owned POST field name (maths → 'topics',
+        # coding → 'coding_topics'). For maths we also accept the form-cleaned
+        # list so existing ModelForm validation still runs.
+        topic_ids = request.POST.getlist(plugin.homework_topic_field_name())
+        if plugin.slug == 'mathematics' and form.cleaned_data.get('topics'):
+            topic_ids = [str(t.pk) for t in form.cleaned_data['topics']]
 
         with transaction.atomic():
             homework = form.save(commit=False)
             homework.classroom = classroom
             homework.created_by = request.user
+            homework.subject_slug = plugin.slug
             homework.save()
+            # form.save_m2m will write to the legacy ``topics`` M2M regardless;
+            # the plugin then reconciles to its own M2M.
             form.save_m2m()
+            plugin.save_homework_topics(homework, topic_ids)
 
-            selected_topics = form.cleaned_data['topics']
-            count = _select_and_save_questions(homework, selected_topics, homework.num_questions)
+            count = _select_and_save_questions(homework, topic_ids, homework.num_questions)
 
         if count == 0:
-            messages.warning(request, 'No questions found for the selected topics. Please add questions first.')
+            messages.warning(
+                request,
+                'No items found for the selected topics. Please add content first.',
+            )
             homework.delete()
-            return render(request, self.template_name, {'form': form, 'classroom': classroom})
+            return render(request, self.template_name, self._base_context(request, classroom, plugin, form))
 
         messages.success(request, f'Homework "{homework.title}" created with {count} questions.')
 
@@ -359,20 +329,28 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
             messages.error(request, 'This homework is past its due date.')
             return redirect('homework:student_list')
 
-        import random
-        questions = list(
-            homework.homework_questions
-            .select_related('question')
-            .prefetch_related('question__answers')
-        )
-        # Shuffle answer options per question so correct answer isn't always first
-        for hwq in questions:
-            hwq.shuffled_answers = list(hwq.question.answers.all())
-            random.shuffle(hwq.shuffled_answers)
+        hw_questions = list(homework.homework_questions.order_by('order'))
+
+        # Build one "item" per HomeworkQuestion by dispatching to the plugin
+        # bound to its subject_slug. Each item carries the template path + the
+        # plugin's context dict, so the take template can render any subject
+        # via ``{% include item.template with ctx=item.ctx %}``.
+        items = []
+        for hwq in hw_questions:
+            plugin = get_plugin(hwq.subject_slug)
+            if plugin is None:
+                continue
+            items.append({
+                'hwq': hwq,
+                'template': plugin.take_item_template(),
+                'ctx': plugin.take_item_context(hwq.content_id),
+                'subject_slug': hwq.subject_slug,
+                'content_id': hwq.content_id,
+            })
 
         return render(request, self.template_name, {
             'homework': homework,
-            'questions': questions,
+            'items': items,
             'attempt_number': attempt_count + 1,
         })
 
@@ -386,11 +364,7 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
             return redirect('homework:student_list')
 
         time_taken = int(request.POST.get('time_taken_seconds', 0))
-        hw_questions = list(
-            homework.homework_questions
-            .select_related('question')
-            .prefetch_related('question__answers')
-        )
+        hw_questions = list(homework.homework_questions.order_by('order'))
 
         score = 0
         total = len(hw_questions)
@@ -406,35 +380,25 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
             )
 
             for hwq in hw_questions:
-                q = hwq.question
-                is_correct = False
-                selected_answer_obj = None
-                text_ans = ''
-
-                if q.question_type in (Question.MULTIPLE_CHOICE, Question.TRUE_FALSE):
-                    answer_id = request.POST.get(f'answer_{q.id}')
-                    if answer_id:
-                        try:
-                            selected_answer_obj = Answer.objects.get(id=answer_id, question=q)
-                            is_correct = selected_answer_obj.is_correct
-                        except Answer.DoesNotExist:
-                            pass
-                else:
-                    text_ans = request.POST.get(f'answer_{q.id}', '').strip()
-                    correct_answer = q.answers.filter(is_correct=True).first()
-                    if correct_answer and text_ans.lower() == correct_answer.answer_text.lower():
-                        is_correct = True
-
+                plugin = get_plugin(hwq.subject_slug)
+                if plugin is None:
+                    continue
+                graded = plugin.grade_answer(hwq.content_id, request.POST)
+                is_correct = graded.get('is_correct', False)
                 if is_correct:
                     score += 1
-
                 answer_records.append(HomeworkStudentAnswer(
                     submission=submission,
-                    question=q,
-                    selected_answer=selected_answer_obj,
-                    text_answer=text_ans,
+                    # legacy FK — only populated for maths rows that return a
+                    # ``question_id``; other subjects leave it as None.
+                    question_id=graded.get('question_id'),
+                    selected_answer_id=graded.get('selected_answer_id'),
+                    text_answer=graded.get('text_answer', ''),
+                    subject_slug=hwq.subject_slug,
+                    content_id=hwq.content_id,
+                    answer_data=graded.get('answer_data', {}),
                     is_correct=is_correct,
-                    points_earned=q.points if is_correct else 0,
+                    points_earned=graded.get('points_earned', 0),
                 ))
 
             HomeworkStudentAnswer.objects.bulk_create(answer_records)
@@ -454,13 +418,29 @@ class StudentHomeworkResultView(LoginRequiredMixin, View):
 
     def get(self, request, submission_id):
         submission = get_object_or_404(HomeworkSubmission, id=submission_id, student=request.user)
-        answers = (
+        answers = list(
             submission.answers
             .select_related('question', 'selected_answer')
             .prefetch_related('question__answers')
         )
+
+        # Dispatch each answer to its subject plugin for rendering.
+        review_items = []
+        for ans in answers:
+            plugin = get_plugin(ans.subject_slug)
+            if plugin is None:
+                continue
+            review_items.append({
+                'ans': ans,
+                'template': plugin.result_item_template(),
+                'ctx': plugin.result_item_context(ans),
+            })
+
         return render(request, self.template_name, {
             'submission': submission,
+            'review_items': review_items,
+            # Legacy context var kept so any consumer that still iterates
+            # `answers` keeps working.
             'answers': answers,
         })
 

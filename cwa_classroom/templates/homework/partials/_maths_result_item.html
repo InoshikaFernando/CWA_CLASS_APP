@@ -1,0 +1,48 @@
+{# Renders one maths answer-review block on the homework result page.
+   Receives ``ctx`` with key: ans (HomeworkStudentAnswer, question prefetched). #}
+{% with ans=ctx.ans q=ctx.ans.question %}
+<div class="flex items-start gap-3">
+  <div class="flex-shrink-0 mt-0.5">
+    {% if ans.is_correct %}
+    <svg class="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    {% else %}
+    <svg class="w-5 h-5 text-red-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    {% endif %}
+  </div>
+  <div class="flex-1">
+    <p class="text-sm font-medium text-gray-800 mb-2">{{ q.question_text }}</p>
+
+    {% if ans.selected_answer %}
+      <p class="text-xs text-gray-500">Your answer:
+        <span class="font-medium {% if ans.is_correct %}text-green-700{% else %}text-red-600{% endif %}">
+          {{ ans.selected_answer.answer_text }}
+        </span>
+      </p>
+    {% elif ans.text_answer %}
+      <p class="text-xs text-gray-500">Your answer:
+        <span class="font-medium {% if ans.is_correct %}text-green-700{% else %}text-red-600{% endif %}">
+          {{ ans.text_answer }}
+        </span>
+      </p>
+    {% else %}
+      <p class="text-xs text-gray-400 italic">No answer given</p>
+    {% endif %}
+
+    {% if not ans.is_correct %}
+      {% with correct=q.answers.all %}
+      {% for a in correct %}{% if a.is_correct %}
+      <p class="text-xs text-green-700 mt-1">Correct answer: <span class="font-medium">{{ a.answer_text }}</span></p>
+      {% endif %}{% endfor %}
+      {% endwith %}
+    {% endif %}
+
+    {% if q.explanation %}
+    <p class="text-xs text-gray-400 mt-1 italic">{{ q.explanation }}</p>
+    {% endif %}
+  </div>
+</div>
+{% endwith %}
