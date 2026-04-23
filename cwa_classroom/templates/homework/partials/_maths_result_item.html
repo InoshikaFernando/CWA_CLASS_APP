@@ -1,5 +1,7 @@
-{# Renders one maths answer-review block on the homework result page.
-   Receives ``ctx`` with key: ans (HomeworkStudentAnswer, question prefetched). #}
+{% comment %}
+Renders one maths answer-review block on the homework result page.
+Receives ``ctx`` with key: ans (HomeworkStudentAnswer, question prefetched).
+{% endcomment %}
 {% with ans=ctx.ans q=ctx.ans.question %}
 <div class="flex items-start gap-3">
   <div class="flex-shrink-0 mt-0.5">

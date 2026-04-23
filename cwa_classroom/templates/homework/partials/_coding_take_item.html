@@ -1,5 +1,7 @@
-{# Renders one coding exercise on the homework take page.
-   Receives ``ctx`` with keys: exercise (CodingExercise), content_id, language. #}
+{% comment %}
+Renders one coding exercise on the homework take page.
+Receives ``ctx`` with keys: exercise (CodingExercise), content_id, language.
+{% endcomment %}
 {% with ex=ctx.exercise %}
 <p class="text-gray-900 font-medium mb-2">{{ ex.title }}</p>
 <p class="text-sm text-gray-600 mb-3 whitespace-pre-line">{{ ex.description }}</p>

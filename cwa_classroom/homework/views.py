@@ -366,9 +366,63 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
         time_taken = int(request.POST.get('time_taken_seconds', 0))
         hw_questions = list(homework.homework_questions.order_by('order'))
 
+        # Grade all items OUTSIDE the DB transaction — for coding homework each
+        # plugin.grade_answer() hits Piston over HTTP (2–10s per call). Running
+        # them in parallel collapses the wall-clock cost to roughly the slowest
+        # single call instead of the sum, and keeps the DB transaction short.
+        post_data = request.POST
+        plugin_lookup = {}
+        for hwq in hw_questions:
+            if hwq.subject_slug not in plugin_lookup:
+                plugin_lookup[hwq.subject_slug] = get_plugin(hwq.subject_slug)
+
+        def _grade(hwq):
+            plugin = plugin_lookup.get(hwq.subject_slug)
+            if plugin is None:
+                return None
+            try:
+                return plugin.grade_answer(hwq.content_id, post_data)
+            except Exception:
+                # Never let a per-item failure lose the whole submission —
+                # mark the item wrong with zero points so the student still
+                # gets a result row.
+                return {
+                    'is_correct': False,
+                    'points_earned': 0,
+                    'text_answer': '',
+                    'selected_answer_id': None,
+                    'question_id': None,
+                    'answer_data': {'error': 'grading failed'},
+                }
+
+        # 4 concurrent Piston calls is plenty; more risks overwhelming the
+        # local container. Maths grading is CPU-only and finishes near-instant,
+        # so the thread pool cost for it is negligible.
+        from concurrent.futures import ThreadPoolExecutor
+        max_workers = min(4, max(1, len(hw_questions)))
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            graded_by_index = list(pool.map(_grade, hw_questions))
+
         score = 0
         total = len(hw_questions)
         answer_records = []
+        for hwq, graded in zip(hw_questions, graded_by_index):
+            if graded is None:
+                continue
+            if graded.get('is_correct'):
+                score += 1
+            answer_records.append(HomeworkStudentAnswer(
+                # legacy FK — only populated for maths rows that return a
+                # ``question_id``; other subjects leave it as None.
+                question_id=graded.get('question_id'),
+                selected_answer_id=graded.get('selected_answer_id'),
+                text_answer=graded.get('text_answer', ''),
+                subject_slug=hwq.subject_slug,
+                content_id=hwq.content_id,
+                answer_data=graded.get('answer_data', {}),
+                is_correct=graded.get('is_correct', False),
+                points_earned=graded.get('points_earned', 0),
+            ))
 
         with transaction.atomic():
             submission = HomeworkSubmission.objects.create(
@@ -378,29 +432,9 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
                 total_questions=total,
                 time_taken_seconds=time_taken,
             )
-
-            for hwq in hw_questions:
-                plugin = get_plugin(hwq.subject_slug)
-                if plugin is None:
-                    continue
-                graded = plugin.grade_answer(hwq.content_id, request.POST)
-                is_correct = graded.get('is_correct', False)
-                if is_correct:
-                    score += 1
-                answer_records.append(HomeworkStudentAnswer(
-                    submission=submission,
-                    # legacy FK — only populated for maths rows that return a
-                    # ``question_id``; other subjects leave it as None.
-                    question_id=graded.get('question_id'),
-                    selected_answer_id=graded.get('selected_answer_id'),
-                    text_answer=graded.get('text_answer', ''),
-                    subject_slug=hwq.subject_slug,
-                    content_id=hwq.content_id,
-                    answer_data=graded.get('answer_data', {}),
-                    is_correct=is_correct,
-                    points_earned=graded.get('points_earned', 0),
-                ))
-
+            # Attach the submission to the pre-built rows and bulk-create.
+            for row in answer_records:
+                row.submission = submission
             HomeworkStudentAnswer.objects.bulk_create(answer_records)
 
             pts = calculate_points(score, total, time_taken)

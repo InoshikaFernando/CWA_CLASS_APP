@@ -1,5 +1,7 @@
-{# Renders one coding answer-review block on the homework result page.
-   Receives ``ctx`` with keys: ans (HomeworkStudentAnswer), exercise (CodingExercise|None). #}
+{% comment %}
+Renders one coding answer-review block on the homework result page.
+Receives ``ctx`` with keys: ans (HomeworkStudentAnswer), exercise (CodingExercise|None).
+{% endcomment %}
 {% with ans=ctx.ans ex=ctx.exercise %}
 <div class="flex items-start gap-3">
   <div class="flex-shrink-0 mt-0.5">

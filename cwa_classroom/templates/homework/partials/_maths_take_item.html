@@ -1,5 +1,7 @@
-{# Renders one maths question on the homework take page.
-   Receives ``ctx`` with keys: question, shuffled_answers (list of Answer). #}
+{% comment %}
+Renders one maths question on the homework take page.
+Receives ``ctx`` with keys: question, shuffled_answers (list of Answer).
+{% endcomment %}
 {% with q=ctx.question %}
 <p class="text-gray-900 font-medium mb-4">{{ q.question_text }}</p>
 
