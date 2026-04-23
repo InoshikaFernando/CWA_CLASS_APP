@@ -980,6 +980,88 @@ class SchoolStudentEditViewTests(TestCase):
         self.student.refresh_from_db()
         self.assertEqual(self.student.first_name, 'Updated')
 
+    def test_hoi_adds_and_removes_classes(self):
+        dept, subj = _setup_department(self.school, head=self.hoi)
+        teacher = _setup_teacher(self.school, dept=dept)
+        class_a = _setup_classroom(self.school, dept, teacher, subject=subj)
+        class_b = ClassRoom.objects.create(
+            name='Class B', school=self.school, department=dept, subject=subj,
+        )
+        ClassTeacher.objects.create(classroom=class_b, teacher=teacher)
+        # Pre-enroll student in class_a so we can verify a removal
+        ClassStudent.objects.create(classroom=class_a, student=self.student)
+
+        self.client.login(username='testhoi', password='password1!')
+        resp = self.client.post(
+            reverse('admin_school_student_edit', args=[self.school.id, self.student.id]),
+            {
+                'first_name': self.student.first_name,
+                'last_name': self.student.last_name,
+                'manage_classes': '1',
+                'class_ids': [str(class_b.id)],
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        # class_a was active → now deactivated; class_b newly active
+        self.assertFalse(
+            ClassStudent.objects.get(classroom=class_a, student=self.student).is_active
+        )
+        self.assertTrue(
+            ClassStudent.objects.get(classroom=class_b, student=self.student).is_active
+        )
+
+    def test_teacher_cannot_affect_out_of_scope_classes(self):
+        dept, subj = _setup_department(self.school, head=self.hoi)
+        teacher = _setup_teacher(self.school, dept=dept)
+        owned = _setup_classroom(self.school, dept, teacher, subject=subj)
+        other = ClassRoom.objects.create(
+            name='Other', school=self.school, department=dept, subject=subj,
+        )
+        # Student already enrolled in the teacher's out-of-scope class
+        ClassStudent.objects.create(classroom=other, student=self.student)
+
+        self.client.login(username='teacher1', password='password1!')
+        resp = self.client.post(
+            reverse('admin_school_student_edit', args=[self.school.id, self.student.id]),
+            {
+                'first_name': self.student.first_name,
+                'last_name': self.student.last_name,
+                'manage_classes': '1',
+                # Teacher submits their owned class and (maliciously) the other id;
+                # the other id must be ignored, and the existing enrollment in
+                # `other` must be left untouched.
+                'class_ids': [str(owned.id), str(other.id)],
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(
+            ClassStudent.objects.get(classroom=owned, student=self.student).is_active
+        )
+        # out-of-scope enrollment still active — teacher had no power over it
+        self.assertTrue(
+            ClassStudent.objects.get(classroom=other, student=self.student).is_active
+        )
+
+    def test_no_manage_classes_sentinel_leaves_enrollments_alone(self):
+        dept, subj = _setup_department(self.school, head=self.hoi)
+        teacher = _setup_teacher(self.school, dept=dept)
+        cls_a = _setup_classroom(self.school, dept, teacher, subject=subj)
+        ClassStudent.objects.create(classroom=cls_a, student=self.student)
+
+        self.client.login(username='testhoi', password='password1!')
+        resp = self.client.post(
+            reverse('admin_school_student_edit', args=[self.school.id, self.student.id]),
+            {
+                'first_name': 'Renamed',
+                'last_name': self.student.last_name,
+                # no manage_classes, no class_ids — enrollment should persist
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(
+            ClassStudent.objects.get(classroom=cls_a, student=self.student).is_active
+        )
+
 
 class SchoolStudentRemoveViewTests(TestCase):
     @classmethod
