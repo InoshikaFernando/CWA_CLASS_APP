@@ -19,6 +19,13 @@ class MathsPlugin(SubjectPlugin):
     order = 10
     supports_homework = True
 
+    # Phase 3 — URL routing + sidebar wiring. Maths owns the plain
+    # ``/maths/`` app plus the legacy ``/number-puzzles/`` mini-app that
+    # lives alongside quiz views. The quiz app's basic-facts / times-tables
+    # routes sit under ``/maths/`` (see maths/urls.py), so a single prefix
+    # is enough.
+    url_prefixes = ('/maths/', '/number-puzzles/')
+
     # ------------------------------------------------------------------
     # Upload
     # ------------------------------------------------------------------
@@ -26,6 +33,18 @@ class MathsPlugin(SubjectPlugin):
     def upload_parser(self):
         from classroom.upload_services import MathsQuestionParser
         return MathsQuestionParser()
+
+    # ------------------------------------------------------------------
+    # UI / routing  (Phase 3)
+    # ------------------------------------------------------------------
+
+    def sidebar_template(self) -> str:
+        # Matches the pre-existing per-subject sidebar partial.
+        return 'partials/sidebar_maths.html'
+
+    def has_content(self, classroom=None) -> bool:
+        from maths.models import Question
+        return Question.objects.exists()
 
     # ------------------------------------------------------------------
     # Homework — topic picker

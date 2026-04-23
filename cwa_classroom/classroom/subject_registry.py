@@ -126,6 +126,48 @@ class SubjectPlugin:
         raise NotImplementedError
 
     # ------------------------------------------------------------------
+    # UI / routing  (Phase 3)
+    #
+    # Phase 3 replaces the hard-coded subject branches in the request
+    # context processor and template-level sidebar selection. Plugins
+    # declare which URL prefixes belong to them and which sidebar partial
+    # to render when the user is browsing the subject.
+    # ------------------------------------------------------------------
+
+    #: Path prefixes that identify this subject at the URL level. The
+    #: context processor iterates registered plugins and picks the first
+    #: whose prefix matches ``request.path``. Keep prefixes ending in ``/``.
+    url_prefixes: tuple[str, ...] = ()
+
+    def sidebar_template(self) -> str | None:
+        """Return the sidebar partial to include for this subject.
+
+        None means "use the default (role-based) sidebar" — appropriate for
+        subjects that don't have their own subject hub (e.g. Coding Problems
+        which is just an upload variant).
+        """
+        return None
+
+    def has_content(self, classroom=None) -> bool:
+        """Return True when this subject has any student-facing content.
+
+        Used by the context processor + landing pages to decide whether to
+        show quiz / start-learning CTAs. ``classroom=None`` means "check
+        globally". Default: True (plugins override when content is gated).
+        """
+        return True
+
+    def classroom_subject_id(self) -> int | None:
+        """Return the pk of the global ``classroom.Subject`` row this plugin
+        binds to, or ``None`` if the plugin has no backing Subject row."""
+        from classroom.models import Subject
+        return (
+            Subject.objects.filter(slug=self.slug, school__isnull=True)
+            .values_list('id', flat=True)
+            .first()
+        )
+
+    # ------------------------------------------------------------------
     # Dunder
     # ------------------------------------------------------------------
 
@@ -204,3 +246,16 @@ def homework_plugins() -> list[SubjectPlugin]:
 def homework_subject_choices() -> list[tuple[str, str]]:
     """Return ``[(slug, display_name), ...]`` for the teacher create-form subject dropdown."""
     return [(p.slug, p.display_name) for p in homework_plugins()]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# URL / sidebar helpers  (Phase 3 — used by classroom.context_processors)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def plugin_for_path(path: str) -> SubjectPlugin | None:
+    """Return the plugin whose ``url_prefixes`` match *path*, or None."""
+    for plugin in all_plugins():
+        for prefix in plugin.url_prefixes:
+            if path.startswith(prefix):
+                return plugin
+    return None

@@ -72,6 +72,11 @@ class CodingExercisePlugin(SubjectPlugin):
     order = 20
     supports_homework = True
 
+    # Phase 3 — everything under ``/coding/`` is ours (exercise listings,
+    # problem challenges, language pages). The context processor uses this
+    # to pick the Coding sidebar without hard-coding the branch.
+    url_prefixes = ('/coding/',)
+
     # ------------------------------------------------------------------
     # Upload
     # ------------------------------------------------------------------
@@ -79,6 +84,17 @@ class CodingExercisePlugin(SubjectPlugin):
     def upload_parser(self):
         from classroom.upload_services import CodingExerciseParser
         return CodingExerciseParser()
+
+    # ------------------------------------------------------------------
+    # UI / routing  (Phase 3)
+    # ------------------------------------------------------------------
+
+    def sidebar_template(self) -> str:
+        return 'partials/sidebar_coding.html'
+
+    def has_content(self, classroom=None) -> bool:
+        from coding.models import CodingLanguage
+        return CodingLanguage.objects.filter(is_active=True).exists()
 
     # ------------------------------------------------------------------
     # Homework — topic picker
