@@ -189,6 +189,17 @@ class CodingExercise(models.Model):
     starter_code      = models.TextField(blank=True, help_text="Pre-filled code shown in the editor when the student opens the exercise")
     solution_code     = models.TextField(blank=True, help_text="Reference solution — shown only to teachers, never to students")
     expected_output   = models.TextField(blank=True, help_text="Expected stdout for simple output-matching exercises (leave blank for free-form exercises)")
+    required_code_patterns = models.TextField(
+        blank=True,
+        null=True,
+        help_text=(
+            "Optional. One regular expression per line. ALL patterns must match "
+            "the student's submitted code (re.search) before the exercise can be "
+            "marked correct. Use this to stop students bypassing the exercise "
+            "intent — e.g. require `name\\s*=` so they cannot just print the "
+            "expected output literally."
+        ),
+    )
     hints             = models.TextField(blank=True, help_text="Optional hint text shown on request")
     order             = models.PositiveSmallIntegerField(default=0)
     is_active         = models.BooleanField(default=True)
