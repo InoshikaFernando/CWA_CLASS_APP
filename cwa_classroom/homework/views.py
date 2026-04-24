@@ -348,10 +348,13 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
                 'content_id': hwq.content_id,
             })
 
+        has_coding_item = any(item.get('subject_slug') == 'coding' for item in items)
+
         return render(request, self.template_name, {
             'homework': homework,
             'items': items,
             'attempt_number': attempt_count + 1,
+            'has_coding_item': has_coding_item,
         })
 
     def post(self, request, homework_id):

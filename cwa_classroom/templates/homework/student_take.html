@@ -9,6 +9,25 @@
     color: #1d4ed8;
   }
 </style>
+{% if has_coding_item %}
+{# CodeMirror 5 — loaded only when the homework has at least one coding item,
+   so pure-maths homework stays lean. Same version as coding/exercise_detail.html
+   so students get a consistent editor across the coding app and homework. #}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/selection/active-line.min.js"></script>
+<style>
+  .hw-code-wrap .CodeMirror { height: auto; min-height: 200px; border-radius: 0.5rem; font-size: 0.8rem; }
+</style>
+{% endif %}
 {% endblock %}
 
 {% block content %}
@@ -81,4 +100,141 @@
     });
   });
 </script>
+
+{% if has_coding_item %}
+<script>
+(function () {
+  // ── CodeMirror setup ──────────────────────────────────────────────────────
+  // Each coding take partial renders a textarea marked with
+  // data-hw-code-editor="1". We wrap every one in a CodeMirror editor on load;
+  // CodeMirror.fromTextArea keeps the textarea in the DOM and syncs its value
+  // back to the form on submit, so the server-side grade step (which reads
+  // request.POST[f'code_{id}']) continues to work without any Python change.
+
+  const modeMap = {
+    python:     'python',
+    javascript: 'javascript',
+    html:       'htmlmixed',
+    'html-css': 'htmlmixed',
+    css:        'css',
+    scratch:    'python',  // Scratch blocks are generated as Python; fall back
+  };
+  const editors = new Map();  // content_id → CodeMirror instance
+
+  document.querySelectorAll('textarea[data-hw-code-editor="1"]').forEach(ta => {
+    // Wrap the parent container so our height override applies.
+    const wrap = ta.closest('div');
+    if (wrap) wrap.classList.add('hw-code-wrap');
+
+    const lang = ta.dataset.languageSlug || '';
+    const contentId = ta.dataset.contentId;
+    const cm = CodeMirror.fromTextArea(ta, {
+      mode:              modeMap[lang] || 'text/plain',
+      theme:             'dracula',
+      lineNumbers:       true,
+      indentUnit:        2,
+      tabSize:           2,
+      indentWithTabs:    false,
+      autoCloseBrackets: true,
+      matchBrackets:     true,
+      styleActiveLine:   true,
+      extraKeys: {
+        'Tab': function (cm) {
+          if (cm.somethingSelected()) { cm.indentSelection('add'); }
+          else { cm.replaceSelection('  ', 'end'); }
+        },
+        'Shift-Tab': 'indentLess',
+      },
+    });
+    cm.setSize('100%', 220);
+    editors.set(contentId, { cm, lang, exerciseId: ta.dataset.exerciseId, ta });
+  });
+
+  // ── Run button wiring ─────────────────────────────────────────────────────
+  function getCsrf() {
+    const m = document.cookie.match(/csrftoken=([^;]+)/);
+    return m ? m[1] : '';
+  }
+
+  document.querySelectorAll('.hw-run-btn').forEach(btn => {
+    btn.addEventListener('click', async function () {
+      const contentId = this.dataset.target;
+      const entry = editors.get(contentId);
+      if (!entry) return;
+
+      // Sync CodeMirror → textarea so we always read the freshest code.
+      entry.cm.save();
+      const code = entry.ta.value.trim();
+
+      const statusEl = document.querySelector(`.hw-run-status[data-target="${contentId}"]`);
+      const outWrap  = document.querySelector(`.hw-run-output[data-target="${contentId}"]`);
+      const outStd   = outWrap.querySelector('.hw-run-stdout');
+      const outErr   = outWrap.querySelector('.hw-run-stderr');
+      const matchEl  = outWrap.querySelector('.hw-run-match');
+
+      if (!code) {
+        statusEl.textContent = 'Write some code first.';
+        return;
+      }
+
+      statusEl.textContent = 'Running…';
+      this.disabled = true;
+      outWrap.classList.remove('hidden');
+      outStd.textContent = '';
+      outErr.classList.add('hidden');
+      matchEl.classList.add('hidden');
+
+      try {
+        const resp = await fetch('/coding/api/run/', {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type':  'application/json',
+            'X-CSRFToken':   getCsrf(),
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          body: JSON.stringify({
+            language_slug: entry.lang,
+            code:          code,
+            exercise_id:   entry.exerciseId,
+            // NOTE: mark_complete is INTENTIONALLY false — the homework grade
+            // loop on submit owns completion. Run-button is feedback only.
+            mark_complete: false,
+          }),
+        });
+        const data = await resp.json();
+
+        if (data.browser_sandbox) {
+          statusEl.textContent = 'Browser-only runtime — preview not wired on homework page yet.';
+          outStd.textContent = '(run the code on the exercise page to see rendered output)';
+        } else {
+          outStd.textContent = data.stdout || '(no stdout)';
+          if (data.stderr) {
+            outErr.textContent = data.stderr;
+            outErr.classList.remove('hidden');
+          }
+          if (typeof data.exercise_score === 'number' && data.exercise_has_expected) {
+            matchEl.classList.remove('hidden');
+            if (data.exercise_score === 100) {
+              matchEl.className = 'hw-run-match text-xs mt-1 text-green-700 font-semibold';
+              matchEl.textContent = '✓ Output matches expected — you\'re ready to submit.';
+            } else {
+              matchEl.className = 'hw-run-match text-xs mt-1 text-amber-700 font-semibold';
+              matchEl.textContent = '✗ Output does not match expected. Keep iterating.';
+            }
+          }
+          statusEl.textContent = '';
+        }
+      } catch (err) {
+        statusEl.textContent = '';
+        outErr.textContent = 'Network error: ' + (err.message || err);
+        outErr.classList.remove('hidden');
+      } finally {
+        this.disabled = false;
+      }
+    });
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}

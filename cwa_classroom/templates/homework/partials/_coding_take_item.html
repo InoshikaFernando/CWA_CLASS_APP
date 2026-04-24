@@ -1,6 +1,11 @@
 {% comment %}
 Renders one coding exercise on the homework take page.
 Receives ``ctx`` with keys: exercise (CodingExercise), content_id, language.
+
+The textarea is marked ``data-hw-code-editor`` so the page-level script in
+student_take.html wraps it in a CodeMirror editor on load. Each item gets a
+Run button that hits POST /coding/api/run/ so students can try their code
+and fix errors before submitting the whole homework.
 {% endcomment %}
 {% with ex=ctx.exercise %}
 <p class="text-gray-900 font-medium mb-2">{{ ex.title }}</p>
@@ -19,10 +24,35 @@ Receives ``ctx`` with keys: exercise (CodingExercise), content_id, language.
 {% endif %}
 
 <label for="code_{{ ctx.content_id }}" class="block text-xs font-semibold text-gray-500 mb-1">Your code</label>
-<textarea name="code_{{ ctx.content_id }}" id="code_{{ ctx.content_id }}" rows="8"
-          class="w-full font-mono text-xs border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          placeholder="Write your solution here..."
-          spellcheck="false">{{ ex.starter_code }}</textarea>
+<div class="border border-gray-300 rounded-lg overflow-hidden">
+  <textarea name="code_{{ ctx.content_id }}" id="code_{{ ctx.content_id }}" rows="10"
+            class="w-full font-mono text-xs px-3 py-2 focus:outline-none"
+            data-hw-code-editor="1"
+            data-language-slug="{{ ctx.language.slug }}"
+            data-exercise-id="{{ ex.id }}"
+            data-content-id="{{ ctx.content_id }}"
+            placeholder="Write your solution here..."
+            spellcheck="false">{{ ex.starter_code }}</textarea>
+</div>
+
+<div class="flex items-center gap-2 mt-2">
+  <button type="button"
+          class="hw-run-btn inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition"
+          data-target="{{ ctx.content_id }}">
+    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z"/>
+    </svg>
+    <span>Run</span>
+  </button>
+  <span class="hw-run-status text-xs text-gray-400" data-target="{{ ctx.content_id }}"></span>
+</div>
+
+<div class="hw-run-output hidden mt-2" data-target="{{ ctx.content_id }}">
+  <p class="text-xs font-semibold text-gray-500 mb-1">Output</p>
+  <pre class="hw-run-stdout font-mono text-xs bg-gray-900 text-gray-100 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap min-h-[2.5rem]"></pre>
+  <pre class="hw-run-stderr font-mono text-xs bg-red-50 text-red-700 border border-red-200 rounded-lg p-2 mt-1 overflow-x-auto whitespace-pre-wrap hidden"></pre>
+  <p class="hw-run-match text-xs mt-1 hidden"></p>
+</div>
 
 {% if ex.hints %}
 <details class="mt-2">
