@@ -34,8 +34,8 @@
           <h3 class="font-semibold text-red-800">Attendance Not Complete</h3>
           <p class="text-sm text-red-700 mt-1">The following sessions have unmarked attendance. Please mark attendance before generating invoices.</p>
           <ul class="mt-3 space-y-1 text-sm text-red-700">
-            {% for session in unmarked_sessions %}
-              <li>&bull; {{ session.classroom.name }} &mdash; {{ session.date|date:"M d, Y" }} ({{ session.start_time|time:"H:i" }})</li>
+            {% for item in unmarked_sessions %}
+              <li>&bull; {{ item.classroom.name }} &mdash; {{ item.session.date|date:"M d, Y" }} ({{ item.session.start_time|time:"H:i" }})</li>
             {% endfor %}
           </ul>
         </div>
