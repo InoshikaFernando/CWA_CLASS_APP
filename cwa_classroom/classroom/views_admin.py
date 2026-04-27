@@ -1820,7 +1820,10 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
             .annotate(
                 class_count=Count(
                     'student__class_student_entries',
-                    filter=Q(student__class_student_entries__classroom__school=school),
+                    filter=Q(
+                        student__class_student_entries__classroom__school=school,
+                        student__class_student_entries__is_active=True,
+                    ),
                 )
             )
             .order_by('student__last_name', 'student__first_name', 'student__id')
