@@ -389,7 +389,18 @@
       "Bash(DB_PASSWORD=root python -m pytest ui_tests/test_parent_invoice_stripe_payment.py -v --no-header)",
       "Bash(ls C:/Source/CWA_SCHOOL_APP_2/.claude/worktrees/laughing-mayer/cwa_classroom/classroom/tests/test_sidebar*)",
       "Bash(python manage.py shell -c ':*)",
-      "Bash(docker exec:*)"
+      "Bash(docker exec:*)",
+      "Bash(git log *)",
+      "Bash(python manage.py shell -c \"from maths.models import StudentFinalAnswer; q = StudentFinalAnswer.objects.filter\\(quiz_type='times_table'\\); print\\(f'TT records: {q.count\\(\\)}'\\); print\\(f'  with table_number: {q.exclude\\(table_number__isnull=True\\).count\\(\\)}'\\); print\\(f'  with operation set: {q.exclude\\(operation=\\\\\"\\\\\"\\).count\\(\\)}'\\); print\\('Sample \\(latest 5\\):'\\); [print\\(f'  id={r.id} student={r.student_id} table={r.table_number} op={r.operation!r} score={r.score}/{r.total_questions} points={r.points} at={r.completed_at}'\\) for r in q.order_by\\('-completed_at'\\)[:5]]\")",
+      "Bash(DB_PASSWORD=root python manage.py shell -c \"from maths.models import StudentFinalAnswer; q = StudentFinalAnswer.objects.filter\\(quiz_type='times_table'\\); print\\(f'TT records: {q.count\\(\\)}'\\); print\\(f'  with table_number: {q.exclude\\(table_number__isnull=True\\).count\\(\\)}'\\); print\\(f'  with operation set: {q.exclude\\(operation=\\\\\"\\\\\"\\).count\\(\\)}'\\); print\\('Sample \\(latest 5\\):'\\); [print\\(f'  id={r.id} student={r.student_id} table={r.table_number} op={r.operation!r} score={r.score}/{r.total_questions} points={r.points} at={r.completed_at}'\\) for r in q.order_by\\('-completed_at'\\)[:5]]\")",
+      "Bash(DB_PASSWORD=root python cwa_classroom/manage.py shell -c \"from maths.models import StudentFinalAnswer; q = StudentFinalAnswer.objects.filter\\(quiz_type='times_table'\\); print\\(f'TT records: {q.count\\(\\)}'\\); print\\(f'  with table_number: {q.exclude\\(table_number__isnull=True\\).count\\(\\)}'\\); print\\(f'  with operation set: {q.exclude\\(operation=\\\\\"\\\\\"\\).count\\(\\)}'\\); print\\('Sample \\(latest 5\\):'\\); [print\\(f'  id={r.id} student={r.student_id} table={r.table_number} op={r.operation!r} score={r.score}/{r.total_questions} points={r.points} at={r.completed_at}'\\) for r in q.order_by\\('-completed_at'\\)[:5]]\")",
+      "Read(//c/Source/CWA_SCHOOL_APP_2/.claude/worktrees/serene-hugle-cb3e45/cwa_classroom/**)",
+      "Bash(python manage.py shell -c ' *)",
+      "Bash(python /c/Source/CWA_SCHOOL_APP_2/.claude/worktrees/serene-hugle-cb3e45/cwa_classroom/manage.py shell -c ' *)",
+      "Bash(DB_ENGINE=sqlite python -m pytest ui_tests/test_quiz_e2e.py::TestTimesTablesE2E -x --tb=short)",
+      "Bash(DB_ENGINE=sqlite python -m pytest ui_tests/test_quiz_e2e.py::TestStudentProgressUpdatesAfterAllQuizTypes -x --tb=short)",
+      "Bash(DB_ENGINE=sqlite python -m pytest ui_tests/test_quiz_e2e.py --tb=short)",
+      "Bash(git add *)"
     ]
   }
 }

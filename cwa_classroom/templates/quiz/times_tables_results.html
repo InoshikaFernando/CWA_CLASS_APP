@@ -1,19 +1,80 @@
 {% extends "base_quiz.html" %}
-{% block title %}Times Tables Results{% endblock %}
-{% block quiz_title %}{{ table }}× Results{% endblock %}
+{% block title %}Times Tables Results — {{ table }}×{% endblock %}
+{% block quiz_title %}{{ table }}× {{ operation|title }} Results{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
+
+  {% if is_new_record %}
+  <div class="bg-accent text-white rounded-2xl px-6 py-4 text-center font-bold text-lg animate-pulse">
+    🌟 New Record! {{ points|floatformat:1 }} pts
+  </div>
+  {% endif %}
+
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center">
-    <div class="text-5xl mb-4">🎉</div>
-    <h2 class="font-display text-2xl text-primary mb-2">Quiz Complete!</h2>
-    <p class="text-gray-400 text-sm">{{ table }}× {{ operation|title }}</p>
+    <div class="inline-flex items-center justify-center w-28 h-28 rounded-full bg-primary-light mb-4">
+      <span class="font-display text-4xl text-primary">{{ score }}/{{ total }}</span>
+    </div>
+    <p class="text-gray-500 text-sm mb-4">{{ percentage }}% correct</p>
+
+    <div class="flex justify-center gap-8 text-sm">
+      <div class="text-center">
+        <p class="font-bold text-gray-800 text-xl font-mono">{{ time_display }}</p>
+        <p class="text-gray-400 text-xs">Time taken</p>
+      </div>
+      <div class="text-center">
+        <p class="font-bold text-accent text-xl font-mono">{{ points|floatformat:1 }}</p>
+        <p class="text-gray-400 text-xs">Points</p>
+      </div>
+      {% if prev_best_points %}
+      <div class="text-center">
+        <p class="font-bold text-gray-500 text-xl font-mono">{{ prev_best_points|floatformat:1 }}</p>
+        <p class="text-gray-400 text-xs">Previous best</p>
+      </div>
+      {% endif %}
+    </div>
   </div>
+
+  {% if questions %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+    <h2 class="font-bold text-gray-800 mb-4">Question Review</h2>
+    <div class="space-y-3">
+      {% for q in questions %}
+      <div class="flex items-start gap-3 p-3 rounded-xl {% if q.is_correct %}bg-green-50{% else %}bg-red-50{% endif %}">
+        <span class="text-xl flex-shrink-0">{% if q.is_correct %}✅{% else %}❌{% endif %}</span>
+        <div class="flex-1 text-sm">
+          <p class="font-semibold text-gray-800">{{ q.question }}</p>
+          {% if q.is_correct %}
+            <p class="text-green-600 mt-0.5">{{ q.student_answer }} ✓</p>
+          {% else %}
+            <p class="text-red-600 mt-0.5">Your answer: <strong>{{ q.student_answer|default:"(blank)" }}</strong></p>
+            <p class="text-green-700 mt-0.5">Correct: <strong>{{ q.answer }}</strong></p>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
   <div class="flex flex-wrap gap-3 pb-6">
-    <a href="{% url 'times_tables_home' %}" class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-5 py-3 transition">
-      Try Another Table
+    <a href="{% url operation|add:'_quiz' level_number=level_number table=table %}"
+       class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-5 py-3 transition">
+      Try Again
     </a>
-    <a href="{% url 'maths:dashboard' %}" class="bg-white border border-slate-200 text-gray-600 font-semibold rounded-xl px-5 py-3 transition">Home</a>
+    <a href="{% url operation|add:'_select' level_number=level_number %}"
+       class="bg-white border border-slate-200 text-gray-600 hover:border-primary hover:text-primary font-semibold rounded-xl px-5 py-3 transition">
+      Pick Another Table
+    </a>
+    <a href="{% url 'times_tables_home' %}"
+       class="bg-white border border-slate-200 text-gray-600 hover:border-primary hover:text-primary font-semibold rounded-xl px-5 py-3 transition">
+      Times Tables Home
+    </a>
+    <a href="{% url 'maths:dashboard' %}"
+       class="bg-white border border-slate-200 text-gray-600 hover:border-primary hover:text-primary font-semibold rounded-xl px-5 py-3 transition">
+      Home
+    </a>
   </div>
+
 </div>
 {% endblock %}
