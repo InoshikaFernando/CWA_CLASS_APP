@@ -88,11 +88,18 @@ class TestTopicQuizE2E:
         page.wait_for_load_state("networkidle")
         assert_page_has_text(page, "My Progress")
 
-        # The topic "Addition" should appear in the progress grid
-        # (may be inside a collapsed accordion)
-        body = page.locator("body").inner_text()
-        assert "Level 7" in body or "Addition" in body or "Year" in body, \
-            f"Progress should show Level 7 or Addition. Got: {body[:300]}"
+        # The Year Level Progress card must show "<n> attempt" on the topic
+        # we just answered.  Empty cells render only "0 pts" with no attempts
+        # line, so this guards against the regression where the topic save
+        # silently fails to land on the dashboard.
+        ylp_card = page.locator(
+            "details", has_text="Year Level Progress"
+        ).first
+        ylp_html = ylp_card.inner_html()
+        assert re.search(r"\d+\s+attempt", ylp_html), (
+            "Year Level Progress card must show '<n> attempt' on the topic "
+            f"we just answered. HTML excerpt: {ylp_html[:600]}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -145,10 +152,16 @@ class TestBasicFactsE2E:
         page.wait_for_load_state("networkidle")
         assert_page_has_text(page, "My Progress")
 
-        # Basic Facts section should exist in progress
-        body = page.locator("body").inner_text()
-        assert "Basic Facts" in body or "Addition" in body or "Today" in body, \
-            f"Progress should show Basic Facts data. Got: {body[:300]}"
+        # The Basic Facts Progress card must show a numeric percentage on the
+        # tile we just attempted.  Empty tiles render only an em-dash.
+        bf_card = page.locator(
+            "details", has_text="Basic Facts Progress"
+        ).first
+        bf_html = bf_card.inner_html()
+        assert re.search(r">\s*\d+%\s*<", bf_html), (
+            "Basic Facts card must show a numeric percentage tile after "
+            f"completing Addition L1. HTML excerpt: {bf_html[:600]}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -156,7 +169,12 @@ class TestBasicFactsE2E:
 # ---------------------------------------------------------------------------
 
 class TestTimesTablesE2E:
-    """Complete a times tables quiz and verify progress."""
+    """Complete a times tables quiz and verify progress.
+
+    Parametrized over multiplication and division — both operations must update
+    the dashboard.  Catches the bug where one operation saves but the other
+    silently fails.
+    """
 
     @pytest.fixture(autouse=True)
     def _setup(self, live_server, page, enrolled_student, school, classroom):
@@ -164,7 +182,11 @@ class TestTimesTablesE2E:
         self.page = page
         do_login(page, self.url, enrolled_student)
 
-    def test_complete_times_tables_and_check_progress(self):
+    @pytest.mark.parametrize("operation,table", [
+        ("multiplication", 2),
+        ("division", 3),
+    ])
+    def test_complete_times_tables_and_check_progress(self, operation, table):
         page = self.page
 
         # ── Navigate to Times Tables home ──
@@ -173,9 +195,9 @@ class TestTimesTablesE2E:
         body = page.locator("body").inner_text().lower()
         assert "times tables" in body or "multiplication" in body
 
-        # ── Start 2× multiplication quiz ──
-        # The URL needs a level_number — use level 4 (default) with table 2
-        page.goto(f"{self.url}/maths/level/4/multiplication/2/")
+        # ── Start the quiz ──
+        # The URL needs a level_number — use level 4 (default).
+        page.goto(f"{self.url}/maths/level/4/{operation}/{table}/")
         page.wait_for_load_state("networkidle")
 
         # ── Answer all 12 questions ──
@@ -198,9 +220,15 @@ class TestTimesTablesE2E:
                 next_btn.first.click()
                 page.wait_for_timeout(1000)
 
-        # ── Wait for results (auto-redirect after last question) ──
+        # ── On the last question, the feedback partial swaps "Next Question"
+        # for a "See Results →" anchor that hits the submit endpoint (which
+        # actually saves the StudentFinalAnswer row).  Without clicking it,
+        # nothing persists.
+        see_results = page.locator("a", has_text=re.compile(r"See Results"))
+        if see_results.count() > 0 and see_results.first.is_visible():
+            see_results.first.click()
         page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(2000)
+        page.wait_for_timeout(1500)
 
         # ── Verify results ──
         body = page.locator("body").inner_text()
@@ -212,7 +240,16 @@ class TestTimesTablesE2E:
         page.wait_for_load_state("networkidle")
         assert_page_has_text(page, "My Progress")
 
-        # Times Tables section should exist
-        body = page.locator("body").inner_text()
-        assert "Times Tables" in body or "Table" in body or "Today" in body, \
-            f"Progress should show Times Tables data. Got: {body[:300]}"
+        # Times Tables card must contain at least one populated cell — i.e. a
+        # "<n>pts" badge.  Empty cells render only an em-dash.  Counting "pts"
+        # tokens guards against the regression where rows save to the DB but
+        # don't appear on the dashboard.
+        tt_card_html = page.locator(
+            "details", has_text="Times Tables Progress"
+        ).first.inner_html()
+        assert re.search(r"\d+pts", tt_card_html), (
+            "Times Tables Progress card must show at least one populated "
+            f"cell (\\d+pts) after completing a quiz. Got: {tt_card_html[:500]}"
+        )
+
+

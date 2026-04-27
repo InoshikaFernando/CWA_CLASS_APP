@@ -66,12 +66,12 @@
   </div>
   {% endif %}
 
-  {# ═══════════════════════════════════════════════════════════════════════
+  {% comment %}
      CONTENT AREA — three rendering modes:
        1. subject_filter == 'coding'   → coding progress only
        2. filter_subject_id or filter_class_id set → maths/class filtered (unchanged)
        3. default (All)                → Mathematics section + Coding section
-  ═══════════════════════════════════════════════════════════════════════ #}
+  {% endcomment %}
 
   {% if subject_filter == 'coding' %}
   {# ── Mode 1: Coding only ─────────────────────────────────────────────── #}
