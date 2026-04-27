@@ -451,7 +451,12 @@ class TimesTablesSubmitView(LoginRequiredMixin, View):
 class TimesTablesResultsView(LoginRequiredMixin, View):
     def get(self, request, session_id):
         session_data = request.session.get(f'tt_done_{session_id}', {})
-        table = session_data.get('table', '?')
+        # Session expired (e.g. user hit /results/ directly or refreshed long
+        # after submit) — bounce home rather than render an empty page that
+        # would trip {% url %} reversal with placeholder values.
+        if not session_data:
+            return redirect('times_tables_home')
+        table = session_data.get('table', 0)
         operation = session_data.get('operation', 'multiplication')
         questions = session_data.get('questions', [])
         score = session_data.get('score', sum(1 for q in questions if q.get('is_correct')))
