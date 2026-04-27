@@ -742,20 +742,47 @@ class CodingProblemParser(BaseQuestionParser):
 
 
 # ── Factory ───────────────────────────────────────────────────────────────────
-
-_PARSERS: dict[str, BaseQuestionParser] = {
-    'mathematics':    MathsQuestionParser(),
-    'coding':         CodingExerciseParser(),
-    'coding_problem': CodingProblemParser(),
-}
-
-AVAILABLE_SUBJECTS = [
-    {'slug': 'mathematics',    'name': 'Mathematics'},
-    {'slug': 'coding',         'name': 'Coding'},
-    {'slug': 'coding_problem', 'name': 'Coding Problems'},
-]
+#
+# Phase 1 of the subject-plugin refactor: the parser selection + subject list
+# come from the subject registry (classroom.subject_registry) rather than the
+# hard-coded dicts that used to live here.  Each subject's plugin binds a
+# ``slug`` to a parser class in its own app (maths/plugin.py, coding/plugin.py).
 
 
-def get_upload_parser(subject_slug: str) -> BaseQuestionParser | None:
+def get_upload_parser(subject_slug: str) -> 'BaseQuestionParser | None':
     """Return the parser for *subject_slug*, or None if unknown."""
-    return _PARSERS.get(subject_slug)
+    from .subject_registry import get_upload_parser as _registry_get
+    return _registry_get(subject_slug)
+
+
+# Module-level proxy so existing callers (template context, tests) can still
+# do ``from classroom.upload_services import AVAILABLE_SUBJECTS`` and get a
+# list of ``{slug, name}`` dicts driven by the registry.
+class _AvailableSubjectsProxy:
+    """List-like proxy that defers to the subject registry on every access.
+
+    We keep the name + shape stable so the upload template
+    (``{% for s in subjects %}...{% endfor %}``) continues to work unchanged.
+    """
+
+    def _materialise(self) -> list[dict]:
+        from .subject_registry import available_subjects
+        return available_subjects()
+
+    def __iter__(self):
+        return iter(self._materialise())
+
+    def __len__(self):
+        return len(self._materialise())
+
+    def __getitem__(self, key):
+        return self._materialise()[key]
+
+    def __bool__(self):
+        return bool(self._materialise())
+
+    def __repr__(self):
+        return repr(self._materialise())
+
+
+AVAILABLE_SUBJECTS = _AvailableSubjectsProxy()

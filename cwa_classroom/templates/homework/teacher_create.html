@@ -16,8 +16,11 @@
     <p class="text-sm text-gray-500 mb-6">Class: <span class="font-medium text-gray-700">{{ classroom }}</span></p>
 
     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-      <form method="post" novalidate>
+      <form method="post" novalidate id="hw-create-form">
         {% csrf_token %}
+        {# Subject-plugin dispatch: posted verbatim so the view knows which
+           plugin to route through when rendering topic picker + grading. #}
+        <input type="hidden" name="subject_slug" id="subject_slug_hidden" value="{{ selected_subject_slug }}">
 
         {% if form.non_field_errors %}
         <div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
@@ -31,6 +34,21 @@
           {{ form.title }}
           {% if form.title.errors %}<p class="text-xs text-red-600 mt-1">{{ form.title.errors.0 }}</p>{% endif %}
         </div>
+
+        <!-- Subject (only shown when more than one plugin supports homework) -->
+        {% if homework_subject_choices|length > 1 %}
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Subject</label>
+          <select id="subject_select_ui"
+                  onchange="window.location.search = '?subject_slug=' + encodeURIComponent(this.value)"
+                  class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            {% for slug, name in homework_subject_choices %}
+            <option value="{{ slug }}" {% if slug == selected_subject_slug %}selected{% endif %}>{{ name }}</option>
+            {% endfor %}
+          </select>
+          <p class="text-xs text-gray-400 mt-1">Changing this reloads the topic list for the selected subject.</p>
+        </div>
+        {% endif %}
 
         <!-- Type -->
         <div class="mb-4">
@@ -73,7 +91,7 @@
                     {% for leaf in leaves %}
                     <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer hover:text-gray-900 py-0.5">
                       <input type="checkbox"
-                             name="topics"
+                             name="{{ topic_field_name|default:'topics' }}"
                              value="{{ leaf.id }}"
                              class="topic-checkbox rounded text-blue-600 focus:ring-blue-500"
                              {% if leaf.id in form.topics.value %}checked{% endif %}>
