@@ -434,8 +434,11 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
         if dept_id:
             department = Department.objects.filter(id=dept_id, school=school).first()
 
-        # Validate attendance completeness (skip for upfront billing)
-        if billing_type != 'upfront':
+        # Validate attendance completeness only when billing depends on it.
+        # Upfront billing skips it entirely; "all_class_days" charges every held
+        # session regardless of who attended, so missing marks don't affect the
+        # invoice. Only "attended_only" needs every student marked.
+        if billing_type != 'upfront' and mode == 'attended_only':
             unmarked = svc.validate_attendance_complete(school, start, end, department)
             if unmarked:
                 departments = Department.objects.filter(school=school, is_active=True)
