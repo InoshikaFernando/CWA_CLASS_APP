@@ -858,8 +858,10 @@ def _send_invoice_email(invoice):
 
 def cancel_invoice(invoice, reason, cancelled_by):
     """
-    Cancels an invoice. Unlinks confirmed payments as credits.
+    Cancels an invoice. Unlinks confirmed payments as credits and notifies
+    the student + linked parents/guardians (CC'd to the school).
     """
+    credit_returned = Decimal('0')
     with transaction.atomic():
         confirmed_payments = invoice.payments.filter(status='confirmed')
         for payment in confirmed_payments:
@@ -873,6 +875,7 @@ def cancel_invoice(invoice, reason, cancelled_by):
             )
             payment.invoice = None
             payment.save(update_fields=['invoice'])
+            credit_returned += payment.amount
 
         invoice.status = 'cancelled'
         invoice.cancelled_by = cancelled_by
@@ -881,6 +884,105 @@ def cancel_invoice(invoice, reason, cancelled_by):
         invoice.save(update_fields=[
             'status', 'cancelled_by', 'cancelled_at', 'cancellation_reason', 'updated_at'
         ])
+
+    _send_invoice_cancelled_email(invoice, reason, credit_returned)
+
+
+def _send_invoice_cancelled_email(invoice, reason, credit_returned):
+    """Notify student + linked parents/guardians that an invoice was cancelled."""
+    from .email_service import send_templated_email
+
+    student = invoice.student
+    school = invoice.school
+
+    primary_dept = None
+    primary_classroom = None
+    for li in invoice.line_items.select_related('classroom', 'classroom__department').all():
+        if li.classroom:
+            primary_classroom = li.classroom
+            if li.classroom.department:
+                primary_dept = li.classroom.department
+            break
+
+    cancelled_date = ''
+    if invoice.cancelled_at:
+        cancelled_date = invoice.cancelled_at.strftime('%b %d, %Y')
+
+    context = {
+        'school_name': school.name,
+        'school_address': school.address or '',
+        'school_phone': school.phone or '',
+        'school_email': school.email or '',
+        'student_name': f'{student.first_name} {student.last_name}'.strip(),
+        'invoice_number': invoice.invoice_number,
+        'cancelled_date': cancelled_date,
+        'original_amount': invoice.amount,
+        'cancellation_reason': reason,
+        'credit_returned': credit_returned,
+    }
+
+    subject = f'Invoice {invoice.invoice_number} Cancelled — {school.name}'
+    sent_emails = set()
+
+    # 1. Student
+    if student.email:
+        try:
+            send_templated_email(
+                recipient_email=student.email,
+                subject=subject,
+                template_name='email/transactional/invoice_cancelled.html',
+                context=context,
+                recipient_user=student,
+                notification_type='invoice_cancelled',
+                school=school,
+                department=primary_dept,
+            )
+            sent_emails.add(student.email.lower())
+        except Exception as e:
+            logger.exception('Failed to send invoice cancellation email for %s: %s', invoice.invoice_number, e)
+
+    # 2. Parents
+    parent_links = ParentStudent.objects.filter(
+        student=student, school=school, is_active=True,
+    ).select_related('parent')
+    for link in parent_links:
+        if link.parent.email and link.parent.email.lower() not in sent_emails:
+            try:
+                send_templated_email(
+                    recipient_email=link.parent.email,
+                    subject=subject,
+                    template_name='email/transactional/invoice_cancelled.html',
+                    context=context,
+                    recipient_user=link.parent,
+                    notification_type='invoice_cancelled',
+                    school=school,
+                    department=primary_dept,
+                )
+                sent_emails.add(link.parent.email.lower())
+            except Exception as e:
+                logger.exception('Failed to send invoice cancellation email to parent %s: %s', link.parent.email, e)
+
+    # 3. Guardians
+    school_student = SchoolStudent.objects.filter(student=student, school=school).first()
+    if school_student:
+        guardian_links = StudentGuardian.objects.filter(
+            student=student,
+        ).select_related('guardian')
+        for sg in guardian_links:
+            if sg.guardian.email and sg.guardian.email.lower() not in sent_emails:
+                try:
+                    send_templated_email(
+                        recipient_email=sg.guardian.email,
+                        subject=subject,
+                        template_name='email/transactional/invoice_cancelled.html',
+                        context=context,
+                        notification_type='invoice_cancelled',
+                        school=school,
+                        department=primary_dept,
+                    )
+                    sent_emails.add(sg.guardian.email.lower())
+                except Exception as e:
+                    logger.exception('Failed to send invoice cancellation email to guardian %s: %s', sg.guardian.email, e)
 
 
 # ---------------------------------------------------------------------------
