@@ -822,6 +822,8 @@ def _send_invoice_email(invoice):
                     context=context,
                     recipient_user=link.parent,
                     notification_type='invoice',
+                    school=school,
+                    department=primary_dept,
                 )
                 sent_emails.add(link.parent.email.lower())
             except Exception as e:
@@ -842,6 +844,8 @@ def _send_invoice_email(invoice):
                         template_name='email/transactional/invoice_issued.html',
                         context=context,
                         notification_type='invoice',
+                        school=school,
+                        department=primary_dept,
                     )
                     sent_emails.add(sg.guardian.email.lower())
                 except Exception as e:
