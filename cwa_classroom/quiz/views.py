@@ -413,6 +413,14 @@ class TimesTablesSubmitView(LoginRequiredMixin, View):
         # Save to DB
         from maths.models import StudentFinalAnswer
         level_obj = ClassroomLevel.objects.filter(level_number=table).first()
+
+        prev_best = StudentFinalAnswer.objects.filter(
+            student=request.user,
+            quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
+            table_number=table,
+            operation=operation,
+        ).order_by('-points').first()
+
         StudentFinalAnswer.objects.create(
             student=request.user,
             topic=None,
@@ -426,6 +434,14 @@ class TimesTablesSubmitView(LoginRequiredMixin, View):
             time_taken_seconds=time_taken,
         )
 
+        is_new_record = prev_best is None or points > (prev_best.points or 0)
+
+        session_data['score'] = score
+        session_data['total'] = total
+        session_data['time_taken'] = time_taken
+        session_data['points'] = points
+        session_data['is_new_record'] = is_new_record
+        session_data['prev_best_points'] = prev_best.points if prev_best else None
         request.session[f'tt_done_{session_id}'] = session_data
         request.session.pop(session_key, None)
 
@@ -438,10 +454,24 @@ class TimesTablesResultsView(LoginRequiredMixin, View):
         table = session_data.get('table', '?')
         operation = session_data.get('operation', 'multiplication')
         questions = session_data.get('questions', [])
+        score = session_data.get('score', sum(1 for q in questions if q.get('is_correct')))
+        total = session_data.get('total', len(questions) or 1)
+        time_taken = session_data.get('time_taken', 0)
+        points = session_data.get('points', 0.0)
+        percentage = round((score / total) * 100) if total else 0
         return render(request, 'quiz/times_tables_results.html', {
-            'table': table, 'operation': operation,
+            'table': table,
+            'operation': operation,
             'questions': questions,
             'session_id': session_id,
+            'score': score,
+            'total': total,
+            'time_display': _fmt_time(time_taken),
+            'points': points,
+            'percentage': percentage,
+            'is_new_record': session_data.get('is_new_record', False),
+            'prev_best_points': session_data.get('prev_best_points'),
+            'level_number': session_data.get('level_number', 1),
         })
 
 
