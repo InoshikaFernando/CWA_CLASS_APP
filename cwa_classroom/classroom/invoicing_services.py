@@ -774,12 +774,24 @@ def issue_invoices(invoice_ids, user):
 
 
 def _send_invoice_email(invoice):
-    """Send invoice issued email to the student."""
+    """
+    Send the invoice issued email to the student + linked parents/guardians.
+
+    Returns a dict:
+        {
+            'sent': [<email str>, ...],   # successfully delivered (queued) recipients
+            'failed': [<email str>, ...], # recipients we attempted but errored
+            'skipped_no_email': bool,     # True if the student has no email at all
+        }
+    """
     from .email_service import send_templated_email
+
+    result = {'sent': [], 'failed': [], 'skipped_no_email': False}
 
     student = invoice.student
     if not student.email:
-        return
+        result['skipped_no_email'] = True
+        return result
 
     school = invoice.school
     line_items = invoice.line_items.select_related('classroom', 'classroom__department').all()
@@ -886,8 +898,10 @@ def _send_invoice_email(invoice):
             department=primary_dept,
         )
         sent_emails.add(student.email.lower())
+        result['sent'].append(student.email)
     except Exception as e:
         logger.exception('Failed to send invoice email for %s: %s', invoice.invoice_number, e)
+        result['failed'].append(student.email)
 
     # 2. Send to parent accounts (ParentStudent links)
     parent_links = ParentStudent.objects.filter(
@@ -907,8 +921,10 @@ def _send_invoice_email(invoice):
                     department=primary_dept,
                 )
                 sent_emails.add(link.parent.email.lower())
+                result['sent'].append(link.parent.email)
             except Exception as e:
                 logger.exception('Failed to send invoice email to parent %s: %s', link.parent.email, e)
+                result['failed'].append(link.parent.email)
 
     # 3. Send to guardian contacts (StudentGuardian links)
     school_student = SchoolStudent.objects.filter(student=student, school=school).first()
@@ -929,8 +945,38 @@ def _send_invoice_email(invoice):
                         department=primary_dept,
                     )
                     sent_emails.add(sg.guardian.email.lower())
+                    result['sent'].append(sg.guardian.email)
                 except Exception as e:
                     logger.exception('Failed to send invoice email to guardian %s: %s', sg.guardian.email, e)
+                    result['failed'].append(sg.guardian.email)
+
+    return result
+
+
+def resend_invoice_email(invoice):
+    """
+    Re-send the invoice issued email to the student + linked parents/guardians.
+
+    Used when an earlier delivery bounced because of an outdated email
+    address, and the admin has corrected the address. The invoice itself is
+    not modified — only the email is dispatched again.
+
+    Cancelled invoices cannot be resent. Drafts cannot be resent (they were
+    never emailed in the first place — issue them instead).
+
+    Returns the same dict as ``_send_invoice_email``:
+        {'sent': [...], 'failed': [...], 'skipped_no_email': bool}
+
+    Raises ``ValueError`` if the invoice is in a state that cannot be resent.
+    """
+    if invoice.status == 'cancelled':
+        raise ValueError('Cannot resend a cancelled invoice.')
+    if invoice.status == 'draft':
+        raise ValueError(
+            'Cannot resend a draft invoice — issue it first to send the '
+            'initial email.'
+        )
+    return _send_invoice_email(invoice)
 
 
 # ---------------------------------------------------------------------------

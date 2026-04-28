@@ -1173,6 +1173,77 @@ class CancelInvoiceView(RoleRequiredMixin, View):
         return redirect('invoice_detail', invoice_id=invoice.id)
 
 
+class ResendInvoiceView(RoleRequiredMixin, View):
+    """
+    Resend the issued-invoice email to the student + linked parents/guardians.
+
+    Used after correcting a bounced email address. The invoice itself is
+    not modified.
+    """
+    required_roles = INVOICING_ROLES
+
+    def post(self, request, invoice_id):
+        school = _get_single_school(request.user)
+        invoice = get_object_or_404(Invoice, id=invoice_id, school=school)
+
+        try:
+            result = svc.resend_invoice_email(invoice)
+        except ValueError as e:
+            messages.error(request, str(e))
+            return redirect(request.META.get('HTTP_REFERER', '') or 'invoice_list')
+
+        sent = result.get('sent', [])
+        failed = result.get('failed', [])
+        skipped = result.get('skipped_no_email', False)
+
+        log_event(
+            user=request.user, school=school, category='communication',
+            action='invoice_resent',
+            detail={
+                'invoice_id': invoice.id,
+                'invoice_number': invoice.invoice_number,
+                'sent_to': sent,
+                'failed': failed,
+            },
+            request=request,
+        )
+
+        if sent and not failed:
+            messages.success(
+                request,
+                f'Invoice {invoice.invoice_number} resent to '
+                f'{len(sent)} recipient(s): {", ".join(sent)}.',
+            )
+        elif sent and failed:
+            messages.warning(
+                request,
+                f'Invoice {invoice.invoice_number} resent to '
+                f'{len(sent)} recipient(s); {len(failed)} failed: '
+                f'{", ".join(failed)}.',
+            )
+        elif failed:
+            messages.error(
+                request,
+                f'Invoice {invoice.invoice_number} could not be resent — '
+                f'all {len(failed)} attempt(s) failed.',
+            )
+        elif skipped:
+            messages.error(
+                request,
+                f'Invoice {invoice.invoice_number} could not be resent — '
+                f'the student has no email address on file. Update the '
+                f"student's email and try again.",
+            )
+        else:
+            messages.warning(
+                request,
+                f'Invoice {invoice.invoice_number} has no recipients to '
+                f'email — add a parent or guardian with a valid email.',
+            )
+
+        return redirect(request.META.get('HTTP_REFERER', '') or 'invoice_list')
+
+
 class RecordManualPaymentView(RoleRequiredMixin, View):
     required_roles = INVOICING_ROLES
 
