@@ -366,6 +366,9 @@ class AccountBlockingTest(TestCase):
 class RegistrationSubscriptionTest(TestCase):
     """Test that institute registration creates a SchoolSubscription."""
 
+    def setUp(self):
+        _ensure_plans_exist()
+
     def test_teacher_center_registration_creates_subscription(self):
         client = Client()
         basic_plan = InstitutePlan.objects.get(slug='basic')
