@@ -119,31 +119,20 @@ def check_overlapping_invoices(student, school, billing_period_start, billing_pe
     ).exclude(status='cancelled')
 
 
-def find_uncovered_date_ranges(issued_invoices, request_start, request_end):
+def _gaps_in_window(covered_intervals, request_start, request_end):
     """
-    Given a collection of issued invoices and a requested billing window
-    [request_start, request_end], return a list of (start, end) date pairs
-    representing the portions of the window NOT already covered by those invoices.
-
-    Example:
-        issued: Jan 6–20
-        request: Jan 1–31
-        → uncovered: [(Jan 1, Jan 5), (Jan 21, Jan 31)]
-
-    Returns an empty list when the invoices fully cover the requested window.
+    Given a list of (start, end) covered intervals and a window
+    [request_start, request_end], return the sorted list of (start, end) gap
+    intervals not covered by any input interval.
     """
-    # Clip each invoice's interval to the requested window
+    # Clip each interval to the requested window and drop non-overlapping ones
     covered = sorted(
-        (
-            max(inv.billing_period_start, request_start),
-            min(inv.billing_period_end,   request_end),
-        )
-        for inv in issued_invoices
-        if inv.billing_period_start <= request_end
-        and inv.billing_period_end >= request_start
+        (max(s, request_start), min(e, request_end))
+        for s, e in covered_intervals
+        if s <= request_end and e >= request_start
     )
 
-    # Merge overlapping/adjacent covered intervals
+    # Merge overlapping/adjacent intervals
     merged = []
     for cov_start, cov_end in covered:
         if merged and cov_start <= merged[-1][1] + timedelta(days=1):
@@ -163,6 +152,77 @@ def find_uncovered_date_ranges(issued_invoices, request_start, request_end):
         gaps.append((cursor, request_end))
 
     return gaps
+
+
+def find_uncovered_date_ranges(issued_invoices, request_start, request_end):
+    """
+    Given a collection of issued invoices and a requested billing window
+    [request_start, request_end], return a list of (start, end) date pairs
+    representing the portions of the window NOT already covered by those invoices.
+
+    NOTE: This helper considers only the invoice header date ranges and is
+    blind to per-classroom coverage. For correct per-classroom gap detection
+    (e.g. a classroom added to a student after an invoice was issued for some
+    other classroom in the same window), use
+    ``find_uncovered_date_ranges_by_classroom`` instead.
+
+    Example:
+        issued: Jan 6–20
+        request: Jan 1–31
+        → uncovered: [(Jan 1, Jan 5), (Jan 21, Jan 31)]
+
+    Returns an empty list when the invoices fully cover the requested window.
+    """
+    intervals = [
+        (inv.billing_period_start, inv.billing_period_end)
+        for inv in issued_invoices
+    ]
+    return _gaps_in_window(intervals, request_start, request_end)
+
+
+def find_uncovered_date_ranges_by_classroom(
+    issued_invoices, request_start, request_end, classroom_ids,
+):
+    """
+    Compute uncovered date ranges per classroom.
+
+    For each classroom in ``classroom_ids``, returns the portions of
+    [request_start, request_end] NOT already covered by an issued invoice
+    that has a line item for THAT specific classroom.
+
+    A classroom is treated as fully uncovered if no issued invoice billed
+    it in the window.
+
+    Returns: dict {classroom_id: [(start, end), ...]} — only classrooms
+    with at least one gap are included.
+    """
+    # Build per-classroom list of covered date intervals.
+    by_classroom = {cid: [] for cid in classroom_ids}
+
+    if classroom_ids and issued_invoices:
+        line_items = InvoiceLineItem.objects.filter(
+            invoice__in=issued_invoices,
+            classroom_id__in=classroom_ids,
+        ).values('invoice_id', 'classroom_id')
+
+        # Map invoice_id → (start, end) for quick lookup
+        invoice_window = {
+            inv.id: (inv.billing_period_start, inv.billing_period_end)
+            for inv in issued_invoices
+        }
+
+        for li in line_items:
+            window = invoice_window.get(li['invoice_id'])
+            if window is not None:
+                by_classroom[li['classroom_id']].append(window)
+
+    # For each classroom, compute gaps within the requested window
+    result = {}
+    for cid, intervals in by_classroom.items():
+        gaps = _gaps_in_window(intervals, request_start, request_end)
+        if gaps:
+            result[cid] = gaps
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -409,7 +469,8 @@ def sync_sessions_for_school(school, created_by=None):
 
 
 def calculate_invoice_lines(student, school, billing_period_start, billing_period_end,
-                             attendance_mode, billing_type='post_term', department=None):
+                             attendance_mode, billing_type='post_term', department=None,
+                             restrict_classroom_ids=None):
     """
     Returns (lines, warnings) where:
     - lines: list of dicts with per-class breakdown
@@ -424,6 +485,16 @@ def calculate_invoice_lines(student, school, billing_period_start, billing_perio
     - When set, only classrooms belonging to that department produce line items.
       This ensures that scoping an invoice run to a single department does not
       inadvertently include the student's classes in other departments.
+
+    restrict_classroom_ids:
+    - When set (iterable of classroom IDs), only those classrooms produce line
+      items. Used by gap-invoice logic to bill a specific classroom for an
+      uncovered date range.
+
+    Per-enrollment ``billing_start_date`` semantics:
+    - NULL → bill the full requested period (e.g. backdated data entry for a
+      student who was already attending; pre-enrollment sessions are billable).
+    - Set  → sessions before this date are skipped (genuine late starter).
     """
     enrollments = ClassStudent.objects.filter(
         classroom__school=school,
@@ -434,6 +505,9 @@ def calculate_invoice_lines(student, school, billing_period_start, billing_perio
     if department is not None:
         enrollments = enrollments.filter(classroom__department=department)
 
+    if restrict_classroom_ids is not None:
+        enrollments = enrollments.filter(classroom_id__in=restrict_classroom_ids)
+
     lines = []
     warnings = []
 
@@ -442,12 +516,19 @@ def calculate_invoice_lines(student, school, billing_period_start, billing_perio
         if not classroom.is_active:
             continue
 
-        # Use full billing period — don't restrict by joined_at.
-        # If a student has attendance marked for a session, they should be
-        # charged for it even if they were formally enrolled after that date.
+        # Apply per-enrollment billing_start_date if set. NULL means "bill the
+        # full requested period" — see field docstring on ClassStudent.
+        effective_start = billing_period_start
+        if enrollment.billing_start_date:
+            effective_start = max(effective_start, enrollment.billing_start_date)
+
+        if effective_start > billing_period_end:
+            # billing_start_date is past the requested window — nothing to bill
+            continue
+
         all_sessions = ClassSession.objects.filter(
             classroom=classroom,
-            date__range=(billing_period_start, billing_period_end),
+            date__range=(effective_start, billing_period_end),
         ).exclude(status='cancelled')
 
         if billing_type == 'upfront':

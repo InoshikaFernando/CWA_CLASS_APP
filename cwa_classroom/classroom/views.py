@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 
 from django.conf import settings
 from django.core.cache import cache
@@ -1114,13 +1115,33 @@ class AssignStudentsView(RoleRequiredMixin, View):
                 )
                 return redirect('assign_students', class_id=class_id)
 
+        # Optional billing_start_date applied to NEWLY enrolled students only.
+        # If empty, NULL is stored → bill the full period (covers the
+        # "backdated data entry" case).
+        billing_start_raw = (request.POST.get('billing_start_date') or '').strip()
+        billing_start = None
+        if billing_start_raw:
+            try:
+                billing_start = datetime.strptime(billing_start_raw, '%Y-%m-%d').date()
+            except ValueError:
+                billing_start = None
+
         added = 0
         for sid in student_ids:
             student = get_object_or_404(CustomUser, id=sid)
-            cs, created = ClassStudent.objects.get_or_create(classroom=classroom, student=student)
+            cs, created = ClassStudent.objects.get_or_create(
+                classroom=classroom, student=student,
+                defaults={'billing_start_date': billing_start},
+            )
             if not created and not cs.is_active:
                 cs.is_active = True
-                cs.save(update_fields=['is_active'])
+                # Re-enrolling: also refresh billing_start_date if the admin
+                # supplied one; leave existing value alone otherwise.
+                update_fields = ['is_active']
+                if billing_start is not None:
+                    cs.billing_start_date = billing_start
+                    update_fields.append('billing_start_date')
+                cs.save(update_fields=update_fields)
                 added += 1
             elif created:
                 added += 1

@@ -511,11 +511,28 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
 
                 if issued_overlaps.exists():
                     # ── Issued invoices overlap ──────────────────────────────
-                    # Find sessions not yet covered by any issued invoice.
-                    uncovered = svc.find_uncovered_date_ranges(issued_overlaps, start, end)
+                    # Compute uncovered date ranges PER CLASSROOM. A classroom
+                    # is only "covered" by an issued invoice if that invoice
+                    # has a line item for that classroom — otherwise sessions
+                    # in that classroom for the invoice's date range are still
+                    # unbilled (e.g. classroom added to student after invoice
+                    # was issued for some other classroom).
+                    enrolled_qs = ClassStudent.objects.filter(
+                        classroom__school=school, student=student, is_active=True,
+                        classroom__is_active=True,
+                    )
+                    if department is not None:
+                        enrolled_qs = enrolled_qs.filter(classroom__department=department)
+                    enrolled_classroom_ids = list(
+                        enrolled_qs.values_list('classroom_id', flat=True)
+                    )
 
-                    if not uncovered:
-                        # Issued invoices fully cover the period — nothing to bill
+                    uncovered_by_class = svc.find_uncovered_date_ranges_by_classroom(
+                        issued_overlaps, start, end, enrolled_classroom_ids,
+                    )
+
+                    if not uncovered_by_class:
+                        # Every enrolled classroom is fully covered — skip.
                         skipped_fully_covered.append(display_name)
                         continue
 
@@ -528,16 +545,18 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
                             cancelled_at=timezone.now(),
                         )
 
-                    # Build lines for every uncovered sub-period and merge
+                    # Build lines per (classroom, gap_range)
                     gap_lines = []
-                    for gap_start, gap_end in uncovered:
-                        sub_lines, sub_warnings = svc.calculate_invoice_lines(
-                            student, school, gap_start, gap_end, mode,
-                            billing_type=billing_type,
-                            department=department,
-                        )
-                        gap_lines.extend(sub_lines)
-                        all_warnings.extend(sub_warnings)
+                    for cid, gap_ranges in uncovered_by_class.items():
+                        for gap_start, gap_end in gap_ranges:
+                            sub_lines, sub_warnings = svc.calculate_invoice_lines(
+                                student, school, gap_start, gap_end, mode,
+                                billing_type=billing_type,
+                                department=department,
+                                restrict_classroom_ids=[cid],
+                            )
+                            gap_lines.extend(sub_lines)
+                            all_warnings.extend(sub_warnings)
 
                     if gap_lines:
                         gap_invoiced_names.append(display_name)
