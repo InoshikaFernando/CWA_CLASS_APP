@@ -22,6 +22,13 @@ The core of the platform. Owns the school hierarchy (School → Department → C
 **Attendance** (still owned here pending the `attendance` app cutover)
 - **ClassSession**, **StudentAttendance**, **TeacherAttendance**, **AbsenceToken**.
 
+**Invoicing**
+- **Invoice**, **InvoiceLineItem** — one line per (invoice, classroom) covering session counts and rate.
+- **InvoicePayment**, **CreditTransaction**, **PaymentReferenceMapping** — payment recording and credit ledger.
+- **ClassStudent.billing_start_date** — first billable session date for a single enrollment. `NULL` = bill the full requested period (backdated data entry for a student who was already attending). Set to a date when the student genuinely starts mid-period — sessions before this date are skipped by the calculator.
+- Gap-invoice logic in `invoicing_services.find_uncovered_date_ranges_by_classroom` is **per-classroom**: a classroom is treated as covered only if an issued invoice has a line item for that specific classroom. Adding a student to a new class after an invoice was issued for some other class does not silently drop the new class's sessions.
+- **Resend** an issued invoice email via the **Resend** column on the invoice list (POST `/invoicing/<id>/resend/`, named `resend_invoice`). Sends to student + linked parents (`ParentStudent`) + guardians (`StudentGuardian`) using the same `email/transactional/invoice_issued.html` template the initial issue used. Use after correcting a bounced parent email — the invoice itself is not modified, only re-emailed. Drafts and cancelled invoices cannot be resent. Each resend writes an `invoice_resent` audit event with the recipient list.
+
 **Reference / utility**
 - **Currency** — ISO 4217 reference table.
 - **EmailLog** — outgoing-email audit (used by `notifications` and the email service).
