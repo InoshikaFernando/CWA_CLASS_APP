@@ -10,9 +10,11 @@
   }
 </style>
 {% if has_coding_item %}
-{# CodeMirror 5 — loaded only when the homework has at least one coding item,
-   so pure-maths homework stays lean. Same version as coding/exercise_detail.html
-   so students get a consistent editor across the coding app and homework. #}
+{% comment %}
+  CodeMirror 5 — loaded only when the homework has at least one coding item,
+  so pure-maths homework stays lean. Same version as coding/exercise_detail.html
+  so students get a consistent editor across the coding app and homework.
+{% endcomment %}
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
@@ -61,8 +63,10 @@
         {% for item in items %}
         <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
           <p class="text-sm font-semibold text-gray-400 mb-2">Question {{ forloop.counter }}</p>
-          {# Subject-plugin dispatch: each plugin provides its own rendering
-             partial (maths → MCQ/text input, coding → editor, ...). #}
+          {% comment %}
+            Subject-plugin dispatch: each plugin provides its own rendering
+            partial (maths → MCQ/text input, coding → editor, ...).
+          {% endcomment %}
           {% include item.template with ctx=item.ctx %}
         </div>
         {% endfor %}

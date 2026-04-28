@@ -18,8 +18,10 @@
     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
       <form method="post" novalidate id="hw-create-form">
         {% csrf_token %}
-        {# Subject-plugin dispatch: posted verbatim so the view knows which
-           plugin to route through when rendering topic picker + grading. #}
+        {% comment %}
+          Subject-plugin dispatch: posted verbatim so the view knows which
+          plugin to route through when rendering topic picker + grading.
+        {% endcomment %}
         <input type="hidden" name="subject_slug" id="subject_slug_hidden" value="{{ selected_subject_slug }}">
 
         {% if form.non_field_errors %}
