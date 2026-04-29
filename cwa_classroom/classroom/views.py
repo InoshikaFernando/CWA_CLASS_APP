@@ -858,23 +858,25 @@ class ClassDetailView(RoleRequiredMixin, View):
         # Show "Start Session" when no session exists today, or if today's was cancelled
         can_start = todays_session is None or todays_session.status == 'cancelled'
 
-        # Fee data for student list
+        # Fee data for student list — only HoD and above can view fees
         from .fee_utils import get_effective_fee_for_student, get_fee_source_label, get_effective_fee_for_class
-        can_edit_fee = (
+        can_view_fee = (
             user.has_role(Role.HEAD_OF_DEPARTMENT)
             or user.has_role(Role.HEAD_OF_INSTITUTE)
             or user.has_role(Role.INSTITUTE_OWNER)
             or user.has_role(Role.ADMIN)
+            or user.has_role(Role.ACCOUNTANT)
         )
-        class_effective_fee = get_effective_fee_for_class(classroom)
+        can_edit_fee = can_view_fee
+        class_effective_fee = get_effective_fee_for_class(classroom) if can_view_fee else None
 
         student_fee_data = []
         for cs in ClassStudent.objects.filter(classroom=classroom, is_active=True).select_related('student'):
             student_fee_data.append({
                 'student': cs.student,
                 'class_student': cs,
-                'effective_fee': get_effective_fee_for_student(cs),
-                'fee_source': get_fee_source_label(cs),
+                'effective_fee': get_effective_fee_for_student(cs) if can_view_fee else None,
+                'fee_source': get_fee_source_label(cs) if can_view_fee else '',
             })
 
         active_student_ids = ClassStudent.objects.filter(
@@ -974,15 +976,20 @@ class EditClassView(RoleRequiredMixin, View):
         if not current_subject_id and len(subject_groups) == 1:
             current_subject_id = subject_groups[0]['subject'].id
 
-        # Fee context
+        # Fee context — only HoD and above can view/edit fees
         from .fee_utils import get_parent_fee_for_class
-        parent_fee, fee_source = get_parent_fee_for_class(classroom)
-        can_edit_fee = (
+        can_view_fee = (
             request.user.has_role(Role.HEAD_OF_DEPARTMENT)
             or request.user.has_role(Role.HEAD_OF_INSTITUTE)
             or request.user.has_role(Role.INSTITUTE_OWNER)
             or request.user.has_role(Role.ADMIN)
+            or request.user.has_role(Role.ACCOUNTANT)
         )
+        can_edit_fee = can_view_fee
+        if can_view_fee:
+            parent_fee, fee_source = get_parent_fee_for_class(classroom)
+        else:
+            parent_fee, fee_source = None, ''
 
         back_url = request.GET.get('next', '')
         return render(request, 'teacher/edit_class.html', {
