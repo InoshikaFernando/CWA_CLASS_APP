@@ -1,0 +1,541 @@
+{% extends "base.html" %}
+{% block title %}Join BrainBuzz{% endblock %}
+
+{% block content %}
+{# Animated gradient background #}
+<div class="fixed inset-0 -z-10 bg-gradient-to-br from-blue-50 via-white to-purple-50"></div>
+<div class="fixed inset-0 -z-10 opacity-0 animate-pulse pointer-events-none" 
+     style="background: radial-gradient(circle at 30% 50%, rgba(59, 130, 246, 0.05), transparent 50%), 
+             radial-gradient(circle at 70% 50%, rgba(139, 92, 246, 0.05), transparent 50%)"></div>
+
+{# ARIA live region — screen readers announce step changes #}
+<div id="bb-announcement" aria-live="polite" aria-atomic="true" class="sr-only"></div>
+
+<div class="min-h-[85vh] flex items-center justify-center px-4 py-6"
+     x-data="bbJoinFlow(
+       '{{ prefill_code|escapejs }}',
+       '{% if user.is_authenticated %}{{ user.first_name|default:user.username|escapejs }}{% endif %}',
+       {{ user.is_authenticated|yesno:'true,false' }}
+     )"
+     x-init="init()">
+
+  <div class="w-full max-w-sm space-y-6">
+
+    <!-- Brand Section - Enhanced with Bounce Animation -->
+    <div class="text-center space-y-4 py-4">
+      <div class="flex justify-center">
+        <div class="inline-flex items-center justify-center w-24 h-24 
+                    rounded-3xl bg-gradient-to-br from-blue-500 to-purple-600 
+                    shadow-2xl shadow-blue-500/30 animate-bounce" 
+             style="animation-duration: 2s; animation-delay: 0.1s">
+          <svg class="w-12 h-12 text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/>
+          </svg>
+        </div>
+      </div>
+      <div>
+        <h1 class="text-5xl font-black bg-gradient-to-r from-blue-600 via-purple-600 to-blue-600 bg-clip-text text-transparent">
+          BrainBuzz
+        </h1>
+        <p class="text-sm text-gray-500 mt-2 font-semibold tracking-wide">Live Quiz Challenge</p>
+      </div>
+    </div>
+
+    <!-- Network-error reconnect banner -->
+    <div x-show="networkError" x-cloak
+         role="alert"
+         class="bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 rounded-2xl px-5 py-4 flex items-center gap-3 text-sm text-amber-800 shadow-md">
+      <svg class="w-5 h-5 flex-shrink-0 text-amber-600 animate-spin" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/>
+      </svg>
+      <span class="font-semibold">Reconnecting…</span>
+    </div>
+
+    <!-- Error banner -->
+    <div x-show="error && !networkError" x-cloak
+         role="alert"
+         class="bg-gradient-to-r from-red-50 to-orange-50 border-2 border-red-300 rounded-2xl px-5 py-4 text-sm text-red-800 shadow-md font-semibold"
+         x-text="error"></div>
+
+    <!-- ═══ STEP 1: Code ═══ -->
+    <div x-show="step === 'code'" x-cloak class="animate-in fade-in slide-in-from-bottom-4 duration-300">
+      <div class="space-y-6">
+        <div class="text-center space-y-2">
+          <p class="text-sm font-semibold text-gray-600 tracking-wide uppercase">Step 1 of 2</p>
+          <p class="text-gray-700 text-lg font-bold">Enter the game code shown on the board</p>
+          <p class="text-xs text-gray-500">No account needed • Share any name</p>
+        </div>
+
+        <div class="space-y-4">
+          <label class="sr-only" for="code-input">6-character game code</label>
+          <input
+            id="code-input"
+            type="text"
+            inputmode="text"
+            autocomplete="off"
+            autocapitalize="characters"
+            autocorrect="off"
+            spellcheck="false"
+            maxlength="6"
+            placeholder="ABCD12"
+            :value="code"
+            @input="onCodeInput($event)"
+            @keydown.enter.prevent="advanceFromCode()"
+            class="w-full border-3 border-gray-200 hover:border-blue-300 focus:border-blue-500 focus:ring-4 focus:ring-blue-200 rounded-3xl px-6 py-6 text-center text-5xl font-black font-mono tracking-widest uppercase focus:outline-none transition-all duration-200 bg-white"
+            aria-label="6-character game code"
+            :aria-invalid="!!error"
+          >
+          <div class="flex items-center justify-between px-2">
+            <p class="text-xs font-medium text-gray-500">
+              <span x-text="code.length"></span>/6 characters
+            </p>
+            <p class="text-xs font-medium text-gray-500">Press Enter or Continue</p>
+          </div>
+        </div>
+
+        <button
+          @click="advanceFromCode()"
+          :disabled="code.length < 6"
+          class="group relative w-full overflow-hidden rounded-2xl py-4 font-black text-lg text-white transition-all duration-300
+                 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:shadow-none
+                 enabled:bg-gradient-to-r enabled:from-blue-500 enabled:to-purple-600
+                 enabled:hover:shadow-lg enabled:hover:shadow-purple-500/40 enabled:hover:scale-105
+                 enabled:active:scale-95">
+          <span class="relative flex items-center justify-center gap-2">
+            <span x-show="!loading">Continue</span>
+            <span x-show="!loading" class="group-hover:translate-x-1 transition-transform">→</span>
+            <span x-show="loading" x-cloak class="text-sm">Checking code…</span>
+          </span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ═══ STEP 2: Nickname ═══ -->
+    <div x-show="step === 'nickname'" x-cloak class="animate-in fade-in slide-in-from-bottom-4 duration-300">
+      <div class="space-y-6">
+        <div class="text-center space-y-3 bg-gradient-to-r from-blue-50 to-purple-50 rounded-3xl px-4 py-5 border-2 border-blue-200">
+          <p class="text-xs font-bold text-blue-600 uppercase tracking-widest">Step 2 of 2</p>
+          <p class="text-2xl font-black text-gray-900">Game Code</p>
+          <p class="text-sm font-mono font-black text-blue-600 tracking-widest px-3 py-2 bg-white rounded-lg border-2 border-blue-300"
+             x-text="code"></p>
+          <p class="text-sm text-gray-700 font-semibold mt-2">Choose how you appear on the leaderboard</p>
+        </div>
+
+        {% if user.is_authenticated and user.first_name %}
+        <!-- Real name toggle (only shown to authenticated users with a name) -->
+        <div class="flex items-center justify-between bg-gradient-to-r from-blue-50 to-purple-50 rounded-2xl px-5 py-4 border-2 border-blue-200 hover:border-blue-300 transition">
+          <label for="use-real-name" class="text-sm font-bold text-gray-800 cursor-pointer flex-1">
+            Use My Real Name
+            <span class="block text-xs font-normal text-gray-600 mt-1">{{ user.first_name }}</span>
+          </label>
+          <button
+            id="use-real-name"
+            role="switch"
+            :aria-checked="useRealName.toString()"
+            @click="toggleRealName()"
+            :class="useRealName ? 'bg-gradient-to-r from-green-500 to-emerald-500 shadow-lg' : 'bg-gray-300'"
+            class="relative inline-flex h-7 w-12 items-center rounded-full transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            aria-label="Use my real name">
+            <span :class="useRealName ? 'translate-x-6' : 'translate-x-1'"
+                  class="inline-block h-5 w-5 transform rounded-full bg-white transition-transform duration-300 shadow-md"></span>
+          </button>
+        </div>
+        {% endif %}
+
+        <form @submit.prevent="submitJoin()" class="space-y-5">
+          <div class="space-y-2">
+            <label class="block text-sm font-bold text-gray-800" for="nickname-input">
+              Your Nickname
+              <span class="font-normal text-gray-500 text-xs ml-1">(max 20 chars)</span>
+            </label>
+            <input
+              id="nickname-input"
+              type="text"
+              x-model="nickname"
+              :readonly="useRealName"
+              maxlength="20"
+              autocomplete="nickname"
+              autocorrect="off"
+              spellcheck="false"
+              placeholder="Your awesome name"
+              @input="nickname = $event.target.value.replace(/[^a-zA-Z0-9 ]/g, '').slice(0, 20)"
+              :class="useRealName
+                ? 'bg-gray-100 text-gray-500 cursor-not-allowed border-gray-300'
+                : 'bg-white border-blue-300 focus:border-blue-500 focus:ring-4 focus:ring-blue-200'"
+              class="w-full border-2 rounded-2xl px-5 py-4 text-base font-semibold focus:outline-none transition-all duration-200"
+              aria-describedby="nickname-hint"
+              :aria-invalid="nicknameError ? 'true' : 'false'"
+            >
+            <div class="flex items-center justify-between">
+              <p id="nickname-hint" class="text-xs text-gray-600 font-medium">
+                Letters, numbers, spaces only
+              </p>
+              <p class="text-xs text-gray-500" x-text="`${nickname.length}/20`"></p>
+            </div>
+            <p x-show="nicknameError" x-cloak
+               class="mt-2 text-sm text-red-600 font-semibold bg-red-50 px-3 py-2 rounded-lg border border-red-200" 
+               role="alert"
+               x-text="nicknameError"></p>
+          </div>
+
+          <button
+            type="submit"
+            :disabled="loading || !nickname.trim()"
+            class="group relative w-full overflow-hidden rounded-2xl py-4 font-black text-lg text-white transition-all duration-300
+                   disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:shadow-none
+                   enabled:bg-gradient-to-r enabled:from-green-500 enabled:via-emerald-500 enabled:to-teal-500
+                   enabled:hover:shadow-lg enabled:hover:shadow-green-500/40 enabled:hover:scale-105
+                   enabled:active:scale-95">
+            <span class="relative flex items-center justify-center gap-2">
+              <span x-show="!loading">Let's Go! ⚡</span>
+              <span x-show="!loading" class="group-hover:animate-pulse">→</span>
+              <span x-show="loading" x-cloak class="text-sm">Joining…</span>
+            </span>
+          </button>
+        </form>
+
+        <button @click="goBack()"
+                class="w-full text-center text-sm font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 py-2 rounded-xl transition">
+          ← Change code
+        </button>
+      </div>
+    </div>
+
+    <!-- ═══ STEP 3: Lobby ═══ -->
+    <div x-show="step === 'lobby'" x-cloak class="animate-in fade-in duration-500">
+      <div class="space-y-8 text-center">
+
+        <!-- Avatar with glow -->
+        <div class="flex flex-col items-center gap-4 py-4">
+          <div class="relative">
+            <div class="absolute inset-0 w-28 h-28 rounded-full opacity-30 blur-xl animate-pulse"
+                 :style="`background-color: ${avatarColor}`"
+                 aria-hidden="true"></div>
+            <div class="relative w-28 h-28 rounded-full flex items-center justify-center text-white text-5xl font-black shadow-2xl"
+                 :style="`background: linear-gradient(135deg, ${avatarColor}, ${avatarColor}dd)`"
+                 aria-hidden="true"
+                 x-text="avatarInitial"></div>
+          </div>
+          <div class="space-y-2">
+            <p class="font-black text-gray-900 text-2xl" x-text="resolvedNickname"></p>
+            <p class="text-xs font-black text-gray-400 font-mono tracking-widest bg-gray-100 px-4 py-2 rounded-lg border border-gray-200"
+               x-text="code"></p>
+          </div>
+        </div>
+
+        <!-- Wait animation -->
+        <div class="space-y-5 bg-gradient-to-br from-blue-50 to-purple-50 rounded-3xl px-6 py-8 border-2 border-blue-200">
+          <div class="flex justify-center gap-2" aria-hidden="true">
+            <span class="w-3 h-3 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 animate-bounce" style="animation-delay: 0ms"></span>
+            <span class="w-3 h-3 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 animate-bounce" style="animation-delay: 150ms"></span>
+            <span class="w-3 h-3 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 animate-bounce" style="animation-delay: 300ms"></span>
+          </div>
+          <div class="space-y-2">
+            <p class="text-xl font-black text-gray-900">Waiting for host to start…</p>
+            <p class="text-sm font-semibold text-gray-600 bg-white px-3 py-2 rounded-lg border border-blue-200"
+               x-text="participantCount === 1 ? '👤 1 player in the lobby' : `👥 ${participantCount} players in the lobby`"
+               aria-live="polite"></p>
+          </div>
+        </div>
+
+        <p class="text-xs font-medium text-gray-500 flex items-center justify-center gap-1">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm.707-10.707a1 1 0 00-1.414-1.414L9 8.586 7.707 7.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/>
+          </svg>
+          You're in! Keep this page open.
+        </p>
+      </div>
+    </div>
+
+    <!-- ═══ STEP: ended ═══ -->
+    <div x-show="step === 'ended'" x-cloak class="animate-in fade-in duration-300">
+      <div class="text-center space-y-6 bg-gradient-to-br from-gray-50 to-gray-100 rounded-3xl px-6 py-12 border-2 border-gray-200">
+        <p class="text-7xl animate-bounce" aria-hidden="true" style="animation-duration: 1.5s">🏁</p>
+        <div class="space-y-2">
+          <p class="text-2xl font-black text-gray-900">This game has ended.</p>
+          <p class="text-sm text-gray-600 font-medium">Thanks for playing! The session is now closed.</p>
+        </div>
+        <a href="{% url 'brainbuzz:join' %}"
+           class="inline-block w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:shadow-lg hover:shadow-purple-500/40 hover:scale-105 text-white font-black py-4 rounded-2xl transition-all duration-300 text-base">
+          Join a new game
+        </a>
+      </div>
+    </div>
+
+    <!-- ═══ STEP: joining (auto-join spinner) ═══ -->
+    <div x-show="step === 'joining'" x-cloak class="animate-in fade-in duration-300">
+      <div class="text-center space-y-6 py-12">
+        <div class="flex justify-center">
+          <div class="relative inline-flex items-center justify-center w-20 h-20">
+            <div class="absolute inset-0 rounded-full bg-gradient-to-r from-blue-400 to-purple-500 opacity-20 animate-pulse"></div>
+            <svg class="w-10 h-10 text-blue-600 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+            </svg>
+          </div>
+        </div>
+        <div class="space-y-2">
+          <p class="text-lg font-bold text-gray-900" x-text="`Joining as ${nickname}…`"></p>
+          <p class="text-sm text-gray-600">Setting up your seat…</p>
+        </div>
+      </div>
+    </div>
+
+  </div>{# /.w-full.max-w-sm #}
+</div>
+
+{% csrf_token %}
+
+<script>
+const _BB_AVATAR_COLORS = [
+  '#ef4444', '#f97316', '#eab308', '#22c55e',
+  '#3b82f6', '#a855f7', '#ec4899', '#14b8a6',
+];
+
+function bbJoinFlow(prefillCode, userFirstName, isAuthenticated) {
+  return {
+    /* state */
+    step: 'code',     // 'code' | 'nickname' | 'joining' | 'lobby' | 'ended'
+    code: prefillCode ? prefillCode.toUpperCase() : '',
+    nickname: userFirstName || '',
+    useRealName: isAuthenticated && !!userFirstName,
+    participantId: null,
+    resolvedNickname: '',
+    avatarColor: '',
+    participantCount: 0,
+    stateVersion: -1,
+    loading: false,
+    error: '',
+    nicknameError: '',
+    networkError: false,
+    errCount: 0,
+    pollTimer: null,
+
+    get avatarInitial() {
+      return (this.resolvedNickname || this.nickname || '?').charAt(0).toUpperCase();
+    },
+
+    init() {
+      // 1. Check localStorage for an existing session token
+      if (this.code.length === 6) {
+        const stored = this._loadToken(this.code);
+        if (stored) {
+          this.participantId    = stored.participant_id;
+          this.resolvedNickname = stored.nickname;
+          this.avatarColor      = stored.avatar_color;
+          this.step = 'lobby';
+          this._announce('You rejoined the lobby. Waiting for host to start.');
+          this._startPolling();
+          return;
+        }
+      }
+
+      // 2. Deep link with code: skip code step → nickname step
+      if (prefillCode && prefillCode.length === 6) {
+        this.step = 'nickname';
+        this._announce('Step 2: Enter your nickname.');
+        this.$nextTick(() => {
+          if (this.useRealName) {
+            // Authenticated + real name toggle on → auto-join immediately
+            this._autoJoin();
+          } else {
+            document.getElementById('nickname-input')?.focus();
+          }
+        });
+        return;
+      }
+
+      // 3. Default: focus code input
+      this.$nextTick(() => document.getElementById('code-input')?.focus());
+    },
+
+    /* ── Step 1: code ─────────────────────────────────────────────── */
+
+    onCodeInput(e) {
+      const clean = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+      e.target.value = clean;
+      this.code = clean;
+      this.error = '';
+      if (clean.length === 6) this.advanceFromCode();
+    },
+
+    advanceFromCode() {
+      if (this.code.length !== 6) return;
+      this.error = '';
+      this.step = 'nickname';
+      this._announce('Step 2: Enter your nickname.');
+      this.$nextTick(() => {
+        if (this.useRealName) {
+          this._autoJoin();
+        } else {
+          document.getElementById('nickname-input')?.focus();
+        }
+      });
+    },
+
+    /* ── Step 2: nickname ─────────────────────────────────────────── */
+
+    toggleRealName() {
+      this.useRealName = !this.useRealName;
+      if (this.useRealName) {
+        this.nickname = userFirstName || '';
+      }
+      this.$nextTick(() => {
+        if (!this.useRealName) document.getElementById('nickname-input')?.focus();
+      });
+    },
+
+    _validateNickname() {
+      const n = this.nickname.trim();
+      if (!n) { this.nicknameError = 'Nickname is required.'; return false; }
+      if (n.length > 20) { this.nicknameError = 'Nickname must be 20 characters or fewer.'; return false; }
+      if (!/^[a-zA-Z0-9][a-zA-Z0-9 ]{0,19}$/.test(n)) {
+        this.nicknameError = 'Letters, numbers, and spaces only.';
+        return false;
+      }
+      this.nicknameError = '';
+      return true;
+    },
+
+    async _autoJoin() {
+      if (!this.nickname.trim()) return;
+      this.step = 'joining';
+      this._announce(`Joining as ${this.nickname}…`);
+      await this.submitJoin();
+    },
+
+    async submitJoin() {
+      if (this.loading) return;
+      if (!this._validateNickname()) return;
+
+      this.error = '';
+      this.loading = true;
+      const nick = this.nickname.trim();
+
+      try {
+        const csrf = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+        const res = await fetch('/brainbuzz/api/join/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+          body: JSON.stringify({ code: this.code, nickname: nick }),
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+          this.participantId    = data.participant_id;
+          this.resolvedNickname = data.nickname;
+          this.avatarColor      = _BB_AVATAR_COLORS[data.participant_id % _BB_AVATAR_COLORS.length];
+          this._saveToken();
+          this.step = 'lobby';
+          this._announce('You joined! Waiting for host to start.');
+          this._startPolling();
+        } else {
+          this.step = this.step === 'joining' ? 'nickname' : this.step;
+          this.error = data.error || 'Something went wrong. Try again.';
+          this.$nextTick(() => document.getElementById('nickname-input')?.focus());
+        }
+      } catch (e) {
+        this.step = this.step === 'joining' ? 'nickname' : this.step;
+        this.error = 'Network error. Check your connection and try again.';
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    goBack() {
+      clearTimeout(this.pollTimer);
+      this.step = 'code';
+      this.error = '';
+      this.nicknameError = '';
+      this._announce('Step 1: Enter game code.');
+      this.$nextTick(() => document.getElementById('code-input')?.focus());
+    },
+
+    /* ── Step 3: lobby ────────────────────────────────────────────── */
+
+    _startPolling() {
+      this.errCount = 0;
+      this._poll();
+    },
+
+    async _poll() {
+      try {
+        const res = await fetch(
+          `/brainbuzz/api/session/${this.code}/state/?since=${this.stateVersion}`
+        );
+        if (res.ok && res.status !== 304) {
+          const data = await res.json();
+          this.stateVersion     = data.state_version;
+          this.participantCount = data.participant_count || 0;
+
+          const s = data.status;
+          if (s === 'active' || s === 'reveal' || s === 'between') {
+            // Game started — hand off to the play page
+            this._clearToken();
+            window.location.href = `/brainbuzz/play/${this.code}/`;
+            return;
+          }
+          if (s === 'finished' || s === 'cancelled') {
+            this.step = 'ended';
+            this._clearToken();
+            this._announce('This game has ended.');
+            return;
+          }
+        }
+        this.networkError = false;
+        this.errCount     = 0;
+      } catch (e) {
+        this.errCount++;
+        this.networkError = true;
+      }
+      const delay = Math.min(1200 * Math.pow(1.5, Math.min(this.errCount, 6)), 30000);
+      this.pollTimer = setTimeout(() => this._poll(), delay);
+    },
+
+    /* ── localStorage helpers ─────────────────────────────────────── */
+
+    _saveToken() {
+      try {
+        localStorage.setItem(`bb_session_${this.code}`, JSON.stringify({
+          code:           this.code,
+          participant_id: this.participantId,
+          nickname:       this.resolvedNickname,
+          avatar_color:   this.avatarColor,
+          saved_at:       Date.now(),
+        }));
+      } catch (_) {}
+    },
+
+    _loadToken(code) {
+      try {
+        const raw = localStorage.getItem(`bb_session_${code}`);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        // Expire after 8 hours
+        if (Date.now() - parsed.saved_at > 8 * 3600 * 1000) {
+          localStorage.removeItem(`bb_session_${code}`);
+          return null;
+        }
+        return parsed;
+      } catch (_) {
+        return null;
+      }
+    },
+
+    _clearToken() {
+      try { localStorage.removeItem(`bb_session_${this.code}`); } catch (_) {}
+    },
+
+    /* ── Accessibility ────────────────────────────────────────────── */
+
+    _announce(msg) {
+      const el = document.getElementById('bb-announcement');
+      if (el) {
+        el.textContent = '';
+        requestAnimationFrame(() => { el.textContent = msg; });
+      }
+    },
+  };
+}
+</script>
+{% endblock %}

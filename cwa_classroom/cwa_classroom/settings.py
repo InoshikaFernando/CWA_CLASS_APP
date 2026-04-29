@@ -75,6 +75,9 @@ INSTALLED_APPS = [
     'music',
     'science',
 
+    # Live quiz
+    'brainbuzz',
+
     # Activity apps
     'number_puzzles',
     'homework',

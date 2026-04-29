@@ -1,5 +1,6 @@
 import re
 import uuid
+from brainbuzz.managers import MathsQuestionsManager
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -85,6 +86,9 @@ class Question(models.Model):
     video = models.FileField(upload_to='questions/videos/', blank=True, null=True, help_text="Upload a video for this question")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    # Custom manager for visibility filtering
+    objects = MathsQuestionsManager()
 
     class Meta:
         ordering = ['level', 'difficulty', 'created_at']

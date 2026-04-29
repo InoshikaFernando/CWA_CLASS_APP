@@ -18,6 +18,7 @@ class MathsPlugin(SubjectPlugin):
     display_name = 'Mathematics'
     order = 10
     supports_homework = True
+    brainbuzz_subject_key = 'maths'
 
     # Phase 3 — URL routing + sidebar wiring. Maths owns the plain
     # ``/maths/`` app plus the legacy ``/number-puzzles/`` mini-app that
@@ -45,6 +46,34 @@ class MathsPlugin(SubjectPlugin):
     def has_content(self, classroom=None) -> bool:
         from maths.models import Question
         return Question.objects.exists()
+
+    # ------------------------------------------------------------------
+    # BrainBuzz — flat topic/level choices for the create-session form
+    # ------------------------------------------------------------------
+
+    def brainbuzz_topic_choices(self) -> dict:
+        from classroom.models import Topic, Level
+        topics = list(
+            Topic.objects.filter(subject__slug='mathematics', subject__school__isnull=True)
+            .order_by('name')
+            .values('id', 'name')
+        )
+        # Only show levels 1-12 that have MCQ/TF/short-answer questions in maths
+        levels = list(
+            Level.objects.filter(
+                level_number__gte=1,
+                level_number__lte=12,
+                maths_questions_by_level__question_type__in=[
+                    'multiple_choice', 'true_false', 'short_answer', 'fill_blank'
+                ],
+                maths_questions_by_level__school__isnull=True,  # Global questions only
+                maths_questions_by_level__topic__subject__slug='mathematics',
+            )
+            .distinct()
+            .order_by('level_number')
+            .values('id', 'level_number')
+        )
+        return {'maths_topics': topics, 'maths_levels': levels}
 
     # ------------------------------------------------------------------
     # Homework — topic picker

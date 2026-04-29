@@ -1,0 +1,258 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Upload Questions - Brain Buzz{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8 px-4">
+  <div class="max-w-2xl mx-auto">
+    <!-- Header -->
+    <div class="text-center mb-8">
+      <h1 class="text-4xl md:text-5xl font-bold text-blue-900 mb-2">
+        Upload Questions
+      </h1>
+      <p class="text-lg text-blue-700">
+        Import questions from JSON, CSV, or Excel files
+      </p>
+      
+      <!-- Role Badge -->
+      <div class="mt-4 inline-block">
+        {% if user_role == 'superuser' %}
+          <span class="bg-purple-100 text-purple-800 px-4 py-2 rounded-full font-semibold text-sm">
+            👑 {{ role_description }}
+          </span>
+        {% elif user_role == 'admin' %}
+          <span class="bg-blue-100 text-blue-800 px-4 py-2 rounded-full font-semibold text-sm">
+            🏢 {{ role_description }}
+          </span>
+        {% elif user_role == 'teacher' %}
+          <span class="bg-green-100 text-green-800 px-4 py-2 rounded-full font-semibold text-sm">
+            👨‍🏫 {{ role_description }}
+          </span>
+        {% else %}
+          <span class="bg-red-100 text-red-800 px-4 py-2 rounded-full font-semibold text-sm">
+            ❌ No Permission
+          </span>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Messages -->
+    {% if messages %}
+      <div class="mb-6 space-y-3">
+        {% for message in messages %}
+          <div class="p-4 rounded-lg {% if message.tags == 'error' %}bg-red-100 border-l-4 border-red-500 text-red-800{% elif message.tags == 'warning' %}bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800{% else %}bg-green-100 border-l-4 border-green-500 text-green-800{% endif %}">
+            {{ message }}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    <!-- Upload Form Card -->
+    <div class="bg-white rounded-lg shadow-lg p-8 mb-8">
+      <form method="post" enctype="multipart/form-data" class="space-y-6">
+        {% csrf_token %}
+
+        <!-- Subject Selection -->
+        <fieldset class="border-b pb-6">
+          <legend class="text-lg font-semibold text-gray-900 mb-4">
+            📚 Select Subject
+          </legend>
+          <div class="space-y-3">
+            {% for choice_value, choice_label in form.subject.field.choices %}
+              <label class="flex items-center p-3 border-2 border-gray-200 rounded-lg cursor-pointer hover:bg-blue-50 transition"
+                     onclick="this.querySelector('input').checked = true">
+                <input type="radio" name="subject" value="{{ choice_value }}" 
+                       class="w-4 h-4 text-blue-600 cursor-pointer"
+                       {% if form.subject.value == choice_value %}checked{% endif %}>
+                <span class="ml-3 text-gray-700 font-medium">{{ choice_label }}</span>
+              </label>
+            {% endfor %}
+          </div>
+          {% if form.subject.errors %}
+            <div class="text-red-600 text-sm mt-2">
+              {{ form.subject.errors.0 }}
+            </div>
+          {% endif %}
+        </fieldset>
+
+        <!-- File Format Selection -->
+        <fieldset class="border-b pb-6">
+          <legend class="text-lg font-semibold text-gray-900 mb-4">
+            📄 Select File Format
+          </legend>
+          <div class="space-y-3">
+            {% for choice_value, choice_label in form.file_format.field.choices %}
+              <label class="flex items-center p-3 border-2 border-gray-200 rounded-lg cursor-pointer hover:bg-blue-50 transition"
+                     onclick="this.querySelector('input').checked = true">
+                <input type="radio" name="file_format" value="{{ choice_value }}"
+                       class="w-4 h-4 text-blue-600 cursor-pointer"
+                       {% if form.file_format.value == choice_value %}checked{% endif %}>
+                <span class="ml-3">
+                  <span class="block font-medium text-gray-700">{{ choice_label }}</span>
+                  <span class="block text-sm text-gray-500">
+                    {% if choice_value == 'json' %}
+                      Structured format for complex data
+                    {% elif choice_value == 'csv' %}
+                      Simple spreadsheet format (Excel, Google Sheets)
+                    {% else %}
+                      Microsoft Excel (.xlsx) format
+                    {% endif %}
+                  </span>
+                </span>
+              </label>
+            {% endfor %}
+          </div>
+          {% if form.file_format.errors %}
+            <div class="text-red-600 text-sm mt-2">
+              {{ form.file_format.errors.0 }}
+            </div>
+          {% endif %}
+        </fieldset>
+
+        <!-- File Upload -->
+        <fieldset class="pb-6">
+          <label class="text-lg font-semibold text-gray-900 block mb-4">
+            📁 Upload File
+          </label>
+          <div class="border-2 border-dashed border-blue-300 rounded-lg p-8 text-center bg-blue-50 hover:border-blue-500 transition cursor-pointer"
+               onclick="document.getElementById('file-input').click()">
+            <svg class="w-12 h-12 text-blue-500 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+            </svg>
+            <p class="text-gray-700 font-medium mb-1">Click to upload or drag and drop</p>
+            <p class="text-sm text-gray-500">Maximum file size: 10MB</p>
+          </div>
+          <input type="file" id="file-input" name="file" class="hidden" 
+                 onchange="updateFileName(this)">
+          <p id="file-name" class="text-sm text-gray-600 mt-2"></p>
+          {% if form.file.errors %}
+            <div class="text-red-600 text-sm mt-2">
+              {{ form.file.errors.0 }}
+            </div>
+          {% endif %}
+        </fieldset>
+
+        <!-- Submit Buttons -->
+        <div class="flex gap-4">
+          <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition transform hover:scale-105">
+            ✓ Upload Questions
+          </button>
+          <a href="{% url 'brainbuzz:create' %}" class="flex-1 bg-gray-500 hover:bg-gray-600 text-white font-semibold py-3 px-6 rounded-lg transition text-center">
+            Cancel
+          </a>
+        </div>
+      </form>
+    </div>
+
+    <!-- Download Templates -->
+    <div class="bg-white rounded-lg shadow p-6 mb-4">
+      <h3 class="font-semibold text-gray-900 mb-3">↓ Download sample template</h3>
+      <div class="flex flex-wrap gap-3">
+        <a href="{% url 'brainbuzz:download_sample_template' 'json' %}"
+           class="inline-flex items-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium px-4 py-2 rounded-lg transition text-sm">
+          ↓ JSON
+        </a>
+        <a href="{% url 'brainbuzz:download_sample_template' 'csv' %}"
+           class="inline-flex items-center gap-2 bg-green-50 hover:bg-green-100 text-green-700 font-medium px-4 py-2 rounded-lg transition text-sm">
+          ↓ CSV
+        </a>
+        <a href="{% url 'brainbuzz:download_sample_template' 'excel' %}"
+           class="inline-flex items-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-medium px-4 py-2 rounded-lg transition text-sm">
+          ↓ Excel (.xlsx)
+        </a>
+      </div>
+      <p class="text-xs text-gray-500 mt-2">Sample files include Maths questions across multiple topics and question types.</p>
+    </div>
+
+    <!-- Help Section -->
+    <div class="bg-blue-50 border-l-4 border-blue-500 rounded-lg p-6">
+      <h3 class="font-semibold text-blue-900 mb-4">📋 Format Requirements</h3>
+      <div class="space-y-4 text-sm text-gray-700">
+        
+        <!-- CSV Format -->
+        <div>
+          <h4 class="font-medium text-blue-900 mb-2">CSV Format</h4>
+          <p class="mb-2">Required columns:</p>
+          <ul class="list-disc list-inside ml-2 text-xs font-mono bg-white p-3 rounded mb-2">
+            <li>topic (topic name)</li>
+            <li>level (level number 1-8)</li>
+            <li>question_text</li>
+            <li>question_type (multiple_choice, true_false, short_answer, fill_blank)</li>
+            <li>difficulty (1, 2, or 3)</li>
+            <li>answer1, is_correct1 (for multiple choice/true-false)</li>
+            <li>correct_short_answer (for short answer/fill blank)</li>
+          </ul>
+        </div>
+
+        <!-- JSON Format -->
+        <div>
+          <h4 class="font-medium text-blue-900 mb-2">JSON Format</h4>
+          <p class="text-xs mb-2">Example structure:</p>
+          <pre class="bg-white p-3 rounded text-xs overflow-x-auto"><code>{
+  "subject": "maths",
+  "questions": [
+    {
+      "question_text": "What is 2+2?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "topic": "Arithmetic",
+      "level": 3,
+      "answers": [
+        {"text": "4", "is_correct": true}
+      ]
+    }
+  ]
+}</code></pre>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function updateFileName(input) {
+  const fileName = input.files[0]?.name || '';
+  document.getElementById('file-name').textContent = fileName 
+    ? `Selected: ${fileName}` 
+    : '';
+}
+
+// Enable drag-and-drop
+const dropZone = document.querySelector('.border-dashed');
+['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+  dropZone.addEventListener(eventName, preventDefaults, false);
+});
+
+function preventDefaults(e) {
+  e.preventDefault();
+  e.stopPropagation();
+}
+
+['dragenter', 'dragover'].forEach(eventName => {
+  dropZone.addEventListener(eventName, highlight, false);
+});
+
+['dragleave', 'drop'].forEach(eventName => {
+  dropZone.addEventListener(eventName, unhighlight, false);
+});
+
+function highlight(e) {
+  dropZone.classList.add('border-blue-500', 'bg-blue-100');
+}
+
+function unhighlight(e) {
+  dropZone.classList.remove('border-blue-500', 'bg-blue-100');
+}
+
+dropZone.addEventListener('drop', handleDrop, false);
+
+function handleDrop(e) {
+  const dt = e.dataTransfer;
+  const files = dt.files;
+  document.getElementById('file-input').files = files;
+  updateFileName({files});
+}
+</script>
+{% endblock %}
