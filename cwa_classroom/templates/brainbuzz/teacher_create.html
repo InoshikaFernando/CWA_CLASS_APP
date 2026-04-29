@@ -4,82 +4,329 @@
 {% block content %}
 <div class="max-w-2xl mx-auto py-6 space-y-6">
 
-  <div>
-    <h1 class="text-2xl font-bold text-gray-900">Create BrainBuzz</h1>
-    <p class="mt-1 text-sm text-gray-500">Choose a subject, topic, and question count to start a live quiz session.</p>
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">Create BrainBuzz</h1>
+      <p class="mt-1 text-sm text-gray-500">Choose a subject, topic, and question count to start a live quiz session.</p>
+    </div>
+    <a href="{% url 'brainbuzz:quiz_list' %}"
+       class="flex-shrink-0 inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-xl border border-indigo-200 transition">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/>
+      </svg>
+      My Quizzes
+    </a>
   </div>
 
   {% if error %}
   <div class="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">{{ error }}</div>
   {% endif %}
 
+  <!-- ═══ QUESTION BANK PANEL ════════════════════════════════════════════ -->
+  <div x-data="bbBank()">
+
+    <!-- Trigger card -->
+    <button type="button" @click="showBank = true"
+            class="w-full bg-white border border-gray-200 rounded-2xl shadow-sm flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center flex-shrink-0">
+          <svg class="w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/>
+          </svg>
+        </div>
+        <div class="text-left">
+          <p class="text-sm font-semibold text-gray-800">Question Bank</p>
+          <p class="text-xs text-gray-500">View question counts per level &amp; upload new questions</p>
+        </div>
+      </div>
+      <svg class="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
+      </svg>
+    </button>
+
+    <!-- Question Bank popup modal -->
+    <template x-teleport="body">
+      <div x-show="showBank"
+           x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+           x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+           class="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4"
+           @click.self="showBank = false; detail = null" style="display:none;">
+        <div x-show="showBank"
+             x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 translate-y-4 sm:scale-95" x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100"
+             x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+             class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden" style="max-height:82vh;">
+
+          <!-- Modal header -->
+          <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+            <div class="flex items-center gap-3">
+              <!-- Back button (detail view only) -->
+              <button x-show="detail !== null" @click="detail = null"
+                      class="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-500 transition">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/>
+                </svg>
+              </button>
+              <div>
+                <p class="font-semibold text-gray-900 text-sm" x-text="detail ? detail.title : 'Question Bank'"></p>
+                <p class="text-xs text-gray-500 mt-0.5" x-text="detail ? detail.total + ' questions' : 'All subjects'"></p>
+              </div>
+            </div>
+            <button @click="showBank = false; detail = null"
+                    class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+
+          <!-- Modal body: overview -->
+          <template x-if="detail === null">
+            <div class="overflow-y-auto flex-1 p-6 space-y-6">
+
+              <!-- Mathematics -->
+              {% if maths_levels %}
+              <div>
+                <div class="flex items-center justify-between mb-3">
+                  <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Mathematics — by level</p>
+                  <a href="{% url 'brainbuzz:upload_questions' %}"
+                     class="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-700 transition">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+                    </svg>
+                    Upload Questions
+                  </a>
+                </div>
+                <div class="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                  {% for l in maths_levels %}
+                  <button type="button" @click="expandMaths({{ l.level_number }})"
+                          class="flex items-center justify-between bg-gray-50 hover:bg-indigo-50 rounded-lg px-3 py-2.5 border border-gray-100 hover:border-indigo-200 transition group text-left">
+                    <span class="text-xs font-semibold text-gray-600 group-hover:text-indigo-700">Level {{ l.level_number }}</span>
+                    <div class="flex items-center gap-1">
+                      <span class="text-xs font-bold {% if l.question_count %}text-emerald-600{% else %}text-gray-400{% endif %}">{{ l.question_count }} q</span>
+                      <svg class="w-3 h-3 text-gray-300 group-hover:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
+                      </svg>
+                    </div>
+                  </button>
+                  {% endfor %}
+                </div>
+              </div>
+              {% endif %}
+
+              <!-- Coding -->
+              {% if coding_topic_levels %}
+              <div>
+                <div class="flex items-center justify-between mb-3">
+                  <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Coding — by language &amp; level</p>
+                  <a href="{% url 'brainbuzz:upload_questions' %}"
+                     class="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-700 transition">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+                    </svg>
+                    Upload Questions
+                  </a>
+                </div>
+                {% regroup coding_topic_levels by topic__language__name as lang_groups %}
+                <div class="space-y-4">
+                  {% for lang_group in lang_groups %}
+                  <div>
+                    <p class="text-xs font-semibold text-gray-400 mb-1.5">{{ lang_group.grouper }}</p>
+                    <div class="grid grid-cols-3 gap-2">
+                      {% for tl in lang_group.list %}
+                      <button type="button" @click="expandCoding({{ tl.id }})"
+                              class="flex items-center justify-between bg-gray-50 hover:bg-indigo-50 rounded-lg px-3 py-2 border border-gray-100 hover:border-indigo-200 transition group text-left">
+                        <div>
+                          <p class="text-xs font-medium text-gray-600 group-hover:text-indigo-700">{{ tl.level_choice|capfirst }}</p>
+                          <p class="text-xs text-gray-400 truncate" style="max-width:7rem;" title="{{ tl.topic__name }}">{{ tl.topic__name }}</p>
+                        </div>
+                        <div class="flex items-center gap-1 flex-shrink-0 ml-1">
+                          <span class="text-xs font-bold {% if tl.question_count %}text-emerald-600{% else %}text-gray-400{% endif %}">{{ tl.question_count }} q</span>
+                          <svg class="w-3 h-3 text-gray-300 group-hover:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
+                          </svg>
+                        </div>
+                      </button>
+                      {% endfor %}
+                    </div>
+                  </div>
+                  {% endfor %}
+                </div>
+              </div>
+              {% endif %}
+
+            </div>
+          </template>
+
+          <!-- Modal body: detail (maths topic breakdown or coding question list) -->
+          <template x-if="detail !== null">
+            <div class="overflow-y-auto flex-1 divide-y divide-gray-50 px-6">
+              <!-- Maths: topic → count -->
+              <template x-if="detail.type === 'maths'">
+                <div>
+                  <template x-for="row in detail.rows" :key="row.label">
+                    <div class="flex items-center justify-between py-3">
+                      <span x-text="row.label" class="text-sm text-gray-700"></span>
+                      <span x-text="row.count + ' q'" class="text-xs font-semibold text-emerald-600 ml-4 flex-shrink-0"></span>
+                    </div>
+                  </template>
+                  <template x-if="detail.rows.length === 0">
+                    <p class="text-sm text-gray-400 text-center py-8">No questions yet.</p>
+                  </template>
+                </div>
+              </template>
+              <!-- Coding: numbered question titles -->
+              <template x-if="detail.type === 'coding'">
+                <div>
+                  <template x-for="(row, i) in detail.rows" :key="i">
+                    <div class="flex gap-3 py-3">
+                      <span x-text="(i + 1) + '.'" class="text-xs font-semibold text-gray-400 flex-shrink-0 w-5 text-right mt-0.5"></span>
+                      <span x-text="row.label" class="text-sm text-gray-700"></span>
+                    </div>
+                  </template>
+                  <template x-if="detail.rows.length === 0">
+                    <p class="text-sm text-gray-400 text-center py-8">No questions yet.</p>
+                  </template>
+                </div>
+              </template>
+            </div>
+          </template>
+
+        </div>
+      </div>
+    </template>
+  </div>
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+
   <form method="post" x-data="bbCreate()" class="space-y-5 bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
     {% csrf_token %}
 
-    <!-- Subject selector -->
+    <!-- Subject selector — driven by plugin registry -->
     <div>
       <label class="block text-sm font-semibold text-gray-700 mb-2">Subject</label>
       <div class="grid grid-cols-2 gap-3">
+        {% for slug, label in bb_subject_choices %}
         <label class="relative cursor-pointer">
-          <input type="radio" name="subject" value="maths" x-model="subject" class="sr-only">
-          <div :class="subject === 'maths' ? 'ring-2 ring-accent bg-accent/5' : 'ring-1 ring-gray-200 hover:ring-gray-300'"
+          <input type="radio" name="subject" value="{{ slug }}" x-model="subject" class="sr-only">
+          <div :class="subject === '{{ slug }}' ? 'ring-2 ring-accent bg-accent/5' : 'ring-1 ring-gray-200 hover:ring-gray-300'"
                class="flex flex-col items-center justify-center gap-2 p-4 rounded-xl transition">
+            {% if slug == 'maths' %}
             <svg class="w-8 h-8 text-accent" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/>
             </svg>
-            <span class="text-sm font-semibold text-gray-800">Maths</span>
-          </div>
-        </label>
-        <label class="relative cursor-pointer">
-          <input type="radio" name="subject" value="coding" x-model="subject" class="sr-only">
-          <div :class="subject === 'coding' ? 'ring-2 ring-accent bg-accent/5' : 'ring-1 ring-gray-200 hover:ring-gray-300'"
-               class="flex flex-col items-center justify-center gap-2 p-4 rounded-xl transition">
+            {% elif slug == 'coding' %}
             <svg class="w-8 h-8 text-accent" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5"/>
             </svg>
-            <span class="text-sm font-semibold text-gray-800">Coding</span>
+            {% else %}
+            <svg class="w-8 h-8 text-accent" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z"/>
+            </svg>
+            {% endif %}
+            <span class="text-sm font-semibold text-gray-800">{{ label }}</span>
           </div>
         </label>
+        {% endfor %}
       </div>
     </div>
 
     <!-- Maths options -->
     <div x-show="subject === 'maths'" x-cloak class="space-y-4">
+
+      <!-- Topic grouped by first letter -->
       <div>
         <label class="block text-sm font-semibold text-gray-700 mb-1" for="topic_id">Topic</label>
         <select name="topic_id" id="topic_id"
+                x-model="mathsTopicId"
                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent">
           <option value="">— Select a topic —</option>
-          {% for t in maths_topics %}
-          <option value="{{ t.id }}">{{ t.name }}</option>
-          {% endfor %}
+          <template x-for="group in groupedMathsTopics" :key="group.label">
+            <optgroup :label="group.label">
+              <template x-for="t in group.items" :key="t.id">
+                <option :value="t.id" x-text="t.name"></option>
+              </template>
+            </optgroup>
+          </template>
         </select>
       </div>
+
+      <!-- Level pills -->
       <div>
-        <label class="block text-sm font-semibold text-gray-700 mb-1" for="level_id">Level</label>
-        <select name="level_id" id="level_id"
-                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent">
-          <option value="">— Select a level —</option>
-          {% for l in maths_levels %}
-          <option value="{{ l.id }}">Level {{ l.level_number }}</option>
-          {% endfor %}
-        </select>
+        <label class="block text-sm font-semibold text-gray-700 mb-2">Level</label>
+        <div class="flex flex-wrap gap-2">
+          <template x-for="lvl in allMathsLevels" :key="lvl.id">
+            <button type="button"
+                    @click="mathsLevelId = lvl.id"
+                    :class="mathsLevelId === lvl.id ? 'bg-accent text-white ring-2 ring-accent' : 'bg-white text-gray-600 ring-1 ring-gray-200 hover:ring-gray-300'"
+                    class="px-3 py-1.5 rounded-lg text-xs font-semibold transition"
+                    x-text="'Level ' + lvl.level_number"></button>
+          </template>
+        </div>
+        <input type="hidden" name="level_id" :value="mathsLevelId">
       </div>
     </div>
 
     <!-- Coding options -->
-    <div x-show="subject === 'coding'" x-cloak>
-      <label class="block text-sm font-semibold text-gray-700 mb-1" for="topic_level_id">Topic &amp; Level</label>
-      <select name="topic_level_id" id="topic_level_id"
-              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent">
-        <option value="">— Select a topic level —</option>
-        {% for tl in coding_topic_levels %}
-        <option value="{{ tl.id }}">{{ tl.topic__language__name }} — {{ tl.topic__name }} [{{ tl.level_choice|capfirst }}]</option>
-        {% endfor %}
-      </select>
-      {% if not coding_topic_levels %}
-      <p class="mt-2 text-xs text-amber-600">No MCQ/TF/short-answer coding exercises available yet. Seed them or use Maths for now.</p>
-      {% endif %}
+    <div x-show="subject === 'coding'" x-cloak class="space-y-4">
+
+      <!-- Language filter pills -->
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-2">Language</label>
+        <div class="flex flex-wrap gap-2">
+          <button type="button"
+                  @click="codingLang = ''"
+                  :class="codingLang === '' ? 'bg-accent text-white ring-2 ring-accent' : 'bg-white text-gray-600 ring-1 ring-gray-200 hover:ring-gray-300'"
+                  class="px-3 py-1.5 rounded-lg text-xs font-semibold transition">All</button>
+          <template x-for="lang in codingLanguages" :key="lang">
+            <button type="button"
+                    @click="codingLang = lang; topicLevelId = ''"
+                    :class="codingLang === lang ? 'bg-accent text-white ring-2 ring-accent' : 'bg-white text-gray-600 ring-1 ring-gray-200 hover:ring-gray-300'"
+                    class="px-3 py-1.5 rounded-lg text-xs font-semibold transition"
+                    x-text="lang"></button>
+          </template>
+        </div>
+      </div>
+
+      <!-- Level filter pills -->
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-2">Level</label>
+        <div class="flex flex-wrap gap-2">
+          <button type="button"
+                  @click="codingLevel = ''; topicLevelId = ''"
+                  :class="codingLevel === '' ? 'bg-accent text-white ring-2 ring-accent' : 'bg-white text-gray-600 ring-1 ring-gray-200 hover:ring-gray-300'"
+                  class="px-3 py-1.5 rounded-lg text-xs font-semibold transition">All</button>
+          <template x-for="lvl in ['Advanced', 'Beginner', 'Intermediate']" :key="lvl">
+            <button type="button"
+                    @click="codingLevel = lvl; topicLevelId = ''"
+                    :class="codingLevel === lvl ? 'bg-accent text-white ring-2 ring-accent' : 'bg-white text-gray-600 ring-1 ring-gray-200 hover:ring-gray-300'"
+                    class="px-3 py-1.5 rounded-lg text-xs font-semibold transition"
+                    x-text="lvl"></button>
+          </template>
+        </div>
+      </div>
+
+      <!-- Topic & Level -->
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1" for="topic_level_id">Topic &amp; Level</label>
+        <select name="topic_level_id" id="topic_level_id"
+                x-model="topicLevelId"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent">
+          <option value="">— Select a topic level —</option>
+          <template x-for="group in groupedTopicLevels" :key="group.label">
+            <optgroup :label="group.label">
+              <template x-for="tl in group.items" :key="tl.id">
+                <option :value="tl.id" x-text="tl.levelLabel"></option>
+              </template>
+            </optgroup>
+          </template>
+        </select>
+        <template x-if="groupedTopicLevels.length === 0 && (codingLang !== '' || codingLevel !== '')">
+          <p class="mt-2 text-xs text-amber-600">No topic levels match the selected filters.</p>
+        </template>
+        {% if not coding_topic_levels %}
+        <p class="mt-2 text-xs text-amber-600">No MCQ/TF/short-answer coding exercises available yet.</p>
+        {% endif %}
+      </div>
     </div>
 
     <!-- Question count -->
@@ -99,8 +346,100 @@
 </div>
 
 <script>
+function bbBank() {
+  {% autoescape off %}
+  const mathsDetailData = {
+    {% for l in maths_levels %}
+    {{ l.level_number }}: {
+      type: 'maths',
+      title: 'Mathematics — Level {{ l.level_number }}',
+      total: {{ l.question_count }},
+      rows: [{% for t in l.topics %}{ label: '{{ t.topic|escapejs }}', count: {{ t.count }} },{% endfor %}],
+    },
+    {% endfor %}
+  };
+  const codingDetailData = {
+    {% for tl in coding_topic_levels %}
+    {{ tl.id }}: {
+      type: 'coding',
+      title: '{{ tl.topic__language__name|escapejs }} — {{ tl.topic__name|escapejs }} [{{ tl.level_choice|capfirst|escapejs }}]',
+      total: {{ tl.question_count }},
+      rows: [{% for q in tl.questions %}{ label: '{{ q|escapejs }}' },{% endfor %}],
+    },
+    {% endfor %}
+  };
+  {% endautoescape %}
+  return {
+    showBank: false,
+    detail: null,
+    expandMaths(n) { this.detail = mathsDetailData[n] || null; },
+    expandCoding(id) { this.detail = codingDetailData[id] || null; },
+  };
+}
+
 function bbCreate() {
-  return { subject: 'maths' };
+  {% autoescape off %}
+  const allTopicLevels = [
+    {% for tl in coding_topic_levels %}
+    { id: {{ tl.id }}, lang: "{{ tl.topic__language__name|escapejs }}", topic: "{{ tl.topic__name|escapejs }}", levelLabel: "{{ tl.level_choice|capfirst|escapejs }}" },
+    {% endfor %}
+  ];
+  const allMathsTopics = [
+    {% for t in maths_topics %}
+    { id: {{ t.id }}, name: "{{ t.name|escapejs }}" },
+    {% endfor %}
+  ];
+  const allMathsLevels = [
+    {% for l in maths_levels %}
+    { id: {{ l.id }}, level_number: {{ l.level_number }} },
+    {% endfor %}
+  ];
+  {% endautoescape %}
+
+  const langOrder = ['Python', 'JavaScript', 'HTML', 'CSS', 'Scratch'];
+  const langs = [...new Set(allTopicLevels.map(t => t.lang))].sort(
+    (a, b) => {
+      const ia = langOrder.indexOf(a), ib = langOrder.indexOf(b);
+      return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+    }
+  );
+
+  return {
+    subject: '{{ bb_subject_choices.0.0|default:"maths" }}',
+    // maths state
+    mathsTopicId: '',
+    mathsLevelId: '',
+    allMathsTopics,
+    allMathsLevels,
+    get groupedMathsTopics() {
+      const map = new Map();
+      for (const t of this.allMathsTopics) {
+        const letter = t.name[0].toUpperCase();
+        if (!map.has(letter)) map.set(letter, { label: letter, items: [] });
+        map.get(letter).items.push(t);
+      }
+      return [...map.values()];
+    },
+    // coding state
+    codingLang: '',
+    codingLevel: '',
+    topicLevelId: '',
+    allTopicLevels,
+    codingLanguages: langs,
+    get groupedTopicLevels() {
+      let filtered = this.allTopicLevels;
+      if (this.codingLang)  filtered = filtered.filter(t => t.lang === this.codingLang);
+      if (this.codingLevel) filtered = filtered.filter(t => t.levelLabel === this.codingLevel);
+      const map = new Map();
+      for (const tl of filtered) {
+        const key = tl.lang + '|' + tl.topic;
+        const groupLabel = this.codingLang ? tl.topic : tl.lang + ' — ' + tl.topic;
+        if (!map.has(key)) map.set(key, { label: groupLabel, items: [] });
+        map.get(key).items.push(tl);
+      }
+      return [...map.values()];
+    },
+  };
 }
 </script>
 {% endblock %}

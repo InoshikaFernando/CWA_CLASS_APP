@@ -1,0 +1,710 @@
+{% extends "base.html" %}
+{% block title %}Quiz Builder — {{ quiz.title }}{% endblock %}
+
+{% block content %}
+<div x-data="bbBuilder({{ quiz.id }})" x-init="init()" class="h-screen flex flex-col bg-gray-50 overflow-hidden -mt-6 -mx-4 sm:-mx-6 lg:-mx-8">
+
+  <!-- ── TOP BAR ──────────────────────────────────────────────────────────── -->
+  <header class="flex-shrink-0 bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
+
+    <!-- Back -->
+    <a href="{% url 'brainbuzz:quiz_list' %}"
+       class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-500 flex-shrink-0">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/>
+      </svg>
+    </a>
+
+    <!-- Editable title -->
+    <div class="flex-1 min-w-0">
+      <input x-model="title"
+             @blur="saveMeta"
+             @keydown.enter.prevent="$el.blur()"
+             class="w-full text-base font-semibold text-gray-900 bg-transparent border-0 border-b-2 border-transparent focus:border-indigo-500 focus:outline-none px-0 py-0.5 truncate transition"
+             placeholder="Quiz title…">
+    </div>
+
+    <!-- Save status -->
+    <span class="text-xs text-gray-400 flex-shrink-0 hidden sm:block"
+          x-show="saveStatus" x-text="saveStatus" x-cloak></span>
+
+    <!-- Preview -->
+    <button @click="startPreview()"
+            :disabled="questions.length === 0"
+            class="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-gray-700 border border-gray-300 rounded-xl hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition">
+      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z"/>
+      </svg>
+      Preview
+    </button>
+
+    <!-- Publish -->
+    <button @click="publishQuiz()"
+            :disabled="!isValid || !isDraft"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed transition">
+      <template x-if="isDraft">
+        <span>Publish</span>
+      </template>
+      <template x-if="!isDraft">
+        <span>Published</span>
+      </template>
+    </button>
+
+    <!-- Launch -->
+    <template x-if="questions.length > 0">
+      <form method="post" action="{% url 'brainbuzz:quiz_launch' quiz.id %}" class="inline">
+        {% csrf_token %}
+        <button type="submit"
+                class="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold text-white bg-green-600 hover:bg-green-700 rounded-xl transition">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z"/>
+          </svg>
+          Launch
+        </button>
+      </form>
+    </template>
+  </header>
+
+  <!-- ── MAIN CONTENT ──────────────────────────────────────────────────────── -->
+  <div class="flex flex-1 overflow-hidden">
+
+    <!-- LEFT SIDEBAR — question list ──────────────────────────────────────── -->
+    <aside class="w-56 flex-shrink-0 bg-white border-r border-gray-200 flex flex-col overflow-hidden">
+      <div class="flex items-center justify-between px-3 py-2.5 border-b border-gray-100">
+        <span class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Questions</span>
+        <span class="text-xs text-gray-400" x-text="questions.length + ' / 30'"></span>
+      </div>
+
+      <!-- Question list (scrollable) -->
+      <ol class="flex-1 overflow-y-auto py-2 space-y-1 px-2"
+          @dragover.prevent @drop="onListDrop($event)">
+        <template x-for="(q, idx) in questions" :key="q.id">
+          <li class="group relative rounded-xl cursor-pointer transition select-none"
+              :class="currentIdx === idx ? 'bg-indigo-50 ring-2 ring-indigo-300' : 'hover:bg-gray-50'"
+              draggable="true"
+              @dragstart="onDragStart($event, idx)"
+              @dragover.prevent="onDragOver($event, idx)"
+              @click="selectQuestion(idx)">
+            <div class="flex items-center gap-2 px-3 py-2.5">
+              <!-- Drag handle -->
+              <span class="flex-shrink-0 cursor-grab text-gray-300 group-hover:text-gray-400">
+                <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                  <circle cx="7" cy="6" r="1.2"/><circle cx="13" cy="6" r="1.2"/>
+                  <circle cx="7" cy="10" r="1.2"/><circle cx="13" cy="10" r="1.2"/>
+                  <circle cx="7" cy="14" r="1.2"/><circle cx="13" cy="14" r="1.2"/>
+                </svg>
+              </span>
+              <span class="w-5 h-5 flex-shrink-0 rounded-md flex items-center justify-center text-xs font-bold"
+                    :class="currentIdx === idx ? 'bg-indigo-500 text-white' : 'bg-gray-200 text-gray-600'"
+                    x-text="idx + 1"></span>
+              <span class="flex-1 text-xs text-gray-700 truncate" x-text="q.question_text || 'Untitled question'"></span>
+            </div>
+            <!-- Drop indicator -->
+            <div x-show="dragOverIdx === idx" class="absolute inset-x-2 -bottom-0.5 h-0.5 bg-indigo-500 rounded pointer-events-none" x-cloak></div>
+          </li>
+        </template>
+      </ol>
+
+      <!-- Add question button -->
+      <div class="p-2 border-t border-gray-100">
+        <button @click="addQuestion()"
+                :disabled="questions.length >= 30"
+                class="w-full flex items-center justify-center gap-1.5 py-2 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+          </svg>
+          Add question
+        </button>
+      </div>
+    </aside>
+
+    <!-- MAIN EDITOR AREA ───────────────────────────────────────────────────── -->
+    <main class="flex-1 overflow-y-auto p-6">
+
+      <!-- Empty state -->
+      <template x-if="questions.length === 0">
+        <div class="h-full flex items-center justify-center">
+          <div class="text-center space-y-4 max-w-xs">
+            <div class="w-16 h-16 mx-auto bg-indigo-50 rounded-2xl flex items-center justify-center">
+              <svg class="w-8 h-8 text-indigo-300" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"/>
+              </svg>
+            </div>
+            <div>
+              <p class="font-semibold text-gray-800">No questions yet</p>
+              <p class="text-sm text-gray-500">Add your first question to get started.</p>
+            </div>
+            <button @click="addQuestion()"
+                    class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl transition">
+              Add first question
+            </button>
+          </div>
+        </div>
+      </template>
+
+      <!-- Question editor -->
+      <template x-if="currentQ !== null">
+        <div class="max-w-2xl mx-auto space-y-5">
+
+          <!-- Question header -->
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-semibold text-gray-500 uppercase tracking-wider"
+                  x-text="'Question ' + (currentIdx + 1) + ' of ' + questions.length"></span>
+            <button @click="deleteQuestion(currentIdx)"
+                    class="text-xs text-red-500 hover:text-red-700 hover:underline transition">
+              Delete
+            </button>
+          </div>
+
+          <!-- Question type + time limit row -->
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-gray-500 mb-1.5 uppercase tracking-wider">Type</label>
+              <select x-model="currentQ.question_type"
+                      @change="onTypeChange()"
+                      class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                {% for val, label in question_types %}
+                <option value="{{ val }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-500 mb-1.5 uppercase tracking-wider">
+                Time limit
+              </label>
+              <select x-model.number="currentQ.time_limit"
+                      class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="5">5 sec</option>
+                <option value="10">10 sec</option>
+                <option value="15">15 sec</option>
+                <option value="20">20 sec</option>
+                <option value="30">30 sec</option>
+                <option value="45">45 sec</option>
+                <option value="60">60 sec</option>
+                <option value="90">90 sec</option>
+                <option value="120">120 sec</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Question text -->
+          <div>
+            <label class="block text-xs font-semibold text-gray-500 mb-1.5 uppercase tracking-wider">Question</label>
+            <textarea x-model="currentQ.question_text"
+                      rows="3"
+                      placeholder="Type your question here…"
+                      class="w-full border border-gray-300 rounded-xl px-3.5 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"></textarea>
+          </div>
+
+          <!-- MCQ / True-False options ──────────────────────────────────── -->
+          <template x-if="currentQ.question_type === 'mcq' || currentQ.question_type === 'tf'">
+            <div class="space-y-3">
+              <div class="flex items-center justify-between">
+                <label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Answer options</label>
+                <template x-if="currentQ.question_type === 'mcq'">
+                  <button @click="addOption()"
+                          :disabled="currentQ.options.length >= 6"
+                          class="text-xs text-indigo-600 hover:underline disabled:opacity-40">
+                    + Add option
+                  </button>
+                </template>
+              </div>
+
+              <!-- Option tiles — 2-column grid like Kahoot -->
+              <div class="grid grid-cols-2 gap-3">
+                <template x-for="(opt, optIdx) in currentQ.options" :key="optIdx">
+                  <div class="relative rounded-2xl p-0.5 transition"
+                       :class="optionTileClass(optIdx, opt.is_correct)">
+                    <div class="rounded-[14px] bg-white p-3 flex items-start gap-2">
+                      <!-- Shape/label icon -->
+                      <span class="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-sm font-black text-white mt-0.5"
+                            :class="optionIconBg(optIdx)"
+                            x-text="optionLabel(optIdx)"></span>
+
+                      <!-- Text input -->
+                      <textarea x-model="opt.option_text"
+                                rows="2"
+                                :placeholder="'Option ' + optionLabel(optIdx)"
+                                class="flex-1 text-sm text-gray-800 bg-transparent border-0 focus:outline-none resize-none placeholder-gray-400"></textarea>
+
+                      <!-- Correct toggle -->
+                      <button @click="setCorrect(optIdx)"
+                              class="flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition mt-0.5"
+                              :class="opt.is_correct ? 'border-green-500 bg-green-500 text-white' : 'border-gray-300 text-transparent hover:border-gray-400'"
+                              :title="opt.is_correct ? 'Correct answer' : 'Set as correct'">
+                        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
+                        </svg>
+                      </button>
+
+                      <!-- Remove button (MCQ only, min 2) -->
+                      <template x-if="currentQ.question_type === 'mcq' && currentQ.options.length > 2">
+                        <button @click="removeOption(optIdx)"
+                                class="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 transition mt-0.5">
+                          <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                          </svg>
+                        </button>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+              </div>
+
+              <!-- Validation hint -->
+              <p x-show="!hasCorrectOption()"
+                 class="text-xs text-amber-600 flex items-center gap-1" x-cloak>
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+                </svg>
+                Mark at least one option as correct.
+              </p>
+            </div>
+          </template>
+
+          <!-- Short answer / Fill blank ─────────────────────────────────── -->
+          <template x-if="currentQ.question_type === 'short' || currentQ.question_type === 'fill_blank'">
+            <div>
+              <label class="block text-xs font-semibold text-gray-500 mb-1.5 uppercase tracking-wider">
+                Correct answer <span class="normal-case text-gray-400 font-normal">(separate alternatives with |)</span>
+              </label>
+              <input type="text"
+                     x-model="currentQ.correct_short_answer"
+                     placeholder="e.g. Paris | paris | PARIS"
+                     class="w-full border border-gray-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+          </template>
+
+          <!-- Save bar -->
+          <div class="flex items-center justify-between pt-2 border-t border-gray-100">
+            <span class="text-xs text-gray-400" x-text="saveStatus" x-cloak></span>
+            <button @click="saveQuestion()"
+                    :disabled="saving"
+                    class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl disabled:opacity-50 transition">
+              <span x-show="!saving">Save question</span>
+              <span x-show="saving" x-cloak>Saving…</span>
+            </button>
+          </div>
+
+        </div>
+      </template>
+
+    </main>
+  </div>
+
+  <!-- ── PREVIEW MODAL ─────────────────────────────────────────────────────── -->
+  <template x-teleport="body">
+    <div x-show="previewMode"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0"
+         class="fixed inset-0 bg-gradient-to-br from-indigo-900 via-purple-900 to-slate-900 z-50 flex flex-col"
+         @keydown.escape.window="previewMode = false"
+         style="display:none">
+
+      <!-- Preview top bar -->
+      <div class="flex-shrink-0 flex items-center justify-between px-6 py-3 bg-black/20">
+        <div class="flex items-center gap-3">
+          <span class="text-xs font-semibold text-white/60 uppercase tracking-wider">Preview</span>
+          <span class="text-sm font-bold text-white"
+                x-text="(previewIdx + 1) + ' / ' + questions.length"></span>
+        </div>
+        <div class="flex items-center gap-3">
+          <button @click="prevPreview()"
+                  :disabled="previewIdx === 0"
+                  class="w-8 h-8 rounded-lg flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 disabled:opacity-30 transition">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/>
+            </svg>
+          </button>
+          <button @click="nextPreview()"
+                  :disabled="previewIdx >= questions.length - 1"
+                  class="w-8 h-8 rounded-lg flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 disabled:opacity-30 transition">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
+            </svg>
+          </button>
+          <button @click="previewMode = false"
+                  class="w-8 h-8 rounded-lg flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Preview question card -->
+      <template x-if="previewQuestion !== null">
+        <div class="flex-1 flex flex-col items-center justify-center p-6 gap-6 max-w-2xl mx-auto w-full">
+
+          <!-- Time limit pill -->
+          <div class="flex items-center gap-2 bg-white/10 rounded-full px-4 py-1.5">
+            <svg class="w-4 h-4 text-white/60" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            <span class="text-sm font-bold text-white" x-text="previewQuestion.time_limit + 's'"></span>
+          </div>
+
+          <!-- Question text -->
+          <div class="text-center">
+            <p class="text-2xl font-black text-white leading-snug" x-text="previewQuestion.question_text || 'Question text…'"></p>
+          </div>
+
+          <!-- MCQ / TF options grid -->
+          <template x-if="previewQuestion.question_type === 'mcq' || previewQuestion.question_type === 'tf'">
+            <div class="grid grid-cols-2 gap-3 w-full">
+              <template x-for="(opt, optIdx) in previewQuestion.options" :key="optIdx">
+                <div class="rounded-2xl px-4 py-4 flex items-center gap-3 cursor-pointer hover:opacity-90 transition"
+                     :class="previewTileClass(optIdx)">
+                  <span class="w-8 h-8 flex-shrink-0 rounded-lg flex items-center justify-center font-black text-white text-sm"
+                        :class="optionIconBg(optIdx)"
+                        x-text="optionLabel(optIdx)"></span>
+                  <span class="font-bold text-white text-sm leading-snug" x-text="opt.option_text || '…'"></span>
+                  <template x-if="opt.is_correct">
+                    <span class="ml-auto flex-shrink-0 text-white/80">✓</span>
+                  </template>
+                </div>
+              </template>
+            </div>
+          </template>
+
+          <!-- Short answer preview -->
+          <template x-if="previewQuestion.question_type === 'short' || previewQuestion.question_type === 'fill_blank'">
+            <div class="w-full">
+              <div class="bg-white/10 border-2 border-dashed border-white/20 rounded-2xl px-5 py-4 text-center">
+                <p class="text-white/60 text-sm">Students will type their answer here</p>
+                <template x-if="previewQuestion.correct_short_answer">
+                  <p class="text-green-400 text-xs mt-2 font-semibold">
+                    Answer: <span x-text="previewQuestion.correct_short_answer"></span>
+                  </p>
+                </template>
+              </div>
+            </div>
+          </template>
+
+        </div>
+      </template>
+
+    </div>
+  </template>
+
+</div>
+
+<!-- ── ALPINE.JS COMPONENT ───────────────────────────────────────────────── -->
+<script>
+function bbBuilder(quizId) {
+  const OPTION_COLORS = [
+    { bg: 'bg-red-500',    tile: 'bg-red-500/15 ring-2 ring-red-400/40',    label: 'A' },
+    { bg: 'bg-blue-500',   tile: 'bg-blue-500/15 ring-2 ring-blue-400/40',  label: 'B' },
+    { bg: 'bg-yellow-500', tile: 'bg-yellow-500/15 ring-2 ring-yellow-400/40', label: 'C' },
+    { bg: 'bg-green-500',  tile: 'bg-green-500/15 ring-2 ring-green-400/40', label: 'D' },
+    { bg: 'bg-purple-500', tile: 'bg-purple-500/15 ring-2 ring-purple-400/40', label: 'E' },
+    { bg: 'bg-pink-500',   tile: 'bg-pink-500/15 ring-2 ring-pink-400/40',  label: 'F' },
+  ];
+  const TF_OPTIONS = [
+    { option_text: 'True',  is_correct: false, order: 0 },
+    { option_text: 'False', is_correct: false, order: 1 },
+  ];
+
+  return {
+    quizId,
+    title: '',
+    isDraft: true,
+    isValid: false,
+    questions: [],
+    currentIdx: null,
+    saving: false,
+    saveStatus: '',
+    previewMode: false,
+    previewIdx: 0,
+    dragFromIdx: null,
+    dragOverIdx: null,
+
+    get currentQ() {
+      return (this.currentIdx !== null && this.currentIdx < this.questions.length)
+        ? this.questions[this.currentIdx]
+        : null;
+    },
+    get previewQuestion() {
+      return (this.previewIdx < this.questions.length)
+        ? this.questions[this.previewIdx]
+        : null;
+    },
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────
+    async init() {
+      await this.load();
+    },
+
+    async load() {
+      try {
+        const r = await fetch(`/brainbuzz/api/quizzes/${this.quizId}/`);
+        const data = await r.json();
+        this.title = data.title;
+        this.isDraft = data.is_draft;
+        this.isValid = data.is_valid;
+        this.questions = data.questions;
+        if (this.questions.length > 0) this.currentIdx = 0;
+      } catch (e) {
+        console.error('Failed to load quiz', e);
+      }
+    },
+
+    // ── Question navigation ───────────────────────────────────────────────
+    selectQuestion(idx) {
+      this.currentIdx = idx;
+    },
+
+    // ── Add question ──────────────────────────────────────────────────────
+    async addQuestion() {
+      if (this.questions.length >= 30) return;
+      const newQ = {
+        question_text: '',
+        question_type: 'mcq',
+        time_limit: 20,
+        correct_short_answer: '',
+        options: [
+          { option_text: '', is_correct: false, order: 0 },
+          { option_text: '', is_correct: false, order: 1 },
+          { option_text: '', is_correct: false, order: 2 },
+          { option_text: '', is_correct: false, order: 3 },
+        ],
+      };
+      this.saving = true;
+      try {
+        const r = await fetch(`/brainbuzz/api/quizzes/${this.quizId}/questions/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this._csrf() },
+          body: JSON.stringify(newQ),
+        });
+        const saved = await r.json();
+        this.questions.push(saved);
+        this.currentIdx = this.questions.length - 1;
+        this._checkValid();
+        this._flash('Saved');
+      } catch (e) {
+        this._flash('Error saving');
+      } finally {
+        this.saving = false;
+      }
+    },
+
+    // ── Delete question ───────────────────────────────────────────────────
+    async deleteQuestion(idx) {
+      const q = this.questions[idx];
+      if (!q) return;
+      if (!confirm('Delete this question?')) return;
+      try {
+        await fetch(`/brainbuzz/api/quizzes/${this.quizId}/questions/${q.id}/`, {
+          method: 'DELETE',
+          headers: { 'X-CSRFToken': this._csrf() },
+        });
+        this.questions.splice(idx, 1);
+        this.currentIdx = this.questions.length > 0
+          ? Math.min(idx, this.questions.length - 1)
+          : null;
+        this._checkValid();
+        this._flash('Deleted');
+      } catch (e) {
+        this._flash('Error deleting');
+      }
+    },
+
+    // ── Save current question ─────────────────────────────────────────────
+    async saveQuestion() {
+      const q = this.currentQ;
+      if (!q || this.saving) return;
+      this.saving = true;
+      try {
+        const payload = {
+          question_text: q.question_text,
+          question_type: q.question_type,
+          time_limit: q.time_limit,
+          correct_short_answer: q.correct_short_answer || '',
+          options: q.options.map((o, i) => ({
+            option_text: o.option_text,
+            is_correct: o.is_correct,
+            order: i,
+          })),
+        };
+        let r, saved;
+        if (q.id) {
+          r = await fetch(`/brainbuzz/api/quizzes/${this.quizId}/questions/${q.id}/`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this._csrf() },
+            body: JSON.stringify(payload),
+          });
+          saved = await r.json();
+        } else {
+          r = await fetch(`/brainbuzz/api/quizzes/${this.quizId}/questions/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this._csrf() },
+            body: JSON.stringify(payload),
+          });
+          saved = await r.json();
+        }
+        Object.assign(this.questions[this.currentIdx], saved);
+        this._checkValid();
+        this._flash('Saved ✓');
+      } catch (e) {
+        this._flash('Error saving');
+      } finally {
+        this.saving = false;
+      }
+    },
+
+    // ── Meta (title) ──────────────────────────────────────────────────────
+    async saveMeta() {
+      if (!this.title.trim()) return;
+      try {
+        await fetch(`/brainbuzz/api/quizzes/${this.quizId}/meta/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this._csrf() },
+          body: JSON.stringify({ title: this.title }),
+        });
+        this._flash('Title saved');
+      } catch (e) {}
+    },
+
+    // ── Publish ───────────────────────────────────────────────────────────
+    async publishQuiz() {
+      if (!this.isValid || !this.isDraft) return;
+      try {
+        const r = await fetch(`/brainbuzz/quizzes/${this.quizId}/publish/`, {
+          method: 'POST',
+          headers: { 'X-CSRFToken': this._csrf() },
+        });
+        const data = await r.json();
+        if (data.status === 'published') {
+          this.isDraft = false;
+          this._flash('Published!');
+        } else {
+          alert(data.error || 'Cannot publish yet.');
+        }
+      } catch (e) {
+        this._flash('Error publishing');
+      }
+    },
+
+    // ── Type change ───────────────────────────────────────────────────────
+    onTypeChange() {
+      const q = this.currentQ;
+      if (!q) return;
+      if (q.question_type === 'tf') {
+        q.options = TF_OPTIONS.map(o => ({ ...o }));
+      } else if (q.question_type === 'mcq' && q.options.length < 2) {
+        q.options = [
+          { option_text: '', is_correct: false, order: 0 },
+          { option_text: '', is_correct: false, order: 1 },
+          { option_text: '', is_correct: false, order: 2 },
+          { option_text: '', is_correct: false, order: 3 },
+        ];
+      }
+    },
+
+    // ── Option helpers ────────────────────────────────────────────────────
+    addOption() {
+      const q = this.currentQ;
+      if (!q || q.options.length >= 6) return;
+      q.options.push({ option_text: '', is_correct: false, order: q.options.length });
+    },
+    removeOption(idx) {
+      const q = this.currentQ;
+      if (!q || q.options.length <= 2) return;
+      q.options.splice(idx, 1);
+    },
+    setCorrect(idx) {
+      const q = this.currentQ;
+      if (!q) return;
+      q.options.forEach((o, i) => { o.is_correct = (i === idx); });
+    },
+    hasCorrectOption() {
+      const q = this.currentQ;
+      if (!q) return true;
+      if (q.question_type !== 'mcq' && q.question_type !== 'tf') return true;
+      return q.options.some(o => o.is_correct);
+    },
+    optionLabel(idx) { return (OPTION_COLORS[idx] || { label: String(idx + 1) }).label; },
+    optionIconBg(idx) { return (OPTION_COLORS[idx] || { bg: 'bg-gray-500' }).bg; },
+    optionTileClass(idx, isCorrect) {
+      const base = (OPTION_COLORS[idx] || { tile: 'bg-gray-100 ring-2 ring-gray-200' }).tile;
+      return isCorrect ? base + ' shadow-md' : 'bg-gray-50 ring-2 ring-gray-200';
+    },
+    previewTileClass(idx) {
+      const colors = [
+        'bg-red-500', 'bg-blue-500', 'bg-yellow-500', 'bg-green-500',
+        'bg-purple-500', 'bg-pink-500',
+      ];
+      return colors[idx] || 'bg-gray-500';
+    },
+
+    // ── Drag-and-drop reorder ─────────────────────────────────────────────
+    onDragStart(event, idx) {
+      this.dragFromIdx = idx;
+      event.dataTransfer.effectAllowed = 'move';
+    },
+    onDragOver(event, idx) {
+      this.dragOverIdx = idx;
+    },
+    async onListDrop(event) {
+      const from = this.dragFromIdx;
+      const to = this.dragOverIdx;
+      this.dragFromIdx = null;
+      this.dragOverIdx = null;
+      if (from === null || to === null || from === to) return;
+
+      const moved = this.questions.splice(from, 1)[0];
+      this.questions.splice(to, 0, moved);
+      this.currentIdx = to;
+
+      const orderedIds = this.questions.map(q => q.id);
+      try {
+        await fetch(`/brainbuzz/api/quizzes/${this.quizId}/reorder/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this._csrf() },
+          body: JSON.stringify({ ordered_ids: orderedIds }),
+        });
+        this.questions.forEach((q, i) => { q.order = i; });
+      } catch (e) {
+        this._flash('Reorder failed');
+      }
+    },
+
+    // ── Preview ───────────────────────────────────────────────────────────
+    startPreview() {
+      if (this.questions.length === 0) return;
+      this.previewIdx = this.currentIdx || 0;
+      this.previewMode = true;
+    },
+    nextPreview() {
+      if (this.previewIdx < this.questions.length - 1) this.previewIdx++;
+    },
+    prevPreview() {
+      if (this.previewIdx > 0) this.previewIdx--;
+    },
+
+    // ── Utilities ─────────────────────────────────────────────────────────
+    _csrf() {
+      return document.cookie.split('; ')
+        .find(c => c.startsWith('csrftoken='))
+        ?.split('=')[1] || '';
+    },
+    _checkValid() {
+      this.isValid = this.questions.length > 0 && this.questions.every(q => {
+        if (q.question_type === 'mcq' || q.question_type === 'tf') {
+          return q.options.some(o => o.is_correct);
+        }
+        return true;
+      });
+    },
+    _flash(msg) {
+      this.saveStatus = msg;
+      setTimeout(() => { this.saveStatus = ''; }, 2000);
+    },
+  };
+}
+</script>
+{% endblock %}
