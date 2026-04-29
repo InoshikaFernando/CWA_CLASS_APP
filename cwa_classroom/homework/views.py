@@ -398,13 +398,21 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
                     'answer_data': {'error': 'grading failed'},
                 }
 
-        # 4 concurrent Piston calls is plenty; more risks overwhelming the
-        # local container. Maths grading is CPU-only and finishes near-instant,
-        # so the thread pool cost for it is negligible.
-        from concurrent.futures import ThreadPoolExecutor
-        max_workers = min(4, max(1, len(hw_questions)))
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            graded_by_index = list(pool.map(_grade, hw_questions))
+        # Only spin up the thread pool when at least one item needs network
+        # grading (coding via Piston). Pure-maths homework is CPU-only and
+        # near-instant, so sequential grading is faster (no pool startup) and
+        # avoids SQLite-in-memory test issues where each worker thread gets
+        # its own empty DB connection.
+        needs_threading = any(hwq.subject_slug == 'coding' for hwq in hw_questions)
+        if needs_threading:
+            # 4 concurrent Piston calls is plenty; more risks overwhelming the
+            # local container.
+            from concurrent.futures import ThreadPoolExecutor
+            max_workers = min(4, max(1, len(hw_questions)))
+            with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                graded_by_index = list(pool.map(_grade, hw_questions))
+        else:
+            graded_by_index = [_grade(hwq) for hwq in hw_questions]
 
         score = 0
         total = len(hw_questions)

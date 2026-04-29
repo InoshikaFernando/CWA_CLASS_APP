@@ -142,6 +142,7 @@ class SchoolParentListView(RoleRequiredMixin, View):
                 'children': ', '.join(bucket['children']),
                 'obj_type': 'parent_student',
                 'obj_id': first_link.id,
+                'parent_id': parent_user.id,
             })
 
         # 2. Guardian contacts — skip any whose email matches an account row
@@ -260,14 +261,20 @@ class ParentLinkEditModalView(RoleRequiredMixin, View):
 
 
 class ParentLinkUpdateView(RoleRequiredMixin, View):
-    """Save parent-student link edits."""
+    """Save parent-student link edits, plus the underlying parent account fields."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
 
     def post(self, request, school_id, link_id):
+        from accounts.models import CustomUser
+        import logging
+        logger = logging.getLogger(__name__)
+
         school = _get_user_school_or_404(request.user, school_id)
         link = get_object_or_404(
             ParentStudent, id=link_id, school=school, is_active=True,
         )
+
+        # --- ParentStudent link fields ---
         relationship = request.POST.get('relationship', '').strip()
         if relationship:
             link.relationship = relationship
@@ -275,13 +282,84 @@ class ParentLinkUpdateView(RoleRequiredMixin, View):
         link.is_primary_contact = is_primary
         link.save(update_fields=['relationship', 'is_primary_contact'])
 
+        # --- Underlying CustomUser (parent account) fields ---
+        parent = link.parent
+        first_name = request.POST.get('first_name', '').strip()
+        last_name = request.POST.get('last_name', '').strip()
+        new_email = request.POST.get('email', '').strip()
+        phone = request.POST.get('phone', '').strip()
+
+        old_email = parent.email or ''
+        user_dirty = False
+
+        if first_name and first_name != parent.first_name:
+            parent.first_name = first_name
+            user_dirty = True
+        if last_name and last_name != parent.last_name:
+            parent.last_name = last_name
+            user_dirty = True
+        if phone != (parent.phone or ''):
+            parent.phone = phone
+            user_dirty = True
+
+        email_changed = False
+        if new_email and new_email != old_email:
+            if '@' not in new_email:
+                messages.error(request, 'Email must contain "@".')
+                return redirect('admin_school_parents', school_id=school.id)
+            if CustomUser.objects.filter(email__iexact=new_email).exclude(pk=parent.pk).exists():
+                messages.error(request, f'Another account already uses {new_email}.')
+                return redirect('admin_school_parents', school_id=school.id)
+            parent.email = new_email
+            user_dirty = True
+            email_changed = True
+
+        if user_dirty:
+            parent.save(update_fields=['first_name', 'last_name', 'email', 'phone'])
+
+        # Notify the parent if their email address was changed by an admin.
+        if email_changed:
+            try:
+                from notifications.services import send_email_changed_notification
+                # Notify the new address (matches self-service pattern)
+                send_email_changed_notification(parent, new_email=new_email, school=school)
+                # Best-effort heads-up to the previous address so the user notices.
+                if old_email:
+                    try:
+                        from classroom.email_service import send_templated_email, _get_email_logo_url
+                        send_templated_email(
+                            recipient_email=old_email,
+                            subject=f'[{school.name}] Your account email was changed by an administrator',
+                            template_name='email/lifecycle/email_changed.html',
+                            context={
+                                'recipient_name': parent.get_full_name() or parent.username,
+                                'school_name': school.name,
+                                'new_email': new_email,
+                                'change_datetime': timezone.now(),
+                                'email_logo_url': _get_email_logo_url(school),
+                            },
+                            recipient_user=parent,
+                            notification_type='email_changed',
+                            school=school,
+                            fail_silently=True,
+                        )
+                    except Exception:
+                        logger.exception('Failed to notify old email %s of address change', old_email)
+            except Exception:
+                logger.exception('Failed to send email-changed notification for parent %s', parent.pk)
+
         log_event(
             user=request.user, school=school, category='data_change',
             action='parent_link_edited',
-            detail={'link_id': link.id, 'parent': link.parent.get_full_name()},
+            detail={
+                'link_id': link.id,
+                'parent_id': parent.id,
+                'parent': parent.get_full_name(),
+                'email_changed': email_changed,
+            },
             request=request,
         )
-        messages.success(request, f'{link.parent.get_full_name()} updated.')
+        messages.success(request, f'{parent.get_full_name()} updated.')
         return redirect('admin_school_parents', school_id=school.id)
 
 

@@ -511,11 +511,28 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
 
                 if issued_overlaps.exists():
                     # ── Issued invoices overlap ──────────────────────────────
-                    # Find sessions not yet covered by any issued invoice.
-                    uncovered = svc.find_uncovered_date_ranges(issued_overlaps, start, end)
+                    # Compute uncovered date ranges PER CLASSROOM. A classroom
+                    # is only "covered" by an issued invoice if that invoice
+                    # has a line item for that classroom — otherwise sessions
+                    # in that classroom for the invoice's date range are still
+                    # unbilled (e.g. classroom added to student after invoice
+                    # was issued for some other classroom).
+                    enrolled_qs = ClassStudent.objects.filter(
+                        classroom__school=school, student=student, is_active=True,
+                        classroom__is_active=True,
+                    )
+                    if department is not None:
+                        enrolled_qs = enrolled_qs.filter(classroom__department=department)
+                    enrolled_classroom_ids = list(
+                        enrolled_qs.values_list('classroom_id', flat=True)
+                    )
 
-                    if not uncovered:
-                        # Issued invoices fully cover the period — nothing to bill
+                    uncovered_by_class = svc.find_uncovered_date_ranges_by_classroom(
+                        issued_overlaps, start, end, enrolled_classroom_ids,
+                    )
+
+                    if not uncovered_by_class:
+                        # Every enrolled classroom is fully covered — skip.
                         skipped_fully_covered.append(display_name)
                         continue
 
@@ -528,16 +545,18 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
                             cancelled_at=timezone.now(),
                         )
 
-                    # Build lines for every uncovered sub-period and merge
+                    # Build lines per (classroom, gap_range)
                     gap_lines = []
-                    for gap_start, gap_end in uncovered:
-                        sub_lines, sub_warnings = svc.calculate_invoice_lines(
-                            student, school, gap_start, gap_end, mode,
-                            billing_type=billing_type,
-                            department=department,
-                        )
-                        gap_lines.extend(sub_lines)
-                        all_warnings.extend(sub_warnings)
+                    for cid, gap_ranges in uncovered_by_class.items():
+                        for gap_start, gap_end in gap_ranges:
+                            sub_lines, sub_warnings = svc.calculate_invoice_lines(
+                                student, school, gap_start, gap_end, mode,
+                                billing_type=billing_type,
+                                department=department,
+                                restrict_classroom_ids=[cid],
+                            )
+                            gap_lines.extend(sub_lines)
+                            all_warnings.extend(sub_warnings)
 
                     if gap_lines:
                         gap_invoiced_names.append(display_name)
@@ -1152,6 +1171,77 @@ class CancelInvoiceView(RoleRequiredMixin, View):
         )
         messages.success(request, f'Invoice {invoice.invoice_number} cancelled.')
         return redirect('invoice_detail', invoice_id=invoice.id)
+
+
+class ResendInvoiceView(RoleRequiredMixin, View):
+    """
+    Resend the issued-invoice email to the student + linked parents/guardians.
+
+    Used after correcting a bounced email address. The invoice itself is
+    not modified.
+    """
+    required_roles = INVOICING_ROLES
+
+    def post(self, request, invoice_id):
+        school = _get_single_school(request.user)
+        invoice = get_object_or_404(Invoice, id=invoice_id, school=school)
+
+        try:
+            result = svc.resend_invoice_email(invoice)
+        except ValueError as e:
+            messages.error(request, str(e))
+            return redirect(request.META.get('HTTP_REFERER', '') or 'invoice_list')
+
+        sent = result.get('sent', [])
+        failed = result.get('failed', [])
+        skipped = result.get('skipped_no_email', False)
+
+        log_event(
+            user=request.user, school=school, category='communication',
+            action='invoice_resent',
+            detail={
+                'invoice_id': invoice.id,
+                'invoice_number': invoice.invoice_number,
+                'sent_to': sent,
+                'failed': failed,
+            },
+            request=request,
+        )
+
+        if sent and not failed:
+            messages.success(
+                request,
+                f'Invoice {invoice.invoice_number} resent to '
+                f'{len(sent)} recipient(s): {", ".join(sent)}.',
+            )
+        elif sent and failed:
+            messages.warning(
+                request,
+                f'Invoice {invoice.invoice_number} resent to '
+                f'{len(sent)} recipient(s); {len(failed)} failed: '
+                f'{", ".join(failed)}.',
+            )
+        elif failed:
+            messages.error(
+                request,
+                f'Invoice {invoice.invoice_number} could not be resent — '
+                f'all {len(failed)} attempt(s) failed.',
+            )
+        elif skipped:
+            messages.error(
+                request,
+                f'Invoice {invoice.invoice_number} could not be resent — '
+                f'the student has no email address on file. Update the '
+                f"student's email and try again.",
+            )
+        else:
+            messages.warning(
+                request,
+                f'Invoice {invoice.invoice_number} has no recipients to '
+                f'email — add a parent or guardian with a valid email.',
+            )
+
+        return redirect(request.META.get('HTTP_REFERER', '') or 'invoice_list')
 
 
 class RecordManualPaymentView(RoleRequiredMixin, View):

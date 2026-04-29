@@ -8,10 +8,20 @@
        modifiedIds: new Set(),
        expanded: {},
        showAddModal: false,
+       showEditModal: false,
        submitting: false,
        get hasChanges() { return this.modifiedIds.size > 0 },
        markModified(id) { this.modifiedIds.add(id); document.getElementById('teacher_ids').value = [...this.modifiedIds].join(',') },
-       toggle(id) { this.expanded[id] = !this.expanded[id] }
+       toggle(id) { this.expanded[id] = !this.expanded[id] },
+       openEditModal(url) {
+         fetch(url, {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+           .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
+           .then(html => {
+             document.getElementById('staff-edit-modal-content').innerHTML = html;
+             this.showEditModal = true;
+           })
+           .catch(err => alert('Could not load form: ' + err));
+       }
      }"
      x-init="window.addEventListener('beforeunload', (e) => { if (hasChanges && !submitting) e.preventDefault() })">
 
@@ -309,6 +319,18 @@
                     </a>
 
                     {% if st.is_active %}
+                    <!-- Reset Password -->
+                    <button type="button"
+                            @click="openEditModal('{% url 'admin_user_password_reset_modal' school.id st.teacher.id %}')"
+                            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-amber-600 hover:bg-amber-50 rounded-lg transition border border-amber-200">
+                      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z"/>
+                      </svg>
+                      Reset Password
+                    </button>
+                    {% endif %}
+
+                    {% if st.is_active %}
                       <button type="button"
                               class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 rounded-lg transition"
                               onclick="if(confirm('Are you sure you want to remove {{ st.teacher.get_full_name|default:st.teacher.username|escapejs }} from {{ school.name|escapejs }}?')){var f=document.createElement('form');f.method='post';f.action='{% url "admin_school_teacher_remove" school.id st.teacher.id %}';var c=document.createElement('input');c.type='hidden';c.name='csrfmiddlewaretoken';c.value='{{ csrf_token }}';f.appendChild(c);document.body.appendChild(f);f.submit();}">
@@ -368,6 +390,16 @@
       <p class="text-gray-500 mb-4">Use the button above to add your first staff member.</p>
     </div>
   {% endif %}
+
+  <!-- Staff Edit Modal (HTMX-loaded; currently used by Reset Password) -->
+  <div x-show="showEditModal" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center"
+       @keydown.escape.window="showEditModal = false">
+    <div class="fixed inset-0 bg-black/50 backdrop-blur-sm" @click="showEditModal = false"></div>
+    <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6 max-h-[90vh] overflow-y-auto" @click.stop
+         id="staff-edit-modal-content">
+    </div>
+  </div>
 
 </div>
 
