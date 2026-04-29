@@ -606,13 +606,20 @@ def _apply_exercise_scoring(user, exercise_id, exercise_obj, language,
     Returns (response_extras dict, auto_completed bool).
     Challenges are never touched here.
     """
-    from .scoring import evaluate_exercise_output
+    from .scoring import evaluate_exercise_output, code_matches_required_patterns
 
     has_expected = bool(exercise_obj and exercise_obj.expected_output)
 
     if has_expected:
-        # Binary scoring: exact match only.
+        # Binary scoring: output must match exactly AND all required code
+        # patterns must appear in the submitted code. The pattern check stops
+        # students bypassing the exercise intent (e.g. hardcoding the expected
+        # output instead of using the variable the exercise asked for).
         score = evaluate_exercise_output(stdout, exercise_obj.expected_output)
+        if score == 100 and not code_matches_required_patterns(
+            code, exercise_obj.required_code_patterns or ''
+        ):
+            score = 0
         auto_complete = score == 100
         if auto_complete or mark_complete:
             _save_exercise_submission(user, exercise_id, language, code,

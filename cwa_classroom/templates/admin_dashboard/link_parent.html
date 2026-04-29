@@ -7,7 +7,9 @@
      x-data="{
        selectedParentId: '',
        selectedParentName: '',
-       selectedParentEmail: ''
+       selectedParentEmail: '',
+       studentSearch: '',
+       matchesStudent(name) { return !this.studentSearch || name.toLowerCase().includes(this.studentSearch.toLowerCase()) }
      }">
 
   <!-- Header -->
@@ -71,9 +73,17 @@
       <div class="mb-4">
         <label class="block text-sm font-semibold text-gray-700 mb-1">Step 2 — Select Students</label>
         <p class="text-xs text-gray-500 mb-2">Choose which students to link this parent to.</p>
+        <div class="relative mb-2">
+          <svg class="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+          </svg>
+          <input type="text" x-model="studentSearch" placeholder="Search students by name..."
+                 class="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
+        </div>
         <div class="max-h-56 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100">
           {% for ss in students %}
-            <label class="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 cursor-pointer">
+            <label class="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 cursor-pointer"
+                   x-show="matchesStudent('{{ ss.student.get_full_name|escapejs }}')">
               <input type="checkbox" name="student_ids" value="{{ ss.student.id }}"
                      class="rounded border-slate-300 text-accent focus:ring-accent">
               <span class="text-sm text-gray-800">{{ ss.student.get_full_name }}</span>
@@ -112,11 +122,12 @@
 
 <script>
 function selectParent(id, name, email) {
-  const el = document.querySelector('[x-data]').__x.$data;
+  const root = document.querySelector('[x-data]');
+  const el = (window.Alpine && Alpine.$data(root)) || (root._x_dataStack && root._x_dataStack[0]);
+  if (!el) return;
   el.selectedParentId = String(id);
   el.selectedParentName = name;
   el.selectedParentEmail = email;
-  // Clear search results
   document.getElementById('parent-search-results').innerHTML = '';
 }
 </script>

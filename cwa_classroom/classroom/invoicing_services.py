@@ -119,31 +119,20 @@ def check_overlapping_invoices(student, school, billing_period_start, billing_pe
     ).exclude(status='cancelled')
 
 
-def find_uncovered_date_ranges(issued_invoices, request_start, request_end):
+def _gaps_in_window(covered_intervals, request_start, request_end):
     """
-    Given a collection of issued invoices and a requested billing window
-    [request_start, request_end], return a list of (start, end) date pairs
-    representing the portions of the window NOT already covered by those invoices.
-
-    Example:
-        issued: Jan 6–20
-        request: Jan 1–31
-        → uncovered: [(Jan 1, Jan 5), (Jan 21, Jan 31)]
-
-    Returns an empty list when the invoices fully cover the requested window.
+    Given a list of (start, end) covered intervals and a window
+    [request_start, request_end], return the sorted list of (start, end) gap
+    intervals not covered by any input interval.
     """
-    # Clip each invoice's interval to the requested window
+    # Clip each interval to the requested window and drop non-overlapping ones
     covered = sorted(
-        (
-            max(inv.billing_period_start, request_start),
-            min(inv.billing_period_end,   request_end),
-        )
-        for inv in issued_invoices
-        if inv.billing_period_start <= request_end
-        and inv.billing_period_end >= request_start
+        (max(s, request_start), min(e, request_end))
+        for s, e in covered_intervals
+        if s <= request_end and e >= request_start
     )
 
-    # Merge overlapping/adjacent covered intervals
+    # Merge overlapping/adjacent intervals
     merged = []
     for cov_start, cov_end in covered:
         if merged and cov_start <= merged[-1][1] + timedelta(days=1):
@@ -163,6 +152,77 @@ def find_uncovered_date_ranges(issued_invoices, request_start, request_end):
         gaps.append((cursor, request_end))
 
     return gaps
+
+
+def find_uncovered_date_ranges(issued_invoices, request_start, request_end):
+    """
+    Given a collection of issued invoices and a requested billing window
+    [request_start, request_end], return a list of (start, end) date pairs
+    representing the portions of the window NOT already covered by those invoices.
+
+    NOTE: This helper considers only the invoice header date ranges and is
+    blind to per-classroom coverage. For correct per-classroom gap detection
+    (e.g. a classroom added to a student after an invoice was issued for some
+    other classroom in the same window), use
+    ``find_uncovered_date_ranges_by_classroom`` instead.
+
+    Example:
+        issued: Jan 6–20
+        request: Jan 1–31
+        → uncovered: [(Jan 1, Jan 5), (Jan 21, Jan 31)]
+
+    Returns an empty list when the invoices fully cover the requested window.
+    """
+    intervals = [
+        (inv.billing_period_start, inv.billing_period_end)
+        for inv in issued_invoices
+    ]
+    return _gaps_in_window(intervals, request_start, request_end)
+
+
+def find_uncovered_date_ranges_by_classroom(
+    issued_invoices, request_start, request_end, classroom_ids,
+):
+    """
+    Compute uncovered date ranges per classroom.
+
+    For each classroom in ``classroom_ids``, returns the portions of
+    [request_start, request_end] NOT already covered by an issued invoice
+    that has a line item for THAT specific classroom.
+
+    A classroom is treated as fully uncovered if no issued invoice billed
+    it in the window.
+
+    Returns: dict {classroom_id: [(start, end), ...]} — only classrooms
+    with at least one gap are included.
+    """
+    # Build per-classroom list of covered date intervals.
+    by_classroom = {cid: [] for cid in classroom_ids}
+
+    if classroom_ids and issued_invoices:
+        line_items = InvoiceLineItem.objects.filter(
+            invoice__in=issued_invoices,
+            classroom_id__in=classroom_ids,
+        ).values('invoice_id', 'classroom_id')
+
+        # Map invoice_id → (start, end) for quick lookup
+        invoice_window = {
+            inv.id: (inv.billing_period_start, inv.billing_period_end)
+            for inv in issued_invoices
+        }
+
+        for li in line_items:
+            window = invoice_window.get(li['invoice_id'])
+            if window is not None:
+                by_classroom[li['classroom_id']].append(window)
+
+    # For each classroom, compute gaps within the requested window
+    result = {}
+    for cid, intervals in by_classroom.items():
+        gaps = _gaps_in_window(intervals, request_start, request_end)
+        if gaps:
+            result[cid] = gaps
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -409,7 +469,8 @@ def sync_sessions_for_school(school, created_by=None):
 
 
 def calculate_invoice_lines(student, school, billing_period_start, billing_period_end,
-                             attendance_mode, billing_type='post_term', department=None):
+                             attendance_mode, billing_type='post_term', department=None,
+                             restrict_classroom_ids=None):
     """
     Returns (lines, warnings) where:
     - lines: list of dicts with per-class breakdown
@@ -424,6 +485,16 @@ def calculate_invoice_lines(student, school, billing_period_start, billing_perio
     - When set, only classrooms belonging to that department produce line items.
       This ensures that scoping an invoice run to a single department does not
       inadvertently include the student's classes in other departments.
+
+    restrict_classroom_ids:
+    - When set (iterable of classroom IDs), only those classrooms produce line
+      items. Used by gap-invoice logic to bill a specific classroom for an
+      uncovered date range.
+
+    Per-enrollment ``billing_start_date`` semantics:
+    - NULL → bill the full requested period (e.g. backdated data entry for a
+      student who was already attending; pre-enrollment sessions are billable).
+    - Set  → sessions before this date are skipped (genuine late starter).
     """
     enrollments = ClassStudent.objects.filter(
         classroom__school=school,
@@ -434,6 +505,9 @@ def calculate_invoice_lines(student, school, billing_period_start, billing_perio
     if department is not None:
         enrollments = enrollments.filter(classroom__department=department)
 
+    if restrict_classroom_ids is not None:
+        enrollments = enrollments.filter(classroom_id__in=restrict_classroom_ids)
+
     lines = []
     warnings = []
 
@@ -442,12 +516,19 @@ def calculate_invoice_lines(student, school, billing_period_start, billing_perio
         if not classroom.is_active:
             continue
 
-        # Use full billing period — don't restrict by joined_at.
-        # If a student has attendance marked for a session, they should be
-        # charged for it even if they were formally enrolled after that date.
+        # Apply per-enrollment billing_start_date if set. NULL means "bill the
+        # full requested period" — see field docstring on ClassStudent.
+        effective_start = billing_period_start
+        if enrollment.billing_start_date:
+            effective_start = max(effective_start, enrollment.billing_start_date)
+
+        if effective_start > billing_period_end:
+            # billing_start_date is past the requested window — nothing to bill
+            continue
+
         all_sessions = ClassSession.objects.filter(
             classroom=classroom,
-            date__range=(billing_period_start, billing_period_end),
+            date__range=(effective_start, billing_period_end),
         ).exclude(status='cancelled')
 
         if billing_type == 'upfront':
@@ -693,12 +774,24 @@ def issue_invoices(invoice_ids, user):
 
 
 def _send_invoice_email(invoice):
-    """Send invoice issued email to the student."""
+    """
+    Send the invoice issued email to the student + linked parents/guardians.
+
+    Returns a dict:
+        {
+            'sent': [<email str>, ...],   # successfully delivered (queued) recipients
+            'failed': [<email str>, ...], # recipients we attempted but errored
+            'skipped_no_email': bool,     # True if the student has no email at all
+        }
+    """
     from .email_service import send_templated_email
+
+    result = {'sent': [], 'failed': [], 'skipped_no_email': False}
 
     student = invoice.student
     if not student.email:
-        return
+        result['skipped_no_email'] = True
+        return result
 
     school = invoice.school
     line_items = invoice.line_items.select_related('classroom', 'classroom__department').all()
@@ -805,8 +898,10 @@ def _send_invoice_email(invoice):
             department=primary_dept,
         )
         sent_emails.add(student.email.lower())
+        result['sent'].append(student.email)
     except Exception as e:
         logger.exception('Failed to send invoice email for %s: %s', invoice.invoice_number, e)
+        result['failed'].append(student.email)
 
     # 2. Send to parent accounts (ParentStudent links)
     parent_links = ParentStudent.objects.filter(
@@ -822,10 +917,14 @@ def _send_invoice_email(invoice):
                     context=context,
                     recipient_user=link.parent,
                     notification_type='invoice',
+                    school=school,
+                    department=primary_dept,
                 )
                 sent_emails.add(link.parent.email.lower())
+                result['sent'].append(link.parent.email)
             except Exception as e:
                 logger.exception('Failed to send invoice email to parent %s: %s', link.parent.email, e)
+                result['failed'].append(link.parent.email)
 
     # 3. Send to guardian contacts (StudentGuardian links)
     school_student = SchoolStudent.objects.filter(student=student, school=school).first()
@@ -842,10 +941,42 @@ def _send_invoice_email(invoice):
                         template_name='email/transactional/invoice_issued.html',
                         context=context,
                         notification_type='invoice',
+                        school=school,
+                        department=primary_dept,
                     )
                     sent_emails.add(sg.guardian.email.lower())
+                    result['sent'].append(sg.guardian.email)
                 except Exception as e:
                     logger.exception('Failed to send invoice email to guardian %s: %s', sg.guardian.email, e)
+                    result['failed'].append(sg.guardian.email)
+
+    return result
+
+
+def resend_invoice_email(invoice):
+    """
+    Re-send the invoice issued email to the student + linked parents/guardians.
+
+    Used when an earlier delivery bounced because of an outdated email
+    address, and the admin has corrected the address. The invoice itself is
+    not modified — only the email is dispatched again.
+
+    Cancelled invoices cannot be resent. Drafts cannot be resent (they were
+    never emailed in the first place — issue them instead).
+
+    Returns the same dict as ``_send_invoice_email``:
+        {'sent': [...], 'failed': [...], 'skipped_no_email': bool}
+
+    Raises ``ValueError`` if the invoice is in a state that cannot be resent.
+    """
+    if invoice.status == 'cancelled':
+        raise ValueError('Cannot resend a cancelled invoice.')
+    if invoice.status == 'draft':
+        raise ValueError(
+            'Cannot resend a draft invoice — issue it first to send the '
+            'initial email.'
+        )
+    return _send_invoice_email(invoice)
 
 
 # ---------------------------------------------------------------------------
@@ -854,8 +985,10 @@ def _send_invoice_email(invoice):
 
 def cancel_invoice(invoice, reason, cancelled_by):
     """
-    Cancels an invoice. Unlinks confirmed payments as credits.
+    Cancels an invoice. Unlinks confirmed payments as credits and notifies
+    the student + linked parents/guardians (CC'd to the school).
     """
+    credit_returned = Decimal('0')
     with transaction.atomic():
         confirmed_payments = invoice.payments.filter(status='confirmed')
         for payment in confirmed_payments:
@@ -869,6 +1002,7 @@ def cancel_invoice(invoice, reason, cancelled_by):
             )
             payment.invoice = None
             payment.save(update_fields=['invoice'])
+            credit_returned += payment.amount
 
         invoice.status = 'cancelled'
         invoice.cancelled_by = cancelled_by
@@ -877,6 +1011,105 @@ def cancel_invoice(invoice, reason, cancelled_by):
         invoice.save(update_fields=[
             'status', 'cancelled_by', 'cancelled_at', 'cancellation_reason', 'updated_at'
         ])
+
+    _send_invoice_cancelled_email(invoice, reason, credit_returned)
+
+
+def _send_invoice_cancelled_email(invoice, reason, credit_returned):
+    """Notify student + linked parents/guardians that an invoice was cancelled."""
+    from .email_service import send_templated_email
+
+    student = invoice.student
+    school = invoice.school
+
+    primary_dept = None
+    primary_classroom = None
+    for li in invoice.line_items.select_related('classroom', 'classroom__department').all():
+        if li.classroom:
+            primary_classroom = li.classroom
+            if li.classroom.department:
+                primary_dept = li.classroom.department
+            break
+
+    cancelled_date = ''
+    if invoice.cancelled_at:
+        cancelled_date = invoice.cancelled_at.strftime('%b %d, %Y')
+
+    context = {
+        'school_name': school.name,
+        'school_address': school.address or '',
+        'school_phone': school.phone or '',
+        'school_email': school.email or '',
+        'student_name': f'{student.first_name} {student.last_name}'.strip(),
+        'invoice_number': invoice.invoice_number,
+        'cancelled_date': cancelled_date,
+        'original_amount': invoice.amount,
+        'cancellation_reason': reason,
+        'credit_returned': credit_returned,
+    }
+
+    subject = f'Invoice {invoice.invoice_number} Cancelled — {school.name}'
+    sent_emails = set()
+
+    # 1. Student
+    if student.email:
+        try:
+            send_templated_email(
+                recipient_email=student.email,
+                subject=subject,
+                template_name='email/transactional/invoice_cancelled.html',
+                context=context,
+                recipient_user=student,
+                notification_type='invoice_cancelled',
+                school=school,
+                department=primary_dept,
+            )
+            sent_emails.add(student.email.lower())
+        except Exception as e:
+            logger.exception('Failed to send invoice cancellation email for %s: %s', invoice.invoice_number, e)
+
+    # 2. Parents
+    parent_links = ParentStudent.objects.filter(
+        student=student, school=school, is_active=True,
+    ).select_related('parent')
+    for link in parent_links:
+        if link.parent.email and link.parent.email.lower() not in sent_emails:
+            try:
+                send_templated_email(
+                    recipient_email=link.parent.email,
+                    subject=subject,
+                    template_name='email/transactional/invoice_cancelled.html',
+                    context=context,
+                    recipient_user=link.parent,
+                    notification_type='invoice_cancelled',
+                    school=school,
+                    department=primary_dept,
+                )
+                sent_emails.add(link.parent.email.lower())
+            except Exception as e:
+                logger.exception('Failed to send invoice cancellation email to parent %s: %s', link.parent.email, e)
+
+    # 3. Guardians
+    school_student = SchoolStudent.objects.filter(student=student, school=school).first()
+    if school_student:
+        guardian_links = StudentGuardian.objects.filter(
+            student=student,
+        ).select_related('guardian')
+        for sg in guardian_links:
+            if sg.guardian.email and sg.guardian.email.lower() not in sent_emails:
+                try:
+                    send_templated_email(
+                        recipient_email=sg.guardian.email,
+                        subject=subject,
+                        template_name='email/transactional/invoice_cancelled.html',
+                        context=context,
+                        notification_type='invoice_cancelled',
+                        school=school,
+                        department=primary_dept,
+                    )
+                    sent_emails.add(sg.guardian.email.lower())
+                except Exception as e:
+                    logger.exception('Failed to send invoice cancellation email to guardian %s: %s', sg.guardian.email, e)
 
 
 # ---------------------------------------------------------------------------

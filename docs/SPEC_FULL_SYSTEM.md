@@ -417,6 +417,20 @@ Constants: `ADMIN`, `SENIOR_TEACHER`, `TEACHER`, `JUNIOR_TEACHER`, `STUDENT`, `I
 | `/admin-dashboard/unblock-user/` | UnblockUserView | POST |
 | `/admin-dashboard/suspend-school/` | SuspendSchoolView | POST |
 | `/admin-dashboard/unsuspend-school/` | UnsuspendSchoolView | POST |
+| `/admin-dashboard/schools/<school_id>/guardians/<guardian_id>/edit/` | GuardianUpdateView | POST |
+| `/admin-dashboard/schools/<school_id>/parent-links/<link_id>/edit/` | ParentLinkUpdateView | POST |
+| `/admin-dashboard/schools/<school_id>/users/<user_id>/reset-password/modal/` | AdminPasswordResetModalView | GET (HTMX) |
+| `/admin-dashboard/schools/<school_id>/users/<user_id>/reset-password/` | AdminPasswordResetView | POST |
+
+#### Admin-initiated user updates (HoI / Institute Owner / Admin)
+
+**Edit parent details.** Both Guardian (contact-only) and ParentStudent (login-account) records are editable from the Manage Parents page. For ParentStudent rows, the modal updates the linked `CustomUser`'s `first_name`, `last_name`, `email`, and `phone`. Email changes are validated for uniqueness and trigger email-changed notifications to **both** the new and old addresses (via `notifications.services.send_email_changed_notification`). Audit event: `parent_link_edited`.
+
+**Reset user password.** HoI can reset the password of any active student, teacher, or parent in their school via a "Reset Password" button on each list page. Two modes:
+- **Random** — generates a 12-char password from a confusable-free alphabet (excludes `0/O/1/l/I`); guaranteed to contain ≥1 lowercase, uppercase, and digit.
+- **Known** — HoI supplies a password (≥8 chars, confirmed twice).
+
+The user receives a transactional email (`email/transactional/admin_password_reset.html`) with their new credentials and a soft recommendation to change the password on next login. The flag `must_change_password` is explicitly set to `False` — the user is **not** forced to change. Audit event: `admin_password_reset` with `mode` and `target_role` in detail.
 
 ---
 

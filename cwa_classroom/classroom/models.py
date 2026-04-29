@@ -982,6 +982,16 @@ class ClassStudent(models.Model):
         null=True, blank=True,
         help_text='Individual fee override for this student. NULL = inherit from class cascade.',
     )
+    billing_start_date = models.DateField(
+        null=True, blank=True,
+        help_text=(
+            'First date this student is billable for this class. '
+            'NULL = bill the full requested period (e.g. backdated data entry '
+            "for a student who was already attending). Set to a date when the "
+            'student genuinely starts mid-period — sessions before this date '
+            'will not be billed.'
+        ),
+    )
 
     class Meta:
         unique_together = ('classroom', 'student')

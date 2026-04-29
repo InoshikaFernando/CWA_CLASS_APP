@@ -71,6 +71,101 @@ jobs:
         working-directory: cwa_classroom
         run: pytest number_puzzles/tests/ -n auto --dist=loadscope -v --tb=short
 
+  coding-tests:
+    name: Coding Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: cwa_classroom/requirements-test.txt
+
+      - name: Install dependencies
+        run: pip install -r cwa_classroom/requirements-test.txt
+
+      - name: Run coding tests
+        working-directory: cwa_classroom
+        run: pytest coding/tests/ -n auto --dist=loadscope -v --tb=short
+
+  accounts-tests:
+    name: Accounts Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: cwa_classroom/requirements-test.txt
+
+      - name: Install dependencies
+        run: pip install -r cwa_classroom/requirements-test.txt
+
+      - name: Run accounts tests
+        working-directory: cwa_classroom
+        run: pytest accounts/tests.py -n auto --dist=loadscope -v --tb=short
+
+  audit-tests:
+    name: Audit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: cwa_classroom/requirements-test.txt
+
+      - name: Install dependencies
+        run: pip install -r cwa_classroom/requirements-test.txt
+
+      - name: Run audit tests
+        working-directory: cwa_classroom
+        run: pytest audit/tests.py -n auto --dist=loadscope -v --tb=short
+
+  billing-tests:
+    name: Billing Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: cwa_classroom/requirements-test.txt
+
+      - name: Install dependencies
+        run: pip install -r cwa_classroom/requirements-test.txt
+
+      - name: Run billing tests
+        working-directory: cwa_classroom
+        run: pytest billing/tests.py billing/tests_admin.py billing/tests_gaps.py billing/tests_parent_invoice_payment.py billing/tests_stripe.py billing/tests_views_coverage.py billing/tests_webhook_handlers.py -n auto --dist=loadscope -v --tb=short
+
+  homework-tests:
+    name: Homework Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: cwa_classroom/requirements-test.txt
+
+      - name: Install dependencies
+        run: pip install -r cwa_classroom/requirements-test.txt
+
+      - name: Run homework tests
+        working-directory: cwa_classroom
+        run: pytest homework/tests.py -n auto --dist=loadscope -v --tb=short
+
   ui-tests:
     name: UI Tests (Playwright)
     runs-on: ubuntu-latest

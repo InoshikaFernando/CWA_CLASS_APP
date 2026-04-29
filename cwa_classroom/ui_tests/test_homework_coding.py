@@ -201,16 +201,24 @@ class TestCodingHomeworkTake:
     def test_take_page_renders_coding_editor(
         self, page: Page, live_server, enrolled_student, coding_homework_ready, coding_exercise
     ):
+        """Coding take page renders the title, language badge, and a CodeMirror-wrapped
+        textarea for each exercise. CodeMirror.fromTextArea() hides the original
+        ``<textarea>`` and inserts a ``.CodeMirror`` div in its place — so we check
+        the textarea exists in the DOM (with starter_code prefilled), and that
+        the visible CodeMirror editor mounted next to it.
+        """
         do_login(page, live_server.url, enrolled_student)
         page.goto(f"{live_server.url}/homework/{coding_homework_ready.pk}/take/")
         page.wait_for_load_state("networkidle")
 
         expect(page.get_by_text(coding_exercise.title)).to_be_visible()
-        # A textarea for the coding editor per exercise
+        # The textarea is in the DOM (CodeMirror hides it but reads/writes its value).
         editor = page.locator(f"textarea[name='code_{coding_exercise.pk}']")
-        expect(editor).to_be_visible()
+        assert editor.count() == 1, "exactly one code textarea per exercise"
         # Starter code prefilled
         assert coding_exercise.starter_code.strip() in (editor.input_value() or "")
+        # CodeMirror wrapper is visible — proves the page-script ran.
+        expect(page.locator(".CodeMirror").first).to_be_visible()
         # Language badge
         expect(page.get_by_text(coding_exercise.topic_level.topic.language.name).first).to_be_visible()
 

@@ -1,0 +1,96 @@
+{% extends "email/base_email.html" %}
+
+{% block email_title %}Invoice {{ invoice_number }} Cancelled{% endblock %}
+
+{% block email_content %}
+<!-- School Header -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+  <tr>
+    <td style="vertical-align:top;">
+      <p style="margin:0;color:#1e293b;font-size:16px;font-weight:700;">{{ school_name }}</p>
+      {% if school_address %}
+        <p style="margin:4px 0 0;color:#64748b;font-size:13px;white-space:pre-line;">{{ school_address }}</p>
+      {% endif %}
+      {% if school_phone %}
+        <p style="margin:2px 0 0;color:#64748b;font-size:13px;">{{ school_phone }}</p>
+      {% endif %}
+      {% if school_email %}
+        <p style="margin:2px 0 0;color:#64748b;font-size:13px;">{{ school_email }}</p>
+      {% endif %}
+    </td>
+  </tr>
+</table>
+
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:0 0 24px;">
+
+<!-- Cancellation Banner -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+  style="margin-bottom:20px;background-color:#fef2f2;border:1px solid #fecaca;border-radius:8px;">
+  <tr>
+    <td style="padding:14px 16px;">
+      <p style="margin:0;color:#991b1b;font-size:14px;font-weight:700;">Invoice Cancelled</p>
+      <p style="margin:4px 0 0;color:#7f1d1d;font-size:13px;">
+        Invoice <strong>{{ invoice_number }}</strong> has been cancelled and is no longer payable.
+      </p>
+    </td>
+  </tr>
+</table>
+
+<!-- Student + Invoice Details -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+  <tr>
+    <td style="vertical-align:top;width:50%;">
+      <p style="margin:0;color:#1e293b;font-size:14px;font-weight:600;">{{ student_name }}</p>
+    </td>
+    <td style="vertical-align:top;width:50%;text-align:right;">
+      <table role="presentation" cellpadding="0" cellspacing="0" style="margin-left:auto;">
+        <tr>
+          <td style="padding:2px 12px 2px 0;color:#64748b;font-size:13px;text-align:right;">Invoice Number</td>
+          <td style="padding:2px 0;color:#1e293b;font-size:13px;font-weight:600;">{{ invoice_number }}</td>
+        </tr>
+        <tr>
+          <td style="padding:2px 12px 2px 0;color:#64748b;font-size:13px;text-align:right;">Cancelled On</td>
+          <td style="padding:2px 0;color:#1e293b;font-size:13px;">{{ cancelled_date }}</td>
+        </tr>
+        <tr>
+          <td style="padding:2px 12px 2px 0;color:#64748b;font-size:13px;text-align:right;">Original Amount</td>
+          <td style="padding:2px 0;color:#1e293b;font-size:13px;">${{ original_amount }}</td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+
+<!-- Reason -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+  style="margin-bottom:20px;background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
+  <tr>
+    <td style="padding:14px 16px;">
+      <p style="margin:0 0 4px;color:#64748b;font-size:12px;font-weight:600;text-transform:uppercase;">Reason for Cancellation</p>
+      <p style="margin:0;color:#334155;font-size:13px;white-space:pre-line;">{{ cancellation_reason }}</p>
+    </td>
+  </tr>
+</table>
+
+<!-- Credit Returned (if any) -->
+{% if credit_returned and credit_returned > 0 %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+  style="margin-bottom:20px;background-color:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;">
+  <tr>
+    <td style="padding:14px 16px;">
+      <p style="margin:0;color:#065f46;font-size:13px;font-weight:700;">Credit Returned: ${{ credit_returned }}</p>
+      <p style="margin:4px 0 0;color:#047857;font-size:12px;">
+        Payments previously applied to this invoice have been returned to {{ student_name }}'s credit balance
+        and will be applied to future invoices automatically.
+      </p>
+    </td>
+  </tr>
+</table>
+{% endif %}
+
+<p style="margin:20px 0 0;color:#334155;font-size:13px;">
+  If you believe this cancellation was made in error, please reply to this email or contact {{ school_name }} directly.
+</p>
+
+<p style="margin:16px 0 0;color:#334155;font-size:14px;font-weight:600;">Thank You.</p>
+{% endblock %}

@@ -1,3 +1,31 @@
+{# Hidden field carrying the current sort — HTMX hx-include picks this up from the live-search input. #}
+<input type="hidden" name="order_by" value="{{ order_by }}" id="current-order-by">
+
+{# Clickable sort headers. Clicking toggles asc ↔ desc for that column; clicking a different column sorts ascending. #}
+<div class="flex flex-wrap items-center gap-2 mb-3 px-1">
+  <span class="text-xs font-semibold text-gray-400 uppercase tracking-wide mr-1">Sort by</span>
+  {% spaceless %}
+  {% for col, label in sort_columns %}
+    {% with is_asc=order_by|stringformat:"s" %}
+    <button type="button"
+            hx-get="{% url 'admin_school_students' school.id %}?order_by={% if is_asc == col %}-{{ col }}{% else %}{{ col }}{% endif %}{% if show_inactive %}&amp;show_inactive=1{% endif %}"
+            hx-target="#students-panel" hx-swap="innerHTML"
+            hx-include="input[name='q']"
+            hx-push-url="true"
+            class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg transition
+                   {% if is_asc == col or is_asc == '-'|add:col %}bg-accent/10 text-accent{% else %}text-gray-600 hover:bg-slate-100{% endif %}">
+      {{ label }}
+      {% if is_asc == col %}
+      <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18"/></svg>
+      {% elif is_asc == '-'|add:col %}
+      <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 13.5 12 21m0 0-7.5-7.5M12 21V3"/></svg>
+      {% endif %}
+    </button>
+    {% endwith %}
+  {% endfor %}
+  {% endspaceless %}
+</div>
+
 <!-- Batch edit form -->
 <form method="post" action="{% url 'admin_school_student_batch_update' school.id %}"
       @submit="saving = true">
@@ -46,12 +74,9 @@
                 </p>
               </div>
             </div>
-            <button type="button" @click.stop
-                    hx-get="{% url 'admin_school_student_edit_modal' school.id ss.student.id %}"
-                    hx-target="#edit-modal-content"
-                    hx-swap="innerHTML"
+            <button type="button" @click.stop="openEditModal('{% url 'admin_school_student_edit_modal' school.id ss.student.id %}')"
                     class="p-1.5 text-gray-400 hover:text-accent hover:bg-accent/10 rounded-lg transition flex-shrink-0"
-                    title="Edit student">
+                    title="Edit student details">
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"/>
               </svg>
@@ -92,8 +117,16 @@
                        class="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent transition">
               </div>
             </div>
-            <div class="mt-3 ml-13">
+            <div class="mt-3 ml-13 flex items-center gap-3">
               {% if ss.is_active %}
+              <button type="button"
+                      @click.stop="openEditModal('{% url 'admin_user_password_reset_modal' school.id ss.student.id %}')"
+                      class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-amber-600 hover:bg-amber-50 rounded-lg transition border border-amber-200">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z"/>
+                </svg>
+                Reset Password
+              </button>
               <button type="button"
                       @click="submitAction('{% url 'admin_school_student_remove' school.id ss.student.id %}', 'Remove {{ ss.student.get_full_name|default:ss.student.username|escapejs }} from {{ school.name|escapejs }}?')"
                       class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 rounded-lg transition">

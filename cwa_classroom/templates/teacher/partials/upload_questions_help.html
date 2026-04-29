@@ -16,6 +16,7 @@ Renders subject-specific help text for the upload form.
       "instructions": "Use a for loop to print numbers 1 through 5.",
       "starter_code": "for i in range(?, ?):\n    print(?)\n",
       "expected_output": "1\n2\n3\n4\n5",
+      "required_code_patterns": ["for\s+\w+\s+in", "range\("],
       "hints": "range(1, 6) generates 1–5",
       "display_order": 1
     }
@@ -23,6 +24,7 @@ Renders subject-specific help text for the upload form.
 }</pre>
   <p class="text-xs text-gray-400">language: <code class="font-mono">scratch</code> · <code class="font-mono">javascript</code> · <code class="font-mono">python</code> · <code class="font-mono">html</code> · <code class="font-mono">css</code></p>
   <p class="text-xs text-gray-400">level: <code class="font-mono">beginner</code> · <code class="font-mono">intermediate</code> · <code class="font-mono">advanced</code></p>
+  <p class="text-xs text-gray-400"><code class="font-mono">required_code_patterns</code>: optional list of regexes; all must match the student's code before it can score 100. Omit or use <code class="font-mono">[]</code> to skip.</p>
 </div>
 {% else %}
 <div class="space-y-3">

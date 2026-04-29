@@ -239,6 +239,61 @@ class CodingExerciseParserTests(TestCase):
         self.assertGreater(result['failed'], 0)
         self.assertTrue(len(result['errors']) > 0)
 
+    def test_required_code_patterns_list_persisted_as_newline_joined(self):
+        payload = _coding_payload(exercises=[{
+            'title': 'Variable Exercise',
+            'instructions': 'Create a variable.',
+            'expected_output': 'Alice',
+            'required_code_patterns': [r'name\s*=', r'print\('],
+        }])
+        result = self._run_parser(payload)
+        self.assertEqual(result['failed'], 0)
+        ex = CodingExercise.objects.get(title='Variable Exercise')
+        self.assertEqual(ex.required_code_patterns, 'name\\s*=\nprint\\(')
+
+    def test_required_code_patterns_string_persisted_as_is(self):
+        payload = _coding_payload(exercises=[{
+            'title': 'String Pattern Exercise',
+            'instructions': 'Do a thing.',
+            'expected_output': 'ok',
+            'required_code_patterns': 'name\\s*=\nprint\\(',
+        }])
+        self._run_parser(payload)
+        ex = CodingExercise.objects.get(title='String Pattern Exercise')
+        self.assertEqual(ex.required_code_patterns, 'name\\s*=\nprint\\(')
+
+    def test_required_code_patterns_omitted_stored_as_null(self):
+        payload = _coding_payload(exercises=[{
+            'title': 'No Pattern Exercise',
+            'instructions': 'Do a thing.',
+            'expected_output': 'ok',
+        }])
+        self._run_parser(payload)
+        ex = CodingExercise.objects.get(title='No Pattern Exercise')
+        self.assertIsNone(ex.required_code_patterns)
+
+    def test_required_code_patterns_empty_list_stored_as_null(self):
+        payload = _coding_payload(exercises=[{
+            'title': 'Empty Pattern Exercise',
+            'instructions': 'Do a thing.',
+            'expected_output': 'ok',
+            'required_code_patterns': [],
+        }])
+        self._run_parser(payload)
+        ex = CodingExercise.objects.get(title='Empty Pattern Exercise')
+        self.assertIsNone(ex.required_code_patterns)
+
+    def test_required_code_patterns_list_drops_blank_entries(self):
+        payload = _coding_payload(exercises=[{
+            'title': 'Blank Pattern Exercise',
+            'instructions': 'Do a thing.',
+            'expected_output': 'ok',
+            'required_code_patterns': ['name\\s*=', '', '   ', 'print\\('],
+        }])
+        self._run_parser(payload)
+        ex = CodingExercise.objects.get(title='Blank Pattern Exercise')
+        self.assertEqual(ex.required_code_patterns, 'name\\s*=\nprint\\(')
+
     def test_all_three_levels_accepted(self):
         for level in ('beginner', 'intermediate', 'advanced'):
             payload = _coding_payload(
@@ -396,6 +451,11 @@ class CodingUploadViewTests(TestCase):
         self.assertEqual(data['subject'], 'coding')
         self.assertIn('exercises', data)
         self.assertTrue(len(data['exercises']) > 0)
+        # At least one sample exercise should demonstrate required_code_patterns
+        self.assertTrue(
+            any('required_code_patterns' in ex for ex in data['exercises']),
+            'Template should demonstrate required_code_patterns on at least one exercise',
+        )
 
     def test_template_download_mathematics_returns_json_file(self):
         resp = self.client.get(

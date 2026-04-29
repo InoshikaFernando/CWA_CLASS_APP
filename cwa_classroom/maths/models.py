@@ -1,8 +1,19 @@
-from django.db import models
-from django.conf import settings
-from django.utils import timezone
+import re
 import uuid
 from brainbuzz.managers import MathsQuestionsManager
+
+from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.db import models
+from django.utils import timezone
+
+
+# Global question images must live under questions/year<N>/<topic>/<filename>
+# so the content team can find them by year + topic. School-specific
+# questions are exempt — schools can organise their own media however they
+# like. Enforced by Question.clean() so admin / ModelForm uploads are
+# rejected up-front rather than drifting through the audit.
+QUESTION_IMAGE_PATH_RE = re.compile(r'^questions/year[0-9]+/[a-zA-Z0-9_-]+/.+')
 
 
 def generate_class_code():
@@ -84,6 +95,22 @@ class Question(models.Model):
 
     def __str__(self):
         return f"{self.level} - {self.question_text[:50]}..."
+
+    def clean(self):
+        super().clean()
+        # Global questions (school IS NULL) must follow the canonical
+        # questions/year<N>/<topic>/ image-path convention. School-scoped
+        # questions are unconstrained.
+        if self.school_id is None and self.image:
+            path = str(self.image)
+            if not QUESTION_IMAGE_PATH_RE.match(path):
+                raise ValidationError({
+                    'image': (
+                        'Image path must follow '
+                        'questions/year<N>/<topic>/<filename> for global '
+                        'questions. Got: ' + repr(path)
+                    )
+                })
 
 
 class Answer(models.Model):

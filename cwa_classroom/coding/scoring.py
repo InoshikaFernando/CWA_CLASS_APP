@@ -256,6 +256,33 @@ def evaluate_exercise_output(user_output: str, expected_output: str) -> int:
     return 100 if stripped_user == (expected_output or '').rstrip() else 0
 
 
+def code_matches_required_patterns(user_code: str, required_patterns: str) -> bool:
+    """Return True when *user_code* contains every pattern in *required_patterns*.
+
+    Patterns are one-per-line regexes applied with ``re.search`` (not fullmatch).
+    Blank lines are ignored. An empty / blank *required_patterns* string returns
+    True — no constraint configured.
+
+    A pattern that fails to compile is treated as a literal substring so a typo
+    can't silently pass every submission.
+    """
+    import re
+
+    patterns = [p for p in (required_patterns or '').splitlines() if p.strip()]
+    if not patterns:
+        return True
+
+    code = user_code or ''
+    for pattern in patterns:
+        try:
+            if not re.search(pattern, code):
+                return False
+        except re.error:
+            if pattern not in code:
+                return False
+    return True
+
+
 def score_submission(eval_result: EvaluationResult) -> float:
     """Return a deterministic binary score for *eval_result*.
 

@@ -11,6 +11,7 @@ from . import views_invoicing
 from . import views_salaries
 from . import views_parent
 from . import views_parent_admin
+from . import views_password_admin
 from attendance import views_student as attendance_views_student
 from attendance import views_teacher as attendance_views_teacher
 
@@ -142,6 +143,14 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/remove/', views_admin.SchoolStudentRemoveView.as_view(), name='admin_school_student_remove'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/restore/', views_admin.SchoolStudentRestoreView.as_view(), name='admin_school_student_restore'),
     path('admin-dashboard/schools/<int:school_id>/students/batch-update/', views_admin.SchoolStudentBatchUpdateView.as_view(), name='admin_school_student_batch_update'),
+
+    # HoI password reset (any school member: student, teacher, or parent)
+    path('admin-dashboard/schools/<int:school_id>/users/<int:user_id>/reset-password/modal/',
+         views_password_admin.AdminPasswordResetModalView.as_view(),
+         name='admin_user_password_reset_modal'),
+    path('admin-dashboard/schools/<int:school_id>/users/<int:user_id>/reset-password/',
+         views_password_admin.AdminPasswordResetView.as_view(),
+         name='admin_user_password_reset'),
 
     # Parent list & edit (school-level)
     path('admin-dashboard/schools/<int:school_id>/parents/', views_parent_admin.SchoolParentListView.as_view(), name='admin_school_parents'),
@@ -300,6 +309,7 @@ urlpatterns = [
     path('invoicing/<int:invoice_id>/', views_invoicing.InvoiceDetailView.as_view(), name='invoice_detail'),
     path('invoicing/<int:invoice_id>/edit/', views_invoicing.InvoiceEditView.as_view(), name='invoice_edit'),
     path('invoicing/<int:invoice_id>/cancel/', views_invoicing.CancelInvoiceView.as_view(), name='cancel_invoice'),
+    path('invoicing/<int:invoice_id>/resend/', views_invoicing.ResendInvoiceView.as_view(), name='resend_invoice'),
     path('invoicing/<int:invoice_id>/pay/', views_invoicing.RecordManualPaymentView.as_view(), name='record_manual_payment'),
     path('invoicing/csv/upload/', views_invoicing.CSVUploadView.as_view(), name='csv_upload'),
     path('invoicing/csv/mapping/', views_invoicing.CSVColumnMappingView.as_view(), name='csv_column_mapping'),
