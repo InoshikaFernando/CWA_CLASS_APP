@@ -1,0 +1,242 @@
+{
+  "subject": "maths",
+  "questions": [
+    {
+      "topic": "Fractions",
+      "level": 5,
+      "question_text": "What is 1/2 + 1/4?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "To add fractions, find a common denominator. 1/2 = 2/4, so 2/4 + 1/4 = 3/4.",
+      "answers": [
+        {
+          "text": "3/4",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "2/6",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "1/8",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "2/4",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "topic": "Fractions",
+      "level": 5,
+      "question_text": "Is 3/6 equivalent to 1/2?",
+      "question_type": "true_false",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "3/6 simplifies to 1/2 by dividing numerator and denominator by 3.",
+      "answers": [
+        {
+          "text": "True",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "False",
+          "is_correct": false,
+          "order": 1
+        }
+      ]
+    },
+    {
+      "topic": "Fractions",
+      "level": 6,
+      "question_text": "Simplify the fraction 12/16 to its lowest terms.",
+      "question_type": "short_answer",
+      "difficulty": 2,
+      "points": 2,
+      "explanation": "The GCF of 12 and 16 is 4. Dividing both by 4 gives 3/4.",
+      "correct_short_answer": "3/4"
+    },
+    {
+      "topic": "Arithmetic",
+      "level": 3,
+      "question_text": "What is 7 × 8?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "7 × 8 = 56.",
+      "answers": [
+        {
+          "text": "54",
+          "is_correct": false,
+          "order": 0
+        },
+        {
+          "text": "56",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "58",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "64",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "topic": "Arithmetic",
+      "level": 3,
+      "question_text": "Division is the inverse (opposite) of multiplication.",
+      "question_type": "true_false",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "If a × b = c then c ÷ b = a.",
+      "answers": [
+        {
+          "text": "True",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "False",
+          "is_correct": false,
+          "order": 1
+        }
+      ]
+    },
+    {
+      "topic": "Arithmetic",
+      "level": 4,
+      "question_text": "A store sells apples for $0.35 each. How much do 12 apples cost?",
+      "question_type": "short_answer",
+      "difficulty": 2,
+      "points": 2,
+      "explanation": "12 × $0.35 = $4.20",
+      "correct_short_answer": "$4.20"
+    },
+    {
+      "topic": "BODMAS",
+      "level": 7,
+      "question_text": "Evaluate: 3 + 4 × 2 − 1",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "BODMAS: multiplication first → 4 × 2 = 8, then 3 + 8 − 1 = 10.",
+      "answers": [
+        {
+          "text": "10",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "13",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "14",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "9",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "topic": "Algebra",
+      "level": 7,
+      "question_text": "Solve for x: 2x + 5 = 13",
+      "question_type": "short_answer",
+      "difficulty": 2,
+      "points": 2,
+      "explanation": "Subtract 5 from both sides: 2x = 8. Divide by 2: x = 4.",
+      "correct_short_answer": "4"
+    },
+    {
+      "topic": "Algebra",
+      "level": 8,
+      "question_text": "Which of the following is equivalent to 3(x + 4)?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Distribute: 3(x + 4) = 3x + 12.",
+      "answers": [
+        {
+          "text": "3x + 12",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "3x + 4",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x + 12",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "3x + 7",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "topic": "Addition",
+      "level": 1,
+      "question_text": "What is 5 + 3?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Count on from 5: 6, 7, 8. So 5 + 3 = 8.",
+      "answers": [
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 0
+        },
+        {
+          "text": "8",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "9",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "6",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "topic": "Addition",
+      "level": 2,
+      "question_text": "Fill in the blank: 14 + ___ = 20",
+      "question_type": "fill_blank",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "20 − 14 = 6. So the missing number is 6.",
+      "correct_short_answer": "6"
+    }
+  ]
+}

@@ -1,7 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python manage.py shell -c \":*)"
+      "Bash(python manage.py shell -c \":*)",
+      "Read(//c/Users/Administrator/.claude/projects/c--Users-Administrator-Documents-GitHub-Code-Wizard-Source-CWA-CLASS-APP/**)",
+      "Read(//c/Users/Administrator/.claude/projects/**)",
+      "Bash(python -m pytest brainbuzz/tests/ --tb=short -q)",
+      "PowerShell([System.IO.Directory]::GetDirectories\\(\"C:\\\\Users\\\\Administrator\\\\Documents\\\\GitHub\\\\Code_Wizard_Source\\\\CWA_CLASS_APP\\\\.conda\\\\Lib\"\\) | Select-Object -First 20)",
+      "PowerShell(& \"C:\\\\Users\\\\Administrator\\\\anaconda3\\\\envs\\\\cwa-arebhy\\\\Scripts\\\\python.exe\" -c \"import django; print\\(django.__version__\\)\")",
+      "PowerShell(& \"C:\\\\Users\\\\Administrator\\\\anaconda3\\\\envs\\\\cwa-arebhy\\\\python.exe\" \"C:\\\\Users\\\\Administrator\\\\Documents\\\\GitHub\\\\Code_Wizard_Source\\\\CWA_CLASS_APP\\\\cwa_classroom\\\\manage.py\" shell -c \\(Get-Content \"C:\\\\Users\\\\Administrator\\\\Documents\\\\GitHub\\\\Code_Wizard_Source\\\\CWA_CLASS_APP\\\\cwa_classroom\\\\_clear_brainbuzz.py\" -Raw\\) 2>&1)",
+      "Read(//c/Users/Administrator/**)"
     ]
   }
 }

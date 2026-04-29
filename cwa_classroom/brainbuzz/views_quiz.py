@@ -99,7 +99,7 @@ def quiz_create(request):
         return redirect('subjects_hub')
 
     from classroom.models import Subject
-    subjects = Subject.objects.all().order_by('name')
+    subjects = Subject.objects.filter(is_active=True, school__isnull=True).order_by('name')
 
     if request.method == 'POST':
         title = request.POST.get('title', '').strip()
@@ -144,7 +144,7 @@ def quiz_builder(request, quiz_id):
 
     quiz = get_object_or_404(BrainBuzzQuiz, id=quiz_id, created_by=request.user)
     from classroom.models import Subject
-    subjects = Subject.objects.all().order_by('name')
+    subjects = Subject.objects.filter(is_active=True, school__isnull=True).order_by('name')
     return render(request, 'brainbuzz/quiz_builder.html', {
         'quiz': quiz,
         'subjects': subjects,
@@ -303,8 +303,6 @@ def _api_create_question(request, quiz: BrainBuzzQuiz):
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
 
     q_text = body.get('question_text', '').strip()
-    if not q_text:
-        return JsonResponse({'error': 'question_text is required.'}, status=400)
 
     q_type = body.get('question_type', QUESTION_TYPE_MCQ)
     if q_type not in dict(QUIZ_QUESTION_TYPE_CHOICES):

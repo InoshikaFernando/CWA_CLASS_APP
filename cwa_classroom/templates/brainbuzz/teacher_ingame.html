@@ -1,97 +1,338 @@
 {% extends "base.html" %}
-{% block title %}BrainBuzz — {{ session.join_code }}{% endblock %}
+{% block title %}BrainBuzz Live — {{ session.code }}{% endblock %}
 
 {% block content %}
-<div class="max-w-5xl mx-auto py-4 space-y-5"
-     x-data="bbTeacher('{{ session.join_code }}', {{ session.state_version }}, {{ session.current_question_index|default:'null' }}, {{ session.questions.count }})"
-     x-init="startPolling()">
 
-  <!-- Top bar -->
-  <div class="flex items-center justify-between flex-wrap gap-3">
-    <div class="flex items-center gap-3">
-      <span class="font-mono text-2xl font-black text-primary tracking-widest">{{ session.join_code }}</span>
-      <span class="text-sm text-gray-500" x-text="`Q${(currentIndex ?? 0) + 1} of ${totalQuestions}`"></span>
+<!-- Full-bleed dark stage -->
+<div class="fixed inset-0 -z-10" style="background: #060b14;"></div>
+<div class="fixed inset-0 -z-10 pointer-events-none"
+     style="background:
+       radial-gradient(ellipse 70% 55% at 15% 50%, rgba(56,189,248,0.06) 0%, transparent 60%),
+       radial-gradient(ellipse 60% 70% at 85% 20%, rgba(167,139,250,0.07) 0%, transparent 60%),
+       radial-gradient(ellipse 50% 40% at 50% 100%, rgba(16,185,129,0.05) 0%, transparent 55%);"></div>
+
+<style>
+  @keyframes bar-fill   { from { width: 0 }  to { width: var(--w) } }
+  @keyframes pop-in     { 0%{transform:scale(0.85);opacity:0} 60%{transform:scale(1.04)} 100%{transform:scale(1);opacity:1} }
+  @keyframes slide-up   { from{transform:translateY(16px);opacity:0} to{transform:translateY(0);opacity:1} }
+  @keyframes pulse-ring { 0%{transform:scale(1);opacity:.5} 100%{transform:scale(1.9);opacity:0} }
+  @keyframes count-pop  { 0%,100%{transform:scale(1)} 45%{transform:scale(1.35)} }
+  @keyframes reveal-glow{
+    0%,100%{box-shadow:0 0 0 rgba(59,130,246,0)} 50%{box-shadow:0 0 30px rgba(59,130,246,.45)}
+  }
+  @keyframes shimmer {
+    0%{background-position:-200% 0} 100%{background-position:200% 0}
+  }
+
+  .tile-enter  { animation: pop-in .3s cubic-bezier(.34,1.56,.64,1) both; }
+  .bar-animate { animation: bar-fill .7s cubic-bezier(.22,1,.36,1) forwards; }
+  .slide-up    { animation: slide-up .25s ease both; }
+
+  .reveal-btn-glow { animation: reveal-glow 2s ease-in-out infinite; }
+
+  .progress-shimmer {
+    background: linear-gradient(90deg, transparent 20%, rgba(255,255,255,.18) 50%, transparent 80%);
+    background-size: 200% 100%;
+    animation: shimmer 1.8s linear infinite;
+  }
+
+  .kbd {
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700; color: rgba(255,255,255,.35);
+    background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1);
+    border-radius: 5px; padding: 1px 5px; letter-spacing: .05em; line-height: 1.6;
+  }
+
+  [x-cloak] { display: none !important; }
+</style>
+
+<div class="min-h-screen flex flex-col overflow-hidden"
+     x-data="bbTeacher('{{ session.code }}', {{ session.state_version }}, {{ session.current_index }}, {{ session.questions.count }})"
+     x-init="init()">
+
+  <!-- ═══ TOP COMMAND BAR ═══════════════════════════════════════════════════ -->
+  <header class="flex items-center gap-4 px-6 py-3 border-b border-white/[0.07] flex-shrink-0">
+
+    <!-- Session + question progress -->
+    <div class="flex items-center gap-3 flex-1 min-w-0">
+      <div class="flex items-center gap-1.5">
+        <div class="relative">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 block"></span>
+          <span class="absolute inset-0 w-2 h-2 rounded-full bg-emerald-400" style="animation: pulse-ring 1.4s ease infinite;"></span>
+        </div>
+        <span class="font-mono font-black text-white tracking-widest text-base">{{ session.code }}</span>
+      </div>
+
+      <!-- Q progress pills -->
+      <div class="flex items-center gap-1.5 flex-wrap">
+        {% for q in session.questions.all %}
+        <div class="w-2 h-2 rounded-full flex-shrink-0"
+             :class="{{ forloop.counter0 }} < currentIndex ? 'bg-emerald-400' :
+                     {{ forloop.counter0 }} === currentIndex ? 'bg-blue-400' : 'bg-white/15'"></div>
+        {% endfor %}
+      </div>
+
+      <span class="text-xs font-bold text-gray-500"
+            x-text="`Q${(currentIndex ?? 0) + 1} of ${totalQuestions}`"></span>
     </div>
-    <div class="flex items-center gap-2">
-      <span class="text-3xl font-black tabular-nums text-accent" x-text="countdown > 0 ? countdown : '—'"></span>
-      <span class="text-sm text-gray-500">sec</span>
-      <button @click="nextQuestion()"
-              class="ml-4 bg-accent hover:bg-blue-600 text-white font-semibold px-5 py-2 rounded-xl transition text-sm">
-        Next &rarr;
-      </button>
-      <button @click="endGame()"
-              class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold px-4 py-2 rounded-xl transition text-sm">
-        End
-      </button>
+
+    <!-- Countdown ring -->
+    <div class="relative w-14 h-14 flex-shrink-0">
+      <svg viewBox="0 0 36 36" class="w-full h-full -rotate-90">
+        <circle cx="18" cy="18" r="15.9155" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="3.5"/>
+        <circle cx="18" cy="18" r="15.9155" fill="none"
+                :stroke="countdown <= 5 ? '#ef4444' : countdown <= 10 ? '#f59e0b' : '#3b82f6'"
+                stroke-width="3.5" stroke-linecap="round"
+                :stroke-dasharray="`${countdownPct}, 100`"
+                style="transition: stroke-dasharray .9s linear, stroke .3s;"/>
+      </svg>
+      <span class="absolute inset-0 flex items-center justify-center font-black tabular-nums text-sm"
+            :class="countdown <= 5 ? 'text-red-400' : countdown <= 10 ? 'text-yellow-400' : 'text-white'"
+            x-text="status === 'active' ? countdown : '—'"></span>
     </div>
-  </div>
 
-  <!-- Question card (large, projector-friendly) -->
-  <div class="bg-primary rounded-2xl p-8 text-white min-h-[10rem] flex items-center justify-center">
-    <p class="text-3xl font-bold text-center leading-snug" x-text="questionText || 'Loading…'"></p>
-  </div>
+    <!-- ACTIVE controls -->
+    <template x-if="status === 'active'">
+      <div class="flex items-center gap-2 flex-shrink-0">
+        <button @click="revealAnswers()"
+                class="reveal-btn-glow flex items-center gap-2 bg-blue-500 hover:bg-blue-400 active:scale-95 text-white font-black px-5 py-2.5 rounded-xl text-sm transition-all duration-200 shadow-lg shadow-blue-500/30">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+          </svg>
+          Reveal
+          <span class="kbd">Space</span>
+        </button>
+        <button @click="endGame()"
+                class="flex items-center gap-1.5 bg-white/8 hover:bg-red-500/20 hover:text-red-300 border border-white/10 hover:border-red-400/40 text-gray-400 font-bold px-4 py-2.5 rounded-xl text-sm transition-all duration-200">
+          End
+          <span class="kbd">Esc</span>
+        </button>
+      </div>
+    </template>
 
-  <!-- Answer tiles (MCQ/TF display only — teacher doesn't click) -->
-  <template x-if="options.length > 0">
-    <div class="grid grid-cols-2 gap-3">
-      <template x-for="(opt, idx) in options" :key="opt.id">
-        <div :class="tileClasses[idx % 4]"
-             class="rounded-2xl px-6 py-5 flex items-center gap-4 text-white font-semibold">
-          <span class="w-9 h-9 rounded-full bg-black/20 flex items-center justify-center font-black text-sm flex-shrink-0"
-                x-text="['A','B','C','D'][idx]"></span>
-          <span class="text-lg leading-snug" x-text="opt.text"></span>
+    <!-- REVEAL controls -->
+    <template x-if="status === 'reveal'">
+      <div class="flex items-center gap-3 flex-shrink-0">
+        <span class="text-xs text-gray-500 tabular-nums font-semibold"
+              x-show="revealCountdown > 0"
+              x-text="`Auto-next in ${revealCountdown}s`"></span>
+        <button @click="nextQuestion()"
+                class="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-white font-black px-5 py-2.5 rounded-xl text-sm transition-all shadow-lg shadow-emerald-500/25">
+          Next
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/>
+          </svg>
+          <span class="kbd">Space</span>
+        </button>
+        <button @click="endGame()"
+                class="bg-white/8 hover:bg-red-500/20 hover:text-red-300 border border-white/10 hover:border-red-400/40 text-gray-400 font-bold px-4 py-2.5 rounded-xl text-sm transition-all">
+          End
+        </button>
+      </div>
+    </template>
+  </header>
+
+  <!-- ═══ MAIN STAGE ════════════════════════════════════════════════════════ -->
+  <main class="flex-1 flex flex-col lg:flex-row gap-0 overflow-hidden min-h-0">
+
+    <!-- LEFT: Question + Answer tiles -->
+    <div class="flex-1 flex flex-col gap-4 p-5 overflow-y-auto min-h-0">
+
+      <!-- ── Question Card ────────────────────────────────────────────────── -->
+      <div class="relative rounded-3xl overflow-hidden border border-white/10 shadow-2xl flex-shrink-0"
+           style="background: linear-gradient(145deg, rgba(15,23,42,0.97) 0%, rgba(30,41,75,0.97) 100%); min-height: 10rem;">
+        <!-- Top gradient accent -->
+        <div class="h-0.5 w-full" style="background: linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899);"></div>
+        <!-- Question number badge -->
+        <div class="absolute top-4 left-5">
+          <span class="text-[10px] font-black uppercase tracking-[.2em] text-blue-400">Question <span x-text="(currentIndex ?? 0) + 1"></span></span>
+        </div>
+        <!-- Question text -->
+        <div class="flex items-center justify-center px-10 py-10 min-h-[10rem]">
+          <p class="text-2xl md:text-3xl lg:text-4xl font-black text-white text-center leading-snug"
+             x-text="questionText || 'Loading…'"></p>
+        </div>
+      </div>
+
+      <!-- ── Answer Tiles (ACTIVE) ────────────────────────────────────────── -->
+      <template x-if="status === 'active' && options.length > 0">
+        <div class="grid grid-cols-2 gap-3 flex-shrink-0">
+          <template x-for="(opt, idx) in options" :key="idx">
+            <div class="tile-enter rounded-2xl px-5 py-5 flex items-center gap-4 border border-white/10 shadow-lg"
+                 :style="`background: ${tileBg(idx)}; animation-delay: ${idx * 0.06}s`">
+              <!-- Letter badge -->
+              <span class="w-11 h-11 rounded-xl flex items-center justify-center font-black text-white text-lg flex-shrink-0"
+                    :style="`background: ${tileAccent(idx)};`"
+                    x-text="opt.label || ['A','B','C','D'][idx]"></span>
+              <!-- Option text -->
+              <span class="font-bold text-white text-base leading-snug" x-text="opt.text"></span>
+              <!-- Shape icon (colorblind-safe) -->
+              <span class="ml-auto text-2xl opacity-60 flex-shrink-0" x-text="['▲','◆','●','■'][idx % 4]"></span>
+            </div>
+          </template>
         </div>
       </template>
-    </div>
-  </template>
 
-  <!-- Submission count bar -->
-  <div class="bg-white border border-gray-200 rounded-xl px-5 py-3 flex items-center justify-between text-sm">
-    <span class="text-gray-600">Answers received</span>
-    <span class="font-bold text-gray-900" x-text="`${submissionCount} / ${participantCount}`"></span>
-  </div>
-
-  <!-- Leaderboard (top 10) -->
-  <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
-    <div class="px-5 py-3 border-b border-gray-100 font-semibold text-gray-900">Live Leaderboard</div>
-    <ol class="divide-y divide-gray-50">
-      <template x-for="(p, idx) in leaderboard.slice(0,10)" :key="p.id">
-        <li class="flex items-center gap-3 px-5 py-2.5">
-          <span class="w-6 text-center font-black text-gray-400 text-sm" x-text="idx + 1"></span>
-          <span class="flex-1 font-medium text-gray-800 truncate" x-text="p.nickname"></span>
-          <span class="font-bold text-accent" x-text="p.total_score.toLocaleString()"></span>
-        </li>
+      <!-- ── Answer Tiles with Distribution (REVEAL) ─────────────────────── -->
+      <template x-if="status === 'reveal' && distribution.length > 0">
+        <div class="grid grid-cols-2 gap-3 flex-shrink-0">
+          <template x-for="(opt, idx) in distribution" :key="idx">
+            <div class="tile-enter rounded-2xl overflow-hidden border-2 shadow-xl transition-all duration-300"
+                 :class="opt.is_correct ? 'border-emerald-400/80 shadow-emerald-500/20' : 'border-white/10'"
+                 :style="`background: ${tileBg(idx)}; animation-delay: ${idx * 0.08}s`">
+              <!-- Main tile row -->
+              <div class="flex items-center gap-4 px-5 py-4 relative">
+                <span class="w-11 h-11 rounded-xl flex items-center justify-center font-black text-white text-lg flex-shrink-0"
+                      :style="`background: ${tileAccent(idx)};`"
+                      x-text="opt.label"></span>
+                <span class="flex-1 font-bold text-white text-base leading-snug" x-text="opt.text || opt.label"></span>
+                <!-- Correct checkmark -->
+                <span x-show="opt.is_correct"
+                      class="flex items-center justify-center w-8 h-8 rounded-full bg-emerald-400 text-white font-black text-base flex-shrink-0">✓</span>
+                <!-- Vote count -->
+                <span class="font-black text-white text-xl flex-shrink-0" x-text="opt.count"></span>
+              </div>
+              <!-- Distribution bar -->
+              <div class="relative h-3 bg-black/30 overflow-hidden">
+                <div class="absolute inset-y-0 left-0 bar-animate"
+                     :class="opt.is_correct ? 'bg-emerald-400' : 'bg-white/40'"
+                     :style="`--w: ${distPct(opt.count)}%; width: ${distPct(opt.count)}%`">
+                  <div class="absolute inset-0 progress-shimmer"></div>
+                </div>
+                <!-- Percentage label -->
+                <span class="absolute right-2 inset-y-0 flex items-center text-[10px] font-black text-white/60"
+                      x-text="`${distPct(opt.count)}%`"></span>
+              </div>
+            </div>
+          </template>
+        </div>
       </template>
-      <li x-show="leaderboard.length === 0" class="px-5 py-3 text-sm text-gray-400">No scores yet.</li>
-    </ol>
-  </div>
+
+    </div>
+
+    <!-- RIGHT: Live Stats Panel -->
+    <aside class="w-full lg:w-72 xl:w-80 flex flex-col border-t lg:border-t-0 lg:border-l border-white/[0.07] flex-shrink-0 overflow-hidden">
+
+      <!-- Responses progress -->
+      <div class="p-5 border-b border-white/[0.07] space-y-3 flex-shrink-0">
+        <div class="flex items-center justify-between">
+          <p class="text-xs font-black text-gray-400 uppercase tracking-widest">Answers</p>
+          <span class="text-sm font-black text-white tabular-nums"
+                x-text="`${answersReceived} / ${participantCount}`"></span>
+        </div>
+        <!-- Progress bar -->
+        <div class="relative h-3 rounded-full overflow-hidden bg-white/8">
+          <div class="absolute inset-y-0 left-0 rounded-full transition-all duration-500"
+               :class="answersReceived >= participantCount && participantCount > 0 ? 'bg-emerald-400' : 'bg-blue-500'"
+               :style="`width: ${participantCount > 0 ? Math.round(answersReceived/participantCount*100) : 0}%`">
+            <div class="absolute inset-0 progress-shimmer"></div>
+          </div>
+        </div>
+        <p class="text-[10px] text-gray-600 font-semibold text-right"
+           x-text="participantCount > 0 ? Math.round(answersReceived/participantCount*100) + '% responded' : 'No players'"></p>
+      </div>
+
+      <!-- Live Leaderboard -->
+      <div class="flex-1 flex flex-col overflow-hidden">
+        <div class="px-5 py-3 border-b border-white/[0.07] flex-shrink-0">
+          <p class="text-xs font-black text-gray-400 uppercase tracking-widest">
+            <span x-text="status === 'reveal' ? '🏆 Top Players' : '📊 Live Scores'"></span>
+          </p>
+        </div>
+
+        <ol class="flex-1 overflow-y-auto divide-y divide-white/[0.04]">
+          <template x-for="(p, idx) in leaderboard.slice(0, 10)" :key="p.id">
+            <li class="slide-up flex items-center gap-3 px-5 py-3"
+                :style="`animation-delay: ${idx * 0.04}s`">
+              <!-- Rank badge -->
+              <div class="w-7 h-7 rounded-lg flex items-center justify-center font-black text-xs flex-shrink-0"
+                   :class="idx === 0 ? 'bg-yellow-400/20 text-yellow-300 border border-yellow-400/30' :
+                           idx === 1 ? 'bg-gray-400/20 text-gray-300 border border-gray-400/30' :
+                           idx === 2 ? 'bg-orange-400/20 text-orange-300 border border-orange-400/30' :
+                           'bg-white/5 text-gray-500 border border-white/10'"
+                   x-text="idx + 1"></div>
+              <!-- Name -->
+              <span class="flex-1 font-semibold text-sm text-white truncate" x-text="p.nickname"></span>
+              <!-- Score -->
+              <span class="font-black text-sm tabular-nums flex-shrink-0"
+                    :class="idx === 0 ? 'text-yellow-300' : 'text-blue-400'"
+                    x-text="p.score.toLocaleString()"></span>
+            </li>
+          </template>
+
+          <li x-show="leaderboard.length === 0"
+              class="flex flex-col items-center justify-center py-12 text-center px-5 gap-2">
+            <span class="text-2xl opacity-40">📊</span>
+            <p class="text-xs text-gray-600 font-semibold">No scores yet</p>
+          </li>
+        </ol>
+
+        <!-- Footer: total players -->
+        <div class="px-5 py-3 border-t border-white/[0.07] flex-shrink-0">
+          <p class="text-[10px] text-gray-600 font-semibold text-center"
+             x-text="`${participantCount} player${participantCount !== 1 ? 's' : ''} in session`"></p>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- ═══ BOTTOM STATUS BAR ════════════════════════════════════════════════ -->
+  <footer class="flex items-center justify-between px-6 py-2.5 border-t border-white/[0.05] flex-shrink-0">
+    <div class="flex items-center gap-3 text-xs text-gray-600">
+      <div class="flex items-center gap-1.5">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+        <span class="font-semibold">Live</span>
+      </div>
+      <span>·</span>
+      <span class="font-mono">{{ session.code }}</span>
+      <span>·</span>
+      <span x-text="`${session.questions.count} questions · {{ session.time_per_question_sec }}s each`"></span>
+    </div>
+    <div class="flex items-center gap-3 text-[10px] text-gray-700">
+      <span><span class="kbd">Space</span> reveal / next</span>
+      <span><span class="kbd">Esc</span> end</span>
+    </div>
+  </footer>
+
 </div>
 
+{% csrf_token %}
+
 <script>
+const TILE_BG = [
+  'rgba(239,68,68,0.18)',
+  'rgba(59,130,246,0.18)',
+  'rgba(234,179,8,0.18)',
+  'rgba(16,185,129,0.18)',
+];
+const TILE_ACCENT = ['#ef4444','#3b82f6','#ca8a04','#10b981'];
+
 function bbTeacher(joinCode, initialVersion, initialIndex, totalQuestions) {
   return {
-    joinCode,
-    stateVersion: initialVersion,
-    currentIndex: initialIndex,
-    totalQuestions,
-    questionText: '',
-    options: [],
-    countdown: 0,
-    leaderboard: [],
-    participantCount: 0,
-    submissionCount: 0,
-    deadlineUtc: null,
-    countdownTimer: null,
-    pollTimer: null,
-    tileClasses: [
-      'bg-red-500',
-      'bg-blue-500',
-      'bg-yellow-500',
-      'bg-green-600',
-    ],
+    joinCode, stateVersion: initialVersion,
+    currentIndex: initialIndex, totalQuestions,
+    status: 'active', questionText: '', options: [],
+    distribution: [], countdown: 0, countdownPct: 100,
+    revealCountdown: 5, leaderboard: [],
+    participantCount: 0, answersReceived: 0,
+    deadlineUtc: null, timeLimitSec: 20,
+    countdownTimer: null, revealTimer: null, pollTimer: null, errCount: 0,
 
-    startPolling() {
+    tileBg(i)     { return TILE_BG[i % 4]; },
+    tileAccent(i) { return TILE_ACCENT[i % 4]; },
+
+    init() {
       this.poll();
+      document.addEventListener('keydown', e => {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+        if (e.code === 'Space') {
+          e.preventDefault();
+          if (this.status === 'active') this.revealAnswers();
+          else if (this.status === 'reveal') this.nextQuestion();
+        }
+        if (e.code === 'Escape') this.endGame();
+      });
     },
 
     async poll() {
@@ -101,73 +342,104 @@ function bbTeacher(joinCode, initialVersion, initialIndex, totalQuestions) {
           const data = await res.json();
           this.applyState(data);
         }
-      } catch (e) {}
-      if (this.stateVersion !== -1) {
-        this.pollTimer = setTimeout(() => this.poll(), 1500);
-      }
+        this.errCount = 0;
+      } catch (_) { this.errCount = Math.min(this.errCount + 1, 6); }
+      const delay = Math.min(1500 * Math.pow(1.5, this.errCount), 20000);
+      this.pollTimer = setTimeout(() => this.poll(), delay);
     },
 
     applyState(data) {
-      this.stateVersion = data.state_version;
-      this.leaderboard = data.participants;
-      this.participantCount = data.participant_count;
-      this.currentIndex = data.current_question_index;
+      this.stateVersion     = data.state_version;
+      this.status           = data.status;
+      this.leaderboard      = (data.participants || []).sort((a,b) => b.score - a.score);
+      this.participantCount = data.participant_count || 0;
+      this.answersReceived  = data.answers_received  || 0;
+      this.currentIndex     = data.current_index;
 
-      if (data.state === 'ended') {
+      if (data.status === 'finished') {
         window.location.href = `/brainbuzz/session/${this.joinCode}/end/`;
         return;
       }
-
       if (data.question) {
         const q = data.question;
-        this.questionText = q.question_text;
-        this.options = q.options || [];
-        this.deadlineUtc = q.question_deadline_utc ? new Date(q.question_deadline_utc) : null;
-        this.tickCountdown();
+        if (this.questionText !== q.question_text) {
+          this.questionText = q.question_text;
+          this.options      = q.options_json || [];
+          this.deadlineUtc  = q.question_deadline ? new Date(q.question_deadline) : null;
+          this.timeLimitSec = this.deadlineUtc
+            ? Math.round((this.deadlineUtc - Date.now()) / 1000)
+            : 20;
+          this.startCountdown();
+        }
+        this.distribution = data.answer_distribution || [];
       }
-
-      // Count submissions for current question
-      this.fetchSubmissionCount();
+      if (data.status === 'reveal') this.startRevealCountdown();
+      else this.clearRevealCountdown();
     },
 
-    tickCountdown() {
+    startCountdown() {
       if (this.countdownTimer) clearInterval(this.countdownTimer);
       this.countdownTimer = setInterval(() => {
-        if (!this.deadlineUtc) { this.countdown = 0; return; }
-        const remaining = (this.deadlineUtc - Date.now()) / 1000;
-        this.countdown = Math.max(0, Math.ceil(remaining));
+        if (!this.deadlineUtc || this.status !== 'active') {
+          this.countdown = 0; this.countdownPct = 0; return;
+        }
+        const rem = (this.deadlineUtc - Date.now()) / 1000;
+        this.countdown    = Math.max(0, Math.ceil(rem));
+        const lim         = this.timeLimitSec > 0 ? this.timeLimitSec : 20;
+        this.countdownPct = Math.max(0, Math.min(100, (rem / lim) * 100));
       }, 200);
     },
 
-    async fetchSubmissionCount() {
-      try {
-        const res = await fetch(`/brainbuzz/api/session/${this.joinCode}/leaderboard/`);
-        if (res.ok) {
-          const data = await res.json();
-          this.leaderboard = data.leaderboard;
-        }
-      } catch (e) {}
+    startRevealCountdown() {
+      this.clearRevealCountdown();
+      this.revealCountdown = 5;
+      this.revealTimer = setInterval(() => {
+        this.revealCountdown--;
+        if (this.revealCountdown <= 0) { this.clearRevealCountdown(); this.nextQuestion(); }
+      }, 1000);
+    },
+
+    clearRevealCountdown() {
+      if (this.revealTimer) { clearInterval(this.revealTimer); this.revealTimer = null; }
+    },
+
+    distPct(count) {
+      const total = this.distribution.reduce((s, d) => s + (d.count || 0), 0);
+      return total > 0 ? Math.round((count / total) * 100) : 0;
+    },
+
+    async revealAnswers() {
+      const res = await fetch(`/brainbuzz/api/session/${this.joinCode}/action/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this._csrf() },
+        body: JSON.stringify({ action: 'reveal', expected_current_index: this.currentIndex }),
+      });
+      if (res.ok) this.applyState(await res.json());
     },
 
     async nextQuestion() {
-      const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
-      await fetch(`/brainbuzz/api/session/${this.joinCode}/action/`, {
+      this.clearRevealCountdown();
+      const res = await fetch(`/brainbuzz/api/session/${this.joinCode}/action/`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this._csrf() },
         body: JSON.stringify({ action: 'next', expected_current_index: this.currentIndex }),
       });
-      this.poll();
+      if (res.ok) this.applyState(await res.json());
     },
 
     async endGame() {
       if (!confirm('End the session for everyone?')) return;
-      const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+      this.clearRevealCountdown();
       await fetch(`/brainbuzz/api/session/${this.joinCode}/action/`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this._csrf() },
         body: JSON.stringify({ action: 'end', expected_current_index: this.currentIndex }),
       });
       window.location.href = `/brainbuzz/session/${this.joinCode}/end/`;
+    },
+
+    _csrf() {
+      return document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
     },
   };
 }

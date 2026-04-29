@@ -29,6 +29,7 @@ urlpatterns = [
     # ── Question uploads ─────────────────────────────────────────────────
     path('upload/', views_upload.upload_questions, name='upload_questions'),
     path('upload/results/', views_upload.upload_results, name='upload_results'),
+    path('upload/sample/<str:file_format>/', views_upload.download_sample_template, name='download_sample_template'),
 
     # ── JSON API — sessions ───────────────────────────────────────────────
     path('api/session/<str:join_code>/state/', views.api_session_state, name='api_session_state'),

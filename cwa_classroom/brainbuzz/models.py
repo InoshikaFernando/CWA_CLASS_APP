@@ -1,6 +1,26 @@
+import secrets
+
 from django.db import models
+from django.db.models import F
 from django.conf import settings
 from django.utils import timezone
+
+
+# ---------------------------------------------------------------------------
+# Join-code helpers (defined here to avoid circular imports with utils.py)
+# ---------------------------------------------------------------------------
+
+_JOIN_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+_JOIN_CODE_LENGTH = 6
+
+
+def generate_join_code() -> str:
+    """Generate a unique 6-char alphanumeric join code, retrying on collision."""
+    for _ in range(10):
+        code = ''.join(secrets.choice(_JOIN_CODE_ALPHABET) for _ in range(_JOIN_CODE_LENGTH))
+        if not BrainBuzzSession.objects.filter(code=code).exists():
+            return code
+    raise RuntimeError('Could not generate a unique join code after 10 attempts.')
 
 
 # ---------------------------------------------------------------------------
@@ -12,6 +32,9 @@ QUESTION_TYPE_MCQ = 'mcq'
 QUESTION_TYPE_TRUE_FALSE = 'tf'
 QUESTION_TYPE_SHORT_ANSWER = 'short'
 QUESTION_TYPE_FILL_BLANK = 'fill_blank'
+
+# Compat alias used by older test files
+QUESTION_TYPE_MULTIPLE_CHOICE = QUESTION_TYPE_MCQ
 
 QUIZ_QUESTION_TYPE_CHOICES = [
     (QUESTION_TYPE_MCQ, 'Multiple Choice'),
@@ -96,6 +119,23 @@ class BrainBuzzSession(models.Model):
             models.Index(fields=['code', 'status'], name='bb_session_code_status_idx'),
             models.Index(fields=['host', 'created_at'], name='bb_session_host_created_idx'),
         ]
+
+    # Compat aliases for legacy test files
+    LOBBY = STATUS_LOBBY
+    IN_PROGRESS = STATUS_ACTIVE
+    ENDED = STATUS_FINISHED
+
+    @property
+    def current_question_index(self):
+        return self.current_index
+
+    @current_question_index.setter
+    def current_question_index(self, value):
+        self.current_index = value
+
+    def bump_version(self):
+        BrainBuzzSession.objects.filter(pk=self.pk).update(state_version=F('state_version') + 1)
+        self.refresh_from_db()
 
     def __str__(self):
         return f"BrainBuzz {self.code} [{self.get_status_display()}] — {self.host.username}"
@@ -346,3 +386,20 @@ class BrainBuzzQuizOption(models.Model):
     def __str__(self):
         mark = '✓ ' if self.is_correct else ''
         return f"{mark}{self.option_text[:40]}"
+
+
+# ---------------------------------------------------------------------------
+# Compat helper — used by older test files
+# ---------------------------------------------------------------------------
+
+def calculate_brainbuzz_score(time_limit_sec: int, time_remaining_sec: float) -> int:
+    """Legacy signature: (time_limit, time_remaining) → points (0–1000).
+
+    Wraps scoring.calculate_points with the time-remaining convention used
+    by earlier test files. Returns 0 when time_remaining_sec <= 0.
+    """
+    if time_limit_sec <= 0 or time_remaining_sec <= 0:
+        return 0
+    from .scoring import calculate_points
+    time_taken_ms = max(0, int((time_limit_sec - time_remaining_sec) * 1000))
+    return calculate_points(True, time_taken_ms, time_limit_sec, 1000)

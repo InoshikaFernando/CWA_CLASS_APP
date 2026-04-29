@@ -3,6 +3,10 @@ Add question_type to CodingExercise and create CodingAnswer model.
 
 Both objects may already exist in MySQL (created on a prior branch or manually).
 Every DB operation is guarded so the migration is safe to run in any state.
+
+CodingAnswer is created via raw DDL instead of schema_editor.create_model() because
+models defined in the *same* migration's state_operations are not reliably accessible
+via apps.get_model() inside a SeparateDatabaseAndState RunPython callable.
 """
 import django.db.models.deletion
 from django.db import migrations, models
@@ -60,6 +64,55 @@ def _table_exists(connection, table):
             return cursor.fetchone()[0] > 0
 
 
+def _create_codinganswer_table_ddl(conn):
+    """Create coding_codinganswer using raw DDL (vendor-aware).
+
+    Uses coding_exercise_id as the FK column name to match the column name
+    already present on the production MySQL instance from a prior branch.
+    """
+    vendor = conn.vendor
+    with conn.cursor() as cursor:
+        if vendor == 'mysql':
+            cursor.execute(
+                "CREATE TABLE `coding_codinganswer` ("
+                " `id` bigint NOT NULL AUTO_INCREMENT,"
+                " `answer_text` varchar(500) NOT NULL,"
+                " `is_correct` tinyint(1) NOT NULL DEFAULT 0,"
+                " `order` smallint UNSIGNED NOT NULL DEFAULT 0,"
+                " `coding_exercise_id` bigint NOT NULL,"
+                " PRIMARY KEY (`id`),"
+                " CONSTRAINT `coding_codinganswer_exercise_id_fk`"
+                "  FOREIGN KEY (`coding_exercise_id`)"
+                "  REFERENCES `coding_codingexercise` (`id`) ON DELETE CASCADE"
+                ") DEFAULT CHARSET=utf8mb4"
+            )
+        elif vendor == 'postgresql':
+            cursor.execute(
+                'CREATE TABLE "coding_codinganswer" ('
+                ' "id" bigserial NOT NULL PRIMARY KEY,'
+                ' "answer_text" varchar(500) NOT NULL,'
+                ' "is_correct" boolean NOT NULL DEFAULT FALSE,'
+                ' "order" smallint NOT NULL DEFAULT 0,'
+                ' "coding_exercise_id" bigint NOT NULL,'
+                ' CONSTRAINT "coding_codinganswer_exercise_id_fk"'
+                '  FOREIGN KEY ("coding_exercise_id")'
+                '  REFERENCES "coding_codingexercise" ("id") ON DELETE CASCADE'
+                ")"
+            )
+        else:  # sqlite
+            cursor.execute(
+                'CREATE TABLE "coding_codinganswer" ('
+                ' "id" integer NOT NULL PRIMARY KEY AUTOINCREMENT,'
+                ' "answer_text" varchar(500) NOT NULL,'
+                ' "is_correct" bool NOT NULL DEFAULT 0,'
+                ' "order" smallint NOT NULL DEFAULT 0,'
+                ' "coding_exercise_id" integer NOT NULL,'
+                ' FOREIGN KEY ("coding_exercise_id")'
+                '  REFERENCES "coding_codingexercise" ("id") ON DELETE CASCADE'
+                ")"
+            )
+
+
 # ---------------------------------------------------------------------------
 # RunPython callables
 # ---------------------------------------------------------------------------
@@ -67,20 +120,22 @@ def _table_exists(connection, table):
 def _apply(apps, schema_editor):
     conn = schema_editor.connection
 
-    # 1. Add question_type column if missing
+    # 1. Add question_type column if missing.
+    # set_attributes_from_name() sets .name / .attname / .column on the field
+    # object so schema_editor can derive the DDL.
     if not _column_exists(conn, 'coding_codingexercise', 'question_type'):
-        schema_editor.add_field(
-            apps.get_model('coding', 'CodingExercise'),
-            models.CharField(
-                name='question_type',
-                max_length=20,
-                default='write_code',
-            ),
-        )
+        Exercise = apps.get_model('coding', 'CodingExercise')
+        field = models.CharField(max_length=20, default='write_code')
+        field.set_attributes_from_name('question_type')
+        schema_editor.add_field(Exercise, field)
 
-    # 2. Create coding_codinganswer table if missing
+    # 2. Create coding_codinganswer table if missing.
+    # Raw DDL is used here because apps.get_model('coding', 'CodingAnswer')
+    # is unreliable when CodingAnswer is defined in the *same* migration's
+    # state_operations — the model may not yet exist in the historical state
+    # exposed to database_operations RunPython callables.
     if not _table_exists(conn, 'coding_codinganswer'):
-        schema_editor.create_model(apps.get_model('coding', 'CodingAnswer'))
+        _create_codinganswer_table_ddl(conn)
 
 
 def _noop(apps, schema_editor):

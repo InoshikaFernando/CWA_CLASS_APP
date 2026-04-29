@@ -1,58 +1,234 @@
 {% extends "base.html" %}
-{% block title %}BrainBuzz Results — {{ session.join_code }}{% endblock %}
+{% block title %}BrainBuzz Results — {{ session.code }}{% endblock %}
 
 {% block content %}
-<div class="max-w-lg mx-auto py-8 px-4 space-y-6">
+<!-- Animated gradient background -->
+<div class="fixed inset-0 -z-10 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900"></div>
 
-  <!-- Result card -->
+<style>
+  @keyframes confetti-fall {
+    0% { transform: translateY(-100px) rotate(0deg) scale(0.5); opacity: 1; }
+    50% { transform: translateY(30px) rotate(180deg) scale(1.2); opacity: 1; }
+    100% { transform: translateY(100px) rotate(360deg) scale(0.8); opacity: 0; }
+  }
+  
+  @keyframes confetti-spiral {
+    0% { transform: translateY(-120px) translateX(-30px) rotate(0deg) scale(0); opacity: 1; }
+    50% { transform: translateY(20px) translateX(20px) rotate(180deg) scale(1.3); opacity: 1; }
+    100% { transform: translateY(120px) translateX(-50px) rotate(360deg) scale(0.5); opacity: 0; }
+  }
+  
+  @keyframes confetti-bounce {
+    0%, 100% { transform: translateY(0) scale(1); opacity: 1; }
+    25% { transform: translateY(-80px) scale(1.2); opacity: 1; }
+    50% { transform: translateY(0) scale(1); opacity: 1; }
+    75% { transform: translateY(-40px) scale(1.15); opacity: 1; }
+  }
+  
+  @keyframes confetti-pulse {
+    0%, 100% { transform: scale(1) rotate(0deg); opacity: 1; }
+    50% { transform: scale(1.4) rotate(20deg); opacity: 1; }
+  }
+  
+  @keyframes confetti-swing {
+    0%, 100% { transform: translateX(0) rotate(-15deg) scale(1); opacity: 1; }
+    50% { transform: translateX(50px) rotate(15deg) scale(1.25); opacity: 1; }
+  }
+  
+  .confetti-1 { animation: confetti-fall 2s ease-in forwards; }
+  .confetti-2 { animation: confetti-spiral 2.2s ease-in forwards; }
+  .confetti-3 { animation: confetti-bounce 2.5s ease-out infinite; }
+  .confetti-4 { animation: confetti-pulse 1.5s ease-in-out infinite; }
+  .confetti-5 { animation: confetti-swing 1.8s ease-in-out infinite; }
+  .confetti-6 { animation: confetti-fall 2.3s ease-in forwards; }
+  .confetti-7 { animation: confetti-bounce 2.7s ease-out infinite; }
+  .confetti-8 { animation: confetti-spiral 2.4s ease-in forwards; }
+</style>
+
+<div class="max-w-2xl mx-auto py-8 px-4 space-y-8 relative">
+
+  <!-- Main Score Card -->
   {% if participant %}
   {% with rank=1 %}
-  <div class="bg-primary rounded-2xl p-8 text-white text-center space-y-2">
-    <p class="text-sm font-semibold uppercase tracking-widest text-white/60">Final Score</p>
-    <p class="text-6xl font-black">{{ participant.total_score }}</p>
-    <p class="text-white/70 text-sm">{{ participant.nickname }}</p>
-
-    <!-- Calculate rank from leaderboard -->
-    {% for p in leaderboard %}
-    {% if p.id == participant.id %}
-    <div class="mt-4 inline-flex items-center gap-2 bg-white/10 rounded-full px-5 py-2">
-      <span class="text-white/60 text-sm">Rank</span>
-      <span class="text-2xl font-black">{{ forloop.counter }}</span>
-      <span class="text-white/60 text-sm">of {{ leaderboard|length }}</span>
+  <div class="relative animate-in fade-in zoom-in duration-700">
+    <!-- Celebration confetti background - ENHANCED -->
+    <div class="fixed inset-0 pointer-events-none overflow-hidden">
+      <!-- Top left group -->
+      <div class="absolute -top-10 left-6 text-7xl confetti-1">🎉</div>
+      <div class="absolute -top-8 left-20 text-8xl confetti-2" style="animation-delay: 0.1s;">✨</div>
+      <div class="absolute top-8 left-2 text-6xl confetti-3" style="animation-delay: 0.2s;">⭐</div>
+      
+      <!-- Top right group -->
+      <div class="absolute -top-12 right-10 text-8xl confetti-4" style="animation-delay: 0s;">🌟</div>
+      <div class="absolute -top-6 right-32 text-7xl confetti-5" style="animation-delay: 0.15s;">🎊</div>
+      <div class="absolute top-12 right-6 text-6xl confetti-6" style="animation-delay: 0.3s;">🎈</div>
+      
+      <!-- Bottom left group -->
+      <div class="absolute bottom-20 left-1/4 text-7xl confetti-7" style="animation-delay: 0.25s;">🎯</div>
+      <div class="absolute bottom-12 left-8 text-6xl confetti-2" style="animation-delay: 0.4s;">💫</div>
+      
+      <!-- Bottom right group -->
+      <div class="absolute bottom-16 right-1/3 text-7xl confetti-3" style="animation-delay: 0.35s;">✨</div>
+      <div class="absolute bottom-24 right-12 text-8xl confetti-4" style="animation-delay: 0.1s;">⭐</div>
+      <div class="absolute bottom-8 right-1/4 text-6xl confetti-1" style="animation-delay: 0.5s;">🎉</div>
+      
+      <!-- Center top floating -->
+      <div class="absolute top-1/4 left-1/2 text-8xl confetti-5" style="animation-delay: 0.2s; transform: translateX(-50%);">🌟</div>
     </div>
-    {% endif %}
-    {% endfor %}
-  </div>
-  {% endwith %}
-  {% else %}
-  <div class="bg-primary rounded-2xl p-8 text-white text-center">
-    <p class="text-2xl font-bold">Game Over!</p>
-    <p class="text-white/70 mt-2 text-sm">Session {{ session.join_code }} has ended.</p>
-  </div>
-  {% endif %}
 
-  <!-- Top 10 leaderboard -->
-  <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
-    <div class="px-5 py-3 border-b border-gray-100 font-semibold text-gray-900">Leaderboard</div>
-    <ol class="divide-y divide-gray-50">
+    <!-- Main Score Card -->
+    <div class="relative bg-gradient-to-br from-slate-800 via-slate-700 to-slate-800 rounded-3xl p-12 text-white text-center space-y-6 border-2 border-slate-600 shadow-2xl">
+      <!-- Background glow -->
+      <div class="absolute inset-0 bg-gradient-to-br from-blue-500/20 via-transparent to-purple-500/20 rounded-3xl" aria-hidden="true"></div>
+      
+      <div class="relative space-y-8">
+        <!-- Title -->
+        <p class="text-base font-black uppercase tracking-widest text-gray-300">Your Score</p>
+        
+        <!-- Large Score Display -->
+        <div class="space-y-2">
+          <p class="text-7xl md:text-8xl font-black bg-gradient-to-r from-yellow-300 via-orange-300 to-red-300 bg-clip-text text-transparent drop-shadow-lg">
+            {{ participant.score }}
+          </p>
+          <p class="text-3xl font-black text-blue-400">🎯</p>
+        </div>
+
+        <!-- Player Name -->
+        <div class="space-y-2">
+          <p class="text-sm text-gray-400 font-bold uppercase tracking-widest">Player</p>
+          <p class="text-3xl font-black text-white">{{ participant.nickname }}</p>
+        </div>
+
+        <!-- Rank Badge -->
+        {% for p in leaderboard %}
+          {% if p.id == participant.id %}
+          <div class="inline-flex items-center justify-center gap-4 bg-white/10 backdrop-blur-sm rounded-2xl px-8 py-5 border-2 border-white/20 mx-auto">
+            <div class="text-center">
+              <p class="text-xs text-gray-400 font-bold uppercase tracking-widest mb-1">Your Rank</p>
+              <div class="flex items-baseline gap-1">
+                <span class="text-5xl font-black bg-gradient-to-r from-yellow-300 to-amber-300 bg-clip-text text-transparent">#{{ forloop.counter }}</span>
+                <span class="text-base text-gray-400">of {{ leaderboard|length }}</span>
+              </div>
+            </div>
+            {% if forloop.counter == 1 %}
+            <div class="text-5xl">🏆</div>
+            {% elif forloop.counter == 2 %}
+            <div class="text-5xl">🥈</div>
+            {% elif forloop.counter == 3 %}
+            <div class="text-5xl">🥉</div>
+            {% else %}
+            <div class="text-4xl">⭐</div>
+            {% endif %}
+          </div>
+          {% endif %}
+        {% endfor %}
+
+        <!-- Stats -->
+        <div class="grid grid-cols-3 gap-3 pt-4 border-t border-white/20">
+          <div class="text-center">
+            <p class="text-xs text-gray-400 font-bold uppercase tracking-widest mb-1">Questions</p>
+            <p class="text-3xl font-black text-white">{{ participant.correct_count }}</p>
+          </div>
+          <div class="text-center border-l border-r border-white/20">
+            <p class="text-xs text-gray-400 font-bold uppercase tracking-widest mb-1">Accuracy</p>
+            <p class="text-3xl font-black text-green-400">{{ accuracy }}%</p>
+          </div>
+          <div class="text-center">
+            <p class="text-xs text-gray-400 font-bold uppercase tracking-widest mb-1">Avg Time</p>
+            <p class="text-2xl font-black text-blue-400">{{ avg_time }}ms</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Leaderboard -->
+  <div class="bg-white/10 backdrop-blur-xl rounded-3xl overflow-hidden shadow-xl border border-white/20">
+    <div class="px-6 py-5 border-b border-white/20 bg-gradient-to-r from-white/10 to-white/5">
+      <h2 class="text-xl font-black text-white">📊 Leaderboard</h2>
+      <p class="text-xs text-gray-400 mt-1">Top 10 Players</p>
+    </div>
+    
+    <ol class="divide-y divide-white/10">
       {% for p in leaderboard|slice:":10" %}
-      <li class="flex items-center gap-3 px-5 py-3
-                 {% if participant and p.id == participant.id %}bg-accent/5 border-l-4 border-accent{% endif %}">
-        <span class="w-6 text-center font-black text-gray-400 text-sm">{{ forloop.counter }}</span>
-        <span class="flex-1 font-medium text-gray-800 truncate">{{ p.nickname }}</span>
-        <span class="font-black text-accent">{{ p.total_score }}</span>
+      <li class="flex items-center gap-4 px-6 py-4 hover:bg-white/10 transition-colors
+                 {% if participant and p.id == participant.id %}bg-yellow-500/20{% endif %}">
+        <!-- Rank -->
+        <div class="w-12 h-12 rounded-xl flex items-center justify-center font-black text-white flex-shrink-0
+                    {% if forloop.counter == 1 %}bg-gradient-to-br from-yellow-400 to-amber-500{% endif %}
+                    {% if forloop.counter == 2 %}bg-gradient-to-br from-gray-400 to-gray-600{% endif %}
+                    {% if forloop.counter == 3 %}bg-gradient-to-br from-orange-400 to-red-600{% endif %}
+                    {% if forloop.counter > 3 %}bg-white/20{% endif %}">
+          {{ forloop.counter }}
+        </div>
+
+        <!-- Name & Avatar -->
+        <div class="flex-1 min-w-0">
+          <p class="font-bold text-white truncate">{{ p.nickname }}</p>
+          <p class="text-xs text-gray-400">{{ p.correct_count }} correct</p>
+        </div>
+
+        <!-- Score Badge -->
+        <div class="flex items-center gap-2 flex-shrink-0">
+          <div class="text-right">
+            <p class="text-2xl font-black"
+               {% if forloop.counter == 1 %}style="background: linear-gradient(135deg, #fbbf24, #f59e0b); -webkit-background-clip: text; -webkit-text-fill-color: transparent;"{% else %}class="text-white"{% endif %}>
+              {{ p.score }}
+            </p>
+          </div>
+          {% if forloop.counter <= 3 %}
+          <span class="text-2xl">{% if forloop.counter == 1 %}🏆{% elif forloop.counter == 2 %}🥈{% else %}🥉{% endif %}</span>
+          {% endif %}
+        </div>
       </li>
       {% empty %}
-      <li class="px-5 py-4 text-sm text-gray-400 text-center">No scores recorded.</li>
+      <li class="px-6 py-8 text-center text-gray-400">No scores recorded yet.</li>
       {% endfor %}
     </ol>
   </div>
 
-  <!-- Play again button -->
-  <a href="{% url 'brainbuzz:join' %}"
-     class="block w-full text-center bg-accent hover:bg-blue-600 text-white font-bold py-3.5 rounded-xl transition">
-    Play Again
-  </a>
+  <!-- Play Again Button -->
+  <div class="space-y-3">
+    <a href="{% url 'brainbuzz:join' %}"
+       class="block w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:shadow-lg hover:shadow-green-500/50 text-white font-black py-4 rounded-2xl transition-all duration-300 text-center text-lg">
+      <span class="flex items-center justify-center gap-2">
+        <span>Play Again</span>
+        <span>🚀</span>
+      </span>
+    </a>
+    <a href="/"
+       class="block w-full text-center bg-white/10 hover:bg-white/20 backdrop-blur-xl border border-white/20 hover:border-white/40 text-white font-bold py-3 rounded-2xl transition-all">
+      Back Home
+    </a>
+  </div>
+  {% endwith %}
+  {% else %}
+  <!-- Game Ended Card -->
+  <div class="text-center py-20 space-y-6 animate-in fade-in duration-500">
+    <div class="text-6xl animate-bounce">🏁</div>
+    <div class="space-y-3">
+      <p class="text-3xl font-black text-white">Game Over!</p>
+      <p class="text-base text-gray-400 font-semibold">Session {{ session.code }} has ended.</p>
+      <p class="text-sm text-gray-500">Thanks for playing!</p>
+    </div>
+    <a href="{% url 'brainbuzz:join' %}"
+       class="inline-block bg-gradient-to-r from-blue-500 to-purple-600 hover:shadow-lg text-white font-bold px-8 py-3 rounded-2xl transition-all">
+      Join New Game
+    </a>
+  </div>
+  {% endif %}
 
 </div>
+
+<!-- CSS Animations -->
+<style>
+  @keyframes bounce-custom {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-20px); }
+  }
+
+  .animate-bounce {
+    animation: bounce-custom 2s cubic-bezier(0.68, -0.55, 0.265, 1.55) infinite;
+  }
+</style>
 {% endblock %}

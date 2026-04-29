@@ -71,7 +71,14 @@
     <!-- LEFT SIDEBAR — question list ──────────────────────────────────────── -->
     <aside class="w-56 flex-shrink-0 bg-white border-r border-gray-200 flex flex-col overflow-hidden">
       <div class="flex items-center justify-between px-3 py-2.5 border-b border-gray-100">
-        <span class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Questions</span>
+        <button @click="addQuestion()"
+                :disabled="questions.length >= 30"
+                class="flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 disabled:opacity-40 disabled:cursor-not-allowed transition">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+          </svg>
+          Add question
+        </button>
         <span class="text-xs text-gray-400" x-text="questions.length + ' / 30'"></span>
       </div>
 
@@ -105,17 +112,6 @@
         </template>
       </ol>
 
-      <!-- Add question button -->
-      <div class="p-2 border-t border-gray-100">
-        <button @click="addQuestion()"
-                :disabled="questions.length >= 30"
-                class="w-full flex items-center justify-center gap-1.5 py-2 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed">
-          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-          </svg>
-          Add question
-        </button>
-      </div>
     </aside>
 
     <!-- MAIN EDITOR AREA ───────────────────────────────────────────────────── -->
@@ -480,11 +476,11 @@ function bbBuilder(quizId) {
           headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this._csrf() },
           body: JSON.stringify(newQ),
         });
+        if (!r.ok) { this._flash('Error adding question'); return; }
         const saved = await r.json();
         this.questions.push(saved);
         this.currentIdx = this.questions.length - 1;
         this._checkValid();
-        this._flash('Saved');
       } catch (e) {
         this._flash('Error saving');
       } finally {
@@ -537,15 +533,15 @@ function bbBuilder(quizId) {
             headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this._csrf() },
             body: JSON.stringify(payload),
           });
-          saved = await r.json();
         } else {
           r = await fetch(`/brainbuzz/api/quizzes/${this.quizId}/questions/`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this._csrf() },
             body: JSON.stringify(payload),
           });
-          saved = await r.json();
         }
+        saved = await r.json();
+        if (!r.ok) { this._flash('Error: ' + (saved.error || r.status)); return; }
         Object.assign(this.questions[this.currentIdx], saved);
         this._checkValid();
         this._flash('Saved ✓');

@@ -1,221 +1,641 @@
 {% extends "base.html" %}
-{% block title %}BrainBuzz — {{ session.join_code }}{% endblock %}
+{% block title %}BrainBuzz — {{ session.code }}{% endblock %}
 
 {% block content %}
-<div class="max-w-2xl mx-auto py-4 px-2 space-y-4"
-     x-data="bbStudent('{{ session.join_code }}', {{ session.state_version }}, {{ participant.id }}, {{ session.current_question_index|default:'null' }})"
-     x-init="startPolling()">
+<div class="fixed inset-0 -z-10 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900"></div>
 
-  <!-- Header strip -->
-  <div class="flex items-center justify-between text-sm">
-    <span class="font-mono font-black text-primary text-lg tracking-widest">{{ session.join_code }}</span>
-    <span class="font-semibold text-gray-600">{{ participant.nickname }}</span>
-    <span class="font-black text-accent" x-text="score.toLocaleString() + ' pts'"></span>
+<div class="max-w-lg mx-auto py-4 px-3 space-y-4"
+     x-data="bbStudent('{{ session.code }}', {{ participant.id }}, {{ participant.score }}, '{{ session.status }}')"
+     x-init="init()">
+
+  <!-- ARIA live region for assistive technology -->
+  <div aria-live="polite" aria-atomic="true" class="sr-only" x-text="ariaAnnouncement"></div>
+
+  <!-- ── HEADER ──────────────────────────────────────────────────────────── -->
+  <div class="flex items-center justify-between px-5 py-3 bg-white/10 backdrop-blur-xl rounded-2xl border border-white/20">
+    <div>
+      <p class="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Session</p>
+      <p class="font-black text-white text-lg font-mono tracking-widest">{{ session.code }}</p>
+    </div>
+    <div class="text-center px-4 border-l border-r border-white/20">
+      <p class="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Player</p>
+      <p class="font-bold text-white text-sm truncate max-w-[8rem]">{{ participant.nickname }}</p>
+    </div>
+    <div class="text-right">
+      <p class="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Score</p>
+      <p class="font-black text-white text-lg" x-text="score.toLocaleString()"></p>
+    </div>
   </div>
 
-  <!-- State: lobby -->
-  <template x-if="gameState === 'lobby'">
-    <div class="text-center py-20 space-y-4">
-      <div class="animate-pulse text-5xl">⚡</div>
-      <p class="text-xl font-bold text-gray-800">Waiting for teacher to start&hellip;</p>
-      <p class="text-sm text-gray-400">Get ready!</p>
+  <!-- ── NETWORK ERROR BANNER ────────────────────────────────────────────── -->
+  <div x-show="networkError" x-cloak role="alert"
+       class="bg-amber-500/20 border-2 border-amber-400/50 rounded-2xl px-4 py-3 flex items-center gap-3 text-sm text-amber-200">
+    <svg class="w-4 h-4 flex-shrink-0 animate-spin text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+    </svg>
+    <span class="font-semibold">Network error — reconnecting…</span>
+  </div>
+
+  <!-- ── SUBMIT ERROR CARD ───────────────────────────────────────────────── -->
+  <div x-show="submitError" x-cloak role="alert"
+       class="bg-red-500/20 border-2 border-red-400/50 rounded-2xl px-5 py-4 text-center space-y-3">
+    <p class="text-red-300 font-black text-lg">⚠ Submission Failed</p>
+    <p class="text-red-200 text-sm">Check your connection and try again.</p>
+    <button @click="submitError = false"
+            class="bg-red-500 hover:bg-red-600 text-white font-bold px-6 py-2 rounded-xl text-sm transition-all">
+      Dismiss
+    </button>
+  </div>
+
+  <!-- ── LOBBY ───────────────────────────────────────────────────────────── -->
+  <template x-if="gameStatus === 'lobby'">
+    <div class="text-center py-20 space-y-6">
+      <div class="flex justify-center">
+        <div class="w-20 h-20 rounded-3xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-4xl animate-bounce shadow-2xl">⚡</div>
+      </div>
+      <div class="space-y-2">
+        <p class="text-2xl font-black text-white">Ready?</p>
+        <p class="text-base text-gray-400 font-semibold">Waiting for teacher to start…</p>
+      </div>
     </div>
   </template>
 
-  <!-- State: in_progress -->
-  <template x-if="gameState === 'in_progress' && question">
-
+  <!-- ── ACTIVE QUESTION ─────────────────────────────────────────────────── -->
+  <template x-if="gameStatus === 'active' && question">
     <div class="space-y-4">
-      <!-- Progress + timer -->
+
+      <!-- Countdown pill + question number -->
       <div class="flex items-center justify-between">
-        <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider" x-text="`Question ${(question.order_index ?? 0) + 1}`"></span>
-        <div class="flex items-center gap-2">
-          <svg class="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
-          </svg>
-          <span class="text-2xl font-black tabular-nums"
-                :class="countdown <= 5 ? 'text-red-500' : 'text-gray-800'"
-                x-text="countdown"></span>
+        <span class="text-xs font-black text-blue-400 uppercase tracking-widest px-3 py-1.5 bg-blue-500/20 rounded-xl border border-blue-400/30"
+              x-text="`Q${question.order + 1}`"></span>
+        <!-- Countdown pill -->
+        <div class="flex items-center gap-2 px-4 py-2 rounded-full border-2 font-black text-lg"
+             :class="countdown > 10 ? 'border-green-400/60 bg-green-500/20 text-green-300' :
+                     countdown > 5  ? 'border-yellow-400/60 bg-yellow-500/20 text-yellow-300' :
+                     'border-red-400/60 bg-red-500/20 text-red-300 animate-pulse'">
+          <span x-text="countdown"></span>
+          <span class="text-xs font-bold opacity-70">s</span>
         </div>
       </div>
 
       <!-- Question text -->
-      <div class="bg-primary rounded-2xl px-6 py-6 text-white min-h-[8rem] flex items-center justify-center">
-        <p class="text-xl font-bold text-center leading-snug" x-text="question.question_text"></p>
+      <div class="bg-gradient-to-br from-slate-800 via-slate-700 to-slate-800 rounded-3xl px-6 py-8 text-white min-h-[6rem] flex items-center justify-center border border-slate-600 shadow-xl">
+        <p class="text-xl md:text-2xl font-black text-center leading-snug" x-text="question.question_text"></p>
       </div>
 
-      <!-- Answer tiles (MCQ / TF) -->
+      <!-- MCQ / True-False tiles -->
       <template x-if="question.options && question.options.length > 0">
         <div>
-          <template x-if="!answered">
+          <!-- Unanswered: interactive grid -->
+          <template x-if="!answered && countdown > 0">
             <div class="grid grid-cols-2 gap-3">
-              <template x-for="(opt, idx) in question.options" :key="opt.id">
-                <button @click="submitAnswer({ option_id: opt.id })"
-                        :class="tileClasses[idx % 4]"
-                        class="relative rounded-2xl px-4 py-5 flex items-center gap-3 text-white font-semibold text-left w-full transition active:scale-95 focus:outline-none focus:ring-4 focus:ring-white/40"
-                        :aria-label="`Option ${['A','B','C','D'][idx]}: ${opt.text}`"
-                        :aria-pressed="false">
-                  <!-- Shape + label for accessibility / colourblindness -->
-                  <span :class="tileShapeClasses[idx % 4]"
-                        class="w-8 h-8 flex items-center justify-center font-black text-sm flex-shrink-0"
-                        aria-hidden="true"
-                        x-text="['A','B','C','D'][idx]"></span>
-                  <span class="text-sm leading-snug" x-text="opt.text"></span>
+              <template x-for="(opt, idx) in question.options" :key="idx">
+                <button
+                  @click="onTileTap(opt, idx, $event)"
+                  :aria-label="`Option ${opt.label || ['A','B','C','D'][idx]}: ${opt.text}`"
+                  :class="_tileBgs[idx % 4]"
+                  class="relative overflow-hidden rounded-2xl flex flex-col items-center justify-center gap-2 p-4
+                         text-white font-bold text-center w-full border-2 border-white/20 shadow-lg
+                         transition-all duration-150 active:scale-95 focus:outline-none focus:ring-4 focus:ring-white/40"
+                  style="min-height: 120px;">
+                  <!-- SVG shape -->
+                  <div class="w-10 h-10 opacity-90" x-html="_tileSvgs[idx % 4]" aria-hidden="true"></div>
+                  <!-- Letter badge -->
+                  <span class="text-xs font-black bg-black/25 px-2 py-0.5 rounded-lg"
+                        x-text="opt.label || ['A','B','C','D'][idx]"
+                        aria-hidden="true"></span>
+                  <!-- Option text -->
+                  <span class="text-xs font-semibold leading-tight text-center" x-text="opt.text"></span>
                 </button>
               </template>
             </div>
           </template>
 
-          <!-- Answered state -->
+          <!-- Answered: lock banner -->
           <template x-if="answered">
-            <div class="rounded-2xl px-6 py-8 text-center space-y-3"
-                 :class="lastResult.is_correct ? 'bg-green-50 border-2 border-green-300' : 'bg-red-50 border-2 border-red-300'">
-              <p class="text-4xl" x-text="lastResult.is_correct ? '✅' : '❌'"></p>
-              <p class="font-bold text-lg text-gray-900" x-text="lastResult.is_correct ? 'Correct!' : 'Wrong answer'"></p>
-              <p class="text-sm text-gray-600" x-text="lastResult.is_correct ? `+${lastResult.score_awarded} points` : 'No points this round'"></p>
-              <p class="text-xs text-gray-400">Waiting for next question&hellip;</p>
+            <div class="relative rounded-3xl overflow-hidden border-4 px-8 py-10 text-center space-y-4 shadow-2xl"
+                 :class="lastResult?.is_correct ? 'border-green-400 bg-gradient-to-br from-green-900/40 to-emerald-900/30' : 'border-red-400 bg-gradient-to-br from-red-900/40 to-red-800/30'"
+                 role="status" aria-live="assertive">
+              <div class="text-5xl font-black" x-text="lastResult?.is_correct ? '✓' : '✗'"
+                   :class="lastResult?.is_correct ? 'text-green-400' : 'text-red-400'"></div>
+              <p class="text-2xl font-black text-white"
+                 x-text="lastResult?.is_correct ? '🎯 Correct!' : '❌ Wrong'"></p>
+              <div class="bg-white/10 rounded-2xl px-5 py-3 inline-block">
+                <p class="text-3xl font-black"
+                   :class="lastResult?.is_correct ? 'text-green-400' : 'text-gray-400'"
+                   x-text="lastResult?.is_correct ? '+' + lastResult.score_awarded + ' pts' : '+0 pts'"></p>
+              </div>
+              <p class="text-sm text-gray-400 animate-pulse font-semibold">Answer locked in! ✓</p>
+            </div>
+          </template>
+
+          <!-- Time expired without answering -->
+          <template x-if="!answered && countdown <= 0">
+            <div class="bg-red-500/20 border-2 border-red-400/60 rounded-2xl px-6 py-5 text-center" role="status">
+              <p class="text-red-300 font-black text-lg">⏰ Time's up!</p>
+              <p class="text-red-200 text-sm mt-1">Missed this one — moving on…</p>
             </div>
           </template>
         </div>
       </template>
 
-      <!-- Short answer / fill blank input -->
-      <template x-if="question.question_type === 'short_answer' || question.question_type === 'fill_blank'">
+      <!-- Short answer / fill blank -->
+      <template x-if="question.question_type === 'short' || question.question_type === 'short_answer' || question.question_type === 'fill_blank'">
         <div>
-          <template x-if="!answered">
-            <form @submit.prevent="submitAnswer({ text: textAnswer })" class="flex gap-2">
-              <input x-model="textAnswer" type="text"
-                     placeholder="Type your answer…"
-                     class="flex-1 border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-                     :disabled="countdown <= 0">
+          <template x-if="!answered && countdown > 0">
+            <form @submit.prevent="onShortSubmit()" class="space-y-3">
+              <label class="sr-only" for="bb-text-answer">Your answer</label>
+              <input id="bb-text-answer"
+                     x-model="textAnswer"
+                     type="text"
+                     placeholder="Your answer..."
+                     autocomplete="off" autocorrect="off" spellcheck="false"
+                     class="w-full bg-white/10 backdrop-blur-xl border-2 border-white/30 rounded-2xl px-5 py-4 text-white placeholder-gray-400 text-base font-semibold focus:outline-none focus:ring-4 focus:ring-blue-500/40 focus:border-blue-400 transition-all">
               <button type="submit"
-                      :disabled="!textAnswer.trim() || countdown <= 0"
-                      class="bg-accent hover:bg-blue-600 disabled:opacity-40 text-white font-semibold px-5 py-3 rounded-xl transition text-sm">
-                Submit
+                      :disabled="!textAnswer.trim() || submitting"
+                      class="w-full bg-gradient-to-r from-blue-500 to-purple-600 disabled:opacity-40 text-white font-black py-4 rounded-2xl text-base transition-all hover:shadow-lg hover:shadow-purple-500/40 active:scale-95">
+                Submit Answer
               </button>
             </form>
           </template>
           <template x-if="answered">
-            <div class="rounded-2xl px-6 py-8 text-center space-y-3"
-                 :class="lastResult.is_correct ? 'bg-green-50 border-2 border-green-300' : 'bg-red-50 border-2 border-red-300'">
-              <p class="text-4xl" x-text="lastResult.is_correct ? '✅' : '❌'"></p>
-              <p class="font-bold text-lg text-gray-900" x-text="lastResult.is_correct ? 'Correct!' : 'Not quite'"></p>
-              <p class="text-sm text-gray-600" x-text="lastResult.is_correct ? `+${lastResult.score_awarded} points` : 'No points this round'"></p>
+            <div class="rounded-3xl px-8 py-10 text-center space-y-4"
+                 :class="lastResult?.is_correct ? 'border-4 border-green-400 bg-gradient-to-br from-green-900/40 to-emerald-900/30' : 'border-4 border-red-400 bg-gradient-to-br from-red-900/40 to-red-800/30'"
+                 role="status" aria-live="assertive">
+              <p class="text-5xl" x-text="lastResult?.is_correct ? '✅' : '❌'" aria-hidden="true"></p>
+              <p class="text-2xl font-black text-white" x-text="lastResult?.is_correct ? 'Correct!' : 'Not quite'"></p>
+              <p class="text-lg font-bold"
+                 :class="lastResult?.is_correct ? 'text-green-400' : 'text-gray-400'"
+                 x-text="lastResult?.is_correct ? '+' + lastResult.score_awarded + ' pts' : '+0 pts'"></p>
+              <p class="text-sm text-gray-400 animate-pulse font-semibold">Answer locked in! ✓</p>
             </div>
           </template>
-        </div>
-      </template>
-
-      <!-- Deadline passed without answering -->
-      <template x-if="countdown <= 0 && !answered">
-        <div class="bg-gray-50 border border-gray-200 rounded-2xl px-6 py-6 text-center">
-          <p class="text-gray-500 text-sm">Time's up — missed this one</p>
+          <template x-if="!answered && countdown <= 0">
+            <div class="bg-red-500/20 border-2 border-red-400/60 rounded-2xl px-6 py-5 text-center" role="status">
+              <p class="text-red-300 font-black text-lg">⏰ Time's up!</p>
+              <p class="text-red-200 text-sm mt-1">Missed this one — moving on…</p>
+            </div>
+          </template>
         </div>
       </template>
     </div>
   </template>
 
-  <!-- State: ended -->
-  <template x-if="gameState === 'ended'">
-    <div class="text-center py-16 space-y-3">
-      <p class="text-5xl">🏁</p>
-      <p class="text-xl font-bold text-gray-900">Game over!</p>
-      <p class="text-gray-500 text-sm">Redirecting to results&hellip;</p>
+  <!-- ── REVEAL PHASE ────────────────────────────────────────────────────── -->
+  <template x-if="gameStatus === 'reveal' && question">
+    <div class="space-y-4">
+
+      <!-- Result banner -->
+      <div class="relative rounded-3xl overflow-hidden border-4 px-8 py-8 text-center space-y-3 shadow-2xl"
+           :class="lastResult?.is_correct ? 'border-green-400 bg-gradient-to-br from-green-900/40 to-emerald-900/30' :
+                   lastResult ? 'border-red-400 bg-gradient-to-br from-red-900/40 to-red-800/30' :
+                   'border-slate-600 bg-slate-800/60'"
+           role="status">
+        <template x-if="lastResult && lastResult.is_correct">
+          <div class="space-y-3">
+            <div class="text-5xl font-black text-green-400">✓</div>
+            <p class="text-2xl font-black text-white">🎯 Correct!</p>
+            <div class="animate-points-pop inline-block bg-white/10 rounded-2xl px-6 py-3">
+              <p class="text-3xl font-black text-green-400" x-text="'+' + lastResult.score_awarded + ' pts'"></p>
+            </div>
+          </div>
+        </template>
+        <template x-if="lastResult && !lastResult.is_correct">
+          <div class="space-y-3">
+            <div class="text-5xl font-black text-red-400">✗</div>
+            <p class="text-2xl font-black text-white">❌ Wrong</p>
+            <div class="inline-block bg-white/10 rounded-2xl px-6 py-3">
+              <p class="text-3xl font-black text-gray-400">+0 pts</p>
+            </div>
+          </div>
+        </template>
+        <template x-if="!lastResult">
+          <div class="space-y-2">
+            <p class="text-4xl">⏰</p>
+            <p class="text-xl font-black text-white">You missed this one!</p>
+            <p class="text-sm text-gray-400 mt-1">+0 pts</p>
+          </div>
+        </template>
+      </div>
+
+      <!-- Correct answer highlight (always shown) -->
+      <template x-if="answerDistribution && answerDistribution.length > 0">
+        <div class="bg-green-500/15 border-2 border-green-400/40 rounded-2xl px-5 py-4 space-y-2">
+          <p class="text-xs font-black text-green-400 uppercase tracking-widest">Correct Answer</p>
+          <template x-for="d in answerDistribution.filter(d => d.is_correct)" :key="d.label">
+            <div class="flex items-center gap-3">
+              <span class="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center font-black text-white text-sm flex-shrink-0"
+                    x-text="d.label"></span>
+              <span class="font-bold text-white" x-text="d.text"></span>
+              <span class="text-green-400 ml-auto text-lg">✓</span>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <!-- Rank card -->
+      <template x-if="myRank !== null">
+        <div class="bg-white/10 backdrop-blur-xl rounded-2xl px-6 py-4 text-center border border-white/20">
+          <p class="text-xs text-gray-400 font-bold uppercase tracking-widest mb-2">Your Rank</p>
+          <div class="flex items-center justify-center gap-3">
+            <span class="text-4xl font-black bg-gradient-to-r from-yellow-300 to-amber-300 bg-clip-text text-transparent"
+                  x-text="`#${myRank}`"></span>
+            <span class="text-base text-gray-400" x-text="`of ${totalParticipants}`"></span>
+          </div>
+        </div>
+      </template>
+
+      <!-- Answer distribution bars -->
+      <template x-if="answerDistribution && answerDistribution.length > 0">
+        <div class="bg-white/10 backdrop-blur-xl rounded-2xl px-5 py-4 space-y-3 border border-white/20">
+          <p class="text-xs font-black text-gray-400 uppercase tracking-widest">Class Answers</p>
+          <template x-for="d in answerDistribution" :key="d.label">
+            <div class="flex items-center gap-3">
+              <span class="w-6 text-center font-black text-xs flex-shrink-0"
+                    :class="d.is_correct ? 'text-green-400' : 'text-gray-400'"
+                    x-text="d.label"></span>
+              <div class="flex-1 bg-white/10 rounded-full h-3 overflow-hidden">
+                <div class="h-full rounded-full transition-all duration-700"
+                     :class="d.is_correct ? 'bg-green-500' : 'bg-slate-500'"
+                     :style="`width: ${totalAnswers > 0 ? Math.max(4, d.count / totalAnswers * 100) : (d.is_correct ? 4 : 0)}%`"></div>
+              </div>
+              <span class="w-5 text-right text-xs font-bold flex-shrink-0"
+                    :class="d.is_correct ? 'text-green-300' : 'text-gray-400'"
+                    x-text="d.count"></span>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <!-- Auto-advance countdown -->
+      <div class="text-center pb-2">
+        <p class="text-sm text-gray-400 font-semibold animate-pulse"
+           x-text="revealCountdown > 0 ? `Next in ${revealCountdown}s…` : 'Moving on…'"></p>
+      </div>
+    </div>
+  </template>
+
+  <!-- ── FINISHED / END SCREEN ───────────────────────────────────────────── -->
+  <template x-if="gameStatus === 'finished'">
+    <div class="text-center space-y-6 py-8" role="status" aria-live="polite">
+      <!-- Trophy / rank -->
+      <div class="flex justify-center">
+        <div class="w-24 h-24 rounded-full bg-gradient-to-br from-yellow-400 to-amber-500 flex items-center justify-center text-5xl shadow-2xl animate-bounce">
+          <span x-text="finalRank === 1 ? '🏆' : finalRank === 2 ? '🥈' : finalRank === 3 ? '🥉' : '🎯'"></span>
+        </div>
+      </div>
+
+      <div class="space-y-1">
+        <p class="text-3xl font-black text-white" x-text="`You came #${finalRank}`"></p>
+        <p class="text-base text-gray-400 font-semibold" x-text="`out of ${totalParticipants} players`"></p>
+      </div>
+
+      <!-- Score card -->
+      <div class="bg-gradient-to-br from-slate-800 via-slate-700 to-slate-800 rounded-3xl p-8 border border-slate-600 shadow-xl space-y-6">
+        <!-- Total score -->
+        <div>
+          <p class="text-xs text-gray-400 font-bold uppercase tracking-widest mb-1">Total Score</p>
+          <p class="text-5xl font-black bg-gradient-to-r from-yellow-300 to-orange-300 bg-clip-text text-transparent"
+             x-text="score.toLocaleString()"></p>
+        </div>
+
+        <!-- Correct / incorrect -->
+        <div class="grid grid-cols-2 gap-4 border-t border-white/20 pt-4">
+          <div class="text-center">
+            <p class="text-xs text-gray-400 font-bold uppercase tracking-widest mb-1">Correct</p>
+            <p class="text-3xl font-black text-green-400" x-text="correctCount"></p>
+          </div>
+          <div class="text-center border-l border-white/20">
+            <p class="text-xs text-gray-400 font-bold uppercase tracking-widest mb-1">Incorrect</p>
+            <p class="text-3xl font-black text-red-400" x-text="incorrectCount"></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="space-y-3">
+        <a href="{% url 'brainbuzz:join' %}"
+           class="block w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:shadow-lg hover:shadow-green-500/40 text-white font-black py-4 rounded-2xl text-center text-base transition-all">
+          Play Again 🚀
+        </a>
+        <a href="/"
+           class="block w-full text-center bg-white/10 hover:bg-white/20 border border-white/20 text-white font-bold py-3 rounded-2xl transition-all">
+          Back Home
+        </a>
+      </div>
     </div>
   </template>
 
 </div>
 
+{% csrf_token %}
+
+<style>
+  @keyframes points-pop {
+    0%   { transform: scale(0.5) translateY(10px); opacity: 0; }
+    60%  { transform: scale(1.15) translateY(-4px); opacity: 1; }
+    100% { transform: scale(1) translateY(0); opacity: 1; }
+  }
+  .animate-points-pop { animation: points-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+
+  [x-cloak] { display: none !important; }
+</style>
+
 <script>
-function bbStudent(joinCode, initialVersion, participantId, initialIndex) {
+function bbStudent(joinCode, participantId, initialScore, initialStatus) {
   return {
     joinCode,
-    stateVersion: initialVersion,
+    stateVersion:        -1,   // -1 → server never returns 304 on first poll → always gets full state
     participantId,
-    gameState: 'lobby',
-    question: null,
-    answered: false,
-    lastResult: null,
-    textAnswer: '',
-    score: {{ participant.total_score }},
-    countdown: 0,
-    deadlineUtc: null,
-    countdownTimer: null,
-    answeredQuestionIndex: null,
-    tileClasses: ['bg-red-500 hover:bg-red-400', 'bg-blue-500 hover:bg-blue-400', 'bg-yellow-500 hover:bg-yellow-400', 'bg-green-600 hover:bg-green-500'],
-    tileShapeClasses: ['rounded-full bg-red-700', 'rounded bg-blue-700', 'rounded-lg rotate-45 bg-yellow-700', 'rounded-full bg-green-800'],
+    gameStatus:          initialStatus || 'lobby',
+    question:            null,
+    answered:            false,
+    lastResult:          null,
+    textAnswer:          '',
+    score:               initialScore || 0,
+    correctCount:        0,
+    incorrectCount:      0,
+    countdown:           0,
+    deadlineUtc:         null,
+    questionStartedAt:   null,
+    countdownTimer:      null,
+    pollTimer:           null,
+    answeredQuestionIdx: null,
+    networkError:        false,
+    errCount:            0,
+    submitError:         false,
+    submitting:          false,
+    myRank:              null,
+    totalParticipants:   0,
+    finalRank:           null,
+    revealCountdown:     3,
+    revealTimer:         null,
+    answerDistribution:  [],
+    ariaAnnouncement:    '',
 
-    startPolling() {
-      this.poll();
+    // Tile color backgrounds
+    _tileBgs: [
+      'bg-red-500 hover:bg-red-400',
+      'bg-blue-500 hover:bg-blue-400',
+      'bg-yellow-500 hover:bg-yellow-400',
+      'bg-green-600 hover:bg-green-500',
+    ],
+
+    // SVG shapes: triangle, diamond, circle, square
+    _tileSvgs: [
+      '<svg viewBox="0 0 48 48" fill="white" class="w-full h-full" aria-hidden="true"><polygon points="24,4 46,44 2,44"/></svg>',
+      '<svg viewBox="0 0 48 48" fill="white" class="w-full h-full" aria-hidden="true"><polygon points="24,2 46,24 24,46 2,24"/></svg>',
+      '<svg viewBox="0 0 48 48" fill="white" class="w-full h-full" aria-hidden="true"><circle cx="24" cy="24" r="21"/></svg>',
+      '<svg viewBox="0 0 48 48" fill="white" class="w-full h-full" aria-hidden="true"><rect x="4" y="4" width="40" height="40" rx="5"/></svg>',
+    ],
+
+    get totalAnswers() {
+      return this.answerDistribution.reduce((s, d) => s + d.count, 0);
     },
 
-    async poll() {
-      try {
-        const res = await fetch(`/brainbuzz/api/session/${this.joinCode}/state/?since=${this.stateVersion}`);
-        if (res.ok && res.status !== 304) {
-          const data = await res.json();
-          this.applyState(data);
+    init() {
+      window.bbStudentApp = this;
+      this._loadAnsweredState();
+      this._poll();
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+          clearTimeout(this.pollTimer);
+          this._poll();
         }
-      } catch (e) {}
-      if (this.gameState !== 'ended') {
-        setTimeout(() => this.poll(), 1200);
-      }
+      });
     },
 
-    applyState(data) {
-      this.stateVersion = data.state_version;
-      this.gameState = data.state;
+    _storageKey() {
+      return `bb_ans_${this.joinCode}`;
+    },
 
-      if (data.state === 'ended') {
-        setTimeout(() => {
-          window.location.href = `/brainbuzz/play/${this.joinCode}/`;
-        }, 1500);
+    _loadAnsweredState() {
+      try {
+        const raw = localStorage.getItem(this._storageKey());
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        // Expire after 8 hours
+        if (Date.now() - saved.t > 8 * 3600 * 1000) {
+          localStorage.removeItem(this._storageKey());
+          return;
+        }
+        this.answeredQuestionIdx = saved.idx;
+        this.lastResult = saved.result || null;
+        if (saved.result) {
+          this.score = saved.result.total_score ?? this.score;
+        }
+      } catch (_) {}
+    },
+
+    _saveAnsweredState(questionIdx, result) {
+      try {
+        localStorage.setItem(this._storageKey(), JSON.stringify({
+          idx: questionIdx,
+          result,
+          t: Date.now(),
+        }));
+      } catch (_) {}
+    },
+
+    _haptic(pattern) {
+      try {
+        if (navigator.vibrate) navigator.vibrate(pattern);
+      } catch (_) {}
+    },
+
+    async _poll() {
+      try {
+        const res = await fetch(
+          `/brainbuzz/api/session/${this.joinCode}/state/?since=${this.stateVersion}`
+        );
+        if (res.status === 304) {
+          // No change
+        } else if (res.ok) {
+          const data = await res.json();
+          this._applyState(data);
+        }
+        this.networkError = false;
+        this.errCount = 0;
+      } catch (_) {
+        this.errCount++;
+        this.networkError = true;
+      }
+
+      if (this.gameStatus === 'finished') return;
+      // Lobby: 400ms so game-start detected fast
+      // Active: 800ms to catch question changes quickly
+      // Reveal: 1200ms (reveal countdown handles the fast transition)
+      const base = this.errCount > 0
+        ? Math.min(1200 * Math.pow(1.5, Math.min(this.errCount, 6)), 20000)
+        : this.gameStatus === 'lobby' ? 400
+        : this.gameStatus === 'active' ? 800
+        : 1200;
+      this.pollTimer = setTimeout(() => this._poll(), base);
+    },
+
+    _applyState(data) {
+      this.stateVersion = data.state_version;
+      const prevStatus  = this.gameStatus;
+      this.gameStatus   = data.status;
+      this.totalParticipants = data.participant_count || (data.participants || []).length;
+
+      if (data.status === 'finished') {
+        this._computeRank(data.participants || []);
+        clearInterval(this.countdownTimer);
+        clearInterval(this.revealTimer);
         return;
+      }
+
+      if (data.status === 'reveal') {
+        this.answerDistribution = data.answer_distribution || [];
+        this._computeRank(data.participants || []);
+        if (prevStatus !== 'reveal') {
+          this._startRevealCountdown();
+        }
       }
 
       if (data.question) {
         const q = data.question;
-        // New question — reset answered state
-        if (q.order_index !== this.answeredQuestionIndex) {
-          this.answered = false;
-          this.lastResult = null;
-          this.textAnswer = '';
+        const isNewQuestion = q.order !== (this.question ? this.question.order : -1);
+        if (q.order !== this.answeredQuestionIdx) {
+          // New question — reset state
+          if (isNewQuestion) {
+            this.answered = false;
+            this.lastResult = null;
+            this.textAnswer = '';
+            this.submitting = false;
+            this.submitError = false;
+            this.questionStartedAt = Date.now();
+            this.answerDistribution = [];
+          }
+        } else {
+          // Already answered this question
+          this.answered = true;
         }
         this.question = q;
-        this.deadlineUtc = q.question_deadline_utc ? new Date(q.question_deadline_utc) : null;
-        this.tickCountdown();
+        // Extend deadline by 3s if student first sees this question and < 5s remain
+        if (isNewQuestion && q.question_deadline && !this.answered) {
+          const remaining = (new Date(q.question_deadline) - Date.now()) / 1000;
+          if (remaining > 0 && remaining < 5) {
+            const extended = new Date(Date.now() + 5000);
+            this.deadlineUtc = extended;
+          } else {
+            this.deadlineUtc = q.question_deadline ? new Date(q.question_deadline) : null;
+          }
+        } else {
+          this.deadlineUtc = q.question_deadline ? new Date(q.question_deadline) : null;
+        }
+        this._startCountdown();
       }
     },
 
-    tickCountdown() {
+    _computeRank(participants) {
+      if (!participants || participants.length === 0) return;
+      const sorted = [...participants].sort((a, b) => b.score - a.score || 0);
+      const idx = sorted.findIndex(p => p.id === this.participantId);
+      this.myRank = idx >= 0 ? idx + 1 : null;
+      if (this.gameStatus === 'finished') {
+        this.finalRank = this.myRank;
+      }
+    },
+
+    _startCountdown() {
       if (this.countdownTimer) clearInterval(this.countdownTimer);
       this.countdownTimer = setInterval(() => {
-        if (!this.deadlineUtc) { this.countdown = 0; return; }
+        if (!this.deadlineUtc || this.gameStatus !== 'active') {
+          this.countdown = 0;
+          return;
+        }
         const remaining = (this.deadlineUtc - Date.now()) / 1000;
         this.countdown = Math.max(0, Math.ceil(remaining));
       }, 200);
     },
 
+    _startRevealCountdown() {
+      if (this.revealTimer) clearInterval(this.revealTimer);
+      this.revealCountdown = 3;
+      this.revealTimer = setInterval(() => {
+        this.revealCountdown--;
+        if (this.revealCountdown <= 0) {
+          clearInterval(this.revealTimer);
+          // Poll immediately so student catches next question without waiting 1.2s
+          clearTimeout(this.pollTimer);
+          this._poll();
+        }
+      }, 1000);
+    },
+
+    async onTileTap(opt, idx, event) {
+      if (this.answered || this.countdown <= 0 || this.submitting) return;
+      this._haptic(50);
+      await this.submitAnswer({ option_label: opt.label || ['A', 'B', 'C', 'D'][idx] });
+    },
+
+    async onShortSubmit() {
+      if (this.answered || this.countdown <= 0 || !this.textAnswer.trim() || this.submitting) return;
+      this._haptic(50);
+      await this.submitAnswer({ text: this.textAnswer.trim() });
+    },
+
     async submitAnswer(payload) {
-      if (this.answered || this.countdown <= 0) return;
-      const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
-      try {
-        const res = await fetch(`/brainbuzz/api/session/${this.joinCode}/submit/`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-          body: JSON.stringify({
-            participant_id: this.participantId,
-            question_index: this.question.order_index,
-            answer_payload: payload,
-          }),
-        });
-        const data = await res.json();
-        this.answered = true;
-        this.answeredQuestionIndex = this.question.order_index;
-        this.lastResult = data;
-        this.score = data.total_score ?? this.score;
-      } catch (e) {
-        console.error('Submit failed', e);
+      if (this.answered || this.submitting || !this.question) return;
+      this.submitting = true;
+
+      const timeTakenMs = this.questionStartedAt
+        ? Math.min(Date.now() - this.questionStartedAt, 60000)
+        : 0;
+
+      const csrf = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+      const body = JSON.stringify({
+        participant_id: this.participantId,
+        question_index: this.question.order,
+        time_taken_ms:  timeTakenMs,
+        answer_payload: payload,
+      });
+
+      let res = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          res = await fetch(`/brainbuzz/api/session/${this.joinCode}/submit/`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+            body,
+          });
+          if (res.ok || res.status === 409) break;
+          res = null;
+        } catch (_) {
+          res = null;
+          if (attempt < 2) {
+            await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempt)));
+          }
+        }
+      }
+
+      this.submitting = false;
+
+      if (!res) {
+        this.submitError = true;
+        return;
+      }
+
+      const data = await res.json();
+      this.answered            = true;
+      this.answeredQuestionIdx = this.question.order;
+      this.lastResult          = data;
+      this.score               = data.total_score ?? this.score;
+
+      if (res.ok) {
+        if (data.is_correct) {
+          this.correctCount++;
+          this._haptic([50, 50, 150]);
+          this.ariaAnnouncement = `Correct! +${data.score_awarded} points`;
+        } else {
+          this.incorrectCount++;
+          this._haptic(200);
+          this.ariaAnnouncement = 'Incorrect. 0 points';
+        }
+        this._saveAnsweredState(this.question.order, data);
       }
     },
   };

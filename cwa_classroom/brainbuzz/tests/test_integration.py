@@ -18,22 +18,30 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import Role
+from classroom.models import Subject
 from brainbuzz.models import (
     BrainBuzzSession,
     BrainBuzzSessionQuestion,
     BrainBuzzParticipant,
-    BrainBuzzSubmission,
+    BrainBuzzAnswer,
     calculate_brainbuzz_score,
+    QUESTION_TYPE_MCQ,
     QUESTION_TYPE_MULTIPLE_CHOICE,
 )
 
 User = get_user_model()
+
+_TIME_LIMIT_SEC = 20
 
 
 def _post_json(client, url, payload):
     return client.post(
         url, data=json.dumps(payload), content_type='application/json',
     )
+
+
+def _get_or_create_subject():
+    return Subject.objects.get_or_create(slug='integ-maths', defaults={'name': 'Integration Maths'})[0]
 
 
 def _make_teacher():
@@ -45,27 +53,30 @@ def _make_teacher():
     return u
 
 
-def _build_session_with_questions(teacher, num_questions=10):
-    """Build an in-progress BrainBuzz session with `num_questions` MCQ questions."""
+def _build_session_with_questions(teacher, num_questions=10, code='INTEG1'):
+    """Build a BrainBuzz session with `num_questions` MCQ questions."""
+    subject = _get_or_create_subject()
     session = BrainBuzzSession.objects.create(
-        join_code='INTEG1',
-        created_by=teacher,
-        subject=BrainBuzzSession.SUBJECT_MATHS,
-        state=BrainBuzzSession.LOBBY,
+        code=code,
+        host=teacher,
+        subject=subject,
+        status=BrainBuzzSession.STATUS_LOBBY,
+        time_per_question_sec=_TIME_LIMIT_SEC,
     )
     for i in range(num_questions):
         BrainBuzzSessionQuestion.objects.create(
             session=session,
-            order_index=i,
+            order=i,
             question_text=f'Integration Question {i + 1}',
-            question_type=QUESTION_TYPE_MULTIPLE_CHOICE,
-            options=[
-                {'id': 'correct', 'text': 'Correct Answer', 'is_correct': True},
-                {'id': 'wrong1',  'text': 'Wrong A',        'is_correct': False},
-                {'id': 'wrong2',  'text': 'Wrong B',        'is_correct': False},
-                {'id': 'wrong3',  'text': 'Wrong C',        'is_correct': False},
+            question_type=QUESTION_TYPE_MCQ,
+            options_json=[
+                {'label': 'A', 'text': 'Correct Answer', 'is_correct': True},
+                {'label': 'B', 'text': 'Wrong A',        'is_correct': False},
+                {'label': 'C', 'text': 'Wrong B',        'is_correct': False},
+                {'label': 'D', 'text': 'Wrong C',        'is_correct': False},
             ],
-            time_limit_seconds=20,
+            source_model='IntegrationTest',
+            source_id=i,
         )
     return session
 
@@ -83,33 +94,29 @@ def _join_30_students(session):
 
 
 def _simulate_question(session, question, participants, correct_fraction=0.8):
-    """Simulate all participants answering question with varying speeds.
-
-    correct_fraction: fraction of participants who answer correctly.
-    """
-    question.start()
-    # Simulate answers arriving at varying times during the window
+    """Simulate all participants answering question with varying speeds."""
     num_correct = int(len(participants) * correct_fraction)
     for idx, participant in enumerate(participants):
         is_correct = idx < num_correct
-        option_id = 'correct' if is_correct else 'wrong1'
+        option_label = 'A' if is_correct else 'B'
 
-        # Simulate seconds remaining proportional to position (early → more points)
-        seconds_into_window = (idx / len(participants)) * question.time_limit_seconds
-        seconds_remaining = max(0.1, question.time_limit_seconds - seconds_into_window)
+        seconds_into_window = (idx / len(participants)) * _TIME_LIMIT_SEC
+        seconds_remaining = max(0.1, _TIME_LIMIT_SEC - seconds_into_window)
+        time_taken_ms = int((1 - seconds_remaining / _TIME_LIMIT_SEC) * _TIME_LIMIT_SEC * 1000)
 
-        score = calculate_brainbuzz_score(question.time_limit_seconds, seconds_remaining) if is_correct else 0
+        score = calculate_brainbuzz_score(_TIME_LIMIT_SEC, seconds_remaining) if is_correct else 0
 
-        BrainBuzzSubmission.objects.create(
+        BrainBuzzAnswer.objects.create(
             participant=participant,
             session_question=question,
-            answer_payload={'option_id': option_id},
+            selected_option_label=option_label,
             is_correct=is_correct,
-            score_awarded=score,
+            points_awarded=score,
+            time_taken_ms=time_taken_ms,
         )
         if score > 0:
-            participant.total_score += score
-            participant.save(update_fields=['total_score'])
+            participant.score += score
+            participant.save(update_fields=['score'])
 
 
 # ===========================================================================
@@ -131,74 +138,56 @@ class TestFullSession30Students(TestCase):
         participants = _join_30_students(session)
         self.assertEqual(len(participants), NUM_STUDENTS)
 
-        # Start session
-        session.state = BrainBuzzSession.IN_PROGRESS
-        session.current_question_index = 0
-        session.bump_version()
-
         # Play each question
-        questions = list(session.questions.order_by('order_index'))
+        questions = list(session.questions.order_by('order'))
         for q in questions:
             _simulate_question(session, q, participants, correct_fraction=0.8)
 
-        # End session
-        session.state = BrainBuzzSession.ENDED
-        session.current_question_index = None
-        session.bump_version()
-
-        # Verify leaderboard ordering
-        leaderboard = list(session.leaderboard())
+        # Verify leaderboard ordering (order by score desc)
+        leaderboard = list(session.participants.order_by('-score', 'joined_at'))
         self.assertEqual(len(leaderboard), NUM_STUDENTS)
 
-        # Leaderboard must be sorted by total_score desc
+        # Leaderboard must be sorted by score desc
         for i in range(len(leaderboard) - 1):
             self.assertGreaterEqual(
-                leaderboard[i].total_score,
-                leaderboard[i + 1].total_score,
-                msg=f"Rank {i+1} score {leaderboard[i].total_score} < rank {i+2} score {leaderboard[i+1].total_score}",
+                leaderboard[i].score,
+                leaderboard[i + 1].score,
+                msg=f"Rank {i+1} score {leaderboard[i].score} < rank {i+2} score {leaderboard[i+1].score}",
             )
 
         # The first 24 students (80% × 30) got correct answers every round → should have higher scores
-        correct_total = sum(p.total_score for p in participants[:24])
-        wrong_total   = sum(p.total_score for p in participants[24:])
+        correct_total = sum(p.score for p in participants[:24])
+        wrong_total   = sum(p.score for p in participants[24:])
         self.assertGreater(correct_total, wrong_total)
 
     def test_total_submissions_match(self):
         """30 students × 10 questions = exactly 300 submissions."""
-        session = _build_session_with_questions(self.teacher, 10)
-        session.join_code = 'INTEG2'
-        session.save(update_fields=['join_code'])
+        session = _build_session_with_questions(self.teacher, 10, code='INTEG2')
         participants = _join_30_students(session)
-        session.state = BrainBuzzSession.IN_PROGRESS
-        session.save(update_fields=['state'])
 
-        for q in session.questions.order_by('order_index'):
+        for q in session.questions.order_by('order'):
             _simulate_question(session, q, participants)
 
-        total = BrainBuzzSubmission.objects.filter(
+        total = BrainBuzzAnswer.objects.filter(
             participant__session=session,
         ).count()
         self.assertEqual(total, 300)
 
     def test_scoring_range_in_bounds(self):
-        """All score_awarded values must be 0 or in [500, 1000]."""
-        session = _build_session_with_questions(self.teacher, 3)
-        session.join_code = 'INTEG3'
-        session.save(update_fields=['join_code'])
+        """All points_awarded values must be 0 or in [500, 1000]."""
+        session = _build_session_with_questions(self.teacher, 3, code='INTEG3')
         participants = _join_30_students(session)
-        session.state = BrainBuzzSession.IN_PROGRESS
-        session.save(update_fields=['state'])
 
-        for q in session.questions.order_by('order_index'):
+        for q in session.questions.order_by('order'):
             _simulate_question(session, q, participants)
 
-        subs = BrainBuzzSubmission.objects.filter(participant__session=session)
+        subs = BrainBuzzAnswer.objects.filter(participant__session=session)
         for sub in subs:
             if sub.is_correct:
-                self.assertGreaterEqual(sub.score_awarded, 500)
-                self.assertLessEqual(sub.score_awarded, 1000)
+                self.assertGreaterEqual(sub.points_awarded, 500)
+                self.assertLessEqual(sub.points_awarded, 1000)
             else:
-                self.assertEqual(sub.score_awarded, 0)
+                self.assertEqual(sub.points_awarded, 0)
 
 
 # ===========================================================================
@@ -213,17 +202,16 @@ class TestCsvExport(TestCase):
 
     def test_csv_schema_and_content(self):
         """CSV must have correct headers and one row per participant."""
-        session = _build_session_with_questions(self.teacher, 5)
-        session.join_code = 'CSVTST'
-        session.state = BrainBuzzSession.ENDED
-        session.save(update_fields=['join_code', 'state'])
+        session = _build_session_with_questions(self.teacher, 5, code='CSVTST')
+        session.status = BrainBuzzSession.STATUS_FINISHED
+        session.save(update_fields=['status'])
 
         participants = []
         for i, name in enumerate(['Alice', 'Bob', 'Carol']):
             p = BrainBuzzParticipant.objects.create(
                 session=session,
                 nickname=name,
-                total_score=(3 - i) * 500,
+                score=(3 - i) * 500,
             )
             participants.append(p)
 
@@ -267,10 +255,9 @@ class TestCsvExport(TestCase):
         role, _ = Role.objects.get_or_create(name=Role.TEACHER)
         other.roles.add(role)
 
-        session = _build_session_with_questions(self.teacher, 2)
-        session.join_code = 'CSVOTH'
-        session.state = BrainBuzzSession.ENDED
-        session.save(update_fields=['join_code', 'state'])
+        session = _build_session_with_questions(self.teacher, 2, code='CSVOTH')
+        session.status = BrainBuzzSession.STATUS_FINISHED
+        session.save(update_fields=['status'])
 
         c = Client()
         c.force_login(other)
@@ -290,9 +277,9 @@ class TestVersionedPolling(TestCase):
         cls.teacher = _make_teacher()
 
     def test_state_version_increments_on_each_action(self):
-        session = _build_session_with_questions(self.teacher, 3)
-        session.join_code = 'POLLV1'
-        session.save(update_fields=['join_code'])
+        session = _build_session_with_questions(self.teacher, 3, code='POLLV1')
+        # Add participant so 'start' succeeds
+        BrainBuzzParticipant.objects.create(session=session, nickname='TestPlayer')
 
         c = Client()
         c.force_login(self.teacher)
@@ -300,26 +287,21 @@ class TestVersionedPolling(TestCase):
         action_url = reverse('brainbuzz:api_teacher_action', kwargs={'join_code': 'POLLV1'})
         state_url  = reverse('brainbuzz:api_session_state',  kwargs={'join_code': 'POLLV1'})
 
-        # Initial version
         res = c.get(state_url)
         v0 = res.json()['state_version']
 
-        # Start
         _post_json(c, action_url, {'action': 'start', 'expected_current_index': None})
         res = c.get(state_url)
         v1 = res.json()['state_version']
         self.assertEqual(v1, v0 + 1)
 
-        # Next
         _post_json(c, action_url, {'action': 'next', 'expected_current_index': 0})
         res = c.get(state_url)
         v2 = res.json()['state_version']
         self.assertEqual(v2, v1 + 1)
 
     def test_304_returned_between_state_changes(self):
-        session = _build_session_with_questions(self.teacher, 2)
-        session.join_code = 'POLL04'
-        session.save(update_fields=['join_code'])
+        session = _build_session_with_questions(self.teacher, 2, code='POLL04')
 
         c = Client()
         state_url = reverse('brainbuzz:api_session_state', kwargs={'join_code': 'POLL04'})
@@ -327,6 +309,5 @@ class TestVersionedPolling(TestCase):
         res = c.get(state_url)
         version = res.json()['state_version']
 
-        # Poll again with same version — should be 304
         res2 = c.get(f'{state_url}?since={version}')
         self.assertEqual(res2.status_code, 304)

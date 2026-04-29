@@ -479,9 +479,11 @@ class TestApiQuizCreateQuestion(TestCase):
         data = json.loads(r.content)
         self.assertEqual(data['correct_short_answer'], 'Wellington')
 
-    def test_missing_question_text_returns_400(self):
+    def test_missing_question_text_creates_with_empty_text(self):
+        # Empty question_text is allowed on create (teacher fills it in the builder)
         r = self._post({'question_type': 'mcq'})
-        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(json.loads(r.content)['question_text'], '')
 
     def test_invalid_type_returns_400(self):
         r = self._post({'question_text': 'Q?', 'question_type': 'invalid_type'})

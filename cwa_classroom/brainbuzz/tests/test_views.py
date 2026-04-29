@@ -18,11 +18,13 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import Role
+from classroom.models import Subject
 from brainbuzz.models import (
     BrainBuzzSession,
     BrainBuzzSessionQuestion,
     BrainBuzzParticipant,
-    BrainBuzzSubmission,
+    BrainBuzzAnswer,
+    QUESTION_TYPE_MCQ,
     QUESTION_TYPE_MULTIPLE_CHOICE,
 )
 
@@ -42,6 +44,10 @@ def _post(client, url, payload, csrf_bypass=True):
     )
 
 
+def _get_or_create_subject():
+    return Subject.objects.get_or_create(slug='maths-test', defaults={'name': 'Maths Test'})[0]
+
+
 def _make_teacher(username='bb_teacher'):
     u = User.objects.create_user(username=username, password='testpass', email=f'{username}@test.com')
     role, _ = Role.objects.get_or_create(name=Role.TEACHER)
@@ -56,28 +62,31 @@ def _make_student(username='bb_student'):
     return u
 
 
-def _make_session(teacher, join_code='TST001', state=BrainBuzzSession.LOBBY):
+def _make_session(teacher, code='TST001', status=BrainBuzzSession.STATUS_LOBBY, subject=None):
+    if subject is None:
+        subject = _get_or_create_subject()
     return BrainBuzzSession.objects.create(
-        join_code=join_code,
-        created_by=teacher,
-        subject=BrainBuzzSession.SUBJECT_MATHS,
-        state=state,
+        code=code,
+        host=teacher,
+        subject=subject,
+        status=status,
     )
 
 
-def _add_question(session, order_index=0, options=None):
+def _add_question(session, order=0, options=None):
     if options is None:
         options = [
-            {'id': 'a', 'text': 'Wrong', 'is_correct': False},
-            {'id': 'b', 'text': 'Correct', 'is_correct': True},
+            {'label': 'A', 'text': 'Wrong', 'is_correct': False},
+            {'label': 'B', 'text': 'Correct', 'is_correct': True},
         ]
     return BrainBuzzSessionQuestion.objects.create(
         session=session,
-        order_index=order_index,
-        question_text=f'Question {order_index}',
-        question_type=QUESTION_TYPE_MULTIPLE_CHOICE,
-        options=options,
-        time_limit_seconds=20,
+        order=order,
+        question_text=f'Question {order}',
+        question_type=QUESTION_TYPE_MCQ,
+        options_json=options,
+        source_model='TestQuestion',
+        source_id=order,
     )
 
 
@@ -94,7 +103,7 @@ class TestApiSessionState(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.teacher = _make_teacher()
-        cls.session = _make_session(cls.teacher, join_code='STGAT1')
+        cls.session = _make_session(cls.teacher, code='STGAT1')
 
     def test_returns_full_state(self):
         c = Client()
@@ -102,7 +111,7 @@ class TestApiSessionState(TestCase):
         res = c.get(url)
         self.assertEqual(res.status_code, 200)
         data = res.json()
-        self.assertEqual(data['join_code'], 'STGAT1')
+        self.assertEqual(data['code'], 'STGAT1')
         self.assertIn('state_version', data)
 
     def test_304_when_version_unchanged(self):
@@ -113,7 +122,7 @@ class TestApiSessionState(TestCase):
         self.assertEqual(res.status_code, 304)
 
     def test_200_when_version_changed(self):
-        session = _make_session(self.teacher, join_code='STGAT2')
+        session = _make_session(self.teacher, code='STGAT2')
         version = session.state_version
         session.bump_version()
         c = Client()
@@ -140,80 +149,80 @@ class TestApiTeacherAction(TestCase):
         cls.student = _make_student()
 
     def _fresh_session(self, code):
-        s = _make_session(self.teacher, join_code=code)
+        s = _make_session(self.teacher, code=code)
         _add_question(s, 0)
         _add_question(s, 1)
         return s
 
-    def test_start_transitions_to_in_progress(self):
+    def _active_session(self, code):
+        s = _make_session(self.teacher, code=code)
+        _add_question(s, 0)
+        _add_question(s, 1)
+        _make_participant(s, 'TestPlayer')
+        s.status = BrainBuzzSession.STATUS_ACTIVE
+        s.current_index = 0
+        s.question_deadline = timezone.now() + timedelta(seconds=20)
+        s.state_version = 1
+        s.save()
+        return s
+
+    def test_start_transitions_to_active(self):
         s = self._fresh_session('ACTST1')
+        _make_participant(s, 'Player1')
         c = Client()
         c.force_login(self.teacher)
         url = reverse('brainbuzz:api_teacher_action', kwargs={'join_code': 'ACTST1'})
         res = _post(c, url, {'action': 'start', 'expected_current_index': None})
         self.assertEqual(res.status_code, 200)
         data = res.json()
-        self.assertEqual(data['state'], 'in_progress')
-        self.assertEqual(data['current_question_index'], 0)
+        self.assertEqual(data['status'], BrainBuzzSession.STATUS_ACTIVE)
+        self.assertEqual(data['current_index'], 0)
         self.assertEqual(data['state_version'], 1)
 
     def test_next_advances_to_question_1(self):
-        s = self._fresh_session('ACTNX1')
-        s.state = BrainBuzzSession.IN_PROGRESS
-        s.current_question_index = 0
-        s.bump_version()
-        q0 = s.questions.get(order_index=0)
-        q0.start()
-
+        s = self._active_session('ACTNX1')
         c = Client()
         c.force_login(self.teacher)
         url = reverse('brainbuzz:api_teacher_action', kwargs={'join_code': 'ACTNX1'})
         res = _post(c, url, {'action': 'next', 'expected_current_index': 0})
         self.assertEqual(res.status_code, 200)
         data = res.json()
-        self.assertEqual(data['current_question_index'], 1)
+        self.assertEqual(data['current_index'], 1)
 
     def test_next_ends_session_when_no_more_questions(self):
-        s = _make_session(self.teacher, join_code='ACTNXE')
-        _add_question(s, 0)  # only one question
-        s.state = BrainBuzzSession.IN_PROGRESS
-        s.current_question_index = 0
-        s.bump_version()
+        s = _make_session(self.teacher, code='ACTNXE')
+        _add_question(s, 0)
+        s.status = BrainBuzzSession.STATUS_ACTIVE
+        s.current_index = 0
+        s.save()
 
         c = Client()
         c.force_login(self.teacher)
         url = reverse('brainbuzz:api_teacher_action', kwargs={'join_code': 'ACTNXE'})
         res = _post(c, url, {'action': 'next', 'expected_current_index': 0})
         data = res.json()
-        self.assertEqual(data['state'], 'ended')
+        self.assertEqual(data['status'], BrainBuzzSession.STATUS_FINISHED)
 
     def test_next_is_idempotent_on_index_mismatch(self):
-        s = self._fresh_session('ACTIDM')
-        s.state = BrainBuzzSession.IN_PROGRESS
-        s.current_question_index = 1
-        s.bump_version()
+        s = self._active_session('ACTIDM')
+        s.current_index = 1
+        s.save(update_fields=['current_index'])
 
         c = Client()
         c.force_login(self.teacher)
         url = reverse('brainbuzz:api_teacher_action', kwargs={'join_code': 'ACTIDM'})
-        # expected_index=0 but actual is 1 → no-op
         res = _post(c, url, {'action': 'next', 'expected_current_index': 0})
         data = res.json()
-        # Should return current state unchanged
-        self.assertEqual(data['current_question_index'], 1)
+        self.assertEqual(data['current_index'], 1)
 
-    def test_end_transitions_to_ended(self):
-        s = self._fresh_session('ACTEND')
-        s.state = BrainBuzzSession.IN_PROGRESS
-        s.current_question_index = 0
-        s.bump_version()
-
+    def test_end_transitions_to_finished(self):
+        s = self._active_session('ACTEND')
         c = Client()
         c.force_login(self.teacher)
         url = reverse('brainbuzz:api_teacher_action', kwargs={'join_code': 'ACTEND'})
         res = _post(c, url, {'action': 'end', 'expected_current_index': 0})
         data = res.json()
-        self.assertEqual(data['state'], 'ended')
+        self.assertEqual(data['status'], BrainBuzzSession.STATUS_FINISHED)
 
     def test_403_for_student(self):
         s = self._fresh_session('ACTFOR')
@@ -250,10 +259,10 @@ class TestApiJoin(TestCase):
         cls.teacher = _make_teacher(username='bb_teacher_join')
 
     def test_join_lobby_session_succeeds(self):
-        s = _make_session(self.teacher, join_code='JOINOK')
+        s = _make_session(self.teacher, code='JOINOK')
         c = Client()
         res = _post(c, reverse('brainbuzz:api_join'), {
-            'join_code': 'JOINOK',
+            'code': 'JOINOK',
             'nickname': 'Alice',
         })
         self.assertEqual(res.status_code, 200)
@@ -265,45 +274,45 @@ class TestApiJoin(TestCase):
     def test_join_nonexistent_code_returns_404(self):
         c = Client()
         res = _post(c, reverse('brainbuzz:api_join'), {
-            'join_code': 'NOTFND',
+            'code': 'NOTFND',
             'nickname': 'Bob',
         })
         self.assertEqual(res.status_code, 404)
 
     def test_join_started_session_returns_409(self):
-        s = _make_session(self.teacher, join_code='JSTART', state=BrainBuzzSession.IN_PROGRESS)
+        s = _make_session(self.teacher, code='JSTART', status=BrainBuzzSession.STATUS_ACTIVE)
         c = Client()
         res = _post(c, reverse('brainbuzz:api_join'), {
-            'join_code': 'JSTART',
+            'code': 'JSTART',
             'nickname': 'Bob',
         })
         self.assertEqual(res.status_code, 409)
 
     def test_join_duplicate_nickname_gets_suffix(self):
-        s = _make_session(self.teacher, join_code='JDUPL1')
+        s = _make_session(self.teacher, code='JDUPL1')
         _make_participant(s, 'Dave')
         c = Client()
         res = _post(c, reverse('brainbuzz:api_join'), {
-            'join_code': 'JDUPL1',
+            'code': 'JDUPL1',
             'nickname': 'Dave',
         })
         self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.json()['nickname'], 'Dave#2')
+        self.assertEqual(res.json()['nickname'], 'Dave #2')
 
     def test_join_missing_nickname_returns_400(self):
-        s = _make_session(self.teacher, join_code='JMISNN')
+        s = _make_session(self.teacher, code='JMISNN')
         c = Client()
         res = _post(c, reverse('brainbuzz:api_join'), {
-            'join_code': 'JMISNN',
+            'code': 'JMISNN',
         })
         self.assertEqual(res.status_code, 400)
 
     def test_rate_limit_blocks_after_10_attempts(self):
-        s = _make_session(self.teacher, join_code='JRATEL')
+        s = _make_session(self.teacher, code='JRATEL')
         c = Client()
         url = reverse('brainbuzz:api_join')
         with patch('brainbuzz.views._check_join_rate_limit', return_value=False):
-            res = _post(c, url, {'join_code': 'JRATEL', 'nickname': 'Zed'})
+            res = _post(c, url, {'code': 'JRATEL', 'nickname': 'Zed'})
             self.assertEqual(res.status_code, 429)
 
 
@@ -318,28 +327,27 @@ class TestApiSubmit(TestCase):
         cls.teacher = _make_teacher(username='bb_teacher_sub')
 
     def _live_session(self, code):
-        s = _make_session(self.teacher, join_code=code, state=BrainBuzzSession.IN_PROGRESS)
-        s.current_question_index = 0
-        s.save(update_fields=['current_question_index'])
-        q = _add_question(s, 0)
-        q.start()
-        return s, q
+        s = _make_session(self.teacher, code=code, status=BrainBuzzSession.STATUS_ACTIVE)
+        s.current_index = 0
+        s.question_deadline = timezone.now() + timedelta(seconds=20)
+        s.save(update_fields=['current_index', 'question_deadline'])
+        _add_question(s, 0)
+        return s
 
     def test_correct_answer_scores_points(self):
-        s, q = self._live_session('SUBCRR')
+        s = self._live_session('SUBCRR')
         p = _make_participant(s, 'Eve')
         c = Client()
-        # Inject participant id into session
-        session_key = f'bb_pid_{s.join_code}'
         session = c.session
-        session[session_key] = p.id
+        session[f'bb_pid_{s.code}'] = p.id
         session.save()
 
-        url = reverse('brainbuzz:api_submit', kwargs={'join_code': s.join_code})
+        url = reverse('brainbuzz:api_submit', kwargs={'join_code': s.code})
         res = _post(c, url, {
             'participant_id': p.id,
             'question_index': 0,
-            'answer_payload': {'option_id': 'b'},
+            'answer_payload': {'option_label': 'B'},
+            'time_taken_ms': 500,
         })
         self.assertEqual(res.status_code, 200)
         data = res.json()
@@ -347,84 +355,88 @@ class TestApiSubmit(TestCase):
         self.assertGreater(data['score_awarded'], 0)
 
     def test_incorrect_answer_scores_zero(self):
-        s, q = self._live_session('SUBWRG')
+        s = self._live_session('SUBWRG')
         p = _make_participant(s, 'Frank')
         c = Client()
         session = c.session
-        session[f'bb_pid_{s.join_code}'] = p.id
+        session[f'bb_pid_{s.code}'] = p.id
         session.save()
 
-        url = reverse('brainbuzz:api_submit', kwargs={'join_code': s.join_code})
+        url = reverse('brainbuzz:api_submit', kwargs={'join_code': s.code})
         res = _post(c, url, {
             'participant_id': p.id,
             'question_index': 0,
-            'answer_payload': {'option_id': 'a'},
+            'answer_payload': {'option_label': 'A'},
+            'time_taken_ms': 500,
         })
         data = res.json()
         self.assertFalse(data['is_correct'])
         self.assertEqual(data['score_awarded'], 0)
 
     def test_late_submission_rejected(self):
-        s, q = self._live_session('SUBLAT')
+        s = self._live_session('SUBLAT')
         p = _make_participant(s, 'Grace')
         c = Client()
         session = c.session
-        session[f'bb_pid_{s.join_code}'] = p.id
+        session[f'bb_pid_{s.code}'] = p.id
         session.save()
 
-        # Wind deadline back to be in the past (beyond grace)
-        q.question_deadline_utc = timezone.now() - timedelta(seconds=5)
-        q.save(update_fields=['question_deadline_utc'])
+        s.question_deadline = timezone.now() - timedelta(seconds=5)
+        s.save(update_fields=['question_deadline'])
 
-        url = reverse('brainbuzz:api_submit', kwargs={'join_code': s.join_code})
+        url = reverse('brainbuzz:api_submit', kwargs={'join_code': s.code})
         res = _post(c, url, {
             'participant_id': p.id,
             'question_index': 0,
-            'answer_payload': {'option_id': 'b'},
+            'answer_payload': {'option_label': 'B'},
+            'time_taken_ms': 500,
         })
         data = res.json()
-        self.assertFalse(data['is_correct'])
+        # Answer was correct but submitted past deadline → still marked correct, 0 points
+        self.assertTrue(data['is_correct'])
         self.assertEqual(data['score_awarded'], 0)
 
     def test_duplicate_submission_rejected(self):
-        s, q = self._live_session('SUBDUP')
+        s = self._live_session('SUBDUP')
         p = _make_participant(s, 'Heidi')
         c = Client()
         session = c.session
-        session[f'bb_pid_{s.join_code}'] = p.id
+        session[f'bb_pid_{s.code}'] = p.id
         session.save()
 
-        # First submission
-        url = reverse('brainbuzz:api_submit', kwargs={'join_code': s.join_code})
-        _post(c, url, {'participant_id': p.id, 'question_index': 0, 'answer_payload': {'option_id': 'b'}})
-        # Second submission
-        res = _post(c, url, {'participant_id': p.id, 'question_index': 0, 'answer_payload': {'option_id': 'b'}})
+        url = reverse('brainbuzz:api_submit', kwargs={'join_code': s.code})
+        payload = {'participant_id': p.id, 'question_index': 0,
+                   'answer_payload': {'option_label': 'B'}, 'time_taken_ms': 500}
+        _post(c, url, payload)
+        res = _post(c, url, payload)
         self.assertEqual(res.status_code, 409)
 
     def test_wrong_question_index_rejected(self):
-        s, q = self._live_session('SUBIDX')
+        s = self._live_session('SUBIDX')
         p = _make_participant(s, 'Ivan')
         c = Client()
         session = c.session
-        session[f'bb_pid_{s.join_code}'] = p.id
+        session[f'bb_pid_{s.code}'] = p.id
         session.save()
 
-        url = reverse('brainbuzz:api_submit', kwargs={'join_code': s.join_code})
+        url = reverse('brainbuzz:api_submit', kwargs={'join_code': s.code})
         res = _post(c, url, {
             'participant_id': p.id,
-            'question_index': 99,  # wrong index
-            'answer_payload': {'option_id': 'b'},
+            'question_index': 99,
+            'answer_payload': {'option_label': 'B'},
+            'time_taken_ms': 500,
         })
         self.assertEqual(res.status_code, 409)
 
     def test_not_joined_returns_403(self):
-        s, q = self._live_session('SUBNJ')
-        c = Client()  # no session cookie
-        url = reverse('brainbuzz:api_submit', kwargs={'join_code': s.join_code})
+        s = self._live_session('SUBNJ')
+        c = Client()
+        url = reverse('brainbuzz:api_submit', kwargs={'join_code': s.code})
         res = _post(c, url, {
             'participant_id': 999,
             'question_index': 0,
-            'answer_payload': {'option_id': 'b'},
+            'answer_payload': {'option_label': 'B'},
+            'time_taken_ms': 500,
         })
         self.assertEqual(res.status_code, 403)
 

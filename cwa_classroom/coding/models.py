@@ -2,6 +2,7 @@ from django.db import models
 from django.conf import settings
 from django.utils import timezone
 import uuid
+from brainbuzz.managers import CodingExercisesManager
 
 
 def calculate_coding_points(
@@ -229,14 +230,111 @@ class CodingExercise(models.Model):
             "allow the exercise to be used in BrainBuzz sessions."
         ),
     )
+    correct_short_answer = models.TextField(
+        null=True,
+        blank=True,
+        help_text="Required for short_answer and fill_blank question types. Unused for other types.",
+    )
+    school = models.ForeignKey(
+        'classroom.School',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='coding_exercises',
+        help_text='Null = global/shared exercise. Set = private to this school only.',
+    )
+    department = models.ForeignKey(
+        'classroom.Department',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='coding_exercises',
+        help_text='Null = not department-scoped. Set = visible to this department only.',
+    )
+    classroom = models.ForeignKey(
+        'classroom.ClassRoom',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='coding_exercises',
+        help_text='Null = not class-scoped. Set = visible to this class only.',
+    )
     created_at    = models.DateTimeField(auto_now_add=True)
     updated_at    = models.DateTimeField(auto_now=True)
+
+    # Custom manager for visibility filtering
+    objects = CodingExercisesManager()
 
     class Meta:
         ordering = ['topic_level__topic', 'topic_level__level_choice', 'order']
 
     def __str__(self):
         return f"{self.topic_level} — {self.title}"
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        errors = {}
+        qt = self.question_type
+
+        if qt == self.WRITE_CODE:
+            has_code = bool(
+                (self.starter_code or '').strip()
+                or (self.expected_output or '').strip()
+                or self.uses_browser_sandbox
+            )
+            if not has_code:
+                errors['starter_code'] = (
+                    "write_code exercises require starter_code, expected_output, "
+                    "or uses_browser_sandbox."
+                )
+            if (self.correct_short_answer or '').strip():
+                errors['correct_short_answer'] = (
+                    "correct_short_answer is only for short_answer and fill_blank types."
+                )
+
+        elif qt in (self.SHORT_ANSWER, self.FILL_BLANK):
+            if not (self.correct_short_answer or '').strip():
+                errors['correct_short_answer'] = (
+                    f"{self.get_question_type_display()} requires a non-empty correct_short_answer."
+                )
+
+        if self.pk:
+            answer_qs   = self.answers.all()
+            n_answers   = answer_qs.count()
+            n_correct   = answer_qs.filter(is_correct=True).count()
+
+            if qt in (self.WRITE_CODE, self.SHORT_ANSWER, self.FILL_BLANK):
+                if n_answers > 0:
+                    errors['question_type'] = (
+                        f"{self.get_question_type_display()} exercises must not have answer choices."
+                    )
+
+            elif qt == self.MULTIPLE_CHOICE:
+                if n_answers < 2:
+                    errors.setdefault('question_type', (
+                        "Multiple-choice exercises require at least 2 answer choices."
+                    ))
+                if n_correct == 0:
+                    errors['question_type'] = (
+                        "Multiple-choice exercises require exactly one correct answer (found 0)."
+                    )
+                elif n_correct > 1:
+                    errors['question_type'] = (
+                        f"Multiple-choice exercises require exactly one correct answer (found {n_correct})."
+                    )
+
+            elif qt == self.TRUE_FALSE:
+                if n_answers != 2:
+                    errors['question_type'] = (
+                        f"True/False exercises require exactly 2 answer choices (found {n_answers})."
+                    )
+                elif n_correct != 1:
+                    errors['question_type'] = (
+                        f"True/False exercises require exactly 1 correct answer (found {n_correct})."
+                    )
+
+        if errors:
+            raise ValidationError(errors)
 
     # ------------------------------------------------------------------
     # Convenience properties — read-only shorthand for templates / code
@@ -268,10 +366,17 @@ class CodingAnswer(models.Model):
     uniformly.  Exercises with question_type == write_code ignore this table.
     """
 
-    exercise   = models.ForeignKey(CodingExercise, on_delete=models.CASCADE, related_name='answers')
-    answer_text = models.CharField(max_length=500)
+    exercise    = models.ForeignKey(
+        CodingExercise,
+        on_delete=models.CASCADE,
+        related_name='answers',
+        db_column='coding_exercise_id',  # actual DB column name from prior branch
+    )
+    answer_text = models.TextField()
     is_correct  = models.BooleanField(default=False)
     order       = models.PositiveSmallIntegerField(default=0)
+    created_at  = models.DateTimeField(auto_now_add=True)
+    updated_at  = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['exercise', 'order']

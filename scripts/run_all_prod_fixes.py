@@ -11,11 +11,22 @@ Steps
   3. Fix unsimplified fraction answers
   4. Seed missing times-table topics and questions
   5. Consolidate duplicate parent records (merge Guardian -> ParentStudent)
+  6. Seed Coding quiz bank for Flipzo (idempotent top-up)
+
+Pre-conditions
+--------------
+  - All migrations from Story 1 (CodingExercise + CodingAnswer) have been applied
+  - CodingLanguage and CodingTopic rows exist for: python, javascript, html-css, scratch
 
 Usage (run from the scripts/ directory or project root):
     python run_all_prod_fixes.py [--dry-run]
 
 Add --dry-run to preview all changes without writing to the database.
+
+Teacher review
+--------------
+Before running in production, have a teacher review the seeded content in the
+Flipzo admin interface. Verify questions are accurate and appropriate.
 """
 
 import os, sys, subprocess
@@ -46,6 +57,10 @@ if __name__ == '__main__':
     run_script('fix_unsimplified_fraction_answers.py')
     run_script('seed_times_tables.py')
     run_script('fix_parent_duplicates.py')
+    
+    # Seed the Coding quiz bank for Flipzo (idempotent — safe to re-run)
+    # Pre-condition: Story 1 migrations must be applied (CodingExercise, CodingAnswer)
+    run_script('seed_coding_quiz_bank.py')
 
     print(f"\n{'='*60}")
     print(f"{mode}All fixes complete.")
