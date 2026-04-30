@@ -104,7 +104,7 @@
       <div class="flex items-center justify-between mb-4">
         <div>
           <h2 class="font-bold text-gray-800">Students ({{ students.count }})</h2>
-          {% if class_effective_fee %}
+          {% if can_edit_fee and class_effective_fee %}
             <p class="text-xs text-gray-400">Class fee: {{ class_effective_fee|format_currency:effective_currency }}</p>
           {% endif %}
         </div>
@@ -127,7 +127,7 @@
             </span>
             <div>
               <span class="text-sm font-semibold text-gray-700">{{ item.student.get_full_name|default:item.student.username }}</span>
-              {% if item.effective_fee is not None %}
+              {% if can_edit_fee and item.effective_fee is not None %}
                 <span class="text-xs {% if item.class_student.fee_override %}text-emerald-600 font-semibold{% else %}text-gray-400{% endif %} ml-1">
                   {{ item.effective_fee|format_currency:effective_currency }}
                   {% if item.class_student.fee_override %}
