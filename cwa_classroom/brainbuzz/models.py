@@ -16,9 +16,10 @@ _JOIN_CODE_LENGTH = 6
 
 def generate_join_code() -> str:
     """Generate a unique 6-char alphanumeric join code, retrying on collision."""
+    _ACTIVE_STATUSES = ('lobby', 'active', 'reveal', 'between')
     for _ in range(10):
         code = ''.join(secrets.choice(_JOIN_CODE_ALPHABET) for _ in range(_JOIN_CODE_LENGTH))
-        if not BrainBuzzSession.objects.filter(code=code).exists():
+        if not BrainBuzzSession.objects.filter(code=code, status__in=_ACTIVE_STATUSES).exists():
             return code
     raise RuntimeError('Could not generate a unique join code after 10 attempts.')
 

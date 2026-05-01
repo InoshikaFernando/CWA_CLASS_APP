@@ -116,21 +116,15 @@ def upload_results(request):
 @require_upload_permission
 @require_http_methods(["POST"])
 def api_upload_questions(request):
-    """API endpoint for question uploads (JSON request/response).
+    """API endpoint for question uploads (multipart/form-data).
 
-    POST JSON with keys:
+    POST multipart fields:
         - subject: 'maths' or 'coding'
         - file_format: 'json', 'csv', 'excel'
-        - file_content: base64-encoded file content (optional)
-        - file: Uploaded file (if not using file_content)
+        - file: Uploaded file
     """
-    try:
-        data = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON'}, status=400)
-
-    subject = data.get('subject', 'maths')
-    file_format = data.get('file_format', 'json')
+    subject = request.POST.get('subject', 'maths')
+    file_format = request.POST.get('file_format', 'json')
 
     # Validate subject
     if subject not in ('maths', 'coding'):
@@ -141,10 +135,13 @@ def api_upload_questions(request):
         return JsonResponse({'error': f"Invalid file_format: {file_format}"}, status=400)
 
     # Get file object
-    if 'file' in request.FILES:
-        file_obj = request.FILES['file']
-    else:
+    if 'file' not in request.FILES:
         return JsonResponse({'error': 'No file provided'}, status=400)
+    file_obj = request.FILES['file']
+
+    # Enforce 10 MB limit (same as the form upload)
+    if file_obj.size > 10 * 1024 * 1024:
+        return JsonResponse({'error': 'File size must not exceed 10MB'}, status=400)
 
     # Create upload service and process
     service = QuestionUploadService(request.user, subject_type=subject)

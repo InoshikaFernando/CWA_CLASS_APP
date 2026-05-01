@@ -60,10 +60,12 @@ def calculate_points(
     """
     if not is_correct or is_late:
         return 0
-    
-    time_fraction = time_taken_ms / (time_per_question_sec * 1000)
+
+    time_limit_ms = max(1, time_per_question_sec * 1000)
+    safe_ms = max(0, min(time_taken_ms, time_limit_ms))
+    time_fraction = safe_ms / time_limit_ms
     points = points_base * (1 - (time_fraction * 0.5))
-    return round(points)
+    return max(0, min(points_base, round(points)))
 
 
 def normalize_short_answer(text: str) -> str:

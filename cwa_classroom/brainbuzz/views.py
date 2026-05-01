@@ -179,7 +179,7 @@ def _session_state_payload(session: BrainBuzzSession) -> dict:
         'current_index': session.current_index,
         'time_per_question_sec': session.time_per_question_sec,
         'question': question_data,
-        'participant_count': session.participants.count(),
+        'participant_count': len(participants),
         'participants': participants,
         'total_questions': session.questions.count(),
         'answers_received': answers_received,
@@ -807,6 +807,7 @@ def api_teacher_action(request, join_code):
 
 
 @require_POST
+# CSRF: student_join.html includes {% csrf_token %} and JS sends X-CSRFToken header.
 def api_join(request):
     """Student joins a session.
 
@@ -878,6 +879,7 @@ def api_join(request):
 
 
 @require_POST
+# CSRF: student_play.html includes {% csrf_token %} and JS sends X-CSRFToken header.
 def api_submit(request, join_code):
     """Student submits an answer for the current question.
 
@@ -906,7 +908,16 @@ def api_submit(request, join_code):
 
     question_index = body.get('question_index')
     answer_payload = body.get('answer_payload', {})
-    time_taken_ms = body.get('time_taken_ms', 0)
+
+    # Compute time_taken_ms server-side from question_deadline to prevent
+    # clients sending time_taken_ms=0 for max points.
+    now = timezone.now()
+    if session.question_deadline is not None:
+        question_start = session.question_deadline - timedelta(seconds=session.time_per_question_sec)
+        server_ms = int((now - question_start).total_seconds() * 1000)
+        time_taken_ms = max(0, min(server_ms, session.time_per_question_sec * 1000))
+    else:
+        time_taken_ms = 0
 
     if question_index != session.current_index:
         return JsonResponse({'error': 'Wrong question index — this question is no longer active'}, status=409)
@@ -917,7 +928,6 @@ def api_submit(request, join_code):
         order=question_index,
     )
 
-    now = timezone.now()
     grace_period_ms = 500
     is_on_time = session.question_deadline is None or (
         now <= session.question_deadline + timedelta(milliseconds=grace_period_ms)
