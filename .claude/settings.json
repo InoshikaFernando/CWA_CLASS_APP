@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(python manage.py shell -c \":*)",
-      "Bash(python -m pytest brainbuzz/tests/ --tb=short -q)"
+      "Bash(python -m pytest brainbuzz/tests/ --tb=short -q)",
+      "Bash(python manage.py create_sample_templates)"
     ]
   }
 }
