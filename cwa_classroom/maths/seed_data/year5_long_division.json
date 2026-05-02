@@ -1,0 +1,307 @@
+{
+  "strand": "Number",
+  "topic": "Long Division",
+  "year_level": 5,
+  "questions": [
+    {
+      "question_text": "Solve using long division: 508 ÷ 9",
+      "question_type": "long_division",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "508 ÷ 9 = 56 r 4",
+      "dividend": 508,
+      "divisor": 9,
+      "answers": [
+        {
+          "text": "56 r 4",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 520 ÷ 10",
+      "question_type": "long_division",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "520 ÷ 10 = 52",
+      "dividend": 520,
+      "divisor": 10,
+      "answers": [
+        {
+          "text": "52",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 753 ÷ 11",
+      "question_type": "long_division",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "753 ÷ 11 = 68 r 5",
+      "dividend": 753,
+      "divisor": 11,
+      "answers": [
+        {
+          "text": "68 r 5",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 466 ÷ 6",
+      "question_type": "long_division",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "466 ÷ 6 = 77 r 4",
+      "dividend": 466,
+      "divisor": 6,
+      "answers": [
+        {
+          "text": "77 r 4",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 777 ÷ 10",
+      "question_type": "long_division",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "777 ÷ 10 = 77 r 7",
+      "dividend": 777,
+      "divisor": 10,
+      "answers": [
+        {
+          "text": "77 r 7",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 600 ÷ 4",
+      "question_type": "long_division",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "600 ÷ 4 = 150",
+      "dividend": 600,
+      "divisor": 4,
+      "answers": [
+        {
+          "text": "150",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 686 ÷ 3",
+      "question_type": "long_division",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "686 ÷ 3 = 228 r 2",
+      "dividend": 686,
+      "divisor": 3,
+      "answers": [
+        {
+          "text": "228 r 2",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 476 ÷ 7",
+      "question_type": "long_division",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "476 ÷ 7 = 68",
+      "dividend": 476,
+      "divisor": 7,
+      "answers": [
+        {
+          "text": "68",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 137 ÷ 5",
+      "question_type": "long_division",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "137 ÷ 5 = 27 r 2",
+      "dividend": 137,
+      "divisor": 5,
+      "answers": [
+        {
+          "text": "27 r 2",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 787 ÷ 12",
+      "question_type": "long_division",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "787 ÷ 12 = 65 r 7",
+      "dividend": 787,
+      "divisor": 12,
+      "answers": [
+        {
+          "text": "65 r 7",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 145 ÷ 11",
+      "question_type": "long_division",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "145 ÷ 11 = 13 r 2",
+      "dividend": 145,
+      "divisor": 11,
+      "answers": [
+        {
+          "text": "13 r 2",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 156 ÷ 6",
+      "question_type": "long_division",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "156 ÷ 6 = 26",
+      "dividend": 156,
+      "divisor": 6,
+      "answers": [
+        {
+          "text": "26",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 602 ÷ 7",
+      "question_type": "long_division",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "602 ÷ 7 = 86",
+      "dividend": 602,
+      "divisor": 7,
+      "answers": [
+        {
+          "text": "86",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 371 ÷ 3",
+      "question_type": "long_division",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "371 ÷ 3 = 123 r 2",
+      "dividend": 371,
+      "divisor": 3,
+      "answers": [
+        {
+          "text": "123 r 2",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 188 ÷ 5",
+      "question_type": "long_division",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "188 ÷ 5 = 37 r 3",
+      "dividend": 188,
+      "divisor": 5,
+      "answers": [
+        {
+          "text": "37 r 3",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 764 ÷ 6",
+      "question_type": "long_division",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "764 ÷ 6 = 127 r 2",
+      "dividend": 764,
+      "divisor": 6,
+      "answers": [
+        {
+          "text": "127 r 2",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 584 ÷ 3",
+      "question_type": "long_division",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "584 ÷ 3 = 194 r 2",
+      "dividend": 584,
+      "divisor": 3,
+      "answers": [
+        {
+          "text": "194 r 2",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 708 ÷ 5",
+      "question_type": "long_division",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "708 ÷ 5 = 141 r 3",
+      "dividend": 708,
+      "divisor": 5,
+      "answers": [
+        {
+          "text": "141 r 3",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 464 ÷ 8",
+      "question_type": "long_division",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "464 ÷ 8 = 58",
+      "dividend": 464,
+      "divisor": 8,
+      "answers": [
+        {
+          "text": "58",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 148 ÷ 10",
+      "question_type": "long_division",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "148 ÷ 10 = 14 r 8",
+      "dividend": 148,
+      "divisor": 10,
+      "answers": [
+        {
+          "text": "14 r 8",
+          "is_correct": true
+        }
+      ]
+    }
+  ]
+}

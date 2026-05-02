@@ -293,6 +293,10 @@ class MathsQuestionParser(BaseQuestionParser):
                         'points': q_data.get('points', 1),
                         'explanation': q_data.get('explanation', ''),
                     }
+                    # Optional type-specific fields
+                    for fname in ('dividend', 'divisor', 'target_number'):
+                        if fname in q_data and q_data[fname] is not None:
+                            fields[fname] = q_data[fname]
                     if image_field:
                         fields['image'] = image_field
 

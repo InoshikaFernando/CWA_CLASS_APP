@@ -1,0 +1,307 @@
+{
+  "strand": "Number",
+  "topic": "Long Division",
+  "year_level": 4,
+  "questions": [
+    {
+      "question_text": "Solve using long division: 47 ÷ 8",
+      "question_type": "long_division",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "47 ÷ 8 = 5 r 7",
+      "dividend": 47,
+      "divisor": 8,
+      "answers": [
+        {
+          "text": "5 r 7",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 73 ÷ 5",
+      "question_type": "long_division",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "73 ÷ 5 = 14 r 3",
+      "dividend": 73,
+      "divisor": 5,
+      "answers": [
+        {
+          "text": "14 r 3",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 186 ÷ 7",
+      "question_type": "long_division",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "186 ÷ 7 = 26 r 4",
+      "dividend": 186,
+      "divisor": 7,
+      "answers": [
+        {
+          "text": "26 r 4",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 199 ÷ 2",
+      "question_type": "long_division",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "199 ÷ 2 = 99 r 1",
+      "dividend": 199,
+      "divisor": 2,
+      "answers": [
+        {
+          "text": "99 r 1",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 178 ÷ 4",
+      "question_type": "long_division",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "178 ÷ 4 = 44 r 2",
+      "dividend": 178,
+      "divisor": 4,
+      "answers": [
+        {
+          "text": "44 r 2",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 37 ÷ 7",
+      "question_type": "long_division",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "37 ÷ 7 = 5 r 2",
+      "dividend": 37,
+      "divisor": 7,
+      "answers": [
+        {
+          "text": "5 r 2",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 21 ÷ 5",
+      "question_type": "long_division",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "21 ÷ 5 = 4 r 1",
+      "dividend": 21,
+      "divisor": 5,
+      "answers": [
+        {
+          "text": "4 r 1",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 26 ÷ 4",
+      "question_type": "long_division",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "26 ÷ 4 = 6 r 2",
+      "dividend": 26,
+      "divisor": 4,
+      "answers": [
+        {
+          "text": "6 r 2",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 59 ÷ 4",
+      "question_type": "long_division",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "59 ÷ 4 = 14 r 3",
+      "dividend": 59,
+      "divisor": 4,
+      "answers": [
+        {
+          "text": "14 r 3",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 151 ÷ 3",
+      "question_type": "long_division",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "151 ÷ 3 = 50 r 1",
+      "dividend": 151,
+      "divisor": 3,
+      "answers": [
+        {
+          "text": "50 r 1",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 130 ÷ 7",
+      "question_type": "long_division",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "130 ÷ 7 = 18 r 4",
+      "dividend": 130,
+      "divisor": 7,
+      "answers": [
+        {
+          "text": "18 r 4",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 27 ÷ 6",
+      "question_type": "long_division",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "27 ÷ 6 = 4 r 3",
+      "dividend": 27,
+      "divisor": 6,
+      "answers": [
+        {
+          "text": "4 r 3",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 129 ÷ 3",
+      "question_type": "long_division",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "129 ÷ 3 = 43",
+      "dividend": 129,
+      "divisor": 3,
+      "answers": [
+        {
+          "text": "43",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 142 ÷ 3",
+      "question_type": "long_division",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "142 ÷ 3 = 47 r 1",
+      "dividend": 142,
+      "divisor": 3,
+      "answers": [
+        {
+          "text": "47 r 1",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 95 ÷ 2",
+      "question_type": "long_division",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "95 ÷ 2 = 47 r 1",
+      "dividend": 95,
+      "divisor": 2,
+      "answers": [
+        {
+          "text": "47 r 1",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 83 ÷ 2",
+      "question_type": "long_division",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "83 ÷ 2 = 41 r 1",
+      "dividend": 83,
+      "divisor": 2,
+      "answers": [
+        {
+          "text": "41 r 1",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 198 ÷ 2",
+      "question_type": "long_division",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "198 ÷ 2 = 99",
+      "dividend": 198,
+      "divisor": 2,
+      "answers": [
+        {
+          "text": "99",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 93 ÷ 8",
+      "question_type": "long_division",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "93 ÷ 8 = 11 r 5",
+      "dividend": 93,
+      "divisor": 8,
+      "answers": [
+        {
+          "text": "11 r 5",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 34 ÷ 9",
+      "question_type": "long_division",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "34 ÷ 9 = 3 r 7",
+      "dividend": 34,
+      "divisor": 9,
+      "answers": [
+        {
+          "text": "3 r 7",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 189 ÷ 4",
+      "question_type": "long_division",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "189 ÷ 4 = 47 r 1",
+      "dividend": 189,
+      "divisor": 4,
+      "answers": [
+        {
+          "text": "47 r 1",
+          "is_correct": true
+        }
+      ]
+    }
+  ]
+}
