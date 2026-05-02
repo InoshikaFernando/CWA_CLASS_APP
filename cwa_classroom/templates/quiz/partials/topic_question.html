@@ -165,17 +165,23 @@
     <script>
       function submitPrimeFactorization(sessionId, questionId) {
         const primes = [...document.querySelectorAll('[data-pf="prime"]')].map(el => el.value.trim());
-        const answer = primes.filter(Boolean).join('×');
+        const answer = primes.filter(Boolean).join('x');
         document.getElementById('text-answer-input').value = answer;
         _submitAndAdvance(sessionId, {
           session_id: sessionId, question_id: questionId, text_answer: answer,
         });
       }
-      document.querySelectorAll('[data-pf="prime"], [data-pf="quotient"]').forEach((el, i, arr) => {
-        el.addEventListener('keydown', e => {
-          if (e.key === 'Enter' && i < arr.length - 1) { e.preventDefault(); arr[i+1].focus(); }
+      // Tab navigation order: prime[0] → quotient[0] → prime[1] → quotient[1] → ...
+      // (each prime is followed by the quotient on the row below)
+      (function () {
+        const primes = [...document.querySelectorAll('[data-pf="prime"]')];
+        const quotients = [...document.querySelectorAll('[data-pf="quotient"]')];
+        let t = 1;
+        primes.forEach((p, i) => {
+          p.tabIndex = t++;
+          if (i < quotients.length) quotients[i].tabIndex = t++;
         });
-      });
+      })();
     </script>
 
   {% elif question.question_type == 'drag_drop' %}
