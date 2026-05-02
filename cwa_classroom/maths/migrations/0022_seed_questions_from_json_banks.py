@@ -44,12 +44,23 @@ def seed_questions(apps, schema_editor):
     if maths is None:
         return
 
+    # Ensure both topics live under the "Number" strand so they appear
+    # alongside Division / Multiplication in the topic browser.
+    number_strand = Topic.objects.filter(
+        subject=maths, name="Number", parent__isnull=True,
+    ).first()
+
     topic_cache = {}
     for slug, name in TOPIC_BY_SLUG.items():
-        topic, _ = Topic.objects.get_or_create(
+        topic, created = Topic.objects.get_or_create(
             name=name, subject=maths,
-            defaults={"order": 99, "is_active": True},
+            defaults={"order": 99, "is_active": True, "parent": number_strand},
         )
+        # Backfill parent on pre-existing rows that were created before this
+        # migration set the strand.
+        if not created and number_strand and topic.parent_id is None:
+            topic.parent = number_strand
+            topic.save(update_fields=["parent"])
         topic_cache[slug] = topic
 
     levels_by_year = {lvl.level_number: lvl for lvl in Level.objects.all()}
