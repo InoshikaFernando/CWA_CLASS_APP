@@ -127,6 +127,59 @@
       });
     </script>
 
+  {% elif question.question_type == 'prime_factorization' %}
+    <p class="text-sm text-gray-500 mb-4">Fill in each prime factor on the left and the resulting quotient on the right. Continue until you reach 1.</p>
+
+    <div class="pf-wrap font-mono text-2xl leading-none mb-6 inline-block">
+      <!-- Header row: target number on the right -->
+      <div class="flex items-stretch border-b-2 border-gray-800">
+        <div class="w-16 h-12 flex items-center justify-center"></div>
+        <div class="border-l-2 border-gray-800 w-20 h-12 flex items-center justify-center font-bold text-blue-600">{{ question.target_number }}</div>
+      </div>
+
+      {% for step in question.prime_factorization_steps %}
+        <div class="flex items-stretch border-b-2 border-gray-800">
+          <input type="text" maxlength="3" inputmode="numeric"
+                 data-pf="prime" data-step="{{ forloop.counter0 }}"
+                 class="w-16 h-12 text-center bg-amber-50 border-2 border-amber-200 rounded m-1
+                        focus:border-primary focus:bg-white focus:outline-none font-bold text-amber-700" />
+          <div class="border-l-2 border-gray-800 w-20 h-12 flex items-center justify-center p-1">
+            {% if forloop.last %}
+              <span class="font-bold text-blue-600">1</span>
+            {% else %}
+              <input type="text" maxlength="6" inputmode="numeric"
+                     data-pf="quotient" data-step="{{ forloop.counter0 }}"
+                     class="w-full h-full text-center bg-blue-50 border-2 border-blue-200 rounded
+                            focus:border-primary focus:bg-white focus:outline-none font-bold text-blue-700" />
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+
+    <input type="hidden" id="text-answer-input" />
+    <button type="button"
+            class="block bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition"
+            onclick="submitPrimeFactorization('{{ session_id }}', {{ question.id }})">
+      Submit
+    </button>
+
+    <script>
+      function submitPrimeFactorization(sessionId, questionId) {
+        const primes = [...document.querySelectorAll('[data-pf="prime"]')].map(el => el.value.trim());
+        const answer = primes.filter(Boolean).join('×');
+        document.getElementById('text-answer-input').value = answer;
+        _submitAndAdvance(sessionId, {
+          session_id: sessionId, question_id: questionId, text_answer: answer,
+        });
+      }
+      document.querySelectorAll('[data-pf="prime"], [data-pf="quotient"]').forEach((el, i, arr) => {
+        el.addEventListener('keydown', e => {
+          if (e.key === 'Enter' && i < arr.length - 1) { e.preventDefault(); arr[i+1].focus(); }
+        });
+      });
+    </script>
+
   {% elif question.question_type == 'drag_drop' %}
     <p class="text-sm text-gray-500 mb-3">Drag the tiles into the correct order.</p>
     <ul id="sortable-list" class="space-y-2">

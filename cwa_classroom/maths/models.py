@@ -45,6 +45,7 @@ class Question(models.Model):
     FILL_BLANK = 'fill_blank'
     CALCULATION = 'calculation'
     LONG_DIVISION = 'long_division'
+    PRIME_FACTORIZATION = 'prime_factorization'
 
     QUESTION_TYPES = [
         ('multiple_choice', 'Multiple Choice'),
@@ -53,6 +54,7 @@ class Question(models.Model):
         ('fill_blank', 'Fill in the Blank'),
         ('calculation', 'Calculation'),
         ('long_division', 'Long Division'),
+        ('prime_factorization', 'Prime Factorization'),
     ]
 
     DIFFICULTY_CHOICES = [
@@ -87,6 +89,7 @@ class Question(models.Model):
     video = models.FileField(upload_to='questions/videos/', blank=True, null=True, help_text="Upload a video for this question")
     dividend = models.PositiveIntegerField(null=True, blank=True, help_text="Long-division: number being divided")
     divisor = models.PositiveIntegerField(null=True, blank=True, help_text="Long-division: number dividing")
+    target_number = models.PositiveIntegerField(null=True, blank=True, help_text="Prime-factorization: number to factorise")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -125,6 +128,22 @@ class Question(models.Model):
                 acc -= (acc // self.divisor) * self.divisor
                 count += 1
         return count
+
+    @property
+    def prime_factorization_steps(self):
+        """List of (prime, quotient) pairs for the ladder rendering of target_number."""
+        n = self.target_number
+        if not n or n < 2:
+            return []
+        steps = []
+        p = 2
+        while n > 1:
+            if n % p == 0:
+                steps.append((p, n // p))
+                n //= p
+            else:
+                p = 3 if p == 2 else p + 2
+        return steps
 
 
 class Answer(models.Model):

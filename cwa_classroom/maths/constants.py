@@ -37,6 +37,7 @@ YEAR_TOPICS_MAP = {
         ("Fractions", "fractions_questions", "Fractions"),
         ("Integers", "integers_questions", "Integers"),
         ("Place Values", "place_values_questions", "Place Values"),
+        ("Factors", "factors_questions", "Factors"),
         ("Multiplication", "multiplication_selection", "Multiplication"),
         ("Division", "division_selection", "Division"),
         ("Long Division", "long_division_selection", "Long Division"),
