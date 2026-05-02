@@ -15,7 +15,7 @@
   {% if question.image %}
   <img src="{{ question.image.url }}" alt="Question image"
        class="rounded-xl mb-4 object-contain mx-auto"
-       onload="var r=this.naturalWidth/this.naturalHeight; if(r>1.5){this.style.maxHeight='32rem';this.style.maxWidth='100%'}else if(r>1){this.style.maxHeight='24rem';this.style.maxWidth='100%'}else{this.style.maxHeight='18rem'}" />
+       onload="var r=this.naturalWidth/this.naturalHeight; if(r>1.5){this.style.maxHeight='24rem';this.style.maxWidth='100%'}else if(r>1){this.style.maxHeight='16rem'}else{this.style.maxHeight='12rem'}" />
   {% endif %}
 
   <!-- Question text -->
@@ -131,21 +131,19 @@
     <p class="text-sm text-gray-500 mb-4">Fill in each prime factor on the left and the resulting quotient on the right. Continue until you reach 1.</p>
 
     <div class="pf-wrap font-mono text-2xl leading-none mb-6 inline-block">
-      <!-- Header row: target number on the right -->
-      <div class="flex items-stretch border-b-2 border-gray-800">
-        <div class="w-16 h-12 flex items-center justify-center"></div>
-        <div class="border-l-2 border-gray-800 w-20 h-12 flex items-center justify-center font-bold text-blue-600">{{ question.target_number }}</div>
-      </div>
-
-      {% for step in question.prime_factorization_steps %}
+      {% for row in question.prime_factorization_rows %}
         <div class="flex items-stretch border-b-2 border-gray-800">
-          <input type="text" maxlength="3" inputmode="numeric"
-                 data-pf="prime" data-step="{{ forloop.counter0 }}"
-                 class="w-16 h-12 text-center bg-amber-50 border-2 border-amber-200 rounded m-1
-                        focus:border-primary focus:bg-white focus:outline-none font-bold text-amber-700" />
+          {% if row.prime_input %}
+            <input type="text" maxlength="3" inputmode="numeric"
+                   data-pf="prime" data-step="{{ forloop.counter0 }}"
+                   class="w-16 h-12 text-center bg-amber-50 border-2 border-amber-200 rounded m-1
+                          focus:border-primary focus:bg-white focus:outline-none font-bold text-amber-700" />
+          {% else %}
+            <div class="w-16 h-12"></div>
+          {% endif %}
           <div class="border-l-2 border-gray-800 w-20 h-12 flex items-center justify-center p-1">
-            {% if forloop.last %}
-              <span class="font-bold text-blue-600">1</span>
+            {% if row.show_number %}
+              <span class="font-bold text-blue-600">{{ row.number }}</span>
             {% else %}
               <input type="text" maxlength="6" inputmode="numeric"
                      data-pf="quotient" data-step="{{ forloop.counter0 }}"

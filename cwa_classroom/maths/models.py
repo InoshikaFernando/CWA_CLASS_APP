@@ -130,20 +130,30 @@ class Question(models.Model):
         return count
 
     @property
-    def prime_factorization_steps(self):
-        """List of (prime, quotient) pairs for the ladder rendering of target_number."""
+    def prime_factorization_rows(self):
+        """Rows for the ladder rendering. First row shows target_number, last row shows 1.
+        Intermediate rows are blank inputs the student fills in.
+        Each row has prime_input (left cell type) and number-side fields:
+          show_number=True → display the value
+          number_input=True → render an input cell
+        """
         n = self.target_number
         if not n or n < 2:
             return []
-        steps = []
+        primes_count = 0
+        m = n
         p = 2
-        while n > 1:
-            if n % p == 0:
-                steps.append((p, n // p))
-                n //= p
+        while m > 1:
+            if m % p == 0:
+                m //= p
+                primes_count += 1
             else:
                 p = 3 if p == 2 else p + 2
-        return steps
+        rows = [{'show_number': True, 'number': n, 'number_input': False, 'prime_input': True}]
+        for i in range(primes_count - 1):
+            rows.append({'show_number': False, 'number': None, 'number_input': True, 'prime_input': True})
+        rows.append({'show_number': True, 'number': 1, 'number_input': False, 'prime_input': False})
+        return rows
 
 
 class Answer(models.Model):
