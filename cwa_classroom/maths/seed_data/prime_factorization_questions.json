@@ -1,0 +1,406 @@
+{
+  "question_type": "prime_factorization",
+  "count": 100,
+  "questions": [
+    {
+      "year": 4,
+      "target_number": 6
+    },
+    {
+      "year": 4,
+      "target_number": 22
+    },
+    {
+      "year": 4,
+      "target_number": 33
+    },
+    {
+      "year": 4,
+      "target_number": 27
+    },
+    {
+      "year": 4,
+      "target_number": 10
+    },
+    {
+      "year": 4,
+      "target_number": 18
+    },
+    {
+      "year": 4,
+      "target_number": 4
+    },
+    {
+      "year": 4,
+      "target_number": 20
+    },
+    {
+      "year": 4,
+      "target_number": 39
+    },
+    {
+      "year": 4,
+      "target_number": 15
+    },
+    {
+      "year": 4,
+      "target_number": 21
+    },
+    {
+      "year": 4,
+      "target_number": 28
+    },
+    {
+      "year": 4,
+      "target_number": 16
+    },
+    {
+      "year": 4,
+      "target_number": 9
+    },
+    {
+      "year": 4,
+      "target_number": 25
+    },
+    {
+      "year": 4,
+      "target_number": 35
+    },
+    {
+      "year": 4,
+      "target_number": 40
+    },
+    {
+      "year": 4,
+      "target_number": 34
+    },
+    {
+      "year": 4,
+      "target_number": 26
+    },
+    {
+      "year": 4,
+      "target_number": 12
+    },
+    {
+      "year": 5,
+      "target_number": 34
+    },
+    {
+      "year": 5,
+      "target_number": 33
+    },
+    {
+      "year": 5,
+      "target_number": 77
+    },
+    {
+      "year": 5,
+      "target_number": 40
+    },
+    {
+      "year": 5,
+      "target_number": 48
+    },
+    {
+      "year": 5,
+      "target_number": 80
+    },
+    {
+      "year": 5,
+      "target_number": 63
+    },
+    {
+      "year": 5,
+      "target_number": 69
+    },
+    {
+      "year": 5,
+      "target_number": 36
+    },
+    {
+      "year": 5,
+      "target_number": 78
+    },
+    {
+      "year": 5,
+      "target_number": 75
+    },
+    {
+      "year": 5,
+      "target_number": 68
+    },
+    {
+      "year": 5,
+      "target_number": 51
+    },
+    {
+      "year": 5,
+      "target_number": 70
+    },
+    {
+      "year": 5,
+      "target_number": 58
+    },
+    {
+      "year": 5,
+      "target_number": 35
+    },
+    {
+      "year": 5,
+      "target_number": 57
+    },
+    {
+      "year": 5,
+      "target_number": 32
+    },
+    {
+      "year": 5,
+      "target_number": 54
+    },
+    {
+      "year": 5,
+      "target_number": 74
+    },
+    {
+      "year": 6,
+      "target_number": 153
+    },
+    {
+      "year": 6,
+      "target_number": 183
+    },
+    {
+      "year": 6,
+      "target_number": 119
+    },
+    {
+      "year": 6,
+      "target_number": 93
+    },
+    {
+      "year": 6,
+      "target_number": 168
+    },
+    {
+      "year": 6,
+      "target_number": 148
+    },
+    {
+      "year": 6,
+      "target_number": 134
+    },
+    {
+      "year": 6,
+      "target_number": 136
+    },
+    {
+      "year": 6,
+      "target_number": 155
+    },
+    {
+      "year": 6,
+      "target_number": 84
+    },
+    {
+      "year": 6,
+      "target_number": 98
+    },
+    {
+      "year": 6,
+      "target_number": 80
+    },
+    {
+      "year": 6,
+      "target_number": 185
+    },
+    {
+      "year": 6,
+      "target_number": 95
+    },
+    {
+      "year": 6,
+      "target_number": 96
+    },
+    {
+      "year": 6,
+      "target_number": 174
+    },
+    {
+      "year": 6,
+      "target_number": 82
+    },
+    {
+      "year": 6,
+      "target_number": 178
+    },
+    {
+      "year": 6,
+      "target_number": 123
+    },
+    {
+      "year": 6,
+      "target_number": 186
+    },
+    {
+      "year": 7,
+      "target_number": 306
+    },
+    {
+      "year": 7,
+      "target_number": 276
+    },
+    {
+      "year": 7,
+      "target_number": 346
+    },
+    {
+      "year": 7,
+      "target_number": 427
+    },
+    {
+      "year": 7,
+      "target_number": 446
+    },
+    {
+      "year": 7,
+      "target_number": 495
+    },
+    {
+      "year": 7,
+      "target_number": 357
+    },
+    {
+      "year": 7,
+      "target_number": 480
+    },
+    {
+      "year": 7,
+      "target_number": 481
+    },
+    {
+      "year": 7,
+      "target_number": 422
+    },
+    {
+      "year": 7,
+      "target_number": 465
+    },
+    {
+      "year": 7,
+      "target_number": 236
+    },
+    {
+      "year": 7,
+      "target_number": 309
+    },
+    {
+      "year": 7,
+      "target_number": 278
+    },
+    {
+      "year": 7,
+      "target_number": 212
+    },
+    {
+      "year": 7,
+      "target_number": 255
+    },
+    {
+      "year": 7,
+      "target_number": 245
+    },
+    {
+      "year": 7,
+      "target_number": 318
+    },
+    {
+      "year": 7,
+      "target_number": 296
+    },
+    {
+      "year": 7,
+      "target_number": 301
+    },
+    {
+      "year": 8,
+      "target_number": 843
+    },
+    {
+      "year": 8,
+      "target_number": 806
+    },
+    {
+      "year": 8,
+      "target_number": 869
+    },
+    {
+      "year": 8,
+      "target_number": 636
+    },
+    {
+      "year": 8,
+      "target_number": 632
+    },
+    {
+      "year": 8,
+      "target_number": 753
+    },
+    {
+      "year": 8,
+      "target_number": 820
+    },
+    {
+      "year": 8,
+      "target_number": 708
+    },
+    {
+      "year": 8,
+      "target_number": 552
+    },
+    {
+      "year": 8,
+      "target_number": 664
+    },
+    {
+      "year": 8,
+      "target_number": 555
+    },
+    {
+      "year": 8,
+      "target_number": 816
+    },
+    {
+      "year": 8,
+      "target_number": 760
+    },
+    {
+      "year": 8,
+      "target_number": 861
+    },
+    {
+      "year": 8,
+      "target_number": 724
+    },
+    {
+      "year": 8,
+      "target_number": 885
+    },
+    {
+      "year": 8,
+      "target_number": 782
+    },
+    {
+      "year": 8,
+      "target_number": 962
+    },
+    {
+      "year": 8,
+      "target_number": 746
+    },
+    {
+      "year": 8,
+      "target_number": 874
+    }
+  ]
+}

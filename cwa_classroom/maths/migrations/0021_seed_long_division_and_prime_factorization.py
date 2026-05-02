@@ -1,40 +1,26 @@
+"""Seed long-division and prime-factorization questions from JSON banks.
+
+The JSON files live at ``maths/seed_data/`` and are the source of truth.
+To add more questions later, append to the JSON file and write a new
+follow-up migration that calls ``seed_questions`` again — get_or_create
+keeps it idempotent.
+"""
+import json
+import os
 from django.db import migrations
 
 
-# (year_level, dividend, divisor)
-LONG_DIVISION_DATA = [
-    (4, 48, 4),
-    (4, 96, 8),
-    (4, 144, 6),
-    (5, 156, 12),
-    (5, 425, 5),
-    (5, 728, 7),
-    (6, 3270, 5),
-    (6, 6435, 9),
-    (7, 9876, 7),
-    (7, 12480, 8),
-    (8, 98765, 7),
-    (8, 14400, 16),
-]
+SEED_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "seed_data",
+)
+LONG_DIVISION_JSON = os.path.join(SEED_DIR, "long_division_questions.json")
+PRIME_FACTORIZATION_JSON = os.path.join(SEED_DIR, "prime_factorization_questions.json")
 
 
-# (year_level, target_number)
-PRIME_FACTORIZATION_DATA = [
-    (4, 8),
-    (4, 12),
-    (4, 18),
-    (4, 20),
-    (5, 36),
-    (5, 50),
-    (5, 72),
-    (6, 100),
-    (6, 120),
-    (6, 144),
-    (7, 168),
-    (7, 210),
-    (8, 360),
-    (8, 504),
-]
+def _load(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)["questions"]
 
 
 def _long_division_answer(dividend, divisor):
@@ -54,6 +40,10 @@ def _prime_factorization_answer(n):
     return "x".join(str(f) for f in factors)
 
 
+def _difficulty_for_year(year):
+    return min(3, max(1, year - 3))
+
+
 def seed_questions(apps, schema_editor):
     Subject = apps.get_model("classroom", "Subject")
     Level = apps.get_model("classroom", "Level")
@@ -65,31 +55,30 @@ def seed_questions(apps, schema_editor):
     if maths is None:
         return  # No global Mathematics subject — nothing to seed.
 
-    def _get_topic(name):
-        topic, _ = Topic.objects.get_or_create(
-            name=name, subject=maths,
-            defaults={"order": 99, "is_active": True},
-        )
-        return topic
+    long_division_topic, _ = Topic.objects.get_or_create(
+        name="Long Division", subject=maths,
+        defaults={"order": 99, "is_active": True},
+    )
+    factors_topic, _ = Topic.objects.get_or_create(
+        name="Factors", subject=maths,
+        defaults={"order": 99, "is_active": True},
+    )
 
-    long_division_topic = _get_topic("Long Division")
-    factors_topic = _get_topic("Factors")
+    levels_by_year = {lvl.level_number: lvl for lvl in Level.objects.all()}
 
-    for year, dividend, divisor in LONG_DIVISION_DATA:
-        level = Level.objects.filter(level_number=year).first()
+    for entry in _load(LONG_DIVISION_JSON):
+        year, dividend, divisor = entry["year"], entry["dividend"], entry["divisor"]
+        level = levels_by_year.get(year)
         if not level:
             continue
         long_division_topic.levels.add(level)
         text = f"Solve using long division: {dividend} ÷ {divisor}"
         q, created = Question.objects.get_or_create(
-            question_text=text,
-            question_type="long_division",
-            level=level,
-            topic=long_division_topic,
+            question_text=text, question_type="long_division",
+            level=level, topic=long_division_topic,
             defaults={
-                "difficulty": min(3, max(1, year - 3)),
-                "dividend": dividend,
-                "divisor": divisor,
+                "difficulty": _difficulty_for_year(year),
+                "dividend": dividend, "divisor": divisor,
                 "explanation": f"{dividend} ÷ {divisor} = {_long_division_answer(dividend, divisor)}",
             },
         )
@@ -99,19 +88,18 @@ def seed_questions(apps, schema_editor):
                 is_correct=True, order=1,
             )
 
-    for year, n in PRIME_FACTORIZATION_DATA:
-        level = Level.objects.filter(level_number=year).first()
+    for entry in _load(PRIME_FACTORIZATION_JSON):
+        year, n = entry["year"], entry["target_number"]
+        level = levels_by_year.get(year)
         if not level:
             continue
         factors_topic.levels.add(level)
         text = f"Find the prime factorization of {n}."
         q, created = Question.objects.get_or_create(
-            question_text=text,
-            question_type="prime_factorization",
-            level=level,
-            topic=factors_topic,
+            question_text=text, question_type="prime_factorization",
+            level=level, topic=factors_topic,
             defaults={
-                "difficulty": min(3, max(1, year - 3)),
+                "difficulty": _difficulty_for_year(year),
                 "target_number": n,
                 "explanation": f"{n} = {_prime_factorization_answer(n).replace('x', ' x ')}",
             },
@@ -125,9 +113,9 @@ def seed_questions(apps, schema_editor):
 
 def unseed_questions(apps, schema_editor):
     Question = apps.get_model("maths", "Question")
-    targets = [d for _, d, _ in LONG_DIVISION_DATA]
-    pf_targets = [n for _, n in PRIME_FACTORIZATION_DATA]
-    Question.objects.filter(question_type="long_division", dividend__in=targets).delete()
+    ld_dividends = [e["dividend"] for e in _load(LONG_DIVISION_JSON)]
+    pf_targets = [e["target_number"] for e in _load(PRIME_FACTORIZATION_JSON)]
+    Question.objects.filter(question_type="long_division", dividend__in=ld_dividends).delete()
     Question.objects.filter(question_type="prime_factorization", target_number__in=pf_targets).delete()
 
 
