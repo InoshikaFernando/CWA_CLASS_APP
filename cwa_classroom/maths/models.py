@@ -44,6 +44,8 @@ class Question(models.Model):
     SHORT_ANSWER = 'short_answer'
     FILL_BLANK = 'fill_blank'
     CALCULATION = 'calculation'
+    LONG_DIVISION = 'long_division'
+    PRIME_FACTORIZATION = 'prime_factorization'
 
     QUESTION_TYPES = [
         ('multiple_choice', 'Multiple Choice'),
@@ -51,6 +53,8 @@ class Question(models.Model):
         ('short_answer', 'Short Answer'),
         ('fill_blank', 'Fill in the Blank'),
         ('calculation', 'Calculation'),
+        ('long_division', 'Long Division'),
+        ('prime_factorization', 'Prime Factorization'),
     ]
 
     DIFFICULTY_CHOICES = [
@@ -83,6 +87,9 @@ class Question(models.Model):
     explanation = models.TextField(blank=True, help_text="Explanation for the correct answer")
     image = models.ImageField(upload_to='questions/', blank=True, null=True, help_text="Upload an image for this question")
     video = models.FileField(upload_to='questions/videos/', blank=True, null=True, help_text="Upload a video for this question")
+    dividend = models.PositiveIntegerField(null=True, blank=True, help_text="Long-division: number being divided")
+    divisor = models.PositiveIntegerField(null=True, blank=True, help_text="Long-division: number dividing")
+    target_number = models.PositiveIntegerField(null=True, blank=True, help_text="Prime-factorization: number to factorise")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -107,6 +114,46 @@ class Question(models.Model):
                         'questions. Got: ' + repr(path)
                     )
                 })
+
+    @property
+    def long_division_step_count(self):
+        """Number of subtraction blocks needed to long-divide dividend by divisor."""
+        if not (self.dividend and self.divisor):
+            return 0
+        acc = 0
+        count = 0
+        for d in str(self.dividend):
+            acc = acc * 10 + int(d)
+            if acc >= self.divisor:
+                acc -= (acc // self.divisor) * self.divisor
+                count += 1
+        return count
+
+    @property
+    def prime_factorization_rows(self):
+        """Rows for the ladder rendering. First row shows target_number, last row shows 1.
+        Intermediate rows are blank inputs the student fills in.
+        Each row has prime_input (left cell type) and number-side fields:
+          show_number=True → display the value
+          number_input=True → render an input cell
+        """
+        n = self.target_number
+        if not n or n < 2:
+            return []
+        primes_count = 0
+        m = n
+        p = 2
+        while m > 1:
+            if m % p == 0:
+                m //= p
+                primes_count += 1
+            else:
+                p = 3 if p == 2 else p + 2
+        rows = [{'show_number': True, 'number': n, 'number_input': False, 'prime_input': True}]
+        for i in range(primes_count - 1):
+            rows.append({'show_number': False, 'number': None, 'number_input': True, 'prime_input': True})
+        rows.append({'show_number': True, 'number': 1, 'number_input': False, 'prime_input': False})
+        return rows
 
 
 class Answer(models.Model):

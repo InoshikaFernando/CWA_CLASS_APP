@@ -737,6 +737,35 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             correct_answer_text = ' -> '.join(
                 q.answers.order_by('order').values_list('answer_text', flat=True)
             )
+        elif q.question_type == 'prime_factorization' and q.target_number:
+            # Correct iff every entered value is prime AND their product == target_number.
+            # Order doesn't matter; submitted as 'x'/'×'/'*'/',' separated digits.
+            import re as _re
+            raw = data.get('text_answer', '').strip()
+            tokens = [t for t in _re.split(r'[x×*,\s]+', raw) if t]
+            def _is_prime(n):
+                if n < 2:
+                    return False
+                if n < 4:
+                    return True
+                if n % 2 == 0:
+                    return False
+                i = 3
+                while i * i <= n:
+                    if n % i == 0:
+                        return False
+                    i += 2
+                return True
+            try:
+                nums = [int(t) for t in tokens]
+                product = 1
+                for x in nums:
+                    product *= x
+                is_correct = bool(nums) and product == q.target_number and all(_is_prime(x) for x in nums)
+            except ValueError:
+                is_correct = False
+            correct_ans = q.answers.filter(is_correct=True).first()
+            correct_answer_text = correct_ans.answer_text if correct_ans else ''
         else:
             raw = data.get('text_answer', '').strip()
             correct_ans = q.answers.filter(is_correct=True).first()
