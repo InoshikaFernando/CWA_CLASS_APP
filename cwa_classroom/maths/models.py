@@ -44,6 +44,7 @@ class Question(models.Model):
     SHORT_ANSWER = 'short_answer'
     FILL_BLANK = 'fill_blank'
     CALCULATION = 'calculation'
+    LONG_DIVISION = 'long_division'
 
     QUESTION_TYPES = [
         ('multiple_choice', 'Multiple Choice'),
@@ -51,6 +52,7 @@ class Question(models.Model):
         ('short_answer', 'Short Answer'),
         ('fill_blank', 'Fill in the Blank'),
         ('calculation', 'Calculation'),
+        ('long_division', 'Long Division'),
     ]
 
     DIFFICULTY_CHOICES = [
@@ -83,6 +85,8 @@ class Question(models.Model):
     explanation = models.TextField(blank=True, help_text="Explanation for the correct answer")
     image = models.ImageField(upload_to='questions/', blank=True, null=True, help_text="Upload an image for this question")
     video = models.FileField(upload_to='questions/videos/', blank=True, null=True, help_text="Upload a video for this question")
+    dividend = models.PositiveIntegerField(null=True, blank=True, help_text="Long-division: number being divided")
+    divisor = models.PositiveIntegerField(null=True, blank=True, help_text="Long-division: number dividing")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -107,6 +111,20 @@ class Question(models.Model):
                         'questions. Got: ' + repr(path)
                     )
                 })
+
+    @property
+    def long_division_step_count(self):
+        """Number of subtraction blocks needed to long-divide dividend by divisor."""
+        if not (self.dividend and self.divisor):
+            return 0
+        acc = 0
+        count = 0
+        for d in str(self.dividend):
+            acc = acc * 10 + int(d)
+            if acc >= self.divisor:
+                acc -= (acc // self.divisor) * self.divisor
+                count += 1
+        return count
 
 
 class Answer(models.Model):
