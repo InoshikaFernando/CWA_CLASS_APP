@@ -1,0 +1,287 @@
+{
+  "strand": "Number",
+  "topic": "Factors",
+  "year_level": 5,
+  "questions": [
+    {
+      "question_text": "Find the prime factorization of 45.",
+      "question_type": "prime_factorization",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "45 = 3 x 3 x 5",
+      "target_number": 45,
+      "answers": [
+        {
+          "text": "3x3x5",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 42.",
+      "question_type": "prime_factorization",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "42 = 2 x 3 x 7",
+      "target_number": 42,
+      "answers": [
+        {
+          "text": "2x3x7",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 55.",
+      "question_type": "prime_factorization",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "55 = 5 x 11",
+      "target_number": 55,
+      "answers": [
+        {
+          "text": "5x11",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 60.",
+      "question_type": "prime_factorization",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "60 = 2 x 2 x 3 x 5",
+      "target_number": 60,
+      "answers": [
+        {
+          "text": "2x2x3x5",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 56.",
+      "question_type": "prime_factorization",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "56 = 2 x 2 x 2 x 7",
+      "target_number": 56,
+      "answers": [
+        {
+          "text": "2x2x2x7",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 57.",
+      "question_type": "prime_factorization",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "57 = 3 x 19",
+      "target_number": 57,
+      "answers": [
+        {
+          "text": "3x19",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 72.",
+      "question_type": "prime_factorization",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "72 = 2 x 2 x 2 x 3 x 3",
+      "target_number": 72,
+      "answers": [
+        {
+          "text": "2x2x2x3x3",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 77.",
+      "question_type": "prime_factorization",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "77 = 7 x 11",
+      "target_number": 77,
+      "answers": [
+        {
+          "text": "7x11",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 76.",
+      "question_type": "prime_factorization",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "76 = 2 x 2 x 19",
+      "target_number": 76,
+      "answers": [
+        {
+          "text": "2x2x19",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 51.",
+      "question_type": "prime_factorization",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "51 = 3 x 17",
+      "target_number": 51,
+      "answers": [
+        {
+          "text": "3x17",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 58.",
+      "question_type": "prime_factorization",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "58 = 2 x 29",
+      "target_number": 58,
+      "answers": [
+        {
+          "text": "2x29",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 75.",
+      "question_type": "prime_factorization",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "75 = 3 x 5 x 5",
+      "target_number": 75,
+      "answers": [
+        {
+          "text": "3x5x5",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 50.",
+      "question_type": "prime_factorization",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "50 = 2 x 5 x 5",
+      "target_number": 50,
+      "answers": [
+        {
+          "text": "2x5x5",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 52.",
+      "question_type": "prime_factorization",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "52 = 2 x 2 x 13",
+      "target_number": 52,
+      "answers": [
+        {
+          "text": "2x2x13",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 74.",
+      "question_type": "prime_factorization",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "74 = 2 x 37",
+      "target_number": 74,
+      "answers": [
+        {
+          "text": "2x37",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 33.",
+      "question_type": "prime_factorization",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "33 = 3 x 11",
+      "target_number": 33,
+      "answers": [
+        {
+          "text": "3x11",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 32.",
+      "question_type": "prime_factorization",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "32 = 2 x 2 x 2 x 2 x 2",
+      "target_number": 32,
+      "answers": [
+        {
+          "text": "2x2x2x2x2",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 69.",
+      "question_type": "prime_factorization",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "69 = 3 x 23",
+      "target_number": 69,
+      "answers": [
+        {
+          "text": "3x23",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 80.",
+      "question_type": "prime_factorization",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "80 = 2 x 2 x 2 x 2 x 5",
+      "target_number": 80,
+      "answers": [
+        {
+          "text": "2x2x2x2x5",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 36.",
+      "question_type": "prime_factorization",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "36 = 2 x 2 x 3 x 3",
+      "target_number": 36,
+      "answers": [
+        {
+          "text": "2x2x3x3",
+          "is_correct": true
+        }
+      ]
+    }
+  ]
+}
