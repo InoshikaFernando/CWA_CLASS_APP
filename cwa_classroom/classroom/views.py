@@ -351,18 +351,8 @@ class StudentDashboardView(LoginRequiredMixin, View):
         # ── Times Tables results ──────────────────────────────────────────────
         tt_results = []
         for table in range(1, 13):
-            best_mul = StudentFinalAnswer.objects.filter(
-                student=request.user,
-                quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
-                operation='multiplication',
-                table_number=table,
-            ).order_by('-points').first()
-            best_div = StudentFinalAnswer.objects.filter(
-                student=request.user,
-                quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
-                operation='division',
-                table_number=table,
-            ).order_by('-points').first()
+            best_mul = _tt_best(request.user, 'multiplication', table)
+            best_div = _tt_best(request.user, 'division', table)
             # Legacy: attempts without operation saved (old records)
             if not best_mul and not best_div:
                 best_legacy = StudentFinalAnswer.objects.filter(
@@ -671,6 +661,31 @@ def _pct_colour(pct):
     if pct >= 30:
         return 'bg-orange-200 text-orange-900'
     return 'bg-red-200 text-red-900'
+
+
+def _tt_best(student, operation, table):
+    """
+    Pick the best times-table record to display for a (student, operation, table).
+
+    Returns the best-by-points shuffled attempt if the student has one whose
+    time is less than 2× the best ordered time — shuffled is harder, so
+    matching that pace is the more impressive result and should be shown.
+    Otherwise returns whichever best exists.
+    """
+    from maths.models import StudentFinalAnswer
+    base = StudentFinalAnswer.objects.filter(
+        student=student,
+        quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
+        operation=operation,
+        table_number=table,
+    )
+    best_shuffled = base.filter(shuffled=True).order_by('-points').first()
+    best_ordered = base.filter(shuffled=False).order_by('-points').first()
+    if best_shuffled and best_ordered:
+        if best_shuffled.time_taken_seconds < best_ordered.time_taken_seconds * 2:
+            return best_shuffled
+        return best_ordered
+    return best_shuffled or best_ordered
 
 
 def _tt_colour(result):
