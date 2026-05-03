@@ -700,8 +700,8 @@ def _tt_colour(result):
         return 'bg-green-200 text-green-900'
     # In Order — capped at yellow/orange
     if t < 30:
-        return 'bg-yellow-200 text-yellow-900'
-    return 'bg-orange-200 text-orange-900'
+        return 'bg-yellow-300 text-yellow-900'
+    return 'bg-orange-400 text-orange-900'
 
 
 class TopicsView(LoginRequiredMixin, View):
