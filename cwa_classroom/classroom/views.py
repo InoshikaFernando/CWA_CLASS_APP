@@ -676,29 +676,30 @@ def _pct_colour(pct):
 def _tt_colour(result):
     """
     Colour for a single times-table row (× or ÷).
+    Must be 100% correct to get a colour other than red.
 
-    Non-shuffled (In Order — practice, never punished):
-      < 15s → yellow | else → orange    (regardless of correctness)
+    In Order (practice, easier — capped):
+      < 30s → yellow | else → orange
 
-    Shuffled (the real test):
-      any wrong answer → red
+    Shuffled (the real test — green tiers unlocked):
       < 15s → dark green | < 30s → green | else → light green
 
-    not attempted → grey
+    any wrong answer → red
+    not attempted    → grey
     """
     if result is None:
         return 'bg-gray-100 text-gray-400'
+    if result.percentage < 100:
+        return 'bg-red-200 text-red-900'
     t = result.time_taken_seconds
     if getattr(result, 'shuffled', False):
-        if result.percentage < 100:
-            return 'bg-red-200 text-red-900'
         if t < 15:
             return 'bg-green-800 text-white'
         if t < 30:
             return 'bg-green-600 text-white'
         return 'bg-green-200 text-green-900'
-    # In Order — capped at yellow/orange, no red
-    if t < 15:
+    # In Order — capped at yellow/orange
+    if t < 30:
         return 'bg-yellow-200 text-yellow-900'
     return 'bg-orange-200 text-orange-900'
 
