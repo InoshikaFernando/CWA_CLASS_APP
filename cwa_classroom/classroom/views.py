@@ -678,11 +678,12 @@ def _tt_colour(result):
     Colour for a single times-table row (× or ÷).
     Must be 100% correct to get a colour other than red.
 
-    Shuffled attempts (random order — harder) keep the base thresholds:
-      < 15s → dark green | < 30s → green | < 60s → light green | < 90s → yellow | else → orange
+    Shuffled attempts (random order — harder) earn GREEN tiers only:
+      < 15s → dark green | < 30s → green | else → light green
 
-    Non-shuffled attempts (sequential — easier) use HALVED thresholds:
-      < 7.5s → dark green | < 15s → green | < 30s → light green | < 45s → yellow | else → orange
+    Non-shuffled attempts (sequential — easier) earn YELLOW/ORANGE only —
+    greens are reserved for shuffled practice:
+      < 15s → yellow | else → orange
 
       any wrong answer   → red
       not attempted      → grey
@@ -691,15 +692,15 @@ def _tt_colour(result):
         return 'bg-gray-100 text-gray-400'
     if result.percentage < 100:
         return 'bg-red-200 text-red-900'
-    multiplier = 1.0 if getattr(result, 'shuffled', False) else 0.5
     t = result.time_taken_seconds
-    if t < 15 * multiplier:
-        return 'bg-green-800 text-white'
-    if t < 30 * multiplier:
-        return 'bg-green-600 text-white'
-    if t < 60 * multiplier:
+    if getattr(result, 'shuffled', False):
+        if t < 15:
+            return 'bg-green-800 text-white'
+        if t < 30:
+            return 'bg-green-600 text-white'
         return 'bg-green-200 text-green-900'
-    if t < 90 * multiplier:
+    # Non-shuffled — capped at yellow
+    if t < 15:
         return 'bg-yellow-200 text-yellow-900'
     return 'bg-orange-200 text-orange-900'
 
