@@ -424,6 +424,7 @@ class StudentFinalAnswer(models.Model):
     completed_at = models.DateTimeField(default=timezone.now, help_text="When this result was completed")
     # Legacy field retained from consolidation migration — new code uses 'points'
     points_earned = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Legacy: points from consolidation migration")
+    shuffled = models.BooleanField(default=False, help_text="Whether the questions were presented in random order")
     last_updated_time = models.DateTimeField(auto_now=True, help_text="Last time this record was updated")
 
     class Meta:

@@ -7,6 +7,21 @@
     <p class="text-gray-400 text-sm mt-1">Choose a table to practise — multiplication or division.</p>
   </div>
 
+  <div class="flex items-center justify-center gap-3 bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3">
+    <span class="text-sm font-semibold text-gray-600">Mode:</span>
+    <button id="btn-order" onclick="setShuffleMode(false)"
+            class="text-sm font-semibold rounded-lg px-4 py-2 transition">
+      In Order
+    </button>
+    <button id="btn-shuffle" onclick="setShuffleMode(true)"
+            class="text-sm font-semibold rounded-lg px-4 py-2 transition">
+      🔀 Shuffle
+    </button>
+  </div>
+  <p class="text-center text-xs text-gray-500 -mt-3">
+    In Order is easier — needs faster times for the same colour. Shuffle uses the standard time targets.
+  </p>
+
   <div class="grid grid-cols-3 sm:grid-cols-4 gap-3">
     {% for t in all_tables %}
     <div class="bg-white rounded-2xl border shadow-sm p-4 text-center
@@ -15,11 +30,13 @@
       {% if t in available_tables %}
       <div class="flex flex-col gap-2">
         <a href="{% url 'multiplication_quiz' level_number=year|default:4 table=t %}"
-           class="text-xs bg-primary hover:bg-primary-dark text-white font-semibold rounded-lg px-2 py-1.5 transition">
+           class="tt-link text-xs bg-primary hover:bg-primary-dark text-white font-semibold rounded-lg px-2 py-1.5 transition"
+           data-base-url="{% url 'multiplication_quiz' level_number=year|default:4 table=t %}">
           × Multiply
         </a>
         <a href="{% url 'division_quiz' level_number=year|default:4 table=t %}"
-           class="text-xs bg-white border border-primary text-primary hover:bg-primary-light font-semibold rounded-lg px-2 py-1.5 transition">
+           class="tt-link text-xs bg-white border border-primary text-primary hover:bg-primary-light font-semibold rounded-lg px-2 py-1.5 transition"
+           data-base-url="{% url 'division_quiz' level_number=year|default:4 table=t %}">
           ÷ Divide
         </a>
       </div>
@@ -30,4 +47,27 @@
     {% endfor %}
   </div>
 </div>
+
+<script>
+  let shuffleOn = false;
+
+  function setShuffleMode(on) {
+    shuffleOn = on;
+    const btnOrder = document.getElementById('btn-order');
+    const btnShuffle = document.getElementById('btn-shuffle');
+    if (on) {
+      btnShuffle.className = 'text-sm font-semibold rounded-lg px-4 py-2 transition bg-primary text-white';
+      btnOrder.className = 'text-sm font-semibold rounded-lg px-4 py-2 transition bg-gray-100 text-gray-600 hover:bg-gray-200';
+    } else {
+      btnOrder.className = 'text-sm font-semibold rounded-lg px-4 py-2 transition bg-primary text-white';
+      btnShuffle.className = 'text-sm font-semibold rounded-lg px-4 py-2 transition bg-gray-100 text-gray-600 hover:bg-gray-200';
+    }
+    document.querySelectorAll('.tt-link').forEach(link => {
+      const base = link.getAttribute('data-base-url');
+      link.href = on ? base + '?shuffle=1' : base;
+    });
+  }
+
+  setShuffleMode(false);
+</script>
 {% endblock %}
