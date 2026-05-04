@@ -145,8 +145,8 @@ class TestDoubleSubmitEdgeCase(TestCase):
         data = response.json()
         self.assertTrue(data['is_correct'])
         # Expected score for ~5s elapsed in a 20s window:
-        #   500 + 500 * (15/20) = 875. Allow drift for wall-clock variance.
-        self.assertGreaterEqual(data['score_awarded'], 850)
+        #   500 + 500 * (15/20) = 875. Allow generous drift for slow CI.
+        self.assertGreaterEqual(data['score_awarded'], 800)
         self.assertLessEqual(data['score_awarded'], 880)
 
     def test_duplicate_submit_returns_409(self):

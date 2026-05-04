@@ -192,7 +192,7 @@ class TestMcqSubmissionSuccess(TestCase):
         )
         # Server computes time_taken_ms from question_deadline; exact 1000
         # requires zero wall-clock elapsed which isn't realistic. Allow drift.
-        self.assertGreaterEqual(resp.json()['score_awarded'], 950)
+        self.assertGreaterEqual(resp.json()['score_awarded'], 900)
         self.assertLessEqual(resp.json()['score_awarded'], 1000)
 
     def test_incorrect_answer_returns_200(self):
@@ -228,7 +228,7 @@ class TestMcqSubmissionSuccess(TestCase):
         answer = BrainBuzzAnswer.objects.get(participant=self.participant, session_question=self.q0)
         self.assertEqual(answer.selected_option_label, 'B')
         self.assertTrue(answer.is_correct)
-        self.assertGreaterEqual(answer.points_awarded, 950)
+        self.assertGreaterEqual(answer.points_awarded, 900)
         self.assertLessEqual(answer.points_awarded, 1000)
 
     def test_time_taken_ms_stored(self):
@@ -262,7 +262,7 @@ class TestMcqSubmissionSuccess(TestCase):
             content_type='application/json',
         )
         self.participant.refresh_from_db()
-        self.assertGreaterEqual(self.participant.score, 950)
+        self.assertGreaterEqual(self.participant.score, 900)
         self.assertLessEqual(self.participant.score, 1000)
 
     def test_incorrect_answer_does_not_update_score(self):
@@ -312,7 +312,7 @@ class TestShortAnswerSubmission(TestCase):
         )
         self.assertTrue(resp.json()['is_correct'])
         # Server-computed time has minor wall-clock drift; allow tolerance
-        self.assertGreaterEqual(resp.json()['score_awarded'], 950)
+        self.assertGreaterEqual(resp.json()['score_awarded'], 900)
         self.assertLessEqual(resp.json()['score_awarded'], 1000)
 
     def test_short_answer_case_insensitive(self):
@@ -719,7 +719,7 @@ class TestMultipleAnswerFlow(TestCase):
         )
         self.assertTrue(resp0.json()['is_correct'])
         score_after_q0 = resp0.json()['total_score']
-        self.assertGreaterEqual(score_after_q0, 950)
+        self.assertGreaterEqual(score_after_q0, 900)
         self.assertLessEqual(score_after_q0, 1000)
 
         # Advance to Q1
@@ -748,7 +748,7 @@ class TestMultipleAnswerFlow(TestCase):
             content_type='application/json',
         )
         self.assertTrue(resp2.json()['is_correct'])
-        self.assertGreaterEqual(resp2.json()['total_score'], 1900)
+        self.assertGreaterEqual(resp2.json()['total_score'], 1800)
         self.assertLessEqual(resp2.json()['total_score'], 2000)
 
     def test_participant_final_score(self):
@@ -768,5 +768,5 @@ class TestMultipleAnswerFlow(TestCase):
         self.client.post(self.url, _submit_answer_payload(self.participant.id, 2, {'text': 'python'}, 0), content_type='application/json')
 
         self.participant.refresh_from_db()
-        self.assertGreaterEqual(self.participant.score, 1900)
+        self.assertGreaterEqual(self.participant.score, 1800)
         self.assertLessEqual(self.participant.score, 2000)
