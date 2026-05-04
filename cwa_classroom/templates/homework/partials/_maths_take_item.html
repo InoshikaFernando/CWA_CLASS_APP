@@ -44,6 +44,25 @@ Receives ``ctx`` with keys: question, shuffled_answers (list of Answer).
       {% endfor %}
     </div>
   </div>
+  {# Working rows: 2 rows per subtraction step (subtract + bring-down/remainder) #}
+  {% for step in ""|center:q.long_division_step_count %}
+    <div class="flex mt-1">
+      <span class="w-10 inline-block"></span>
+      <span class="w-3 inline-block"></span>
+      {% for d in q.dividend|stringformat:"d" %}
+        <input type="text" maxlength="2" inputmode="numeric"
+               class="w-10 h-9 text-center bg-rose-50 border-2 border-rose-200 rounded text-rose-700 font-bold text-xl focus:border-primary focus:bg-white focus:outline-none" />
+      {% endfor %}
+    </div>
+    <div class="flex">
+      <span class="w-10 inline-block"></span>
+      <span class="w-3 inline-block"></span>
+      {% for d in q.dividend|stringformat:"d" %}
+        <input type="text" maxlength="2" inputmode="numeric"
+               class="w-10 h-9 text-center bg-emerald-50 border-2 border-emerald-200 border-t-2 border-t-gray-800 rounded text-emerald-700 font-bold text-xl focus:border-primary focus:bg-white focus:outline-none" />
+      {% endfor %}
+    </div>
+  {% endfor %}
   <div class="flex items-center gap-2 mt-3 text-sm">
     <span class="text-gray-600 font-semibold">Remainder:</span>
     <input type="text" maxlength="3" inputmode="numeric" data-ld-r="{{ q.id }}"
