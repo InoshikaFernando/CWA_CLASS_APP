@@ -480,3 +480,109 @@ class TestJoinView(TestCase):
     def test_prefill_code_uppercased(self):
         resp = self.client.get(self.url + '?code=abc123')
         self.assertEqual(resp.context['prefill_code'], 'ABC123')
+
+
+# ---------------------------------------------------------------------------
+# Real-time lobby update — state_version bump on join
+#
+# Regression test for: teacher lobby not updating without page refresh.
+# Root cause: api_join was not calling session.bump_version(), so the
+# versioned poll endpoint always returned 304 (unchanged) even after a
+# student joined.
+# ---------------------------------------------------------------------------
+
+@_allow_rate
+class TestJoinBumpsStateVersion(TestCase):
+    """api_join must increment state_version so the teacher's poll gets 200."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.host = _make_user('host_sv')
+        cls.subject = _make_subject()
+        cls.session = _make_session(cls.host, cls.subject, code='SVTEST')
+        _add_question(cls.session)
+        cls.state_url = reverse('brainbuzz:api_session_state', args=['SVTEST'])
+        cls.join_url = reverse('brainbuzz:api_join')
+
+    def setUp(self):
+        self.client = Client()
+
+    def _join(self, nickname):
+        return self.client.post(
+            self.join_url,
+            json.dumps({'code': 'SVTEST', 'nickname': nickname}),
+            content_type='application/json',
+        )
+
+    def test_join_increments_state_version(self, _mock):
+        """state_version must increase by exactly 1 each time a student joins."""
+        self.session.refresh_from_db()
+        version_before = self.session.state_version
+
+        resp = self._join('Alice')
+        self.assertEqual(resp.status_code, 200)
+
+        self.session.refresh_from_db()
+        self.assertEqual(self.session.state_version, version_before + 1)
+
+    def test_poll_returns_200_after_join(self, _mock):
+        """Teacher polling with the old version must get 200 (not 304) after a join."""
+        self.session.refresh_from_db()
+        old_version = self.session.state_version
+
+        self._join('Bob')
+
+        # Poll with the stale version — must detect a change
+        resp = self.client.get(f'{self.state_url}?since={old_version}')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_poll_includes_new_participant_after_join(self, _mock):
+        """State payload returned after join must contain the new participant."""
+        self.session.refresh_from_db()
+        old_version = self.session.state_version
+
+        self._join('Charlie')
+
+        resp = self.client.get(f'{self.state_url}?since={old_version}')
+        self.assertEqual(resp.status_code, 200)
+
+        data = resp.json()
+        nicknames = [p['nickname'] for p in data.get('participants', [])]
+        self.assertIn('Charlie', nicknames)
+
+    def test_poll_returns_304_when_version_current(self, _mock):
+        """After the teacher updates their version, subsequent polls return 304."""
+        self._join('Dave')
+
+        self.session.refresh_from_db()
+        current_version = self.session.state_version
+
+        # Poll with up-to-date version — no change, expect 304
+        resp = self.client.get(f'{self.state_url}?since={current_version}')
+        self.assertEqual(resp.status_code, 304)
+
+    def test_multiple_joins_each_bump_version(self, _mock):
+        """Each student joining must produce its own version increment."""
+        self.session.refresh_from_db()
+        version_before = self.session.state_version
+
+        self._join('Eve')
+        self._join('Frank')
+        self._join('Grace')
+
+        self.session.refresh_from_db()
+        self.assertEqual(self.session.state_version, version_before + 3)
+
+    def test_participant_count_increases_in_payload(self, _mock):
+        """participant_count in the state payload must reflect all joined students."""
+        self.session.refresh_from_db()
+        old_version = self.session.state_version
+
+        self._join('Heidi')
+        self._join('Ivan')
+
+        resp = self.client.get(f'{self.state_url}?since={old_version}')
+        self.assertEqual(resp.status_code, 200)
+
+        data = resp.json()
+        self.assertGreaterEqual(data['participant_count'], 2)

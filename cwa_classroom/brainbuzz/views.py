@@ -868,6 +868,10 @@ def api_join(request):
         nickname=resolved_nickname,
     )
 
+    # Bump state_version so the teacher's versioned poll detects the new
+    # participant immediately (304 becomes 200 with updated participant list).
+    session.bump_version()
+
     _set_participant_id(request, code, participant.id)
 
     return JsonResponse({
