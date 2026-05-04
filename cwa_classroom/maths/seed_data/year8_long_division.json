@@ -1,0 +1,307 @@
+{
+  "strand": "Number",
+  "topic": "Long Division",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "Solve using long division: 49603 ÷ 32",
+      "question_type": "long_division",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "49603 ÷ 32 = 1550 r 3",
+      "dividend": 49603,
+      "divisor": 32,
+      "answers": [
+        {
+          "text": "1550 r 3",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 97823 ÷ 9",
+      "question_type": "long_division",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "97823 ÷ 9 = 10869 r 2",
+      "dividend": 97823,
+      "divisor": 9,
+      "answers": [
+        {
+          "text": "10869 r 2",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 11596 ÷ 10",
+      "question_type": "long_division",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "11596 ÷ 10 = 1159 r 6",
+      "dividend": 11596,
+      "divisor": 10,
+      "answers": [
+        {
+          "text": "1159 r 6",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 93379 ÷ 13",
+      "question_type": "long_division",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "93379 ÷ 13 = 7183",
+      "dividend": 93379,
+      "divisor": 13,
+      "answers": [
+        {
+          "text": "7183",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 82568 ÷ 11",
+      "question_type": "long_division",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "82568 ÷ 11 = 7506 r 2",
+      "dividend": 82568,
+      "divisor": 11,
+      "answers": [
+        {
+          "text": "7506 r 2",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 92718 ÷ 26",
+      "question_type": "long_division",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "92718 ÷ 26 = 3566 r 2",
+      "dividend": 92718,
+      "divisor": 26,
+      "answers": [
+        {
+          "text": "3566 r 2",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 75678 ÷ 4",
+      "question_type": "long_division",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "75678 ÷ 4 = 18919 r 2",
+      "dividend": 75678,
+      "divisor": 4,
+      "answers": [
+        {
+          "text": "18919 r 2",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 38800 ÷ 24",
+      "question_type": "long_division",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "38800 ÷ 24 = 1616 r 16",
+      "dividend": 38800,
+      "divisor": 24,
+      "answers": [
+        {
+          "text": "1616 r 16",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 68593 ÷ 18",
+      "question_type": "long_division",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "68593 ÷ 18 = 3810 r 13",
+      "dividend": 68593,
+      "divisor": 18,
+      "answers": [
+        {
+          "text": "3810 r 13",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 75316 ÷ 13",
+      "question_type": "long_division",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "75316 ÷ 13 = 5793 r 7",
+      "dividend": 75316,
+      "divisor": 13,
+      "answers": [
+        {
+          "text": "5793 r 7",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 33543 ÷ 6",
+      "question_type": "long_division",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "33543 ÷ 6 = 5590 r 3",
+      "dividend": 33543,
+      "divisor": 6,
+      "answers": [
+        {
+          "text": "5590 r 3",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 18564 ÷ 13",
+      "question_type": "long_division",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "18564 ÷ 13 = 1428",
+      "dividend": 18564,
+      "divisor": 13,
+      "answers": [
+        {
+          "text": "1428",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 54196 ÷ 18",
+      "question_type": "long_division",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "54196 ÷ 18 = 3010 r 16",
+      "dividend": 54196,
+      "divisor": 18,
+      "answers": [
+        {
+          "text": "3010 r 16",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 19084 ÷ 26",
+      "question_type": "long_division",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "19084 ÷ 26 = 734",
+      "dividend": 19084,
+      "divisor": 26,
+      "answers": [
+        {
+          "text": "734",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 24344 ÷ 10",
+      "question_type": "long_division",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "24344 ÷ 10 = 2434 r 4",
+      "dividend": 24344,
+      "divisor": 10,
+      "answers": [
+        {
+          "text": "2434 r 4",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 53801 ÷ 18",
+      "question_type": "long_division",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "53801 ÷ 18 = 2988 r 17",
+      "dividend": 53801,
+      "divisor": 18,
+      "answers": [
+        {
+          "text": "2988 r 17",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 35148 ÷ 19",
+      "question_type": "long_division",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "35148 ÷ 19 = 1849 r 17",
+      "dividend": 35148,
+      "divisor": 19,
+      "answers": [
+        {
+          "text": "1849 r 17",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 62534 ÷ 10",
+      "question_type": "long_division",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "62534 ÷ 10 = 6253 r 4",
+      "dividend": 62534,
+      "divisor": 10,
+      "answers": [
+        {
+          "text": "6253 r 4",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 44306 ÷ 32",
+      "question_type": "long_division",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "44306 ÷ 32 = 1384 r 18",
+      "dividend": 44306,
+      "divisor": 32,
+      "answers": [
+        {
+          "text": "1384 r 18",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Solve using long division: 21672 ÷ 25",
+      "question_type": "long_division",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "21672 ÷ 25 = 866 r 22",
+      "dividend": 21672,
+      "divisor": 25,
+      "answers": [
+        {
+          "text": "866 r 22",
+          "is_correct": true
+        }
+      ]
+    }
+  ]
+}

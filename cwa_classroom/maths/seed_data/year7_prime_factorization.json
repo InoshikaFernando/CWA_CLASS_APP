@@ -1,0 +1,287 @@
+{
+  "strand": "Number",
+  "topic": "Factors",
+  "year_level": 7,
+  "questions": [
+    {
+      "question_text": "Find the prime factorization of 374.",
+      "question_type": "prime_factorization",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "374 = 2 x 11 x 17",
+      "target_number": 374,
+      "answers": [
+        {
+          "text": "2x11x17",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 222.",
+      "question_type": "prime_factorization",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "222 = 2 x 3 x 37",
+      "target_number": 222,
+      "answers": [
+        {
+          "text": "2x3x37",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 226.",
+      "question_type": "prime_factorization",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "226 = 2 x 113",
+      "target_number": 226,
+      "answers": [
+        {
+          "text": "2x113",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 312.",
+      "question_type": "prime_factorization",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "312 = 2 x 2 x 2 x 3 x 13",
+      "target_number": 312,
+      "answers": [
+        {
+          "text": "2x2x2x3x13",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 370.",
+      "question_type": "prime_factorization",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "370 = 2 x 5 x 37",
+      "target_number": 370,
+      "answers": [
+        {
+          "text": "2x5x37",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 270.",
+      "question_type": "prime_factorization",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "270 = 2 x 3 x 3 x 3 x 5",
+      "target_number": 270,
+      "answers": [
+        {
+          "text": "2x3x3x3x5",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 252.",
+      "question_type": "prime_factorization",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "252 = 2 x 2 x 3 x 3 x 7",
+      "target_number": 252,
+      "answers": [
+        {
+          "text": "2x2x3x3x7",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 248.",
+      "question_type": "prime_factorization",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "248 = 2 x 2 x 2 x 31",
+      "target_number": 248,
+      "answers": [
+        {
+          "text": "2x2x2x31",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 253.",
+      "question_type": "prime_factorization",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "253 = 11 x 23",
+      "target_number": 253,
+      "answers": [
+        {
+          "text": "11x23",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 358.",
+      "question_type": "prime_factorization",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "358 = 2 x 179",
+      "target_number": 358,
+      "answers": [
+        {
+          "text": "2x179",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 464.",
+      "question_type": "prime_factorization",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "464 = 2 x 2 x 2 x 2 x 29",
+      "target_number": 464,
+      "answers": [
+        {
+          "text": "2x2x2x2x29",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 489.",
+      "question_type": "prime_factorization",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "489 = 3 x 163",
+      "target_number": 489,
+      "answers": [
+        {
+          "text": "3x163",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 471.",
+      "question_type": "prime_factorization",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "471 = 3 x 157",
+      "target_number": 471,
+      "answers": [
+        {
+          "text": "3x157",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 238.",
+      "question_type": "prime_factorization",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "238 = 2 x 7 x 17",
+      "target_number": 238,
+      "answers": [
+        {
+          "text": "2x7x17",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 426.",
+      "question_type": "prime_factorization",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "426 = 2 x 3 x 71",
+      "target_number": 426,
+      "answers": [
+        {
+          "text": "2x3x71",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 207.",
+      "question_type": "prime_factorization",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "207 = 3 x 3 x 23",
+      "target_number": 207,
+      "answers": [
+        {
+          "text": "3x3x23",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 320.",
+      "question_type": "prime_factorization",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "320 = 2 x 2 x 2 x 2 x 2 x 2 x 5",
+      "target_number": 320,
+      "answers": [
+        {
+          "text": "2x2x2x2x2x2x5",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 330.",
+      "question_type": "prime_factorization",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "330 = 2 x 3 x 5 x 11",
+      "target_number": 330,
+      "answers": [
+        {
+          "text": "2x3x5x11",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 294.",
+      "question_type": "prime_factorization",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "294 = 2 x 3 x 7 x 7",
+      "target_number": 294,
+      "answers": [
+        {
+          "text": "2x3x7x7",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "question_text": "Find the prime factorization of 394.",
+      "question_type": "prime_factorization",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "394 = 2 x 197",
+      "target_number": 394,
+      "answers": [
+        {
+          "text": "2x197",
+          "is_correct": true
+        }
+      ]
+    }
+  ]
+}

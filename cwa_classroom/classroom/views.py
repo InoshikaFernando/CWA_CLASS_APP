@@ -351,18 +351,8 @@ class StudentDashboardView(LoginRequiredMixin, View):
         # ── Times Tables results ──────────────────────────────────────────────
         tt_results = []
         for table in range(1, 13):
-            best_mul = StudentFinalAnswer.objects.filter(
-                student=request.user,
-                quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
-                operation='multiplication',
-                table_number=table,
-            ).order_by('-points').first()
-            best_div = StudentFinalAnswer.objects.filter(
-                student=request.user,
-                quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
-                operation='division',
-                table_number=table,
-            ).order_by('-points').first()
+            best_mul = _tt_best(request.user, 'multiplication', table)
+            best_div = _tt_best(request.user, 'division', table)
             # Legacy: attempts without operation saved (old records)
             if not best_mul and not best_div:
                 best_legacy = StudentFinalAnswer.objects.filter(
@@ -673,32 +663,60 @@ def _pct_colour(pct):
     return 'bg-red-200 text-red-900'
 
 
+def _tt_best(student, operation, table):
+    """
+    Pick the best times-table record to display for a (student, operation, table).
+
+    Returns the best-by-points shuffled attempt if the student has one whose
+    time is less than 2× the best ordered time — shuffled is harder, so
+    matching that pace is the more impressive result and should be shown.
+    Otherwise returns whichever best exists.
+    """
+    from maths.models import StudentFinalAnswer
+    base = StudentFinalAnswer.objects.filter(
+        student=student,
+        quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
+        operation=operation,
+        table_number=table,
+    )
+    best_shuffled = base.filter(shuffled=True).order_by('-points').first()
+    best_ordered = base.filter(shuffled=False).order_by('-points').first()
+    if best_shuffled and best_ordered:
+        if best_shuffled.time_taken_seconds < best_ordered.time_taken_seconds * 2:
+            return best_shuffled
+        return best_ordered
+    return best_shuffled or best_ordered
+
+
 def _tt_colour(result):
     """
     Colour for a single times-table row (× or ÷).
     Must be 100% correct to get a colour other than red.
-      100% + time < 15s  → dark green
-      100% + time < 30s  → green
-      100% + time < 60s  → light green
-      100% + time < 90s  → yellow
-      100% + time >= 90s → orange
-      any wrong answer   → red
-      not attempted      → grey
+
+    In Order (practice, easier — capped):
+      < 30s → yellow | else → orange
+
+    Shuffled (the real test — green tiers unlocked):
+      < 15s → dark green | < 30s → green | else → light green
+
+    any wrong answer → red
+    not attempted    → grey
     """
     if result is None:
         return 'bg-gray-100 text-gray-400'
     if result.percentage < 100:
         return 'bg-red-200 text-red-900'
     t = result.time_taken_seconds
-    if t < 15:
-        return 'bg-green-800 text-white'
-    if t < 30:
-        return 'bg-green-600 text-white'
-    if t < 60:
+    if getattr(result, 'shuffled', False):
+        if t < 15:
+            return 'bg-green-800 text-white'
+        if t < 30:
+            return 'bg-green-600 text-white'
         return 'bg-green-200 text-green-900'
-    if t < 90:
-        return 'bg-yellow-200 text-yellow-900'
-    return 'bg-orange-200 text-orange-900'
+    # In Order — capped at yellow/orange
+    if t < 30:
+        return 'bg-yellow-300 text-yellow-900'
+    return 'bg-orange-500 text-white'
 
 
 class TopicsView(LoginRequiredMixin, View):
