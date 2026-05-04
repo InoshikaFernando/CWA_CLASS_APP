@@ -22,6 +22,93 @@ Receives ``ctx`` with keys: question, shuffled_answers (list of Answer).
   </div>
   {% endfor %}
 </div>
+
+{% elif q.question_type == 'long_division' and q.dividend and q.divisor %}
+<input type="hidden" name="answer_{{ q.id }}" data-ld-hidden="{{ q.id }}" />
+<div class="font-mono text-2xl leading-none mb-2 inline-block" data-ld-wrap="{{ q.id }}">
+  <div class="flex">
+    <span class="w-10 inline-block"></span>
+    <span class="w-3 inline-block"></span>
+    {% for d in q.dividend|stringformat:"d" %}
+      <input type="text" maxlength="1" inputmode="numeric"
+             data-ld-q="{{ q.id }}"
+             class="w-10 h-10 text-center bg-blue-50 border-2 border-blue-200 rounded font-bold text-blue-700 focus:border-primary focus:bg-white focus:outline-none" />
+    {% endfor %}
+  </div>
+  <div class="flex items-stretch mt-1">
+    <div class="w-10 inline-flex items-center justify-end pr-2 font-bold text-gray-800">{{ q.divisor }}</div>
+    <div class="pt-1 border-l-2 border-t-2 border-gray-800 rounded-tl-lg flex">
+      <span class="w-3 inline-block"></span>
+      {% for d in q.dividend|stringformat:"d" %}
+        <span class="w-10 h-10 inline-flex items-center justify-center font-bold text-gray-800">{{ d }}</span>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="flex items-center gap-2 mt-3 text-sm">
+    <span class="text-gray-600 font-semibold">Remainder:</span>
+    <input type="text" maxlength="3" inputmode="numeric" data-ld-r="{{ q.id }}"
+           class="w-14 h-9 text-center border-2 border-gray-300 rounded focus:border-primary focus:outline-none font-bold" />
+  </div>
+</div>
+<script>
+(function(){
+  const id = "{{ q.id }}";
+  const qs = document.querySelectorAll(`[data-ld-q="${id}"]`);
+  const r  = document.querySelector(`[data-ld-r="${id}"]`);
+  const h  = document.querySelector(`[data-ld-hidden="${id}"]`);
+  function refresh(){
+    const quot = [...qs].map(c => c.value.trim() || '0').join('').replace(/^0+(?=\d)/, '') || '0';
+    const rem = (r.value.trim() || '0');
+    h.value = rem === '0' ? quot : quot + ' r ' + rem;
+  }
+  qs.forEach((el,i)=>{
+    el.addEventListener('input', () => { refresh(); if (el.value && i < qs.length-1) qs[i+1].focus(); });
+    el.addEventListener('keydown', e => { if (e.key==='Backspace' && !el.value && i>0) qs[i-1].focus(); });
+  });
+  r.addEventListener('input', refresh);
+})();
+</script>
+
+{% elif q.question_type == 'prime_factorization' and q.target_number %}
+<input type="hidden" name="answer_{{ q.id }}" data-pf-hidden="{{ q.id }}" />
+<p class="text-xs text-gray-500 mb-2">Fill each prime factor on the left until you reach 1.</p>
+<div class="font-mono text-xl leading-none inline-block" data-pf-wrap="{{ q.id }}">
+  {% for row in q.prime_factorization_rows %}
+    <div class="flex items-stretch border-b-2 border-gray-800">
+      {% if row.prime_input %}
+        <input type="text" maxlength="3" inputmode="numeric" data-pf-p="{{ q.id }}"
+               class="w-14 h-10 text-center bg-amber-50 border-2 border-amber-200 rounded m-1 font-bold text-amber-700 focus:border-primary focus:bg-white focus:outline-none" />
+      {% else %}
+        <div class="w-14 h-10"></div>
+      {% endif %}
+      <div class="border-l-2 border-gray-800 w-16 h-10 flex items-center justify-center p-1">
+        {% if row.show_number %}
+          <span class="font-bold text-blue-600">{{ row.number }}</span>
+        {% else %}
+          <input type="text" maxlength="6" inputmode="numeric"
+                 class="w-full h-full text-center bg-blue-50 border-2 border-blue-200 rounded font-bold text-blue-700 focus:border-primary focus:bg-white focus:outline-none" />
+        {% endif %}
+      </div>
+    </div>
+  {% endfor %}
+</div>
+<input type="text" readonly data-pf-preview="{{ q.id }}"
+       class="block mt-3 max-w-xs rounded-lg border-2 border-gray-200 bg-gray-50 px-3 py-2 text-sm font-mono font-bold text-gray-700 cursor-not-allowed" />
+<script>
+(function(){
+  const id = "{{ q.id }}";
+  const ps = document.querySelectorAll(`[data-pf-p="${id}"]`);
+  const h  = document.querySelector(`[data-pf-hidden="${id}"]`);
+  const pv = document.querySelector(`[data-pf-preview="${id}"]`);
+  function refresh(){
+    const vals = [...ps].map(el => el.value.trim()).filter(Boolean);
+    h.value = vals.join('x');
+    pv.value = vals.join('×');
+  }
+  ps.forEach(el => el.addEventListener('input', refresh));
+})();
+</script>
+
 {% else %}
 <input type="text" name="answer_{{ q.id }}"
        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
