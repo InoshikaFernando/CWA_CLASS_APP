@@ -6,6 +6,7 @@ from .models import (
     CodingTopic,
     TopicLevel,
     CodingExercise,
+    CodingAnswer,
     CodingProblem,
     ProblemTestCase,
     ProblemSubmission,
@@ -52,13 +53,50 @@ class CodingTopicAdmin(admin.ModelAdmin):
     ordering      = ('language', 'order')
 
 
+class CodingAnswerInline(admin.TabularInline):
+    """Answer options for MCQ and True/False exercises.
+
+    Shown/hidden by JS based on question_type.
+    """
+    model   = CodingAnswer
+    extra   = 2
+    fields  = ('answer_text', 'is_correct', 'order')
+    ordering = ('order',)
+
+
 @admin.register(CodingExercise)
 class CodingExerciseAdmin(admin.ModelAdmin):
-    list_display  = ('title', 'topic_level', 'order', 'is_active')
-    list_filter   = ('topic_level__topic__language', 'topic_level__level_choice', 'is_active')
+    list_display  = ('title', 'topic_level', 'question_type', 'order', 'is_active')
+    list_filter   = (
+        'topic_level__topic__language', 'topic_level__level_choice',
+        'question_type', 'is_active',
+    )
     list_editable = ('order', 'is_active')
     search_fields = ('title', 'description')
     ordering      = ('topic_level__topic', 'topic_level__level_choice', 'order')
+    inlines       = [CodingAnswerInline]
+
+    fieldsets = [
+        (None, {
+            'fields': (
+                'topic_level', 'title', 'description',
+                'question_type', 'order', 'is_active',
+            ),
+        }),
+        ('Code Exercise Fields', {
+            'classes': ('code-exercise-fields',),
+            'description': 'Required for write_code exercises.',
+            'fields': ('starter_code', 'solution_code', 'expected_output', 'hints', 'uses_browser_sandbox'),
+        }),
+        ('Short / Fill-in-the-Blank Answer', {
+            'classes': ('short-answer-fields',),
+            'description': 'Required for short_answer and fill_blank exercises.',
+            'fields': ('correct_short_answer',),
+        }),
+    ]
+
+    class Media:
+        js = ('admin/js/coding_exercise_type_toggle.js',)
 
 
 # ---------------------------------------------------------------------------

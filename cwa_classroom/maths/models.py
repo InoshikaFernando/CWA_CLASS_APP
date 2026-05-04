@@ -1,5 +1,6 @@
 import re
 import uuid
+from brainbuzz.managers import MathsQuestionsManager
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -92,6 +93,9 @@ class Question(models.Model):
     target_number = models.PositiveIntegerField(null=True, blank=True, help_text="Prime-factorization: number to factorise")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    # Custom manager for visibility filtering
+    objects = MathsQuestionsManager()
 
     class Meta:
         ordering = ['level', 'difficulty', 'created_at']

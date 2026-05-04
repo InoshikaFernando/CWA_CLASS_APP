@@ -71,6 +71,7 @@ class CodingExercisePlugin(SubjectPlugin):
     display_name = 'Coding'
     order = 20
     supports_homework = True
+    brainbuzz_subject_key = 'coding'
 
     # Phase 3 — everything under ``/coding/`` is ours (exercise listings,
     # problem challenges, language pages). The context processor uses this
@@ -95,6 +96,20 @@ class CodingExercisePlugin(SubjectPlugin):
     def has_content(self, classroom=None) -> bool:
         from coding.models import CodingLanguage
         return CodingLanguage.objects.filter(is_active=True).exists()
+
+    # ------------------------------------------------------------------
+    # BrainBuzz — flat topic-level choices for the create-session form
+    # ------------------------------------------------------------------
+
+    def brainbuzz_topic_choices(self) -> dict:
+        from coding.models import TopicLevel
+        topic_levels = list(
+            TopicLevel.objects.filter(is_active=True)
+            .select_related('topic', 'topic__language')
+            .order_by('topic__language__order', 'topic__order', 'level_choice')
+            .values('id', 'level_choice', 'topic__name', 'topic__language__name')
+        )
+        return {'coding_topic_levels': topic_levels}
 
     # ------------------------------------------------------------------
     # Homework — topic picker

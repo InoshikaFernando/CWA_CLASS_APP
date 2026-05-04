@@ -134,6 +134,38 @@ class SubjectPlugin:
     # to render when the user is browsing the subject.
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # BrainBuzz  (Phase 4)
+    #
+    # Plugins that want to appear in the BrainBuzz session-creation form
+    # MUST set ``brainbuzz_subject_key`` to the string stored in
+    # ``BrainBuzzSession.subject`` (e.g. ``'maths'``, ``'coding'``).
+    # They SHOULD override ``brainbuzz_topic_choices()`` to return the
+    # context dict the create-form template needs.
+    # ------------------------------------------------------------------
+
+    #: Key stored in ``BrainBuzzSession.subject``.  Empty string = opt out.
+    brainbuzz_subject_key: str = ''
+
+    def brainbuzz_topic_choices(self) -> dict:
+        """Context variables injected into the BrainBuzz create-form template.
+
+        Shape is plugin-specific (e.g. maths returns ``maths_topics`` and
+        ``maths_levels``; coding returns ``coding_topic_levels``). The dict
+        is merged directly into the view context, so key names must not
+        clash across plugins.  Default: empty dict (opt-out).
+        """
+        return {}
+
+    # ------------------------------------------------------------------
+    # UI / routing  (Phase 3)
+    #
+    # Phase 3 replaces the hard-coded subject branches in the request
+    # context processor and template-level sidebar selection. Plugins
+    # declare which URL prefixes belong to them and which sidebar partial
+    # to render when the user is browsing the subject.
+    # ------------------------------------------------------------------
+
     #: Path prefixes that identify this subject at the URL level. The
     #: context processor iterates registered plugins and picks the first
     #: whose prefix matches ``request.path``. Keep prefixes ending in ``/``.
@@ -246,6 +278,11 @@ def homework_plugins() -> list[SubjectPlugin]:
 def homework_subject_choices() -> list[tuple[str, str]]:
     """Return ``[(slug, display_name), ...]`` for the teacher create-form subject dropdown."""
     return [(p.slug, p.display_name) for p in homework_plugins()]
+
+
+def brainbuzz_plugins() -> list[SubjectPlugin]:
+    """Return every registered plugin that participates in BrainBuzz sessions."""
+    return [p for p in all_plugins() if p.brainbuzz_subject_key]
 
 
 # ──────────────────────────────────────────────────────────────────────────────

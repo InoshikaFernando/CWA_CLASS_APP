@@ -18,6 +18,7 @@ class MathsPlugin(SubjectPlugin):
     display_name = 'Mathematics'
     order = 10
     supports_homework = True
+    brainbuzz_subject_key = 'maths'
 
     # Phase 3 — URL routing + sidebar wiring. Maths owns the plain
     # ``/maths/`` app plus the legacy ``/number-puzzles/`` mini-app that
@@ -45,6 +46,34 @@ class MathsPlugin(SubjectPlugin):
     def has_content(self, classroom=None) -> bool:
         from maths.models import Question
         return Question.objects.exists()
+
+    # ------------------------------------------------------------------
+    # BrainBuzz — flat topic/level choices for the create-session form
+    # ------------------------------------------------------------------
+
+    def brainbuzz_topic_choices(self) -> dict:
+        from classroom.models import Topic, Level
+        topics = list(
+            Topic.objects.filter(subject__slug='mathematics', subject__school__isnull=True)
+            .order_by('name')
+            .values('id', 'name')
+        )
+        # Only show levels 1-12 that have MCQ/TF/short-answer questions in maths
+        levels = list(
+            Level.objects.filter(
+                level_number__gte=1,
+                level_number__lte=12,
+                maths_questions_by_level__question_type__in=[
+                    'multiple_choice', 'true_false', 'short_answer', 'fill_blank'
+                ],
+                maths_questions_by_level__school__isnull=True,  # Global questions only
+                maths_questions_by_level__topic__subject__slug='mathematics',
+            )
+            .distinct()
+            .order_by('level_number')
+            .values('id', 'level_number')
+        )
+        return {'maths_topics': topics, 'maths_levels': levels}
 
     # ------------------------------------------------------------------
     # Homework — topic picker
@@ -128,6 +157,44 @@ class MathsPlugin(SubjectPlugin):
                     is_correct = selected_answer_obj.is_correct
                 except Answer.DoesNotExist:
                     pass
+        elif q.question_type == 'prime_factorization' and q.target_number:
+            # Order-independent: every token must be prime and product == target_number.
+            import re as _re
+            text_answer = post_data.get(f'answer_{q.id}', '').strip()
+            tokens = [t for t in _re.split(r'[x×*,\s]+', text_answer) if t]
+
+            def _is_prime(n):
+                if n < 2:
+                    return False
+                if n < 4:
+                    return True
+                if n % 2 == 0:
+                    return False
+                i = 3
+                while i * i <= n:
+                    if n % i == 0:
+                        return False
+                    i += 2
+                return True
+
+            try:
+                nums = [int(t) for t in tokens]
+                product = 1
+                for x in nums:
+                    product *= x
+                is_correct = bool(nums) and product == q.target_number and all(_is_prime(x) for x in nums)
+            except ValueError:
+                is_correct = False
+        elif q.question_type == 'long_division' and q.dividend is not None and q.divisor:
+            # Accept "12", "12 r 0", "12r0" equivalents; canonicalise both sides.
+            text_answer = post_data.get(f'answer_{q.id}', '').strip()
+            quot, rem = divmod(q.dividend, q.divisor)
+            import re as _re
+            m = _re.match(r'^\s*(-?\d+)\s*(?:r\s*(-?\d+))?\s*$', text_answer.lower())
+            if m:
+                got_q = int(m.group(1))
+                got_r = int(m.group(2)) if m.group(2) is not None else 0
+                is_correct = (got_q == quot and got_r == rem)
         else:
             text_answer = post_data.get(f'answer_{q.id}', '').strip()
             correct_answer = q.answers.filter(is_correct=True).first()
