@@ -15,7 +15,7 @@
   {% if question.image %}
   <img src="{{ question.image.url }}" alt="Question image"
        class="rounded-xl mb-4 object-contain mx-auto"
-       onload="var r=this.naturalWidth/this.naturalHeight; if(r>1.5){this.style.maxHeight='32rem';this.style.maxWidth='100%'}else if(r>1){this.style.maxHeight='24rem';this.style.maxWidth='100%'}else{this.style.maxHeight='18rem'}" />
+       onload="var r=this.naturalWidth/this.naturalHeight; if(r>1.5){this.style.maxHeight='24rem';this.style.maxWidth='100%'}else if(r>1){this.style.maxHeight='16rem'}else{this.style.maxHeight='12rem'}" />
   {% endif %}
 
   <!-- Question text -->
@@ -34,6 +34,171 @@
       </button>
       {% endfor %}
     </div>
+
+  {% elif question.question_type == 'long_division' %}
+    <p class="text-sm text-gray-500 mb-4">Fill in each quotient digit above the line, plus the final remainder.</p>
+
+    <div class="ld-wrap font-mono text-2xl leading-none mb-6 inline-block">
+      <!-- Quotient row: one input cell per dividend digit, aligned over the dividend -->
+      <div class="ld-quotient flex">
+        <span class="w-10 inline-block"></span>{# spacer matches divisor + bracket gap #}
+        <span class="w-3 inline-block"></span>
+        {% for d in question.dividend|stringformat:"d" %}
+          <input type="text" maxlength="1" inputmode="numeric"
+                 data-ld="quotient" data-pos="{{ forloop.counter0 }}"
+                 class="ld-cell w-10 h-10 text-center bg-blue-50 border-2 border-blue-200
+                        focus:border-primary focus:bg-white focus:outline-none rounded font-bold text-blue-700" />
+        {% endfor %}
+      </div>
+
+      <!-- Bar + dividend row: divisor ) dividend -->
+      <div class="ld-bar flex items-stretch mt-1">
+        <div class="w-10 inline-flex items-center justify-end pr-2 font-bold text-gray-800">{{ question.divisor }}</div>
+        <div class="ld-house relative pt-1 border-l-2 border-t-2 border-gray-800 rounded-tl-lg flex">
+          <span class="w-3 inline-block"></span>
+          {% for d in question.dividend|stringformat:"d" %}
+            <span class="w-10 h-10 inline-flex items-center justify-center font-bold text-gray-800">{{ d }}</span>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Working rows: 2 rows per subtraction step (subtract + bring-down/remainder) -->
+      {% for step in ""|center:question.long_division_step_count %}
+        {# Subtract row #}
+        <div class="ld-step flex mt-1">
+          <span class="w-10 inline-block"></span>
+          <span class="w-3 inline-block"></span>
+          {% for d in question.dividend|stringformat:"d" %}
+            <input type="text" maxlength="2" inputmode="numeric"
+                   data-ld="work" data-row="{{ forloop.parentloop.counter0 }}-sub" data-col="{{ forloop.counter0 }}"
+                   class="w-10 h-9 text-center bg-rose-50 border-2 border-rose-200
+                          focus:border-primary focus:bg-white focus:outline-none rounded text-rose-700 font-bold text-xl" />
+          {% endfor %}
+        </div>
+        {# Difference row (with subtract bar) #}
+        <div class="ld-step flex">
+          <span class="w-10 inline-block"></span>
+          <span class="w-3 inline-block"></span>
+          {% for d in question.dividend|stringformat:"d" %}
+            <input type="text" maxlength="2" inputmode="numeric"
+                   data-ld="work" data-row="{{ forloop.parentloop.counter0 }}-diff" data-col="{{ forloop.counter0 }}"
+                   class="w-10 h-9 text-center bg-emerald-50 border-2 border-emerald-200 border-t-2 border-t-gray-800
+                          focus:border-primary focus:bg-white focus:outline-none rounded text-emerald-700 font-bold text-xl" />
+          {% endfor %}
+        </div>
+      {% endfor %}
+
+      <!-- Remainder row -->
+      <div class="ld-remainder flex items-center gap-2 mt-4 pl-12 text-base">
+        <span class="text-gray-600 font-semibold">Remainder:</span>
+        <input type="text" maxlength="3" inputmode="numeric"
+               data-ld="remainder"
+               class="w-14 h-9 text-center border-2 border-gray-300 rounded
+                      focus:border-primary focus:outline-none font-bold" />
+      </div>
+    </div>
+
+    <input type="hidden" id="text-answer-input" />
+    <button type="button"
+            class="block bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition"
+            onclick="submitLongDivision('{{ session_id }}', {{ question.id }})">
+      Submit
+    </button>
+
+    <script>
+      function submitLongDivision(sessionId, questionId) {
+        const cells = [...document.querySelectorAll('[data-ld="quotient"]')];
+        const quotient = cells.map(c => c.value.trim() || '0').join('').replace(/^0+(?=\d)/, '') || '0';
+        const remainder = (document.querySelector('[data-ld="remainder"]').value.trim() || '0');
+        const answer = remainder === '0' ? quotient : quotient + ' r ' + remainder;
+        document.getElementById('text-answer-input').value = answer;
+        _submitAndAdvance(sessionId, {
+          session_id: sessionId, question_id: questionId, text_answer: answer,
+        });
+      }
+      // Auto-advance focus across quotient cells
+      document.querySelectorAll('[data-ld="quotient"]').forEach((el, i, arr) => {
+        el.addEventListener('input', e => {
+          if (el.value && i < arr.length - 1) arr[i+1].focus();
+        });
+        el.addEventListener('keydown', e => {
+          if (e.key === 'Backspace' && !el.value && i > 0) arr[i-1].focus();
+        });
+      });
+    </script>
+
+  {% elif question.question_type == 'prime_factorization' %}
+    <p class="text-sm text-gray-500 mb-4">Fill in each prime factor on the left and the resulting quotient on the right. Continue until you reach 1.</p>
+
+    <div class="pf-wrap font-mono text-2xl leading-none mb-6 inline-block">
+      {% for row in question.prime_factorization_rows %}
+        <div class="flex items-stretch border-b-2 border-gray-800">
+          {% if row.prime_input %}
+            <input type="text" maxlength="3" inputmode="numeric"
+                   data-pf="prime" data-step="{{ forloop.counter0 }}"
+                   class="w-16 h-12 text-center bg-amber-50 border-2 border-amber-200 rounded m-1
+                          focus:border-primary focus:bg-white focus:outline-none font-bold text-amber-700" />
+          {% else %}
+            <div class="w-16 h-12"></div>
+          {% endif %}
+          <div class="border-l-2 border-gray-800 w-20 h-12 flex items-center justify-center p-1">
+            {% if row.show_number %}
+              <span class="font-bold text-blue-600">{{ row.number }}</span>
+            {% else %}
+              <input type="text" maxlength="6" inputmode="numeric"
+                     data-pf="quotient" data-step="{{ forloop.counter0 }}"
+                     class="w-full h-full text-center bg-blue-50 border-2 border-blue-200 rounded
+                            focus:border-primary focus:bg-white focus:outline-none font-bold text-blue-700" />
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+
+    <!-- Live preview of the multiplication formula (read-only) -->
+    <div class="mb-4">
+      <label class="block text-xs font-semibold text-gray-500 mb-1">Your answer</label>
+      <input type="text" id="pf-preview" readonly
+             class="w-full max-w-xs rounded-xl border-2 border-gray-200 bg-gray-50 px-4 py-3
+                    text-lg font-mono font-bold text-gray-700 cursor-not-allowed select-all" />
+    </div>
+
+    <input type="hidden" id="text-answer-input" />
+    <button type="button"
+            class="block bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition"
+            onclick="submitPrimeFactorization('{{ session_id }}', {{ question.id }})">
+      Submit
+    </button>
+
+    <script>
+      (function () {
+        const primes = [...document.querySelectorAll('[data-pf="prime"]')];
+        const quotients = [...document.querySelectorAll('[data-pf="quotient"]')];
+        const preview = document.getElementById('pf-preview');
+
+        function _refreshPreview() {
+          const vals = primes.map(el => el.value.trim()).filter(Boolean);
+          preview.value = vals.join('×');
+        }
+        primes.forEach(el => el.addEventListener('input', _refreshPreview));
+
+        // Tab navigation order: prime[0] → quotient[0] → prime[1] → quotient[1] → ...
+        let t = 1;
+        primes.forEach((p, i) => {
+          p.tabIndex = t++;
+          if (i < quotients.length) quotients[i].tabIndex = t++;
+        });
+
+        window.submitPrimeFactorization = function (sessionId, questionId) {
+          const vals = primes.map(el => el.value.trim()).filter(Boolean);
+          const answer = vals.join('x');
+          document.getElementById('text-answer-input').value = answer;
+          _submitAndAdvance(sessionId, {
+            session_id: sessionId, question_id: questionId, text_answer: answer,
+          });
+        };
+      })();
+    </script>
 
   {% elif question.question_type == 'drag_drop' %}
     <p class="text-sm text-gray-500 mb-3">Drag the tiles into the correct order.</p>

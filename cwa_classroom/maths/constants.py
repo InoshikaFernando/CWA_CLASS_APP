@@ -37,14 +37,17 @@ YEAR_TOPICS_MAP = {
         ("Fractions", "fractions_questions", "Fractions"),
         ("Integers", "integers_questions", "Integers"),
         ("Place Values", "place_values_questions", "Place Values"),
+        ("Factors", "factors_questions", "Factors"),
         ("Multiplication", "multiplication_selection", "Multiplication"),
         ("Division", "division_selection", "Division"),
+        ("Long Division", "long_division_selection", "Long Division"),
     ],
     5: [
         ("Measurements", "measurements_questions", "Measurements"),
         ("BODMAS/PEMDAS", "bodmas_questions", "BODMAS/PEMDAS"),
         ("Multiplication", "multiplication_selection", "Multiplication"),
         ("Division", "division_selection", "Division"),
+        ("Long Division", "long_division_selection", "Long Division"),
     ],
     6: [
         ("Measurements", "measurements_questions", "Measurements"),
@@ -54,6 +57,7 @@ YEAR_TOPICS_MAP = {
         ("Angles", "angles_questions", "Angles"),
         ("Multiplication", "multiplication_selection", "Multiplication"),
         ("Division", "division_selection", "Division"),
+        ("Long Division", "long_division_selection", "Long Division"),
     ],
     7: [
         ("Measurements", "measurements_questions", "Measurements"),
@@ -63,6 +67,7 @@ YEAR_TOPICS_MAP = {
         ("Fractions", "fractions_questions", "Fractions"),
         ("Multiplication", "multiplication_selection", "Multiplication"),
         ("Division", "division_selection", "Division"),
+        ("Long Division", "long_division_selection", "Long Division"),
     ],
     8: [
         ("Trigonometry", "trigonometry_questions", "Trigonometry"),
@@ -71,5 +76,6 @@ YEAR_TOPICS_MAP = {
         ("Fractions", "fractions_questions", "Fractions"),
         ("Multiplication", "multiplication_selection", "Multiplication"),
         ("Division", "division_selection", "Division"),
+        ("Long Division", "long_division_selection", "Long Division"),
     ],
 }
