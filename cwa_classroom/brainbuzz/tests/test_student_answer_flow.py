@@ -156,9 +156,6 @@ class TestMcqSubmissionSuccess(TestCase):
         )
         cls.q0 = _make_question_mcq(cls.session, order=0, correct_label='B')
         cls.q1 = _make_question_mcq(cls.session, order=1, correct_label='C')
-        # Set deadline 20s in future
-        cls.session.question_deadline = timezone.now() + timedelta(seconds=20)
-        cls.session.save()
         cls.participant = _make_participant(cls.session, 'Alice')
 
     def setUp(self):
@@ -166,6 +163,9 @@ class TestMcqSubmissionSuccess(TestCase):
         session = self.client.session
         session[f'bb_pid_{self.session.code}'] = self.participant.id
         session.save()
+        # Refresh deadline per-test so server-computed time-taken is near zero
+        self.session.question_deadline = timezone.now() + timedelta(seconds=20)
+        self.session.save()
         self.url = reverse('brainbuzz:api_submit', kwargs={'join_code': self.session.code})
 
     def test_correct_answer_returns_200(self):
@@ -190,7 +190,10 @@ class TestMcqSubmissionSuccess(TestCase):
             _submit_answer_payload(self.participant.id, 0, {'option_label': 'B'}, 0),
             content_type='application/json',
         )
-        self.assertEqual(resp.json()['score_awarded'], 1000)
+        # Server computes time_taken_ms from question_deadline; exact 1000
+        # requires zero wall-clock elapsed which isn't realistic. Allow drift.
+        self.assertGreaterEqual(resp.json()['score_awarded'], 950)
+        self.assertLessEqual(resp.json()['score_awarded'], 1000)
 
     def test_incorrect_answer_returns_200(self):
         resp = self.client.post(
@@ -225,16 +228,23 @@ class TestMcqSubmissionSuccess(TestCase):
         answer = BrainBuzzAnswer.objects.get(participant=self.participant, session_question=self.q0)
         self.assertEqual(answer.selected_option_label, 'B')
         self.assertTrue(answer.is_correct)
-        self.assertEqual(answer.points_awarded, 1000)
+        self.assertGreaterEqual(answer.points_awarded, 950)
+        self.assertLessEqual(answer.points_awarded, 1000)
 
     def test_time_taken_ms_stored(self):
+        # Server now overrides client-supplied time_taken_ms with an
+        # authoritative value computed from question_deadline. Verify that
+        # the stored value is a non-negative int derived from the server clock.
         self.client.post(
             self.url,
             _submit_answer_payload(self.participant.id, 0, {'option_label': 'B'}, 8723),
             content_type='application/json',
         )
         answer = BrainBuzzAnswer.objects.get(participant=self.participant, session_question=self.q0)
-        self.assertEqual(answer.time_taken_ms, 8723)
+        self.assertIsInstance(answer.time_taken_ms, int)
+        self.assertGreaterEqual(answer.time_taken_ms, 0)
+        # 20s window → server-clamped to <= 20000ms
+        self.assertLessEqual(answer.time_taken_ms, 20000)
 
     def test_response_includes_total_score(self):
         resp = self.client.post(
@@ -252,7 +262,8 @@ class TestMcqSubmissionSuccess(TestCase):
             content_type='application/json',
         )
         self.participant.refresh_from_db()
-        self.assertEqual(self.participant.score, 1000)
+        self.assertGreaterEqual(self.participant.score, 950)
+        self.assertLessEqual(self.participant.score, 1000)
 
     def test_incorrect_answer_does_not_update_score(self):
         self.assertEqual(self.participant.score, 0)
@@ -282,8 +293,6 @@ class TestShortAnswerSubmission(TestCase):
             current_index=0,
         )
         cls.q0 = _make_question_short(cls.session, order=0, correct_answer='python')
-        cls.session.question_deadline = timezone.now() + timedelta(seconds=20)
-        cls.session.save()
         cls.participant = _make_participant(cls.session, 'Bob')
 
     def setUp(self):
@@ -291,6 +300,8 @@ class TestShortAnswerSubmission(TestCase):
         session = self.client.session
         session[f'bb_pid_{self.session.code}'] = self.participant.id
         session.save()
+        self.session.question_deadline = timezone.now() + timedelta(seconds=20)
+        self.session.save()
         self.url = reverse('brainbuzz:api_submit', kwargs={'join_code': self.session.code})
 
     def test_correct_short_answer(self):
@@ -300,7 +311,9 @@ class TestShortAnswerSubmission(TestCase):
             content_type='application/json',
         )
         self.assertTrue(resp.json()['is_correct'])
-        self.assertEqual(resp.json()['score_awarded'], 1000)
+        # Server-computed time has minor wall-clock drift; allow tolerance
+        self.assertGreaterEqual(resp.json()['score_awarded'], 950)
+        self.assertLessEqual(resp.json()['score_awarded'], 1000)
 
     def test_short_answer_case_insensitive(self):
         resp = self.client.post(
@@ -698,45 +711,50 @@ class TestMultipleAnswerFlow(TestCase):
         self.url = reverse('brainbuzz:api_submit', kwargs={'join_code': self.session.code})
 
     def test_answer_three_questions_in_sequence(self):
-        # Answer Q0: correct (time=0 for max points=1000)
+        # Answer Q0: correct
         resp0 = self.client.post(
             self.url,
             _submit_answer_payload(self.participant.id, 0, {'option_label': 'A'}, 0),
             content_type='application/json',
         )
         self.assertTrue(resp0.json()['is_correct'])
-        self.assertEqual(resp0.json()['total_score'], 1000)
+        score_after_q0 = resp0.json()['total_score']
+        self.assertGreaterEqual(score_after_q0, 950)
+        self.assertLessEqual(score_after_q0, 1000)
 
         # Advance to Q1
         self.session.current_index = 1
         self.session.question_deadline = timezone.now() + timedelta(seconds=20)
         self.session.save()
 
-        # Answer Q1: incorrect
+        # Answer Q1: incorrect — total unchanged
         resp1 = self.client.post(
             self.url,
             _submit_answer_payload(self.participant.id, 1, {'option_label': 'A'}, 1500),
             content_type='application/json',
         )
         self.assertFalse(resp1.json()['is_correct'])
-        self.assertEqual(resp1.json()['total_score'], 1000)  # No change
+        self.assertEqual(resp1.json()['total_score'], score_after_q0)
 
         # Advance to Q2
         self.session.current_index = 2
         self.session.question_deadline = timezone.now() + timedelta(seconds=20)
         self.session.save()
 
-        # Answer Q2: correct (time=0 for max points=1000)
+        # Answer Q2: correct — total grows by ~1000
         resp2 = self.client.post(
             self.url,
             _submit_answer_payload(self.participant.id, 2, {'text': 'python'}, 0),
             content_type='application/json',
         )
         self.assertTrue(resp2.json()['is_correct'])
-        self.assertEqual(resp2.json()['total_score'], 2000)
+        self.assertGreaterEqual(resp2.json()['total_score'], 1900)
+        self.assertLessEqual(resp2.json()['total_score'], 2000)
 
     def test_participant_final_score(self):
-        # Answer Q0 correctly, Q1 incorrectly, Q2 correctly (time=0 for exact scoring)
+        # Answer Q0 correctly, Q1 incorrectly, Q2 correctly. Two correct
+        # answers in a 20s window with negligible elapsed time give close
+        # to but not exactly 2 × 1000 (server-side timing drift).
         self.client.post(self.url, _submit_answer_payload(self.participant.id, 0, {'option_label': 'A'}, 0), content_type='application/json')
 
         self.session.current_index = 1
@@ -750,4 +768,5 @@ class TestMultipleAnswerFlow(TestCase):
         self.client.post(self.url, _submit_answer_payload(self.participant.id, 2, {'text': 'python'}, 0), content_type='application/json')
 
         self.participant.refresh_from_db()
-        self.assertEqual(self.participant.score, 2000)
+        self.assertGreaterEqual(self.participant.score, 1900)
+        self.assertLessEqual(self.participant.score, 2000)

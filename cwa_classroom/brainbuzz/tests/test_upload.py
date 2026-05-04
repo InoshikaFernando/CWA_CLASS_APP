@@ -71,7 +71,8 @@ class RoleDetectionTests(TestCase):
 
     def test_unauthenticated_user(self):
         """Test that unauthenticated users are guests."""
-        anonymous = User()
+        from django.contrib.auth.models import AnonymousUser
+        anonymous = AnonymousUser()
         self.assertEqual(get_user_role(anonymous), 'guest')
         self.assertFalse(can_upload_questions(anonymous))
 
