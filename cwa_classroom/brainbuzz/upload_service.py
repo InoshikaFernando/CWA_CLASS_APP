@@ -282,9 +282,15 @@ class QuestionUploadService:
         # Extract answers before saving
         answers = q_dict.pop('answers', [])
 
-        # Rename question_text to title for coding exercises
+        # Map question_text → both title (short, 200-char limit) and
+        # description (the full prompt). The BrainBuzz snapshot reads
+        # description, while CodingExercise.title is required and shown
+        # in admin lists.
         if 'question_text' in q_dict:
-            q_dict['title'] = q_dict.pop('question_text')
+            qt = q_dict.pop('question_text')
+            q_dict['description'] = qt
+            first_line = qt.splitlines()[0] if qt else ''
+            q_dict['title'] = (first_line or qt)[:200]
 
         # CodingExercise doesn't have difficulty / points / explanation /
         # level_number — those come from the upload schema and the parser.
