@@ -255,10 +255,13 @@ def _snapshot_coding_questions(session: BrainBuzzSession, topic_level_id: int, c
             {'label': chr(65 + idx), 'text': a.answer_text, 'is_correct': a.is_correct}
             for idx, a in enumerate(answers)
         ]
+        # Prefer description (the full prompt); fall back to title for
+        # records where description was left blank.
+        body = (ex.description or '').strip() or ex.title
         BrainBuzzSessionQuestion.objects.create(
             session=session,
             order=i,
-            question_text=ex.description,
+            question_text=body,
             question_type=ex.question_type if ex.question_type in dict(QUIZ_QUESTION_TYPE_CHOICES) else QUESTION_TYPE_MCQ,
             options_json=options,
             correct_short_answer=ex.correct_short_answer or None,
