@@ -4,6 +4,7 @@
 {% block content %}
 <div class="fixed inset-0 -z-10 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900"></div>
 
+{{ initial_state|json_script:"bb-initial-state" }}
 <div class="max-w-lg mx-auto py-4 px-3 space-y-4"
      x-data="bbStudent('{{ session.code }}', {{ participant.id }}, {{ participant.score }}, '{{ session.status }}')"
      x-init="init()">
@@ -397,6 +398,15 @@ function bbStudent(joinCode, participantId, initialScore, initialStatus) {
     init() {
       window.bbStudentApp = this;
       this._loadAnsweredState();
+      // Apply server-rendered initial state synchronously so the question
+      // and options render on the very first paint.
+      try {
+        const seed = document.getElementById('bb-initial-state');
+        if (seed) {
+          const data = JSON.parse(seed.textContent);
+          this._applyState(data);
+        }
+      } catch (_) {}
       this._poll();
       document.addEventListener('visibilitychange', () => {
         if (!document.hidden) {
