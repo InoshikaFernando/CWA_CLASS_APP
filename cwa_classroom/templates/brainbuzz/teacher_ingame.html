@@ -94,15 +94,6 @@
     <!-- ACTIVE controls -->
     <template x-if="status === 'active'">
       <div class="flex items-center gap-2 flex-shrink-0">
-        <button @click="revealAnswers()"
-                class="reveal-btn-glow flex items-center gap-2 bg-blue-500 hover:bg-blue-400 active:scale-95 text-white font-black px-5 py-2.5 rounded-xl text-sm transition-all duration-200 shadow-lg shadow-blue-500/30">
-          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-            <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
-          </svg>
-          Reveal
-          <span class="kbd">Space</span>
-        </button>
         <button @click="endGame()"
                 class="flex items-center gap-1.5 bg-white/8 hover:bg-red-500/20 hover:text-red-300 border border-white/10 hover:border-red-400/40 text-gray-400 font-bold px-4 py-2.5 rounded-xl text-sm transition-all duration-200">
           End
@@ -290,7 +281,7 @@
       <span x-text="`${session.questions.count} questions · {{ session.time_per_question_sec }}s each`"></span>
     </div>
     <div class="flex items-center gap-3 text-[10px] text-gray-700">
-      <span><span class="kbd">Space</span> reveal / next</span>
+      <span><span class="kbd">Space</span> next (reveal only)</span>
       <span><span class="kbd">Esc</span> end</span>
     </div>
   </footer>
@@ -328,10 +319,11 @@ function bbTeacher(joinCode, initialVersion, initialIndex, totalQuestions) {
       this.poll();
       document.addEventListener('keydown', e => {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-        if (e.code === 'Space') {
+        // Reveal-by-spacebar removed (was triggered too easily by accident).
+        // 'Next' during reveal still has its dedicated button.
+        if (e.code === 'Space' && this.status === 'reveal') {
           e.preventDefault();
-          if (this.status === 'active') this.revealAnswers();
-          else if (this.status === 'reveal') this.nextQuestion();
+          this.nextQuestion();
         }
         if (e.code === 'Escape') this.endGame();
       });
