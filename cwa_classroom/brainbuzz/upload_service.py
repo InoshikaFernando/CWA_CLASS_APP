@@ -282,9 +282,28 @@ class QuestionUploadService:
         # Extract answers before saving
         answers = q_dict.pop('answers', [])
 
-        # Rename question_text to title for coding exercises
+        # Map question_text → both title (short, 200-char limit) and
+        # description (the full prompt). The BrainBuzz snapshot reads
+        # description, while CodingExercise.title is required and shown
+        # in admin lists.
         if 'question_text' in q_dict:
-            q_dict['title'] = q_dict.pop('question_text')
+            qt = q_dict.pop('question_text')
+            q_dict['description'] = qt
+            first_line = qt.splitlines()[0] if qt else ''
+            q_dict['title'] = (first_line or qt)[:200]
+
+        # CodingExercise doesn't have difficulty / points / explanation /
+        # level_number — those come from the upload schema and the parser.
+        # Drop them so create(**q_dict) doesn't blow up. FK fields are
+        # allowed by both their bare name (topic_level) and "_id" form
+        # (topic_level_id) since the resolver writes the latter.
+        _allowed = set()
+        for f in CodingExercise._meta.get_fields():
+            if not f.is_relation or f.many_to_one or f.one_to_one:
+                _allowed.add(f.name)
+                if f.is_relation:
+                    _allowed.add(f.name + '_id')
+        q_dict = {k: v for k, v in q_dict.items() if k in _allowed}
 
         # CodingExercise doesn't have difficulty / points / explanation /
         # level_number — those come from the upload schema and the parser.

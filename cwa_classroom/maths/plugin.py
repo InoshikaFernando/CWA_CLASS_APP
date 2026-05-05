@@ -157,6 +157,44 @@ class MathsPlugin(SubjectPlugin):
                     is_correct = selected_answer_obj.is_correct
                 except Answer.DoesNotExist:
                     pass
+        elif q.question_type == 'prime_factorization' and q.target_number:
+            # Order-independent: every token must be prime and product == target_number.
+            import re as _re
+            text_answer = post_data.get(f'answer_{q.id}', '').strip()
+            tokens = [t for t in _re.split(r'[x×*,\s]+', text_answer) if t]
+
+            def _is_prime(n):
+                if n < 2:
+                    return False
+                if n < 4:
+                    return True
+                if n % 2 == 0:
+                    return False
+                i = 3
+                while i * i <= n:
+                    if n % i == 0:
+                        return False
+                    i += 2
+                return True
+
+            try:
+                nums = [int(t) for t in tokens]
+                product = 1
+                for x in nums:
+                    product *= x
+                is_correct = bool(nums) and product == q.target_number and all(_is_prime(x) for x in nums)
+            except ValueError:
+                is_correct = False
+        elif q.question_type == 'long_division' and q.dividend is not None and q.divisor:
+            # Accept "12", "12 r 0", "12r0" equivalents; canonicalise both sides.
+            text_answer = post_data.get(f'answer_{q.id}', '').strip()
+            quot, rem = divmod(q.dividend, q.divisor)
+            import re as _re
+            m = _re.match(r'^\s*(-?\d+)\s*(?:r\s*(-?\d+))?\s*$', text_answer.lower())
+            if m:
+                got_q = int(m.group(1))
+                got_r = int(m.group(2)) if m.group(2) is not None else 0
+                is_correct = (got_q == quot and got_r == rem)
         else:
             text_answer = post_data.get(f'answer_{q.id}', '').strip()
             correct_answer = q.answers.filter(is_correct=True).first()
