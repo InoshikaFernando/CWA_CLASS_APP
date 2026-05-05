@@ -3305,6 +3305,47 @@ class GlobalCodingExerciseEditView(RoleRequiredMixin, View):
         })
 
 
+class GlobalQuestionDeleteView(RoleRequiredMixin, View):
+    """Delete a single global maths question. POST-only; returns empty 200
+    so the HTMX caller can swap out the row."""
+    required_roles = [Role.ADMIN]
+
+    def post(self, request, question_id):
+        from maths.models import Question
+        question = get_object_or_404(Question, id=question_id, school__isnull=True)
+        text_preview = question.question_text[:100]
+        question.delete()
+
+        log_event(
+            user=request.user, school=None,
+            category='data_change', action='global_question_deleted',
+            detail={'question_id': question_id, 'question_text': text_preview},
+            request=request,
+        )
+        from django.http import HttpResponse
+        return HttpResponse(status=200)
+
+
+class GlobalCodingExerciseDeleteView(RoleRequiredMixin, View):
+    """Delete a single global coding exercise. POST-only."""
+    required_roles = [Role.ADMIN]
+
+    def post(self, request, exercise_id):
+        from coding.models import CodingExercise
+        exercise = get_object_or_404(CodingExercise, id=exercise_id)
+        title_preview = exercise.title[:100]
+        exercise.delete()
+
+        log_event(
+            user=request.user, school=None,
+            category='data_change', action='global_coding_exercise_deleted',
+            detail={'exercise_id': exercise_id, 'title': title_preview},
+            request=request,
+        )
+        from django.http import HttpResponse
+        return HttpResponse(status=200)
+
+
 class HtmxGlobalCodingTopicsView(RoleRequiredMixin, View):
     """HTMX: return CodingTopic <option> tags for a language."""
     required_roles = [Role.ADMIN]
