@@ -286,13 +286,30 @@ class QuestionUploadService:
         if 'question_text' in q_dict:
             q_dict['title'] = q_dict.pop('question_text')
 
+        # CodingExercise doesn't have difficulty / points / explanation /
+        # level_number — those come from the upload schema and the parser.
+        # Drop them so create(**q_dict) doesn't blow up. FK fields are
+        # allowed by both their bare name (topic_level) and "_id" form
+        # (topic_level_id) since the resolver writes the latter.
+        _allowed = set()
+        for f in CodingExercise._meta.get_fields():
+            if not f.is_relation or f.many_to_one or f.one_to_one:
+                _allowed.add(f.name)
+                if f.is_relation:
+                    _allowed.add(f.name + '_id')
+        q_dict = {k: v for k, v in q_dict.items() if k in _allowed}
+
         # Create exercise
         exercise = CodingExercise.objects.create(**q_dict)
 
-        # Create answers if present
+        # Create answers if present. CodingAnswer uses answer_text (not text).
         for answer_dict in answers:
-            answer_dict['exercise'] = exercise
-            CodingAnswer.objects.create(**answer_dict)
+            CodingAnswer.objects.create(
+                exercise=exercise,
+                answer_text=answer_dict.get('answer_text', answer_dict.get('text', '')),
+                is_correct=bool(answer_dict.get('is_correct', False)),
+                order=int(answer_dict.get('order', 0)),
+            )
 
     def _result(self, status: str) -> Dict:
         """Build and return result dict.
