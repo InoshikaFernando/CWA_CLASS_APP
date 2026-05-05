@@ -41,6 +41,33 @@
 <td class="px-4 py-3 text-gray-600 text-sm">
   <p class="line-clamp-2">{{ ex.description|default:"--" }}</p>
 </td>
+<td class="px-4 py-3 text-gray-600 text-sm">
+  {% if ex.question_type == 'short_answer' or ex.question_type == 'fill_blank' %}
+    {% if ex.correct_short_answer %}
+      <span class="inline-flex items-center gap-1 text-emerald-700 font-medium">
+        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        <span class="line-clamp-2">{{ ex.correct_short_answer }}</span>
+      </span>
+    {% else %}
+      <span class="text-gray-300">&mdash;</span>
+    {% endif %}
+  {% else %}
+    {% for ans in ex.answers.all %}
+      {% if ans.is_correct %}
+        <span class="inline-flex items-center gap-1 text-emerald-700 font-medium">
+          <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          <span class="line-clamp-2">{{ ans.answer_text }}</span>
+        </span>
+      {% endif %}
+    {% empty %}
+      <span class="text-gray-300">&mdash;</span>
+    {% endfor %}
+  {% endif %}
+</td>
 <td class="px-4 py-3">
   {% if ex.starter_code %}
     <pre class="text-xs bg-slate-50 border border-slate-200 rounded-md p-2 text-gray-700 overflow-hidden line-clamp-3 whitespace-pre-wrap font-mono">{{ ex.starter_code }}</pre>

@@ -3164,7 +3164,8 @@ class GlobalQuestionsView(RoleRequiredMixin, View):
     # Coding exercises (new)
     # ------------------------------------------------------------------
     def _render_coding(self, request, subjects, subject_id):
-        from coding.models import CodingLanguage, CodingTopic, TopicLevel, CodingExercise
+        from django.db.models import Prefetch
+        from coding.models import CodingLanguage, CodingTopic, TopicLevel, CodingExercise, CodingAnswer
 
         language_id = request.GET.get('language', '')
         topic_id = request.GET.get('topic', '')
@@ -3179,6 +3180,8 @@ class GlobalQuestionsView(RoleRequiredMixin, View):
 
         qs = CodingExercise.objects.select_related(
             'topic_level', 'topic_level__topic', 'topic_level__topic__language',
+        ).prefetch_related(
+            Prefetch('answers', queryset=CodingAnswer.objects.order_by('order', 'id')),
         )
         if language_id:
             qs = qs.filter(topic_level__topic__language_id=language_id)
@@ -3274,12 +3277,16 @@ class GlobalCodingExerciseEditView(RoleRequiredMixin, View):
         )
 
     def get(self, request, exercise_id):
+        from coding.models import CodingAnswer
         exercise = self._get_exercise(exercise_id)
+        answers = list(CodingAnswer.objects.filter(exercise=exercise).order_by('order', 'id'))
         return render(request, 'admin_dashboard/partials/coding_exercise_edit_form.html', {
             'exercise': exercise,
+            'answers': answers,
         })
 
     def post(self, request, exercise_id):
+        from coding.models import CodingAnswer
         exercise = self._get_exercise(exercise_id)
 
         exercise.title = request.POST.get('title', '').strip()
@@ -3288,10 +3295,22 @@ class GlobalCodingExerciseEditView(RoleRequiredMixin, View):
         exercise.expected_output = request.POST.get('expected_output', '')
         exercise.required_code_patterns = request.POST.get('required_code_patterns', '').strip() or None
         exercise.hints = request.POST.get('hints', '').strip()
+        exercise.correct_short_answer = request.POST.get('correct_short_answer', '').strip() or None
         exercise.save(update_fields=[
             'title', 'description', 'starter_code', 'expected_output',
-            'required_code_patterns', 'hints', 'updated_at',
+            'required_code_patterns', 'hints', 'correct_short_answer', 'updated_at',
         ])
+
+        # Update answer text + correctness for MCQ/TF rows
+        answer_ids = request.POST.getlist('answer_id')
+        for aid in answer_ids:
+            try:
+                ans = CodingAnswer.objects.get(id=int(aid), exercise=exercise)
+            except (CodingAnswer.DoesNotExist, ValueError):
+                continue
+            ans.answer_text = request.POST.get(f'answer_text_{aid}', '').strip()
+            ans.is_correct = request.POST.get(f'is_correct_{aid}') == 'on'
+            ans.save(update_fields=['answer_text', 'is_correct'])
 
         log_event(
             user=request.user, school=None,
@@ -3302,6 +3321,7 @@ class GlobalCodingExerciseEditView(RoleRequiredMixin, View):
 
         return render(request, 'admin_dashboard/partials/coding_exercise_row.html', {
             'ex': exercise,
+            'answers': list(CodingAnswer.objects.filter(exercise=exercise).order_by('order', 'id')),
         })
 
 
