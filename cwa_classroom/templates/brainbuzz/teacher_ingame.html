@@ -310,7 +310,9 @@ const TILE_ACCENT = ['#ef4444','#3b82f6','#ca8a04','#10b981'];
 
 function bbTeacher(joinCode, initialVersion, initialIndex, totalQuestions) {
   return {
-    joinCode, stateVersion: initialVersion,
+    // Start at -1 so the first poll always returns a full state payload
+    // (the server short-circuits with 304 when since == current version).
+    joinCode, stateVersion: -1,
     currentIndex: initialIndex, totalQuestions,
     status: 'active', questionText: '', options: [],
     distribution: [], countdown: 0, countdownPct: 100,
@@ -364,7 +366,7 @@ function bbTeacher(joinCode, initialVersion, initialIndex, totalQuestions) {
         const q = data.question;
         if (this.questionText !== q.question_text) {
           this.questionText = q.question_text;
-          this.options      = q.options_json || [];
+          this.options      = q.options || [];
           this.deadlineUtc  = q.question_deadline ? new Date(q.question_deadline) : null;
           this.timeLimitSec = this.deadlineUtc
             ? Math.round((this.deadlineUtc - Date.now()) / 1000)
