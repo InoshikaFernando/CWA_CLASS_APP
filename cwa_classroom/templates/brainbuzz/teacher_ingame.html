@@ -46,6 +46,7 @@
   [x-cloak] { display: none !important; }
 </style>
 
+{{ initial_state|json_script:"bb-initial-state" }}
 <div class="min-h-screen flex flex-col overflow-hidden"
      x-data="bbTeacher('{{ session.code }}', {{ session.state_version }}, {{ session.current_index }}, {{ session.questions.count }})"
      x-init="init()">
@@ -316,6 +317,15 @@ function bbTeacher(joinCode, initialVersion, initialIndex, totalQuestions) {
     tileAccent(i) { return TILE_ACCENT[i % 4]; },
 
     init() {
+      // Server-rendered initial state — apply synchronously so the question
+      // and options paint on the first render instead of after a round-trip.
+      try {
+        const seed = document.getElementById('bb-initial-state');
+        if (seed) {
+          const data = JSON.parse(seed.textContent);
+          this.applyState(data);
+        }
+      } catch (_) {}
       this.poll();
       document.addEventListener('keydown', e => {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
@@ -338,8 +348,11 @@ function bbTeacher(joinCode, initialVersion, initialIndex, totalQuestions) {
         }
         this.errCount = 0;
       } catch (_) { this.errCount = Math.min(this.errCount + 1, 6); }
-      const delay = Math.min(1500 * Math.pow(1.5, this.errCount), 20000);
-      this.pollTimer = setTimeout(() => this.poll(), delay);
+      // Normal cadence 800ms (matches student); back off exponentially on
+      // errors up to 20s. The state endpoint short-circuits with 304 when
+      // nothing has changed, so the cost of frequent polls is small.
+      const base = this.errCount === 0 ? 800 : Math.min(800 * Math.pow(1.5, this.errCount), 20000);
+      this.pollTimer = setTimeout(() => this.poll(), base);
     },
 
     applyState(data) {
