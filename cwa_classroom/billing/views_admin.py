@@ -1225,7 +1225,7 @@ class CouponCodeListView(SuperuserRequiredMixin, View):
 
         codes = []
 
-        for dc in InstituteDiscountCode.objects.all():
+        for dc in InstituteDiscountCode.objects.prefetch_related('applicable_plans', 'applicable_modules').all():
             plans = list(dc.applicable_plans.values_list('name', flat=True))
             modules = list(dc.applicable_modules.values_list('name', flat=True))
             products = plans + modules
@@ -1243,7 +1243,7 @@ class CouponCodeListView(SuperuserRequiredMixin, View):
                 'toggle_url': reverse('billing_admin_discount_toggle', args=[dc.pk]),
             })
 
-        for promo in PromoCode.objects.all():
+        for promo in PromoCode.objects.prefetch_related('applicable_packages').all():
             pkgs = list(promo.applicable_packages.values_list('name', flat=True))
             codes.append({
                 'id': promo.pk, 'type': 'student_promo', 'type_label': 'Student Promo',
@@ -1259,7 +1259,7 @@ class CouponCodeListView(SuperuserRequiredMixin, View):
                 'toggle_url': reverse('billing_admin_promo_toggle', args=[promo.pk]),
             })
 
-        for dc in DiscountCode.objects.all():
+        for dc in DiscountCode.objects.prefetch_related('applicable_packages').all():
             pkgs = list(dc.applicable_packages.values_list('name', flat=True))
             codes.append({
                 'id': dc.pk, 'type': 'student_discount', 'type_label': 'Student Billing',

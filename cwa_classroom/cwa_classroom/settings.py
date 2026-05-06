@@ -128,6 +128,7 @@ QUALITY_MAX_PENALTY = float(os.environ.get('QUALITY_MAX_PENALTY', '0.30'))
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'cwa_classroom.middleware.MathsRoomRedirectMiddleware',    # mathsroom → /maths/ redirect
     'cwa_classroom.middleware.SubdomainURLRoutingMiddleware',  # subdomain → urlconf routing
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -203,6 +204,19 @@ elif _DB_ENGINE == 'postgres':
         },
     }
 else:
+    _mysql_options = {
+        'charset': 'utf8mb4',
+        'init_command': (
+            "SET sql_mode='STRICT_TRANS_TABLES',"
+            " innodb_lock_wait_timeout=300"
+        ),
+    }
+
+    # TLS for DigitalOcean Managed MySQL — set DB_SSL_CA to the CA cert path
+    _db_ssl_ca = os.environ.get('DB_SSL_CA', '')
+    if _db_ssl_ca:
+        _mysql_options['ssl'] = {'ca': _db_ssl_ca}
+
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.mysql',
@@ -211,20 +225,9 @@ else:
             'PASSWORD': os.environ.get('DB_PASSWORD', ''),
             'HOST': os.environ.get('DB_HOST', '127.0.0.1'),
             'PORT': os.environ.get('DB_PORT', '3306'),
-            'OPTIONS': {
-                'charset': 'utf8mb4',
-                # innodb_lock_wait_timeout: raise from default 50 s to 300 s so
-                # that the structure phase of a large student import (which runs
-                # in a single transaction) is not killed by the server default.
-                # Student/guardian rows are committed in batches so their
-                # individual transactions stay well under this threshold.
-                'init_command': (
-                    "SET sql_mode='STRICT_TRANS_TABLES',"
-                    " innodb_lock_wait_timeout=300"
-                ),
-            },
+            'OPTIONS': _mysql_options,
             'TEST': {
-                'SERIALIZE': False,  # Faster with --keepdb
+                'SERIALIZE': False,
             },
         },
 
@@ -299,23 +302,42 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 
 # ---------------------------------------------------------------------------
-# Media files — local dev vs S3 production
+# Media files — local dev vs S3/Spaces production
 # ---------------------------------------------------------------------------
+# Works with both AWS S3 and DigitalOcean Spaces (S3-compatible).
+# For DO Spaces, set:
+#   AWS_S3_ENDPOINT_URL=https://syd1.digitaloceanspaces.com
+#   AWS_S3_CUSTOM_DOMAIN=cwa-media-prod.syd1.digitaloceanspaces.com
 
 USE_S3 = os.environ.get('USE_S3', 'False') == 'True'
 
+STORAGES = {
+    'staticfiles': {
+        'BACKEND': (
+            'django.contrib.staticfiles.storage.StaticFilesStorage'
+            if DEBUG
+            else 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+        ),
+    },
+}
+
 if USE_S3:
-    # AWS settings
     AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID')
     AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
     AWS_STORAGE_BUCKET_NAME = os.environ.get('AWS_STORAGE_BUCKET_NAME')
     AWS_S3_REGION_NAME = os.environ.get('AWS_S3_REGION_NAME', 'ap-southeast-2')
-    AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com'
+    AWS_S3_ENDPOINT_URL = os.environ.get('AWS_S3_ENDPOINT_URL', '')
+    AWS_S3_CUSTOM_DOMAIN = os.environ.get(
+        'AWS_S3_CUSTOM_DOMAIN',
+        f'{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com',
+    )
     AWS_DEFAULT_ACL = 'public-read'
     AWS_S3_OBJECT_PARAMETERS = {'CacheControl': 'max-age=86400'}
     AWS_S3_FILE_OVERWRITE = False
 
-    DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+    STORAGES['default'] = {
+        'BACKEND': 'storages.backends.s3boto3.S3Boto3Storage',
+    }
     MEDIA_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/media/'
 else:
     MEDIA_URL = '/media/'
@@ -377,12 +399,28 @@ QUIZ_RECENT_RESULT_WINDOW_SECONDS = 30
 
 
 # ---------------------------------------------------------------------------
+# Caching — Redis when available, LocMem fallback for dev/PA
+# ---------------------------------------------------------------------------
+
+REDIS_URL = os.environ.get('REDIS_URL', '')
+
+if REDIS_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
+        },
+    }
+    SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
+else:
+    SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+
+# ---------------------------------------------------------------------------
 # Sessions — harden cookie & limit session size
 # ---------------------------------------------------------------------------
 
-SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 SESSION_COOKIE_AGE = 60 * 60 * 24 * 7          # 1 week (default is 2 weeks)
-SESSION_SAVE_EVERY_REQUEST = True               # refresh expiry on every request
+SESSION_SAVE_EVERY_REQUEST = False
 SESSION_COOKIE_HTTPONLY = True                   # JS cannot read session cookie
 SESSION_COOKIE_SAMESITE = 'Lax'                 # mitigate CSRF via cross-site requests
 SESSION_COOKIE_SECURE = not DEBUG               # HTTPS-only in production

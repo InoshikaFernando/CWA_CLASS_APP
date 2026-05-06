@@ -457,6 +457,9 @@ class SchoolTeacher(models.Model):
     class Meta:
         unique_together = ('school', 'teacher')
         ordering = ['school', 'role', 'teacher']
+        indexes = [
+            models.Index(fields=['school', 'is_active']),
+        ]
 
     def __str__(self):
         return f'{self.teacher.username} @ {self.school.name} ({self.get_role_display()})'
@@ -531,6 +534,9 @@ class Department(models.Model):
     class Meta:
         unique_together = ('school', 'slug')
         ordering = ['school', 'name']
+        indexes = [
+            models.Index(fields=['school', 'is_active']),
+        ]
 
     def __str__(self):
         return f'{self.name} — {self.school.name}'
@@ -995,6 +1001,9 @@ class ClassStudent(models.Model):
 
     class Meta:
         unique_together = ('classroom', 'student')
+        indexes = [
+            models.Index(fields=['classroom', 'is_active']),
+        ]
 
     def __str__(self):
         return f'{self.student.username} → {self.classroom.name}'
@@ -1030,6 +1039,9 @@ class SchoolStudent(models.Model):
     class Meta:
         unique_together = ('school', 'student')
         ordering = ['student__first_name', 'student__last_name']
+        indexes = [
+            models.Index(fields=['school', 'is_active']),
+        ]
 
     def save(self, *args, **kwargs):
         if not self.student_id_code:
@@ -1149,6 +1161,9 @@ class ClassSession(models.Model):
 
     class Meta:
         ordering = ['date', 'start_time']
+        indexes = [
+            models.Index(fields=['classroom', 'status']),
+        ]
 
     def __str__(self):
         return f'{self.classroom.name} — {self.date} {self.start_time}'
@@ -1186,6 +1201,9 @@ class Enrollment(models.Model):
     class Meta:
         unique_together = ('classroom', 'student')
         ordering = ['-requested_at']
+        indexes = [
+            models.Index(fields=['classroom', 'status']),
+        ]
 
     def __str__(self):
         return f'{self.student.username} → {self.classroom.name} ({self.status})'
@@ -1469,6 +1487,9 @@ class Notification(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'is_read']),
+        ]
 
     def __str__(self):
         return f'{self.user.username} — {self.notification_type} ({self.created_at:%Y-%m-%d})'
@@ -1925,6 +1946,9 @@ class Invoice(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['school', 'status']),
+        ]
 
     def __str__(self):
         return f'{self.invoice_number} — {self.student} (${self.amount})'
