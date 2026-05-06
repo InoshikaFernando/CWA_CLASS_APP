@@ -185,7 +185,7 @@ def get_all_schools_for_user(user):
         .values_list('school_id', flat=True)
     )
 
-    return School.objects.filter(id__in=school_ids, is_active=True)
+    return School.objects.filter(id__in=school_ids, is_active=True).select_related('subscription')
 
 
 def any_school_has_active_subscription(user):

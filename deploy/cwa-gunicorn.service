@@ -1,0 +1,25 @@
+[Unit]
+Description=CWA Classroom gunicorn daemon
+After=network.target
+
+[Service]
+User=cwa
+Group=cwa
+WorkingDirectory=/home/cwa/CWA_CLASS_APP/cwa_classroom
+EnvironmentFile=/etc/cwa/cwa.env
+ExecStart=/home/cwa/CWA_CLASS_APP/venv/bin/gunicorn \
+    cwa_classroom.wsgi:application \
+    --bind unix:/run/cwa/gunicorn.sock \
+    --workers 3 \
+    --timeout 120 \
+    --max-requests 1000 \
+    --max-requests-jitter 50 \
+    --access-logfile /var/log/cwa/gunicorn-access.log \
+    --error-logfile /var/log/cwa/gunicorn-error.log
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+RuntimeDirectory=cwa
+
+[Install]
+WantedBy=multi-user.target
