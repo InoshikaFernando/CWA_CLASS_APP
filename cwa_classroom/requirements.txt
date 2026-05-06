@@ -14,3 +14,4 @@ markdown==3.7
 requests>=2.31.0
 whitenoise>=6.5.0
 qrcode[pil]>=7.4.2
+gunicorn>=22.0.0
