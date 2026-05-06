@@ -268,10 +268,17 @@ def _snapshot_coding_questions(session: BrainBuzzSession, topic_level_id: int, c
         'fill_blank':      QUESTION_TYPE_FILL_BLANK,
     }
 
+    # BrainBuzz currently only renders multiple-choice cleanly across all
+    # devices, so restrict the pool to MCQ rows. (Short-answer / fill-blank
+    # rendering has had recurring issues on the student client; true_false
+    # works but is excluded here to keep the experience uniform.)
     qs = (
         CodingExercise.objects
-        .filter(topic_level_id=topic_level_id, is_active=True)
-        .exclude(question_type=WRITE_CODE)
+        .filter(
+            topic_level_id=topic_level_id,
+            is_active=True,
+            question_type='multiple_choice',
+        )
         .order_by('?')[:count]
     )
     for i, ex in enumerate(qs):

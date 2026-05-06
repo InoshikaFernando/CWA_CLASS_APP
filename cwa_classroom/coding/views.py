@@ -221,7 +221,15 @@ def level_list(request, lang_slug, topic_slug):
 
     level_data = []
     for level in levels:
-        exercises = CodingExercise.objects.filter(topic_level__topic=topic, topic_level__level_choice=level, is_active=True)
+        # Only show write_code exercises in the student-facing coding pages.
+    # MCQ rows uploaded for BrainBuzz live in the same table but aren't
+    # standalone coding practice (they'd ask for an output instead of code).
+    exercises = CodingExercise.objects.filter(
+        topic_level__topic=topic,
+        topic_level__level_choice=level,
+        is_active=True,
+        question_type='write_code',
+    )
         total = exercises.count()
         completed_ids = StudentExerciseSubmission.objects.filter(
             student=request.user,
@@ -276,7 +284,15 @@ def exercise_list(request, lang_slug, topic_slug, level):
         from django.http import Http404
         raise Http404("Invalid level")
 
-    exercises = CodingExercise.objects.filter(topic_level__topic=topic, topic_level__level_choice=level, is_active=True)
+    # Only show write_code exercises in the student-facing coding pages.
+    # MCQ rows uploaded for BrainBuzz live in the same table but aren't
+    # standalone coding practice (they'd ask for an output instead of code).
+    exercises = CodingExercise.objects.filter(
+        topic_level__topic=topic,
+        topic_level__level_choice=level,
+        is_active=True,
+        question_type='write_code',
+    )
 
     # Mark which exercises this student has completed
     completed_ids = set(
@@ -423,7 +439,11 @@ def dashboard(request, lang_slug):
     language = _get_language_or_404(lang_slug)
     topics = CodingTopic.objects.filter(language=language, is_active=True)
 
-    exercises = CodingExercise.objects.filter(topic_level__topic__in=topics, is_active=True)
+    # Dashboard progress should only count actual coding (write_code)
+    # exercises, not MCQ rows uploaded for BrainBuzz.
+    exercises = CodingExercise.objects.filter(
+        topic_level__topic__in=topics, is_active=True, question_type='write_code',
+    )
     completed_exercise_ids = set(
         StudentExerciseSubmission.objects.filter(
             student=request.user,
