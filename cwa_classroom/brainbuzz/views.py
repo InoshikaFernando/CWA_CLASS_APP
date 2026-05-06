@@ -155,6 +155,7 @@ def _session_state_payload(session: BrainBuzzSession) -> dict:
             'question_text': current_q.question_text,
             'question_type': current_q.question_type,
             'options': current_q.options_json,
+            'time_limit_sec': current_q.time_limit_sec,
             'question_deadline': (
                 session.question_deadline.isoformat()
                 if session.question_deadline else None
@@ -162,7 +163,7 @@ def _session_state_payload(session: BrainBuzzSession) -> dict:
         }
 
     participants = list(
-        session.participants.order_by('-score', 'joined_at').values('id', 'nickname', 'score')
+        session.participants.order_by('-score', 'joined_at').values('id', 'nickname', 'score', 'avatar')
     )
 
     answers_received = 0
@@ -210,6 +211,7 @@ def _snapshot_maths_questions(session: BrainBuzzSession, topic_id: int, level_id
             question_type=q.question_type if q.question_type in dict(QUIZ_QUESTION_TYPE_CHOICES) else QUESTION_TYPE_MCQ,
             options_json=options,
             correct_short_answer=None,
+            time_limit_sec=session.time_per_question_sec,
             points_base=1000,
             source_model='MathsQuestion',
             source_id=q.id,
@@ -232,6 +234,7 @@ def _snapshot_quiz_questions(session: BrainBuzzSession, quiz) -> None:
             question_type=q.question_type if q.question_type in dict(QUIZ_QUESTION_TYPE_CHOICES) else QUESTION_TYPE_MCQ,
             options_json=options,
             correct_short_answer=q.correct_short_answer or None,
+            time_limit_sec=max(5, min(120, q.time_limit)),
             points_base=1000,
             source_model='BrainBuzzQuizQuestion',
             source_id=q.id,
@@ -265,6 +268,7 @@ def _snapshot_coding_questions(session: BrainBuzzSession, topic_level_id: int, c
             question_type=ex.question_type if ex.question_type in dict(QUIZ_QUESTION_TYPE_CHOICES) else QUESTION_TYPE_MCQ,
             options_json=options,
             correct_short_answer=ex.correct_short_answer or None,
+            time_limit_sec=session.time_per_question_sec,
             points_base=1000,
             source_model='CodingExercise',
             source_id=ex.id,
@@ -764,7 +768,7 @@ def api_teacher_action(request, join_code):
                 return JsonResponse({'error': 'At least 1 participant must join before starting'}, status=400)
             session.status = BrainBuzzSession.STATUS_ACTIVE
             session.current_index = 0
-            session.question_deadline = timezone.now() + timedelta(seconds=session.time_per_question_sec)
+            session.question_deadline = timezone.now() + timedelta(seconds=first_q.time_limit_sec)
             session.started_at = timezone.now()
             session.state_version += 1
             session.save()
@@ -799,7 +803,7 @@ def api_teacher_action(request, join_code):
             else:
                 session.status = BrainBuzzSession.STATUS_ACTIVE
                 session.current_index = next_index
-                session.question_deadline = timezone.now() + timedelta(seconds=session.time_per_question_sec)
+                session.question_deadline = timezone.now() + timedelta(seconds=next_q.time_limit_sec)
                 session.state_version += 1
                 session.save()
 
@@ -839,6 +843,9 @@ def api_join(request):
 
     code = body.get('code', '').strip().upper()
     nickname_raw = body.get('nickname', '').strip()
+    avatar_raw = body.get('avatar', '').strip()
+    if avatar_raw not in BrainBuzzParticipant.AVATAR_CHOICES:
+        avatar_raw = BrainBuzzParticipant.AVATAR_CHOICES[0]
 
     if not code:
         return JsonResponse({'error': 'Game code is required.'}, status=400)
@@ -878,6 +885,7 @@ def api_join(request):
         session=session,
         student=user,
         nickname=resolved_nickname,
+        avatar=avatar_raw,
     )
 
     # Bump state_version so the teacher's versioned poll detects the new
@@ -889,6 +897,7 @@ def api_join(request):
     return JsonResponse({
         'participant_id': participant.id,
         'nickname': resolved_nickname,
+        'avatar': participant.avatar,
         'code': code,
         'redirect_url': f'/brainbuzz/play/{code}/',
     })
@@ -925,16 +934,6 @@ def api_submit(request, join_code):
     question_index = body.get('question_index')
     answer_payload = body.get('answer_payload', {})
 
-    # Compute time_taken_ms server-side from question_deadline to prevent
-    # clients sending time_taken_ms=0 for max points.
-    now = timezone.now()
-    if session.question_deadline is not None:
-        question_start = session.question_deadline - timedelta(seconds=session.time_per_question_sec)
-        server_ms = int((now - question_start).total_seconds() * 1000)
-        time_taken_ms = max(0, min(server_ms, session.time_per_question_sec * 1000))
-    else:
-        time_taken_ms = 0
-
     if question_index != session.current_index:
         return JsonResponse({'error': 'Wrong question index — this question is no longer active'}, status=409)
 
@@ -943,6 +942,17 @@ def api_submit(request, join_code):
         session=session,
         order=question_index,
     )
+
+    # Compute time_taken_ms server-side from question_deadline to prevent
+    # clients sending time_taken_ms=0 for max points.
+    now = timezone.now()
+    q_limit = session_question.time_limit_sec
+    if session.question_deadline is not None:
+        question_start = session.question_deadline - timedelta(seconds=q_limit)
+        server_ms = int((now - question_start).total_seconds() * 1000)
+        time_taken_ms = max(0, min(server_ms, q_limit * 1000))
+    else:
+        time_taken_ms = 0
 
     grace_period_ms = 500
     is_on_time = session.question_deadline is None or (
@@ -986,7 +996,7 @@ def api_submit(request, join_code):
     points_awarded = calculate_points(
         is_correct=is_correct,
         time_taken_ms=time_taken_ms,
-        time_per_question_sec=session.time_per_question_sec,
+        time_per_question_sec=q_limit,
         points_base=session_question.points_base,
         is_late=is_late
     )

@@ -142,6 +142,24 @@
         </div>
         {% endif %}
 
+        <!-- Avatar picker -->
+        <div class="space-y-3">
+          <p class="text-sm font-bold text-gray-800">Pick your avatar</p>
+          <div class="grid grid-cols-6 gap-2">
+            <template x-for="emoji in avatarOptions" :key="emoji">
+              <button type="button"
+                      @click="selectedAvatar = emoji"
+                      :aria-label="`Select avatar ${emoji}`"
+                      :aria-pressed="selectedAvatar === emoji"
+                      :class="selectedAvatar === emoji
+                        ? 'ring-4 ring-blue-500 bg-blue-50 scale-110 shadow-lg'
+                        : 'ring-2 ring-gray-200 bg-white hover:ring-blue-300 hover:scale-105'"
+                      class="aspect-square rounded-2xl text-3xl flex items-center justify-center transition-all duration-150 active:scale-95"
+                      x-text="emoji"></button>
+            </template>
+          </div>
+        </div>
+
         <form @submit.prevent="submitJoin()" class="space-y-5">
           <div class="space-y-2">
             <label class="block text-sm font-bold text-gray-800" for="nickname-input">
@@ -211,10 +229,10 @@
             <div class="absolute inset-0 w-28 h-28 rounded-full opacity-30 blur-xl animate-pulse"
                  :style="`background-color: ${avatarColor}`"
                  aria-hidden="true"></div>
-            <div class="relative w-28 h-28 rounded-full flex items-center justify-center text-white text-5xl font-black shadow-2xl"
-                 :style="`background: linear-gradient(135deg, ${avatarColor}, ${avatarColor}dd)`"
+            <div class="relative w-28 h-28 rounded-full flex items-center justify-center text-6xl shadow-2xl bg-white border-4"
+                 :style="`border-color: ${avatarColor}`"
                  aria-hidden="true"
-                 x-text="avatarInitial"></div>
+                 x-text="selectedAvatar"></div>
           </div>
           <div class="space-y-2">
             <p class="font-black text-gray-900 text-2xl" x-text="resolvedNickname"></p>
@@ -235,6 +253,19 @@
             <p class="text-sm font-semibold text-gray-600 bg-white px-3 py-2 rounded-lg border border-blue-200"
                x-text="participantCount === 1 ? '👤 1 player in the lobby' : `👥 ${participantCount} players in the lobby`"
                aria-live="polite"></p>
+          </div>
+
+          <!-- Music toggle -->
+          <div class="flex justify-center">
+            <button @click="toggleMusic()"
+                    :aria-label="musicMuted ? 'Unmute background music' : 'Mute background music'"
+                    class="flex items-center gap-2 text-xs font-semibold px-4 py-2 rounded-full border-2 transition-all duration-200 hover:scale-105 active:scale-95"
+                    :class="musicMuted
+                      ? 'border-gray-300 text-gray-400 bg-white hover:border-gray-400'
+                      : 'border-blue-300 text-blue-600 bg-white hover:border-blue-400 shadow-sm shadow-blue-100'">
+              <span x-text="musicMuted ? '🔇' : '🎵'" class="text-base"></span>
+              <span x-text="musicMuted ? 'Music off' : 'Music on'"></span>
+            </button>
           </div>
         </div>
 
@@ -292,6 +323,110 @@ const _BB_AVATAR_COLORS = [
   '#3b82f6', '#a855f7', '#ec4899', '#14b8a6',
 ];
 
+const _BB_AVATARS = ['🦁','🐯','🦊','🐻','🐼','🦄','🐸','🐧','🦋','🚀','⚡','🌟'];
+
+// ---------------------------------------------------------------------------
+// BrainBuzz Lobby Music Engine — Web Audio API, no files required.
+// Generates an upbeat looping melody in C major pentatonic at 124 BPM.
+// ---------------------------------------------------------------------------
+function _bbMusicEngine() {
+  const BPM    = 124;
+  const BEAT   = 60 / BPM;
+  // C major pentatonic: C4 D4 E4 G4 A4 C5 E5 G5 A5
+  const P = [261.63, 293.66, 329.63, 392.00, 440.00, 523.25, 659.25, 783.99, 880.00];
+  // Bass roots: C3 G3 A3 F3
+  const B = [130.81, 196.00, 220.00, 174.61];
+
+  // Melody pattern: [beat_offset, penta_idx, duration_in_beats]
+  const MELODY = [
+    [0,   4, 0.45], [0.5, 5, 0.45], [1,   6, 0.45], [1.5, 7, 0.9 ],
+    [2.5, 6, 0.45], [3,   5, 0.45], [3.5, 4, 0.45],
+    [4,   2, 0.45], [4.5, 4, 0.45], [5,   5, 0.45], [5.5, 6, 0.9 ],
+    [6.5, 4, 0.45], [7,   2, 0.45], [7.5, 1, 0.9 ],
+  ];
+  // Bass pattern: [beat_offset, bass_idx, duration_in_beats]
+  const BASS = [
+    [0, 0, 0.8], [2, 1, 0.8], [4, 0, 0.8], [6, 2, 0.8],
+  ];
+  const BAR_BEATS = 8;
+
+  let ctx, master, active = false, muted = false, loopAt = 0, loopTimer = null;
+
+  function _note(freq, t, dur, vol, type) {
+    const osc = ctx.createOscillator();
+    const g   = ctx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    g.gain.setValueAtTime(0.001, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.03);
+    g.gain.setValueAtTime(vol, t + dur * 0.65);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    osc.connect(g);
+    g.connect(master);
+    osc.start(t);
+    osc.stop(t + dur + 0.05);
+  }
+
+  function _kick(t) {
+    const osc = ctx.createOscillator();
+    const g   = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(110, t);
+    osc.frequency.exponentialRampToValueAtTime(35, t + 0.18);
+    g.gain.setValueAtTime(0.35, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+    osc.connect(g);
+    g.connect(master);
+    osc.start(t);
+    osc.stop(t + 0.22);
+  }
+
+  function _scheduleBar(startT) {
+    for (const [b, pi, d] of MELODY) _note(P[pi], startT + b * BEAT, d * BEAT, 0.11, 'sine');
+    for (const [b, bi, d] of BASS)   _note(B[bi], startT + b * BEAT, d * BEAT, 0.09, 'triangle');
+    // Kick on beats 0, 2, 4, 6
+    for (const b of [0, 2, 4, 6]) _kick(startT + b * BEAT);
+  }
+
+  function _loop() {
+    if (!active) return;
+    _scheduleBar(loopAt);
+    loopAt += BAR_BEATS * BEAT;
+    const msAhead = (loopAt - ctx.currentTime) * 1000 - 150;
+    loopTimer = setTimeout(_loop, Math.max(50, msAhead));
+  }
+
+  return {
+    muted: false,
+
+    start() {
+      if (active) return;
+      ctx    = new (window.AudioContext || window.webkitAudioContext)();
+      master = ctx.createGain();
+      master.gain.value = 0.28;
+      master.connect(ctx.destination);
+      active = true;
+      loopAt = ctx.currentTime + 0.05;
+      _loop();
+    },
+
+    stop() {
+      active = false;
+      clearTimeout(loopTimer);
+      try { ctx && ctx.close(); } catch (_) {}
+      ctx = master = null;
+    },
+
+    toggleMute() {
+      this.muted = !this.muted;
+      if (master && ctx) {
+        master.gain.setTargetAtTime(this.muted ? 0 : 0.28, ctx.currentTime, 0.08);
+      }
+      return this.muted;
+    },
+  };
+}
+
 function bbJoinFlow(prefillCode, userFirstName, isAuthenticated) {
   return {
     /* state */
@@ -302,6 +437,8 @@ function bbJoinFlow(prefillCode, userFirstName, isAuthenticated) {
     participantId: null,
     resolvedNickname: '',
     avatarColor: '',
+    selectedAvatar: _BB_AVATARS[0],
+    avatarOptions: _BB_AVATARS,
     participantCount: 0,
     stateVersion: -1,
     loading: false,
@@ -310,22 +447,38 @@ function bbJoinFlow(prefillCode, userFirstName, isAuthenticated) {
     networkError: false,
     errCount: 0,
     pollTimer: null,
+    musicMuted: false,
+    _music: null,
 
-    get avatarInitial() {
-      return (this.resolvedNickname || this.nickname || '?').charAt(0).toUpperCase();
+    toggleMusic() {
+      if (!this._music) return;
+      this.musicMuted = this._music.toggleMute();
+    },
+
+    _startMusic() {
+      if (!this._music) this._music = _bbMusicEngine();
+      this._music.start();
+    },
+
+    _stopMusic() {
+      if (this._music) { this._music.stop(); this._music = null; }
     },
 
     init() {
+      window.addEventListener('beforeunload', () => this._stopMusic());
+
       // 1. Check localStorage for an existing session token
       if (this.code.length === 6) {
         const stored = this._loadToken(this.code);
         if (stored) {
           this.participantId    = stored.participant_id;
           this.resolvedNickname = stored.nickname;
+          this.selectedAvatar   = stored.avatar || _BB_AVATARS[0];
           this.avatarColor      = stored.avatar_color;
           this.step = 'lobby';
           this._announce('You rejoined the lobby. Waiting for host to start.');
           this._startPolling();
+          this._startMusic();
           return;
         }
       }
@@ -417,18 +570,20 @@ function bbJoinFlow(prefillCode, userFirstName, isAuthenticated) {
         const res = await fetch('/brainbuzz/api/join/', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
-          body: JSON.stringify({ code: this.code, nickname: nick }),
+          body: JSON.stringify({ code: this.code, nickname: nick, avatar: this.selectedAvatar }),
         });
         const data = await res.json();
 
         if (res.ok) {
           this.participantId    = data.participant_id;
           this.resolvedNickname = data.nickname;
+          this.selectedAvatar   = data.avatar || this.selectedAvatar;
           this.avatarColor      = _BB_AVATAR_COLORS[data.participant_id % _BB_AVATAR_COLORS.length];
           this._saveToken();
           this.step = 'lobby';
           this._announce('You joined! Waiting for host to start.');
           this._startPolling();
+          this._startMusic();
         } else {
           this.step = this.step === 'joining' ? 'nickname' : this.step;
           this.error = data.error || 'Something went wrong. Try again.';
@@ -444,6 +599,7 @@ function bbJoinFlow(prefillCode, userFirstName, isAuthenticated) {
 
     goBack() {
       clearTimeout(this.pollTimer);
+      this._stopMusic();
       this.step = 'code';
       this.error = '';
       this.nicknameError = '';
@@ -470,12 +626,14 @@ function bbJoinFlow(prefillCode, userFirstName, isAuthenticated) {
 
           const s = data.status;
           if (s === 'active' || s === 'reveal' || s === 'between') {
-            // Game started — hand off to the play page
+            // Game started — fade out music then hand off to the play page
+            this._stopMusic();
             this._clearToken();
             window.location.href = `/brainbuzz/play/${this.code}/`;
             return;
           }
           if (s === 'finished' || s === 'cancelled') {
+            this._stopMusic();
             this.step = 'ended';
             this._clearToken();
             this._announce('This game has ended.');
@@ -500,6 +658,7 @@ function bbJoinFlow(prefillCode, userFirstName, isAuthenticated) {
           code:           this.code,
           participant_id: this.participantId,
           nickname:       this.resolvedNickname,
+          avatar:         this.selectedAvatar,
           avatar_color:   this.avatarColor,
           saved_at:       Date.now(),
         }));

@@ -279,7 +279,7 @@
       <span>·</span>
       <span class="font-mono">{{ session.code }}</span>
       <span>·</span>
-      <span x-text="`${session.questions.count} questions · {{ session.time_per_question_sec }}s each`"></span>
+      <span>{{ session.questions.count }} questions · <span x-text="`${timeLimitSec}s`">{{ session.time_per_question_sec }}s</span> this question</span>
     </div>
     <div class="flex items-center gap-3 text-[10px] text-gray-700">
       <span><span class="kbd">Space</span> next (reveal only)</span>
@@ -373,9 +373,7 @@ function bbTeacher(joinCode, initialVersion, initialIndex, totalQuestions) {
           this.questionText = q.question_text;
           this.options      = q.options || [];
           this.deadlineUtc  = q.question_deadline ? new Date(q.question_deadline) : null;
-          this.timeLimitSec = this.deadlineUtc
-            ? Math.round((this.deadlineUtc - Date.now()) / 1000)
-            : 20;
+          this.timeLimitSec = q.time_limit_sec || 20;
           this.startCountdown();
         }
         this.distribution = data.answer_distribution || [];
