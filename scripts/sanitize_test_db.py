@@ -76,7 +76,7 @@ from billing.models import (
     InstitutePlan, SchoolSubscription, ModuleProduct,
     ModuleSubscription, Subscription,
 )
-from classroom.models import Department, ClassRoom, School, InvoiceStripePayment
+from classroom.models import Department, ClassRoom, School
 
 Payment.objects.all().update(stripe_payment_intent_id='', stripe_checkout_session_id='')
 Package.objects.all().update(stripe_price_id='')
@@ -87,7 +87,6 @@ SchoolSubscription.objects.all().update(stripe_subscription_id='', stripe_custom
 ModuleProduct.objects.all().update(stripe_price_id='')
 ModuleSubscription.objects.all().update(stripe_subscription_item_id='')
 Subscription.objects.all().update(stripe_subscription_id='', stripe_customer_id='')
-InvoiceStripePayment.objects.all().update(stripe_checkout_session_id='')
 Department.objects.all().update(stripe_payment_link='')
 ClassRoom.objects.all().update(stripe_payment_link='')
 School.objects.all().update(stripe_payment_link='')
