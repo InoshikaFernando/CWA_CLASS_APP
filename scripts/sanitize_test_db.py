@@ -24,9 +24,9 @@ import sys
 
 # ── Guard: refuse to run against prod ────────────────────────────────────────
 db_name = os.environ.get('DB_NAME', '')
-if db_name and 'test' not in db_name.lower():
-    print(f'ABORT: DB_NAME is "{db_name}" — this does not look like a test database.')
-    print('Set DB_NAME to a name containing "test" before running this script.')
+if db_name and not any(tag in db_name.lower() for tag in ('test', 'dev')):
+    print(f'ABORT: DB_NAME is "{db_name}" — this does not look like a test/dev database.')
+    print('Set DB_NAME to a name containing "test" or "dev" before running this script.')
     sys.exit(1)
 
 from django.contrib.auth import get_user_model
