@@ -105,7 +105,10 @@ from classroom.models import SchoolTeacher, SchoolStudent
 
 SchoolTeacher.objects.exclude(pending_password='').update(pending_password='')
 SchoolStudent.objects.exclude(pending_password='').update(pending_password='')
-ParentInvite.objects.all().update(token='')
+import uuid
+for invite in ParentInvite.objects.all():
+    invite.token = uuid.uuid4()
+    invite.save(update_fields=['token'])
 print('    Pending passwords and tokens cleared.')
 
 # ── 5. Clear welcome_email_sent so we don't accidentally resend ──────────────
