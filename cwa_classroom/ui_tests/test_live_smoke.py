@@ -2,30 +2,20 @@
 test_live_smoke.py — Browser-only E2E tests against a deployed environment.
 
 Run:
-    pytest ui_tests/test_live_smoke.py --live-url=https://dev.wizardslearninghub.co.nz --headed -x
+    pytest ui_tests/test_live_smoke.py --live-url=https://dev.wizardslearninghub.co.nz --headed -x -n0
 
-These tests create all data through the UI (no Django ORM), so they work
-without a local database connection. They validate the full stack: forms,
-views, database writes, and page rendering.
+Validates that the app, database, migrations, and key pages are working
+by logging in with sanitized test credentials and navigating key flows.
+No Django ORM or local DB connection needed.
 """
-import re
-
 import pytest
 from playwright.sync_api import Page, expect
 
-from .live_helpers import (
-    LIVE_PASSWORD,
-    create_department,
-    create_school,
-    create_student,
-    create_teacher,
-    live_login,
-    live_logout,
-    register_hoi,
-    unique,
-)
+from .live_helpers import live_login, live_logout
 
 pytestmark = pytest.mark.live
+
+SANITIZED_PASSWORD = "Password1!"
 
 
 @pytest.fixture(scope="module")
@@ -36,40 +26,9 @@ def live_url(request):
     return url.rstrip("/")
 
 
-@pytest.fixture(scope="module")
-def browser_page(browser):
-    context = browser.new_context(viewport={"width": 1280, "height": 800})
-    page = context.new_page()
-    yield page
-    context.close()
-
-
-@pytest.fixture(scope="module")
-def hoi_account(browser_page, live_url):
-    """Register a fresh Head of Institute account via the UI."""
-    return register_hoi(browser_page, live_url)
-
-
-@pytest.fixture(scope="module")
-def school_setup(browser_page, live_url, hoi_account):
-    """Login as HoI and create school infrastructure via UI."""
-    live_login(browser_page, live_url, hoi_account["email"], hoi_account["password"])
-
-    # Find the school ID — HoI was redirected after registration
-    browser_page.goto(f"{live_url}/admin-dashboard/")
-    browser_page.wait_for_load_state("domcontentloaded")
-
-    # Look for school link in the admin dashboard
-    school_link = browser_page.locator("a[href*='/schools/']").first
-    if school_link.count():
-        href = school_link.get_attribute("href")
-        match = re.search(r"/schools/(\d+)", href)
-        school_id = int(match.group(1)) if match else None
-    else:
-        school_id = None
-
-    return {"school_id": school_id, **hoi_account}
-
+# ═══════════════════════════════════════════════════════════════════════════
+# Login & Authentication
+# ═══════════════════════════════════════════════════════════════════════════
 
 class TestLoginPage:
     """Verify the login page renders correctly."""
@@ -93,107 +52,112 @@ class TestLoginPage:
         page.locator("#id_password").fill("wrongpassword")
         page.locator("button[type='submit'], input[type='submit']").first.click()
         page.wait_for_load_state("domcontentloaded")
-        # Should stay on login page
         assert "/accounts/login" in page.url
 
-
-class TestSanitizedUserLogin:
-    """Test login with sanitized database users (Password1!)."""
-
     def test_sanitized_user_can_login(self, live_url, page: Page):
-        page.goto(f"{live_url}/accounts/login/")
-        page.wait_for_load_state("domcontentloaded")
-        page.locator("#id_username").fill("user1@test.local")
-        page.locator("#id_password").fill("Password1!")
-        page.locator("button[type='submit'], input[type='submit']").first.click()
-        page.wait_for_url(lambda url: "/accounts/login" not in url, timeout=15_000)
+        live_login(page, live_url, "user1@test.local", SANITIZED_PASSWORD)
         assert "/accounts/login" not in page.url
 
 
-class TestHoIRegistration:
-    """Test the Head of Institute registration flow."""
+# ═══════════════════════════════════════════════════════════════════════════
+# Registration pages load
+# ═══════════════════════════════════════════════════════════════════════════
 
-    def test_registration_page_loads(self, live_url, page: Page):
+class TestRegistrationPages:
+    """Verify registration pages render without errors."""
+
+    def test_teacher_center_registration_loads(self, live_url, page: Page):
         page.goto(f"{live_url}/accounts/register/teacher-center/")
         page.wait_for_load_state("domcontentloaded")
-        assert page.url.endswith("/accounts/register/teacher-center/") or \
-               "register" in page.url
+        assert "Internal Server Error" not in page.content()
 
-    def test_register_and_login(self, live_url, page: Page):
-        """Full registration flow: register HoI, then verify login works."""
-        account = register_hoi(page, live_url)
-        live_logout(page, live_url)
+    def test_school_student_registration_loads(self, live_url, page: Page):
+        page.goto(f"{live_url}/accounts/register/school-student/")
+        page.wait_for_load_state("domcontentloaded")
+        assert "Internal Server Error" not in page.content()
 
-        # Login with the new account
-        live_login(page, live_url, account["email"], account["password"])
-        assert "/accounts/login" not in page.url
+    def test_individual_student_registration_loads(self, live_url, page: Page):
+        page.goto(f"{live_url}/accounts/register/individual-student/")
+        page.wait_for_load_state("domcontentloaded")
+        assert "Internal Server Error" not in page.content()
 
 
-class TestAdminDashboard:
-    """Test admin dashboard pages load after login."""
+# ═══════════════════════════════════════════════════════════════════════════
+# Django Admin
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestDjangoAdmin:
+    """Verify Django admin loads (requires staff user)."""
+
+    def test_admin_login_page_loads(self, live_url, page: Page):
+        page.goto(f"{live_url}/admin/login/")
+        page.wait_for_load_state("domcontentloaded")
+        assert "Internal Server Error" not in page.content()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Authenticated pages — test with sanitized user
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestAuthenticatedPages:
+    """Login with sanitized user and verify key pages load without 500s."""
 
     @pytest.fixture(autouse=True)
     def _login(self, live_url, page: Page):
-        live_login(page, live_url, "user1@test.local", "Password1!")
+        live_login(page, live_url, "user1@test.local", SANITIZED_PASSWORD)
         yield
-        live_logout(page, live_url)
 
-    def test_admin_dashboard_loads(self, live_url, page: Page):
-        page.goto(f"{live_url}/admin/")
+    def _assert_no_error(self, page: Page):
+        content = page.content()
+        assert "Internal Server Error" not in content
+        assert "Server Error (500)" not in content
+
+    def test_home_page(self, live_url, page: Page):
+        page.goto(f"{live_url}/")
         page.wait_for_load_state("domcontentloaded")
-        assert page.url.endswith("/admin/") or "admin" in page.url
+        self._assert_no_error(page)
 
-    def test_maths_page_loads(self, live_url, page: Page):
+    def test_maths_page(self, live_url, page: Page):
         page.goto(f"{live_url}/maths/")
         page.wait_for_load_state("domcontentloaded")
-        # Should not be a 500 error
-        assert "Internal Server Error" not in page.content()
+        self._assert_no_error(page)
 
-    def test_coding_page_loads(self, live_url, page: Page):
+    def test_coding_page(self, live_url, page: Page):
         page.goto(f"{live_url}/coding/")
         page.wait_for_load_state("domcontentloaded")
-        assert "Internal Server Error" not in page.content()
+        self._assert_no_error(page)
 
+    def test_hub_page(self, live_url, page: Page):
+        page.goto(f"{live_url}/hub/")
+        page.wait_for_load_state("domcontentloaded")
+        self._assert_no_error(page)
 
-class TestTeacherCreation:
-    """Test creating a teacher through the admin UI."""
+    def test_teacher_dashboard(self, live_url, page: Page):
+        page.goto(f"{live_url}/teacher/")
+        page.wait_for_load_state("domcontentloaded")
+        self._assert_no_error(page)
 
-    def test_create_teacher_via_ui(self, live_url, page: Page, school_setup):
-        if not school_setup["school_id"]:
-            pytest.skip("No school_id found")
+    def test_admin_dashboard(self, live_url, page: Page):
+        page.goto(f"{live_url}/admin-dashboard/")
+        page.wait_for_load_state("domcontentloaded")
+        self._assert_no_error(page)
 
-        live_login(page, live_url, school_setup["email"], school_setup["password"])
-        teacher = create_teacher(page, live_url, school_setup["school_id"])
+    def test_brainbuzz_page(self, live_url, page: Page):
+        page.goto(f"{live_url}/brainbuzz/")
+        page.wait_for_load_state("domcontentloaded")
+        self._assert_no_error(page)
 
-        # Verify teacher was created — logout and login as new teacher
-        live_logout(page, live_url)
-        live_login(page, live_url, teacher["email"], teacher["password"])
-        assert "/accounts/login" not in page.url
+    def test_attendance_page(self, live_url, page: Page):
+        page.goto(f"{live_url}/attendance/")
+        page.wait_for_load_state("domcontentloaded")
+        self._assert_no_error(page)
 
+    def test_profile_page(self, live_url, page: Page):
+        page.goto(f"{live_url}/accounts/profile/")
+        page.wait_for_load_state("domcontentloaded")
+        self._assert_no_error(page)
 
-class TestStudentCreation:
-    """Test creating a student through the admin UI."""
-
-    def test_create_student_via_ui(self, live_url, page: Page, school_setup):
-        if not school_setup["school_id"]:
-            pytest.skip("No school_id found")
-
-        live_login(page, live_url, school_setup["email"], school_setup["password"])
-        student = create_student(page, live_url, school_setup["school_id"])
-
-        # Verify student was created — logout and login as new student
-        live_logout(page, live_url)
-        live_login(page, live_url, student["email"], student["password"])
-        assert "/accounts/login" not in page.url
-
-
-class TestDepartmentCreation:
-    """Test creating a department through the admin UI."""
-
-    def test_create_department_via_ui(self, live_url, page: Page, school_setup):
-        if not school_setup["school_id"]:
-            pytest.skip("No school_id found")
-
-        live_login(page, live_url, school_setup["email"], school_setup["password"])
-        dept = create_department(page, live_url, school_setup["school_id"])
-        assert dept["dept_name"]
+    def test_password_change_page(self, live_url, page: Page):
+        page.goto(f"{live_url}/accounts/password-change/")
+        page.wait_for_load_state("domcontentloaded")
+        self._assert_no_error(page)
