@@ -78,18 +78,24 @@ from billing.models import (
 )
 from classroom.models import Department, ClassRoom, School
 
-Payment.objects.all().update(stripe_payment_intent_id='', stripe_checkout_session_id='')
-Package.objects.all().update(stripe_price_id='')
-DiscountCode.objects.all().update(stripe_coupon_id='')
-InstituteDiscountCode.objects.all().update(stripe_coupon_id='')
-InstitutePlan.objects.all().update(stripe_price_id='', stripe_overage_price_id='')
-SchoolSubscription.objects.all().update(stripe_subscription_id='', stripe_customer_id='')
-ModuleProduct.objects.all().update(stripe_price_id='')
-ModuleSubscription.objects.all().update(stripe_subscription_item_id='')
-Subscription.objects.all().update(stripe_subscription_id='', stripe_customer_id='')
-Department.objects.all().update(stripe_payment_link='')
-ClassRoom.objects.all().update(stripe_payment_link='')
-School.objects.all().update(stripe_payment_link='')
+def safe_update(model, **kwargs):
+    fields = {f.name for f in model._meta.get_fields()}
+    valid = {k: v for k, v in kwargs.items() if k in fields}
+    if valid:
+        model.objects.all().update(**valid)
+
+safe_update(Payment, stripe_payment_intent_id='', stripe_checkout_session_id='')
+safe_update(Package, stripe_price_id='')
+safe_update(DiscountCode, stripe_coupon_id='')
+safe_update(InstituteDiscountCode, stripe_coupon_id='')
+safe_update(InstitutePlan, stripe_price_id='', stripe_overage_price_id='')
+safe_update(SchoolSubscription, stripe_subscription_id='', stripe_customer_id='')
+safe_update(ModuleProduct, stripe_price_id='')
+safe_update(ModuleSubscription, stripe_subscription_item_id='')
+safe_update(Subscription, stripe_subscription_id='', stripe_customer_id='')
+safe_update(Department, stripe_payment_link='')
+safe_update(ClassRoom, stripe_payment_link='')
+safe_update(School, stripe_payment_link='')
 print('    All Stripe IDs cleared.')
 
 # ── 4. Clear pending passwords and tokens ────────────────────────────────────
