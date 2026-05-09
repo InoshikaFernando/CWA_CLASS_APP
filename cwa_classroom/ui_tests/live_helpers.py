@@ -30,21 +30,44 @@ def live_login(page: Page, base_url: str, username: str, password: str) -> None:
     page.wait_for_load_state("domcontentloaded")
     # Handle complete-profile redirect if it appears
     if "/accounts/complete-profile/" in page.url:
-        _complete_profile(page)
+        _complete_profile(page, password)
 
 
-def _complete_profile(page: Page) -> None:
+def _complete_profile(page: Page, password: str = "Password1!") -> None:
     """Fill and submit the complete-profile form if required."""
-    first = page.locator("#id_first_name")
+    page.wait_for_load_state("networkidle")
+
+    # Handle password change fields (must_change_password=True)
+    new_pw = page.locator("[name='new_password']")
+    if new_pw.count():
+        new_pw.fill(password)
+    confirm_pw = page.locator("[name='confirm_password']")
+    if confirm_pw.count():
+        confirm_pw.fill(password)
+
+    first = page.locator("[name='first_name']")
     if first.count() and not first.input_value():
         first.fill("Test")
-    last = page.locator("#id_last_name")
+    last = page.locator("[name='last_name']")
     if last.count() and not last.input_value():
         last.fill("User")
-    submit = page.locator("button[type='submit'], input[type='submit']").first
+
+    # Target the profile form submit — NOT the sidebar logout button.
+    submit = page.locator("button[type='submit']:has-text('Complete Profile')").first
+    if not submit.count():
+        submit = page.locator("button[type='submit']:has-text('Get Started')").first
+    if not submit.count():
+        submit = page.locator("button.bg-primary[type='submit']").first
     if submit.count():
-        submit.click()
-        page.wait_for_load_state("domcontentloaded")
+        submit.scroll_into_view_if_needed()
+        submit.click(no_wait_after=True)
+        try:
+            page.wait_for_url(
+                lambda url: "/accounts/complete-profile" not in url,
+                timeout=15_000,
+            )
+        except Exception:
+            pass
 
 
 def live_logout(page: Page, base_url: str) -> None:

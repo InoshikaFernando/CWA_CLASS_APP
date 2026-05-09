@@ -13,7 +13,7 @@ from playwright.sync_api import Page, expect
 
 from .live_helpers import live_login, live_logout
 
-pytestmark = pytest.mark.live
+pytestmark = pytest.mark.migration
 
 SANITIZED_PASSWORD = "Password1!"
 
