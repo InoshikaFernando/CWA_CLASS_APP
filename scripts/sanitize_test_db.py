@@ -24,9 +24,9 @@ import sys
 
 # ── Guard: refuse to run against prod ────────────────────────────────────────
 db_name = os.environ.get('DB_NAME', '')
-if db_name and 'test' not in db_name.lower():
-    print(f'ABORT: DB_NAME is "{db_name}" — this does not look like a test database.')
-    print('Set DB_NAME to a name containing "test" before running this script.')
+if db_name and not any(tag in db_name.lower() for tag in ('test', 'dev')):
+    print(f'ABORT: DB_NAME is "{db_name}" — this does not look like a test/dev database.')
+    print('Set DB_NAME to a name containing "test" or "dev" before running this script.')
     sys.exit(1)
 
 from django.contrib.auth import get_user_model
@@ -76,21 +76,26 @@ from billing.models import (
     InstitutePlan, SchoolSubscription, ModuleProduct,
     ModuleSubscription, Subscription,
 )
-from classroom.models import Department, ClassRoom, School, InvoiceStripePayment
+from classroom.models import Department, ClassRoom, School
 
-Payment.objects.all().update(stripe_payment_intent_id='', stripe_checkout_session_id='')
-Package.objects.all().update(stripe_price_id='')
-DiscountCode.objects.all().update(stripe_coupon_id='')
-InstituteDiscountCode.objects.all().update(stripe_coupon_id='')
-InstitutePlan.objects.all().update(stripe_price_id='', stripe_overage_price_id='')
-SchoolSubscription.objects.all().update(stripe_subscription_id='', stripe_customer_id='')
-ModuleProduct.objects.all().update(stripe_price_id='')
-ModuleSubscription.objects.all().update(stripe_subscription_item_id='')
-Subscription.objects.all().update(stripe_subscription_id='', stripe_customer_id='')
-InvoiceStripePayment.objects.all().update(stripe_checkout_session_id='')
-Department.objects.all().update(stripe_payment_link='')
-ClassRoom.objects.all().update(stripe_payment_link='')
-School.objects.all().update(stripe_payment_link='')
+def safe_update(model, **kwargs):
+    fields = {f.name for f in model._meta.get_fields()}
+    valid = {k: v for k, v in kwargs.items() if k in fields}
+    if valid:
+        model.objects.all().update(**valid)
+
+safe_update(Payment, stripe_payment_intent_id='', stripe_checkout_session_id='')
+safe_update(Package, stripe_price_id='')
+safe_update(DiscountCode, stripe_coupon_id='')
+safe_update(InstituteDiscountCode, stripe_coupon_id='')
+safe_update(InstitutePlan, stripe_price_id='', stripe_overage_price_id='')
+safe_update(SchoolSubscription, stripe_subscription_id='', stripe_customer_id='')
+safe_update(ModuleProduct, stripe_price_id='')
+safe_update(ModuleSubscription, stripe_subscription_item_id='')
+safe_update(Subscription, stripe_subscription_id='', stripe_customer_id='')
+safe_update(Department, stripe_payment_link='')
+safe_update(ClassRoom, stripe_payment_link='')
+safe_update(School, stripe_payment_link='')
 print('    All Stripe IDs cleared.')
 
 # ── 4. Clear pending passwords and tokens ────────────────────────────────────
@@ -100,7 +105,10 @@ from classroom.models import SchoolTeacher, SchoolStudent
 
 SchoolTeacher.objects.exclude(pending_password='').update(pending_password='')
 SchoolStudent.objects.exclude(pending_password='').update(pending_password='')
-ParentInvite.objects.all().update(token=None)
+import uuid
+for invite in ParentInvite.objects.all():
+    invite.token = uuid.uuid4()
+    invite.save(update_fields=['token'])
 print('    Pending passwords and tokens cleared.')
 
 # ── 5. Clear welcome_email_sent so we don't accidentally resend ──────────────

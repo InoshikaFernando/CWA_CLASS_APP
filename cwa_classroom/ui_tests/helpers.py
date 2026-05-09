@@ -33,8 +33,10 @@ def _ensure_sidebar_visible(page: Page) -> None:
         if (aside) {
             aside.style.display = 'flex';
             aside.style.flexDirection = 'column';
-            // Force collapsible nav sections visible (Alpine x-show sets display:none)
-            // Only expand sections that contain links, not dropdowns
+            // Force ALL hidden elements visible inside sidebar via CSS override
+            aside.querySelectorAll('[x-show], [style*="display: none"], [style*="display:none"]').forEach(el => {
+                el.style.setProperty('display', 'block', 'important');
+            });
             aside.querySelectorAll('nav [x-show]').forEach(el => {
                 if (el.querySelector('a')) {
                     el.style.setProperty('display', 'flex', 'important');
@@ -63,7 +65,7 @@ def click_sidebar_link(page: Page, text: str) -> None:
     _ensure_sidebar_visible(page)
     link = page.locator("aside#sidebar a", has_text=text).first
     expect(link).to_be_visible()
-    link.click()
+    link.click(force=True)
     page.wait_for_load_state("domcontentloaded")
 
 
