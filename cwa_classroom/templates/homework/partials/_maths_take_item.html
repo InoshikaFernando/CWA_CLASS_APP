@@ -72,19 +72,29 @@ Receives ``ctx`` with keys: question, shuffled_answers (list of Answer).
 <script>
 (function(){
   const id = "{{ q.id }}";
-  const qs = document.querySelectorAll(`[data-ld-q="${id}"]`);
-  const r  = document.querySelector(`[data-ld-r="${id}"]`);
-  const h  = document.querySelector(`[data-ld-hidden="${id}"]`);
+  const wrap = document.querySelector('[data-ld-wrap="' + id + '"]');
+  const h    = document.querySelector('[data-ld-hidden="' + id + '"]');
+  if (!wrap || !h) return;
+  const qs = wrap.querySelectorAll('[data-ld-q="' + id + '"]');
+  const r  = wrap.querySelector('[data-ld-r="' + id + '"]');
   function refresh(){
-    const quot = [...qs].map(c => c.value.trim() || '0').join('').replace(/^0+(?=\d)/, '') || '0';
-    const rem = (r.value.trim() || '0');
+    const quot = [...qs].map(c => (c.value || '').trim() || '0').join('').replace(/^0+(?=\d)/, '') || '0';
+    const rem  = (r ? (r.value || '').trim() : '') || '0';
     h.value = rem === '0' ? quot : quot + ' r ' + rem;
   }
-  qs.forEach((el,i)=>{
+  qs.forEach((el,i) => {
     el.addEventListener('input', () => { refresh(); if (el.value && i < qs.length-1) qs[i+1].focus(); });
-    el.addEventListener('keydown', e => { if (e.key==='Backspace' && !el.value && i>0) qs[i-1].focus(); });
+    el.addEventListener('change', refresh);
+    el.addEventListener('blur', refresh);
+    el.addEventListener('keydown', e => { if (e.key === 'Backspace' && !el.value && i > 0) qs[i-1].focus(); });
   });
-  r.addEventListener('input', refresh);
+  if (r) {
+    r.addEventListener('input', refresh);
+    r.addEventListener('change', refresh);
+    r.addEventListener('blur', refresh);
+  }
+  const form = wrap.closest('form');
+  if (form) form.addEventListener('submit', refresh, true);
 })();
 </script>
 
@@ -116,15 +126,26 @@ Receives ``ctx`` with keys: question, shuffled_answers (list of Answer).
 <script>
 (function(){
   const id = "{{ q.id }}";
-  const ps = document.querySelectorAll(`[data-pf-p="${id}"]`);
-  const h  = document.querySelector(`[data-pf-hidden="${id}"]`);
-  const pv = document.querySelector(`[data-pf-preview="${id}"]`);
+  const wrap = document.querySelector('[data-pf-wrap="' + id + '"]');
+  const h    = document.querySelector('[data-pf-hidden="' + id + '"]');
+  const pv   = document.querySelector('[data-pf-preview="' + id + '"]');
+  if (!wrap || !h || !pv) return;
+  // Scope queries to the wrap so each question's JS only sees its own cells.
+  const primes = wrap.querySelectorAll('[data-pf-p="' + id + '"]');
   function refresh(){
-    const vals = [...ps].map(el => el.value.trim()).filter(Boolean);
-    h.value = vals.join('x');
+    const vals = [...primes].map(el => (el.value || '').trim()).filter(Boolean);
+    h.value  = vals.join('x');
     pv.value = vals.join('×');
   }
-  ps.forEach(el => el.addEventListener('input', refresh));
+  primes.forEach(el => {
+    el.addEventListener('input', refresh);
+    el.addEventListener('change', refresh);
+    el.addEventListener('blur', refresh);
+  });
+  // Safety net: ensure the hidden input is up to date when the form submits,
+  // even if input/change/blur didn't fire for any reason.
+  const form = wrap.closest('form');
+  if (form) form.addEventListener('submit', refresh, true);
 })();
 </script>
 
