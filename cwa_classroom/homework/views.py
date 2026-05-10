@@ -1101,31 +1101,26 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             mq.grading_rubric = grading_rubric
             mq.save(update_fields=['validation_type', 'grading_rubric'])
 
-        # Save image file if this question has one and it was just created
+        # Save image file if this question has one and it was just created.
+        # Uses Django's storage backend (local MEDIA_ROOT or S3) via ImageField.save()
+        # so the path and URL are managed correctly regardless of environment.
         if created:
+            import logging as _img_log
+            _img_logger = _img_log.getLogger('homework')
             image_ref = q.get('image_ref')
             image_b64 = session.extracted_images.get(image_ref) if image_ref else None
             if image_b64:
                 try:
                     import base64
-                    import os
-                    import logging as _logging
-                    _img_logger = _logging.getLogger('homework')
-                    from django.conf import settings
+                    from django.core.files.base import ContentFile
                     topic_slug = topic.slug if hasattr(topic, 'slug') else str(topic.id)
-                    img_dir = os.path.join(
-                        settings.MEDIA_ROOT, 'questions', f'year{yl}', topic_slug,
-                    )
-                    os.makedirs(img_dir, exist_ok=True)
-                    img_path = os.path.join(img_dir, image_ref)
-                    with open(img_path, 'wb') as f:
-                        f.write(base64.b64decode(image_b64))
-                    mq.image = os.path.join('questions', f'year{yl}', topic_slug, image_ref)
-                    mq.save(update_fields=['image'])
-                    _img_logger.info('Saved question image: %s', img_path)
+                    img_bytes = base64.b64decode(image_b64)
+                    # Store under questions/year<N>/<topic>/<filename> inside MEDIA_ROOT
+                    img_filename = f'year{yl}/{topic_slug}/{image_ref}'
+                    mq.image.save(img_filename, ContentFile(img_bytes), save=True)
+                    _img_logger.info('Saved question image to storage: %s', mq.image.name)
                 except Exception as _exc:
-                    import logging as _logging
-                    _logging.getLogger('homework').error(
+                    _img_logger.error(
                         'Failed to save image for question %s (ref=%s): %s',
                         mq.pk, image_ref, _exc, exc_info=True,
                     )
