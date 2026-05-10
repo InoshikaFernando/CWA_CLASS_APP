@@ -188,7 +188,7 @@ class TestReadWindowSubmission(TestCase):
     def _submit(self, at_time):
         c = Client()
         session_data = c.session
-        session_data[f'bb_participant_{self.session.code}'] = self.participant.id
+        session_data[f'bb_pid_{self.session.code}'] = self.participant.id
         session_data.save()
         submit_url = reverse('brainbuzz:api_submit', args=[self.session.code])
         payload = {
