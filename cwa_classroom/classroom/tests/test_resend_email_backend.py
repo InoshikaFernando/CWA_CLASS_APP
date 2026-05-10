@@ -207,6 +207,40 @@ class TestResendBackendErrorHandling:
         assert count == 1
 
 
+class TestResendBackendAttachments:
+    """Tests for file attachment handling."""
+
+    @patch('cwa_classroom.email_backends.resend.Emails.send')
+    def test_send_with_attachment(self, mock_send, resend_backend):
+        """File attachments are forwarded to Resend."""
+        msg = EmailMessage(
+            subject='Invoice',
+            body='See attached',
+            from_email='info@wizardslearninghub.co.nz',
+            to=['parent@example.com'],
+        )
+        msg.attach('invoice.pdf', b'%PDF-1.4 fake content', 'application/pdf')
+        resend_backend.send_messages([msg])
+
+        call_params = mock_send.call_args[0][0]
+        assert 'attachments' in call_params
+        assert call_params['attachments'][0]['filename'] == 'invoice.pdf'
+
+    @patch('cwa_classroom.email_backends.resend.Emails.send')
+    def test_no_attachments_key_when_empty(self, mock_send, resend_backend):
+        """Does not include attachments key when no files attached."""
+        msg = EmailMessage(
+            subject='Test',
+            body='Body',
+            from_email='info@wizardslearninghub.co.nz',
+            to=['user@example.com'],
+        )
+        resend_backend.send_messages([msg])
+
+        call_params = mock_send.call_args[0][0]
+        assert 'attachments' not in call_params
+
+
 class TestResendBackendMultipleRecipients:
     """Tests for multiple recipients."""
 

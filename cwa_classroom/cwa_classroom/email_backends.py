@@ -75,6 +75,19 @@ class ResendEmailBackend(BaseEmailBackend):
         if message.reply_to:
             params['reply_to'] = message.reply_to
 
+        # File attachments (e.g. PDF invoices)
+        if message.attachments:
+            attachments = []
+            for attachment in message.attachments:
+                if isinstance(attachment, tuple):
+                    filename, content, _ = attachment
+                    attachments.append({
+                        'filename': filename,
+                        'content': list(content.encode() if isinstance(content, str) else content),
+                    })
+            if attachments:
+                params['attachments'] = attachments
+
         # Custom headers (e.g. List-Unsubscribe)
         if message.extra_headers:
             params['headers'] = message.extra_headers
