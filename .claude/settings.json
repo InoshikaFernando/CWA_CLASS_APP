@@ -3,7 +3,11 @@
     "allow": [
       "Bash(python manage.py shell -c \":*)",
       "Bash(python -m pytest brainbuzz/tests/ --tb=short -q)",
-      "Bash(python manage.py create_sample_templates)"
+      "Bash(python manage.py create_sample_templates)",
+      "Bash(conda run *)",
+      "Read(//c/Users/Administrator/Downloads/**)",
+      "Bash(ls \"D:\\\\Capstone_Project\" 2>&1)",
+      "Read(//d/Capstone_Project/**)"
     ]
   }
 }

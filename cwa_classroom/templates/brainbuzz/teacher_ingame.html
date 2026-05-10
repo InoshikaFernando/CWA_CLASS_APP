@@ -82,13 +82,13 @@
       <svg viewBox="0 0 36 36" class="w-full h-full -rotate-90">
         <circle cx="18" cy="18" r="15.9155" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="3.5"/>
         <circle cx="18" cy="18" r="15.9155" fill="none"
-                :stroke="countdown <= 5 ? '#ef4444' : countdown <= 10 ? '#f59e0b' : '#3b82f6'"
+                :stroke="readWindow ? '#818cf8' : countdown <= 5 ? '#ef4444' : countdown <= 10 ? '#f59e0b' : '#3b82f6'"
                 stroke-width="3.5" stroke-linecap="round"
                 :stroke-dasharray="`${countdownPct}, 100`"
                 style="transition: stroke-dasharray .9s linear, stroke .3s;"/>
       </svg>
       <span class="absolute inset-0 flex items-center justify-center font-black tabular-nums text-sm"
-            :class="countdown <= 5 ? 'text-red-400' : countdown <= 10 ? 'text-yellow-400' : 'text-white'"
+            :class="readWindow ? 'text-indigo-300' : countdown <= 5 ? 'text-red-400' : countdown <= 10 ? 'text-yellow-400' : 'text-white'"
             x-text="status === 'active' ? countdown : '—'"></span>
     </div>
 
@@ -154,8 +154,18 @@
         </div>
       </div>
 
-      <!-- ── Answer Tiles (ACTIVE) ────────────────────────────────────────── -->
-      <template x-if="status === 'active' && options.length > 0">
+      <!-- ── Read Window Placeholder (ACTIVE, reading phase) ──────────────── -->
+      <template x-if="status === 'active' && readWindow">
+        <div class="flex flex-col items-center justify-center rounded-2xl border border-indigo-500/30 py-10"
+             style="background: rgba(99,102,241,0.08);">
+          <p class="text-sm font-bold text-indigo-300 mb-2">📖 Read window</p>
+          <p class="text-5xl font-black text-white" x-text="`${readWindowCountdown}s`"></p>
+          <p class="text-xs text-gray-500 mt-2">Answer tiles appear after reading window</p>
+        </div>
+      </template>
+
+      <!-- ── Answer Tiles (ACTIVE, answer phase) ───────────────────────────── -->
+      <template x-if="status === 'active' && options.length > 0 && !readWindow">
         <div class="grid grid-cols-2 gap-3 flex-shrink-0">
           <template x-for="(opt, idx) in options" :key="idx">
             <div class="tile-enter rounded-2xl px-5 py-5 flex items-center gap-4 border border-white/10 shadow-lg"
@@ -318,6 +328,7 @@ function bbTeacher(joinCode, initialVersion, initialIndex, totalQuestions) {
     revealCountdown: 5, leaderboard: [],
     participantCount: 0, answersReceived: 0,
     deadlineUtc: null, timeLimitSec: 20,
+    readWindow: false, readWindowCountdown: 0,
     countdownTimer: null, revealTimer: null, pollTimer: null, errCount: 0,
 
     tileBg(i)     { return TILE_BG[i % 4]; },
@@ -393,12 +404,18 @@ function bbTeacher(joinCode, initialVersion, initialIndex, totalQuestions) {
       if (this.countdownTimer) clearInterval(this.countdownTimer);
       this.countdownTimer = setInterval(() => {
         if (!this.deadlineUtc || this.status !== 'active') {
-          this.countdown = 0; this.countdownPct = 0; return;
+          this.countdown = 0; this.countdownPct = 0; this.readWindow = false; return;
         }
-        const rem = (this.deadlineUtc - Date.now()) / 1000;
-        this.countdown    = Math.max(0, Math.ceil(rem));
-        const lim         = this.timeLimitSec > 0 ? this.timeLimitSec : 20;
-        this.countdownPct = Math.max(0, Math.min(100, (rem / lim) * 100));
+        const now = Date.now();
+        const deadlineMs = this.deadlineUtc.getTime();
+        const lim = this.timeLimitSec > 0 ? this.timeLimitSec : 20;
+        // Read window ends when the answer phase begins
+        const readWindowEnds = deadlineMs - lim * 1000;
+        this.readWindow = now < readWindowEnds;
+        this.readWindowCountdown = Math.max(0, Math.ceil((readWindowEnds - now) / 1000));
+        const rem = (deadlineMs - now) / 1000;
+        this.countdown    = Math.max(0, Math.ceil(this.readWindow ? (readWindowEnds - now) / 1000 : rem));
+        this.countdownPct = this.readWindow ? 100 : Math.max(0, Math.min(100, (rem / lim) * 100));
       }, 200);
     },
 

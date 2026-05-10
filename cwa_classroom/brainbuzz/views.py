@@ -50,6 +50,10 @@ from .scoring import calculate_points, is_short_answer_correct
 from .ranking import compute_ranks
 from .utils import generate_join_code
 
+# Read window: students see only the question for this many seconds before
+# answer tiles appear and the per-question timer starts.
+READ_WINDOW_SEC = 10
+
 # Nickname: 1–20 chars, letters / digits / internal spaces
 _NICKNAME_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9 ]{0,19}$')
 _NICKNAME_MAX = 20
@@ -179,6 +183,7 @@ def _session_state_payload(session: BrainBuzzSession) -> dict:
         'state_version': session.state_version,
         'current_index': session.current_index,
         'time_per_question_sec': session.time_per_question_sec,
+        'read_window_sec': READ_WINDOW_SEC,
         'question': question_data,
         'participant_count': len(participants),
         'participants': participants,
@@ -768,7 +773,7 @@ def api_teacher_action(request, join_code):
                 return JsonResponse({'error': 'At least 1 participant must join before starting'}, status=400)
             session.status = BrainBuzzSession.STATUS_ACTIVE
             session.current_index = 0
-            session.question_deadline = timezone.now() + timedelta(seconds=first_q.time_limit_sec)
+            session.question_deadline = timezone.now() + timedelta(seconds=READ_WINDOW_SEC + first_q.time_limit_sec)
             session.started_at = timezone.now()
             session.state_version += 1
             session.save()
@@ -803,7 +808,7 @@ def api_teacher_action(request, join_code):
             else:
                 session.status = BrainBuzzSession.STATUS_ACTIVE
                 session.current_index = next_index
-                session.question_deadline = timezone.now() + timedelta(seconds=next_q.time_limit_sec)
+                session.question_deadline = timezone.now() + timedelta(seconds=READ_WINDOW_SEC + next_q.time_limit_sec)
                 session.state_version += 1
                 session.save()
 
@@ -948,6 +953,10 @@ def api_submit(request, join_code):
     now = timezone.now()
     q_limit = session_question.time_limit_sec
     if session.question_deadline is not None:
+        # Reject submissions that arrive during the read window (before answer phase opens).
+        read_window_ends = session.question_deadline - timedelta(seconds=q_limit)
+        if now < read_window_ends:
+            return JsonResponse({'error': 'Read window active — answers not yet accepted'}, status=425)
         question_start = session.question_deadline - timedelta(seconds=q_limit)
         server_ms = int((now - question_start).total_seconds() * 1000)
         time_taken_ms = max(0, min(server_ms, q_limit * 1000))
