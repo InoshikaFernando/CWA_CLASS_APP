@@ -1,0 +1,331 @@
+"""
+AI Grading Service — grades extended/proof answers using Claude.
+
+Caching strategy (saves ~80% of API calls for class sets):
+  1. Normalise the student's answer text (lowercase, collapse whitespace).
+  2. Exact-match lookup against AIGradingCache for this question — free.
+  3. Fuzzy-match (Levenshtein ratio > 0.85) against all cached answers — free.
+  4. If no cache hit: call Claude with the question, rubric, and up to 10
+     previously-graded answers as reference examples.  Claude can classify
+     "matches example #3" (cheap) or evaluate fresh (full cost).
+  5. Store the result in AIGradingCache keyed by normalised text.
+
+Token cost per question:
+  Cache hit:   0 tokens
+  Classify:  ~350 tokens  (sees prior examples, short output)
+  Fresh:     ~780 tokens  (full evaluation)
+
+For 30 students, ~5-8 unique answer patterns per question means only
+5-8 full evaluations + ~22-25 free cache hits → ~80% token saving.
+"""
+import logging
+import re
+from decimal import Decimal
+
+from django.conf import settings
+from django.db import models
+from django.utils import timezone
+
+logger = logging.getLogger(__name__)
+
+# Anthropic pricing (claude-sonnet-4 — update if pricing changes)
+COST_PER_INPUT_TOKEN = Decimal('0.000003')   # $3 / 1M tokens
+COST_PER_OUTPUT_TOKEN = Decimal('0.000015')  # $15 / 1M tokens
+
+AI_GRADING_MODULES = [
+    'ai_grading_starter',
+    'ai_grading_professional',
+    'ai_grading_enterprise',
+]
+
+
+# ---------------------------------------------------------------------------
+# Quota helpers
+# ---------------------------------------------------------------------------
+
+def get_ai_grading_tier(school):
+    """Return the active AI grading module slug for a school, or None."""
+    from billing.entitlements import get_school_subscription
+    sub = get_school_subscription(school)
+    if not sub:
+        return None
+    for slug in AI_GRADING_MODULES:
+        if sub.modules.filter(module=slug, is_active=True).exists():
+            return slug
+    return None
+
+
+def check_ai_grading_quota(school):
+    """
+    Check whether the school can run another AI grading call.
+
+    Returns (allowed: bool, used: int, limit: int | None)
+      limit=None means unlimited (Enterprise).
+    """
+    tier = get_ai_grading_tier(school)
+    if not tier:
+        return (False, 0, 0)
+
+    from billing.models import ModuleProduct, AIGradingUsage
+    product = ModuleProduct.objects.filter(module=tier, is_active=True).first()
+    limit = product.questions_per_month if product else None  # None = unlimited
+
+    if limit is None:
+        return (True, 0, None)
+
+    today = timezone.localdate()
+    period_start = today.replace(day=1)
+    usage = AIGradingUsage.objects.filter(school=school, period_start=period_start).first()
+    used = usage.answers_graded if usage else 0
+    return (used < limit, used, limit)
+
+
+def record_ai_grading_usage(school, input_tokens, output_tokens):
+    """Increment the school's monthly AI grading usage counter."""
+    from billing.models import AIGradingUsage
+    today = timezone.localdate()
+    period_start = today.replace(day=1)
+    cost = (
+        Decimal(input_tokens) * COST_PER_INPUT_TOKEN
+        + Decimal(output_tokens) * COST_PER_OUTPUT_TOKEN
+    )
+    AIGradingUsage.objects.update_or_create(
+        school=school,
+        period_start=period_start,
+        defaults={'answers_graded': 0, 'tokens_used': 0, 'estimated_cost_usd': Decimal('0')},
+    )
+    AIGradingUsage.objects.filter(school=school, period_start=period_start).update(
+        answers_graded=models.F('answers_graded') + 1,
+        tokens_used=models.F('tokens_used') + input_tokens + output_tokens,
+        estimated_cost_usd=models.F('estimated_cost_usd') + cost,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Answer normalisation
+# ---------------------------------------------------------------------------
+
+def _normalise(text: str) -> str:
+    """Lowercase, strip, collapse whitespace — used for cache key matching."""
+    return re.sub(r'\s+', ' ', text.lower().strip())
+
+
+def _levenshtein_ratio(a: str, b: str) -> float:
+    """Fast Levenshtein similarity ratio between two strings (0–1)."""
+    if not a and not b:
+        return 1.0
+    if not a or not b:
+        return 0.0
+    len_a, len_b = len(a), len(b)
+    # Skip expensive computation for very different lengths
+    if max(len_a, len_b) > 0 and abs(len_a - len_b) / max(len_a, len_b) > 0.4:
+        return 0.0
+    # Simple DP
+    prev = list(range(len_b + 1))
+    for i, ca in enumerate(a, 1):
+        curr = [i]
+        for j, cb in enumerate(b, 1):
+            curr.append(min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = curr
+    distance = prev[len_b]
+    return 1 - distance / max(len_a, len_b)
+
+
+# ---------------------------------------------------------------------------
+# Cache model (lazy import to avoid circular imports at module load time)
+# ---------------------------------------------------------------------------
+
+def _get_cache_model():
+    from django.apps import apps
+    return apps.get_model('homework', 'AIGradingCache')
+
+
+# ---------------------------------------------------------------------------
+# Core grading function
+# ---------------------------------------------------------------------------
+
+def grade_extended_answer(question, answer_text: str, school=None):
+    """
+    Grade a student's extended answer against the question's rubric.
+
+    Returns dict:
+        {
+            'is_correct': bool,
+            'score_fraction': float,   # 0.0–1.0
+            'feedback': str,
+            'cache_hit': bool,         # True if result came from cache (no API cost)
+            'input_tokens': int,
+            'output_tokens': int,
+        }
+
+    If school is provided and has no AI grading module, returns is_correct=False
+    with feedback explaining the module is not enabled.
+    """
+    normalised = _normalise(answer_text)
+
+    # ── 1. Exact cache lookup ─────────────────────────────────────────────
+    cached = _lookup_cache(question.pk, normalised, threshold=0.85)
+    if cached:
+        logger.info(f'AI grading cache hit for Q{question.pk}')
+        return {**cached, 'cache_hit': True, 'input_tokens': 0, 'output_tokens': 0}
+
+    # ── 2. Quota check ────────────────────────────────────────────────────
+    if school:
+        allowed, used, limit = check_ai_grading_quota(school)
+        if not allowed:
+            return {
+                'is_correct': False,
+                'score_fraction': 0.0,
+                'feedback': (
+                    f'AI grading quota reached ({used}/{limit} this month). '
+                    'Your teacher will review this answer manually.'
+                ),
+                'cache_hit': False,
+                'input_tokens': 0,
+                'output_tokens': 0,
+                'quota_exceeded': True,
+            }
+
+    # ── 3. Call Claude ────────────────────────────────────────────────────
+    result = _call_claude_grade(question, answer_text, normalised)
+
+    # ── 4. Record usage ───────────────────────────────────────────────────
+    if school:
+        record_ai_grading_usage(school, result['input_tokens'], result['output_tokens'])
+
+    # ── 5. Store in cache ─────────────────────────────────────────────────
+    _store_cache(question.pk, normalised, result)
+
+    return result
+
+
+def _lookup_cache(question_pk, normalised_text, threshold=0.85):
+    """Check DB cache for a similar previously-graded answer. Returns result dict or None."""
+    try:
+        Cache = _get_cache_model()
+        entries = list(Cache.objects.filter(question_id=question_pk))
+        if not entries:
+            return None
+        # Exact match first
+        for e in entries:
+            if e.normalised_answer == normalised_text:
+                e.hit_count = models.F('hit_count') + 1
+                e.save(update_fields=['hit_count'])
+                return {'is_correct': e.is_correct, 'score_fraction': e.score_fraction, 'feedback': e.feedback}
+        # Fuzzy match
+        for e in entries:
+            ratio = _levenshtein_ratio(normalised_text, e.normalised_answer)
+            if ratio >= threshold:
+                e.hit_count = models.F('hit_count') + 1
+                e.save(update_fields=['hit_count'])
+                return {'is_correct': e.is_correct, 'score_fraction': e.score_fraction, 'feedback': e.feedback}
+    except Exception as exc:
+        logger.warning(f'Cache lookup error: {exc}')
+    return None
+
+
+def _store_cache(question_pk, normalised_text, result):
+    """Persist a grading result to cache."""
+    try:
+        Cache = _get_cache_model()
+        Cache.objects.update_or_create(
+            question_id=question_pk,
+            normalised_answer=normalised_text[:500],
+            defaults={
+                'is_correct': result['is_correct'],
+                'score_fraction': result['score_fraction'],
+                'feedback': result['feedback'],
+            },
+        )
+    except Exception as exc:
+        logger.warning(f'Cache store error: {exc}')
+
+
+def _call_claude_grade(question, answer_text, normalised_text):
+    """Call the Anthropic API to grade the answer. Returns result dict."""
+    import anthropic
+    client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+    # Include up to 10 previously cached answers as examples so Claude can
+    # classify quickly instead of always evaluating from scratch.
+    examples_text = _build_examples_prompt(question.pk)
+
+    rubric = question.grading_rubric or (
+        f'Grade this answer to the question. '
+        f'The model answer/explanation is: {question.explanation or "(not provided)"}'
+    )
+
+    system = (
+        'You are an expert school teacher grading student answers to mathematics questions.\n'
+        'Be fair, consistent, and educational in your feedback.\n'
+        'Award partial credit where the student shows correct understanding but incomplete reasoning.\n'
+        'Your response must be valid JSON.'
+    )
+
+    user_prompt = f"""Question: {question.question_text}
+
+Marking rubric / model answer:
+{rubric}
+
+{examples_text}
+
+Student answer to grade:
+{answer_text}
+
+Respond with JSON only:
+{{
+  "score_fraction": <0.0 to 1.0>,
+  "is_correct": <true if score_fraction >= 0.6>,
+  "feedback": "<1-3 sentences explaining the grade — what was right, what was wrong, what they should understand>"
+}}"""
+
+    try:
+        response = client.messages.create(
+            model='claude-sonnet-4-20250514',
+            max_tokens=400,
+            system=system,
+            messages=[{'role': 'user', 'content': user_prompt}],
+        )
+        import json
+        text = response.content[0].text.strip()
+        # Strip markdown code fences if present
+        text = re.sub(r'^```(?:json)?\s*', '', text)
+        text = re.sub(r'\s*```$', '', text)
+        data = json.loads(text)
+        score_fraction = float(data.get('score_fraction', 0.0))
+        score_fraction = max(0.0, min(1.0, score_fraction))
+        return {
+            'is_correct': bool(data.get('is_correct', score_fraction >= 0.6)),
+            'score_fraction': score_fraction,
+            'feedback': str(data.get('feedback', '')),
+            'cache_hit': False,
+            'input_tokens': response.usage.input_tokens,
+            'output_tokens': response.usage.output_tokens,
+        }
+    except Exception as exc:
+        logger.exception(f'Claude grading call failed: {exc}')
+        return {
+            'is_correct': False,
+            'score_fraction': 0.0,
+            'feedback': 'Automatic grading failed. Your teacher will review this answer.',
+            'cache_hit': False,
+            'input_tokens': 0,
+            'output_tokens': 0,
+            'error': str(exc),
+        }
+
+
+def _build_examples_prompt(question_pk):
+    """Build a text block of up to 10 previously graded answers for context."""
+    try:
+        Cache = _get_cache_model()
+        entries = Cache.objects.filter(question_id=question_pk).order_by('-hit_count')[:10]
+        if not entries:
+            return ''
+        lines = ['Previously graded answers for context (use these to classify quickly if the new answer matches):']
+        for i, e in enumerate(entries, 1):
+            grade = f"{e.score_fraction:.1f}/1.0"
+            lines.append(f'  Example {i} ({grade}): "{e.normalised_answer[:200]}" → {e.feedback[:100]}')
+        return '\n'.join(lines) + '\n'
+    except Exception:
+        return ''

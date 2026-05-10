@@ -33,6 +33,7 @@ class Question(models.Model):
     SHORT_ANSWER = 'short_answer'
     FILL_BLANK = 'fill_blank'
     CALCULATION = 'calculation'
+    EXTENDED_ANSWER = 'extended_answer'
 
     QUESTION_TYPES = [
         ('multiple_choice', 'Multiple Choice'),
@@ -40,6 +41,18 @@ class Question(models.Model):
         ('short_answer', 'Short Answer'),
         ('fill_blank', 'Fill in the Blank'),
         ('calculation', 'Calculation'),
+        ('extended_answer', 'Extended Answer (written proof/explanation)'),
+    ]
+
+    # Validation mode — how student answers are graded
+    VALIDATION_AUTO = 'auto'
+    VALIDATION_AI = 'ai_graded'
+    VALIDATION_HUMAN = 'human_graded'
+
+    VALIDATION_TYPES = [
+        ('auto', 'Auto (system checks exact answer)'),
+        ('ai_graded', 'AI Graded (Claude evaluates reasoning)'),
+        ('human_graded', 'Human Graded (teacher reviews manually)'),
     ]
 
     DIFFICULTY_CHOICES = [
@@ -72,8 +85,28 @@ class Question(models.Model):
     explanation = models.TextField(blank=True, help_text="Explanation for the correct answer")
     image = models.ImageField(upload_to='questions/', blank=True, null=True, help_text="Upload an image for this question")
     video = models.FileField(upload_to='questions/videos/', blank=True, null=True, help_text="Upload a video for this question")
+
+    # Grading configuration — applies when question_type = extended_answer
+    validation_type = models.CharField(
+        max_length=20, choices=VALIDATION_TYPES, default='auto',
+        help_text='How student answers are validated. Extended answers use ai_graded or human_graded.',
+    )
+    grading_rubric = models.TextField(
+        blank=True,
+        help_text=(
+            'Marking guide for AI or teacher graders. '
+            'For extended_answer questions: describe what a correct answer must include, '
+            'common mistakes to look for, and partial-credit criteria.'
+        ),
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def needs_grading(self):
+        """True if this question requires AI or human grading (not instant auto-check)."""
+        return self.validation_type in (self.VALIDATION_AI, self.VALIDATION_HUMAN)
 
     class Meta:
         ordering = ['level', 'difficulty', 'created_at']
