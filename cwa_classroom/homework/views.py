@@ -965,9 +965,8 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
         # Resolve topic
         topic_name = (q.get('topic') or global_data.get('topic', '')).strip()
         subject_name = (q.get('subject') or global_data.get('subject', 'Mathematics')).strip()
-        try:
-            subject = Subject.objects.get(name__iexact=subject_name)
-        except Subject.DoesNotExist:
+        subject = Subject.objects.filter(name__iexact=subject_name).first()
+        if not subject:
             subject = Subject.objects.first()
 
         topic = None
