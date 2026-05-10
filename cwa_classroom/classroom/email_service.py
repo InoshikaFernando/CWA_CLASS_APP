@@ -96,9 +96,13 @@ def send_templated_email(
     )
 
     cc = resolve_cc_email(school, department)
+    reply_to = cc if cc else []
 
     try:
-        msg = EmailMultiAlternatives(subject, text_content, from_email, [recipient_email], cc=cc)
+        msg = EmailMultiAlternatives(
+            subject, text_content, from_email, [recipient_email],
+            cc=cc, reply_to=reply_to,
+        )
         msg.attach_alternative(html_content, 'text/html')
         msg.send(fail_silently=False)
 
