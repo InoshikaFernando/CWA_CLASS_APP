@@ -25,8 +25,8 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # ---------------------------------------------------------------------------
 # App Version  (SemVer — bump manually on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.4.5'          # MAJOR.MINOR.PATCH
-APP_VERSION_DATE  = '2026-04-29'     # ISO date of this release
+APP_VERSION       = '1.4.6'          # MAJOR.MINOR.PATCH
+APP_VERSION_DATE  = '2026-05-10'     # ISO date of this release
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
@@ -355,19 +355,25 @@ else:
 # Email
 # ---------------------------------------------------------------------------
 
-EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
-EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'info@wizardslearninghub.co.nz')
 
-if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
-    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-    EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtpout.secureserver.net')
-    EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '465'))
-    EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'False') == 'True'
-    EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', 'True') == 'True'
+# Priority: Resend API (recommended) > SMTP (legacy) > Console (dev)
+RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
+
+if RESEND_API_KEY:
+    EMAIL_BACKEND = 'cwa_classroom.email_backends.ResendEmailBackend'
 else:
-    # No SMTP credentials configured — log emails to console
-    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+    EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+    EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+    if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
+        EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+        EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtpout.secureserver.net')
+        EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '465'))
+        EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'False') == 'True'
+        EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', 'True') == 'True'
+    else:
+        # No credentials configured — log emails to console
+        EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 
 # ---------------------------------------------------------------------------
