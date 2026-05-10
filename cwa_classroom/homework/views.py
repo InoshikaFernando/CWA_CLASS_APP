@@ -956,8 +956,17 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
             )
 
             # 3. Link HomeworkQuestions
+            # bulk_create bypasses save(), so set content_id and subject_slug explicitly
+            # — otherwise the back-compat logic in save() never fires and every row
+            # gets content_id=0, causing a unique-constraint violation on the second row.
             HomeworkQuestion.objects.bulk_create([
-                HomeworkQuestion(homework=homework, question=q, order=i)
+                HomeworkQuestion(
+                    homework=homework,
+                    question=q,
+                    subject_slug='mathematics',
+                    content_id=q.pk,
+                    order=i,
+                )
                 for i, q in enumerate(saved_questions, 1)
             ])
 
