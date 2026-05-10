@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}Confirm Homework — {{ session.homework_title }}{% endblock %}
+
+{% block content %}
+<div class="p-6">
+  <div class="max-w-2xl mx-auto">
+
+    <nav class="text-sm text-gray-500 mb-4">
+      <a href="{% url 'homework:teacher_monitor' %}" class="hover:text-gray-700">Homework</a>
+      <span class="mx-2">/</span>
+      <a href="{% url 'homework:pdf_upload' %}" class="hover:text-gray-700">Upload PDF</a>
+      <span class="mx-2">/</span>
+      <a href="{% url 'homework:pdf_preview' session_id=session.pk %}" class="hover:text-gray-700">Preview</a>
+      <span class="mx-2">/</span>
+      <span class="text-gray-700">Confirm</span>
+    </nav>
+
+    <h1 class="text-2xl font-display font-bold text-gray-900 mb-1">Confirm &amp; Assign</h1>
+    <p class="text-sm text-gray-500 mb-6">Review the summary below, set the due date and classroom, then save.</p>
+
+    {% if messages %}
+    {% for msg in messages %}
+    <div class="mb-4 p-3 rounded-lg text-sm {% if msg.tags == 'error' %}bg-red-50 border border-red-200 text-red-700{% else %}bg-green-50 border border-green-200 text-green-700{% endif %}">
+      {{ msg }}
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    <!-- Summary card -->
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-6">
+      <h2 class="text-base font-semibold text-gray-800 mb-4">Summary</h2>
+      <dl class="divide-y divide-gray-50 text-sm">
+        <div class="flex justify-between py-2">
+          <dt class="text-gray-500">PDF file</dt>
+          <dd class="font-medium text-gray-800">{{ session.pdf_filename }}</dd>
+        </div>
+        <div class="flex justify-between py-2">
+          <dt class="text-gray-500">Questions included</dt>
+          <dd class="font-semibold text-gray-800">{{ included_count }} <span class="text-gray-400 font-normal">/ {{ total_count }}</span></dd>
+        </div>
+        {% if excluded_count %}
+        <div class="flex justify-between py-2">
+          <dt class="text-gray-500">Questions excluded</dt>
+          <dd class="text-gray-400">{{ excluded_count }}</dd>
+        </div>
+        {% endif %}
+        <div class="flex justify-between py-2">
+          <dt class="text-gray-500">Auto-graded</dt>
+          <dd class="text-gray-700">{{ auto_count }}</dd>
+        </div>
+        {% if ai_count %}
+        <div class="flex justify-between py-2">
+          <dt class="text-gray-500">AI graded</dt>
+          <dd class="text-indigo-700 font-medium">{{ ai_count }} <span class="text-xs font-normal text-gray-400">(Claude evaluates reasoning)</span></dd>
+        </div>
+        {% endif %}
+        {% if human_count %}
+        <div class="flex justify-between py-2">
+          <dt class="text-gray-500">Teacher graded</dt>
+          <dd class="text-amber-700 font-medium">{{ human_count }} <span class="text-xs font-normal text-gray-400">(you review manually)</span></dd>
+        </div>
+        {% endif %}
+      </dl>
+    </div>
+
+    <!-- Assignment form -->
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <h2 class="text-base font-semibold text-gray-800 mb-4">Assignment Details</h2>
+
+      <form method="post">
+        {% csrf_token %}
+
+        <div class="space-y-4">
+          <!-- Title override -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Homework Title</label>
+            <input type="text" name="homework_title" value="{{ session.homework_title }}" required
+                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+
+          <!-- Classroom -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Classroom <span class="text-red-500">*</span>
+            </label>
+            <select name="classroom_id" required
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">— select classroom —</option>
+              {% for cls in classrooms %}
+              <option value="{{ cls.id }}" {% if session.classroom_id == cls.id %}selected{% endif %}>{{ cls.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- Due date -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Due Date &amp; Time <span class="text-red-500">*</span>
+            </label>
+            <input type="datetime-local" name="due_date" required
+                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+
+          <!-- Max attempts -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Max Attempts <span class="text-gray-400 font-normal">(leave blank for unlimited)</span>
+            </label>
+            <input type="number" name="max_attempts" min="1" max="99" placeholder="Unlimited"
+                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+        </div>
+
+        {% if ai_count %}
+        <div class="mt-5 p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-xs text-indigo-700">
+          <strong>AI Grading note:</strong> Written answer questions will be graded automatically using Claude when students submit.
+          Results appear on the student's result page instantly. You can override any grade from the
+          <a href="{% url 'homework:pending_review' %}" class="underline">Pending Review</a> screen.
+        </div>
+        {% endif %}
+
+        <div class="mt-6 flex gap-3">
+          <button type="submit"
+                  class="flex-1 py-3 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition">
+            Save &amp; Assign Homework
+          </button>
+          <a href="{% url 'homework:pdf_preview' session_id=session.pk %}"
+             class="px-5 py-3 bg-gray-100 text-gray-600 text-sm font-semibold rounded-xl hover:bg-gray-200 transition">
+            ← Back
+          </a>
+        </div>
+      </form>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

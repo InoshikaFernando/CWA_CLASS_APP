@@ -1,0 +1,707 @@
+"""
+Worksheets views: PDF upload → AI extraction → preview → confirm → assign → student session.
+"""
+import json
+import os
+
+from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.http import JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from django.utils import timezone
+from django.views import View
+
+from accounts.models import Role
+from billing.entitlements import get_school_for_user
+from classroom.views import RoleRequiredMixin
+
+from .models import (
+    Worksheet,
+    WorksheetAssignment,
+    WorksheetQuestion,
+    WorksheetStudentAnswer,
+    WorksheetSubmission,
+    WorksheetUploadSession,
+)
+
+TEACHER_ROLES = [
+    Role.INSTITUTE_OWNER,
+    Role.HEAD_OF_INSTITUTE,
+    Role.HEAD_OF_DEPARTMENT,
+    Role.SENIOR_TEACHER,
+    Role.TEACHER,
+    Role.JUNIOR_TEACHER,
+]
+
+
+# ---------------------------------------------------------------------------
+# Teacher: Worksheet Library
+# ---------------------------------------------------------------------------
+
+class WorksheetListView(RoleRequiredMixin, View):
+    """List all worksheets for the teacher's school."""
+    required_roles = TEACHER_ROLES
+
+    def get(self, request):
+        school = get_school_for_user(request.user)
+        worksheets = Worksheet.objects.filter(school=school).select_related('created_by', 'level')
+        return render(request, 'worksheets/list.html', {
+            'worksheets': worksheets,
+            'school': school,
+        })
+
+
+# ---------------------------------------------------------------------------
+# Teacher: Upload Flow (3 steps)
+# ---------------------------------------------------------------------------
+
+class WorksheetUploadView(RoleRequiredMixin, View):
+    """Step 1: Upload a PDF worksheet for AI extraction."""
+    required_roles = TEACHER_ROLES
+
+    def get(self, request):
+        return render(request, 'worksheets/upload.html', {})
+
+    def post(self, request):
+        school = get_school_for_user(request.user)
+        pdf_file = request.FILES.get('pdf_file')
+
+        if not pdf_file:
+            messages.error(request, 'Please select a PDF file.')
+            return redirect('worksheets:upload')
+
+        if not pdf_file.name.lower().endswith('.pdf'):
+            messages.error(request, 'Only PDF files are supported.')
+            return redirect('worksheets:upload')
+
+        try:
+            from classroom.models import Topic, Level
+            from .services import extract_and_classify_worksheet
+
+            existing_topics = list(Topic.objects.filter(
+                subject__slug='mathematics',
+            ).values('name', 'slug')[:100])
+            existing_levels = list(Level.objects.filter(
+                level_number__lte=12,
+            ).values('level_number', 'display_name'))
+
+            # Use worksheet-specific pipeline: extract PDF → AI classify → crop images
+            output = extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels)
+            result = output['result']
+            extracted_images = output['extracted_images']
+            page_count = output['page_count']
+
+            # Default worksheet name from filename (strip .pdf)
+            worksheet_name = pdf_file.name
+            if worksheet_name.lower().endswith('.pdf'):
+                worksheet_name = worksheet_name[:-4]
+
+            session = WorksheetUploadSession.objects.create(
+                user=request.user,
+                school=school,
+                pdf_filename=pdf_file.name,
+                worksheet_name=worksheet_name,
+                extracted_data=result,
+                extracted_images=extracted_images,
+                page_count=page_count,
+                tokens_used=result.get('usage', {}).get('total_tokens', 0),
+            )
+
+            return redirect('worksheets:preview', session_id=session.pk)
+
+        except ImportError:
+            messages.error(request, 'PDF processing library not installed. Please contact the administrator.')
+            return redirect('worksheets:upload')
+        except Exception as e:
+            messages.error(request, f'Error processing PDF: {str(e)}')
+            return redirect('worksheets:upload')
+
+
+class WorksheetPreviewView(RoleRequiredMixin, View):
+    """Step 2: Preview AI-extracted questions. Teacher can edit, include/exclude, rename worksheet."""
+    required_roles = TEACHER_ROLES
+
+    def get(self, request, session_id):
+        session = get_object_or_404(
+            WorksheetUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        data = session.extracted_data
+        questions = data.get('questions', [])
+
+        from classroom.models import Topic, Level
+        topics = Topic.objects.filter(subject__slug='mathematics').order_by('name')
+        levels = Level.objects.filter(level_number__lte=12).order_by('level_number')
+
+        image_list = [
+            {'ref': ref, 'name': ref, 'base64': b64}
+            for ref, b64 in session.extracted_images.items()
+        ]
+
+        for q in questions:
+            q.setdefault('year_level', data.get('year_level'))
+            q.setdefault('subject', data.get('subject', 'Mathematics'))
+            q.setdefault('strand', data.get('strand', ''))
+            q.setdefault('topic', data.get('topic', ''))
+            q.setdefault('include', True)
+            # Attach base64 image data directly to question dict so templates
+            # don't need a custom filter for dict lookups.
+            ref = q.get('image_ref')
+            q['image_b64'] = session.extracted_images.get(ref) if ref else None
+
+        return render(request, 'worksheets/preview.html', {
+            'session': session,
+            'data': data,
+            'questions': questions,
+            'topics': topics,
+            'levels': levels,
+            'image_list': image_list,
+            'image_refs_json': json.dumps([img['ref'] for img in image_list]),
+            'question_types': [
+                ('multiple_choice', 'Multiple Choice'),
+                ('true_false', 'True / False'),
+                ('short_answer', 'Short Answer'),
+                ('fill_blank', 'Fill in the Blank'),
+                ('calculation', 'Calculation'),
+            ],
+        })
+
+    def post(self, request, session_id):
+        """Save preview edits and redirect to confirm step."""
+        session = get_object_or_404(
+            WorksheetUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        data = session.extracted_data
+
+        # Worksheet name (editable)
+        worksheet_name = request.POST.get('worksheet_name', '').strip()
+        if worksheet_name:
+            session.worksheet_name = worksheet_name
+
+        # Global defaults
+        data['year_level'] = int(request.POST.get('year_level', data.get('year_level', 1)))
+        data['topic'] = request.POST.get('topic', data.get('topic', ''))
+        data['strand'] = request.POST.get('strand', data.get('strand', ''))
+        data['subject'] = request.POST.get('subject', data.get('subject', 'Mathematics'))
+
+        questions = data.get('questions', [])
+        for idx, q in enumerate(questions):
+            prefix = f'q_{idx}_'
+            q['include'] = request.POST.get(f'{prefix}include') == 'on'
+            q['question_text'] = request.POST.get(f'{prefix}text', q.get('question_text', ''))
+            q['question_type'] = request.POST.get(f'{prefix}type', q.get('question_type', 'short_answer'))
+            q['difficulty'] = int(request.POST.get(f'{prefix}difficulty', q.get('difficulty', 1)))
+            q['points'] = int(request.POST.get(f'{prefix}points', q.get('points', 1)))
+            q['explanation'] = request.POST.get(f'{prefix}explanation', q.get('explanation', ''))
+            q['year_level'] = int(request.POST.get(f'{prefix}year_level', q.get('year_level', data['year_level'])))
+            q['subject'] = request.POST.get(f'{prefix}subject', q.get('subject', data['subject']))
+            q['strand'] = request.POST.get(f'{prefix}strand', q.get('strand', data['strand']))
+            q['topic'] = request.POST.get(f'{prefix}topic', q.get('topic', data['topic']))
+
+            img_ref = request.POST.get(f'{prefix}image_ref', '')
+            q['image_ref'] = img_ref if img_ref and img_ref != 'none' else None
+
+            answers = []
+            for a_idx in range(20):
+                a_text = request.POST.get(f'{prefix}answer_{a_idx}_text', '')
+                if a_text.strip():
+                    answers.append({
+                        'text': a_text,
+                        'is_correct': request.POST.get(f'{prefix}answer_{a_idx}_correct') == 'on',
+                    })
+            if answers:
+                q['answers'] = answers
+
+        data['questions'] = questions
+        session.extracted_data = data
+        session.save(update_fields=['extracted_data', 'worksheet_name'])
+
+        return redirect('worksheets:confirm', session_id=session.pk)
+
+
+class WorksheetConfirmView(RoleRequiredMixin, View):
+    """Step 3: Save questions to DB and create Worksheet record."""
+    required_roles = TEACHER_ROLES
+
+    def get(self, request, session_id):
+        session = get_object_or_404(
+            WorksheetUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        data = session.extracted_data
+        included = [q for q in data.get('questions', []) if q.get('include', True)]
+        excluded_count = len(data.get('questions', [])) - len(included)
+
+        return render(request, 'worksheets/confirm.html', {
+            'session': session,
+            'included_count': len(included),
+            'excluded_count': excluded_count,
+            'total_count': len(data.get('questions', [])),
+            'images_count': sum(1 for q in included if q.get('image_ref')),
+        })
+
+    def post(self, request, session_id):
+        session = get_object_or_404(
+            WorksheetUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        school = get_school_for_user(request.user)
+
+        # Allow final name override from confirm form
+        worksheet_name = request.POST.get('worksheet_name', '').strip() or session.worksheet_name or session.pdf_filename
+
+        data = session.extracted_data
+        questions_data = [q for q in data.get('questions', []) if q.get('include', True)]
+
+        if not questions_data:
+            messages.error(request, 'No questions to save. Please include at least one question.')
+            return redirect('worksheets:preview', session_id=session.pk)
+
+        from ai_import.services import save_questions_from_session
+        from ai_import.models import AIImportSession
+        from django.db import transaction
+
+        # We reuse save_questions_from_session by creating a lightweight adapter
+        # Build a temporary AIImportSession-like object
+        class _TempSession:
+            extracted_data = data
+            extracted_images = session.extracted_images
+            pk = session.pk
+
+        temp_session = _TempSession()
+        result = save_questions_from_session(temp_session, request.user, data)
+
+        if result['failed'] == len(questions_data):
+            messages.error(request, 'All questions failed to save. Check error details.')
+            return redirect('worksheets:preview', session_id=session.pk)
+
+        # Create the Worksheet
+        with transaction.atomic():
+            from classroom.models import Level
+            year_level = data.get('year_level')
+            level = None
+            if year_level:
+                level = Level.objects.filter(level_number=int(year_level)).first()
+
+            worksheet = Worksheet.objects.create(
+                school=school,
+                name=worksheet_name,
+                original_filename=session.pdf_filename,
+                level=level,
+                created_by=request.user,
+                question_count=0,
+            )
+
+            # Re-query the questions we just saved, in order
+            from maths.models import Question as MathsQuestion
+            from ai_import.services import _resolve_topic_for_question
+
+            order = 1
+            for q in questions_data:
+                if not q.get('include', True):
+                    continue
+                q_text = q.get('question_text', '').strip()
+                if not q_text:
+                    continue
+
+                # Resolve the topic/level to find the saved question
+                subject, topic, level_obj, topic_slug, yl = _resolve_topic_for_question(q, data)
+                if not level_obj:
+                    continue
+
+                from classroom.views import _get_question_scope
+                school_id, dept_id, classroom_ids = _get_question_scope(request.user)
+
+                maths_q = MathsQuestion.objects.filter(
+                    question_text=q_text,
+                    topic=topic,
+                    level=level_obj,
+                    school_id=school_id,
+                ).first()
+
+                if maths_q:
+                    WorksheetQuestion.objects.create(
+                        worksheet=worksheet,
+                        question=maths_q,
+                        order=order,
+                    )
+                    order += 1
+
+            worksheet.refresh_question_count()
+
+        # Mark session as confirmed
+        session.is_confirmed = True
+        session.worksheet = worksheet
+        session.save(update_fields=['is_confirmed', 'worksheet'])
+
+        messages.success(
+            request,
+            f'Worksheet "{worksheet.name}" created with {worksheet.question_count} questions.',
+        )
+        return redirect('worksheets:detail', pk=worksheet.pk)
+
+
+# ---------------------------------------------------------------------------
+# Teacher: Worksheet Management
+# ---------------------------------------------------------------------------
+
+class WorksheetDetailView(RoleRequiredMixin, View):
+    """View a worksheet's questions and manage assignments."""
+    required_roles = TEACHER_ROLES
+
+    def get(self, request, pk):
+        school = get_school_for_user(request.user)
+        worksheet = get_object_or_404(Worksheet, pk=pk, school=school)
+        wqs = worksheet.worksheet_questions.select_related('question').prefetch_related('question__answers')
+        assignments = worksheet.assignments.select_related('classroom').order_by('-assigned_at')
+
+        from classroom.models import ClassRoom
+        classrooms = ClassRoom.objects.filter(
+            school=school, is_active=True,
+        ).order_by('name')
+
+        return render(request, 'worksheets/detail.html', {
+            'worksheet': worksheet,
+            'worksheet_questions': wqs,
+            'assignments': assignments,
+            'classrooms': classrooms,
+        })
+
+
+class WorksheetDeleteView(RoleRequiredMixin, View):
+    """Delete a worksheet. Blocked if it has any assignment."""
+    required_roles = TEACHER_ROLES
+
+    def post(self, request, pk):
+        school = get_school_for_user(request.user)
+        worksheet = get_object_or_404(Worksheet, pk=pk, school=school)
+
+        if worksheet.assignments.exists():
+            messages.error(request, 'Cannot delete a worksheet that has been assigned to a class. Deactivate assignments first.')
+            return redirect('worksheets:detail', pk=pk)
+
+        name = worksheet.name
+        worksheet.delete()
+        messages.success(request, f'Worksheet "{name}" deleted.')
+        return redirect('worksheets:list')
+
+
+# ---------------------------------------------------------------------------
+# Teacher: Assignment
+# ---------------------------------------------------------------------------
+
+class WorksheetAssignView(RoleRequiredMixin, View):
+    """Assign a worksheet to a class with a question range."""
+    required_roles = TEACHER_ROLES
+
+    def post(self, request, pk):
+        school = get_school_for_user(request.user)
+        worksheet = get_object_or_404(Worksheet, pk=pk, school=school)
+
+        from classroom.models import ClassRoom
+        classroom_id = request.POST.get('classroom_id')
+        classroom = get_object_or_404(ClassRoom, pk=classroom_id, school=school)
+
+        range_type = request.POST.get('range_type', 'all')
+        total = worksheet.question_count
+
+        if range_type == 'first_n':
+            n = int(request.POST.get('first_n', total))
+            question_start = 1
+            question_end = min(n, total)
+        elif range_type == 'range':
+            question_start = max(1, int(request.POST.get('range_from', 1)))
+            question_end = min(int(request.POST.get('range_to', total)), total)
+            if question_start > question_end:
+                messages.error(request, 'Range start must be less than or equal to range end.')
+                return redirect('worksheets:detail', pk=pk)
+        else:
+            question_start = 1
+            question_end = None
+
+        assignment = WorksheetAssignment.objects.create(
+            worksheet=worksheet,
+            classroom=classroom,
+            question_start=question_start,
+            question_end=question_end,
+            assigned_by=request.user,
+            is_active=True,
+        )
+        messages.success(
+            request,
+            f'Worksheet assigned to {classroom.name}. {assignment.assigned_question_count} questions.',
+        )
+        return redirect('worksheets:assignment_detail', pk=assignment.pk)
+
+
+class AssignmentDetailView(RoleRequiredMixin, View):
+    """Teacher view: assignment progress across the class."""
+    required_roles = TEACHER_ROLES
+
+    def get(self, request, pk):
+        school = get_school_for_user(request.user)
+        assignment = get_object_or_404(
+            WorksheetAssignment, pk=pk, worksheet__school=school,
+        )
+        submissions = assignment.submissions.select_related('student').prefetch_related('answers')
+        assigned_questions = list(assignment.assigned_questions)
+
+        # Build student progress list
+        from classroom.models import ClassStudent
+        enrolled_students = ClassStudent.objects.filter(
+            classroom=assignment.classroom, is_active=True,
+        ).select_related('student')
+
+        student_progress = []
+        for cs in enrolled_students:
+            sub = next((s for s in submissions if s.student_id == cs.student_id), None)
+            student_progress.append({
+                'student': cs.student,
+                'submission': sub,
+                'answered': sub.answered_count if sub else 0,
+                'total': assignment.assigned_question_count,
+                'score': sub.score if sub else 0,
+                'is_complete': sub.is_complete if sub else False,
+            })
+
+        return render(request, 'worksheets/assignment_detail.html', {
+            'assignment': assignment,
+            'assigned_questions': assigned_questions,
+            'student_progress': student_progress,
+            'submissions': submissions,
+        })
+
+
+class AssignmentToggleView(RoleRequiredMixin, View):
+    """Toggle assignment active/inactive (HTMX-friendly)."""
+    required_roles = TEACHER_ROLES
+
+    def post(self, request, pk):
+        school = get_school_for_user(request.user)
+        assignment = get_object_or_404(
+            WorksheetAssignment, pk=pk, worksheet__school=school,
+        )
+        assignment.is_active = not assignment.is_active
+        assignment.save(update_fields=['is_active'])
+
+        if request.headers.get('HX-Request'):
+            status = 'Active' if assignment.is_active else 'Inactive'
+            btn_class = 'bg-emerald-100 text-emerald-700' if assignment.is_active else 'bg-gray-100 text-gray-500'
+            return JsonResponse({'is_active': assignment.is_active, 'label': status})
+
+        return redirect('worksheets:assignment_detail', pk=pk)
+
+
+# ---------------------------------------------------------------------------
+# Student: Worksheet Session
+# ---------------------------------------------------------------------------
+
+def _get_student_assignment(request, pk):
+    """Get a WorksheetAssignment visible to the current student."""
+    from classroom.models import ClassStudent
+    assignment = get_object_or_404(WorksheetAssignment, pk=pk, is_active=True)
+    # Ensure the student is enrolled in the assignment's class
+    if not request.user.is_superuser:
+        enrolled = ClassStudent.objects.filter(
+            classroom=assignment.classroom,
+            student=request.user,
+            is_active=True,
+        ).exists()
+        if not enrolled:
+            from django.http import Http404
+            raise Http404
+    return assignment
+
+
+class WorksheetSessionView(LoginRequiredMixin, View):
+    """Student: start or resume a worksheet session."""
+
+    def get(self, request, pk):
+        assignment = _get_student_assignment(request, pk)
+        assigned_qs = list(assignment.assigned_questions.select_related('question__level', 'question__topic').prefetch_related('question__answers'))
+
+        # Get or create submission
+        submission, created = WorksheetSubmission.objects.get_or_create(
+            assignment=assignment,
+            student=request.user,
+            defaults={'total_questions': len(assigned_qs)},
+        )
+
+        if submission.is_complete:
+            return redirect('worksheets:results', pk=pk)
+
+        # Find the next unanswered question
+        answered_ids = set(submission.answers.values_list('question_id', flat=True))
+        current_wq = None
+        for wq in assigned_qs:
+            if wq.question_id not in answered_ids:
+                current_wq = wq
+                break
+
+        if current_wq is None:
+            # All answered — mark complete
+            submission.completed_at = timezone.now()
+            submission.save(update_fields=['completed_at'])
+            return redirect('worksheets:results', pk=pk)
+
+        question_number = assigned_qs.index(current_wq) + 1
+        answers = list(current_wq.question.answers.order_by('order'))
+
+        return render(request, 'worksheets/session.html', {
+            'assignment': assignment,
+            'submission': submission,
+            'current_wq': current_wq,
+            'question': current_wq.question,
+            'answers': answers,
+            'question_number': question_number,
+            'total_questions': len(assigned_qs),
+            'answered_count': len(answered_ids),
+        })
+
+
+class WorksheetAnswerView(LoginRequiredMixin, View):
+    """HTMX: student submits an answer; returns feedback partial."""
+
+    def post(self, request, pk):
+        assignment = _get_student_assignment(request, pk)
+        assigned_qs = list(assignment.assigned_questions.select_related('question').prefetch_related('question__answers'))
+
+        submission = get_object_or_404(
+            WorksheetSubmission, assignment=assignment, student=request.user,
+        )
+
+        question_id = int(request.POST.get('question_id', 0))
+        from maths.models import Question as MathsQuestion, Answer as MathsAnswer
+        question = get_object_or_404(MathsQuestion, pk=question_id)
+
+        selected_answer = None
+        text_answer = ''
+        is_correct = False
+        points_earned = 0.0
+
+        if question.question_type in ('multiple_choice', 'true_false'):
+            answer_id = request.POST.get('answer_id')
+            if answer_id:
+                selected_answer = get_object_or_404(MathsAnswer, pk=answer_id, question=question)
+                is_correct = selected_answer.is_correct
+                if is_correct:
+                    points_earned = float(question.points)
+        else:
+            text_answer = request.POST.get('text_answer', '').strip()
+            correct_answers = [
+                a.answer_text.strip().lower()
+                for a in question.answers.filter(is_correct=True)
+            ]
+            if text_answer.lower() in correct_answers:
+                is_correct = True
+                points_earned = float(question.points)
+
+        # Upsert answer (idempotent — re-submit stays same question)
+        student_answer, _ = WorksheetStudentAnswer.objects.update_or_create(
+            submission=submission,
+            question=question,
+            defaults={
+                'selected_answer': selected_answer,
+                'text_answer': text_answer,
+                'is_correct': is_correct,
+                'points_earned': points_earned,
+            },
+        )
+
+        # Update submission score
+        total_correct = submission.answers.filter(is_correct=True).count()
+        total_points = sum(a.points_earned for a in submission.answers.all())
+        submission.score = total_correct
+        submission.save(update_fields=['score'])
+
+        # Determine next question
+        answered_ids = set(submission.answers.values_list('question_id', flat=True))
+        next_wq = None
+        for wq in assigned_qs:
+            if wq.question_id not in answered_ids:
+                next_wq = wq
+                break
+
+        # If no more questions, mark complete
+        is_last = next_wq is None
+        if is_last and not submission.is_complete:
+            submission.completed_at = timezone.now()
+            submission.save(update_fields=['completed_at'])
+
+        # Find correct answer(s) for display
+        correct_answers_display = list(question.answers.filter(is_correct=True).values('answer_text'))
+
+        return render(request, 'worksheets/answer_feedback.html', {
+            'question': question,
+            'student_answer': student_answer,
+            'is_correct': is_correct,
+            'correct_answers': correct_answers_display,
+            'is_last': is_last,
+            'assignment_pk': pk,
+            'next_wq': next_wq,
+        })
+
+
+class WorksheetResultsView(LoginRequiredMixin, View):
+    """Student: show completion screen with score and wrong-answer review."""
+
+    def get(self, request, pk):
+        assignment = _get_student_assignment(request, pk)
+        submission = get_object_or_404(
+            WorksheetSubmission, assignment=assignment, student=request.user,
+        )
+
+        answers = submission.answers.select_related(
+            'question', 'selected_answer',
+        ).prefetch_related('question__answers').order_by('answered_at')
+
+        wrong_answers = [a for a in answers if not a.is_correct]
+
+        return render(request, 'worksheets/results.html', {
+            'assignment': assignment,
+            'submission': submission,
+            'answers': answers,
+            'wrong_answers': wrong_answers,
+        })
+
+
+# ---------------------------------------------------------------------------
+# Student: Worksheet Assignment List
+# ---------------------------------------------------------------------------
+
+class StudentWorksheetListView(LoginRequiredMixin, View):
+    """Student: list all active worksheet assignments for their classes."""
+
+    def get(self, request):
+        from classroom.models import ClassStudent
+        # Get all active class enrolments for this student
+        class_ids = ClassStudent.objects.filter(
+            student=request.user, is_active=True,
+        ).values_list('classroom_id', flat=True)
+
+        # Active assignments across those classes
+        assignments = WorksheetAssignment.objects.filter(
+            classroom_id__in=class_ids,
+            is_active=True,
+        ).select_related('worksheet', 'classroom').order_by('-assigned_at')
+
+        # Attach submission info to each assignment
+        submissions = WorksheetSubmission.objects.filter(
+            assignment__in=assignments,
+            student=request.user,
+        ).select_related('assignment')
+        submissions_by_assignment = {s.assignment_id: s for s in submissions}
+
+        assignment_rows = []
+        for a in assignments:
+            sub = submissions_by_assignment.get(a.pk)
+            assignment_rows.append({
+                'assignment': a,
+                'submission': sub,
+                'answered': sub.answered_count if sub else 0,
+                'total': a.assigned_question_count,
+                'is_complete': sub.is_complete if sub else False,
+                'percentage': sub.percentage if sub else 0,
+            })
+
+        return render(request, 'worksheets/student_list.html', {
+            'assignment_rows': assignment_rows,
+        })
