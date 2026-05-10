@@ -1,0 +1,189 @@
+{% comment %}
+Maths progress accordions partial — included by student/dashboard.html.
+Expects context vars: progress_grid, bf_grid, np_grid, tt_results
+{% endcomment %}
+
+<!-- ── Year Level Progress (accordion) ─────────────────────────────────── -->
+{% if progress_grid %}
+<details class="group bg-white rounded-2xl border border-emerald-100 shadow-sm overflow-hidden">
+  <summary class="flex items-center justify-between px-5 py-4 cursor-pointer select-none bg-emerald-50 hover:bg-emerald-100/50 transition">
+    <h2 class="font-bold text-lg text-emerald-700">📚 Year Level Progress</h2>
+    <svg class="w-5 h-5 text-emerald-500 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+    </svg>
+  </summary>
+
+  <div class="p-4 space-y-3">
+    <!-- Colour legend (deviation from class average) -->
+    <div class="flex flex-wrap gap-2 text-xs font-semibold mb-2">
+      <span class="px-3 py-1 rounded-full bg-green-800 text-white">Outstanding</span>
+      <span class="px-3 py-1 rounded-full bg-green-500 text-white">Above Average</span>
+      <span class="px-3 py-1 rounded-full bg-green-200 text-green-900">Average</span>
+      <span class="px-3 py-1 rounded-full bg-yellow-200 text-yellow-900">Below Average</span>
+      <span class="px-3 py-1 rounded-full bg-orange-200 text-orange-900">Needs Practice</span>
+      <span class="px-3 py-1 rounded-full bg-red-200 text-red-900">Needs Support</span>
+      <span class="px-3 py-1 rounded-full bg-gray-100 text-gray-400">Not attempted</span>
+    </div>
+
+    {% for row in progress_grid %}
+    <details class="group/row border border-emerald-100 rounded-xl overflow-hidden">
+      <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none bg-emerald-50/50 hover:bg-emerald-50 transition">
+        <h3 class="font-bold text-gray-800">{{ row.level.display_name }}</h3>
+        <svg class="w-4 h-4 text-emerald-400 transition-transform group-open/row:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+        </svg>
+      </summary>
+      <div class="p-3 space-y-4">
+        {% for strand_item in row.strand_data %}
+        <div>
+          {% if strand_item.strand %}
+          <p class="text-xs font-bold text-green-500 uppercase tracking-wider mb-2 px-1">
+            {{ strand_item.strand.name }}
+          </p>
+          {% endif %}
+          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+            {% for item in strand_item.subtopics %}
+            <a href="{% if item.topic_id %}{% url 'topic_quiz' subject='maths' level_number=row.level.level_number topic_id=item.topic_id %}{% else %}#{% endif %}"
+               class="rounded-xl border border-transparent p-3 hover:shadow-md transition block {{ item.colour }}">
+              <p class="text-xs font-semibold mb-1">{{ item.topic.name }}</p>
+              {% if item.best %}
+              <p class="text-sm font-bold">{{ item.best.points|floatformat:1 }} pts</p>
+              <p class="text-xs opacity-70 mt-0.5">{{ item.best.percentage }}% · {{ item.attempts }} attempt{{ item.attempts|pluralize }}</p>
+              {% else %}
+              <p class="text-sm font-bold opacity-50">0 pts</p>
+              {% endif %}
+            </a>
+            {% endfor %}
+          </div>
+        </div>
+        {% empty %}
+        <p class="text-sm text-gray-400 px-1">No topics available for this year yet.</p>
+        {% endfor %}
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+</details>
+{% endif %}
+
+<!-- ── Basic Facts Progress (accordion) ────────────────────────────────── -->
+{% if bf_grid %}
+<details class="group bg-white rounded-2xl border border-teal-100 shadow-sm overflow-hidden">
+  <summary class="flex items-center justify-between px-5 py-4 cursor-pointer select-none bg-teal-50 hover:bg-teal-100/50 transition">
+    <h2 class="font-bold text-lg text-teal-600">⚡ Basic Facts Progress</h2>
+    <svg class="w-5 h-5 text-teal-500 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+    </svg>
+  </summary>
+
+  <div class="p-4 space-y-3">
+    {% for subtopic_data in bf_grid %}
+    <details class="group/bf border border-teal-100 rounded-xl overflow-hidden">
+      <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none bg-teal-50/50 hover:bg-teal-50 transition">
+        <h3 class="font-bold text-gray-800">{{ subtopic_data.label }}</h3>
+        <svg class="w-4 h-4 text-teal-400 transition-transform group-open/bf:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+        </svg>
+      </summary>
+      <div class="p-3">
+        <div class="flex flex-wrap gap-3">
+          {% for level in subtopic_data.levels %}
+          <a href="{% url 'basic_facts_quiz' subtopic=subtopic_data.subtopic level_number=level.level_number %}"
+             class="flex flex-col items-center gap-1 p-3 rounded-xl border border-transparent hover:shadow-md transition min-w-16 {{ level.colour }}">
+            <span class="text-xs font-semibold">L{{ level.display_level }}</span>
+            {% if level.best %}
+            <span class="text-sm font-bold">{{ level.best.percentage }}%</span>
+            {% else %}
+            <span class="text-sm font-bold opacity-40">—</span>
+            {% endif %}
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+    </details>
+    {% endfor %}
+
+    <!-- Number Puzzles inside Basic Facts -->
+    {% if np_grid %}
+    <details class="group/np border border-teal-100 rounded-xl overflow-hidden">
+      <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none bg-teal-50/50 hover:bg-teal-50 transition">
+        <h3 class="font-bold text-gray-800">Number Puzzles</h3>
+        <svg class="w-4 h-4 text-teal-400 transition-transform group-open/np:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+        </svg>
+      </summary>
+      <div class="p-3">
+        <div class="flex flex-wrap gap-3">
+          {% for item in np_grid %}
+          {% url 'number_puzzles_play' slug=item.level.slug as play_url %}
+          <a href="{% if item.is_unlocked and play_url %}{{ play_url }}{% else %}#{% endif %}"
+             class="flex flex-col items-center gap-1 p-3 rounded-xl border border-transparent hover:shadow-md transition min-w-16 {{ item.colour }} {% if not item.is_unlocked %}opacity-50 cursor-not-allowed{% endif %}">
+            <span class="text-xs font-semibold">L{{ item.level.number }}</span>
+            {% if item.total_sessions > 0 %}
+            <span class="text-sm font-bold">{{ item.best_score }}/10</span>
+            <span class="text-xs opacity-70">{% if item.stars >= 3 %}⭐⭐⭐{% elif item.stars >= 2 %}⭐⭐{% elif item.stars >= 1 %}⭐{% endif %}</span>
+            {% elif not item.is_unlocked %}
+            <span class="text-sm">🔒</span>
+            {% else %}
+            <span class="text-sm font-bold opacity-40">—</span>
+            {% endif %}
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+    </details>
+    {% endif %}
+
+  </div>
+</details>
+{% endif %}
+
+<!-- ── Times Tables Progress (accordion) ───────────────────────────────── -->
+{% if tt_results %}
+<details class="group bg-white rounded-2xl border border-cyan-100 shadow-sm overflow-hidden">
+  <summary class="flex items-center justify-between px-5 py-4 cursor-pointer select-none bg-cyan-50 hover:bg-cyan-100/50 transition">
+    <h2 class="font-bold text-lg text-cyan-700">✕ Times Tables Progress</h2>
+    <svg class="w-5 h-5 text-cyan-500 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+    </svg>
+  </summary>
+
+  <div class="p-4">
+    <div class="flex flex-wrap gap-3">
+      {% for tt in tt_results %}
+      <div class="rounded-xl border border-cyan-200 overflow-hidden min-w-[4.5rem] bg-white shadow-sm">
+        <div class="text-center py-1.5 px-2 font-bold text-xs border-b border-cyan-200 bg-cyan-50 text-cyan-700">
+          {{ tt.table }}×
+        </div>
+        <div class="flex items-center justify-between px-2 py-1.5 border-b border-black/10 {{ tt.mul_colour }}">
+          <span class="text-xs font-semibold opacity-80">×</span>
+          {% with r=tt.mul|default:tt.legacy %}
+          {% if r %}
+          <div class="text-right">
+            <div class="text-xs font-bold">{{ r.percentage }}%</div>
+            <div class="text-xs opacity-70">{{ r.points|floatformat:0 }}pts</div>
+            <div class="text-xs opacity-60">⏱{{ r.time_taken_seconds }}s</div>
+          </div>
+          {% else %}
+          <span class="text-xs opacity-40">—</span>
+          {% endif %}
+          {% endwith %}
+        </div>
+        <div class="flex items-center justify-between px-2 py-1.5 {{ tt.div_colour }}">
+          <span class="text-xs font-semibold opacity-80">÷</span>
+          {% if tt.div %}
+          <div class="text-right">
+            <div class="text-xs font-bold">{{ tt.div.percentage }}%</div>
+            <div class="text-xs opacity-70">{{ tt.div.points|floatformat:0 }}pts</div>
+            <div class="text-xs opacity-60">⏱{{ tt.div.time_taken_seconds }}s</div>
+          </div>
+          {% else %}
+          <span class="text-xs opacity-40">—</span>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</details>
+{% endif %}

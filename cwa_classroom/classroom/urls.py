@@ -11,6 +11,7 @@ from . import views_invoicing
 from . import views_salaries
 from . import views_parent
 from . import views_parent_admin
+from . import views_password_admin
 from attendance import views_student as attendance_views_student
 from attendance import views_teacher as attendance_views_teacher
 
@@ -61,8 +62,10 @@ urlpatterns = [
     path('import-parents/confirm/', views.ParentCSVConfirmView.as_view(), name='parent_csv_confirm'),
     path('import-parents/credentials/', views.ParentCSVCredentialsView.as_view(), name='parent_csv_credentials'),
 
-    # Question management
+    # Question / exercise upload (multi-subject)
     path('upload-questions/', views.UploadQuestionsView.as_view(), name='upload_questions'),
+    path('upload-questions/help/', views.upload_questions_help, name='upload_questions_help'),
+    path('upload-questions/template/', views.upload_questions_template, name='upload_questions_template'),
     path('create-question/', views.AddQuestionView.as_view(), name='create_question'),
     path('level/<int:level_number>/questions/', views.QuestionListView.as_view(), name='question_list'),
     path('level/<int:level_number>/add-question/', views.AddQuestionView.as_view(), name='add_question'),
@@ -112,6 +115,17 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/terms/', views_admin.TermManageView.as_view(), name='admin_school_terms'),
     path('admin-dashboard/schools/<int:school_id>/holidays/', views_admin.HolidayManageView.as_view(), name='admin_school_holidays'),
 
+    # Global questions management (superuser only)
+    path('admin-dashboard/global-questions/', views_admin.GlobalQuestionsView.as_view(), name='admin_global_questions'),
+    path('admin-dashboard/global-questions/<int:question_id>/edit/', views_admin.GlobalQuestionEditView.as_view(), name='admin_global_question_edit'),
+    path('admin-dashboard/global-questions/coding/<int:exercise_id>/edit/', views_admin.GlobalCodingExerciseEditView.as_view(), name='admin_global_coding_exercise_edit'),
+    path('admin-dashboard/global-questions/<int:question_id>/delete/', views_admin.GlobalQuestionDeleteView.as_view(), name='admin_global_question_delete'),
+    path('admin-dashboard/global-questions/coding/<int:exercise_id>/delete/', views_admin.GlobalCodingExerciseDeleteView.as_view(), name='admin_global_coding_exercise_delete'),
+    path('admin-dashboard/htmx/global-levels/', views_admin.HtmxGlobalLevelsView.as_view(), name='htmx_global_levels'),
+    path('admin-dashboard/htmx/global-topics/', views_admin.HtmxGlobalTopicsView.as_view(), name='htmx_global_topics'),
+    path('admin-dashboard/htmx/global-subtopics/', views_admin.HtmxGlobalSubtopicsView.as_view(), name='htmx_global_subtopics'),
+    path('admin-dashboard/htmx/global-coding-topics/', views_admin.HtmxGlobalCodingTopicsView.as_view(), name='htmx_global_coding_topics'),
+
     # Platform management (superuser only)
     path('admin-dashboard/subject-apps/', views_admin.SubjectAppManageView.as_view(), name='admin_subject_apps'),
 
@@ -131,6 +145,14 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/remove/', views_admin.SchoolStudentRemoveView.as_view(), name='admin_school_student_remove'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/restore/', views_admin.SchoolStudentRestoreView.as_view(), name='admin_school_student_restore'),
     path('admin-dashboard/schools/<int:school_id>/students/batch-update/', views_admin.SchoolStudentBatchUpdateView.as_view(), name='admin_school_student_batch_update'),
+
+    # HoI password reset (any school member: student, teacher, or parent)
+    path('admin-dashboard/schools/<int:school_id>/users/<int:user_id>/reset-password/modal/',
+         views_password_admin.AdminPasswordResetModalView.as_view(),
+         name='admin_user_password_reset_modal'),
+    path('admin-dashboard/schools/<int:school_id>/users/<int:user_id>/reset-password/',
+         views_password_admin.AdminPasswordResetView.as_view(),
+         name='admin_user_password_reset'),
 
     # Parent list & edit (school-level)
     path('admin-dashboard/schools/<int:school_id>/parents/', views_parent_admin.SchoolParentListView.as_view(), name='admin_school_parents'),
@@ -289,6 +311,7 @@ urlpatterns = [
     path('invoicing/<int:invoice_id>/', views_invoicing.InvoiceDetailView.as_view(), name='invoice_detail'),
     path('invoicing/<int:invoice_id>/edit/', views_invoicing.InvoiceEditView.as_view(), name='invoice_edit'),
     path('invoicing/<int:invoice_id>/cancel/', views_invoicing.CancelInvoiceView.as_view(), name='cancel_invoice'),
+    path('invoicing/<int:invoice_id>/resend/', views_invoicing.ResendInvoiceView.as_view(), name='resend_invoice'),
     path('invoicing/<int:invoice_id>/pay/', views_invoicing.RecordManualPaymentView.as_view(), name='record_manual_payment'),
     path('invoicing/csv/upload/', views_invoicing.CSVUploadView.as_view(), name='csv_upload'),
     path('invoicing/csv/mapping/', views_invoicing.CSVColumnMappingView.as_view(), name='csv_column_mapping'),

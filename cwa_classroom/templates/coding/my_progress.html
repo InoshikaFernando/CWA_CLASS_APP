@@ -1,0 +1,278 @@
+{% extends "coding/base.html" %}
+{% block coding_title %}My Progress{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto px-4 py-8">
+
+  <!-- ── Page header ────────────────────────────────────────────────────────── -->
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6 mb-10">
+    <div>
+      <a href="{% url 'coding:home' %}"
+         class="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-violet-600 transition mb-3 group">
+        <svg class="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/>
+        </svg>
+        Back to Coding
+      </a>
+      <h1 class="text-3xl font-black text-slate-900 tracking-tight">My Progress</h1>
+      <p class="text-slate-400 text-sm mt-1">Your coding journey across all languages and challenges.</p>
+    </div>
+
+    {% if coding_progress %}
+    <!-- Compact overall stat pills -->
+    <div class="flex gap-3 flex-shrink-0">
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm px-5 py-3.5 text-center min-w-[100px]">
+        <p class="text-[10px] font-bold text-violet-500 uppercase tracking-widest mb-0.5">Exercises</p>
+        <p class="text-2xl font-black text-slate-900 tabular-nums leading-tight">{{ coding_progress.overall_pct }}<span class="text-sm font-semibold text-slate-300">%</span></p>
+        <p class="text-[10px] text-slate-400 mt-0.5 tabular-nums">{{ coding_progress.total_completed }}/{{ coding_progress.total_exercises }}</p>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm px-5 py-3.5 text-center min-w-[100px]">
+        <p class="text-[10px] font-bold text-indigo-500 uppercase tracking-widest mb-0.5">Challenges</p>
+        <p class="text-2xl font-black text-slate-900 tabular-nums leading-tight">{{ coding_progress.challenge_overall_pct }}<span class="text-sm font-semibold text-slate-300">%</span></p>
+        <p class="text-[10px] text-slate-400 mt-0.5 tabular-nums">{{ coding_progress.challenges_done }}/{{ coding_progress.total_challenges }}</p>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if not coding_progress %}
+  <div class="bg-white rounded-2xl border border-slate-200 p-10 text-center text-slate-400">
+    Coding content not available.
+  </div>
+
+  {% elif coding_progress.total_exercises == 0 and coding_progress.total_challenges == 0 %}
+  <div class="bg-white rounded-2xl border border-slate-200 p-10 text-center text-slate-400">
+    No coding content available yet.
+  </div>
+
+  {% else %}
+
+  <!-- ── Language overview grid ─────────────────────────────────────────────── -->
+  <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-10">
+    {% for lang in coding_progress.languages %}
+    <a href="#lang-{{ lang.language.slug }}"
+       class="group bg-white rounded-2xl border-2 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-200 p-4 flex flex-col items-center text-center
+              {% if lang.language.slug == 'python' %}border-blue-100 hover:border-blue-300
+              {% elif lang.language.slug == 'javascript' %}border-amber-100 hover:border-amber-300
+              {% elif lang.language.slug == 'html' %}border-orange-100 hover:border-orange-300
+              {% elif lang.language.slug == 'css' %}border-cyan-100 hover:border-cyan-300
+              {% else %}border-violet-100 hover:border-violet-300{% endif %}">
+
+      <!-- Icon -->
+      <div class="w-12 h-12 rounded-xl mb-3 flex items-center justify-center
+                  {% if lang.language.slug == 'python' %}bg-blue-50{% elif lang.language.slug == 'javascript' %}bg-amber-50{% elif lang.language.slug == 'html' %}bg-orange-50{% elif lang.language.slug == 'css' %}bg-cyan-50{% else %}bg-violet-50{% endif %}">
+        {% if lang.language.slug == 'python' %}
+        <svg class="w-6 h-6 text-blue-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="m6.75 7.5 3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0 0 21 18V6a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 6v12a2.25 2.25 0 0 0 2.25 2.25Z"/>
+        </svg>
+        {% elif lang.language.slug == 'javascript' %}
+        <svg class="w-6 h-6 text-amber-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5"/>
+        </svg>
+        {% elif lang.language.slug == 'html' %}
+        <svg class="w-6 h-6 text-orange-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M14.25 9.75 16.5 12l-2.25 2.25m-4.5 0L7.5 12l2.25-2.25M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z"/>
+        </svg>
+        {% elif lang.language.slug == 'css' %}
+        <svg class="w-6 h-6 text-cyan-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9.53 16.122a3 3 0 0 0-5.78 1.128 2.25 2.25 0 0 1-2.4 2.245 4.5 4.5 0 0 0 8.4-2.245c0-.399-.078-.78-.22-1.128Zm0 0a15.998 15.998 0 0 0 3.388-1.62m-5.043-.025a15.994 15.994 0 0 1 1.622-3.395m3.42 3.42a15.995 15.995 0 0 0 4.764-4.648l3.876-5.814a1.151 1.151 0 0 0-1.597-1.597L14.146 6.32a15.996 15.996 0 0 0-4.649 4.763m3.42 3.42a6.776 6.776 0 0 0-3.42-3.42"/>
+        </svg>
+        {% else %}
+        <svg class="w-6 h-6 text-violet-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M14.25 6.087c0-.355.186-.676.401-.959.221-.29.349-.634.349-1.003 0-1.036-1.007-1.875-2.25-1.875s-2.25.84-2.25 1.875c0 .369.128.713.349 1.003.215.283.401.604.401.959v0a.64.64 0 0 1-.657.643 48.39 48.39 0 0 1-4.163-.3c.186 1.613.293 3.25.315 4.907a.656.656 0 0 1-.658.663v0c-.355 0-.676-.186-.959-.401a1.647 1.647 0 0 0-1.003-.349c-1.036 0-1.875 1.007-1.875 2.25s.84 2.25 1.875 2.25c.369 0 .713-.128 1.003-.349.283-.215.604-.401.959-.401v0c.31 0 .555.26.532.57a48.039 48.039 0 0 1-.642 5.056c1.518.19 3.058.309 4.616.354a.64.64 0 0 0 .657-.643v0c0-.355-.186-.676-.401-.959a1.647 1.647 0 0 1-.349-1.003c0-1.035 1.008-1.875 2.25-1.875 1.243 0 2.25.84 2.25 1.875 0 .369-.128.713-.349 1.003-.215.283-.4.604-.4.959v0c0 .333.277.599.61.58a48.1 48.1 0 0 0 5.427-.63 48.05 48.05 0 0 0 .582-4.717.532.532 0 0 0-.533-.57v0c-.355 0-.676.186-.959.401-.29.221-.634.349-1.003.349-1.035 0-1.875-1.007-1.875-2.25s.84-2.25 1.875-2.25c.37 0 .713.128 1.003.349.283.215.604.401.96.401v0a.656.656 0 0 0 .658-.663 48.422 48.422 0 0 0-.37-5.36c-1.886.342-3.81.574-5.766.689a.578.578 0 0 1-.61-.58v0Z"/>
+        </svg>
+        {% endif %}
+      </div>
+
+      <!-- Name + badge -->
+      <p class="text-xs font-bold text-slate-700 mb-0.5">{{ lang.language.name }}</p>
+      {% if lang.pct == 100 and lang.challenge_pct == 100 %}
+      <span class="text-[9px] font-bold text-green-600 bg-green-50 px-1.5 py-0.5 rounded-full mb-2">Done</span>
+      {% elif lang.completed > 0 or lang.challenge_completed > 0 %}
+      <span class="text-[9px] font-bold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-full mb-2">Active</span>
+      {% else %}
+      <span class="text-[9px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded-full mb-2">Not started</span>
+      {% endif %}
+
+      <!-- Mini stats -->
+      <div class="w-full space-y-2 mt-1">
+        <!-- Exercises -->
+        <div>
+          <div class="flex justify-between items-center mb-1">
+            <span class="text-[9px] text-slate-400 font-semibold">Ex</span>
+            <span class="text-[9px] font-bold text-slate-600 tabular-nums">{{ lang.pct }}%</span>
+          </div>
+          <div class="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+            <div class="h-1.5 rounded-full bg-violet-400 transition-all" style="width:{{ lang.pct }}%"></div>
+          </div>
+        </div>
+        <!-- Challenges -->
+        <div>
+          <div class="flex justify-between items-center mb-1">
+            <span class="text-[9px] text-slate-400 font-semibold">Ch</span>
+            <span class="text-[9px] font-bold text-slate-600 tabular-nums">{{ lang.challenge_pct }}%</span>
+          </div>
+          <div class="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+            <div class="h-1.5 rounded-full bg-indigo-400 transition-all" style="width:{{ lang.challenge_pct }}%"></div>
+          </div>
+        </div>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+
+  <!-- ── Per-language detail sections ──────────────────────────────────────── -->
+  <div class="space-y-6">
+  {% for lang in coding_progress.languages %}
+
+  <section id="lang-{{ lang.language.slug }}"
+           class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden border-l-4
+                  {% if lang.language.slug == 'python' %}border-l-blue-400
+                  {% elif lang.language.slug == 'javascript' %}border-l-amber-400
+                  {% elif lang.language.slug == 'html' %}border-l-orange-400
+                  {% elif lang.language.slug == 'css' %}border-l-cyan-400
+                  {% else %}border-l-violet-400{% endif %}">
+
+    <!-- Header row -->
+    <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+      <div class="flex items-center gap-3">
+        <h2 class="text-base font-extrabold text-slate-800">{{ lang.language.name }}</h2>
+        {% if lang.pct == 100 and lang.challenge_pct == 100 %}
+        <span class="inline-flex items-center gap-1 text-xs font-bold text-green-700 bg-green-50 border border-green-200 rounded-full px-2.5 py-0.5">
+          <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+          Completed
+        </span>
+        {% elif lang.completed > 0 or lang.challenge_completed > 0 %}
+        <span class="text-xs font-bold rounded-full px-2.5 py-0.5 border
+                     {% if lang.language.slug == 'python' %}bg-blue-50 text-blue-700 border-blue-100
+                     {% elif lang.language.slug == 'javascript' %}bg-amber-50 text-amber-700 border-amber-100
+                     {% elif lang.language.slug == 'html' %}bg-orange-50 text-orange-700 border-orange-100
+                     {% elif lang.language.slug == 'css' %}bg-cyan-50 text-cyan-700 border-cyan-100
+                     {% else %}bg-violet-50 text-violet-700 border-violet-100{% endif %}">In progress</span>
+        {% else %}
+        <span class="text-xs font-bold text-slate-400 bg-slate-50 border border-slate-200 rounded-full px-2.5 py-0.5">Not started</span>
+        {% endif %}
+        <span class="text-xs text-slate-400">· {{ lang.topics|length }} topic{{ lang.topics|length|pluralize }}</span>
+      </div>
+      <div class="flex items-center gap-2">
+        {% if lang.challenge_total > 0 %}
+        <a href="{% url 'coding:problem_list' lang_slug=lang.language.slug %}"
+           class="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg transition">
+          Challenges →
+        </a>
+        {% endif %}
+        <a href="{% url 'coding:dashboard' lang_slug=lang.language.slug %}"
+           class="text-xs font-bold px-3 py-1.5 rounded-lg transition hover:opacity-80
+                  {% if lang.language.slug == 'python' %}text-blue-600 bg-blue-50
+                  {% elif lang.language.slug == 'javascript' %}text-amber-600 bg-amber-50
+                  {% elif lang.language.slug == 'html' %}text-orange-600 bg-orange-50
+                  {% elif lang.language.slug == 'css' %}text-cyan-600 bg-cyan-50
+                  {% else %}text-violet-600 bg-violet-50{% endif %}">
+          Dashboard →
+        </a>
+      </div>
+    </div>
+
+    <!-- Metrics row -->
+    <div class="grid grid-cols-2 divide-x divide-slate-100 border-b border-slate-100">
+
+      <!-- Exercises metric -->
+      <div class="px-6 py-4">
+        <div class="flex items-center justify-between mb-3">
+          <p class="text-xs font-bold text-slate-500 uppercase tracking-wide">Exercises</p>
+          <div class="flex items-baseline gap-1">
+            <span class="text-2xl font-black text-slate-900 tabular-nums">{{ lang.pct }}</span>
+            <span class="text-sm text-slate-300 font-semibold">%</span>
+          </div>
+        </div>
+        <div class="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden mb-2">
+          <div class="h-2.5 rounded-full bg-gradient-to-r from-violet-400 to-violet-600 transition-all"
+               style="width:{{ lang.pct }}%"></div>
+        </div>
+        <p class="text-xs text-slate-400 tabular-nums">{{ lang.completed }} of {{ lang.total }} complete</p>
+      </div>
+
+      <!-- Challenges metric -->
+      <div class="px-6 py-4">
+        <div class="flex items-center justify-between mb-3">
+          <p class="text-xs font-bold text-slate-500 uppercase tracking-wide">Challenges</p>
+          <div class="flex items-baseline gap-1">
+            <span class="text-2xl font-black text-slate-900 tabular-nums">{{ lang.challenge_pct }}</span>
+            <span class="text-sm text-slate-300 font-semibold">%</span>
+          </div>
+        </div>
+        <div class="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden mb-2">
+          <div class="h-2.5 rounded-full bg-gradient-to-r from-indigo-400 to-indigo-600 transition-all"
+               style="width:{{ lang.challenge_pct }}%"></div>
+        </div>
+        <p class="text-xs text-slate-400 tabular-nums">{{ lang.challenge_completed }} of {{ lang.challenge_total }} solved</p>
+      </div>
+    </div>
+
+    <!-- Topic grid -->
+    {% if lang.topics %}
+    <div class="px-6 pt-4 pb-6">
+      <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Topics</p>
+      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-2">
+        {% for t in lang.topics %}
+        <a href="{% url 'coding:level_list' lang_slug=lang.language.slug topic_slug=t.topic.slug %}"
+           class="group rounded-xl border p-3 transition hover:shadow-md hover:-translate-y-0.5 block
+                  {% if t.pct == 100 %}bg-green-500 border-green-400 text-white
+                  {% elif t.pct >= 70 %}bg-green-50 border-green-200 text-green-900
+                  {% elif t.pct >= 40 %}bg-amber-50 border-amber-200 text-amber-900
+                  {% elif t.pct > 0 %}bg-orange-50 border-orange-200 text-orange-900
+                  {% else %}bg-slate-50 border-slate-200 text-slate-500{% endif %}">
+          <div class="flex items-start justify-between gap-1 mb-2">
+            <p class="text-[11px] font-bold leading-tight">{{ t.topic.name }}</p>
+            {% if t.pct == 100 %}
+            <svg class="w-3 h-3 text-white flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+            </svg>
+            {% endif %}
+          </div>
+          <p class="text-base font-black tabular-nums leading-none">
+            {{ t.completed }}<span class="text-[10px] font-normal opacity-50">/{{ t.total }}</span>
+          </p>
+          <div class="w-full rounded-full h-1 mt-2 overflow-hidden {% if t.pct == 100 %}bg-white/30{% else %}bg-black/10{% endif %}">
+            <div class="h-1 rounded-full transition-all
+              {% if t.pct == 100 %}bg-white
+              {% elif t.pct >= 70 %}bg-green-500
+              {% elif t.pct >= 40 %}bg-amber-500
+              {% elif t.pct > 0 %}bg-orange-400
+              {% else %}bg-slate-300{% endif %}"
+              style="width:{{ t.pct }}%"></div>
+          </div>
+          {% if t.time_label != '0m' %}
+          <p class="text-[9px] opacity-50 mt-1.5 font-medium">{{ t.time_label }}</p>
+          {% endif %}
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+  </section>
+
+  {% endfor %}
+  </div>
+
+  <!-- Empty state -->
+  {% if coding_progress.total_completed == 0 and coding_progress.challenges_done == 0 %}
+  <div class="mt-8 bg-white rounded-2xl border border-slate-200 p-12 text-center">
+    <div class="w-16 h-16 bg-violet-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+      <svg class="w-8 h-8 text-violet-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/>
+      </svg>
+    </div>
+    <p class="text-slate-700 font-bold text-lg mb-1">No activity yet</p>
+    <p class="text-sm text-slate-400 mb-5">Pick a language and start practising!</p>
+    <a href="{% url 'coding:home' %}"
+       class="inline-flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white text-sm font-bold rounded-xl transition shadow-sm">
+      Start Coding →
+    </a>
+  </div>
+  {% endif %}
+
+  {% endif %}
+</div>
+{% endblock %}

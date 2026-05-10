@@ -5,26 +5,66 @@ Every fixture defaults to function scope so the database is rolled back
 after each test — no state leaks between tests.  pytest-django's
 ``live_server`` fixture already uses ``TransactionTestCase`` behaviour,
 which truncates all tables after each test function.
+
+Live-URL mode
+~~~~~~~~~~~~~
+Pass ``--live-url=https://dev.wizardslearninghub.co.nz`` to run tests
+against a deployed environment instead of spinning up a local server.
+In this mode the tests use the real MySQL database configured in ``.env``
+and the ``live_server`` fixture returns the provided URL.
 """
 
 from __future__ import annotations
 
 import os
 
-# Force SQLite for UI tests unless DB_ENGINE was explicitly set before import
-# (os.environ.setdefault won't work because load_dotenv hasn't run yet)
-if "DB_ENGINE" not in os.environ:
+# ---------------------------------------------------------------------------
+# --live-url support: detect early so we can skip the SQLite override
+# ---------------------------------------------------------------------------
+import sys
+_LIVE_URL = None
+for arg in sys.argv:
+    if arg.startswith("--live-url="):
+        _LIVE_URL = arg.split("=", 1)[1].rstrip("/")
+        break
+    if arg == "--live-url" and sys.argv.index(arg) + 1 < len(sys.argv):
+        _LIVE_URL = sys.argv[sys.argv.index(arg) + 1].rstrip("/")
+        break
+
+# Force SQLite for UI tests unless running against a live URL or
+# DB_ENGINE was explicitly set before import
+if _LIVE_URL is None and "DB_ENGINE" not in os.environ:
     os.environ["DB_ENGINE"] = "sqlite"
 # Allow synchronous DB operations in Playwright's async event loop
 os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
 
+import time as time_module
 import uuid
 from datetime import date, time, timedelta
 from decimal import Decimal
 
 import pytest
+from django.db import OperationalError, transaction
 from django.utils import timezone
 from playwright.sync_api import Page, expect
+
+
+# ---------------------------------------------------------------------------
+# pytest hooks for --live-url
+# ---------------------------------------------------------------------------
+def pytest_addoption(parser):
+    parser.addoption(
+        "--live-url",
+        default=None,
+        help="Run UI tests against a deployed URL (e.g. https://dev.wizardslearninghub.co.nz)",
+    )
+
+
+def pytest_configure(config):
+    live_url = config.getoption("--live-url", default=None)
+    if live_url:
+        # Disable parallel execution — tests share the remote DB
+        config.option.numprocesses = 0
 
 
 # ---------------------------------------------------------------------------
@@ -37,6 +77,35 @@ def browser_context_args(browser_context_args):
         **browser_context_args,
         "viewport": {"width": 1280, "height": 800},
     }
+
+
+# ---------------------------------------------------------------------------
+# Override live_server when --live-url is provided
+# ---------------------------------------------------------------------------
+class _LiveURL:
+    """Mimics pytest-django's LiveServer interface with a fixed URL."""
+    def __init__(self, url: str):
+        self._url = url
+
+    @property
+    def url(self):
+        return self._url
+
+    def __str__(self):
+        return self._url
+
+
+@pytest.fixture(scope="session")
+def live_server(request):
+    live_url = request.config.getoption("--live-url", default=None)
+    if live_url:
+        yield _LiveURL(live_url.rstrip("/"))
+    else:
+        from pytest_django.live_server_helper import LiveServer
+        addr = request.config.getvalue("liveserver") or "localhost"
+        server = LiveServer(addr)
+        request.addfinalizer(server.stop)
+        yield server
 
 
 # ---------------------------------------------------------------------------
@@ -275,11 +344,27 @@ def school(db, admin_user):
     yield school
 
     # Cascade cleanup — deletes departments, classes, sessions, attendance, etc.
-    school.delete()
+    # With parallel tests (-n auto), SQLite can have locking issues, so retry with backoff
+    def delete_with_retry(obj, max_retries=5):
+        """Delete an object with exponential backoff retry for SQLite locking."""
+        for attempt in range(max_retries):
+            try:
+                with transaction.atomic():
+                    obj.delete()
+                return
+            except OperationalError as e:
+                if "database table is locked" not in str(e):
+                    raise
+                if attempt == max_retries - 1:
+                    raise
+                wait_time = (2 ** attempt) * 0.1  # Exponential backoff: 0.1s, 0.2s, 0.4s, 0.8s, 1.6s
+                time_module.sleep(wait_time)
+    
+    delete_with_retry(school)
     # Clean up the test user accounts too
     from accounts.models import CustomUser
     CustomUser.objects.filter(username__endswith=f"_{_RUN_ID}").delete()
-    plan.delete()
+    delete_with_retry(plan)
 
 
 @pytest.fixture
@@ -750,3 +835,58 @@ def senior_teacher_school_setup(db, senior_teacher_user, school, department):
         teacher=senior_teacher_user,
     )
     return school
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Coding fixtures  (CodingLanguage → CodingTopic → TopicLevel)
+# ═══════════════════════════════════════════════════════════════════════════
+
+@pytest.fixture
+def coding_language(db):
+    """A Python CodingLanguage row."""
+    from coding.models import CodingLanguage
+
+    lang, _ = CodingLanguage.objects.get_or_create(
+        slug=CodingLanguage.PYTHON,
+        defaults={"name": "Python", "order": 1, "is_active": True},
+    )
+    return lang
+
+
+@pytest.fixture
+def coding_topic(db, coding_language):
+    """A 'variables' CodingTopic under the Python language."""
+    from coding.models import CodingTopic
+
+    topic, _ = CodingTopic.objects.get_or_create(
+        language=coding_language,
+        slug="variables",
+        defaults={"name": "Variables", "order": 1, "is_active": True},
+    )
+    return topic
+
+
+@pytest.fixture
+def coding_topic_level(db, coding_topic):
+    """A TopicLevel for (variables, beginner)."""
+    from coding.models import TopicLevel
+
+    tl, _ = TopicLevel.get_or_create_for(coding_topic, TopicLevel.BEGINNER)
+    return tl
+
+
+@pytest.fixture
+def coding_subject(db):
+    """A global Coding classroom.Subject row.
+
+    Phase 1 of the subject-plugin rollout seeds this row automatically; tests
+    that run before/without that migration need this fixture.
+    """
+    from classroom.models import Subject
+
+    subj, _ = Subject.objects.get_or_create(
+        slug="coding",
+        school=None,
+        defaults={"name": "Coding", "is_active": True, "order": 2},
+    )
+    return subj

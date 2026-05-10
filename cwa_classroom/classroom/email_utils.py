@@ -78,6 +78,17 @@ def send_staff_welcome_email(
             'Welcome email sent to %s (%s) at %s.',
             user.get_full_name(), role_display, school.name,
         )
+        # Mark lifecycle fields so duplicate guards work correctly
+        from django.utils import timezone
+        update_fields = []
+        if not user.welcome_email_sent:
+            user.welcome_email_sent = timezone.now()
+            update_fields.append('welcome_email_sent')
+        if user.creation_method != 'institute':
+            user.creation_method = 'institute'
+            update_fields.append('creation_method')
+        if update_fields:
+            user.save(update_fields=update_fields)
     except Exception:
         logger.exception(
             'Failed to send welcome email to %s.', user.email,

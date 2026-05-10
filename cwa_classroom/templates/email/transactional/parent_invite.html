@@ -1,30 +1,56 @@
 {% extends "email/base_email.html" %}
 
-{% block email_title %}You're Invited to CWA Classroom{% endblock %}
+{% block email_title %}You're Invited to {{ school_name }}{% endblock %}
 
 {% block email_content %}
 <div style="background-color:#f5f3ff;border-left:4px solid #7c3aed;padding:16px;border-radius:4px;margin-bottom:24px;">
-  <p style="margin:0;color:#7c3aed;font-weight:700;font-size:16px;">Parent Invite</p>
+  <p style="margin:0;color:#7c3aed;font-weight:700;font-size:16px;">Parent Invitation — {{ school_name }}</p>
 </div>
 
+{% if recipient_name %}
+<p style="margin:0 0 16px;color:#334155;font-size:15px;">Hi <strong>{{ recipient_name }}</strong>,</p>
+{% else %}
 <p style="margin:0 0 16px;color:#334155;font-size:15px;">Hi,</p>
+{% endif %}
 
+{% if already_has_account %}
 <p style="margin:0 0 16px;color:#334155;font-size:15px;">
-  You have been invited by <strong>{{ school_name }}</strong> to view
-  <strong>{{ student_name }}</strong>'s academic records including attendance, invoices, progress reports, and payment history.
+  You have been linked as a parent/guardian to <strong>{{ student_name }}</strong> at
+  <strong>{{ school_name }}</strong>. You can now log in to view their progress, homework, and invoices.
+</p>
+<p style="margin:0 0 24px;text-align:center;">
+  <a href="{{ registration_url }}"
+     style="display:inline-block;background-color:#7c3aed;color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px;">
+    Log In Now &rarr;
+  </a>
+</p>
+{% else %}
+<p style="margin:0 0 16px;color:#334155;font-size:15px;">
+  <strong>{{ school_name }}</strong> has invited you to create a parent account so you can
+  view <strong>{{ student_name }}</strong>'s academic records — including progress, homework,
+  attendance, and invoices.
 </p>
 
 <p style="margin:0 0 24px;text-align:center;">
   <a href="{{ registration_url }}"
      style="display:inline-block;background-color:#7c3aed;color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px;">
-    Create Your Free Account
+    Create Your Free Account &rarr;
   </a>
 </p>
 
+{% if expires_at %}
 <p style="margin:0 0 8px;color:#64748b;font-size:13px;">
-  This invite expires on {{ expires_at|date:"j M Y" }}.
+  This invite expires on <strong>{{ expires_at|date:"j M Y" }}</strong>.
 </p>
+{% endif %}
 <p style="margin:0;color:#64748b;font-size:13px;">
-  If you already have an account, log in first, then click the link above to accept the invite.
+  If you already have an account, log in first and then click the link above to accept.
+</p>
+{% endif %}
+{% endblock %}
+
+{% block email_footer_extra %}
+<p style="margin:0 0 12px;color:#94a3b8;font-size:12px;text-align:center;">
+  This is an automated notification from Wizards Learning Hub on behalf of <strong>{{ school_name }}</strong>.
 </p>
 {% endblock %}

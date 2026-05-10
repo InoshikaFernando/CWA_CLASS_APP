@@ -1,0 +1,17 @@
+topic,level,question_text,question_type,difficulty,points,explanation,correct_short_answer,answer1,is_correct1,answer2,is_correct2,answer3,is_correct3,answer4,is_correct4
+Algebra,7,Solve for x: 3x + 7 = 22,multiple_choice,2,1,Subtract 7: 3x = 15. Divide by 3: x = 5.,,3,false,5,true,7,false,15,false
+Algebra,6,"If 4x = 36, what is x?",short_answer,1,1,Divide both sides by 4: x = 36 ÷ 4 = 9.,9,,,,,,,,
+Algebra,7,Solve for x: 2x + 5 = 13,short_answer,2,2,Subtract 5: 2x = 8. Divide by 2: x = 4.,4,,,,,,,,
+Algebra,8,Which of the following is equivalent to 3(x + 4)?,multiple_choice,2,1,Distribute: 3(x + 4) = 3x + 12.,,3x + 12,true,3x + 4,false,x + 12,false,3x + 7,false
+Geometry,4,What is the area of a rectangle with length 8 cm and width 5 cm?,multiple_choice,1,1,Area = length × width = 8 × 5 = 40 cm².,,13 cm²,false,40 cm²,true,26 cm²,false,45 cm²,false
+Geometry,5,Fill in the blank: The angles in a triangle always add up to ___ degrees.,fill_blank,2,1,Interior angles of any triangle sum to 180°.,180,,,,,,,,
+Geometry,5,What is the area of a triangle with base 10 cm and height 6 cm?,multiple_choice,2,1,Area = ½ × base × height = ½ × 10 × 6 = 30 cm².,,60 cm²,false,30 cm²,true,16 cm²,false,20 cm²,false
+Percentages,5,What is 25% of 80?,multiple_choice,1,1,25% = 1/4. 80 ÷ 4 = 20.,,15,false,20,true,25,false,40,false
+Percentages,6,A shirt costs $40. There is a 20% discount. What is the sale price?,multiple_choice,2,1,20% of $40 = $8 discount. Sale price = $40 − $8 = $32.,,$28,false,$32,true,$34,false,$36,false
+Percentages,6,15 is what percentage of 60?,short_answer,2,2,15 ÷ 60 × 100 = 25%.,25%|25,,,,,,,,
+Ratios,6,Which of these is the simplified form of the ratio 15 : 25?,multiple_choice,2,1,"GCF of 15 and 25 is 5. 15 ÷ 5 = 3, 25 ÷ 5 = 5. Answer: 3 : 5.",,5 : 3,false,3 : 5,true,1 : 5,false,15 : 5,false
+Ratios,7,Write the ratio 12 : 18 in its simplest form.,short_answer,2,2,"GCF of 12 and 18 is 6. 12 ÷ 6 = 2, 18 ÷ 6 = 3. Answer: 2:3.",2:3|2 : 3,,,,,,,,
+Statistics,7,"What is the mean (average) of: 4, 6, 8, 10, 12?",multiple_choice,2,1,Sum = 4+6+8+10+12 = 40. Count = 5. Mean = 40 ÷ 5 = 8.,,7,false,8,true,9,false,10,false
+Statistics,7,"What is the mode of: 3, 5, 5, 7, 8, 5, 2?",multiple_choice,2,1,Mode = most frequent value. 5 appears 3 times. Mode = 5.,,3,false,5,true,7,false,8,false
+Number,4,What is 0.5 + 0.25?,multiple_choice,1,1,0.50 + 0.25 = 0.75.,,0.70,false,0.75,true,0.55,false,0.80,false
+Number,5,0.75 is equal to 3/4.,true_false,1,1,3 ÷ 4 = 0.75. So 0.75 = 3/4. True.,,True,true,False,false,,,,

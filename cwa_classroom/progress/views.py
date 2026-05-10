@@ -120,21 +120,11 @@ class StudentDashboardView(LoginRequiredMixin, View):
             })
 
         # ── Times Tables results ─────────────────────────────────────
-        from classroom.views import _tt_colour
+        from classroom.views import _tt_colour, _tt_best
         tt_results = []
         for table in range(1, 13):
-            best_mul = StudentFinalAnswer.objects.filter(
-                student=user,
-                quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
-                operation='multiplication',
-                table_number=table,
-            ).order_by('-points').first()
-            best_div = StudentFinalAnswer.objects.filter(
-                student=user,
-                quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
-                operation='division',
-                table_number=table,
-            ).order_by('-points').first()
+            best_mul = _tt_best(user, 'multiplication', table)
+            best_div = _tt_best(user, 'division', table)
             # Legacy: attempts without operation saved (old records)
             if not best_mul and not best_div:
                 best_legacy = StudentFinalAnswer.objects.filter(

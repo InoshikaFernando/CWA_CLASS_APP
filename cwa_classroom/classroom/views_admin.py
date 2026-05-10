@@ -415,6 +415,8 @@ class SchoolSettingsView(RoleRequiredMixin, View):
         # Banking & invoice
         'bank_name', 'bank_bsb', 'bank_account_number', 'bank_account_name',
         'invoice_terms', 'invoice_due_days',
+        # Fees
+        'default_fee',
         # Payments
         'stripe_payment_link',
     ]
@@ -462,6 +464,16 @@ class SchoolSettingsView(RoleRequiredMixin, View):
                         setattr(school, field, int(val))
                     except ValueError:
                         pass
+            elif field == 'default_fee':
+                val = request.POST.get(field, '').strip()
+                if val:
+                    try:
+                        from decimal import Decimal, InvalidOperation
+                        setattr(school, field, Decimal(val))
+                    except InvalidOperation:
+                        pass
+                else:
+                    setattr(school, field, None)
             else:
                 setattr(school, field, request.POST.get(field, '').strip())
 
@@ -1808,7 +1820,10 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
             .annotate(
                 class_count=Count(
                     'student__class_student_entries',
-                    filter=Q(student__class_student_entries__classroom__school=school),
+                    filter=Q(
+                        student__class_student_entries__classroom__school=school,
+                        student__class_student_entries__is_active=True,
+                    ),
                 )
             )
             .order_by('student__last_name', 'student__first_name', 'student__id')
@@ -1848,6 +1863,12 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
             'q': q,
             'order_by': order_by,
             'total_count': paginator.count,
+            'sort_columns': [
+                ('name', 'Name'),
+                ('email', 'Email'),
+                ('classes', 'Classes'),
+                ('joined', 'Joined'),
+            ],
         }
         if request.headers.get('HX-Request'):
             return render(request, 'admin_dashboard/partials/students_table.html', ctx)
@@ -1944,6 +1965,24 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
         return redirect('admin_school_students', school_id=school.id)
 
 
+def _allowed_classes_for_user(user, school):
+    """Return active classes in ``school`` that ``user`` can manage enrollment for.
+
+    Mirrors ``AssignStudentsView._get_classroom`` permission tiers so the
+    student-edit modal and class-assign page stay consistent.
+    """
+    qs = ClassRoom.objects.filter(school=school, is_active=True)
+    if user.is_superuser or user.has_role(Role.ADMIN) \
+            or user.has_role(Role.HEAD_OF_INSTITUTE) \
+            or user.has_role(Role.INSTITUTE_OWNER):
+        return qs
+    if user.has_role(Role.HEAD_OF_DEPARTMENT):
+        return qs.filter(Q(department__head=user) | Q(teachers=user)).distinct()
+    if user.has_role(Role.TEACHER):
+        return qs.filter(teachers=user).distinct()
+    return qs.none()
+
+
 class SchoolStudentEditView(RoleRequiredMixin, View):
     """Edit a student's details."""
     required_roles = [
@@ -1986,6 +2025,51 @@ class SchoolStudentEditView(RoleRequiredMixin, View):
             },
             request=request,
         )
+
+        # Class enrollment changes (only processed when the form posted the
+        # class section — sentinel avoids wiping enrollments from unrelated POSTs)
+        if request.POST.get('manage_classes') == '1':
+            allowed_ids = set(
+                _allowed_classes_for_user(request.user, school)
+                .values_list('id', flat=True)
+            )
+            submitted_ids = {
+                int(x) for x in request.POST.getlist('class_ids') if x.isdigit()
+            } & allowed_ids
+            current_ids = set(
+                ClassStudent.objects.filter(
+                    student=student, classroom_id__in=allowed_ids, is_active=True,
+                ).values_list('classroom_id', flat=True)
+            )
+            to_add = submitted_ids - current_ids
+            to_remove = current_ids - submitted_ids
+            if to_add or to_remove:
+                with transaction.atomic():
+                    for cid in to_add:
+                        cs, _ = ClassStudent.objects.get_or_create(
+                            classroom_id=cid, student=student,
+                        )
+                        if not cs.is_active:
+                            cs.is_active = True
+                            cs.save(update_fields=['is_active'])
+                    if to_remove:
+                        ClassStudent.objects.filter(
+                            student=student,
+                            classroom_id__in=to_remove,
+                            is_active=True,
+                        ).update(is_active=False)
+                log_event(
+                    user=request.user, school=school, category='data_change',
+                    action='student_classes_updated',
+                    detail={
+                        'student_id': student.id,
+                        'student_name': student.get_full_name(),
+                        'added_class_ids': sorted(to_add),
+                        'removed_class_ids': sorted(to_remove),
+                    },
+                    request=request,
+                )
+
         messages.success(request, f'{student.get_full_name()} updated.')
         return redirect('admin_school_students', school_id=school.id)
 
@@ -2005,12 +2089,26 @@ class StudentEditModalView(RoleRequiredMixin, View):
         student = school_student.student
         parent_links = student.student_parent_links.select_related('parent').filter(is_active=True)
         guardian_links = student.student_guardians.select_related('guardian').all()
+        allowed_classes = (
+            _allowed_classes_for_user(request.user, school)
+            .select_related('department', 'subject')
+            .order_by('name')
+        )
+        enrolled_class_ids = set(
+            ClassStudent.objects.filter(
+                student=student,
+                classroom__in=allowed_classes,
+                is_active=True,
+            ).values_list('classroom_id', flat=True)
+        )
         return render(request, 'admin_dashboard/partials/student_edit_modal.html', {
             'school': school,
             'school_student': school_student,
             'student': student,
             'parent_links': parent_links,
             'guardian_links': guardian_links,
+            'allowed_classes': allowed_classes,
+            'enrolled_class_ids': enrolled_class_ids,
         })
 
 
@@ -2952,3 +3050,399 @@ class SubjectAppManageView(LoginRequiredMixin, View):
         app.save(update_fields=['subject'])
         messages.success(request, f'"{app.name}" linked to {app.subject or "no subject"}.')
         return redirect('admin_subject_apps')
+
+
+# ---------------------------------------------------------------------------
+# Global Questions management (superuser only)
+# ---------------------------------------------------------------------------
+
+class GlobalQuestionsView(RoleRequiredMixin, View):
+    """Browse and filter global questions/exercises (school=NULL).
+
+    Branches on the Subject selection: when the synthetic value ``coding``
+    is chosen (or a Subject row with slug=coding/computing exists and is
+    selected) the view queries CodingExercise; otherwise it queries the
+    maths Question bank. The coding option is injected into the dropdown
+    by the template, so it works even when no 'Coding' Subject row exists.
+    """
+    required_roles = [Role.ADMIN]
+
+    CODING_SENTINEL = 'coding'
+    CODING_SUBJECT_SLUGS = {'coding', 'computing'}
+
+    def get(self, request):
+        subject_param = request.GET.get('subject', '')
+        subjects = Subject.objects.filter(
+            school__isnull=True, is_active=True,
+        ).order_by('order', 'name')
+
+        is_coding = subject_param == self.CODING_SENTINEL
+        if not is_coding and subject_param.isdigit():
+            selected_subject_obj = subjects.filter(id=subject_param).first()
+            if selected_subject_obj and selected_subject_obj.slug in self.CODING_SUBJECT_SLUGS:
+                is_coding = True
+
+        if is_coding:
+            return self._render_coding(request, subjects, subject_param or self.CODING_SENTINEL)
+        return self._render_maths(request, subjects, subject_param)
+
+    # ------------------------------------------------------------------
+    # Maths / general question bank (original behaviour)
+    # ------------------------------------------------------------------
+    def _render_maths(self, request, subjects, subject_id):
+        from maths.models import Question, Answer
+        from .models import Topic
+
+        level_id = request.GET.get('level', '')
+        topic_id = request.GET.get('topic', '')
+        subtopic_id = request.GET.get('subtopic', '')
+
+        levels = Level.objects.none()
+        topics = Topic.objects.none()
+        subtopics = Topic.objects.none()
+
+        if subject_id:
+            levels = Level.objects.filter(
+                subject_id=subject_id, school__isnull=True,
+            ).order_by('level_number')
+
+        if level_id:
+            topics = Topic.objects.filter(
+                subject_id=subject_id, levels__id=level_id,
+                is_active=True, parent__isnull=True,
+            ).distinct().order_by('order', 'name')
+
+        if topic_id:
+            subtopics = Topic.objects.filter(
+                parent_id=topic_id, is_active=True,
+            ).order_by('order', 'name')
+            if level_id:
+                subtopics = subtopics.filter(levels__id=level_id).distinct()
+
+        qs = Question.objects.filter(school__isnull=True).select_related(
+            'level', 'topic', 'topic__parent',
+        )
+        if subject_id:
+            qs = qs.filter(topic__subject_id=subject_id)
+        if level_id:
+            qs = qs.filter(level_id=level_id)
+        if subtopic_id:
+            qs = qs.filter(topic_id=subtopic_id)
+        elif topic_id:
+            qs = qs.filter(Q(topic_id=topic_id) | Q(topic__parent_id=topic_id))
+
+        qs = qs.order_by('level__level_number', 'topic__order', 'difficulty')
+        total_count = qs.count()
+
+        paginator = Paginator(qs, 50)
+        page_obj = paginator.get_page(request.GET.get('page', 1))
+
+        question_ids = [q.id for q in page_obj]
+        answers_map = {}
+        if question_ids:
+            for ans in Answer.objects.filter(
+                question_id__in=question_ids,
+            ).order_by('question_id', 'order', 'id'):
+                answers_map.setdefault(ans.question_id, []).append(ans)
+
+        return render(request, 'admin_dashboard/global_questions.html', {
+            'mode': 'maths',
+            'subjects': subjects,
+            'levels': levels,
+            'topics': topics,
+            'subtopics': subtopics,
+            'selected_subject': subject_id,
+            'selected_level': level_id,
+            'selected_topic': topic_id,
+            'selected_subtopic': subtopic_id,
+            'page_obj': page_obj,
+            'total_count': total_count,
+            'answers_map': answers_map,
+        })
+
+    # ------------------------------------------------------------------
+    # Coding exercises (new)
+    # ------------------------------------------------------------------
+    def _render_coding(self, request, subjects, subject_id):
+        from django.db.models import Prefetch
+        from coding.models import CodingLanguage, CodingTopic, TopicLevel, CodingExercise, CodingAnswer
+
+        language_id = request.GET.get('language', '')
+        topic_id = request.GET.get('topic', '')
+        level_choice = request.GET.get('level', '')
+
+        languages = CodingLanguage.objects.filter(is_active=True).order_by('order', 'name')
+        topics = CodingTopic.objects.none()
+        if language_id:
+            topics = CodingTopic.objects.filter(
+                language_id=language_id, is_active=True,
+            ).order_by('order', 'name')
+
+        qs = CodingExercise.objects.select_related(
+            'topic_level', 'topic_level__topic', 'topic_level__topic__language',
+        ).prefetch_related(
+            Prefetch('answers', queryset=CodingAnswer.objects.order_by('order', 'id')),
+        )
+        if language_id:
+            qs = qs.filter(topic_level__topic__language_id=language_id)
+        if topic_id:
+            qs = qs.filter(topic_level__topic_id=topic_id)
+        valid_levels = {TopicLevel.BEGINNER, TopicLevel.INTERMEDIATE, TopicLevel.ADVANCED}
+        if level_choice in valid_levels:
+            qs = qs.filter(topic_level__level_choice=level_choice)
+
+        qs = qs.order_by(
+            'topic_level__topic__language__order',
+            'topic_level__topic__order',
+            'topic_level__level_choice',
+            'order',
+        )
+        total_count = qs.count()
+
+        paginator = Paginator(qs, 50)
+        page_obj = paginator.get_page(request.GET.get('page', 1))
+
+        return render(request, 'admin_dashboard/global_questions.html', {
+            'mode': 'coding',
+            'subjects': subjects,
+            'coding_languages': languages,
+            'coding_topics': topics,
+            'coding_level_choices': TopicLevel.LEVEL_CHOICES,
+            'selected_subject': subject_id,
+            'selected_language': language_id,
+            'selected_topic': topic_id,
+            'selected_level': level_choice,
+            'page_obj': page_obj,
+            'total_count': total_count,
+        })
+
+
+class GlobalQuestionEditView(RoleRequiredMixin, View):
+    """Edit a single global question (question text + answers) via HTMX modal."""
+    required_roles = [Role.ADMIN]
+
+    def get(self, request, question_id):
+        from maths.models import Question, Answer
+        question = get_object_or_404(Question, id=question_id, school__isnull=True)
+        answers = question.answers.order_by('order', 'id')
+        return render(request, 'admin_dashboard/partials/question_edit_form.html', {
+            'question': question,
+            'answers': answers,
+        })
+
+    def post(self, request, question_id):
+        from maths.models import Question, Answer
+        question = get_object_or_404(Question, id=question_id, school__isnull=True)
+
+        question.question_text = request.POST.get('question_text', '').strip()
+        question.save(update_fields=['question_text', 'updated_at'])
+
+        # Update answers
+        answer_ids = request.POST.getlist('answer_id')
+        for aid in answer_ids:
+            try:
+                ans = Answer.objects.get(id=int(aid), question=question)
+            except (Answer.DoesNotExist, ValueError):
+                continue
+            ans.answer_text = request.POST.get(f'answer_text_{aid}', '').strip()
+            ans.is_correct = request.POST.get(f'is_correct_{aid}') == 'on'
+            ans.save(update_fields=['answer_text', 'is_correct'])
+
+        log_event(
+            user=request.user, school=None,
+            category='data_change', action='global_question_edited',
+            detail={'question_id': question.id, 'question_text': question.question_text[:100]},
+            request=request,
+        )
+
+        # Return the updated row partial
+        answers = question.answers.order_by('order', 'id')
+        return render(request, 'admin_dashboard/partials/question_row.html', {
+            'q': question,
+            'answers': list(answers),
+        })
+
+
+class GlobalCodingExerciseEditView(RoleRequiredMixin, View):
+    """Edit a single global coding exercise via HTMX modal."""
+    required_roles = [Role.ADMIN]
+
+    def _get_exercise(self, exercise_id):
+        from coding.models import CodingExercise
+        return get_object_or_404(
+            CodingExercise.objects.select_related(
+                'topic_level', 'topic_level__topic', 'topic_level__topic__language',
+            ),
+            id=exercise_id,
+        )
+
+    def get(self, request, exercise_id):
+        from coding.models import CodingAnswer
+        exercise = self._get_exercise(exercise_id)
+        answers = list(CodingAnswer.objects.filter(exercise=exercise).order_by('order', 'id'))
+        return render(request, 'admin_dashboard/partials/coding_exercise_edit_form.html', {
+            'exercise': exercise,
+            'answers': answers,
+        })
+
+    def post(self, request, exercise_id):
+        from coding.models import CodingAnswer
+        exercise = self._get_exercise(exercise_id)
+
+        exercise.title = request.POST.get('title', '').strip()
+        exercise.description = request.POST.get('description', '').strip()
+        exercise.starter_code = request.POST.get('starter_code', '')
+        exercise.expected_output = request.POST.get('expected_output', '')
+        exercise.required_code_patterns = request.POST.get('required_code_patterns', '').strip() or None
+        exercise.hints = request.POST.get('hints', '').strip()
+        exercise.correct_short_answer = request.POST.get('correct_short_answer', '').strip() or None
+        exercise.save(update_fields=[
+            'title', 'description', 'starter_code', 'expected_output',
+            'required_code_patterns', 'hints', 'correct_short_answer', 'updated_at',
+        ])
+
+        # Update answer text + correctness for MCQ/TF rows
+        answer_ids = request.POST.getlist('answer_id')
+        for aid in answer_ids:
+            try:
+                ans = CodingAnswer.objects.get(id=int(aid), exercise=exercise)
+            except (CodingAnswer.DoesNotExist, ValueError):
+                continue
+            ans.answer_text = request.POST.get(f'answer_text_{aid}', '').strip()
+            ans.is_correct = request.POST.get(f'is_correct_{aid}') == 'on'
+            ans.save(update_fields=['answer_text', 'is_correct'])
+
+        log_event(
+            user=request.user, school=None,
+            category='data_change', action='global_coding_exercise_edited',
+            detail={'exercise_id': exercise.id, 'title': exercise.title[:100]},
+            request=request,
+        )
+
+        return render(request, 'admin_dashboard/partials/coding_exercise_row.html', {
+            'ex': exercise,
+            'answers': list(CodingAnswer.objects.filter(exercise=exercise).order_by('order', 'id')),
+        })
+
+
+class GlobalQuestionDeleteView(RoleRequiredMixin, View):
+    """Delete a single global maths question. POST-only; returns empty 200
+    so the HTMX caller can swap out the row."""
+    required_roles = [Role.ADMIN]
+
+    def post(self, request, question_id):
+        from maths.models import Question
+        question = get_object_or_404(Question, id=question_id, school__isnull=True)
+        text_preview = question.question_text[:100]
+        question.delete()
+
+        log_event(
+            user=request.user, school=None,
+            category='data_change', action='global_question_deleted',
+            detail={'question_id': question_id, 'question_text': text_preview},
+            request=request,
+        )
+        from django.http import HttpResponse
+        return HttpResponse(status=200)
+
+
+class GlobalCodingExerciseDeleteView(RoleRequiredMixin, View):
+    """Delete a single global coding exercise. POST-only."""
+    required_roles = [Role.ADMIN]
+
+    def post(self, request, exercise_id):
+        from coding.models import CodingExercise
+        exercise = get_object_or_404(CodingExercise, id=exercise_id)
+        title_preview = exercise.title[:100]
+        exercise.delete()
+
+        log_event(
+            user=request.user, school=None,
+            category='data_change', action='global_coding_exercise_deleted',
+            detail={'exercise_id': exercise_id, 'title': title_preview},
+            request=request,
+        )
+        from django.http import HttpResponse
+        return HttpResponse(status=200)
+
+
+class HtmxGlobalCodingTopicsView(RoleRequiredMixin, View):
+    """HTMX: return CodingTopic <option> tags for a language."""
+    required_roles = [Role.ADMIN]
+
+    def get(self, request):
+        from django.http import HttpResponse
+        from coding.models import CodingTopic
+        language_id = request.GET.get('language', '')
+        if not language_id:
+            return HttpResponse('<option value="">-- All topics --</option>')
+        topics = CodingTopic.objects.filter(
+            language_id=language_id, is_active=True,
+        ).order_by('order', 'name')
+        html = '<option value="">-- All topics --</option>'
+        for t in topics:
+            html += f'<option value="{t.id}">{t.name}</option>'
+        return HttpResponse(html)
+
+
+class HtmxGlobalLevelsView(RoleRequiredMixin, View):
+    """HTMX: return level <option> tags for a subject."""
+    required_roles = [Role.ADMIN]
+
+    def get(self, request):
+        from django.http import HttpResponse
+        subject_id = request.GET.get('subject', '')
+        if not subject_id:
+            return HttpResponse('<option value="">-- Select level --</option>')
+        levels = Level.objects.filter(
+            subject_id=subject_id, school__isnull=True,
+        ).order_by('level_number')
+        html = '<option value="">-- All levels --</option>'
+        for lv in levels:
+            html += f'<option value="{lv.id}">{lv.display_name}</option>'
+        return HttpResponse(html)
+
+
+class HtmxGlobalTopicsView(RoleRequiredMixin, View):
+    """HTMX: return topic <option> tags for a subject + level."""
+    required_roles = [Role.ADMIN]
+
+    def get(self, request):
+        from django.http import HttpResponse
+        from .models import Topic
+        subject_id = request.GET.get('subject', '')
+        level_id = request.GET.get('level', '')
+        if not subject_id or not level_id:
+            return HttpResponse('<option value="">-- Select topic --</option>')
+        topics = Topic.objects.filter(
+            subject_id=subject_id, levels__id=level_id,
+            is_active=True, parent__isnull=True,
+        ).distinct().order_by('order', 'name')
+        html = '<option value="">-- All topics --</option>'
+        for t in topics:
+            html += f'<option value="{t.id}">{t.name}</option>'
+        return HttpResponse(html)
+
+
+class HtmxGlobalSubtopicsView(RoleRequiredMixin, View):
+    """HTMX: return subtopic <option> tags for a topic + level."""
+    required_roles = [Role.ADMIN]
+
+    def get(self, request):
+        from django.http import HttpResponse
+        from .models import Topic
+        topic_id = request.GET.get('topic', '')
+        level_id = request.GET.get('level', '')
+        if not topic_id:
+            return HttpResponse('<option value="">-- Select subtopic --</option>')
+        subtopics = Topic.objects.filter(
+            parent_id=topic_id, is_active=True,
+        ).order_by('order', 'name')
+        if level_id:
+            subtopics = subtopics.filter(levels__id=level_id).distinct()
+        if not subtopics.exists():
+            return HttpResponse('')
+        html = '<option value="">-- All subtopics --</option>'
+        for st in subtopics:
+            html += f'<option value="{st.id}">{st.name}</option>'
+        return HttpResponse(html)

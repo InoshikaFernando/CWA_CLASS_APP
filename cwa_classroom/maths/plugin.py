@@ -1,0 +1,276 @@
+"""
+Mathematics subject plugin.
+
+Phase 1 wired this plugin to the upload router. Phase 2 adds the homework
+contract — the logic is a direct lift from the previous inline helpers in
+``homework/views.py`` (``_topics_with_questions``, ``_build_topic_groups``,
+``_select_and_save_questions``) plus the answer-grading branch from
+``StudentHomeworkTakeView.post``.
+"""
+
+from __future__ import annotations
+
+from classroom.subject_registry import SubjectPlugin
+
+
+class MathsPlugin(SubjectPlugin):
+    slug = 'mathematics'
+    display_name = 'Mathematics'
+    order = 10
+    supports_homework = True
+    brainbuzz_subject_key = 'maths'
+
+    # Phase 3 — URL routing + sidebar wiring. Maths owns the plain
+    # ``/maths/`` app plus the legacy ``/number-puzzles/`` mini-app that
+    # lives alongside quiz views. The quiz app's basic-facts / times-tables
+    # routes sit under ``/maths/`` (see maths/urls.py), so a single prefix
+    # is enough.
+    url_prefixes = ('/maths/', '/number-puzzles/')
+
+    # ------------------------------------------------------------------
+    # Upload
+    # ------------------------------------------------------------------
+
+    def upload_parser(self):
+        from classroom.upload_services import MathsQuestionParser
+        return MathsQuestionParser()
+
+    # ------------------------------------------------------------------
+    # UI / routing  (Phase 3)
+    # ------------------------------------------------------------------
+
+    def sidebar_template(self) -> str:
+        # Matches the pre-existing per-subject sidebar partial.
+        return 'partials/sidebar_maths.html'
+
+    def has_content(self, classroom=None) -> bool:
+        from maths.models import Question
+        return Question.objects.exists()
+
+    # ------------------------------------------------------------------
+    # BrainBuzz — flat topic/level choices for the create-session form
+    # ------------------------------------------------------------------
+
+    def brainbuzz_topic_choices(self) -> dict:
+        from classroom.models import Topic, Level
+        topics = list(
+            Topic.objects.filter(subject__slug='mathematics', subject__school__isnull=True)
+            .order_by('name')
+            .values('id', 'name')
+        )
+        # Only show levels 1-12 that have MCQ/TF/short-answer questions in maths
+        levels = list(
+            Level.objects.filter(
+                level_number__gte=1,
+                level_number__lte=12,
+                maths_questions_by_level__question_type__in=[
+                    'multiple_choice', 'true_false', 'short_answer', 'fill_blank'
+                ],
+                maths_questions_by_level__school__isnull=True,  # Global questions only
+                maths_questions_by_level__topic__subject__slug='mathematics',
+            )
+            .distinct()
+            .order_by('level_number')
+            .values('id', 'level_number')
+        )
+        return {'maths_topics': topics, 'maths_levels': levels}
+
+    # ------------------------------------------------------------------
+    # Homework — topic picker
+    # ------------------------------------------------------------------
+
+    def homework_topic_tree(self, classroom):
+        """Return the 3-level (strand, mid, leaves) grouping for the selector."""
+        topics = self._topics_with_questions(classroom)
+        return self._build_topic_groups(topics)
+
+    def homework_topic_field_name(self) -> str:
+        return 'topics'
+
+    def save_homework_topics(self, homework, selected_topic_ids):
+        from classroom.models import Topic
+        homework.topics.set(Topic.objects.filter(pk__in=selected_topic_ids))
+        # Clear the alternate M2M so the homework only carries maths topics.
+        homework.coding_topics.clear()
+
+    def pick_homework_items(self, classroom, selected_topic_ids, n):
+        from classroom.models import Topic
+        from maths.models import Question
+        from maths.views import select_questions_stratified
+
+        topics = list(Topic.objects.filter(pk__in=selected_topic_ids))
+        if not topics:
+            return []
+
+        classroom_levels = classroom.levels.all()
+        qs = Question.objects.filter(topic__in=topics).select_related('topic')
+        if classroom_levels.exists():
+            qs = qs.filter(level__in=classroom_levels)
+        all_questions = list(qs)
+
+        if not all_questions:
+            return []
+        if len(all_questions) > n:
+            selected = select_questions_stratified(all_questions, n)
+        else:
+            selected = all_questions
+        return [q.pk for q in selected]
+
+    # ------------------------------------------------------------------
+    # Homework — student take / result
+    # ------------------------------------------------------------------
+
+    def take_item_template(self) -> str:
+        return 'homework/partials/_maths_take_item.html'
+
+    def take_item_context(self, content_id):
+        import random
+        from maths.models import Question
+
+        q = Question.objects.prefetch_related('answers').get(pk=content_id)
+        shuffled = list(q.answers.all())
+        random.shuffle(shuffled)
+        return {
+            'question': q,
+            'shuffled_answers': shuffled,
+        }
+
+    def grade_answer(self, content_id, post_data):
+        """Mirrors the original branch in StudentHomeworkTakeView.post.
+
+        Returns fields suitable for ``HomeworkStudentAnswer(**result)`` —
+        plus ``points_earned`` computed as 1.0 per correct row (legacy
+        behaviour — callers can override by passing question.points).
+        """
+        from maths.models import Answer, Question
+
+        q = Question.objects.get(pk=content_id)
+        is_correct = False
+        selected_answer_obj = None
+        text_answer = ''
+
+        if q.question_type in (Question.MULTIPLE_CHOICE, Question.TRUE_FALSE):
+            answer_id = post_data.get(f'answer_{q.id}')
+            if answer_id:
+                try:
+                    selected_answer_obj = Answer.objects.get(id=answer_id, question=q)
+                    is_correct = selected_answer_obj.is_correct
+                except Answer.DoesNotExist:
+                    pass
+        elif q.question_type == 'prime_factorization' and q.target_number:
+            # Order-independent: every token must be prime and product == target_number.
+            import re as _re
+            text_answer = post_data.get(f'answer_{q.id}', '').strip()
+            tokens = [t for t in _re.split(r'[x×*,\s]+', text_answer) if t]
+
+            def _is_prime(n):
+                if n < 2:
+                    return False
+                if n < 4:
+                    return True
+                if n % 2 == 0:
+                    return False
+                i = 3
+                while i * i <= n:
+                    if n % i == 0:
+                        return False
+                    i += 2
+                return True
+
+            try:
+                nums = [int(t) for t in tokens]
+                product = 1
+                for x in nums:
+                    product *= x
+                is_correct = bool(nums) and product == q.target_number and all(_is_prime(x) for x in nums)
+            except ValueError:
+                is_correct = False
+        elif q.question_type == 'long_division' and q.dividend is not None and q.divisor:
+            # Accept "12", "12 r 0", "12r0" equivalents; canonicalise both sides.
+            text_answer = post_data.get(f'answer_{q.id}', '').strip()
+            quot, rem = divmod(q.dividend, q.divisor)
+            import re as _re
+            m = _re.match(r'^\s*(-?\d+)\s*(?:r\s*(-?\d+))?\s*$', text_answer.lower())
+            if m:
+                got_q = int(m.group(1))
+                got_r = int(m.group(2)) if m.group(2) is not None else 0
+                is_correct = (got_q == quot and got_r == rem)
+        else:
+            text_answer = post_data.get(f'answer_{q.id}', '').strip()
+            correct_answer = q.answers.filter(is_correct=True).first()
+            if correct_answer and text_answer.lower() == correct_answer.answer_text.lower():
+                is_correct = True
+
+        return {
+            'question_id': q.pk,                # legacy FK (written by the view)
+            'selected_answer_id': selected_answer_obj.pk if selected_answer_obj else None,
+            'text_answer': text_answer,
+            'is_correct': is_correct,
+            'points_earned': q.points if is_correct else 0,
+            'answer_data': {},                  # unused for maths
+        }
+
+    def result_item_template(self) -> str:
+        return 'homework/partials/_maths_result_item.html'
+
+    def result_item_context(self, answer):
+        return {'ans': answer}
+
+    # ------------------------------------------------------------------
+    # Internal helpers — lifted verbatim from homework/views.py
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _topics_with_questions(classroom):
+        from django.db.models import Exists, OuterRef
+        from classroom.models import Topic
+        from maths.models import Question
+
+        classroom_levels = classroom.levels.all()
+        base_qs = (
+            Topic.objects.filter(is_active=True)
+            .select_related('subject', 'parent', 'parent__parent')
+            .order_by('subject__name', 'parent__name', 'name')
+        )
+        if classroom_levels.exists():
+            question_filter = Question.objects.filter(
+                topic=OuterRef('pk'), level__in=classroom_levels,
+            )
+        else:
+            question_filter = Question.objects.filter(topic=OuterRef('pk'))
+        return base_qs.filter(Exists(question_filter))
+
+    @staticmethod
+    def _build_topic_groups(topics_qs):
+        from collections import OrderedDict
+
+        strands: 'OrderedDict' = OrderedDict()
+
+        for topic in topics_qs:
+            parent = topic.parent
+            grandparent = parent.parent if parent else None
+
+            if parent is None:
+                if topic.pk not in strands:
+                    strands[topic.pk] = (topic, OrderedDict())
+            elif grandparent is None:
+                strand = parent
+                if strand.pk not in strands:
+                    strands[strand.pk] = (strand, OrderedDict())
+                mids = strands[strand.pk][1]
+                if topic.pk not in mids:
+                    mids[topic.pk] = (topic, [])
+            else:
+                strand = grandparent
+                mid = parent
+                if strand.pk not in strands:
+                    strands[strand.pk] = (strand, OrderedDict())
+                mids = strands[strand.pk][1]
+                if mid.pk not in mids:
+                    mids[mid.pk] = (mid, [])
+                mids[mid.pk][1].append(topic)
+
+        return [
+            (strand, [(mid, leaves) for mid, leaves in mids.values()])
+            for strand, mids in strands.values()
+        ]

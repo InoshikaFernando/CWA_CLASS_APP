@@ -434,8 +434,11 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
         if dept_id:
             department = Department.objects.filter(id=dept_id, school=school).first()
 
-        # Validate attendance completeness (skip for upfront billing)
-        if billing_type != 'upfront':
+        # Validate attendance completeness only when billing depends on it.
+        # Upfront billing skips it entirely; "all_class_days" charges every held
+        # session regardless of who attended, so missing marks don't affect the
+        # invoice. Only "attended_only" needs every student marked.
+        if billing_type != 'upfront' and mode == 'attended_only':
             unmarked = svc.validate_attendance_complete(school, start, end, department)
             if unmarked:
                 departments = Department.objects.filter(school=school, is_active=True)
@@ -508,11 +511,28 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
 
                 if issued_overlaps.exists():
                     # ── Issued invoices overlap ──────────────────────────────
-                    # Find sessions not yet covered by any issued invoice.
-                    uncovered = svc.find_uncovered_date_ranges(issued_overlaps, start, end)
+                    # Compute uncovered date ranges PER CLASSROOM. A classroom
+                    # is only "covered" by an issued invoice if that invoice
+                    # has a line item for that classroom — otherwise sessions
+                    # in that classroom for the invoice's date range are still
+                    # unbilled (e.g. classroom added to student after invoice
+                    # was issued for some other classroom).
+                    enrolled_qs = ClassStudent.objects.filter(
+                        classroom__school=school, student=student, is_active=True,
+                        classroom__is_active=True,
+                    )
+                    if department is not None:
+                        enrolled_qs = enrolled_qs.filter(classroom__department=department)
+                    enrolled_classroom_ids = list(
+                        enrolled_qs.values_list('classroom_id', flat=True)
+                    )
 
-                    if not uncovered:
-                        # Issued invoices fully cover the period — nothing to bill
+                    uncovered_by_class = svc.find_uncovered_date_ranges_by_classroom(
+                        issued_overlaps, start, end, enrolled_classroom_ids,
+                    )
+
+                    if not uncovered_by_class:
+                        # Every enrolled classroom is fully covered — skip.
                         skipped_fully_covered.append(display_name)
                         continue
 
@@ -525,15 +545,18 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
                             cancelled_at=timezone.now(),
                         )
 
-                    # Build lines for every uncovered sub-period and merge
+                    # Build lines per (classroom, gap_range)
                     gap_lines = []
-                    for gap_start, gap_end in uncovered:
-                        sub_lines, sub_warnings = svc.calculate_invoice_lines(
-                            student, school, gap_start, gap_end, mode,
-                            billing_type=billing_type,
-                        )
-                        gap_lines.extend(sub_lines)
-                        all_warnings.extend(sub_warnings)
+                    for cid, gap_ranges in uncovered_by_class.items():
+                        for gap_start, gap_end in gap_ranges:
+                            sub_lines, sub_warnings = svc.calculate_invoice_lines(
+                                student, school, gap_start, gap_end, mode,
+                                billing_type=billing_type,
+                                department=department,
+                                restrict_classroom_ids=[cid],
+                            )
+                            gap_lines.extend(sub_lines)
+                            all_warnings.extend(sub_warnings)
 
                     if gap_lines:
                         gap_invoiced_names.append(display_name)
@@ -568,7 +591,9 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
                 skipped_no_enrollment.append(display_name)
 
             lines, warnings = svc.calculate_invoice_lines(
-                student, school, start, end, mode, billing_type=billing_type
+                student, school, start, end, mode,
+                billing_type=billing_type,
+                department=department,
             )
             all_warnings.extend(warnings)
 
@@ -851,22 +876,93 @@ class InvoiceDetailView(RoleRequiredMixin, View):
         payments = invoice.payments.order_by('-created_at')
         credit_balance = svc.get_credit_balance(invoice.student, invoice.school)
 
-        # Get effective settings (department overrides applied)
+        # Get effective settings using the first department/class found
+        # (used for invoice_terms, address, currency, etc.)
         primary_dept = None
+        primary_classroom = None
         for li in line_items:
-            if li.classroom and li.classroom.department:
-                primary_dept = li.classroom.department
+            if li.classroom:
+                primary_classroom = li.classroom
+                if li.classroom.department:
+                    primary_dept = li.classroom.department
                 break
-        effective_settings = school.get_effective_settings(primary_dept)
+        effective_settings = school.get_effective_settings(primary_dept, primary_classroom)
 
         # Resolve effective currency (class → dept → school → USD)
         effective_currency = None
-        for li in line_items:
-            if li.classroom:
-                effective_currency = li.classroom.get_effective_currency()
-                break
+        if primary_classroom:
+            effective_currency = primary_classroom.get_effective_currency()
         if effective_currency is None:
             effective_currency = school.get_effective_currency()
+
+        # Resolve student display info for payment reference
+        from .models import SchoolStudent
+        school_student = SchoolStudent.objects.filter(
+            school=school, student=invoice.student,
+        ).first()
+        student_name = f'{invoice.student.first_name} {invoice.student.last_name}'.strip()
+        student_id_code = school_student.student_id_code if school_student else ''
+
+        # Build payment groups — one entry per unique resolved account number.
+        # When an invoice spans multiple departments with different account
+        # numbers (e.g. student enrolled in Aesthetics AND IT), each group is
+        # shown separately on the invoice so the parent knows which account to
+        # pay for which department.
+        #
+        # Groups are keyed by resolved account number (empty string = no account).
+        # Departments that resolve to the same account number are merged.
+        _account_groups = {}
+        for li in line_items:
+            if li.rate_source == 'opening_balance':
+                continue
+            cls = li.classroom
+            dept = li.department  # denormalized FK on line item
+
+            # ----------------------------------------------------------------
+            # Resolve the account number AND the supporting bank details
+            # (bank_name, bsb, account_name) from the SAME entity that owns
+            # the account number.  Using get_effective_settings() for bank
+            # details is wrong when the department has its own account number
+            # but no bank_name — it would bleed the school's bank_name (for
+            # the school's *different* account) onto the dept's account block.
+            #
+            # Priority: ClassRoom override → Department override → School
+            # ----------------------------------------------------------------
+            if cls and cls.bank_account_number:
+                # Class has its own account — use class-level bank details
+                acc = cls.bank_account_number
+                bank_owner = cls
+            elif dept and dept.bank_account_number:
+                # Department has its own account — use department-level details
+                acc = dept.bank_account_number
+                bank_owner = dept
+            else:
+                # Fall back to the school's account
+                acc = school.bank_account_number or None
+                bank_owner = school
+
+            gst = cls.get_resolved_gst() if cls else (
+                dept.get_resolved_gst() if dept else school.get_resolved_gst()
+            )
+
+            dept_name = dept.name if dept else None
+            key = acc or ''
+            if key not in _account_groups:
+                _account_groups[key] = {
+                    'account_number': acc,
+                    'gst': gst,
+                    'bank_name': getattr(bank_owner, 'bank_name', '') or '',
+                    'bank_bsb': getattr(bank_owner, 'bank_bsb', '') or '',
+                    'bank_account_name': getattr(bank_owner, 'bank_account_name', '') or '',
+                    'department_names': [],
+                }
+            if dept_name and dept_name not in _account_groups[key]['department_names']:
+                _account_groups[key]['department_names'].append(dept_name)
+        # Only include groups that have something to display
+        payment_groups = [
+            g for g in _account_groups.values()
+            if g['account_number'] or g['gst']
+        ]
 
         return render(request, 'invoicing/invoice_detail.html', {
             'invoice': invoice,
@@ -877,6 +973,9 @@ class InvoiceDetailView(RoleRequiredMixin, View):
             'resolved_stripe_link': invoice.get_stripe_payment_link(),
             'effective_settings': effective_settings,
             'effective_currency': effective_currency,
+            'payment_groups': payment_groups,
+            'student_name': student_name,
+            'student_id_code': student_id_code,
         })
 
     def post(self, request, invoice_id):
@@ -1072,6 +1171,77 @@ class CancelInvoiceView(RoleRequiredMixin, View):
         )
         messages.success(request, f'Invoice {invoice.invoice_number} cancelled.')
         return redirect('invoice_detail', invoice_id=invoice.id)
+
+
+class ResendInvoiceView(RoleRequiredMixin, View):
+    """
+    Resend the issued-invoice email to the student + linked parents/guardians.
+
+    Used after correcting a bounced email address. The invoice itself is
+    not modified.
+    """
+    required_roles = INVOICING_ROLES
+
+    def post(self, request, invoice_id):
+        school = _get_single_school(request.user)
+        invoice = get_object_or_404(Invoice, id=invoice_id, school=school)
+
+        try:
+            result = svc.resend_invoice_email(invoice)
+        except ValueError as e:
+            messages.error(request, str(e))
+            return redirect(request.META.get('HTTP_REFERER', '') or 'invoice_list')
+
+        sent = result.get('sent', [])
+        failed = result.get('failed', [])
+        skipped = result.get('skipped_no_email', False)
+
+        log_event(
+            user=request.user, school=school, category='communication',
+            action='invoice_resent',
+            detail={
+                'invoice_id': invoice.id,
+                'invoice_number': invoice.invoice_number,
+                'sent_to': sent,
+                'failed': failed,
+            },
+            request=request,
+        )
+
+        if sent and not failed:
+            messages.success(
+                request,
+                f'Invoice {invoice.invoice_number} resent to '
+                f'{len(sent)} recipient(s): {", ".join(sent)}.',
+            )
+        elif sent and failed:
+            messages.warning(
+                request,
+                f'Invoice {invoice.invoice_number} resent to '
+                f'{len(sent)} recipient(s); {len(failed)} failed: '
+                f'{", ".join(failed)}.',
+            )
+        elif failed:
+            messages.error(
+                request,
+                f'Invoice {invoice.invoice_number} could not be resent — '
+                f'all {len(failed)} attempt(s) failed.',
+            )
+        elif skipped:
+            messages.error(
+                request,
+                f'Invoice {invoice.invoice_number} could not be resent — '
+                f'the student has no email address on file. Update the '
+                f"student's email and try again.",
+            )
+        else:
+            messages.warning(
+                request,
+                f'Invoice {invoice.invoice_number} has no recipients to '
+                f'email — add a parent or guardian with a valid email.',
+            )
+
+        return redirect(request.META.get('HTTP_REFERER', '') or 'invoice_list')
 
 
 class RecordManualPaymentView(RoleRequiredMixin, View):

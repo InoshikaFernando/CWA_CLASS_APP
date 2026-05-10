@@ -297,6 +297,16 @@ def send_school_publish_notifications(school):
             ss.notified_at = now
             ss.pending_password = ''  # Clear after sending
             ss.save(update_fields=['notified_at', 'pending_password'])
+            # Mark lifecycle fields on the user record
+            user_update = []
+            if not user.welcome_email_sent:
+                user.welcome_email_sent = now
+                user_update.append('welcome_email_sent')
+            if user.creation_method != 'institute':
+                user.creation_method = 'institute'
+                user_update.append('creation_method')
+            if user_update:
+                user.save(update_fields=user_update)
             sent += 1
         else:
             failed += 1
@@ -339,6 +349,16 @@ def send_school_publish_notifications(school):
             st.notified_at = now
             st.pending_password = ''  # Clear after sending
             st.save(update_fields=['notified_at', 'pending_password'])
+            # Mark lifecycle fields on the user record
+            user_update = []
+            if not user.welcome_email_sent:
+                user.welcome_email_sent = now
+                user_update.append('welcome_email_sent')
+            if user.creation_method != 'institute':
+                user.creation_method = 'institute'
+                user_update.append('creation_method')
+            if user_update:
+                user.save(update_fields=user_update)
             sent += 1
         else:
             failed += 1

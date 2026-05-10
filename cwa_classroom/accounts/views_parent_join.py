@@ -300,6 +300,17 @@ class ParentSelfJoinView(View):
             else:
                 msg = 'Your parent account has been created and linked to your child(ren).'
 
+            # Send self-registered welcome email (parent chose their own password)
+            try:
+                from notifications.services import send_welcome_notification
+                school_for_email = valid_school_students[0][0].school if valid_school_students else None
+                send_welcome_notification(user, school=school_for_email)
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception(
+                    'Failed to send welcome email for parent %s', user.pk
+                )
+
             messages.success(request, msg)
             return redirect('parent_dashboard')
 

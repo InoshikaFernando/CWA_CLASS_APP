@@ -172,7 +172,7 @@
         {% if effective_settings.bank_account_name %}<p class="text-gray-500">Account Name</p><p class="text-gray-700 font-medium">{{ effective_settings.bank_account_name }}</p>{% endif %}
         {% if effective_settings.bank_account_number %}<p class="text-gray-500">Account Number</p><p class="text-gray-700 font-medium">{{ effective_settings.bank_account_number }}</p>{% endif %}
       </div>
-      <p class="text-xs text-violet-500 mt-3">Please use invoice number <strong>{{ invoice.invoice_number }}</strong> as the payment reference.</p>
+      <p class="text-xs text-violet-500 mt-3">Reference: <strong>{% if student_id_code %}{{ student_id_code }} — {% endif %}{{ student_name }}</strong></p>
     </div>
   {% endif %}
 

@@ -172,7 +172,7 @@ class InvoiceScopeTestCase(TestCase):
 
     def _make_invoice(self, student, status='issued',
                       start=None, end=None, amount='50.00'):
-        return Invoice.objects.create(
+        invoice = Invoice.objects.create(
             invoice_number=f'INV-SCOPE-{Invoice.objects.count() + 1:04d}',
             school=self.school,
             student=student,
@@ -184,6 +184,23 @@ class InvoiceScopeTestCase(TestCase):
             status=status,
             created_by=self.owner,
         )
+        # Mirror real production invoices by attaching one line item per
+        # active enrollment. The per-classroom gap-detection logic
+        # (find_uncovered_date_ranges_by_classroom) needs these line items
+        # to know which classrooms an invoice actually covers.
+        for cs in ClassStudent.objects.filter(student=student, is_active=True):
+            InvoiceLineItem.objects.create(
+                invoice=invoice,
+                classroom=cs.classroom,
+                department=cs.classroom.department,
+                daily_rate=cs.classroom.fee_override or Decimal('10.00'),
+                rate_source='class_default',
+                sessions_held=1,
+                sessions_attended=0,
+                sessions_charged=1,
+                line_amount=cs.classroom.fee_override or Decimal('10.00'),
+            )
+        return invoice
 
 
 # ===========================================================================

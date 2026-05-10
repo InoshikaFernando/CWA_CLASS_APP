@@ -1,0 +1,96 @@
+{% extends "email/base_email.html" %}
+
+{% block email_title %}You've been added to {{ school_name }} — Your Login Details{% endblock %}
+
+{% block email_content %}
+<div style="background-color:#f5f3ff;border-left:4px solid #7c3aed;padding:16px;border-radius:4px;margin-bottom:24px;">
+  <p style="margin:0;color:#5b21b6;font-weight:700;font-size:16px;">Welcome to {{ school_name }}!</p>
+</div>
+
+<p style="margin:0 0 16px;color:#334155;font-size:15px;">
+  Hi <strong>{{ parent_name }}</strong>,
+</p>
+
+<p style="margin:0 0 16px;color:#334155;font-size:15px;">
+  <strong>{{ school_name }}</strong> has created a parent account for you on Wizards Learning Hub
+  so you can stay connected with your child's learning.
+</p>
+
+{% if student_names %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+  <tr>
+    <td style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;">
+      <p style="margin:0 0 8px;color:#64748b;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">
+        Your child{% if student_names|length > 1 %}ren{% endif %}
+      </p>
+      {% for name in student_names %}
+      <p style="margin:0 0 4px;color:#1e293b;font-size:14px;font-weight:600;">&#128100; {{ name }}</p>
+      {% endfor %}
+    </td>
+  </tr>
+</table>
+{% endif %}
+
+<p style="margin:0 0 16px;color:#334155;font-size:15px;">
+  Use the login credentials below to access your account:
+</p>
+
+<div style="background-color:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:20px;margin-bottom:20px;">
+  <p style="margin:0 0 12px;color:#92400e;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:0.5px;">
+    Your Login Credentials
+  </p>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;color:#374151;">
+    <tr>
+      <td style="padding:4px 0;font-weight:600;width:120px;color:#64748b;">Username:</td>
+      <td style="padding:4px 0;font-family:monospace;font-weight:700;color:#1e293b;">{{ username }}</td>
+    </tr>
+    <tr>
+      <td style="padding:4px 0;font-weight:600;color:#64748b;">Email:</td>
+      <td style="padding:4px 0;color:#1e293b;">{{ user.email|default:'' }}</td>
+    </tr>
+    <tr>
+      <td style="padding:4px 0;font-weight:600;color:#64748b;">Temp Password:</td>
+      <td style="padding:4px 0;font-family:monospace;font-weight:700;color:#1e293b;">{{ temp_password }}</td>
+    </tr>
+  </table>
+  <p style="margin:14px 0 0;color:#b45309;font-size:13px;font-weight:600;">
+    &#9888; You will be asked to change your password on your first login.
+  </p>
+</div>
+
+<p style="margin:0 0 20px;text-align:center;">
+  <a href="{{ login_url }}"
+     style="display:inline-block;background-color:#7c3aed;color:#ffffff;padding:13px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;">
+    Log In Now &rarr;
+  </a>
+</p>
+
+<p style="margin:0 0 16px;color:#334155;font-size:15px;">
+  Once logged in, you'll be able to:
+</p>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+  <tr>
+    <td>
+      <table role="presentation" width="100%" cellpadding="12" cellspacing="0"
+             style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
+        <tr>
+          <td style="color:#1e293b;font-size:14px;">
+            <div style="margin-bottom:10px;">&#128200; <strong>Progress</strong> — View quiz scores and lesson completion</div>
+            <div style="margin-bottom:10px;">&#128196; <strong>Invoices</strong> — View and pay outstanding fees</div>
+            <div style="margin-bottom:10px;">&#128221; <strong>Homework</strong> — Track assignments set by teachers</div>
+            <div>&#128276; <strong>Notifications</strong> — Stay informed about important updates</div>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+{% endblock %}
+
+{% block email_footer_extra %}
+<p style="margin:0 0 12px;color:#94a3b8;font-size:12px;text-align:center;">
+  This is an automated notification from Wizards Learning Hub on behalf of <strong>{{ school_name }}</strong>.
+  If you did not expect this email, please contact {{ school_name }} directly.
+</p>
+{% endblock %}

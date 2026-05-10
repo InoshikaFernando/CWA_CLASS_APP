@@ -235,11 +235,13 @@ TIMES_TABLES_BY_YEAR = {
 }
 
 
-def _generate_times_tables_questions(table, operation, count=12):
+def _generate_times_tables_questions(table, operation, count=12, shuffle=False):
     import random
+    multipliers = list(range(1, count + 1))
+    if shuffle:
+        random.shuffle(multipliers)
     questions = []
-    for i in range(1, count + 1):
-        multiplier = i
+    for idx, multiplier in enumerate(multipliers, 1):
         if operation == 'multiplication':
             question_text = f'{table} × {multiplier} = ?'
             answer = table * multiplier
@@ -259,7 +261,7 @@ def _generate_times_tables_questions(table, operation, count=12):
         random.shuffle(choices)
 
         questions.append({
-            'id': i,
+            'id': idx,
             'question': question_text,
             'answer': answer,
             'choices': choices,
@@ -300,7 +302,8 @@ class TimesTablesSelectView(LoginRequiredMixin, View):
 
 class TimesTablesQuizView(LoginRequiredMixin, View):
     def get(self, request, level_number, table, operation):
-        questions = _generate_times_tables_questions(table, operation)
+        shuffled = request.GET.get('shuffle') == '1'
+        questions = _generate_times_tables_questions(table, operation, shuffle=shuffled)
         session_id = str(uuid.uuid4())
 
         # Remove any abandoned times-tables sessions
@@ -312,6 +315,7 @@ class TimesTablesQuizView(LoginRequiredMixin, View):
             'questions': questions,
             'start_time': time.time(),
             'current': 0,
+            'shuffled': shuffled,
         }
         first_q = questions[0]
         return render(request, 'quiz/times_tables_quiz.html', {
@@ -321,6 +325,7 @@ class TimesTablesQuizView(LoginRequiredMixin, View):
             'question': first_q,
             'question_number': 1,
             'total_questions': len(questions),
+            'shuffled': shuffled,
         })
 
 
@@ -405,6 +410,7 @@ class TimesTablesSubmitView(LoginRequiredMixin, View):
         questions = session_data.get('questions', [])
         start_time = session_data.get('start_time', _time.time())
 
+        shuffled = session_data.get('shuffled', False)
         score = sum(1 for q in questions if q.get('is_correct', False))
         total = len(questions) or 1
         time_taken = max(1, int(_time.time() - start_time))
@@ -413,19 +419,37 @@ class TimesTablesSubmitView(LoginRequiredMixin, View):
         # Save to DB
         from maths.models import StudentFinalAnswer
         level_obj = ClassroomLevel.objects.filter(level_number=table).first()
+
+        prev_best = StudentFinalAnswer.objects.filter(
+            student=request.user,
+            quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
+            table_number=table,
+            operation=operation,
+            shuffled=shuffled,
+        ).order_by('-points').first()
+
         StudentFinalAnswer.objects.create(
             student=request.user,
             topic=None,
-            level=level_obj,          # Year 1-9 or None for tables 10-12
-            table_number=table,       # always set for times tables
+            level=level_obj,
+            table_number=table,
             quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
             operation=operation,
             score=score,
             total_questions=total,
             points=points,
             time_taken_seconds=time_taken,
+            shuffled=shuffled,
         )
 
+        is_new_record = prev_best is None or points > (prev_best.points or 0)
+
+        session_data['score'] = score
+        session_data['total'] = total
+        session_data['time_taken'] = time_taken
+        session_data['points'] = points
+        session_data['is_new_record'] = is_new_record
+        session_data['prev_best_points'] = prev_best.points if prev_best else None
         request.session[f'tt_done_{session_id}'] = session_data
         request.session.pop(session_key, None)
 
@@ -435,13 +459,33 @@ class TimesTablesSubmitView(LoginRequiredMixin, View):
 class TimesTablesResultsView(LoginRequiredMixin, View):
     def get(self, request, session_id):
         session_data = request.session.get(f'tt_done_{session_id}', {})
-        table = session_data.get('table', '?')
+        # Session expired (e.g. user hit /results/ directly or refreshed long
+        # after submit) — bounce home rather than render an empty page that
+        # would trip {% url %} reversal with placeholder values.
+        if not session_data:
+            return redirect('times_tables_home')
+        table = session_data.get('table', 0)
         operation = session_data.get('operation', 'multiplication')
         questions = session_data.get('questions', [])
+        score = session_data.get('score', sum(1 for q in questions if q.get('is_correct')))
+        total = session_data.get('total', len(questions) or 1)
+        time_taken = session_data.get('time_taken', 0)
+        points = session_data.get('points', 0.0)
+        percentage = round((score / total) * 100) if total else 0
         return render(request, 'quiz/times_tables_results.html', {
-            'table': table, 'operation': operation,
+            'table': table,
+            'operation': operation,
             'questions': questions,
             'session_id': session_id,
+            'score': score,
+            'total': total,
+            'time_display': _fmt_time(time_taken),
+            'points': points,
+            'percentage': percentage,
+            'is_new_record': session_data.get('is_new_record', False),
+            'prev_best_points': session_data.get('prev_best_points'),
+            'level_number': session_data.get('level_number', 1),
+            'shuffled': session_data.get('shuffled', False),
         })
 
 
@@ -702,6 +746,35 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             correct_answer_text = ' -> '.join(
                 q.answers.order_by('order').values_list('answer_text', flat=True)
             )
+        elif q.question_type == 'prime_factorization' and q.target_number:
+            # Correct iff every entered value is prime AND their product == target_number.
+            # Order doesn't matter; submitted as 'x'/'×'/'*'/',' separated digits.
+            import re as _re
+            raw = data.get('text_answer', '').strip()
+            tokens = [t for t in _re.split(r'[x×*,\s]+', raw) if t]
+            def _is_prime(n):
+                if n < 2:
+                    return False
+                if n < 4:
+                    return True
+                if n % 2 == 0:
+                    return False
+                i = 3
+                while i * i <= n:
+                    if n % i == 0:
+                        return False
+                    i += 2
+                return True
+            try:
+                nums = [int(t) for t in tokens]
+                product = 1
+                for x in nums:
+                    product *= x
+                is_correct = bool(nums) and product == q.target_number and all(_is_prime(x) for x in nums)
+            except ValueError:
+                is_correct = False
+            correct_ans = q.answers.filter(is_correct=True).first()
+            correct_answer_text = correct_ans.answer_text if correct_ans else ''
         else:
             raw = data.get('text_answer', '').strip()
             correct_ans = q.answers.filter(is_correct=True).first()

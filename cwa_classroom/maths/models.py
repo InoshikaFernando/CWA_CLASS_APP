@@ -1,7 +1,19 @@
-from django.db import models
-from django.conf import settings
-from django.utils import timezone
+import re
 import uuid
+from brainbuzz.managers import MathsQuestionsManager
+
+from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.db import models
+from django.utils import timezone
+
+
+# Global question images must live under questions/year<N>/<topic>/<filename>
+# so the content team can find them by year + topic. School-specific
+# questions are exempt — schools can organise their own media however they
+# like. Enforced by Question.clean() so admin / ModelForm uploads are
+# rejected up-front rather than drifting through the audit.
+QUESTION_IMAGE_PATH_RE = re.compile(r'^questions/year[0-9]+/[a-zA-Z0-9_-]+/.+')
 
 
 def generate_class_code():
@@ -34,6 +46,8 @@ class Question(models.Model):
     FILL_BLANK = 'fill_blank'
     CALCULATION = 'calculation'
     EXTENDED_ANSWER = 'extended_answer'
+    LONG_DIVISION = 'long_division'
+    PRIME_FACTORIZATION = 'prime_factorization'
 
     QUESTION_TYPES = [
         ('multiple_choice', 'Multiple Choice'),
@@ -42,6 +56,8 @@ class Question(models.Model):
         ('fill_blank', 'Fill in the Blank'),
         ('calculation', 'Calculation'),
         ('extended_answer', 'Extended Answer (written proof/explanation)'),
+        ('long_division', 'Long Division'),
+        ('prime_factorization', 'Prime Factorization'),
     ]
 
     # Validation mode — how student answers are graded
@@ -100,8 +116,16 @@ class Question(models.Model):
         ),
     )
 
+    # Long-division and prime-factorisation question data
+    dividend = models.PositiveIntegerField(null=True, blank=True, help_text="Long-division: number being divided")
+    divisor = models.PositiveIntegerField(null=True, blank=True, help_text="Long-division: number dividing")
+    target_number = models.PositiveIntegerField(null=True, blank=True, help_text="Prime-factorization: number to factorise")
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    # Custom manager for visibility filtering
+    objects = MathsQuestionsManager()
 
     @property
     def needs_grading(self):
@@ -113,6 +137,62 @@ class Question(models.Model):
 
     def __str__(self):
         return f"{self.level} - {self.question_text[:50]}..."
+
+    def clean(self):
+        super().clean()
+        # Global questions (school IS NULL) must follow the canonical
+        # questions/year<N>/<topic>/ image-path convention. School-scoped
+        # questions are unconstrained.
+        if self.school_id is None and self.image:
+            path = str(self.image)
+            if not QUESTION_IMAGE_PATH_RE.match(path):
+                raise ValidationError({
+                    'image': (
+                        'Image path must follow '
+                        'questions/year<N>/<topic>/<filename> for global '
+                        'questions. Got: ' + repr(path)
+                    )
+                })
+
+    @property
+    def long_division_step_count(self):
+        """Number of subtraction blocks needed to long-divide dividend by divisor."""
+        if not (self.dividend and self.divisor):
+            return 0
+        acc = 0
+        count = 0
+        for d in str(self.dividend):
+            acc = acc * 10 + int(d)
+            if acc >= self.divisor:
+                acc -= (acc // self.divisor) * self.divisor
+                count += 1
+        return count
+
+    @property
+    def prime_factorization_rows(self):
+        """Rows for the ladder rendering. First row shows target_number, last row shows 1.
+        Intermediate rows are blank inputs the student fills in.
+        Each row has prime_input (left cell type) and number-side fields:
+          show_number=True → display the value
+          number_input=True → render an input cell
+        """
+        n = self.target_number
+        if not n or n < 2:
+            return []
+        primes_count = 0
+        m = n
+        p = 2
+        while m > 1:
+            if m % p == 0:
+                m //= p
+                primes_count += 1
+            else:
+                p = 3 if p == 2 else p + 2
+        rows = [{'show_number': True, 'number': n, 'number_input': False, 'prime_input': True}]
+        for i in range(primes_count - 1):
+            rows.append({'show_number': False, 'number': None, 'number_input': True, 'prime_input': True})
+        rows.append({'show_number': True, 'number': 1, 'number_input': False, 'prime_input': False})
+        return rows
 
 
 class Answer(models.Model):
@@ -383,6 +463,7 @@ class StudentFinalAnswer(models.Model):
     completed_at = models.DateTimeField(default=timezone.now, help_text="When this result was completed")
     # Legacy field retained from consolidation migration — new code uses 'points'
     points_earned = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Legacy: points from consolidation migration")
+    shuffled = models.BooleanField(default=False, help_text="Whether the questions were presented in random order")
     last_updated_time = models.DateTimeField(auto_now=True, help_text="Last time this record was updated")
 
     class Meta:

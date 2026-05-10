@@ -1,0 +1,53 @@
+{% extends "email/base_email.html" %}
+
+{% block email_title %}Welcome to {{ school_name }}!{% endblock %}
+
+{% block email_content %}
+<div style="background-color:#ecfdf5;border-left:4px solid #10b981;padding:16px;border-radius:4px;margin-bottom:24px;">
+  <p style="margin:0;color:#065f46;font-weight:700;font-size:16px;">Welcome to {{ school_name }}!</p>
+</div>
+
+<p style="margin:0 0 16px;color:#334155;font-size:15px;">
+  Hi <strong>{{ recipient_name }}</strong>,
+</p>
+
+<p style="margin:0 0 16px;color:#334155;font-size:15px;">
+  Your parent account on <strong>Wizards Learning Hub</strong> is now active.
+  You can log in at any time to stay connected with your child's learning at <strong>{{ school_name }}</strong>.
+</p>
+
+<p style="margin:0 0 20px;color:#334155;font-size:15px;">
+  As a parent, here's what you have access to:
+</p>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+  <tr>
+    <td>
+      <table role="presentation" width="100%" cellpadding="12" cellspacing="0" style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
+        <tr>
+          <td style="color:#1e293b;font-size:14px;">
+            <div style="margin-bottom:10px;">&#128200; <strong>Student Progress</strong> — View your child's quiz scores, lesson completion, and overall progress</div>
+            <div style="margin-bottom:10px;">&#128196; <strong>Invoices &amp; Payments</strong> — View and pay outstanding invoices from {{ school_name }}</div>
+            <div style="margin-bottom:10px;">&#128221; <strong>Homework Tracker</strong> — See what's been assigned and check completion status</div>
+            <div>&#128276; <strong>Notifications</strong> — Stay informed about important updates from the school</div>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+
+<p style="margin:0 0 24px;text-align:center;">
+  <a href="{{ login_url }}"
+     style="display:inline-block;background-color:#10b981;color:#ffffff;padding:13px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;">
+    Log In to My Account &rarr;
+  </a>
+</p>
+{% endblock %}
+
+{% block email_footer_extra %}
+<p style="margin:0 0 12px;color:#94a3b8;font-size:12px;text-align:center;">
+  This is an automated notification from Wizards Learning Hub on behalf of <strong>{{ school_name }}</strong>.
+  These transactional emails are sent to keep your account secure — they do not contain marketing content.
+</p>
+{% endblock %}

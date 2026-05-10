@@ -1,0 +1,90 @@
+{% comment %}
+Coding progress partial — included by student/dashboard.html.
+Used in both the "All" view and the dedicated "Coding" filter view.
+Expects: coding_progress (dict from _build_coding_progress, or None)
+{% endcomment %}
+
+{% if not coding_progress %}
+<p class="text-sm text-gray-400 py-4 italic">Coding content not available.</p>
+
+{% elif coding_progress.total_exercises == 0 %}
+<p class="text-sm text-gray-400 py-4 italic">No coding exercises available yet.</p>
+
+{% else %}
+
+  {# Overall progress bar — only shown once there is some activity #}
+  {% if coding_progress.total_completed > 0 %}
+  <div class="flex items-center gap-4 mb-4 p-4 bg-emerald-50 rounded-xl border border-emerald-100">
+    <div class="flex-1 min-w-0">
+      <div class="flex justify-between text-sm font-semibold text-emerald-800 mb-1.5">
+        <span>Overall Coding Progress</span>
+        <span>{{ coding_progress.total_completed }}/{{ coding_progress.total_exercises }} exercises</span>
+      </div>
+      <div class="w-full bg-emerald-200 rounded-full h-2">
+        <div class="bg-emerald-500 h-2 rounded-full transition-all"
+             style="width: {{ coding_progress.overall_pct }}%"></div>
+      </div>
+    </div>
+    <span class="text-2xl font-bold text-emerald-600 font-display flex-shrink-0">{{ coding_progress.overall_pct }}%</span>
+  </div>
+  {% endif %}
+
+  {# Per-language accordions #}
+  <div class="space-y-3">
+  {% for lang in coding_progress.languages %}
+  <details class="group bg-white rounded-2xl border border-emerald-100 shadow-sm overflow-hidden">
+    <summary class="flex items-center justify-between px-5 py-4 cursor-pointer select-none bg-emerald-50 hover:bg-emerald-100/50 transition">
+      <div class="flex items-center gap-3">
+        <h2 class="font-bold text-lg text-emerald-700">{{ lang.language.name }}</h2>
+        <span class="text-sm text-emerald-600 font-medium tabular-nums">{{ lang.completed }}/{{ lang.total }}</span>
+      </div>
+      <div class="flex items-center gap-3">
+        {# Mini progress bar — hidden on very small screens #}
+        <div class="hidden sm:block w-24 bg-emerald-200 rounded-full h-1.5">
+          <div class="bg-emerald-500 h-1.5 rounded-full"
+               style="width: {{ lang.pct }}%"></div>
+        </div>
+        <span class="text-sm font-semibold text-emerald-600 tabular-nums w-10 text-right">{{ lang.pct }}%</span>
+        <svg class="w-5 h-5 text-emerald-500 transition-transform group-open:rotate-180 flex-shrink-0"
+             fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+        </svg>
+      </div>
+    </summary>
+
+    <div class="p-4">
+      {% if lang.topics %}
+      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+        {% for t in lang.topics %}
+        {# Topic card — colour encodes completion %, matches maths card pattern #}
+        <a href="{% url 'coding:level_list' lang_slug=lang.language.slug topic_slug=t.topic.slug %}"
+           class="rounded-xl border border-transparent p-3 hover:shadow-md transition block
+                  {% if t.pct == 100 %}bg-green-600 text-white
+                  {% elif t.pct >= 70 %}bg-green-200 text-green-900
+                  {% elif t.pct >= 40 %}bg-yellow-100 text-yellow-800
+                  {% elif t.pct > 0 %}bg-orange-100 text-orange-800
+                  {% else %}bg-gray-100 text-gray-400{% endif %}">
+          <p class="text-xs font-semibold mb-1 leading-tight">{{ t.topic.name }}</p>
+          <p class="text-sm font-bold">{{ t.completed }}/{{ t.total }}</p>
+          <p class="text-xs opacity-70 mt-0.5">
+            {{ t.pct }}%{% if t.time_label != '0m' %} · {{ t.time_label }}{% endif %}
+          </p>
+        </a>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="text-sm text-gray-400 italic">No exercises in this language yet.</p>
+      {% endif %}
+    </div>
+  </details>
+  {% empty %}
+  <p class="text-sm text-gray-400 py-4 italic">No coding exercises available yet.</p>
+  {% endfor %}
+  </div>
+
+  {# Empty-activity state — languages exist but student hasn't started #}
+  {% if coding_progress.total_completed == 0 %}
+  <p class="text-sm text-gray-500 text-center py-3 italic">No activity yet — start practising!</p>
+  {% endif %}
+
+{% endif %}

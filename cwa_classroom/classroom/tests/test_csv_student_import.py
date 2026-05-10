@@ -8,6 +8,7 @@ from accounts.models import CustomUser, Role, UserRole
 from classroom.models import (
     School, SchoolTeacher, SchoolStudent, Department, DepartmentSubject,
     Subject, Level, ClassRoom, ClassStudent, Guardian, StudentGuardian,
+    ParentStudent,
 )
 from classroom.import_services import (
     parse_csv_file, parse_upload_file, validate_and_preview, execute_import,
@@ -233,17 +234,32 @@ class ExecuteImportTests(CSVImportTestBase):
         self.assertEqual(ClassStudent.objects.filter(student=john).count(), 2)
 
     def test_guardian_creation_and_linking(self):
+        """
+        CSV parent rows create a CustomUser + ParentStudent link per child
+        (login-capable account), not a Guardian contact record. Guardian/
+        StudentGuardian are intentionally not created by this importer —
+        they duplicated rows in the admin Parents list.
+        """
         headers, rows = parse_csv_file(self.GUARDIAN_CSV)
         mapping = {h: i for i, h in enumerate(headers)}
         preview = validate_and_preview(rows, mapping, self.school)
         results = execute_import(preview, self.school, self.hoi_user)
 
-        self.assertEqual(results['counts']['guardians_created'], 1)
-        mary = Guardian.objects.get(email='mary@parent.com', school=self.school)
+        # No Guardian contact record is created by the importer.
+        self.assertEqual(results['counts']['guardians_created'], 0)
+        self.assertFalse(
+            Guardian.objects.filter(email='mary@parent.com', school=self.school).exists()
+        )
+
+        # A parent CustomUser was created and linked to both students.
+        mary = CustomUser.objects.get(email='mary@parent.com')
         self.assertEqual(mary.first_name, 'Mary')
-        self.assertEqual(mary.relationship, 'mother')
-        # Both students linked to same guardian
-        self.assertEqual(StudentGuardian.objects.filter(guardian=mary).count(), 2)
+        self.assertEqual(
+            ParentStudent.objects.filter(
+                parent=mary, school=self.school, is_active=True,
+            ).count(),
+            2,
+        )
 
     def test_credentials_contain_passwords(self):
         headers, rows = parse_csv_file(self.SIMPLE_CSV)

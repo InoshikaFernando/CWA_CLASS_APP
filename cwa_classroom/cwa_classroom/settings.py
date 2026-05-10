@@ -25,8 +25,8 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # ---------------------------------------------------------------------------
 # App Version  (SemVer — bump manually on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.0.0'          # MAJOR.MINOR.PATCH
-APP_VERSION_DATE  = '2026-04-07'     # ISO date of this release
+APP_VERSION       = '1.4.5'          # MAJOR.MINOR.PATCH
+APP_VERSION_DATE  = '2026-04-29'     # ISO date of this release
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
@@ -75,6 +75,9 @@ INSTALLED_APPS = [
     'music',
     'science',
 
+    # Live quiz
+    'brainbuzz',
+
     # Activity apps
     'number_puzzles',
     'homework',
@@ -87,6 +90,9 @@ INSTALLED_APPS = [
 
     # Worksheets
     'worksheets',
+
+    # Lifecycle email notifications
+    'notifications',
 ]
 
 # ---------------------------------------------------------------------------
@@ -94,8 +100,38 @@ INSTALLED_APPS = [
 # ---------------------------------------------------------------------------
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 
+# ---------------------------------------------------------------------------
+# Coding — Piston sandboxed code execution
+# ---------------------------------------------------------------------------
+# Self-hosted Piston instance (run via Docker — see docker-compose.piston.yml)
+# Local dev default: http://localhost:2000
+# Production: set PISTON_API_URL=http://piston:2000 if on the same Docker network
+PISTON_API_URL = os.environ.get('PISTON_API_URL', 'http://localhost:2000')
+PISTON_API_TOKEN = os.environ.get('PISTON_API_TOKEN', '')
+# Piston enforces these as hard caps on the runner side. Set both env vars on
+# the Piston container (PISTON_RUN_TIMEOUT, PISTON_COMPILE_TIMEOUT in ms) and
+# here in lockstep — exceeding the runner's configured maximum returns HTTP 400.
+# Defaults match Piston's stock config (verified against the self-hosted
+# instance at piston.wizardslearninghub.co.nz): run=3s, compile=10s.
+PISTON_RUN_TIMEOUT_SECONDS = int(os.environ.get('PISTON_RUN_TIMEOUT_SECONDS', '3'))
+PISTON_COMPILE_TIMEOUT_SECONDS = int(os.environ.get('PISTON_COMPILE_TIMEOUT_SECONDS', '10'))
+
+# Coding — Quality scoring
+# ---------------------------------------------------------------------------
+# When True, submissions are analysed for code quality (cyclomatic complexity,
+# nesting depth, redundant operations) and a quality multiplier (0.70–1.00) is
+# applied on top of the base accuracy+speed score.
+# Set ENABLE_QUALITY_SCORING=false in the environment to revert to pure
+# accuracy+speed scoring (e.g. during an initial rollout or for a specific exam).
+ENABLE_QUALITY_SCORING = os.environ.get('ENABLE_QUALITY_SCORING', 'true').lower() != 'false'
+
+# Maximum fraction of points that quality penalties can remove (0.0–1.0).
+# Default: 0.30  →  the worst-quality correct solution still earns ≥ 70 pts.
+QUALITY_MAX_PENALTY = float(os.environ.get('QUALITY_MAX_PENALTY', '0.30'))
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'cwa_classroom.middleware.MathsRoomRedirectMiddleware',    # mathsroom → /maths/ redirect
     'cwa_classroom.middleware.SubdomainURLRoutingMiddleware',  # subdomain → urlconf routing
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -172,6 +208,19 @@ elif _DB_ENGINE == 'postgres':
         },
     }
 else:
+    _mysql_options = {
+        'charset': 'utf8mb4',
+        'init_command': (
+            "SET sql_mode='STRICT_TRANS_TABLES',"
+            " innodb_lock_wait_timeout=300"
+        ),
+    }
+
+    # TLS for DigitalOcean Managed MySQL — set DB_SSL_CA to the CA cert path
+    _db_ssl_ca = os.environ.get('DB_SSL_CA', '')
+    if _db_ssl_ca:
+        _mysql_options['ssl'] = {'ca': _db_ssl_ca}
+
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.mysql',
@@ -180,20 +229,9 @@ else:
             'PASSWORD': os.environ.get('DB_PASSWORD', ''),
             'HOST': os.environ.get('DB_HOST', '127.0.0.1'),
             'PORT': os.environ.get('DB_PORT', '3306'),
-            'OPTIONS': {
-                'charset': 'utf8mb4',
-                # innodb_lock_wait_timeout: raise from default 50 s to 300 s so
-                # that the structure phase of a large student import (which runs
-                # in a single transaction) is not killed by the server default.
-                # Student/guardian rows are committed in batches so their
-                # individual transactions stay well under this threshold.
-                'init_command': (
-                    "SET sql_mode='STRICT_TRANS_TABLES',"
-                    " innodb_lock_wait_timeout=300"
-                ),
-            },
+            'OPTIONS': _mysql_options,
             'TEST': {
-                'SERIALIZE': False,  # Faster with --keepdb
+                'SERIALIZE': False,
             },
         },
 
@@ -235,11 +273,9 @@ PASSWORD_RESET_TIMEOUT = 3600
 # PBKDF2 remains the default hasher for all normal account creation.
 PASSWORD_HASHERS = [
     'django.contrib.auth.hashers.PBKDF2PasswordHasher',
-    'django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher',
     'django.contrib.auth.hashers.Argon2PasswordHasher',
     'django.contrib.auth.hashers.BCryptSHA256PasswordHasher',
     'django.contrib.auth.hashers.ScryptPasswordHasher',
-    'django.contrib.auth.hashers.SHA1PasswordHasher',
 ]
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -270,25 +306,47 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 
 # ---------------------------------------------------------------------------
-# Media files — local dev vs S3 production
+# Media files — local dev vs S3/Spaces production
 # ---------------------------------------------------------------------------
+# Works with both AWS S3 and DigitalOcean Spaces (S3-compatible).
+# For DO Spaces, set:
+#   AWS_S3_ENDPOINT_URL=https://syd1.digitaloceanspaces.com
+#   AWS_S3_CUSTOM_DOMAIN=cwa-media-prod.syd1.digitaloceanspaces.com
 
 USE_S3 = os.environ.get('USE_S3', 'False') == 'True'
 
+STORAGES = {
+    'staticfiles': {
+        'BACKEND': (
+            'django.contrib.staticfiles.storage.StaticFilesStorage'
+            if DEBUG
+            else 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+        ),
+    },
+}
+
 if USE_S3:
-    # AWS settings
     AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID')
     AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
     AWS_STORAGE_BUCKET_NAME = os.environ.get('AWS_STORAGE_BUCKET_NAME')
     AWS_S3_REGION_NAME = os.environ.get('AWS_S3_REGION_NAME', 'ap-southeast-2')
-    AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com'
+    AWS_S3_ENDPOINT_URL = os.environ.get('AWS_S3_ENDPOINT_URL', '')
+    AWS_S3_CUSTOM_DOMAIN = os.environ.get(
+        'AWS_S3_CUSTOM_DOMAIN',
+        f'{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com',
+    )
     AWS_DEFAULT_ACL = 'public-read'
     AWS_S3_OBJECT_PARAMETERS = {'CacheControl': 'max-age=86400'}
     AWS_S3_FILE_OVERWRITE = False
 
-    DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+    STORAGES['default'] = {
+        'BACKEND': 'storages.backends.s3boto3.S3Boto3Storage',
+    }
     MEDIA_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/media/'
 else:
+    STORAGES['default'] = {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    }
     MEDIA_URL = '/media/'
     MEDIA_ROOT = BASE_DIR / 'media'
 
@@ -348,12 +406,28 @@ QUIZ_RECENT_RESULT_WINDOW_SECONDS = 30
 
 
 # ---------------------------------------------------------------------------
+# Caching — Redis when available, LocMem fallback for dev/PA
+# ---------------------------------------------------------------------------
+
+REDIS_URL = os.environ.get('REDIS_URL', '')
+
+if REDIS_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
+        },
+    }
+    SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
+else:
+    SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+
+# ---------------------------------------------------------------------------
 # Sessions — harden cookie & limit session size
 # ---------------------------------------------------------------------------
 
-SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 SESSION_COOKIE_AGE = 60 * 60 * 24 * 7          # 1 week (default is 2 weeks)
-SESSION_SAVE_EVERY_REQUEST = True               # refresh expiry on every request
+SESSION_SAVE_EVERY_REQUEST = False
 SESSION_COOKIE_HTTPONLY = True                   # JS cannot read session cookie
 SESSION_COOKIE_SAMESITE = 'Lax'                 # mitigate CSRF via cross-site requests
 SESSION_COOKIE_SECURE = not DEBUG               # HTTPS-only in production

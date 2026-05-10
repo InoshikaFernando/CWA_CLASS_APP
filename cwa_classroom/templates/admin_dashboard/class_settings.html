@@ -94,6 +94,12 @@
                    x-model="overrides['{{ field }}']"
                    class="rounded border-slate-300 text-accent focus:ring-accent">
             <label class="text-sm font-semibold text-gray-700">Account Number</label>
+            <span x-show="overrides['{{ field }}']"
+                  class="text-xs font-medium px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full">Override active</span>
+            <span x-show="!overrides['{{ field }}']"
+                  class="text-xs font-medium px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full">
+              Inherited{% if info.effective_default %}: {{ info.effective_default }}{% else %} (not set){% endif %}
+            </span>
           </div>
           <input type="text" name="{{ field }}"
                  value="{{ info.value|default:'' }}"
@@ -117,6 +123,12 @@
                  x-model="overrides['{{ field }}']"
                  class="rounded border-slate-300 text-accent focus:ring-accent">
           <label class="text-sm font-semibold text-gray-700">GST / VAT Number</label>
+          <span x-show="overrides['{{ field }}']"
+                class="text-xs font-medium px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full">Override active</span>
+          <span x-show="!overrides['{{ field }}']"
+                class="text-xs font-medium px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full">
+            Inherited{% if info.effective_default %}: {{ info.effective_default }}{% else %} (not set){% endif %}
+          </span>
         </div>
         <input type="text" name="{{ field }}"
                value="{{ info.value|default:'' }}"

@@ -322,6 +322,13 @@ class TeacherCenterRegisterView(View):
                 request=request,
             )
 
+            # Send self-registered welcome email (HoI chose their own password)
+            try:
+                from notifications.services import send_welcome_notification
+                send_welcome_notification(user, school=school)
+            except Exception:
+                logger.exception('Failed to send welcome email for HoI user %s', user.pk)
+
             # If plan has a Stripe price and not fully free → redirect to Stripe Checkout
             if plan and plan.stripe_price_id and not is_free:
                 try:
@@ -435,6 +442,13 @@ class SchoolStudentRegisterView(View):
                 detail={'username': username, 'email': email},
                 request=request,
             )
+
+            # Send self-registered welcome email (student chose their own password)
+            try:
+                from notifications.services import send_welcome_notification
+                send_welcome_notification(user)
+            except Exception:
+                logger.exception('Failed to send welcome email for school student %s', user.pk)
 
             messages.success(request, f'Welcome, {first_name}! You can now join a class using a class code.')
             return redirect('student_join_class')
@@ -615,6 +629,13 @@ class IndividualStudentRegisterView(View):
                 request=request,
             )
 
+            # Send self-registered welcome email (student chose their own password)
+            try:
+                from notifications.services import send_welcome_notification
+                send_welcome_notification(user)
+            except Exception:
+                logger.exception('Failed to send welcome email for individual student %s', user.pk)
+
             messages.success(request, f'Welcome, {username}!')
             return redirect('select_classes')
 
@@ -777,6 +798,13 @@ class ParentRegisterView(View):
                 },
                 request=request,
             )
+
+            # Send self-registered welcome email (parent chose their own password)
+            try:
+                from notifications.services import send_welcome_notification
+                send_welcome_notification(user, school=invite.school)
+            except Exception:
+                logger.exception('Failed to send welcome email for invite parent %s', user.pk)
 
             messages.success(
                 request,
@@ -952,7 +980,8 @@ class CompleteProfileView(LoginRequiredMixin, View):
         user.city = city
         user.postal_code = postal_code
 
-        if user.must_change_password:
+        forced_password_change = user.must_change_password
+        if forced_password_change:
             user.set_password(request.POST.get('new_password', ''))
             user.must_change_password = False
 
@@ -962,6 +991,14 @@ class CompleteProfileView(LoginRequiredMixin, View):
 
         user.save()
         update_session_auth_hash(request, user)
+
+        # Send password-changed confirmation for forced first-login password changes
+        if forced_password_change:
+            try:
+                from notifications.services import send_password_changed_notification
+                send_password_changed_notification(user)
+            except Exception:
+                logger.exception('Failed to send password-changed notification for user %s', user.pk)
 
         from audit.services import log_event
         log_event(
@@ -1091,7 +1128,9 @@ class ProfileView(LoginRequiredMixin, View):
 
             request.user.first_name = request.POST.get('first_name', '').strip()
             request.user.last_name = request.POST.get('last_name', '').strip()
-            request.user.email = request.POST.get('email', '').strip()
+            new_email = request.POST.get('email', '').strip()
+            old_email = request.user.email
+            request.user.email = new_email
             dob = request.POST.get('date_of_birth', '').strip()
             if dob:
                 request.user.date_of_birth = dob
@@ -1105,6 +1144,13 @@ class ProfileView(LoginRequiredMixin, View):
                 detail={'first_name': request.user.first_name, 'last_name': request.user.last_name},
                 request=request,
             )
+            # Notify user if their email address changed
+            if new_email and new_email != old_email:
+                try:
+                    from notifications.services import send_email_changed_notification
+                    send_email_changed_notification(request.user, new_email=new_email)
+                except Exception:
+                    logger.exception('Failed to send email-changed notification for user %s', request.user.pk)
             messages.success(request, 'Profile updated.')
 
         elif action == 'change_password':
@@ -1128,6 +1174,12 @@ class ProfileView(LoginRequiredMixin, View):
                     action='password_changed',
                     detail={}, request=request,
                 )
+                # Notify user of password change
+                try:
+                    from notifications.services import send_password_changed_notification
+                    send_password_changed_notification(request.user)
+                except Exception:
+                    logger.exception('Failed to send password-changed notification for user %s', request.user.pk)
                 messages.success(request, 'Password changed successfully.')
 
         return redirect('profile')
