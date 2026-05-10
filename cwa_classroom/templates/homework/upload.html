@@ -68,9 +68,22 @@
         </div>
 
         <button type="submit" id="submit-btn"
-                class="w-full py-3 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 active:scale-[0.99] transition">
-          Extract Questions with AI
+                class="w-full py-3 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 active:scale-[0.99] transition flex items-center justify-center gap-2">
+          <svg id="spinner" class="hidden animate-spin w-4 h-4 text-white" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+          </svg>
+          <span id="submit-label">Extract Questions with AI</span>
         </button>
+
+        <!-- Full-page overlay so nothing else is clickable while processing -->
+        <div id="processing-overlay" class="hidden fixed inset-0 bg-black/30 z-50 flex flex-col items-center justify-center gap-4">
+          <svg class="animate-spin w-10 h-10 text-white" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+          </svg>
+          <p class="text-white text-sm font-medium">Claude is reading your PDF… this may take 10–30 seconds</p>
+        </div>
       </form>
     </div>
 
@@ -120,8 +133,10 @@
 
   form.addEventListener('submit', () => {
     submitBtn.disabled = true;
-    submitBtn.textContent = 'Processing… this may take a moment';
-    submitBtn.classList.add('opacity-60', 'cursor-not-allowed');
+    submitBtn.classList.add('opacity-75', 'cursor-not-allowed');
+    document.getElementById('spinner').classList.remove('hidden');
+    document.getElementById('submit-label').textContent = 'Processing…';
+    document.getElementById('processing-overlay').classList.remove('hidden');
   });
 </script>
 {% endblock %}

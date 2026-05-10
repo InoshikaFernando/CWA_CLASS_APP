@@ -244,7 +244,7 @@ def _store_cache(question_pk, normalised_text, result):
 def _call_claude_grade(question, answer_text, normalised_text):
     """Call the Anthropic API to grade the answer. Returns result dict."""
     import anthropic
-    client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+    client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY, timeout=120.0)
 
     # Include up to 10 previously cached answers as examples so Claude can
     # classify quickly instead of always evaluating from scratch.

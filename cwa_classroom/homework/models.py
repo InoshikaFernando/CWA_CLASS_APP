@@ -16,8 +16,23 @@ class HomeworkUploadSession(models.Model):
         'classroom.ClassRoom', on_delete=models.SET_NULL, null=True, blank=True,
         help_text='Pre-selected classroom target, set at upload time.',
     )
+    STATUS_PROCESSING = 'processing'
+    STATUS_DONE = 'done'
+    STATUS_ERROR = 'error'
+    STATUS_CHOICES = [
+        (STATUS_PROCESSING, 'Processing'),
+        (STATUS_DONE, 'Done'),
+        (STATUS_ERROR, 'Error'),
+    ]
+
     pdf_filename = models.CharField(max_length=255)
+    pdf_file = models.FileField(
+        upload_to='homework_uploads/', null=True, blank=True,
+        help_text='Stored temporarily while AI extraction runs in the background.',
+    )
     homework_title = models.CharField(max_length=200, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PROCESSING)
+    error_message = models.TextField(blank=True)
     extracted_data = models.JSONField(default=dict)
     extracted_images = models.JSONField(default=dict)
     page_count = models.PositiveIntegerField(default=0)
