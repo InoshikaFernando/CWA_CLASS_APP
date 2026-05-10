@@ -826,6 +826,18 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
             img_ref = request.POST.get(f'{prefix}image_ref', '')
             q['image_ref'] = img_ref if img_ref and img_ref != 'none' else None
 
+            # Handle image replacement / removal
+            if request.POST.get(f'{prefix}remove_image') == 'on':
+                q['image_ref'] = None
+            elif f'{prefix}image_upload' in request.FILES:
+                import base64 as _base64
+                import uuid as _uuid
+                uploaded = request.FILES[f'{prefix}image_upload']
+                new_ref = f'upload_{_uuid.uuid4().hex[:8]}_{uploaded.name}'
+                img_b64 = _base64.b64encode(uploaded.read()).decode('utf-8')
+                session.extracted_images[new_ref] = img_b64
+                q['image_ref'] = new_ref
+
             answers = []
             for a_idx in range(20):
                 a_text = request.POST.get(f'{prefix}answer_{a_idx}_text', '')
@@ -839,7 +851,7 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
 
         data['questions'] = questions
         session.extracted_data = data
-        session.save(update_fields=['extracted_data', 'homework_title', 'classroom'])
+        session.save(update_fields=['extracted_data', 'extracted_images', 'homework_title', 'classroom'])
 
         return redirect('homework:pdf_confirm', session_id=session.pk)
 
@@ -956,8 +968,17 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
             )
 
             # 3. Link HomeworkQuestions
+            # bulk_create bypasses save(), so set content_id and subject_slug explicitly
+            # — otherwise the back-compat logic in save() never fires and every row
+            # gets content_id=0, causing a unique-constraint violation on the second row.
             HomeworkQuestion.objects.bulk_create([
-                HomeworkQuestion(homework=homework, question=q, order=i)
+                HomeworkQuestion(
+                    homework=homework,
+                    question=q,
+                    subject_slug='mathematics',
+                    content_id=q.pk,
+                    order=i,
+                )
                 for i, q in enumerate(saved_questions, 1)
             ])
 
@@ -1022,9 +1043,8 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
         # Resolve topic
         topic_name = (q.get('topic') or global_data.get('topic', '')).strip()
         subject_name = (q.get('subject') or global_data.get('subject', 'Mathematics')).strip()
-        try:
-            subject = Subject.objects.get(name__iexact=subject_name)
-        except Subject.DoesNotExist:
+        subject = Subject.objects.filter(name__iexact=subject_name).first()
+        if not subject:
             subject = Subject.objects.first()
 
         topic = None
@@ -1071,7 +1091,6 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
                 'difficulty': q.get('difficulty', 1),
                 'points': q.get('points', 1),
                 'explanation': q.get('explanation', ''),
-                'is_active': True,
                 'department_id': dept_id,
             },
         )
