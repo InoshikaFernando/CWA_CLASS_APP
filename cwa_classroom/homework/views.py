@@ -1104,7 +1104,7 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
         # Save image file if this question has one and it was just created.
         # Uses Django's storage backend (local MEDIA_ROOT or S3) via ImageField.save()
         # so the path and URL are managed correctly regardless of environment.
-        if created:
+        if created or not mq.image:
             import logging as _img_log
             _img_logger = _img_log.getLogger('homework')
             image_ref = q.get('image_ref')
