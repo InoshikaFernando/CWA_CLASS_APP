@@ -11,6 +11,8 @@ urlpatterns = [
 
     # Teacher: PDF upload flow
     path('homework/pdf/upload/', views.HomeworkPDFUploadView.as_view(), name='pdf_upload'),
+    path('homework/pdf/processing/<int:session_id>/', views.HomeworkPDFProcessingView.as_view(), name='pdf_processing'),
+    path('homework/pdf/status/<int:session_id>/', views.HomeworkPDFStatusView.as_view(), name='pdf_status'),
     path('homework/pdf/preview/<int:session_id>/', views.HomeworkPDFPreviewView.as_view(), name='pdf_preview'),
     path('homework/pdf/confirm/<int:session_id>/', views.HomeworkPDFConfirmView.as_view(), name='pdf_confirm'),
 
