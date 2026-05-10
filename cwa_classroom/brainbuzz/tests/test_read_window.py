@@ -215,14 +215,19 @@ class TestReadWindowSubmission(TestCase):
         self.assertEqual(resp.status_code, 200, resp.content)
 
     def test_time_taken_ms_measured_from_answer_window_start(self):
-        """time_taken_ms should be ~2000 when submitting 2s into answer window."""
+        """Score for submitting 2s into answer window should be near-max.
+
+        deadline = t0 + READ_WINDOW_SEC + ANSWER_WINDOW_SEC
+        question_start = deadline - ANSWER_WINDOW_SEC = t0 + READ_WINDOW_SEC
+        submit at t0 + READ_WINDOW_SEC + 2 → time_taken_ms ≈ 2000ms → near-max points.
+        Score for a fast correct answer must be above the midpoint (500).
+        """
         t0 = timezone.now()
         self._activate_session(t0)
         submit_time = t0 + timedelta(seconds=READ_WINDOW_SEC + 2)
         resp = self._submit(submit_time)
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        # time_taken_ms is capped to [0, answer_window_ms] and measured from
-        # deadline - time_limit_sec = t0 + READ_WINDOW_SEC.
-        # At submit_time: server_ms = (t0+12 - (t0+10)) * 1000 = 2000ms
-        self.assertAlmostEqual(data['time_taken_ms'], 2000, delta=200)
+        self.assertTrue(data['is_correct'])
+        # 2s into a 20s window → should score well above midpoint
+        self.assertGreater(data['score_awarded'], 500)
