@@ -1071,7 +1071,6 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
                 'difficulty': q.get('difficulty', 1),
                 'points': q.get('points', 1),
                 'explanation': q.get('explanation', ''),
-                'is_active': True,
                 'department_id': dept_id,
             },
         )
