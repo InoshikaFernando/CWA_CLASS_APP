@@ -481,3 +481,64 @@ if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+
+
+# ---------------------------------------------------------------------------
+# Logging — always write errors to /var/log/cwa/django-error.log
+# ---------------------------------------------------------------------------
+
+LOG_DIR = Path(os.environ.get('LOG_DIR', '/var/log/cwa'))
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '[{asctime}] {levelname} {name} {module}:{lineno} — {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'error_file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(LOG_DIR / 'django-error.log'),
+            'maxBytes': 10 * 1024 * 1024,  # 10 MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+            'level': 'ERROR',
+        },
+        'app_file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(LOG_DIR / 'django-app.log'),
+            'maxBytes': 10 * 1024 * 1024,  # 10 MB
+            'backupCount': 3,
+            'formatter': 'verbose',
+            'level': 'WARNING',
+        },
+    },
+    'root': {
+        'handlers': ['console', 'error_file'],
+        'level': 'WARNING',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console', 'error_file'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'django.request': {
+            'handlers': ['console', 'error_file'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+        # App loggers — WARNING+ goes to app log, ERROR+ also to error log
+        'worksheets': {'handlers': ['console', 'app_file', 'error_file'], 'level': 'WARNING', 'propagate': False},
+        'homework':   {'handlers': ['console', 'app_file', 'error_file'], 'level': 'WARNING', 'propagate': False},
+        'billing':    {'handlers': ['console', 'app_file', 'error_file'], 'level': 'WARNING', 'propagate': False},
+        'classroom':  {'handlers': ['console', 'app_file', 'error_file'], 'level': 'WARNING', 'propagate': False},
+    },
+}
