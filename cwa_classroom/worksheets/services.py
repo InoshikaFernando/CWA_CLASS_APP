@@ -226,7 +226,12 @@ For extended_answer questions (ai_graded / human_graded):
 
 def _get_anthropic_client():
     import anthropic
-    return anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+    # PDF classification can take 60-90s for large worksheets — raise the
+    # default httpx timeout (30s) so the request isn't killed mid-flight.
+    return anthropic.Anthropic(
+        api_key=settings.ANTHROPIC_API_KEY,
+        timeout=120.0,
+    )
 
 
 def classify_worksheet_questions(extracted_pages, existing_topics, existing_levels):
