@@ -11,6 +11,7 @@ Flow exercised over real HTTP:
   - Leaderboard API confirms Alice is the winner
 """
 import json
+from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.test import Client, TestCase
@@ -84,7 +85,8 @@ class TestTwoStudentWinner(TestCase):
         cls.student1 = _make_user('flow_alice', Role.STUDENT)
         cls.student2 = _make_user('flow_bob', Role.STUDENT)
 
-    def test_alice_wins_with_correct_answers(self):
+    @mock.patch('brainbuzz.views._check_join_rate_limit', return_value=True)
+    def test_alice_wins_with_correct_answers(self, _rate_limit):
         # ── Build session as the teacher ─────────────────────────────────
         session = _build_session(self.teacher)
         join_code = session.code

@@ -88,6 +88,9 @@ INSTALLED_APPS = [
     # Help & Documentation
     'help',
 
+    # Worksheets
+    'worksheets',
+
     # Lifecycle email notifications
     'notifications',
 ]
@@ -167,6 +170,7 @@ TEMPLATES = [
                 'help.context_processors.help_context',
                 'cwa_classroom.context_processors.app_version',
                 'homework.context_processors.new_homework_count',
+                'worksheets.context_processors.active_worksheet_count',
             ],
         },
     },
@@ -340,6 +344,9 @@ if USE_S3:
     }
     MEDIA_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/media/'
 else:
+    STORAGES['default'] = {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    }
     MEDIA_URL = '/media/'
     MEDIA_ROOT = BASE_DIR / 'media'
 

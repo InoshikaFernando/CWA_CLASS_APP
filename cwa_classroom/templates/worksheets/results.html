@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Results — {{ assignment.worksheet.name }}{% endblock %}
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+
+  <!-- Score summary -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center">
+    <div class="w-24 h-24 rounded-full mx-auto flex items-center justify-center mb-4
+                {% if submission.percentage >= 80 %}bg-emerald-100{% elif submission.percentage >= 50 %}bg-amber-100{% else %}bg-red-100{% endif %}">
+      <span class="font-display text-3xl
+                   {% if submission.percentage >= 80 %}text-emerald-600{% elif submission.percentage >= 50 %}text-amber-600{% else %}text-red-500{% endif %}">
+        {{ submission.percentage }}%
+      </span>
+    </div>
+    <h1 class="font-display text-2xl text-gray-800 mb-1">
+      {% if submission.percentage >= 80 %}Great work!
+      {% elif submission.percentage >= 50 %}Good effort!
+      {% else %}Keep practising!
+      {% endif %}
+    </h1>
+    <p class="text-gray-500 text-sm">{{ submission.score }} correct out of {{ submission.total_questions }} question{{ submission.total_questions|pluralize }}</p>
+    <p class="text-xs text-gray-400 mt-1">{{ assignment.worksheet.name }} · {{ assignment.classroom.name }}</p>
+  </div>
+
+  {% if wrong_answers %}
+  <div class="space-y-3">
+    <h2 class="font-semibold text-gray-700">Review — Questions You Missed</h2>
+    {% for ans in wrong_answers %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
+      <p class="text-gray-800 text-sm font-medium">{{ ans.question.question_text }}</p>
+
+      {% if ans.question.image %}
+      <img src="{{ ans.question.image.url }}" alt="Question image"
+           class="max-h-40 rounded-lg border border-gray-200 object-contain" />
+      {% endif %}
+
+      {% if ans.selected_answer %}
+      <div class="flex items-center gap-2 text-sm text-red-600">
+        <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+        Your answer: <span class="font-medium">{{ ans.selected_answer.answer_text }}</span>
+      </div>
+      {% elif ans.text_answer %}
+      <div class="flex items-center gap-2 text-sm text-red-600">
+        <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+        Your answer: <span class="font-medium">{{ ans.text_answer }}</span>
+      </div>
+      {% endif %}
+
+      <div class="flex items-center gap-2 text-sm text-emerald-600">
+        <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
+        </svg>
+        Correct answer:
+        <span class="font-medium">
+          {% for correct_ans in ans.question.answers.all %}{% if correct_ans.is_correct %}{{ correct_ans.answer_text }}{% if not forloop.last %}, {% endif %}{% endif %}{% endfor %}
+        </span>
+      </div>
+
+      {% if ans.question.explanation %}
+      <div class="bg-slate-50 rounded-xl p-3 text-sm text-gray-600">
+        <span class="font-semibold text-gray-700">Why: </span>{{ ans.question.explanation }}
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="bg-emerald-50 border border-emerald-200 rounded-2xl p-6 text-center">
+    <p class="text-emerald-700 font-semibold">Perfect score! All questions answered correctly.</p>
+  </div>
+  {% endif %}
+
+  <div class="text-center pb-4">
+    <a href="{% url 'home' %}" class="text-sm text-gray-400 hover:text-primary transition">← Back to dashboard</a>
+  </div>
+</div>
+{% endblock %}
