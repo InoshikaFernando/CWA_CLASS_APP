@@ -1109,6 +1109,8 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
                 try:
                     import base64
                     import os
+                    import logging as _logging
+                    _img_logger = _logging.getLogger('homework')
                     from django.conf import settings
                     topic_slug = topic.slug if hasattr(topic, 'slug') else str(topic.id)
                     img_dir = os.path.join(
@@ -1120,8 +1122,13 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
                         f.write(base64.b64decode(image_b64))
                     mq.image = os.path.join('questions', f'year{yl}', topic_slug, image_ref)
                     mq.save(update_fields=['image'])
-                except Exception:
-                    pass  # Image saving is best-effort
+                    _img_logger.info('Saved question image: %s', img_path)
+                except Exception as _exc:
+                    import logging as _logging
+                    _logging.getLogger('homework').error(
+                        'Failed to save image for question %s (ref=%s): %s',
+                        mq.pk, image_ref, _exc, exc_info=True,
+                    )
 
         # Save answers (skip for extended_answer)
         if mapped_type != MQ.EXTENDED_ANSWER:
