@@ -391,6 +391,11 @@ class ModuleProduct(models.Model):
     stripe_price_id = models.CharField(max_length=200, blank=True)
     price = models.DecimalField(max_digits=8, decimal_places=2, default=10.00)
     is_active = models.BooleanField(default=True)
+    # Quota for AI grading modules — null = unlimited (Enterprise)
+    questions_per_month = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text='Monthly AI-graded answer quota. Null = unlimited. Only relevant for ai_grading_* modules.',
+    )
 
     class Meta:
         ordering = ['module']
@@ -407,6 +412,9 @@ class ModuleSubscription(models.Model):
     MODULE_AI_IMPORT_STARTER = 'ai_import_starter'
     MODULE_AI_IMPORT_PROFESSIONAL = 'ai_import_professional'
     MODULE_AI_IMPORT_ENTERPRISE = 'ai_import_enterprise'
+    MODULE_AI_GRADING_STARTER = 'ai_grading_starter'
+    MODULE_AI_GRADING_PROFESSIONAL = 'ai_grading_professional'
+    MODULE_AI_GRADING_ENTERPRISE = 'ai_grading_enterprise'
 
     MODULE_CHOICES = [
         (MODULE_TEACHERS_ATTENDANCE, 'Teachers Attendance'),
@@ -415,6 +423,9 @@ class ModuleSubscription(models.Model):
         (MODULE_AI_IMPORT_STARTER, 'AI Question Import - Starter'),
         (MODULE_AI_IMPORT_PROFESSIONAL, 'AI Question Import - Professional'),
         (MODULE_AI_IMPORT_ENTERPRISE, 'AI Question Import - Enterprise'),
+        (MODULE_AI_GRADING_STARTER, 'AI Grading - Starter (1,000 answers/mo)'),
+        (MODULE_AI_GRADING_PROFESSIONAL, 'AI Grading - Professional (5,000 answers/mo)'),
+        (MODULE_AI_GRADING_ENTERPRISE, 'AI Grading - Enterprise (unlimited)'),
     ]
 
     school_subscription = models.ForeignKey(
@@ -564,3 +575,33 @@ class InvoiceStripePayment(models.Model):
 
     def __str__(self):
         return f'InvoiceStripePayment #{self.pk} — {self.parent} — {self.status}'
+
+
+class AIGradingUsage(models.Model):
+    """Tracks per-school AI grading usage per billing period (monthly).
+
+    Each row = one school's usage for one calendar month.
+    `answers_graded` counts actual Claude API calls made (cache hits are free and not counted).
+    """
+    school = models.ForeignKey(
+        'classroom.School',
+        on_delete=models.CASCADE,
+        related_name='ai_grading_usage',
+    )
+    period_start = models.DateField(help_text='First day of the billing month.')
+    answers_graded = models.PositiveIntegerField(
+        default=0,
+        help_text='Number of answers graded by Claude this period (cache hits excluded).',
+    )
+    tokens_used = models.PositiveIntegerField(default=0)
+    estimated_cost_usd = models.DecimalField(
+        max_digits=10, decimal_places=6, default=0,
+        help_text='Estimated Anthropic API cost in USD for this period.',
+    )
+
+    class Meta:
+        unique_together = ('school', 'period_start')
+        ordering = ['-period_start']
+
+    def __str__(self):
+        return f'{self.school.name} — {self.period_start} — {self.answers_graded} answers'

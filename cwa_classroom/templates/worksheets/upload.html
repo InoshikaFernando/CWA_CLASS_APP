@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Upload Worksheet{% endblock %}
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-6">
+  <div>
+    <h1 class="font-display text-3xl text-primary">Upload Worksheet</h1>
+    <p class="text-gray-400 text-sm mt-1">Upload a PDF homework sheet. AI will extract questions and images automatically.</p>
+  </div>
+
+  {% if messages %}
+  {% for msg in messages %}
+  <div class="rounded-xl px-4 py-3 text-sm font-medium {% if msg.tags == 'error' %}bg-red-50 text-red-700 border border-red-200{% else %}bg-emerald-50 text-emerald-700 border border-emerald-200{% endif %}">
+    {{ msg }}
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6" x-data="{}">
+    <form id="upload-form" method="post" enctype="multipart/form-data" class="space-y-5">
+      {% csrf_token %}
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1.5">PDF Worksheet <span class="text-red-500">*</span></label>
+        <input type="file" name="pdf_file" accept=".pdf" required id="pdf-input"
+               class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-primary/10 file:text-primary file:font-semibold hover:file:bg-primary/20 transition" />
+        <p class="text-xs text-gray-400 mt-1">Upload the PDF homework sheet. AI will extract each question including any shape or diagram images.</p>
+      </div>
+      <button type="submit" id="upload-btn"
+              class="px-6 py-2.5 rounded-xl bg-primary text-white font-semibold shadow-sm hover:bg-primary/90 transition">
+        <svg class="w-4 h-4 inline-block mr-1 -mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/>
+        </svg>
+        Upload &amp; Extract with AI
+      </button>
+    </form>
+
+    <!-- Processing overlay -->
+    <div id="overlay" class="fixed inset-0 z-50 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center" style="display:none !important">
+      <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full mx-4 text-center">
+        <svg class="w-12 h-12 animate-spin text-primary mx-auto mb-4" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <h3 class="font-display text-lg text-gray-800 mb-1">Extracting Worksheet</h3>
+        <p class="text-sm text-gray-500 mb-3">AI is reading your worksheet and extracting questions. This may take a minute.</p>
+        <p class="text-xs text-red-500 font-semibold">Please do not close this page.</p>
+      </div>
+    </div>
+    <script>
+      document.getElementById('upload-form').addEventListener('submit', function() {
+        var f = document.getElementById('pdf-input');
+        if (!f.files || !f.files.length) return;
+        setTimeout(function() {
+          document.getElementById('overlay').style.removeProperty('display');
+          document.getElementById('upload-btn').disabled = true;
+          document.getElementById('upload-btn').textContent = 'Processing…';
+        }, 50);
+      });
+    </script>
+  </div>
+
+  <!-- How it works -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+    <h2 class="font-bold text-gray-800 mb-3">How It Works</h2>
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {% for step, title, desc in steps %}
+      <div class="text-center p-3">
+        <div class="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center mx-auto mb-2 font-bold text-sm">{{ forloop.counter }}</div>
+        <p class="text-sm font-semibold text-gray-700">{{ title }}</p>
+        <p class="text-xs text-gray-400 mt-1">{{ desc }}</p>
+      </div>
+      {% empty %}
+      <div class="text-center p-3">
+        <div class="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center mx-auto mb-2 font-bold text-sm">1</div>
+        <p class="text-sm font-semibold text-gray-700">Upload PDF</p>
+        <p class="text-xs text-gray-400 mt-1">Upload your homework sheet PDF</p>
+      </div>
+      <div class="text-center p-3">
+        <div class="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center mx-auto mb-2 font-bold text-sm">2</div>
+        <p class="text-sm font-semibold text-gray-700">AI Extracts</p>
+        <p class="text-xs text-gray-400 mt-1">AI reads questions and crops any diagram images</p>
+      </div>
+      <div class="text-center p-3">
+        <div class="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center mx-auto mb-2 font-bold text-sm">3</div>
+        <p class="text-sm font-semibold text-gray-700">Review &amp; Edit</p>
+        <p class="text-xs text-gray-400 mt-1">Preview questions, rename worksheet, remove unwanted items</p>
+      </div>
+      <div class="text-center p-3">
+        <div class="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center mx-auto mb-2 font-bold text-sm">4</div>
+        <p class="text-sm font-semibold text-gray-700">Assign</p>
+        <p class="text-xs text-gray-400 mt-1">Assign to your class at lesson time with a question range</p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="text-center">
+    <a href="{% url 'worksheets:list' %}" class="text-sm text-gray-400 hover:text-primary transition">View my worksheets →</a>
+  </div>
+</div>
+{% endblock %}
