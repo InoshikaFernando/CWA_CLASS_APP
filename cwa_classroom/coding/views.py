@@ -305,11 +305,37 @@ def exercise_list(request, lang_slug, topic_slug, level):
 @login_required
 @student_required
 def exercise_detail(request, lang_slug, exercise_id):
-    """Split-pane editor + instructions for a single exercise.  /coding/<lang>/exercise/<id>/"""
+    """Split-pane editor + instructions for a single exercise.  /coding/<lang>/exercise/<id>/
+
+    For non-write_code question types (MCQ / true_false / short_answer /
+    fill_blank) the page renders a simple text-input quiz instead of the
+    code editor — the student types the expected output / answer and we
+    grade it server-side. POST with the answer text triggers the grader.
+    """
     language = _get_language_or_404(lang_slug)
     exercise = get_object_or_404(CodingExercise, id=exercise_id, topic_level__topic__language=language, is_active=True)
 
     is_completed = StudentExerciseSubmission.is_exercise_completed(request.user, exercise)
+    is_quiz = (exercise.question_type or 'write_code') != 'write_code'
+    quiz_feedback = None
+
+    if is_quiz and request.method == 'POST':
+        typed = (request.POST.get('quiz_answer') or '').strip()
+        if typed:
+            correct = _grade_quiz_answer(exercise, typed)
+            StudentExerciseSubmission.objects.create(
+                student=request.user,
+                exercise=exercise,
+                code_submitted=typed,           # store the typed text in the existing column
+                output_received='',
+                stderr_received='',
+                is_completed=correct,
+            )
+            if correct:
+                is_completed = True
+                quiz_feedback = {'ok': True,  'message': 'Correct! Marked complete.'}
+            else:
+                quiz_feedback = {'ok': False, 'message': 'Not quite — try again.', 'attempt': typed}
 
     # For Scratch exercises, pass the student's most recent blocks_xml so the
     # template can restore their workspace via server-side data (server_blocks_xml),
@@ -330,8 +356,32 @@ def exercise_detail(request, lang_slug, exercise_id):
         'exercise': exercise,
         'is_completed': is_completed,
         'server_blocks_xml': server_blocks_xml,
+        'is_quiz': is_quiz,
+        'quiz_feedback': quiz_feedback,
         'subject_sidebar': 'coding',
     })
+
+
+def _grade_quiz_answer(exercise, typed_text: str) -> bool:
+    """Return True if the student's typed text matches the exercise's
+    correct answer. Compares case-insensitively with whitespace tolerance.
+
+    Source of truth (in order):
+      - exercise.correct_short_answer (for short_answer / fill_blank)
+      - any CodingAnswer.answer_text where is_correct=True
+      (covers MCQ rows where students type the option text instead of
+      clicking — we filter SA/FB types out of BrainBuzz so MCQ uploads
+      get reused here as text-quiz fodder.)
+    """
+    from brainbuzz.scoring import is_short_answer_correct
+
+    if exercise.correct_short_answer:
+        return is_short_answer_correct(typed_text, exercise.correct_short_answer)
+
+    correct_options = list(
+        exercise.answers.filter(is_correct=True).values_list('answer_text', flat=True)
+    )
+    return any(is_short_answer_correct(typed_text, opt) for opt in correct_options if opt)
 
 
 # ---------------------------------------------------------------------------

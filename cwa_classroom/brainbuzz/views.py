@@ -191,6 +191,16 @@ def _snapshot_maths_questions(session: BrainBuzzSession, topic_id: int, level_id
     """Snapshot maths questions into BrainBuzzSessionQuestion rows."""
     from maths.models import Question, Answer
 
+    # Maths uses long question_type values ('multiple_choice', 'true_false',
+    # 'short_answer', 'fill_blank'); BrainBuzz uses short ones. Map so the
+    # student template's short_answer / fill_blank gating actually matches.
+    MATHS_TO_BRAINBUZZ_TYPE = {
+        'multiple_choice': QUESTION_TYPE_MCQ,
+        'true_false':      QUESTION_TYPE_TRUE_FALSE,
+        'short_answer':    QUESTION_TYPE_SHORT_ANSWER,
+        'fill_blank':      QUESTION_TYPE_FILL_BLANK,
+    }
+
     qs = (
         Question.objects
         .filter(topic_id=topic_id, level_id=level_id)
@@ -203,11 +213,15 @@ def _snapshot_maths_questions(session: BrainBuzzSession, topic_id: int, level_id
             {'label': chr(65 + idx), 'text': a.answer_text, 'is_correct': a.is_correct}
             for idx, a in enumerate(answers)
         ]
+        bb_type = MATHS_TO_BRAINBUZZ_TYPE.get(
+            q.question_type,
+            q.question_type if q.question_type in dict(QUIZ_QUESTION_TYPE_CHOICES) else QUESTION_TYPE_MCQ,
+        )
         BrainBuzzSessionQuestion.objects.create(
             session=session,
             order=i,
             question_text=q.question_text,
-            question_type=q.question_type if q.question_type in dict(QUIZ_QUESTION_TYPE_CHOICES) else QUESTION_TYPE_MCQ,
+            question_type=bb_type,
             options_json=options,
             correct_short_answer=None,
             points_base=1000,
@@ -243,10 +257,28 @@ def _snapshot_coding_questions(session: BrainBuzzSession, topic_level_id: int, c
     from coding.models import CodingExercise, CodingAnswer
 
     WRITE_CODE = 'write_code'
+    # CodingExercise uses long question_type values; BrainBuzz uses short
+    # ones. Map between them so the templates can switch on the right
+    # value (otherwise short_answer rows fall through to the MCQ default
+    # and never render their text input on the student side).
+    CODING_TO_BRAINBUZZ_TYPE = {
+        'multiple_choice': QUESTION_TYPE_MCQ,
+        'true_false':      QUESTION_TYPE_TRUE_FALSE,
+        'short_answer':    QUESTION_TYPE_SHORT_ANSWER,
+        'fill_blank':      QUESTION_TYPE_FILL_BLANK,
+    }
+
+    # BrainBuzz currently only renders multiple-choice cleanly across all
+    # devices, so restrict the pool to MCQ rows. (Short-answer / fill-blank
+    # rendering has had recurring issues on the student client; true_false
+    # works but is excluded here to keep the experience uniform.)
     qs = (
         CodingExercise.objects
-        .filter(topic_level_id=topic_level_id, is_active=True)
-        .exclude(question_type=WRITE_CODE)
+        .filter(
+            topic_level_id=topic_level_id,
+            is_active=True,
+            question_type='multiple_choice',
+        )
         .order_by('?')[:count]
     )
     for i, ex in enumerate(qs):
@@ -258,11 +290,15 @@ def _snapshot_coding_questions(session: BrainBuzzSession, topic_level_id: int, c
         # Prefer description (the full prompt); fall back to title for
         # records where description was left blank.
         body = (ex.description or '').strip() or ex.title
+        bb_type = CODING_TO_BRAINBUZZ_TYPE.get(
+            ex.question_type,
+            ex.question_type if ex.question_type in dict(QUIZ_QUESTION_TYPE_CHOICES) else QUESTION_TYPE_MCQ,
+        )
         BrainBuzzSessionQuestion.objects.create(
             session=session,
             order=i,
             question_text=body,
-            question_type=ex.question_type if ex.question_type in dict(QUIZ_QUESTION_TYPE_CHOICES) else QUESTION_TYPE_MCQ,
+            question_type=bb_type,
             options_json=options,
             correct_short_answer=ex.correct_short_answer or None,
             points_base=1000,
