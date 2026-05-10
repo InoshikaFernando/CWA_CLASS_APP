@@ -484,10 +484,41 @@ if not DEBUG:
 
 
 # ---------------------------------------------------------------------------
-# Logging — always write errors to /var/log/cwa/django-error.log
+# Logging — write errors to /var/log/cwa/ when the directory exists (server),
+# fall back to console-only when it doesn't (CI, local dev without the dir).
 # ---------------------------------------------------------------------------
 
 LOG_DIR = Path(os.environ.get('LOG_DIR', '/var/log/cwa'))
+_log_dir_exists = LOG_DIR.exists()
+
+_handlers: dict = {
+    'console': {
+        'class': 'logging.StreamHandler',
+        'formatter': 'verbose',
+    },
+}
+if _log_dir_exists:
+    _handlers['error_file'] = {
+        'class': 'logging.handlers.RotatingFileHandler',
+        'filename': str(LOG_DIR / 'django-error.log'),
+        'maxBytes': 10 * 1024 * 1024,  # 10 MB
+        'backupCount': 5,
+        'formatter': 'verbose',
+        'level': 'ERROR',
+        'delay': True,
+    }
+    _handlers['app_file'] = {
+        'class': 'logging.handlers.RotatingFileHandler',
+        'filename': str(LOG_DIR / 'django-app.log'),
+        'maxBytes': 10 * 1024 * 1024,  # 10 MB
+        'backupCount': 3,
+        'formatter': 'verbose',
+        'level': 'WARNING',
+        'delay': True,
+    }
+
+_err_handlers  = ['console'] + (['error_file'] if _log_dir_exists else [])
+_app_handlers  = ['console'] + (['app_file', 'error_file'] if _log_dir_exists else [])
 
 LOGGING = {
     'version': 1,
@@ -498,47 +529,26 @@ LOGGING = {
             'style': '{',
         },
     },
-    'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
-            'formatter': 'verbose',
-        },
-        'error_file': {
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': str(LOG_DIR / 'django-error.log'),
-            'maxBytes': 10 * 1024 * 1024,  # 10 MB
-            'backupCount': 5,
-            'formatter': 'verbose',
-            'level': 'ERROR',
-        },
-        'app_file': {
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': str(LOG_DIR / 'django-app.log'),
-            'maxBytes': 10 * 1024 * 1024,  # 10 MB
-            'backupCount': 3,
-            'formatter': 'verbose',
-            'level': 'WARNING',
-        },
-    },
+    'handlers': _handlers,
     'root': {
-        'handlers': ['console', 'error_file'],
+        'handlers': _err_handlers,
         'level': 'WARNING',
     },
     'loggers': {
         'django': {
-            'handlers': ['console', 'error_file'],
+            'handlers': _err_handlers,
             'level': 'WARNING',
             'propagate': False,
         },
         'django.request': {
-            'handlers': ['console', 'error_file'],
+            'handlers': _err_handlers,
             'level': 'ERROR',
             'propagate': False,
         },
         # App loggers — WARNING+ goes to app log, ERROR+ also to error log
-        'worksheets': {'handlers': ['console', 'app_file', 'error_file'], 'level': 'WARNING', 'propagate': False},
-        'homework':   {'handlers': ['console', 'app_file', 'error_file'], 'level': 'WARNING', 'propagate': False},
-        'billing':    {'handlers': ['console', 'app_file', 'error_file'], 'level': 'WARNING', 'propagate': False},
-        'classroom':  {'handlers': ['console', 'app_file', 'error_file'], 'level': 'WARNING', 'propagate': False},
+        'worksheets': {'handlers': _app_handlers, 'level': 'WARNING', 'propagate': False},
+        'homework':   {'handlers': _app_handlers, 'level': 'WARNING', 'propagate': False},
+        'billing':    {'handlers': _app_handlers, 'level': 'WARNING', 'propagate': False},
+        'classroom':  {'handlers': _app_handlers, 'level': 'WARNING', 'propagate': False},
     },
 }
