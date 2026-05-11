@@ -655,22 +655,43 @@ def create_draft_invoices(school, student_data, attendance_mode,
         for data in student_data:
             student = data['student']
             lines = data['lines']
+
+            inv_start = data.get('period_start', billing_period_start)
+            inv_end = data.get('period_end', billing_period_end)
+
+            # Guard: cancel any existing non-cancelled invoice for the same
+            # student + exact period.  The view-level overlap check normally
+            # handles this, but this catches duplicates from concurrent
+            # requests, API calls, or other entry points.  The old invoice is
+            # cancelled and replaced with the fresh one being created below.
+            existing_qs = Invoice.objects.filter(
+                student=student, school=school,
+                billing_period_start=inv_start,
+                billing_period_end=inv_end,
+            ).exclude(status='cancelled')
+            if existing_qs.exists():
+                cancelled_count = existing_qs.update(
+                    status='cancelled',
+                    cancelled_by=created_by,
+                    cancelled_at=timezone.now(),
+                    cancellation_reason='Replaced by new invoice for the same period.',
+                )
+                logger.info(
+                    'Cancelled %d existing invoice(s) for %s (school=%s, period=%s to %s) — replaced by new draft',
+                    cancelled_count, student, school, inv_start, inv_end,
+                )
             calculated_amount = sum(l['line_amount'] for l in lines)
             amount = data.get('custom_amount', calculated_amount)
             notes = data.get('notes', '')
 
-            # Per-student period override (supplementary/gap invoices)
-            inv_period_start = data.get('period_start', billing_period_start)
-            inv_period_end   = data.get('period_end',   billing_period_end)
-
-            invoice_number = generate_invoice_number(school, inv_period_end.year)
+            invoice_number = generate_invoice_number(school, inv_end.year)
 
             invoice = Invoice.objects.create(
                 invoice_number=invoice_number,
                 school=school,
                 student=student,
-                billing_period_start=inv_period_start,
-                billing_period_end=inv_period_end,
+                billing_period_start=inv_start,
+                billing_period_end=inv_end,
                 attendance_mode=attendance_mode,
                 billing_type=billing_type,
                 period_type=period_type,

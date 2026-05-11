@@ -624,7 +624,12 @@ def create_invoice_checkout_session(parent, amount_applied, invoice_allocations,
     fee, total_charged = calculate_stripe_fee(amount_applied)
     total_cents = int((total_charged * 100).to_integral_value())
 
-    used_currency = (currency or getattr(settings, 'STRIPE_CURRENCY', 'nzd')).lower()
+    if not currency:
+        raise ValueError(
+            'currency is required for invoice checkout sessions — '
+            'pass the school\'s default_currency, not the .env STRIPE_CURRENCY.'
+        )
+    used_currency = currency.lower()
 
     invoice_ids = [str(a['invoice_id']) for a in invoice_allocations]
     description = 'Invoice payment - {} invoice(s): {}'.format(len(invoice_ids), ', '.join(invoice_ids))

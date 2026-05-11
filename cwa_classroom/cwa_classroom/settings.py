@@ -25,8 +25,8 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # ---------------------------------------------------------------------------
 # App Version  (SemVer — bump manually on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.4.5'          # MAJOR.MINOR.PATCH
-APP_VERSION_DATE  = '2026-04-29'     # ISO date of this release
+APP_VERSION       = '1.4.6'          # MAJOR.MINOR.PATCH
+APP_VERSION_DATE  = '2026-05-11'     # ISO date of this release
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
@@ -87,6 +87,9 @@ INSTALLED_APPS = [
 
     # Help & Documentation
     'help',
+
+    # Worksheets
+    'worksheets',
 
     # Lifecycle email notifications
     'notifications',
@@ -167,6 +170,7 @@ TEMPLATES = [
                 'help.context_processors.help_context',
                 'cwa_classroom.context_processors.app_version',
                 'homework.context_processors.new_homework_count',
+                'worksheets.context_processors.active_worksheet_count',
             ],
         },
     },
@@ -334,6 +338,7 @@ if USE_S3:
     AWS_DEFAULT_ACL = 'public-read'
     AWS_S3_OBJECT_PARAMETERS = {'CacheControl': 'max-age=86400'}
     AWS_S3_FILE_OVERWRITE = False
+    AWS_LOCATION = 'media'  # store all files under media/ prefix in the bucket
 
     STORAGES['default'] = {
         'BACKEND': 'storages.backends.s3boto3.S3Boto3Storage',
@@ -351,19 +356,25 @@ else:
 # Email
 # ---------------------------------------------------------------------------
 
-EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
-EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'info@wizardslearninghub.co.nz')
 
-if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
-    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-    EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtpout.secureserver.net')
-    EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '465'))
-    EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'False') == 'True'
-    EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', 'True') == 'True'
+# Priority: Resend API (recommended) > SMTP (legacy) > Console (dev)
+RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
+
+if RESEND_API_KEY:
+    EMAIL_BACKEND = 'cwa_classroom.email_backends.ResendEmailBackend'
 else:
-    # No SMTP credentials configured — log emails to console
-    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+    EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+    EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+    if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
+        EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+        EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtpout.secureserver.net')
+        EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '465'))
+        EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'False') == 'True'
+        EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', 'True') == 'True'
+    else:
+        # No credentials configured — log emails to console
+        EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 
 # ---------------------------------------------------------------------------
@@ -467,6 +478,78 @@ RECAPTCHA_SECRET_KEY = os.environ.get('RECAPTCHA_SECRET_KEY', '')
 # ---------------------------------------------------------------------------
 
 if not DEBUG:
-    SECURE_SSL_REDIRECT = True
+    SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'True') == 'True'
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+
+
+# ---------------------------------------------------------------------------
+# Logging — write errors to /var/log/cwa/ when the directory exists (server),
+# fall back to console-only when it doesn't (CI, local dev without the dir).
+# ---------------------------------------------------------------------------
+
+LOG_DIR = Path(os.environ.get('LOG_DIR', '/var/log/cwa'))
+_log_dir_exists = LOG_DIR.exists()
+
+_handlers: dict = {
+    'console': {
+        'class': 'logging.StreamHandler',
+        'formatter': 'verbose',
+    },
+}
+if _log_dir_exists:
+    _handlers['error_file'] = {
+        'class': 'logging.handlers.RotatingFileHandler',
+        'filename': str(LOG_DIR / 'django-error.log'),
+        'maxBytes': 10 * 1024 * 1024,  # 10 MB
+        'backupCount': 5,
+        'formatter': 'verbose',
+        'level': 'ERROR',
+        'delay': True,
+    }
+    _handlers['app_file'] = {
+        'class': 'logging.handlers.RotatingFileHandler',
+        'filename': str(LOG_DIR / 'django-app.log'),
+        'maxBytes': 10 * 1024 * 1024,  # 10 MB
+        'backupCount': 3,
+        'formatter': 'verbose',
+        'level': 'WARNING',
+        'delay': True,
+    }
+
+_err_handlers  = ['console'] + (['error_file'] if _log_dir_exists else [])
+_app_handlers  = ['console'] + (['app_file', 'error_file'] if _log_dir_exists else [])
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '[{asctime}] {levelname} {name} {module}:{lineno} — {message}',
+            'style': '{',
+        },
+    },
+    'handlers': _handlers,
+    'root': {
+        'handlers': _err_handlers,
+        'level': 'WARNING',
+    },
+    'loggers': {
+        'django': {
+            'handlers': _err_handlers,
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'django.request': {
+            'handlers': _err_handlers,
+            'level': 'ERROR',
+            'propagate': False,
+        },
+        # App loggers — WARNING+ goes to app log, ERROR+ also to error log
+        'worksheets': {'handlers': _app_handlers, 'level': 'WARNING', 'propagate': False},
+        'homework':   {'handlers': _app_handlers, 'level': 'WARNING', 'propagate': False},
+        'billing':    {'handlers': _app_handlers, 'level': 'WARNING', 'propagate': False},
+        'classroom':  {'handlers': _app_handlers, 'level': 'WARNING', 'propagate': False},
+    },
+}

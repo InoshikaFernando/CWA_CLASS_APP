@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}{{ assignment.worksheet.name }} — Question {{ question_number }}{% endblock %}
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+
+  <!-- Header progress bar -->
+  <div class="space-y-2">
+    <div class="flex items-center justify-between">
+      <h1 class="font-display text-xl text-primary">{{ assignment.worksheet.name }}</h1>
+      <span class="text-sm text-gray-500 font-medium">{{ question_number }} / {{ total_questions }}</span>
+    </div>
+    <div class="w-full bg-gray-100 rounded-full h-2.5">
+      <div class="h-2.5 rounded-full bg-primary transition-all duration-500"
+           style="width: {% widthratio answered_count total_questions 100 %}%"></div>
+    </div>
+    <p class="text-xs text-gray-400">{{ answered_count }} answered · {{ total_questions|add:"-1"|add:"1" }} total</p>
+  </div>
+
+  <!-- Question card -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-5">
+    <div class="flex items-start gap-3">
+      <div class="w-9 h-9 rounded-full bg-primary/10 text-primary font-bold text-sm flex items-center justify-center shrink-0">
+        {{ question_number }}
+      </div>
+      <div class="flex-1 space-y-4">
+        <p class="text-gray-800 text-lg leading-relaxed">{{ question.question_text }}</p>
+
+        {% if question.image %}
+        <img src="{{ question.image.url }}" alt="Question image"
+             class="max-h-56 rounded-xl border border-gray-200 object-contain" />
+        {% endif %}
+
+        <!-- Answer area — replaced by HTMX feedback after submission -->
+        <div id="answer-area">
+          <form hx-post="{% url 'worksheets:answer' assignment.pk %}"
+                hx-target="#answer-area"
+                hx-swap="outerHTML"
+                class="space-y-3">
+            {% csrf_token %}
+            <input type="hidden" name="question_id" value="{{ question.pk }}" />
+
+            {% if question.question_type == 'multiple_choice' or question.question_type == 'true_false' %}
+            <div class="space-y-2">
+              {% for ans in answers %}
+              <label class="flex items-center gap-3 p-3 rounded-xl border border-gray-200 cursor-pointer hover:border-primary/40 hover:bg-primary/5 transition group">
+                <input type="radio" name="answer_id" value="{{ ans.pk }}" required
+                       class="text-primary focus:ring-primary w-4 h-4" />
+                <span class="text-sm text-gray-700 group-hover:text-gray-900">{{ ans.answer_text }}</span>
+              </label>
+              {% endfor %}
+            </div>
+            {% else %}
+            <div>
+              <input type="text" name="text_answer" required placeholder="Type your answer…"
+                     class="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+            </div>
+            {% endif %}
+
+            <button type="submit"
+                    class="w-full py-3 rounded-xl bg-primary text-white font-semibold text-sm shadow-sm hover:bg-primary/90 transition">
+              Submit Answer
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Small info footer -->
+  <p class="text-xs text-center text-gray-300">{{ assignment.classroom.name }} · {{ assignment.worksheet.name }}</p>
+</div>
+{% endblock %}

@@ -165,12 +165,22 @@ class TestParentInvoicesView(InvoicePaymentTestBase):
     def test_pay_banner_hidden_when_nothing_due(self):
         self._make_invoice(self.child1, Decimal('50.00'), status='paid')
         resp = self.client.get(reverse('parent_invoices'))
-        self.assertNotContains(resp, 'open-pay-modal')
+        self.assertNotContains(resp, 'direct-pay-btn')
 
-    def test_pay_banner_shown_when_outstanding(self):
+    def test_pay_banner_shown_when_outstanding_and_link_configured(self):
+        self.school.stripe_payment_link = 'https://pay.example.com'
+        self.school.save(update_fields=['stripe_payment_link'])
         self._make_invoice(self.child1, Decimal('50.00'), status='issued')
         resp = self.client.get(reverse('parent_invoices'))
-        self.assertContains(resp, 'open-pay-modal')
+        self.assertContains(resp, 'direct-pay-btn')
+
+    def test_pay_banner_hidden_when_no_payment_link(self):
+        """No payment link configured → no Pay Now button even with outstanding."""
+        self.school.stripe_payment_link = ''
+        self.school.save(update_fields=['stripe_payment_link'])
+        self._make_invoice(self.child1, Decimal('50.00'), status='issued')
+        resp = self.client.get(reverse('parent_invoices'))
+        self.assertNotContains(resp, 'direct-pay-btn')
 
     def test_isolation_from_other_parents(self):
         """Other parent must not see these invoices."""
@@ -207,10 +217,16 @@ class TestParentInvoicesView(InvoicePaymentTestBase):
 # ---------------------------------------------------------------------------
 
 class TestParentInvoiceCheckoutView(InvoicePaymentTestBase):
+    """
+    The checkout view redirects to the configured manual payment link.
+    If no link is configured, it returns 400.
+    """
 
     def setUp(self):
         self.client = Client()
         self.client.force_login(self.parent)
+        self.school.stripe_payment_link = 'https://pay.example.com/school'
+        self.school.save(update_fields=['stripe_payment_link'])
 
     def _post_pay(self, amount=None):
         data = {}
@@ -218,112 +234,32 @@ class TestParentInvoiceCheckoutView(InvoicePaymentTestBase):
             data['amount'] = str(amount)
         return self.client.post(reverse('parent_invoice_pay'), data)
 
-    @patch('billing.stripe_service.stripe')
-    def test_full_amount_creates_checkout_session(self, mock_stripe):
-        inv = self._make_invoice(self.child1, Decimal('100.00'), status='issued')
-        mock_session = MagicMock()
-        mock_session.id = 'cs_test_abc'
-        mock_session.url = 'https://checkout.stripe.com/pay/cs_test_abc'
-        mock_stripe.checkout.Session.create.return_value = mock_session
-
+    def test_returns_payment_link(self):
+        self._make_invoice(self.child1, Decimal('100.00'), status='issued')
         resp = self._post_pay()
         self.assertEqual(resp.status_code, 200)
         data = json.loads(resp.content)
-        self.assertIn('checkout_url', data)
-        self.assertEqual(data['checkout_url'], mock_session.url)
+        self.assertEqual(data['checkout_url'], 'https://pay.example.com/school')
 
-    @patch('billing.stripe_service.stripe')
-    def test_isp_record_created(self, mock_stripe):
+    def test_no_isp_created_for_manual_link(self):
         self._make_invoice(self.child1, Decimal('50.00'), status='issued')
-        mock_session = MagicMock()
-        mock_session.id = 'cs_isp_test'
-        mock_session.url = 'https://checkout.stripe.com/pay/cs_isp_test'
-        mock_stripe.checkout.Session.create.return_value = mock_session
-
         self._post_pay()
-        isp = InvoiceStripePayment.objects.filter(parent=self.parent).first()
-        self.assertIsNotNone(isp)
-        self.assertEqual(isp.status, InvoiceStripePayment.STATUS_PENDING)
-        self.assertEqual(isp.amount_applied, Decimal('50.00'))
-        self.assertEqual(isp.stripe_checkout_session_id, 'cs_isp_test')
+        self.assertFalse(InvoiceStripePayment.objects.filter(parent=self.parent).exists())
 
-    @patch('billing.stripe_service.stripe')
-    def test_custom_amount(self, mock_stripe):
-        self._make_invoice(self.child1, Decimal('200.00'), status='issued')
-        mock_session = MagicMock()
-        mock_session.id = 'cs_custom'
-        mock_session.url = 'https://checkout.stripe.com/pay/cs_custom'
-        mock_stripe.checkout.Session.create.return_value = mock_session
-
-        resp = self._post_pay(amount='75.00')
-        self.assertEqual(resp.status_code, 200)
-        isp = InvoiceStripePayment.objects.filter(parent=self.parent).first()
-        self.assertEqual(isp.amount_applied, Decimal('75.00'))
-
-    @patch('billing.stripe_service.stripe')
-    def test_fee_included_in_total_charged(self, mock_stripe):
+    def test_no_payment_link_returns_400(self):
+        self.school.stripe_payment_link = ''
+        self.school.save(update_fields=['stripe_payment_link'])
         self._make_invoice(self.child1, Decimal('100.00'), status='issued')
-        mock_session = MagicMock()
-        mock_session.id = 'cs_fee'
-        mock_session.url = 'https://checkout.stripe.com/pay/cs_fee'
-        mock_stripe.checkout.Session.create.return_value = mock_session
-
-        self._post_pay(amount='100.00')
-        isp = InvoiceStripePayment.objects.filter(parent=self.parent).first()
-        # fee = 100 * 0.029 + 0.30 = 3.20
-        self.assertEqual(isp.stripe_fee, Decimal('3.20'))
-        self.assertEqual(isp.total_charged, Decimal('103.20'))
-
-    @patch('billing.stripe_service.stripe')
-    def test_allocation_oldest_first(self, mock_stripe):
-        """Oldest invoice (by due_date) should be allocated first."""
-        today = timezone.now().date()
-        inv_old = self._make_invoice(self.child1, Decimal('60.00'), status='issued', due_days=5)
-        inv_new = self._make_invoice(self.child1, Decimal('60.00'), status='issued', due_days=30)
-        mock_session = MagicMock()
-        mock_session.id = 'cs_alloc'
-        mock_session.url = 'https://checkout.stripe.com/pay/cs_alloc'
-        mock_stripe.checkout.Session.create.return_value = mock_session
-
-        self._post_pay(amount='60.00')
-        isp = InvoiceStripePayment.objects.filter(parent=self.parent).first()
-        alloc_ids = [a['invoice_id'] for a in isp.invoice_allocations]
-        # Only the older invoice should appear (amount covers exactly one)
-        self.assertIn(inv_old.pk, alloc_ids)
-        self.assertNotIn(inv_new.pk, alloc_ids)
-
-    @patch('billing.stripe_service.stripe')
-    def test_multi_child_invoices_allocated(self, mock_stripe):
-        inv1 = self._make_invoice(self.child1, Decimal('50.00'), status='issued', due_days=5)
-        inv2 = self._make_invoice(self.child2, Decimal('50.00'), status='issued', due_days=10)
-        mock_session = MagicMock()
-        mock_session.id = 'cs_multi'
-        mock_session.url = 'https://checkout.stripe.com/pay/cs_multi'
-        mock_stripe.checkout.Session.create.return_value = mock_session
-
-        self._post_pay()  # full amount = 100
-        isp = InvoiceStripePayment.objects.filter(parent=self.parent).first()
-        alloc_ids = [a['invoice_id'] for a in isp.invoice_allocations]
-        self.assertIn(inv1.pk, alloc_ids)
-        self.assertIn(inv2.pk, alloc_ids)
+        resp = self._post_pay()
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('not configured', json.loads(resp.content)['error'])
 
     def test_no_outstanding_returns_400(self):
-        # All paid
         self._make_invoice(self.child1, Decimal('50.00'), status='paid')
         resp = self._post_pay()
         self.assertEqual(resp.status_code, 400)
         data = json.loads(resp.content)
         self.assertIn('error', data)
-
-    def test_invalid_amount_returns_400(self):
-        self._make_invoice(self.child1, Decimal('50.00'), status='issued')
-        resp = self.client.post(reverse('parent_invoice_pay'), {'amount': 'abc'})
-        self.assertEqual(resp.status_code, 400)
-
-    def test_zero_amount_returns_400(self):
-        self._make_invoice(self.child1, Decimal('50.00'), status='issued')
-        resp = self._post_pay(amount='0.00')
-        self.assertEqual(resp.status_code, 400)
 
     def test_unauthenticated_redirects(self):
         self.client.logout()

@@ -11,7 +11,7 @@ from django.utils import timezone
 from django.views import View
 
 from accounts.models import Role
-from billing.entitlements import get_school_for_user, has_module, has_module_any_school
+from billing.entitlements import get_school_for_user, has_module, has_module_any_school, check_ai_import_quota
 from classroom.views import RoleRequiredMixin, _get_question_scope
 
 from .models import AIImportSession, AIImportUsage
@@ -74,13 +74,7 @@ def _get_usage_for_school(school):
 
 def _get_remaining_pages(school):
     """Return (remaining_pages, page_limit, pages_used) for the school."""
-    tier = _get_ai_import_tier(school)
-    if not tier:
-        return (0, 0, 0)
-    limit = AI_IMPORT_PAGE_LIMITS.get(tier, 0)
-    usage = _get_usage_for_school(school)
-    remaining = max(0, limit - usage.pages_processed)
-    return (remaining, limit, usage.pages_processed)
+    return check_ai_import_quota(school)
 
 
 # ---------------------------------------------------------------------------
@@ -171,12 +165,19 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
             extracted = extract_pdf_content(pdf_file)
             page_count = extracted['page_count']
 
-            if remaining > 0 and page_count > remaining:
-                messages.error(
-                    request,
-                    f'This PDF has {page_count} pages but you only have {remaining} pages remaining this month. '
-                    f'Please upgrade your plan or upload a smaller file.',
-                )
+            if page_count > remaining:
+                if remaining == 0:
+                    messages.error(
+                        request,
+                        f'You’ve used all {limit} pages in your monthly quota. '
+                        f'Please upgrade your plan or wait until next month.',
+                    )
+                else:
+                    messages.error(
+                        request,
+                        f'This PDF has {page_count} pages but you only have {remaining} pages remaining this month. '
+                        f'Please upgrade your plan or upload a smaller file.',
+                    )
                 return redirect('ai_import:upload')
 
             # Step 2: Get existing topics/levels for AI context

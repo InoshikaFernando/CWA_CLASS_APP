@@ -1,5 +1,5 @@
 """
-Tests for parent invoice Stripe payment flow.
+Tests for parent invoice payment flow.
 
 Covers:
 - _handle_invoice_payment_checkout webhook handler
@@ -11,10 +11,9 @@ Covers:
     - graceful handling of missing isp_id / missing ISP / missing invoice
     - ISP marked succeeded after processing
 - ParentInvoiceCheckoutView
-    - allocations include invoices from ALL children, not just active child
-    - correct amount and oldest-first ordering
-    - 400 when no children, no outstanding invoices, or zero amount
-    - InvoiceStripePayment created with correct invoice_allocations
+    - redirects to manual payment link when configured
+    - returns 400 when no payment link or no outstanding invoices
+    - no Stripe sessions created (manual link only)
 """
 import json
 from decimal import Decimal
@@ -28,7 +27,7 @@ from accounts.models import CustomUser, Role, UserRole
 from billing.models import InvoiceStripePayment
 from billing.webhook_handlers import _handle_invoice_payment_checkout
 from classroom.models import (
-    School, Invoice, InvoicePayment, ParentStudent,
+    School, Invoice, InvoicePayment, ParentStudent, Currency,
 )
 
 
@@ -301,12 +300,21 @@ class HandleInvoicePaymentCheckoutTests(TestCase):
 # ---------------------------------------------------------------------------
 
 class ParentInvoiceCheckoutViewTests(TestCase):
+    """
+    The checkout view redirects to the configured manual payment link.
+    If no link is configured at any level, it returns 400.
+    No Stripe Checkout sessions are created by the view.
+    """
 
     @classmethod
     def setUpTestData(cls):
         cls.admin = _user('co_admin', 'admin')
+        cls.usd, _ = Currency.objects.get_or_create(
+            code='USD', defaults={'name': 'US Dollar', 'symbol': '$'},
+        )
         cls.school = School.objects.create(
             name='Checkout School', slug='checkout-school', admin=cls.admin,
+            default_currency=cls.usd,
         )
         cls.parent = _user('co_parent', 'parent')
         cls.student1 = _user('co_student1', 'student')
@@ -323,12 +331,8 @@ class ParentInvoiceCheckoutViewTests(TestCase):
         self.client = Client()
         self.client.login(username='co_parent', password='Test@1234!')
         self.url = reverse('parent_invoice_pay')
-
-    def _mock_session(self):
-        mock = MagicMock()
-        mock.url = 'https://checkout.stripe.com/pay/cs_test_mock'
-        mock.id = 'cs_test_mock'
-        return mock
+        self.school.stripe_payment_link = ''
+        self.school.save(update_fields=['stripe_payment_link'])
 
     # ------------------------------------------------------------------
     # Error cases
@@ -339,11 +343,12 @@ class ParentInvoiceCheckoutViewTests(TestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertIn('error', resp.json())
 
-    def test_zero_amount_returns_400(self):
+    def test_no_payment_link_returns_400(self):
+        """Outstanding invoices but no payment link configured → 400."""
         _invoice(self.student1, self.school, Decimal('100.00'))
-        resp = self.client.post(self.url, {'amount': '0.00'})
+        resp = self.client.post(self.url, {})
         self.assertEqual(resp.status_code, 400)
-        self.assertIn('Amount must be greater than zero', resp.json()['error'])
+        self.assertIn('not configured', resp.json()['error'])
 
     def test_unauthenticated_redirects(self):
         anon = Client()
@@ -351,110 +356,37 @@ class ParentInvoiceCheckoutViewTests(TestCase):
         self.assertIn(resp.status_code, (302, 403))
 
     # ------------------------------------------------------------------
-    # Multi-child coverage — core regression
+    # Payment link redirect
     # ------------------------------------------------------------------
 
-    @patch('billing.stripe_service.stripe')
-    def test_checkout_includes_all_children_invoices(self, mock_stripe):
-        """Invoice for child2 is included even when child1 is the active session child."""
-        mock_stripe.checkout.Session.create.return_value = self._mock_session()
+    def test_school_link_returns_checkout_url(self):
+        """With a payment link configured, view returns it as checkout_url."""
+        self.school.stripe_payment_link = 'https://pay.example.com/school'
+        self.school.save(update_fields=['stripe_payment_link'])
 
-        inv1 = _invoice(self.student1, self.school, Decimal('80.00'))
-        inv2 = _invoice(self.student2, self.school, Decimal('70.00'))
+        _invoice(self.student1, self.school, Decimal('80.00'))
 
-        # Simulate child1 as the active child in session
+        resp = self.client.post(self.url, {})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['checkout_url'], 'https://pay.example.com/school')
+        self.assertFalse(InvoiceStripePayment.objects.exists())
+
+    def test_multi_child_uses_payment_link(self):
+        """Payment link works even when multiple children have invoices."""
+        self.school.stripe_payment_link = 'https://pay.example.com/school'
+        self.school.save(update_fields=['stripe_payment_link'])
+
+        _invoice(self.student1, self.school, Decimal('80.00'))
+        _invoice(self.student2, self.school, Decimal('70.00'))
+
         session = self.client.session
         session['active_child_id'] = self.student1.pk
         session.save()
 
-        resp = self.client.post(self.url, {})  # no amount → use total
+        resp = self.client.post(self.url, {})
         self.assertEqual(resp.status_code, 200)
-        data = resp.json()
-        self.assertIn('checkout_url', data)
-
-        isp = InvoiceStripePayment.objects.latest('created_at')
-        invoice_ids_in_alloc = {a['invoice_id'] for a in isp.invoice_allocations}
-        self.assertIn(inv1.pk, invoice_ids_in_alloc, 'child1 invoice missing from allocation')
-        self.assertIn(inv2.pk, invoice_ids_in_alloc, 'child2 invoice missing from allocation')
-        self.assertEqual(isp.amount_applied, Decimal('150.00'))
-
-    @patch('billing.stripe_service.stripe')
-    def test_checkout_child2_active_still_includes_child1_invoice(self, mock_stripe):
-        """Switching to child2 does not exclude child1's outstanding invoice."""
-        mock_stripe.checkout.Session.create.return_value = self._mock_session()
-
-        inv1 = _invoice(self.student1, self.school, Decimal('60.00'))
-        inv2 = _invoice(self.student2, self.school, Decimal('40.00'))
-
-        session = self.client.session
-        session['active_child_id'] = self.student2.pk
-        session.save()
-
-        self.client.post(self.url, {})
-
-        isp = InvoiceStripePayment.objects.latest('created_at')
-        invoice_ids = {a['invoice_id'] for a in isp.invoice_allocations}
-        self.assertIn(inv1.pk, invoice_ids)
-        self.assertIn(inv2.pk, invoice_ids)
-
-    @patch('billing.stripe_service.stripe')
-    def test_allocation_oldest_first(self, mock_stripe):
-        """Older invoice (earlier due_date) appears first in allocations."""
-        from datetime import date, timedelta
-        mock_stripe.checkout.Session.create.return_value = self._mock_session()
-        today = date.today()
-
-        inv_old = Invoice.objects.create(
-            student=self.student1, school=self.school,
-            invoice_number='INV-OLD',
-            billing_period_start=today - timedelta(days=60),
-            billing_period_end=today - timedelta(days=31),
-            due_date=today - timedelta(days=20),
-            calculated_amount=Decimal('50.00'), amount=Decimal('50.00'),
-            status='issued',
-        )
-        inv_new = Invoice.objects.create(
-            student=self.student1, school=self.school,
-            invoice_number='INV-NEW',
-            billing_period_start=today - timedelta(days=30),
-            billing_period_end=today,
-            due_date=today + timedelta(days=10),
-            calculated_amount=Decimal('50.00'), amount=Decimal('50.00'),
-            status='issued',
-        )
-
-        self.client.post(self.url, {})
-
-        isp = InvoiceStripePayment.objects.latest('created_at')
-        alloc_ids = [a['invoice_id'] for a in isp.invoice_allocations]
-        self.assertEqual(alloc_ids.index(inv_old.pk), 0, 'Older invoice should be first')
-        self.assertLess(alloc_ids.index(inv_old.pk), alloc_ids.index(inv_new.pk))
-
-    @patch('billing.stripe_service.stripe')
-    def test_custom_amount_allocates_correctly(self, mock_stripe):
-        """Custom amount ≤ total outstanding allocates up to that amount."""
-        mock_stripe.checkout.Session.create.return_value = self._mock_session()
-
-        _invoice(self.student1, self.school, Decimal('200.00'))
-
-        resp = self.client.post(self.url, {'amount': '50.00'})
-        self.assertEqual(resp.status_code, 200)
-
-        isp = InvoiceStripePayment.objects.latest('created_at')
-        self.assertEqual(isp.amount_applied, Decimal('50.00'))
-        total_alloc = sum(Decimal(a['amount']) for a in isp.invoice_allocations)
-        self.assertEqual(total_alloc, Decimal('50.00'))
-
-    @patch('billing.stripe_service.stripe')
-    def test_isp_created_with_pending_status(self, mock_stripe):
-        mock_stripe.checkout.Session.create.return_value = self._mock_session()
-        _invoice(self.student1, self.school, Decimal('100.00'))
-
-        self.client.post(self.url, {})
-
-        isp = InvoiceStripePayment.objects.latest('created_at')
-        self.assertEqual(isp.status, InvoiceStripePayment.STATUS_PENDING)
-        self.assertEqual(isp.parent, self.parent)
+        self.assertIn('checkout_url', resp.json())
+        self.assertFalse(InvoiceStripePayment.objects.exists())
 
 
 # ---------------------------------------------------------------------------
@@ -463,18 +395,21 @@ class ParentInvoiceCheckoutViewTests(TestCase):
 
 class InvoicePaymentEndToEndTests(TestCase):
     """
-    Simulates the full flow:
-    1. Parent POSTs to checkout view (mocked Stripe)
-    2. ISP created
-    3. Webhook fires with isp_id
-    4. Invoice status updated to 'paid'
+    Simulates the webhook-driven payment flow:
+    1. ISP created (as it would be via Stripe Checkout or external payment)
+    2. Webhook fires with isp_id
+    3. Invoice status updated to 'paid'
     """
 
     @classmethod
     def setUpTestData(cls):
         cls.admin = _user('e2e_admin', 'admin')
+        cls.usd, _ = Currency.objects.get_or_create(
+            code='USD', defaults={'name': 'US Dollar', 'symbol': '$'},
+        )
         cls.school = School.objects.create(
             name='E2E School', slug='e2e-school', admin=cls.admin,
+            default_currency=cls.usd,
         )
         cls.parent = _user('e2e_parent', 'parent')
         cls.student = _user('e2e_student', 'student')
@@ -482,24 +417,12 @@ class InvoicePaymentEndToEndTests(TestCase):
             parent=cls.parent, student=cls.student, school=cls.school,
         )
 
-    @patch('billing.stripe_service.stripe')
-    def test_checkout_then_webhook_marks_invoice_paid(self, mock_stripe):
+    def test_isp_then_webhook_marks_invoice_paid(self):
+        """ISP creation + webhook fires → invoice marked paid."""
         inv = _invoice(self.student, self.school, Decimal('150.00'))
-
-        mock_session = MagicMock()
-        mock_session.url = 'https://checkout.stripe.com/pay/cs_e2e'
-        mock_session.id = 'cs_e2e_session'
-        mock_stripe.checkout.Session.create.return_value = mock_session
-
-        client = Client()
-        client.login(username='e2e_parent', password='Test@1234!')
-        resp = client.post(reverse('parent_invoice_pay'), {})
-        self.assertEqual(resp.status_code, 200)
-
-        isp = InvoiceStripePayment.objects.get(parent=self.parent)
+        isp = _isp(self.parent, inv)
         self.assertEqual(isp.status, InvoiceStripePayment.STATUS_PENDING)
 
-        # Simulate webhook
         session_payload = {
             'id': 'cs_e2e_session',
             'metadata': {
@@ -514,8 +437,7 @@ class InvoicePaymentEndToEndTests(TestCase):
         isp.refresh_from_db()
         self.assertEqual(isp.status, InvoiceStripePayment.STATUS_SUCCEEDED)
 
-    @patch('billing.stripe_service.stripe')
-    def test_checkout_then_webhook_multi_child(self, mock_stripe):
+    def test_webhook_multi_child_marks_both_paid(self):
         """Both children's invoices marked paid after webhook fires."""
         student2 = _user('e2e_student2b', 'student')
         ParentStudent.objects.create(
@@ -524,17 +446,19 @@ class InvoicePaymentEndToEndTests(TestCase):
 
         inv1 = _invoice(self.student, self.school, Decimal('100.00'))
         inv2 = _invoice(student2, self.school, Decimal('80.00'))
+        total = Decimal('180.00')
 
-        mock_session = MagicMock()
-        mock_session.url = 'https://checkout.stripe.com/pay/cs_mc'
-        mock_session.id = 'cs_mc_session'
-        mock_stripe.checkout.Session.create.return_value = mock_session
-
-        client = Client()
-        client.login(username='e2e_parent', password='Test@1234!')
-        client.post(reverse('parent_invoice_pay'), {})
-
-        isp = InvoiceStripePayment.objects.filter(parent=self.parent).latest('created_at')
+        isp = InvoiceStripePayment.objects.create(
+            parent=self.parent,
+            total_charged=total + Decimal('5.52'),
+            amount_applied=total,
+            stripe_fee=Decimal('5.52'),
+            invoice_allocations=[
+                {'invoice_id': inv1.pk, 'amount': '100.00'},
+                {'invoice_id': inv2.pk, 'amount': '80.00'},
+            ],
+            status=InvoiceStripePayment.STATUS_PENDING,
+        )
 
         session_payload = {
             'id': 'cs_mc_session',
