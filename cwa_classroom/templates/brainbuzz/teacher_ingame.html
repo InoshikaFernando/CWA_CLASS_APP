@@ -51,6 +51,9 @@
 
   [x-cloak] { display: none !important; }
 
+  /* Safe-area inset for notched phones (iPhone X+) */
+  .pb-safe { padding-bottom: max(0.625rem, env(safe-area-inset-bottom)); }
+
   /* Code-snippet rendering inside question cards */
   .bb-prose { display: block; white-space: pre-wrap; }
   .bb-code {
@@ -83,7 +86,7 @@
      x-init="init()">
 
   <!-- ═══ TOP COMMAND BAR ═══════════════════════════════════════════════════ -->
-  <header class="flex items-center gap-4 px-6 py-3 border-b border-white/[0.07] flex-shrink-0">
+  <header class="flex items-center gap-3 px-4 sm:px-6 py-3 border-b border-white/[0.07] flex-shrink-0 overflow-hidden">
 
     <!-- Session + question progress -->
     <div class="flex items-center gap-3 flex-1 min-w-0">
@@ -95,8 +98,8 @@
         <span class="font-mono font-black text-white tracking-widest text-base">{{ session.code }}</span>
       </div>
 
-      <!-- Q progress pills -->
-      <div class="flex items-center gap-1.5 flex-wrap">
+      <!-- Q progress pills (hidden on mobile to prevent header overflow) -->
+      <div class="hidden sm:flex items-center gap-1.5 flex-wrap">
         {% for q in session.questions.all %}
         <div class="w-2 h-2 rounded-full flex-shrink-0"
              :class="{{ forloop.counter0 }} < currentIndex ? 'bg-emerald-400' :
@@ -109,7 +112,7 @@
     </div>
 
     <!-- Countdown ring -->
-    <div class="relative w-14 h-14 flex-shrink-0">
+    <div class="relative w-10 h-10 sm:w-14 sm:h-14 flex-shrink-0">
       <svg viewBox="0 0 36 36" class="w-full h-full -rotate-90">
         <circle cx="18" cy="18" r="15.9155" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="3.5"/>
         <circle cx="18" cy="18" r="15.9155" fill="none"
@@ -136,7 +139,7 @@
         <button @click="endGame()"
                 class="flex items-center gap-1.5 bg-white/8 hover:bg-red-500/20 hover:text-red-300 border border-white/10 hover:border-red-400/40 text-gray-400 font-bold px-4 py-2.5 rounded-xl text-sm transition-all duration-200">
           End
-          <span class="kbd">Esc</span>
+          <span class="kbd hidden sm:inline">Esc</span>
         </button>
       </div>
     </template>
@@ -153,7 +156,7 @@
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/>
           </svg>
-          <span class="kbd">Space</span>
+          <span class="kbd hidden sm:inline">Space</span>
         </button>
         <button @click="endGame()"
                 class="bg-white/8 hover:bg-red-500/20 hover:text-red-300 border border-white/10 hover:border-red-400/40 text-gray-400 font-bold px-4 py-2.5 rounded-xl text-sm transition-all">
@@ -170,25 +173,25 @@
     <div class="flex-1 flex flex-col gap-4 p-5 overflow-y-auto min-h-0">
 
       <!-- ── Question Card ────────────────────────────────────────────────── -->
-      <div class="relative rounded-3xl overflow-hidden border border-white/10 shadow-2xl flex-shrink-0"
-           style="background: linear-gradient(145deg, rgba(15,23,42,0.97) 0%, rgba(30,41,75,0.97) 100%); min-height: 10rem;">
+      <div class="rounded-3xl overflow-hidden border border-white/10 shadow-2xl flex-shrink-0"
+           style="background: linear-gradient(145deg, rgba(15,23,42,0.97) 0%, rgba(30,41,75,0.97) 100%); min-height: 8rem;">
         <!-- Top gradient accent -->
         <div class="h-0.5 w-full" style="background: linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899);"></div>
-        <!-- Question number badge -->
-        <div class="absolute top-4 left-5">
+        <!-- Question number badge (in flow, not absolute, so image doesn't overlap) -->
+        <div class="px-5 sm:px-10 pt-4 pb-0">
           <span class="text-[10px] font-black uppercase tracking-[.2em] text-blue-400">Question <span x-text="(currentIndex ?? 0) + 1"></span></span>
         </div>
         <!-- Question image (only when present) -->
         <template x-if="questionImageUrl">
-          <div class="flex justify-center px-10 pt-8 pb-2">
+          <div class="flex justify-center px-5 sm:px-10 pt-4 sm:pt-6 pb-2">
             <img :src="questionImageUrl" alt=""
                  loading="lazy"
-                 class="max-h-52 w-auto object-contain rounded-2xl border border-white/10 shadow-lg">
+                 class="max-h-48 w-auto max-w-full object-contain rounded-2xl border border-white/10 shadow-lg">
           </div>
         </template>
         <!-- Question text -->
-        <div class="flex items-center justify-center px-10 py-10 min-h-[10rem]">
-          <div class="bb-question-body text-2xl md:text-3xl lg:text-4xl font-black text-white text-center leading-snug w-full"
+        <div class="flex items-center justify-center px-5 sm:px-10 py-6 sm:py-10 min-h-[8rem] sm:min-h-[10rem]">
+          <div class="bb-question-body text-xl sm:text-2xl md:text-3xl lg:text-4xl font-black text-white text-center leading-snug w-full"
                x-html="questionHtml || questionText || 'Loading…'"></div>
         </div>
       </div>
@@ -207,7 +210,7 @@
       <template x-if="status === 'active' && options.length > 0 && !readWindow">
         <div class="grid grid-cols-2 gap-3 flex-shrink-0">
           <template x-for="(opt, idx) in options" :key="idx">
-            <div class="tile-enter rounded-2xl px-5 py-5 flex items-center gap-4 border-2 shadow-lg pointer-events-none select-none"
+            <div class="tile-enter rounded-2xl px-3 sm:px-5 py-3 sm:py-5 flex items-center gap-2 sm:gap-4 border-2 shadow-lg pointer-events-none select-none"
                  :class="opt.is_correct ? 'border-emerald-400/70 shadow-emerald-500/20' : 'border-white/10'"
                  :style="`background: ${tileBg(idx)}; animation-delay: ${idx * 0.06}s`">
               <!-- Letter badge -->
@@ -222,7 +225,7 @@
               </template>
               <!-- Option text -->
               <template x-if="opt.text">
-                <span class="flex-1 font-bold text-white text-base leading-snug" x-text="opt.text"></span>
+                <span class="flex-1 min-w-0 font-bold text-white text-sm sm:text-base leading-snug truncate sm:whitespace-normal" x-text="opt.text"></span>
               </template>
               <!-- Correct checkmark (replaces shape for correct option) -->
               <template x-if="opt.is_correct">
@@ -253,7 +256,7 @@
                  :class="opt.is_correct ? 'border-emerald-400/80 shadow-emerald-500/20' : 'border-white/10'"
                  :style="`background: ${tileBg(idx)}; animation-delay: ${idx * 0.08}s`">
               <!-- Main tile row -->
-              <div class="flex items-center gap-4 px-5 py-4 relative">
+              <div class="flex items-center gap-2 sm:gap-4 px-3 sm:px-5 py-3 sm:py-4 relative">
                 <span class="w-11 h-11 rounded-xl flex items-center justify-center font-black text-white text-lg flex-shrink-0"
                       :style="`background: ${tileAccent(idx)};`"
                       x-text="opt.label"></span>
@@ -264,13 +267,13 @@
                        class="max-h-14 w-auto object-contain rounded-lg flex-shrink-0">
                 </template>
                 <template x-if="opt.text || !opt.image_url">
-                  <span class="flex-1 font-bold text-white text-base leading-snug" x-text="opt.text || opt.label"></span>
+                  <span class="flex-1 min-w-0 font-bold text-white text-sm sm:text-base leading-snug truncate sm:whitespace-normal" x-text="opt.text || opt.label"></span>
                 </template>
                 <!-- Correct checkmark -->
                 <span x-show="opt.is_correct"
                       class="flex items-center justify-center w-8 h-8 rounded-full bg-emerald-400 text-white font-black text-base flex-shrink-0">✓</span>
                 <!-- Vote count -->
-                <span class="font-black text-white text-xl flex-shrink-0" x-text="opt.count"></span>
+                <span class="font-black text-white text-base sm:text-xl flex-shrink-0" x-text="opt.count"></span>
               </div>
               <!-- Distribution bar -->
               <div class="relative h-3 bg-black/30 overflow-hidden">
@@ -291,7 +294,7 @@
     </div>
 
     <!-- RIGHT: Live Stats Panel -->
-    <aside class="w-full lg:w-72 xl:w-80 flex flex-col border-t lg:border-t-0 lg:border-l border-white/[0.07] flex-shrink-0 overflow-hidden">
+    <aside class="w-full lg:w-72 xl:w-80 flex flex-col border-t lg:border-t-0 lg:border-l border-white/[0.07] flex-shrink-0 overflow-hidden max-h-72 sm:max-h-80 lg:max-h-none">
 
       <!-- Responses progress -->
       <div class="p-5 border-b border-white/[0.07] space-y-3 flex-shrink-0">
@@ -357,18 +360,18 @@
   </main>
 
   <!-- ═══ BOTTOM STATUS BAR ════════════════════════════════════════════════ -->
-  <footer class="flex items-center justify-between px-6 py-2.5 border-t border-white/[0.05] flex-shrink-0">
-    <div class="flex items-center gap-3 text-xs text-gray-600">
-      <div class="flex items-center gap-1.5">
+  <footer class="flex items-center justify-between px-4 sm:px-6 py-2.5 border-t border-white/[0.05] flex-shrink-0 pb-safe">
+    <div class="flex items-center gap-2 sm:gap-3 text-xs text-gray-600 min-w-0">
+      <div class="flex items-center gap-1.5 flex-shrink-0">
         <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
         <span class="font-semibold">Live</span>
       </div>
-      <span>·</span>
-      <span class="font-mono">{{ session.code }}</span>
-      <span>·</span>
-      <span>{{ session.questions.count }} questions · <span x-text="`${timeLimitSec}s`">{{ session.time_per_question_sec }}s</span> this question</span>
+      <span class="flex-shrink-0">·</span>
+      <span class="font-mono flex-shrink-0">{{ session.code }}</span>
+      <span class="hidden sm:inline flex-shrink-0">·</span>
+      <span class="hidden sm:inline truncate">{{ session.questions.count }} questions · <span x-text="`${timeLimitSec}s`">{{ session.time_per_question_sec }}s</span> this question</span>
     </div>
-    <div class="flex items-center gap-3 text-[10px] text-gray-700">
+    <div class="hidden md:flex items-center gap-3 text-[10px] text-gray-700 flex-shrink-0">
       <span><span class="kbd">Space</span> next (reveal only)</span>
       <span><span class="kbd">Esc</span> end</span>
     </div>

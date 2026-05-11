@@ -5,7 +5,7 @@
 <div class="fixed inset-0 -z-10 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900"></div>
 
 {{ initial_state|json_script:"bb-initial-state" }}
-<div class="max-w-lg mx-auto py-4 px-3 space-y-4"
+<div class="max-w-lg mx-auto py-4 px-3 space-y-4 pb-safe"
      x-data="bbStudent('{{ session.code }}', {{ participant.id }}, {{ participant.score }}, '{{ session.status }}')"
      x-init="init()">
 
@@ -15,15 +15,15 @@
   <!-- ── HEADER ──────────────────────────────────────────────────────────── -->
   <div class="flex items-center justify-between px-5 py-3 bg-white/10 backdrop-blur-xl rounded-2xl border border-white/20">
     <div>
-      <p class="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Session</p>
+      <p class="text-[11px] text-gray-400 font-bold uppercase tracking-widest">Session</p>
       <p class="font-black text-white text-lg font-mono tracking-widest">{{ session.code }}</p>
     </div>
     <div class="text-center px-4 border-l border-r border-white/20">
-      <p class="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Player</p>
+      <p class="text-[11px] text-gray-400 font-bold uppercase tracking-widest">Player</p>
       <p class="font-bold text-white text-sm truncate max-w-[8rem]">{{ participant.nickname }}</p>
     </div>
     <div class="text-right">
-      <p class="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Score</p>
+      <p class="text-[11px] text-gray-400 font-bold uppercase tracking-widest">Score</p>
       <p class="font-black text-white text-lg" x-text="score.toLocaleString()"></p>
     </div>
   </div>
@@ -87,7 +87,7 @@
         <div class="flex justify-center">
           <img :src="question.image_url" alt=""
                loading="lazy"
-               class="max-h-52 w-auto object-contain rounded-2xl border border-slate-600 shadow-lg">
+               class="max-h-52 w-auto max-w-full object-contain rounded-2xl border border-slate-600 shadow-lg">
         </div>
       </template>
 
@@ -119,10 +119,10 @@
                   @click="onTileTap(opt, idx, $event)"
                   :aria-label="`Option ${opt.label || ['A','B','C','D'][idx]}: ${opt.text}`"
                   :class="_tileBgs[idx % 4]"
-                  class="relative overflow-hidden rounded-2xl flex flex-col items-center justify-center gap-2 p-4
+                  class="relative overflow-hidden rounded-2xl flex flex-col items-center justify-center gap-1.5 p-3 sm:p-4
                          text-white font-bold text-center w-full border-2 border-white/20 shadow-lg
                          transition-all duration-150 active:scale-95 focus:outline-none focus:ring-4 focus:ring-white/40"
-                  style="min-height: 120px;">
+                  style="min-height: clamp(88px, 22vw, 120px);">
                   <!-- SVG shape (hidden when option has an image) -->
                   <template x-if="!opt.image_url">
                     <div class="w-10 h-10 opacity-90" x-html="_tileSvgs[idx % 4]" aria-hidden="true"></div>
@@ -139,7 +139,7 @@
                         aria-hidden="true"></span>
                   <!-- Option text (hidden when the option is image-only) -->
                   <template x-if="opt.text">
-                    <span class="text-xs font-semibold leading-tight text-center" x-text="opt.text"></span>
+                    <span class="text-sm font-semibold leading-tight text-center break-words" x-text="opt.text"></span>
                   </template>
                 </button>
               </template>
@@ -148,7 +148,7 @@
 
           <!-- Answered: lock banner -->
           <template x-if="answered">
-            <div class="relative rounded-3xl overflow-hidden border-4 px-8 py-10 text-center space-y-4 shadow-2xl"
+            <div class="relative rounded-3xl overflow-hidden border-4 px-5 py-6 sm:px-8 sm:py-10 text-center space-y-4 shadow-2xl"
                  :class="lastResult?.is_correct ? 'border-green-400 bg-gradient-to-br from-green-900/40 to-emerald-900/30' : 'border-red-400 bg-gradient-to-br from-red-900/40 to-red-800/30'"
                  role="status" aria-live="assertive">
               <div class="text-5xl font-black" x-text="lastResult?.is_correct ? '✓' : '✗'"
@@ -184,7 +184,7 @@
                      x-model="textAnswer"
                      type="text"
                      placeholder="Your answer..."
-                     autocomplete="off" autocorrect="off" spellcheck="false"
+                     inputmode="text" autocomplete="off" autocorrect="off" spellcheck="false"
                      class="w-full bg-white/10 backdrop-blur-xl border-2 border-white/30 rounded-2xl px-5 py-4 text-white placeholder-gray-400 text-base font-semibold focus:outline-none focus:ring-4 focus:ring-blue-500/40 focus:border-blue-400 transition-all">
               <button type="submit"
                       :disabled="!textAnswer.trim() || submitting"
@@ -194,7 +194,7 @@
             </form>
           </template>
           <template x-if="answered">
-            <div class="rounded-3xl px-8 py-10 text-center space-y-4"
+            <div class="rounded-3xl px-5 py-6 sm:px-8 sm:py-10 text-center space-y-4"
                  :class="lastResult?.is_correct ? 'border-4 border-green-400 bg-gradient-to-br from-green-900/40 to-emerald-900/30' : 'border-4 border-red-400 bg-gradient-to-br from-red-900/40 to-red-800/30'"
                  role="status" aria-live="assertive">
               <p class="text-5xl" x-text="lastResult?.is_correct ? '✅' : '❌'" aria-hidden="true"></p>
@@ -289,7 +289,7 @@
               <span class="w-6 text-center font-black text-xs flex-shrink-0"
                     :class="d.is_correct ? 'text-green-400' : 'text-gray-400'"
                     x-text="d.label"></span>
-              <div class="flex-1 bg-white/10 rounded-full h-3 overflow-hidden">
+              <div class="flex-1 min-w-0 bg-white/10 rounded-full h-3 overflow-hidden">
                 <div class="h-full rounded-full transition-all duration-700"
                      :class="d.is_correct ? 'bg-green-500' : 'bg-slate-500'"
                      :style="`width: ${totalAnswers > 0 ? Math.max(4, d.count / totalAnswers * 100) : (d.is_correct ? 4 : 0)}%`"></div>
@@ -330,7 +330,7 @@
         <!-- Total score -->
         <div>
           <p class="text-xs text-gray-400 font-bold uppercase tracking-widest mb-1">Total Score</p>
-          <p class="text-5xl font-black bg-gradient-to-r from-yellow-300 to-orange-300 bg-clip-text text-transparent"
+          <p class="text-4xl sm:text-5xl font-black bg-gradient-to-r from-yellow-300 to-orange-300 bg-clip-text text-transparent"
              x-text="score.toLocaleString()"></p>
         </div>
 
@@ -380,6 +380,9 @@
   .animate-points-pop { animation: points-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
 
   [x-cloak] { display: none !important; }
+
+  /* Safe-area inset for notched phones (iPhone X+) */
+  .pb-safe { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
 
   /* Code-snippet rendering inside question cards */
   .bb-prose {
