@@ -1,8 +1,39 @@
 {% extends "coding/base.html" %}
+{% load bb_extras %}
 {% block coding_title %}{{ exercise.title }}{% endblock %}
 
 {% block extra_head %}
 {{ block.super }}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<style>
+  /* Code-snippet rendering in exercise descriptions */
+  .bb-prose { display: block; white-space: pre-wrap; color: inherit; }
+  .bb-code {
+    display: block;
+    margin: 0.625rem 0;
+    border-radius: 0.5rem;
+    overflow-x: auto;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    padding: 0.875rem 1rem;
+    font-family: 'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace;
+    font-size: 0.8rem;
+    line-height: 1.65;
+    white-space: pre;
+    text-align: left;
+  }
+  .bb-code code {
+    background: none !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    font-size: inherit;
+    color: #e6edf3;
+  }
+  /* Ensure ed-desc inherits prose styling without pre-wrap on the container */
+  .ed-desc .bb-prose { white-space: pre-wrap; }
+  .ed-desc .bb-code  { white-space: pre; }
+</style>
 {# ── CodeMirror 5 — loaded in <head> so it's ready before DOMContentLoaded ── #}
 <link  rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
 <link  rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
@@ -63,7 +94,7 @@
       </div>
 
       {% if exercise.description %}
-        <pre class="whitespace-pre-wrap font-sans text-gray-800 leading-relaxed text-base bg-slate-50 border border-slate-200 rounded-xl p-4 mb-5">{{ exercise.description }}</pre>
+        <div class="bb-question-text text-gray-800 leading-relaxed text-base mb-5">{{ exercise.description|render_code_question }}</div>
       {% endif %}
 
       <form method="post" class="space-y-3" autocomplete="off">
@@ -248,7 +279,7 @@
             <span class="ed-level-badge ed-level-{{ exercise.level }}">{{ exercise.get_level_display }}</span>
             <h1>{{ exercise.title }}</h1>
           </div>
-          <p class="ed-desc">{{ exercise.description }}</p>
+          <div class="ed-desc">{{ exercise.description|render_code_question }}</div>
         </div>
 
         <!-- Hint -->
@@ -702,4 +733,11 @@ async function edMarkDone() {
 }
 </script>
 {% endif %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  if (typeof hljs !== 'undefined') {
+    document.querySelectorAll('.bb-code code').forEach(el => hljs.highlightElement(el));
+  }
+});
+</script>
 {% endblock %}

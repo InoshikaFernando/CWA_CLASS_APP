@@ -50,7 +50,7 @@ def _make_user(username, role_name=None):
     return user
 
 
-def _build_session(teacher, code='WINNER1'):
+def _build_session(teacher, code='WIN001'):
     subject, _ = Subject.objects.get_or_create(
         slug='winner-flow-maths', defaults={'name': 'Winner Flow Maths'},
     )

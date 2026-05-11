@@ -7,7 +7,8 @@
       "Bash(conda run *)",
       "Read(//c/Users/Administrator/Downloads/**)",
       "Bash(ls \"D:\\\\Capstone_Project\" 2>&1)",
-      "Read(//d/Capstone_Project/**)"
+      "Read(//d/Capstone_Project/**)",
+      "Bash(Test-Path \"c:\\\\Users\\\\Administrator\\\\Documents\\\\GitHub\\\\Code_Wizard_Source\\\\CWA_CLASS_APP\\\\cwa_classroom\\\\brainbuzz\\\\tests\\\\test_read_window.py\")"
     ]
   }
 }

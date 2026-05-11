@@ -22,7 +22,7 @@ from accounts.views import _validate_username, _generate_username_suggestion
 from .models import (
     School, SchoolTeacher, AcademicYear, ClassRoom, ClassSession, Department,
     DepartmentTeacher, SchoolStudent, Level, Subject, Term, ClassStudent,
-    SchoolHoliday, PublicHoliday, Currency,
+    SchoolHoliday, PublicHoliday, Currency, ParentStudent,
 )
 from .views import RoleRequiredMixin
 from .email_utils import send_staff_welcome_email
@@ -1855,6 +1855,11 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
 
         paginator = Paginator(qs, 25)
         page = paginator.get_page(request.GET.get('page'))
+        add_student_classes = (
+            _allowed_classes_for_user(request.user, school)
+            .select_related('subject', 'department')
+            .order_by('name')
+        ) if not request.headers.get('HX-Request') else []
         ctx = {
             'school': school,
             'school_students': page,
@@ -1869,6 +1874,8 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
                 ('classes', 'Classes'),
                 ('joined', 'Joined'),
             ],
+            'add_student_classes': add_student_classes,
+            'relationship_choices': ParentStudent.RELATIONSHIP_CHOICES,
         }
         if request.headers.get('HX-Request'):
             return render(request, 'admin_dashboard/partials/students_table.html', ctx)
@@ -1928,6 +1935,7 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
                 },
             })
 
+        linked_parent_info = None
         try:
             with transaction.atomic():
                 user = CustomUser.objects.create_user(
@@ -1942,6 +1950,29 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
                 )
                 UserRole.objects.create(user=user, role=student_role, assigned_by=request.user)
                 SchoolStudent.objects.create(school=school, student=user)
+
+                # Optional class enrollment
+                allowed_cls_ids = set(
+                    _allowed_classes_for_user(request.user, school)
+                    .values_list('id', flat=True)
+                )
+                for cid_str in request.POST.getlist('class_ids'):
+                    if cid_str.isdigit() and int(cid_str) in allowed_cls_ids:
+                        cs, _ = ClassStudent.objects.get_or_create(
+                            classroom_id=int(cid_str), student=user,
+                        )
+                        if not cs.is_active:
+                            cs.is_active = True
+                            cs.save(update_fields=['is_active'])
+
+                # Optional inline parent
+                parent_action = request.POST.get('parent_action', '').strip()
+                if parent_action == 'new':
+                    linked_parent_info = _inline_create_parent(
+                        request, school, user,
+                    )
+                elif parent_action == 'link':
+                    _inline_link_parent(request, school, user)
 
             log_event(
                 user=request.user, school=school, category='data_change',
@@ -1958,11 +1989,115 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
                 role_display='Student',
                 school=school,
             )
+            if linked_parent_info:
+                parent_user, temp_pw = linked_parent_info
+                from classroom.views_parent_admin import _send_parent_setup_email
+                _send_parent_setup_email(
+                    request=request, parent_user=parent_user,
+                    school=school, linked_students=[user],
+                    plain_password=temp_pw,
+                )
             messages.success(request, f'{first_name} {last_name} added as student. Login username: {username}')
         except Exception as e:
             messages.error(request, f'Error creating student: {e}')
 
         return redirect('admin_school_students', school_id=school.id)
+
+
+def _inline_create_parent(request, school, student_user):
+    """Create a new parent account inline during student add and link to student_user.
+
+    Returns (parent_user, plain_password) on success, None on skip (invalid/duplicate email).
+    Caller must be inside transaction.atomic().
+    """
+    import secrets
+    p_email = request.POST.get('parent_email', '').strip().lower()
+    p_first = request.POST.get('parent_first_name', '').strip()
+    p_last = request.POST.get('parent_last_name', '').strip()
+    p_phone = request.POST.get('parent_phone', '').strip()
+    p_rel = request.POST.get('parent_relationship', 'guardian').strip()
+
+    if not (p_email and '@' in p_email and p_first and p_last):
+        return None
+
+    if CustomUser.objects.filter(email=p_email).exists():
+        messages.warning(
+            request,
+            f'Parent email {p_email} already belongs to an existing account. '
+            'Student created — link the parent from the Parents page.',
+        )
+        return None
+
+    base_uname = p_email.split('@')[0]
+    uname = base_uname
+    ctr = 1
+    while CustomUser.objects.filter(username=uname).exists():
+        uname = f'{base_uname}{ctr}'
+        ctr += 1
+
+    temp_pw = secrets.token_urlsafe(10)
+    parent_user = CustomUser.objects.create_user(
+        username=uname, email=p_email,
+        first_name=p_first, last_name=p_last,
+        password=temp_pw, phone=p_phone or '',
+    )
+    parent_user.must_change_password = True
+    parent_user.creation_method = 'institute'
+    parent_user.profile_completed = True
+    parent_user.save(update_fields=['must_change_password', 'creation_method', 'profile_completed'])
+
+    parent_role, _ = Role.objects.get_or_create(
+        name=Role.PARENT, defaults={'display_name': 'Parent', 'description': 'Parent/guardian role'},
+    )
+    UserRole.objects.get_or_create(user=parent_user, role=parent_role)
+
+    existing_count = ParentStudent.objects.filter(
+        student=student_user, school=school, is_active=True,
+    ).count()
+    if existing_count < 2:
+        ParentStudent.objects.create(
+            parent=parent_user, student=student_user, school=school,
+            relationship=p_rel,
+            is_primary_contact=(existing_count == 0),
+            created_by=request.user,
+        )
+    return (parent_user, temp_pw)
+
+
+def _inline_link_parent(request, school, student_user):
+    """Link an existing parent account to student_user inline during student add.
+
+    Caller must be inside transaction.atomic().
+    """
+    p_id = request.POST.get('parent_id', '').strip()
+    p_rel = request.POST.get('parent_relationship', 'guardian').strip()
+    if not (p_id and p_id.isdigit()):
+        return
+
+    try:
+        parent_user = CustomUser.objects.get(id=int(p_id))
+    except CustomUser.DoesNotExist:
+        messages.warning(request, 'Parent account not found. Student created without parent link.')
+        return
+
+    parent_role, _ = Role.objects.get_or_create(
+        name=Role.PARENT, defaults={'display_name': 'Parent', 'description': 'Parent/guardian role'},
+    )
+    UserRole.objects.get_or_create(user=parent_user, role=parent_role)
+
+    already_linked = ParentStudent.objects.filter(
+        parent=parent_user, student=student_user, school=school,
+    ).exists()
+    existing_count = ParentStudent.objects.filter(
+        student=student_user, school=school, is_active=True,
+    ).count()
+    if not already_linked and existing_count < 2:
+        ParentStudent.objects.create(
+            parent=parent_user, student=student_user, school=school,
+            relationship=p_rel,
+            is_primary_contact=(existing_count == 0),
+            created_by=request.user,
+        )
 
 
 def _allowed_classes_for_user(user, school):

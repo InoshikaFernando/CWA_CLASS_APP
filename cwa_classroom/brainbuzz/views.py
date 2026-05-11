@@ -54,6 +54,13 @@ from .utils import generate_join_code
 # answer tiles appear and the per-question timer starts.
 READ_WINDOW_SEC = 10
 
+# Grace period: submissions and auto-reveal both use this window after deadline.
+ANSWER_GRACE_MS = 500
+
+TIME_PER_QUESTION_MIN = 5
+TIME_PER_QUESTION_MAX = 120
+TIME_PER_QUESTION_DEFAULT = 20
+
 # Nickname: 1–20 chars, letters / digits / internal spaces
 _NICKNAME_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9 ]{0,19}$')
 _NICKNAME_MAX = 20
@@ -154,11 +161,14 @@ def _session_state_payload(session: BrainBuzzSession) -> dict:
 
     question_data = None
     if current_q is not None:
+        from brainbuzz.utils import render_question_html
         question_data = {
             'order': current_q.order,
             'question_text': current_q.question_text,
+            'question_html': render_question_html(current_q.question_text),
             'question_type': current_q.question_type,
             'options': current_q.options_json,
+            'correct_short_answer': current_q.correct_short_answer or '',
             'time_limit_sec': current_q.time_limit_sec,
             'question_deadline': (
                 session.question_deadline.isoformat()
@@ -366,9 +376,20 @@ def create_session(request):
         except (ValueError, TypeError):
             question_count = 10
 
+        time_per_question_sec, time_error = _parse_time_per_question(
+            request.POST.get('time_per_question_sec', TIME_PER_QUESTION_DEFAULT)
+        )
+        if time_error:
+            return render(request, 'brainbuzz/teacher_create.html', {
+                **_create_context(),
+                'error': time_error,
+                'time_per_question_sec': time_per_question_sec,
+            })
+
         if not subject_key:
             return render(request, 'brainbuzz/teacher_create.html', {
                 'error': 'Invalid subject.',
+                'time_per_question_sec': time_per_question_sec,
                 **_create_context(),
             })
 
@@ -383,6 +404,7 @@ def create_session(request):
         if not subject_obj:
             return render(request, 'brainbuzz/teacher_create.html', {
                 'error': 'Invalid subject.',
+                'time_per_question_sec': time_per_question_sec,
                 **_create_context(),
             })
 
@@ -392,6 +414,7 @@ def create_session(request):
             if not topic_id or not level_id:
                 return render(request, 'brainbuzz/teacher_create.html', {
                     'error': 'Select a topic and level.',
+                    'time_per_question_sec': time_per_question_sec,
                     **_create_context(),
                 })
             config = {
@@ -399,7 +422,7 @@ def create_session(request):
                 'topic_id': int(topic_id),
                 'level_id': int(level_id),
                 'question_count': question_count,
-                'time_per_question_sec': int(request.POST.get('time_per_question_sec', 20)),
+                'time_per_question_sec': time_per_question_sec,
             }
             with transaction.atomic():
                 session = BrainBuzzSession.objects.create(
@@ -407,7 +430,7 @@ def create_session(request):
                     host=request.user,
                     subject=subject_obj,
                     status=BrainBuzzSession.STATUS_LOBBY,
-                    time_per_question_sec=config['time_per_question_sec'],
+                    time_per_question_sec=time_per_question_sec,
                     config_json=config,
                 )
                 _snapshot_maths_questions(session, int(topic_id), int(level_id), question_count)
@@ -415,6 +438,7 @@ def create_session(request):
                 session.delete()
                 return render(request, 'brainbuzz/teacher_create.html', {
                     'error': 'No suitable questions found for that topic and level. Try a different selection.',
+                    'time_per_question_sec': time_per_question_sec,
                     **_create_context(),
                 })
             return redirect('brainbuzz:teacher_lobby', join_code=session.code)
@@ -424,13 +448,14 @@ def create_session(request):
             if not topic_level_id:
                 return render(request, 'brainbuzz/teacher_create.html', {
                     'error': 'Select a coding topic level.',
+                    'time_per_question_sec': time_per_question_sec,
                     **_create_context(),
                 })
             config = {
                 'subject': subject_key,
                 'topic_level_id': int(topic_level_id),
                 'question_count': question_count,
-                'time_per_question_sec': int(request.POST.get('time_per_question_sec', 20)),
+                'time_per_question_sec': time_per_question_sec,
             }
             with transaction.atomic():
                 session = BrainBuzzSession.objects.create(
@@ -438,7 +463,7 @@ def create_session(request):
                     host=request.user,
                     subject=subject_obj,
                     status=BrainBuzzSession.STATUS_LOBBY,
-                    time_per_question_sec=config['time_per_question_sec'],
+                    time_per_question_sec=time_per_question_sec,
                     config_json=config,
                 )
                 _snapshot_coding_questions(session, int(topic_level_id), question_count)
@@ -446,12 +471,14 @@ def create_session(request):
                 session.delete()
                 return render(request, 'brainbuzz/teacher_create.html', {
                     'error': 'No MCQ/TF/short-answer coding exercises found for that topic level.',
+                    'time_per_question_sec': time_per_question_sec,
                     **_create_context(),
                 })
             return redirect('brainbuzz:teacher_lobby', join_code=session.code)
 
         return render(request, 'brainbuzz/teacher_create.html', {
             'error': 'Invalid subject.',
+            'time_per_question_sec': time_per_question_sec,
             **_create_context(),
         })
 
@@ -468,6 +495,18 @@ def _create_context():
         'maths_topics': [],
         'maths_levels': [],
         'coding_topic_levels': [],
+        'time_per_question_sec': TIME_PER_QUESTION_DEFAULT,
+        'time_per_question_options': [
+            (5,   '5 seconds'),
+            (10,  '10 seconds'),
+            (15,  '15 seconds'),
+            (20,  '20 seconds'),
+            (30,  '30 seconds'),
+            (45,  '45 seconds'),
+            (60,  '60 seconds'),
+            (90,  '90 seconds'),
+            (120, '120 seconds'),
+        ],
     }
     for plugin in brainbuzz_plugins():
         ctx['bb_subject_choices'].append((plugin.brainbuzz_subject_key, plugin.display_name))
@@ -524,6 +563,23 @@ def _create_context():
             tl['questions'] = []
 
     return ctx
+
+
+def _parse_time_per_question(raw) -> tuple[int, str | None]:
+    """Parse and validate the time_per_question_sec form field.
+
+    Returns (value, error_message).  error_message is None on success.
+    """
+    try:
+        value = int(raw)
+    except (ValueError, TypeError):
+        return TIME_PER_QUESTION_DEFAULT, 'Time per question must be a whole number of seconds.'
+    if not (TIME_PER_QUESTION_MIN <= value <= TIME_PER_QUESTION_MAX):
+        return value, (
+            f'Time per question must be between {TIME_PER_QUESTION_MIN} '
+            f'and {TIME_PER_QUESTION_MAX} seconds.'
+        )
+    return value, None
 
 
 _INGAME_STATUSES = {
@@ -744,13 +800,52 @@ def student_play(request, join_code):
 # JSON API
 # ---------------------------------------------------------------------------
 
+def _auto_reveal_if_expired(session: BrainBuzzSession) -> BrainBuzzSession:
+    """Lazily transition ACTIVE → REVEAL when question_deadline has elapsed.
+
+    Called on every state poll so no background worker is needed.  Uses
+    select_for_update inside a transaction so concurrent requests from
+    many clients can't double-transition the same session.
+
+    Returns the (possibly updated) session instance.
+    """
+    if (
+        session.status != BrainBuzzSession.STATUS_ACTIVE
+        or session.question_deadline is None
+        or timezone.now() < session.question_deadline + timedelta(milliseconds=ANSWER_GRACE_MS)
+    ):
+        return session
+
+    with transaction.atomic():
+        locked = BrainBuzzSession.objects.select_for_update().get(pk=session.pk)
+        # Re-check inside the lock — another request may have already transitioned.
+        if (
+            locked.status == BrainBuzzSession.STATUS_ACTIVE
+            and locked.question_deadline is not None
+            and timezone.now() >= locked.question_deadline + timedelta(milliseconds=ANSWER_GRACE_MS)
+        ):
+            locked.status = BrainBuzzSession.STATUS_REVEAL
+            locked.question_deadline = None
+            locked.state_version += 1
+            locked.save()
+            return locked
+        return locked
+
+
 @require_GET
 def api_session_state(request, join_code):
     """Versioned polling endpoint.
 
     ?since=<state_version>  → 304 if unchanged, else full state.
+
+    Before answering, lazily transitions ACTIVE → REVEAL if the question
+    deadline has elapsed, so no background worker is needed.
     """
     session = get_object_or_404(BrainBuzzSession, code=join_code.upper())
+
+    # Lazy auto-reveal — must happen before the 304 check so the caller
+    # always sees the new status in the same response that detects expiry.
+    session = _auto_reveal_if_expired(session)
 
     try:
         since = int(request.GET.get('since', -1))
@@ -999,12 +1094,11 @@ def api_submit(request, join_code):
     else:
         time_taken_ms = 0
 
-    grace_period_ms = 500
     is_on_time = session.question_deadline is None or (
-        now <= session.question_deadline + timedelta(milliseconds=grace_period_ms)
+        now <= session.question_deadline + timedelta(milliseconds=ANSWER_GRACE_MS)
     )
     is_late = session.question_deadline is not None and (
-        now > session.question_deadline + timedelta(milliseconds=grace_period_ms)
+        now > session.question_deadline + timedelta(milliseconds=ANSWER_GRACE_MS)
     )
 
     existing = BrainBuzzAnswer.objects.filter(
