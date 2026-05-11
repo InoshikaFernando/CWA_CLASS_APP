@@ -968,8 +968,17 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
             )
 
             # 3. Link HomeworkQuestions
+            # bulk_create bypasses save(), so set content_id and subject_slug explicitly
+            # — otherwise the back-compat logic in save() never fires and every row
+            # gets content_id=0, causing a unique-constraint violation on the second row.
             HomeworkQuestion.objects.bulk_create([
-                HomeworkQuestion(homework=homework, question=q, order=i)
+                HomeworkQuestion(
+                    homework=homework,
+                    question=q,
+                    subject_slug='mathematics',
+                    content_id=q.pk,
+                    order=i,
+                )
                 for i, q in enumerate(saved_questions, 1)
             ])
 
@@ -1092,27 +1101,28 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             mq.grading_rubric = grading_rubric
             mq.save(update_fields=['validation_type', 'grading_rubric'])
 
-        # Save image file if this question has one and it was just created
-        if created:
+        # Save image to storage (DO Spaces / S3) via Django's ImageField.save()
+        # Run when newly created OR when question exists but has no image yet
+        # (covers re-uploads after previously broken confirm attempts).
+        if (created or not mq.image):
+            import logging as _img_log
+            _img_logger = _img_log.getLogger('homework')
             image_ref = q.get('image_ref')
             image_b64 = session.extracted_images.get(image_ref) if image_ref else None
             if image_b64:
                 try:
                     import base64
-                    import os
-                    from django.conf import settings
+                    from django.core.files.base import ContentFile
                     topic_slug = topic.slug if hasattr(topic, 'slug') else str(topic.id)
-                    img_dir = os.path.join(
-                        settings.MEDIA_ROOT, 'questions', f'year{yl}', topic_slug,
+                    img_bytes = base64.b64decode(image_b64)
+                    img_filename = f'year{yl}/{topic_slug}/{image_ref}'
+                    mq.image.save(img_filename, ContentFile(img_bytes), save=True)
+                    _img_logger.info('Saved question image: %s', mq.image.name)
+                except Exception as _exc:
+                    _img_logger.error(
+                        'Failed to save image for question %s (ref=%s): %s',
+                        mq.pk, image_ref, _exc, exc_info=True,
                     )
-                    os.makedirs(img_dir, exist_ok=True)
-                    img_path = os.path.join(img_dir, image_ref)
-                    with open(img_path, 'wb') as f:
-                        f.write(base64.b64decode(image_b64))
-                    mq.image = os.path.join('questions', f'year{yl}', topic_slug, image_ref)
-                    mq.save(update_fields=['image'])
-                except Exception:
-                    pass  # Image saving is best-effort
 
         # Save answers (skip for extended_answer)
         if mapped_type != MQ.EXTENDED_ANSWER:
