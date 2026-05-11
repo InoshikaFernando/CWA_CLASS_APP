@@ -255,17 +255,18 @@ class TestPayButtonRedirect:
 
     def test_pay_redirects_to_payment_link(self):
         """Clicking Pay Now POSTs to checkout endpoint which returns the payment link."""
+        redirect_url = f"{self.url}/parent/invoices/pay/success/?isp_id=1"
         self.page.route(
             f"{self.url}/parent/invoices/pay/",
             lambda route: route.fulfill(
                 status=200,
                 content_type="application/json",
-                body='{"checkout_url": "https://pay.example.com/school"}',
+                body=f'{{"checkout_url": "{redirect_url}"}}',
             ),
         )
 
         self.page.locator("#direct-pay-btn").click()
-        self.page.wait_for_url(lambda url: "pay.example.com" in url, timeout=8000)
+        self.page.wait_for_url(lambda url: "success" in url, timeout=8000)
 
     def test_pay_button_disables_during_request(self):
         """Button shows redirecting text while request is in flight."""
