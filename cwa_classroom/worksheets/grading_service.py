@@ -262,20 +262,37 @@ def _call_claude_grade(question, answer_text, normalised_text):
     system = (
         'You are an expert school teacher grading student answers to mathematics questions.\n'
         'Be fair, consistent, and educational in your feedback.\n'
-        'CRITICAL: For geometry proofs and reasoning questions, there are often MULTIPLE valid '
-        'proof paths. The rubric shows ONE possible correct approach — do NOT penalise a student '
-        'for using a different but equally valid chain of reasoning. Award full marks for any '
-        'answer that uses correct mathematical statements and valid logic to reach the correct '
-        'conclusion, regardless of which angle relationships or theorems they chose to use.\n'
-        'Only penalise: incorrect mathematical statements, missing logical steps, or arriving '
-        'at the wrong conclusion.\n'
-        'Award partial credit where the student shows correct understanding but incomplete reasoning.\n'
+
+        'APPROACH OVER PRECISION: For geometry proof questions your job is to assess whether '
+        'the student understands the correct mathematical approach, NOT to penalise minor '
+        'labelling errors or imprecise notation. Ask yourself: "Does this student know HOW to '
+        'solve this?" If yes, award passing marks (>= 0.65) even if their letter references '
+        'are slightly off or their wording is informal.\n'
+
+        'MULTIPLE VALID PATHS: There are often many valid proof paths. The rubric shows one '
+        'approach — a student using a completely different but valid chain of reasoning must '
+        'receive full or near-full marks.\n'
+
+        'SCORING GUIDE:\n'
+        '  1.0 — Correct approach, correct conclusion, clear reasoning.\n'
+        '  0.8 — Correct approach and conclusion but minor gaps or imprecision in notation.\n'
+        '  0.65 — Student clearly knows the right theorems/approach but has a labelling error '
+        'or one missing step. PASS — the concept is understood.\n'
+        '  0.4 — Partially correct: right idea but reasoning is incomplete or one step is wrong.\n'
+        '  0.1 — Shows some relevant knowledge but cannot form a valid argument.\n'
+        '  0.0 — Completely wrong or no meaningful attempt.\n'
+
+        'KEY RULE: If the student names the correct theorems (e.g. vertically opposite angles, '
+        'co-interior angles, corresponding angles, linear pair) and applies them in the right '
+        'spirit — even with wrong letter labels — award at least 0.65. Only score below 0.4 '
+        'if the student clearly does NOT understand the approach.\n'
+
         'Your response must be valid JSON.'
     )
 
     user_prompt = f"""Question: {question.question_text}
 
-Marking rubric (shows one valid approach — other valid proofs are equally acceptable):
+Marking rubric (one valid approach — other valid proofs are equally acceptable):
 {rubric}
 
 {examples_text}
@@ -283,14 +300,19 @@ Marking rubric (shows one valid approach — other valid proofs are equally acce
 Student answer to grade:
 {answer_text}
 
-Before scoring, check: is the student's reasoning mathematically valid, even if it uses
-different angle relationships than the rubric? If yes, award full or near-full marks.
+Before scoring, ask:
+1. Does the student identify the correct TYPE of angle relationships needed? (e.g. co-interior, corresponding, vertically opposite)
+2. Does the student reach (or clearly intend to reach) the correct conclusion?
+3. Is any error a labelling slip or a genuine conceptual misunderstanding?
+
+If the student clearly knows the approach but made a labelling error or missed one connecting step, score >= 0.65 (pass).
+Only fail if they fundamentally misunderstand the geometry.
 
 Respond with JSON only:
 {{
   "score_fraction": <0.0 to 1.0>,
   "is_correct": <true if score_fraction >= 0.6>,
-  "feedback": "<1-3 sentences explaining the grade — what was right, what was wrong, what they should understand>"
+  "feedback": "<1-3 sentences: acknowledge what they got right, explain any error briefly, encourage>"
 }}"""
 
     try:
