@@ -5,15 +5,35 @@ Every fixture defaults to function scope so the database is rolled back
 after each test — no state leaks between tests.  pytest-django's
 ``live_server`` fixture already uses ``TransactionTestCase`` behaviour,
 which truncates all tables after each test function.
+
+Live-URL mode
+~~~~~~~~~~~~~
+Pass ``--live-url=https://dev.wizardslearninghub.co.nz`` to run tests
+against a deployed environment instead of spinning up a local server.
+In this mode the tests use the real MySQL database configured in ``.env``
+and the ``live_server`` fixture returns the provided URL.
 """
 
 from __future__ import annotations
 
 import os
 
-# Force SQLite for UI tests unless DB_ENGINE was explicitly set before import
-# (os.environ.setdefault won't work because load_dotenv hasn't run yet)
-if "DB_ENGINE" not in os.environ:
+# ---------------------------------------------------------------------------
+# --live-url support: detect early so we can skip the SQLite override
+# ---------------------------------------------------------------------------
+import sys
+_LIVE_URL = None
+for arg in sys.argv:
+    if arg.startswith("--live-url="):
+        _LIVE_URL = arg.split("=", 1)[1].rstrip("/")
+        break
+    if arg == "--live-url" and sys.argv.index(arg) + 1 < len(sys.argv):
+        _LIVE_URL = sys.argv[sys.argv.index(arg) + 1].rstrip("/")
+        break
+
+# Force SQLite for UI tests unless running against a live URL or
+# DB_ENGINE was explicitly set before import
+if _LIVE_URL is None and "DB_ENGINE" not in os.environ:
     os.environ["DB_ENGINE"] = "sqlite"
 # Allow synchronous DB operations in Playwright's async event loop
 os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
@@ -30,6 +50,24 @@ from playwright.sync_api import Page, expect
 
 
 # ---------------------------------------------------------------------------
+# pytest hooks for --live-url
+# ---------------------------------------------------------------------------
+def pytest_addoption(parser):
+    parser.addoption(
+        "--live-url",
+        default=None,
+        help="Run UI tests against a deployed URL (e.g. https://dev.wizardslearninghub.co.nz)",
+    )
+
+
+def pytest_configure(config):
+    live_url = config.getoption("--live-url", default=None)
+    if live_url:
+        # Disable parallel execution — tests share the remote DB
+        config.option.numprocesses = 0
+
+
+# ---------------------------------------------------------------------------
 # Viewport — must be wide enough for the desktop sidebar (md: = 768px)
 # ---------------------------------------------------------------------------
 @pytest.fixture(scope="session")
@@ -39,6 +77,35 @@ def browser_context_args(browser_context_args):
         **browser_context_args,
         "viewport": {"width": 1280, "height": 800},
     }
+
+
+# ---------------------------------------------------------------------------
+# Override live_server when --live-url is provided
+# ---------------------------------------------------------------------------
+class _LiveURL:
+    """Mimics pytest-django's LiveServer interface with a fixed URL."""
+    def __init__(self, url: str):
+        self._url = url
+
+    @property
+    def url(self):
+        return self._url
+
+    def __str__(self):
+        return self._url
+
+
+@pytest.fixture(scope="session")
+def live_server(request):
+    live_url = request.config.getoption("--live-url", default=None)
+    if live_url:
+        yield _LiveURL(live_url.rstrip("/"))
+    else:
+        from pytest_django.live_server_helper import LiveServer
+        addr = request.config.getvalue("liveserver") or "localhost"
+        server = LiveServer(addr)
+        request.addfinalizer(server.stop)
+        yield server
 
 
 # ---------------------------------------------------------------------------

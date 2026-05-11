@@ -5,7 +5,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.db.models import Max, Prefetch
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -443,15 +443,38 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
                 total_questions=total,
                 time_taken_seconds=time_taken,
             )
-            # Attach the submission to the pre-built rows and bulk-create.
+
+            # Attach the submission to the pre-built rows (graded outside the
+            # transaction by the subject-plugin layer above).
             for row in answer_records:
                 row.submission = submission
+
+            # Mark rows that need AI or human grading based on validation_type
+            # on the underlying maths.Question (only applicable to maths rows).
+            _q_ids = [r.question_id for r in answer_records if r.question_id]
+            if _q_ids:
+                _vmap = dict(
+                    Question.objects.filter(id__in=_q_ids)
+                    .values_list('id', 'validation_type')
+                )
+                for row in answer_records:
+                    if row.question_id:
+                        vtype = _vmap.get(row.question_id, 'auto')
+                        if vtype == Question.VALIDATION_AI:
+                            row.review_status = HomeworkStudentAnswer.REVIEW_PENDING_AI
+                        elif vtype == Question.VALIDATION_HUMAN:
+                            row.review_status = HomeworkStudentAnswer.REVIEW_PENDING_TEACHER
+
             HomeworkStudentAnswer.objects.bulk_create(answer_records)
 
             pts = calculate_points(score, total, time_taken)
             submission.score = score
             submission.points = pts
             submission.save(update_fields=['score', 'points'])
+
+        # Trigger AI grading for any pending-AI answers (outside the atomic block
+        # so a grading failure doesn't roll back the submission)
+        _trigger_ai_grading_for_submission(submission, request)
 
         if request.POST.get('action') == 'save_exit':
             return redirect('homework:student_list')
@@ -506,3 +529,741 @@ def _check_student_enrolled(request, classroom):
     if not ClassStudent.objects.filter(student=request.user, classroom=classroom, is_active=True).exists():
         from django.http import Http404
         raise Http404
+
+
+def _trigger_ai_grading_for_submission(submission, request=None):
+    """
+    After a submission is saved, grade any answers with review_status='pending_ai'
+    using the AI grading service (with caching).
+    """
+    from worksheets.grading_service import grade_extended_answer
+    from billing.entitlements import get_school_for_user
+    from django.utils import timezone
+
+    pending = list(
+        submission.answers
+        .filter(review_status=HomeworkStudentAnswer.REVIEW_PENDING_AI)
+        .select_related('question')
+    )
+
+    if not pending:
+        return
+
+    school = None
+    try:
+        if request:
+            school = get_school_for_user(request.user)
+    except Exception:
+        pass
+
+    for answer in pending:
+        try:
+            result = grade_extended_answer(answer.question, answer.text_answer, school=school)
+            score_frac = result.get('score_fraction', 0.0)
+            answer.is_correct = result.get('is_correct', False)
+            answer.ai_score_fraction = score_frac
+            answer.ai_feedback = result.get('feedback', '')
+            answer.points_earned = round(answer.question.points * score_frac, 2)
+            answer.review_status = HomeworkStudentAnswer.REVIEW_AI_DONE
+            answer.graded_at = timezone.now()
+            answer.save(update_fields=[
+                'is_correct', 'ai_score_fraction', 'ai_feedback',
+                'points_earned', 'review_status', 'graded_at',
+            ])
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                f'AI grading failed for HomeworkStudentAnswer {answer.pk}'
+            )
+
+    # Recalculate submission score to include AI-graded points
+    _recalculate_submission_score(submission)
+
+
+def _recalculate_submission_score(submission):
+    """Recount score and points from all answers (called after grading)."""
+    answers = list(submission.answers.select_related('question'))
+    score = sum(1 for a in answers if a.is_correct)
+    pts = sum(a.points_earned for a in answers)
+    submission.score = score
+    submission.points = pts
+    submission.save(update_fields=['score', 'points'])
+
+
+# ---------------------------------------------------------------------------
+# Teacher: PDF Homework Upload Flow (3 steps)
+# ---------------------------------------------------------------------------
+
+TEACHER_ROLES = ['teacher', 'senior_teacher', 'junior_teacher']
+
+
+class HomeworkPDFUploadView(RoleRequiredMixin, View):
+    """Step 1 — upload a PDF; AI extracts questions and stores in HomeworkUploadSession."""
+    required_roles = TEACHER_ROLES
+    template_name = 'homework/upload.html'
+
+    def get(self, request):
+        classrooms = _teacher_classrooms(request.user)
+        error = request.GET.get('error')
+        if error:
+            messages.error(request, f'Error processing PDF: {error}')
+        return render(request, self.template_name, {'classrooms': classrooms})
+
+    def post(self, request):
+        import threading
+        from billing.entitlements import get_school_for_user
+        from classroom.models import Topic, Level
+
+        pdf_file = request.FILES.get('pdf_file')
+        classroom_id = request.POST.get('classroom_id')
+
+        if not pdf_file:
+            messages.error(request, 'Please select a PDF file.')
+            return redirect('homework:pdf_upload')
+
+        if not pdf_file.name.lower().endswith('.pdf'):
+            messages.error(request, 'Only PDF files are supported.')
+            return redirect('homework:pdf_upload')
+
+        school = get_school_for_user(request.user)
+        classroom = None
+        if classroom_id:
+            try:
+                classroom = ClassRoom.objects.get(id=classroom_id)
+                _check_teacher_owns_class(request, classroom)
+            except (ClassRoom.DoesNotExist, Exception):
+                classroom = None
+
+        hw_title = pdf_file.name
+        if hw_title.lower().endswith('.pdf'):
+            hw_title = hw_title[:-4]
+
+        from .models import HomeworkUploadSession
+        from django.core.files.base import ContentFile
+
+        # Read file bytes now — the InMemoryUploadedFile will be GC'd after the request
+        pdf_bytes = pdf_file.read()
+
+        existing_topics = list(Topic.objects.filter(
+            subject__slug='mathematics',
+        ).values('name', 'slug')[:100])
+        existing_levels = list(Level.objects.filter(
+            level_number__lte=12,
+        ).values('level_number', 'display_name'))
+
+        # Create session immediately so we can redirect to the polling page
+        session = HomeworkUploadSession.objects.create(
+            user=request.user,
+            school=school,
+            classroom=classroom,
+            pdf_filename=pdf_file.name,
+            homework_title=hw_title,
+            status=HomeworkUploadSession.STATUS_PROCESSING,
+        )
+        session.pdf_file.save(pdf_file.name, ContentFile(pdf_bytes), save=True)
+
+        # Run AI extraction in a background thread so the HTTP response returns immediately
+        def _process(session_id, pdf_bytes, existing_topics, existing_levels):
+            import django.db
+            from worksheets.services import extract_and_classify_worksheet
+            from io import BytesIO
+            try:
+                pdf_io = BytesIO(pdf_bytes)
+                pdf_io.name = session.pdf_filename
+                output = extract_and_classify_worksheet(pdf_io, existing_topics, existing_levels)
+                result = output['result']
+                HomeworkUploadSession.objects.filter(pk=session_id).update(
+                    extracted_data=result,
+                    extracted_images=output['extracted_images'],
+                    page_count=output['page_count'],
+                    tokens_used=result.get('usage', {}).get('total_tokens', 0),
+                    status=HomeworkUploadSession.STATUS_DONE,
+                )
+            except Exception as e:
+                HomeworkUploadSession.objects.filter(pk=session_id).update(
+                    status=HomeworkUploadSession.STATUS_ERROR,
+                    error_message=str(e),
+                )
+            finally:
+                django.db.connections.close_all()
+
+        t = threading.Thread(target=_process, args=(session.pk, pdf_bytes, existing_topics, existing_levels), daemon=True)
+        t.start()
+
+        return redirect('homework:pdf_processing', session_id=session.pk)
+
+
+class HomeworkPDFProcessingView(RoleRequiredMixin, View):
+    """Polling page shown while AI extracts questions in the background."""
+    required_roles = TEACHER_ROLES
+    template_name = 'homework/upload_processing.html'
+
+    def get(self, request, session_id):
+        from .models import HomeworkUploadSession
+        session = get_object_or_404(HomeworkUploadSession, pk=session_id, user=request.user)
+        return render(request, self.template_name, {'session': session})
+
+
+class HomeworkPDFStatusView(RoleRequiredMixin, View):
+    """HTMX polling endpoint — returns a redirect fragment when processing is done."""
+    required_roles = TEACHER_ROLES
+
+    def get(self, request, session_id):
+        from .models import HomeworkUploadSession
+        session = get_object_or_404(HomeworkUploadSession, pk=session_id, user=request.user)
+
+        if session.status == HomeworkUploadSession.STATUS_DONE:
+            # Tell HTMX to navigate to the preview page
+            response = HttpResponse(status=204)
+            response['HX-Redirect'] = reverse('homework:pdf_preview', args=[session_id])
+            return response
+
+        if session.status == HomeworkUploadSession.STATUS_ERROR:
+            response = HttpResponse(status=204)
+            response['HX-Redirect'] = (
+                reverse('homework:pdf_upload') + f'?error={session.error_message[:200]}'
+            )
+            return response
+
+        # Still processing — return 204 so HTMX keeps polling
+        return HttpResponse(status=204)
+
+
+class HomeworkPDFPreviewView(RoleRequiredMixin, View):
+    """Step 2 — preview AI-extracted questions; teacher edits, sets validation_type, confirms."""
+    required_roles = TEACHER_ROLES
+    template_name = 'homework/upload_preview.html'
+
+    def get(self, request, session_id):
+        from .models import HomeworkUploadSession
+        session = get_object_or_404(
+            HomeworkUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        data = session.extracted_data
+        questions = data.get('questions', [])
+
+        from classroom.models import Topic, Level
+        topics = Topic.objects.filter(subject__slug='mathematics').order_by('name')
+        levels = Level.objects.filter(level_number__lte=12).order_by('level_number')
+        classrooms = _teacher_classrooms(request.user)
+
+        for q in questions:
+            q.setdefault('year_level', data.get('year_level'))
+            q.setdefault('subject', data.get('subject', 'Mathematics'))
+            q.setdefault('strand', data.get('strand', ''))
+            q.setdefault('topic', data.get('topic', ''))
+            q.setdefault('include', True)
+            q.setdefault('validation_type', 'auto')
+            q.setdefault('grading_rubric', '')
+            ref = q.get('image_ref')
+            q['image_b64'] = session.extracted_images.get(ref) if ref else None
+
+        return render(request, self.template_name, {
+            'session': session,
+            'data': data,
+            'questions': questions,
+            'topics': topics,
+            'levels': levels,
+            'classrooms': classrooms,
+            'question_types': [
+                ('multiple_choice', 'Multiple Choice'),
+                ('true_false', 'True / False'),
+                ('short_answer', 'Short Answer'),
+                ('fill_blank', 'Fill in the Blank'),
+                ('calculation', 'Calculation'),
+                ('extended_answer', 'Extended Answer (written)'),
+            ],
+            'validation_types': [
+                ('auto', 'Auto (system checks)'),
+                ('ai_graded', 'AI Graded (Claude evaluates)'),
+                ('human_graded', 'Human Graded (teacher reviews)'),
+            ],
+        })
+
+    def post(self, request, session_id):
+        """Save teacher edits and redirect to confirm step."""
+        from .models import HomeworkUploadSession
+        session = get_object_or_404(
+            HomeworkUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        data = session.extracted_data
+
+        # Homework title and classroom
+        hw_title = request.POST.get('homework_title', '').strip()
+        if hw_title:
+            session.homework_title = hw_title
+
+        classroom_id = request.POST.get('classroom_id', '')
+        if classroom_id:
+            try:
+                classroom = ClassRoom.objects.get(id=classroom_id)
+                _check_teacher_owns_class(request, classroom)
+                session.classroom = classroom
+            except (ClassRoom.DoesNotExist, Exception):
+                pass
+
+        data['year_level'] = int(request.POST.get('year_level', data.get('year_level', 1)))
+        data['topic'] = request.POST.get('topic', data.get('topic', ''))
+        data['strand'] = request.POST.get('strand', data.get('strand', ''))
+        data['subject'] = request.POST.get('subject', data.get('subject', 'Mathematics'))
+
+        questions = data.get('questions', [])
+        for idx, q in enumerate(questions):
+            prefix = f'q_{idx}_'
+            q['include'] = request.POST.get(f'{prefix}include') == 'on'
+            q['question_text'] = request.POST.get(f'{prefix}text', q.get('question_text', ''))
+            q['question_type'] = request.POST.get(f'{prefix}type', q.get('question_type', 'short_answer'))
+            q['validation_type'] = request.POST.get(f'{prefix}validation_type', q.get('validation_type', 'auto'))
+            q['grading_rubric'] = request.POST.get(f'{prefix}grading_rubric', q.get('grading_rubric', ''))
+            q['difficulty'] = int(request.POST.get(f'{prefix}difficulty', q.get('difficulty', 1)))
+            q['points'] = int(request.POST.get(f'{prefix}points', q.get('points', 1)))
+            q['explanation'] = request.POST.get(f'{prefix}explanation', q.get('explanation', ''))
+            q['year_level'] = int(request.POST.get(f'{prefix}year_level', q.get('year_level', data['year_level'])))
+            q['subject'] = request.POST.get(f'{prefix}subject', q.get('subject', data['subject']))
+            q['strand'] = request.POST.get(f'{prefix}strand', q.get('strand', data['strand']))
+            q['topic'] = request.POST.get(f'{prefix}topic', q.get('topic', data['topic']))
+
+            img_ref = request.POST.get(f'{prefix}image_ref', '')
+            q['image_ref'] = img_ref if img_ref and img_ref != 'none' else None
+
+            # Handle image replacement / removal
+            if request.POST.get(f'{prefix}remove_image') == 'on':
+                q['image_ref'] = None
+            elif f'{prefix}image_upload' in request.FILES:
+                import base64 as _base64
+                import uuid as _uuid
+                uploaded = request.FILES[f'{prefix}image_upload']
+                new_ref = f'upload_{_uuid.uuid4().hex[:8]}_{uploaded.name}'
+                img_b64 = _base64.b64encode(uploaded.read()).decode('utf-8')
+                session.extracted_images[new_ref] = img_b64
+                q['image_ref'] = new_ref
+
+            answers = []
+            for a_idx in range(20):
+                a_text = request.POST.get(f'{prefix}answer_{a_idx}_text', '')
+                if a_text.strip():
+                    answers.append({
+                        'text': a_text,
+                        'is_correct': request.POST.get(f'{prefix}answer_{a_idx}_correct') == 'on',
+                    })
+            if answers:
+                q['answers'] = answers
+
+        data['questions'] = questions
+        session.extracted_data = data
+        session.save(update_fields=['extracted_data', 'extracted_images', 'homework_title', 'classroom'])
+
+        return redirect('homework:pdf_confirm', session_id=session.pk)
+
+
+class HomeworkPDFConfirmView(RoleRequiredMixin, View):
+    """Step 3 — create Homework + questions in DB and notify students."""
+    required_roles = TEACHER_ROLES
+    template_name = 'homework/upload_confirm.html'
+
+    def get(self, request, session_id):
+        from .models import HomeworkUploadSession
+        session = get_object_or_404(
+            HomeworkUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        data = session.extracted_data
+        included = [q for q in data.get('questions', []) if q.get('include', True)]
+        excluded_count = len(data.get('questions', [])) - len(included)
+
+        # Count by validation type for the summary
+        auto_count = sum(1 for q in included if q.get('validation_type', 'auto') == 'auto')
+        ai_count = sum(1 for q in included if q.get('validation_type') == 'ai_graded')
+        human_count = sum(1 for q in included if q.get('validation_type') == 'human_graded')
+
+        from classroom.models import ClassRoom
+        classrooms = _teacher_classrooms(request.user)
+
+        return render(request, self.template_name, {
+            'session': session,
+            'included_count': len(included),
+            'excluded_count': excluded_count,
+            'total_count': len(data.get('questions', [])),
+            'auto_count': auto_count,
+            'ai_count': ai_count,
+            'human_count': human_count,
+            'classrooms': classrooms,
+        })
+
+    def post(self, request, session_id):
+        from .models import HomeworkUploadSession
+        from billing.entitlements import get_school_for_user
+
+        session = get_object_or_404(
+            HomeworkUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+
+        hw_title = request.POST.get('homework_title', '').strip() or session.homework_title or session.pdf_filename
+        due_date_str = request.POST.get('due_date', '')
+        max_attempts_str = request.POST.get('max_attempts', '')
+        classroom_id = request.POST.get('classroom_id', '')
+
+        # Classroom — required
+        classroom = session.classroom
+        if classroom_id:
+            try:
+                classroom = ClassRoom.objects.get(id=classroom_id)
+                _check_teacher_owns_class(request, classroom)
+            except (ClassRoom.DoesNotExist, Exception):
+                pass
+
+        if not classroom:
+            messages.error(request, 'Please select a classroom.')
+            return redirect('homework:pdf_confirm', session_id=session.pk)
+
+        if not due_date_str:
+            messages.error(request, 'Please enter a due date.')
+            return redirect('homework:pdf_confirm', session_id=session.pk)
+
+        from django.utils.dateparse import parse_datetime, parse_date
+        from django.utils import timezone as tz
+        due_date = parse_datetime(due_date_str)
+        if due_date is None:
+            d = parse_date(due_date_str)
+            if d:
+                from datetime import datetime
+                due_date = datetime.combine(d, datetime.max.time().replace(hour=23, minute=59))
+                due_date = tz.make_aware(due_date)
+        if due_date is None:
+            messages.error(request, 'Invalid due date format.')
+            return redirect('homework:pdf_confirm', session_id=session.pk)
+
+        max_attempts = None
+        if max_attempts_str.strip():
+            try:
+                max_attempts = int(max_attempts_str)
+            except ValueError:
+                pass
+
+        data = session.extracted_data
+        questions_data = [q for q in data.get('questions', []) if q.get('include', True)]
+
+        if not questions_data:
+            messages.error(request, 'No questions included. Please go back and include at least one question.')
+            return redirect('homework:pdf_preview', session_id=session.pk)
+
+        school = get_school_for_user(request.user)
+
+        with transaction.atomic():
+            # 1. Save questions to maths.Question + maths.Answer
+            saved_questions = _save_homework_pdf_questions(questions_data, data, request.user, school, session)
+
+            if not saved_questions:
+                messages.error(request, 'Failed to save questions. Please try again.')
+                return redirect('homework:pdf_preview', session_id=session.pk)
+
+            # 2. Create Homework record
+            homework = Homework.objects.create(
+                classroom=classroom,
+                created_by=request.user,
+                title=hw_title,
+                homework_type='pdf_upload',
+                num_questions=len(saved_questions),
+                due_date=due_date,
+                max_attempts=max_attempts,
+            )
+
+            # 3. Link HomeworkQuestions
+            # bulk_create bypasses save(), so set content_id and subject_slug explicitly
+            # — otherwise the back-compat logic in save() never fires and every row
+            # gets content_id=0, causing a unique-constraint violation on the second row.
+            HomeworkQuestion.objects.bulk_create([
+                HomeworkQuestion(
+                    homework=homework,
+                    question=q,
+                    subject_slug='mathematics',
+                    content_id=q.pk,
+                    order=i,
+                )
+                for i, q in enumerate(saved_questions, 1)
+            ])
+
+            # 4. Mark session confirmed
+            session.is_confirmed = True
+            session.homework = homework
+            session.save(update_fields=['is_confirmed', 'homework'])
+
+        # Notify students
+        homework_url = reverse('homework:student_take', kwargs={'homework_id': homework.id})
+        due_str = homework.due_date.strftime('%d %b %Y')
+        active_students = (
+            ClassStudent.objects
+            .filter(classroom=classroom, is_active=True)
+            .select_related('student')
+        )
+        for cs in active_students:
+            create_notification(
+                user=cs.student,
+                message=(
+                    f'New homework "{homework.title}" has been assigned in '
+                    f'{classroom.name}. Due: {due_str}.'
+                ),
+                notification_type='homework_assigned',
+                link=homework_url,
+            )
+
+        messages.success(
+            request,
+            f'Homework "{homework.title}" created with {len(saved_questions)} questions and assigned to {classroom.name}.',
+        )
+        return redirect('homework:teacher_detail', homework_id=homework.id)
+
+
+def _save_homework_pdf_questions(questions_data, global_data, user, school, session):
+    """
+    Save AI-extracted homework questions as maths.Question + maths.Answer records.
+
+    Returns a list of Question objects in order.
+    """
+    from maths.models import Question as MQ, Answer as MA
+    from classroom.models import Topic, Level, Subject
+    from classroom.views import _get_question_scope
+
+    school_id, dept_id, _ = _get_question_scope(user)
+    saved = []
+
+    for q in questions_data:
+        q_text = q.get('question_text', '').strip()
+        if not q_text:
+            continue
+
+        # Resolve level
+        yl = q.get('year_level') or global_data.get('year_level', 1)
+        try:
+            level = Level.objects.get(level_number=int(yl))
+        except Level.DoesNotExist:
+            level = Level.objects.order_by('level_number').first()
+        if not level:
+            continue
+
+        # Resolve topic
+        topic_name = (q.get('topic') or global_data.get('topic', '')).strip()
+        subject_name = (q.get('subject') or global_data.get('subject', 'Mathematics')).strip()
+        subject = Subject.objects.filter(name__iexact=subject_name).first()
+        if not subject:
+            subject = Subject.objects.first()
+
+        topic = None
+        if topic_name:
+            topic = Topic.objects.filter(name__iexact=topic_name, subject=subject).first()
+        if not topic:
+            topic = Topic.objects.filter(subject=subject).first()
+        if not topic:
+            continue
+
+        # Determine validation type — downgrade to 'auto' for non-extended types
+        q_type = q.get('question_type', 'short_answer')
+        validation_type = q.get('validation_type', 'auto')
+        if q_type != MQ.EXTENDED_ANSWER and validation_type != 'auto':
+            # MCQ/T-F etc. should always be auto
+            validation_type = 'auto'
+        if q_type == MQ.EXTENDED_ANSWER and validation_type == 'auto':
+            # Default extended answers to AI graded
+            validation_type = 'ai_graded'
+
+        grading_rubric = q.get('grading_rubric', '')
+
+        # Map question_type to model constant
+        type_map = {
+            'multiple_choice': MQ.MULTIPLE_CHOICE,
+            'true_false': MQ.TRUE_FALSE,
+            'short_answer': MQ.SHORT_ANSWER,
+            'fill_blank': MQ.FILL_BLANK,
+            'calculation': MQ.CALCULATION if hasattr(MQ, 'CALCULATION') else MQ.SHORT_ANSWER,
+            'extended_answer': MQ.EXTENDED_ANSWER,
+        }
+        mapped_type = type_map.get(q_type, MQ.SHORT_ANSWER)
+
+        # Create or get question (avoid exact duplicates within same topic/level)
+        mq, created = MQ.objects.get_or_create(
+            question_text=q_text,
+            topic=topic,
+            level=level,
+            school_id=school_id,
+            defaults={
+                'question_type': mapped_type,
+                'validation_type': validation_type,
+                'grading_rubric': grading_rubric,
+                'difficulty': q.get('difficulty', 1),
+                'points': q.get('points', 1),
+                'explanation': q.get('explanation', ''),
+                'department_id': dept_id,
+            },
+        )
+
+        if not created and validation_type != 'auto':
+            # Update rubric in case teacher edited it
+            mq.validation_type = validation_type
+            mq.grading_rubric = grading_rubric
+            mq.save(update_fields=['validation_type', 'grading_rubric'])
+
+        # Save image to storage (DO Spaces / S3) via Django's ImageField.save()
+        # Run when newly created OR when question exists but has no image yet
+        # (covers re-uploads after previously broken confirm attempts).
+        if (created or not mq.image):
+            import logging as _img_log
+            _img_logger = _img_log.getLogger('homework')
+            image_ref = q.get('image_ref')
+            image_b64 = session.extracted_images.get(image_ref) if image_ref else None
+            if image_b64:
+                try:
+                    import base64
+                    from django.core.files.base import ContentFile
+                    topic_slug = topic.slug if hasattr(topic, 'slug') else str(topic.id)
+                    img_bytes = base64.b64decode(image_b64)
+                    img_filename = f'year{yl}/{topic_slug}/{image_ref}'
+                    mq.image.save(img_filename, ContentFile(img_bytes), save=True)
+                    _img_logger.info('Saved question image: %s', mq.image.name)
+                except Exception as _exc:
+                    _img_logger.error(
+                        'Failed to save image for question %s (ref=%s): %s',
+                        mq.pk, image_ref, _exc, exc_info=True,
+                    )
+
+        # Save answers (skip for extended_answer)
+        if mapped_type != MQ.EXTENDED_ANSWER:
+            answers_data = q.get('answers', [])
+            if answers_data and created:
+                MA.objects.bulk_create([
+                    MA(
+                        question=mq,
+                        answer_text=a.get('text', ''),
+                        is_correct=a.get('is_correct', False),
+                    )
+                    for a in answers_data
+                    if a.get('text', '').strip()
+                ])
+
+        saved.append(mq)
+
+    return saved
+
+
+# ---------------------------------------------------------------------------
+# Teacher: AI Grading Review
+# ---------------------------------------------------------------------------
+
+class HomeworkPendingReviewView(RoleRequiredMixin, View):
+    """Dashboard showing answers pending AI or teacher review."""
+    required_roles = TEACHER_ROLES
+    template_name = 'homework/pending_review.html'
+
+    def get(self, request):
+        classrooms = _teacher_classrooms(request.user)
+        classroom_id = request.GET.get('classroom')
+
+        selected_classroom = None
+        if classroom_id:
+            try:
+                selected_classroom = classrooms.get(id=classroom_id)
+            except ClassRoom.DoesNotExist:
+                pass
+        if not selected_classroom:
+            selected_classroom = classrooms.first()
+
+        pending_answers = []
+        if selected_classroom:
+            homework_ids = Homework.objects.filter(
+                classroom=selected_classroom,
+            ).values_list('id', flat=True)
+
+            pending_answers = (
+                HomeworkStudentAnswer.objects
+                .filter(
+                    submission__homework_id__in=homework_ids,
+                    review_status__in=[
+                        HomeworkStudentAnswer.REVIEW_PENDING_AI,
+                        HomeworkStudentAnswer.REVIEW_PENDING_TEACHER,
+                        HomeworkStudentAnswer.REVIEW_AI_DONE,
+                    ],
+                )
+                .select_related(
+                    'submission__student',
+                    'submission__homework',
+                    'question',
+                )
+                .order_by('submission__homework__title', 'submission__student__first_name')
+            )
+
+        return render(request, self.template_name, {
+            'classrooms': classrooms,
+            'selected_classroom': selected_classroom,
+            'pending_answers': pending_answers,
+        })
+
+
+class HomeworkAIGradeView(RoleRequiredMixin, View):
+    """Trigger AI grading for a specific pending answer (HTMX or POST)."""
+    required_roles = TEACHER_ROLES
+
+    def post(self, request, answer_id):
+        answer = get_object_or_404(HomeworkStudentAnswer, pk=answer_id)
+        _check_teacher_owns_class(request, answer.submission.homework.classroom)
+
+        from worksheets.grading_service import grade_extended_answer
+        from billing.entitlements import get_school_for_user
+        from django.utils import timezone
+
+        school = get_school_for_user(request.user)
+        try:
+            result = grade_extended_answer(answer.question, answer.text_answer, school=school)
+            answer.is_correct = result.get('is_correct', False)
+            answer.ai_score_fraction = result.get('score_fraction', 0.0)
+            answer.ai_feedback = result.get('feedback', '')
+            answer.points_earned = round(answer.question.points * answer.ai_score_fraction, 2)
+            answer.review_status = HomeworkStudentAnswer.REVIEW_AI_DONE
+            answer.graded_at = timezone.now()
+            answer.save(update_fields=[
+                'is_correct', 'ai_score_fraction', 'ai_feedback',
+                'points_earned', 'review_status', 'graded_at',
+            ])
+            _recalculate_submission_score(answer.submission)
+            messages.success(request, 'AI grading complete.')
+        except Exception as e:
+            messages.error(request, f'AI grading failed: {e}')
+
+        return redirect('homework:pending_review')
+
+
+class HomeworkGradeAnswerView(RoleRequiredMixin, View):
+    """Teacher manually overrides grade for a student answer."""
+    required_roles = TEACHER_ROLES
+    template_name = 'homework/grade_answer.html'
+
+    def get(self, request, answer_id):
+        answer = get_object_or_404(HomeworkStudentAnswer, pk=answer_id)
+        _check_teacher_owns_class(request, answer.submission.homework.classroom)
+        return render(request, self.template_name, {'answer': answer})
+
+    def post(self, request, answer_id):
+        answer = get_object_or_404(HomeworkStudentAnswer, pk=answer_id)
+        _check_teacher_owns_class(request, answer.submission.homework.classroom)
+
+        from django.utils import timezone
+
+        score_pct = float(request.POST.get('score_pct', 0))
+        score_frac = max(0.0, min(1.0, score_pct / 100))
+        teacher_feedback = request.POST.get('teacher_feedback', '').strip()
+
+        answer.ai_score_fraction = score_frac
+        answer.is_correct = score_frac >= 0.6
+        answer.points_earned = round(answer.question.points * score_frac, 2)
+        answer.teacher_feedback = teacher_feedback
+        answer.review_status = HomeworkStudentAnswer.REVIEW_TEACHER_DONE
+        answer.graded_by = request.user
+        answer.graded_at = timezone.now()
+        answer.save(update_fields=[
+            'ai_score_fraction', 'is_correct', 'points_earned',
+            'teacher_feedback', 'review_status', 'graded_by', 'graded_at',
+        ])
+        _recalculate_submission_score(answer.submission)
+
+        messages.success(request, 'Answer graded successfully.')
+        next_url = request.POST.get('next', '')
+        if next_url:
+            return redirect(next_url)
+        return redirect('homework:pending_review')

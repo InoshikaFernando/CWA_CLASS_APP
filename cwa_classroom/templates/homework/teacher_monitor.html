@@ -9,12 +9,22 @@
       <h1 class="text-2xl font-display font-bold text-gray-900">Homework Monitor</h1>
       <p class="text-sm text-gray-500 mt-0.5">Track and manage homework across your classes.</p>
     </div>
-    {% if selected_classroom %}
-    <a href="{% url 'homework:teacher_create' classroom_id=selected_classroom.id %}"
-       class="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">
-      + New Homework
-    </a>
-    {% endif %}
+    <div class="flex gap-2 flex-wrap">
+      <a href="{% url 'homework:pending_review' %}"
+         class="px-4 py-2 bg-amber-100 text-amber-700 text-sm font-semibold rounded-lg hover:bg-amber-200 transition">
+        📋 Review Queue
+      </a>
+      <a href="{% url 'homework:pdf_upload' %}"
+         class="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition">
+        📄 Upload PDF
+      </a>
+      {% if selected_classroom %}
+      <a href="{% url 'homework:teacher_create' classroom_id=selected_classroom.id %}"
+         class="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">
+        + New Homework
+      </a>
+      {% endif %}
+    </div>
   </div>
 
   <!-- Class selector -->
