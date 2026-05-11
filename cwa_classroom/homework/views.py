@@ -1181,6 +1181,9 @@ class HomeworkPendingReviewView(RoleRequiredMixin, View):
                         HomeworkStudentAnswer.REVIEW_AI_DONE,
                     ],
                 )
+                .exclude(text_answer__isnull=True)
+                .exclude(text_answer='')
+                .exclude(ai_score_fraction=1.0)
                 .select_related(
                     'submission__student',
                     'submission__homework',
