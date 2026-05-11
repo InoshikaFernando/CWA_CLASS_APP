@@ -109,7 +109,7 @@ print("=" * 60)
 answers = HomeworkStudentAnswer.objects.filter(
     question_id__in=question_pks,
     review_status=HomeworkStudentAnswer.REVIEW_AI_DONE,
-).select_related('question', 'submission')
+).select_related('question', 'submission', 'submission__homework', 'submission__homework__classroom', 'submission__homework__classroom__school')
 
 print(f"  Found {answers.count()} AI-graded answer(s) to re-evaluate.")
 print()
@@ -123,7 +123,10 @@ for ans in answers:
         print(f"  [SKIP] Q{q.pk} / Ans{ans.pk}: empty answer")
         continue
 
-    school = ans.submission.school if ans.submission else None
+    try:
+        school = ans.submission.homework.classroom.school
+    except Exception:
+        school = None
 
     print(f"  Grading Q{q.pk} ({q.question_text[:45]!r})")
     print(f"    Answer: {answer_text[:80]!r}")
