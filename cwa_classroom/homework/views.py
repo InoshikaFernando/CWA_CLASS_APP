@@ -266,6 +266,105 @@ class HomeworkDetailView(RoleRequiredMixin, View):
 
 
 # ---------------------------------------------------------------------------
+# Assign existing homework to another class
+# ---------------------------------------------------------------------------
+
+class HomeworkAssignToClassView(LoginRequiredMixin, View):
+    """
+    Copy an existing homework to one or more additional classrooms.
+    Reuses the exact same HomeworkQuestion records (same question PKs)
+    so the AIGradingCache is shared — answers from any class help
+    grade all other classes using the same homework.
+    """
+
+    def get(self, request, homework_id):
+        homework = get_object_or_404(Homework, id=homework_id)
+        _check_teacher_owns_class(request, homework.classroom)
+
+        # Classrooms this teacher owns, excluding the homework's current class
+        my_classrooms = _teacher_classrooms(request.user).exclude(
+            id=homework.classroom_id
+        )
+        # Which ones already have this homework assigned?
+        already_assigned = set(
+            Homework.objects
+            .filter(
+                title=homework.title,
+                classroom__in=my_classrooms,
+            )
+            .values_list('classroom_id', flat=True)
+        )
+
+        return render(request, 'homework/assign_to_class.html', {
+            'homework': homework,
+            'my_classrooms': my_classrooms,
+            'already_assigned': already_assigned,
+        })
+
+    def post(self, request, homework_id):
+        homework = get_object_or_404(Homework, id=homework_id)
+        _check_teacher_owns_class(request, homework.classroom)
+
+        classroom_ids = request.POST.getlist('classroom_ids')
+        if not classroom_ids:
+            messages.error(request, 'Please select at least one class.')
+            return redirect('homework:assign_to_class', homework_id=homework_id)
+
+        my_classroom_ids = set(
+            _teacher_classrooms(request.user).values_list('id', flat=True)
+        )
+        existing_questions = list(homework.homework_questions.all())
+        created = []
+
+        for cid in classroom_ids:
+            cid = int(cid)
+            if cid not in my_classroom_ids:
+                continue
+            classroom = ClassRoom.objects.get(pk=cid)
+
+            # Skip if already assigned
+            if Homework.objects.filter(title=homework.title, classroom=classroom).exists():
+                continue
+
+            # Create new Homework for this classroom, copying all settings
+            new_hw = Homework.objects.create(
+                classroom=classroom,
+                created_by=request.user,
+                title=homework.title,
+                description=homework.description,
+                homework_type=homework.homework_type,
+                subject_slug=homework.subject_slug,
+                num_questions=homework.num_questions,
+                due_date=homework.due_date,
+                max_attempts=homework.max_attempts,
+            )
+            new_hw.topics.set(homework.topics.all())
+
+            # Reuse the SAME HomeworkQuestion records (same question PKs)
+            # so AIGradingCache is shared across all classes
+            for hq in existing_questions:
+                HomeworkQuestion.objects.get_or_create(
+                    homework=new_hw,
+                    subject_slug=hq.subject_slug,
+                    content_id=hq.content_id,
+                    defaults={'question': hq.question, 'order': hq.order},
+                )
+
+            created.append(classroom.name)
+
+        if created:
+            messages.success(
+                request,
+                f'Homework assigned to: {", ".join(created)}. '
+                'All classes share the same grading cache — answers improve accuracy for everyone.'
+            )
+        else:
+            messages.info(request, 'No new classes were assigned.')
+
+        return redirect('homework:teacher_detail', homework_id=homework_id)
+
+
+# ---------------------------------------------------------------------------
 # Student Views
 # ---------------------------------------------------------------------------
 
@@ -1181,6 +1280,9 @@ class HomeworkPendingReviewView(RoleRequiredMixin, View):
                         HomeworkStudentAnswer.REVIEW_AI_DONE,
                     ],
                 )
+                .exclude(text_answer__isnull=True)
+                .exclude(text_answer='')
+                .exclude(ai_score_fraction=1.0)
                 .select_related(
                     'submission__student',
                     'submission__homework',
@@ -1261,6 +1363,77 @@ class HomeworkGradeAnswerView(RoleRequiredMixin, View):
             'teacher_feedback', 'review_status', 'graded_by', 'graded_at',
         ])
         _recalculate_submission_score(answer.submission)
+
+        # ── Seed cache + retroactively correct similar answers ────────────
+        if answer.question_id and answer.text_answer and answer.text_answer.strip():
+            try:
+                from worksheets.grading_service import _normalise, _levenshtein_ratio
+                from django.utils import timezone as tz
+
+                normalised = _normalise(answer.text_answer)
+                feedback = teacher_feedback or answer.ai_feedback or ''
+
+                # 1. Store as golden cache entry
+                AIGradingCache.objects.update_or_create(
+                    question_id=answer.question_id,
+                    normalised_answer=normalised[:500],
+                    defaults={
+                        'is_correct': answer.is_correct,
+                        'score_fraction': score_frac,
+                        'feedback': feedback[:500],
+                        'human_verified': True,
+                    },
+                )
+
+                # 2. Retroactively fix other AI-graded answers to the same
+                #    question that are similar enough (ratio >= 0.85).
+                #    Only update answers still marked ai_graded (not ones a
+                #    teacher has already manually reviewed).
+                siblings = (
+                    HomeworkStudentAnswer.objects
+                    .filter(
+                        question_id=answer.question_id,
+                        review_status=HomeworkStudentAnswer.REVIEW_AI_DONE,
+                    )
+                    .exclude(pk=answer.pk)
+                    .select_related('submission')
+                )
+                retro_count = 0
+                affected_submissions = set()
+                for sibling in siblings:
+                    if not sibling.text_answer or not sibling.text_answer.strip():
+                        continue
+                    sib_norm = _normalise(sibling.text_answer)
+                    if _levenshtein_ratio(normalised, sib_norm) >= 0.85:
+                        sibling.ai_score_fraction = score_frac
+                        sibling.is_correct = score_frac >= 0.6
+                        sibling.points_earned = round(
+                            (sibling.question.points if sibling.question else 1) * score_frac, 2
+                        )
+                        sibling.ai_feedback = feedback
+                        sibling.save(update_fields=[
+                            'ai_score_fraction', 'is_correct',
+                            'points_earned', 'ai_feedback',
+                        ])
+                        affected_submissions.add(sibling.submission_id)
+                        retro_count += 1
+
+                for sub_id in affected_submissions:
+                    try:
+                        _recalculate_submission_score(
+                            HomeworkSubmission.objects.get(pk=sub_id)
+                        )
+                    except HomeworkSubmission.DoesNotExist:
+                        pass
+
+                if retro_count:
+                    messages.info(
+                        request,
+                        f'{retro_count} other similar answer(s) automatically updated to match your grade.'
+                    )
+            except Exception:
+                pass  # Never block grading if this fails
+        # ──────────────────────────────────────────────────────────────────
 
         messages.success(request, 'Answer graded successfully.')
         next_url = request.POST.get('next', '')

@@ -21,11 +21,17 @@
         &nbsp;·&nbsp; {% if homework.attempts_unlimited %}Unlimited attempts{% else %}{{ homework.max_attempts }} attempt{{ homework.max_attempts|pluralize }}{% endif %}
       </p>
     </div>
-    {% if not homework.is_past_due %}
-    <span class="px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-semibold">Open</span>
-    {% else %}
-    <span class="px-3 py-1 rounded-full bg-gray-100 text-gray-500 text-xs font-semibold">Closed</span>
-    {% endif %}
+    <div class="flex items-center gap-2">
+      <a href="{% url 'homework:assign_to_class' homework.id %}"
+         class="px-3 py-1.5 bg-blue-50 text-blue-700 text-xs font-semibold rounded-lg hover:bg-blue-100 transition">
+        Assign to another class
+      </a>
+      {% if not homework.is_past_due %}
+      <span class="px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-semibold">Open</span>
+      {% else %}
+      <span class="px-3 py-1 rounded-full bg-gray-100 text-gray-500 text-xs font-semibold">Closed</span>
+      {% endif %}
+    </div>
   </div>
 
   <!-- Summary cards -->

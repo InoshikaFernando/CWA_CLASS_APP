@@ -463,6 +463,7 @@ def _handle_invoice_payment_checkout(metadata, session):
         return
 
     stripe_session_id = session.get('id', '')
+    stripe_currency = (session.get('currency') or isp.currency or '').lower()
     today = timezone.now().date()
 
     for alloc in isp.invoice_allocations:
@@ -476,6 +477,18 @@ def _handle_invoice_payment_checkout(metadata, session):
         except Invoice.DoesNotExist:
             logger.error('Invoice %s not found during allocation', invoice_id)
             continue
+
+        # Warn if Stripe charged in a different currency than the school's
+        school_currency = ''
+        eff = invoice.school.get_effective_currency() if invoice.school_id else None
+        if eff:
+            school_currency = eff.code.lower()
+        if stripe_currency and school_currency and stripe_currency != school_currency:
+            logger.warning(
+                'Currency mismatch: Stripe charged %s but invoice %s school currency is %s (ISP #%s)',
+                stripe_currency.upper(), invoice.invoice_number,
+                school_currency.upper(), isp_id,
+            )
 
         # Create InvoicePayment record (method=stripe, status=confirmed)
         InvoicePayment.objects.get_or_create(
