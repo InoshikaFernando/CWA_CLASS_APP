@@ -124,9 +124,13 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                             "type": "string",
                             "description": (
                                 "Required when validation_type is ai_graded or human_graded. "
-                                "Describe: what a correct answer must include, "
-                                "common mistakes to penalise, and partial-credit criteria. "
-                                "Leave empty for auto-validated questions."
+                                "List the KEY MATHEMATICAL FACTS, THEOREMS, and CONCEPTS a correct "
+                                "answer must use or demonstrate — do NOT prescribe one specific proof "
+                                "path. There are often multiple valid approaches; the rubric should "
+                                "describe WHAT needs to be shown (e.g. which angle relationships are "
+                                "relevant, what the final conclusion must be), not HOW the student "
+                                "must get there. Also note common mistakes to penalise and "
+                                "partial-credit criteria. Leave empty for auto-validated questions."
                             ),
                         },
                         "difficulty": {"type": "integer", "enum": [1, 2, 3]},
@@ -230,7 +234,9 @@ Choosing validation_type per question:
 For extended_answer questions (ai_graded / human_graded):
 - Set question_type = "extended_answer"
 - Set answers = [] (no fixed answer options)
-- Always write a grading_rubric"""
+- Always write a grading_rubric that lists the key facts/theorems needed,
+  NOT a single prescriptive proof path. Students may use different but equally
+  valid reasoning chains — the rubric must accept all of them."""
 
 
 def _get_anthropic_client():
@@ -339,6 +345,48 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
 # Image rendering: PyMuPDF clip — render region directly from PDF vectors
 # ---------------------------------------------------------------------------
 
+def _render_clean_diagram(fitz_page, clip_rect, dpi=150):
+    """
+    Render *clip_rect* from *fitz_page* with any text blocks that sit
+    ABOVE the clip region whited out.
+
+    This removes page headers / section titles (e.g. "Questions") that bleed
+    into the top of the crop while keeping the diagram's own angle labels,
+    tick marks and other text that are INSIDE the clip region.
+
+    Strategy:
+      1. Find all text blocks whose bottom edge is above clip_rect.y0 + a small
+         tolerance — these are headers sitting above the diagram.
+      2. Apply white redaction rectangles over those blocks on a scratch copy
+         of the page.
+      3. Render the scratch page, clipped to clip_rect.
+
+    Returns a fitz.Pixmap.
+    """
+    import fitz
+
+    # Work on a scratch document so we never mutate the original.
+    scratch_doc = fitz.open()
+    scratch_doc.insert_pdf(fitz_page.parent, from_page=fitz_page.number, to_page=fitz_page.number)
+    scratch_page = scratch_doc[0]
+
+    # Redact any text block whose TOP edge starts above the clip region.
+    # This catches headers like "Questions" that begin above the diagram but
+    # whose bottom half hangs into it. Diagram labels (a, b, c …) start
+    # inside the clip so they are never redacted.
+    blocks = scratch_page.get_text('blocks')  # (x0, y0, x1, y1, text, block_no, block_type)
+    for b in blocks:
+        bx0, by0, bx1, by1 = b[0], b[1], b[2], b[3]
+        block_rect = fitz.Rect(bx0, by0, bx1, by1)
+        if by0 < clip_rect.y0:   # block starts above the diagram — redact it
+            scratch_page.add_redact_annot(block_rect, fill=(1, 1, 1))
+
+    scratch_page.apply_redactions()
+    pix = scratch_page.get_pixmap(clip=clip_rect, dpi=dpi)
+    scratch_doc.close()
+    return pix
+
+
 def _tight_drawings_rect(fitz_page, search_rect, min_area_pts=50):
     """
     Return the tight bounding rect of all vector drawing elements on *fitz_page*
@@ -378,11 +426,14 @@ def _tight_drawings_rect(fitz_page, search_rect, min_area_pts=50):
         return None
 
     margin = 6  # pts — small whitespace around the diagram
+    page_rect = fitz_page.rect
     tight = fitz.Rect(
         max(search_rect.x0, min(xs0) - margin),
         max(search_rect.y0, min(ys0) - margin),
-        min(search_rect.x1, max(xs1) + margin),
-        min(search_rect.y1, max(ys1) + margin),
+        # Right / bottom: clamp to page bounds only — drawings may legitimately
+        # extend beyond the search_rect if Claude's bbox was too tight.
+        min(page_rect.x1, max(xs1) + margin),
+        min(page_rect.y1, max(ys1) + margin),
     )
     return tight if tight.is_valid and tight.width > 10 and tight.height > 10 else None
 
@@ -522,19 +573,14 @@ def render_question_images(doc, extracted_pages, classified_result):
                 continue
 
             fitz_page = doc[page_num - 1]
-            claude_rect = fitz.Rect(pt0, pt1, pt2, pt3)
+            # Claude's bbox is the clip region — extend bottom a little to catch
+            # any slightly cut-off elements, but keep sides/top exact.
+            clip_rect = fitz.Rect(pt0, pt1, pt2, min(pdf_h, pt3 + 20))
 
-            # --- Smart crop: prefer tight drawing bounds over Claude's rough bbox ---
-            tight = _tight_drawings_rect(fitz_page, claude_rect)
-            if tight:
-                clip_rect = tight
-                logger.info(f'Q{idx+1}: using drawing-detected bbox {tight}')
-            else:
-                clip_rect = claude_rect
-                logger.info(f'Q{idx+1}: no drawings found — using Claude bbox (may be raster)')
-
-            # Render directly from PDF vectors at high DPI
-            pix = fitz_page.get_pixmap(clip=clip_rect, dpi=SCREENSHOT_DPI)
+            # Render with any header text above the diagram redacted (whited out).
+            # This removes "Questions" / section headings while keeping angle labels
+            # and other text that sits inside the diagram itself.
+            pix = _render_clean_diagram(fitz_page, clip_rect, dpi=SCREENSHOT_DPI)
 
             # Trim residual whitespace
             trimmed = _trim_whitespace(pix)

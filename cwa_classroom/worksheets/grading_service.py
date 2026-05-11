@@ -62,6 +62,10 @@ def check_ai_grading_quota(school):
     Returns (allowed: bool, used: int, limit: int | None)
       limit=None means unlimited (Enterprise).
     """
+    # Free schools bypass all quota checks
+    if school and getattr(school, 'free_ai_grading', False):
+        return (True, 0, None)
+
     tier = get_ai_grading_tier(school)
     if not tier:
         return (False, 0, 0)
@@ -258,19 +262,29 @@ def _call_claude_grade(question, answer_text, normalised_text):
     system = (
         'You are an expert school teacher grading student answers to mathematics questions.\n'
         'Be fair, consistent, and educational in your feedback.\n'
+        'CRITICAL: For geometry proofs and reasoning questions, there are often MULTIPLE valid '
+        'proof paths. The rubric shows ONE possible correct approach — do NOT penalise a student '
+        'for using a different but equally valid chain of reasoning. Award full marks for any '
+        'answer that uses correct mathematical statements and valid logic to reach the correct '
+        'conclusion, regardless of which angle relationships or theorems they chose to use.\n'
+        'Only penalise: incorrect mathematical statements, missing logical steps, or arriving '
+        'at the wrong conclusion.\n'
         'Award partial credit where the student shows correct understanding but incomplete reasoning.\n'
         'Your response must be valid JSON.'
     )
 
     user_prompt = f"""Question: {question.question_text}
 
-Marking rubric / model answer:
+Marking rubric (shows one valid approach — other valid proofs are equally acceptable):
 {rubric}
 
 {examples_text}
 
 Student answer to grade:
 {answer_text}
+
+Before scoring, check: is the student's reasoning mathematically valid, even if it uses
+different angle relationships than the rubric? If yes, award full or near-full marks.
 
 Respond with JSON only:
 {{
