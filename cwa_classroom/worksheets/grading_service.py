@@ -287,6 +287,16 @@ def _call_claude_grade(question, answer_text, normalised_text):
         'spirit — even with wrong letter labels — award at least 0.65. Only score below 0.4 '
         'if the student clearly does NOT understand the approach.\n'
 
+        'DIAGRAM CONTEXT: These questions come with a labelled diagram. The angles (a, b, c, d, '
+        'e, f, etc.) are already defined in that diagram. Do NOT penalise a student for not '
+        're-stating geometric facts that are visually obvious from the diagram. For example: '
+        'if a, b, c, d are the four angles at an intersection point, a student who writes '
+        '"a+b+c+d=360 because angles at a point sum to 360°" has given a COMPLETE and CORRECT '
+        'proof — they do not need to additionally prove that a,b,c,d are at a point, because '
+        'that is shown in the diagram. Similarly, if the question labels specific angles as '
+        'parallel-line angle pairs, the student may use those relationships without re-proving '
+        'the lines are parallel. Award full or near-full marks for such answers.\n'
+
         'Your response must be valid JSON.'
     )
 
@@ -301,11 +311,15 @@ Student answer to grade:
 {answer_text}
 
 Before scoring, ask:
-1. Does the student identify the correct TYPE of angle relationships needed? (e.g. co-interior, corresponding, vertically opposite)
-2. Does the student reach (or clearly intend to reach) the correct conclusion?
-3. Is any error a labelling slip or a genuine conceptual misunderstanding?
+1. Does the student state the correct theorem or angle relationship?
+2. Does the answer reach (or clearly intend to reach) the correct conclusion?
+3. Is anything "missing" actually visible from the diagram, making it unnecessary to state?
+4. Is any error a labelling slip or a genuine conceptual misunderstanding?
 
-If the student clearly knows the approach but made a labelling error or missed one connecting step, score >= 0.65 (pass).
+IMPORTANT: If the student's theorem directly proves the result using the diagram context,
+that is a complete proof. Do not require them to re-state what the diagram already shows.
+Score >= 0.8 for a correct theorem correctly applied, even if briefly stated.
+Score >= 0.65 for the right approach with a minor error or labelling slip.
 Only fail if they fundamentally misunderstand the geometry.
 
 Respond with JSON only:
