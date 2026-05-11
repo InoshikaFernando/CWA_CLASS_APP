@@ -351,14 +351,21 @@ Student answer to grade:
 Before scoring, ask:
 1. Does the student state the correct theorem or angle relationship?
 2. Does the answer reach (or clearly intend to reach) the correct conclusion?
-3. Is anything "missing" actually visible from the diagram, making it unnecessary to state?
+3. Is anything "missing" actually visible from the diagram or implied by the stated facts?
 4. Is any error a labelling slip or a genuine conceptual misunderstanding?
 
-IMPORTANT: If the student's theorem directly proves the result using the diagram context,
-that is a complete proof. Do not require them to re-state what the diagram already shows.
-Score >= 0.8 for a correct theorem correctly applied, even if briefly stated.
-Score >= 0.65 for the right approach with a minor error or labelling slip.
-Only fail if they fundamentally misunderstand the geometry.
+IMPORTANT RULES:
+- If the student's stated facts DIRECTLY IMPLY the conclusion by simple substitution or
+  arithmetic, that is a COMPLETE proof even if they do not write the final substitution
+  step. Example: to prove a+d = b+c, stating "a=c (vertically opposite) and b=d
+  (vertically opposite)" is complete — replacing a with c and b with d on each side
+  immediately gives c+d = d+c, which is obvious. Do NOT dock marks for this.
+- If a theorem directly proves the result using the diagram context, that is complete.
+  Do not require students to re-state what the diagram already shows.
+- Score >= 0.85 when all necessary facts are correctly stated and the conclusion follows
+  directly, even if the final algebraic step is left implicit.
+- Score >= 0.65 for the right approach with a minor labelling error or one missing step.
+- Only fail (< 0.4) if the student fundamentally misunderstands the geometry.
 
 Respond with JSON only:
 {{
