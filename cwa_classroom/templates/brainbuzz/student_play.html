@@ -82,6 +82,15 @@
         </div>
       </div>
 
+      <!-- Question image (only when present) -->
+      <template x-if="question.image_url">
+        <div class="flex justify-center">
+          <img :src="question.image_url" alt=""
+               loading="lazy"
+               class="max-h-52 w-auto object-contain rounded-2xl border border-slate-600 shadow-lg">
+        </div>
+      </template>
+
       <!-- Question text -->
       <div class="bg-gradient-to-br from-slate-800 via-slate-700 to-slate-800 rounded-3xl px-6 py-8 text-white min-h-[6rem] flex items-center justify-center border border-slate-600 shadow-xl">
         <div class="bb-question-body text-xl md:text-2xl font-black text-center leading-snug w-full"
@@ -114,14 +123,24 @@
                          text-white font-bold text-center w-full border-2 border-white/20 shadow-lg
                          transition-all duration-150 active:scale-95 focus:outline-none focus:ring-4 focus:ring-white/40"
                   style="min-height: 120px;">
-                  <!-- SVG shape -->
-                  <div class="w-10 h-10 opacity-90" x-html="_tileSvgs[idx % 4]" aria-hidden="true"></div>
+                  <!-- SVG shape (hidden when option has an image) -->
+                  <template x-if="!opt.image_url">
+                    <div class="w-10 h-10 opacity-90" x-html="_tileSvgs[idx % 4]" aria-hidden="true"></div>
+                  </template>
+                  <!-- Option image -->
+                  <template x-if="opt.image_url">
+                    <img :src="opt.image_url" :alt="`Option ${opt.label || ['A','B','C','D'][idx]}`"
+                         loading="lazy"
+                         class="w-full max-h-20 object-contain rounded-xl">
+                  </template>
                   <!-- Letter badge -->
                   <span class="text-xs font-black bg-black/25 px-2 py-0.5 rounded-lg"
                         x-text="opt.label || ['A','B','C','D'][idx]"
                         aria-hidden="true"></span>
-                  <!-- Option text -->
-                  <span class="text-xs font-semibold leading-tight text-center" x-text="opt.text"></span>
+                  <!-- Option text (hidden when the option is image-only) -->
+                  <template x-if="opt.text">
+                    <span class="text-xs font-semibold leading-tight text-center" x-text="opt.text"></span>
+                  </template>
                 </button>
               </template>
             </div>

@@ -177,6 +177,12 @@ class BrainBuzzSessionQuestion(models.Model):
         blank=True,
         help_text='MCQ/TF options: [{"label":"A","text":"...","is_correct":true}]',
     )
+    image_url = models.CharField(
+        max_length=500,
+        blank=True,
+        default='',
+        help_text='Absolute URL of the question image, snapshotted at session creation.',
+    )
     correct_short_answer = models.TextField(null=True, blank=True)
     explanation = models.TextField(blank=True)
     time_limit_sec = models.IntegerField(default=20)
