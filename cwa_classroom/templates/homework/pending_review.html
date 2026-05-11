@@ -62,7 +62,7 @@
             <!-- AI feedback (if already graded) -->
             {% if ans.ai_feedback %}
             <div class="bg-indigo-50 border border-indigo-100 rounded-lg p-3 text-sm text-indigo-800 mb-3">
-              <p class="text-xs font-semibold text-indigo-600 mb-1">AI Feedback · Score: {{ ans.ai_score_fraction|floatformat:0 }}%</p>
+              <p class="text-xs font-semibold text-indigo-600 mb-1">AI Feedback · Score: {% widthratio ans.ai_score_fraction 1 100 %}%</p>
               {{ ans.ai_feedback }}
             </div>
             {% endif %}
