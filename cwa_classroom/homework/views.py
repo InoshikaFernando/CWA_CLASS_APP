@@ -5,7 +5,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.db.models import Max, Prefetch
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -604,11 +604,14 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
 
     def get(self, request):
         classrooms = _teacher_classrooms(request.user)
+        error = request.GET.get('error')
+        if error:
+            messages.error(request, f'Error processing PDF: {error}')
         return render(request, self.template_name, {'classrooms': classrooms})
 
     def post(self, request):
+        import threading
         from billing.entitlements import get_school_for_user
-        from worksheets.services import extract_and_classify_worksheet
         from classroom.models import Topic, Level
 
         pdf_file = request.FILES.get('pdf_file')
@@ -631,45 +634,99 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
             except (ClassRoom.DoesNotExist, Exception):
                 classroom = None
 
-        try:
-            existing_topics = list(Topic.objects.filter(
-                subject__slug='mathematics',
-            ).values('name', 'slug')[:100])
-            existing_levels = list(Level.objects.filter(
-                level_number__lte=12,
-            ).values('level_number', 'display_name'))
+        hw_title = pdf_file.name
+        if hw_title.lower().endswith('.pdf'):
+            hw_title = hw_title[:-4]
 
-            output = extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels)
-            result = output['result']
-            extracted_images = output['extracted_images']
-            page_count = output['page_count']
+        from .models import HomeworkUploadSession
+        from django.core.files.base import ContentFile
 
-            # Default homework title from filename
-            hw_title = pdf_file.name
-            if hw_title.lower().endswith('.pdf'):
-                hw_title = hw_title[:-4]
+        # Read file bytes now — the InMemoryUploadedFile will be GC'd after the request
+        pdf_bytes = pdf_file.read()
 
-            from .models import HomeworkUploadSession
-            session = HomeworkUploadSession.objects.create(
-                user=request.user,
-                school=school,
-                classroom=classroom,
-                pdf_filename=pdf_file.name,
-                homework_title=hw_title,
-                extracted_data=result,
-                extracted_images=extracted_images,
-                page_count=page_count,
-                tokens_used=result.get('usage', {}).get('total_tokens', 0),
+        existing_topics = list(Topic.objects.filter(
+            subject__slug='mathematics',
+        ).values('name', 'slug')[:100])
+        existing_levels = list(Level.objects.filter(
+            level_number__lte=12,
+        ).values('level_number', 'display_name'))
+
+        # Create session immediately so we can redirect to the polling page
+        session = HomeworkUploadSession.objects.create(
+            user=request.user,
+            school=school,
+            classroom=classroom,
+            pdf_filename=pdf_file.name,
+            homework_title=hw_title,
+            status=HomeworkUploadSession.STATUS_PROCESSING,
+        )
+        session.pdf_file.save(pdf_file.name, ContentFile(pdf_bytes), save=True)
+
+        # Run AI extraction in a background thread so the HTTP response returns immediately
+        def _process(session_id, pdf_bytes, existing_topics, existing_levels):
+            import django.db
+            from worksheets.services import extract_and_classify_worksheet
+            from io import BytesIO
+            try:
+                pdf_io = BytesIO(pdf_bytes)
+                pdf_io.name = session.pdf_filename
+                output = extract_and_classify_worksheet(pdf_io, existing_topics, existing_levels)
+                result = output['result']
+                HomeworkUploadSession.objects.filter(pk=session_id).update(
+                    extracted_data=result,
+                    extracted_images=output['extracted_images'],
+                    page_count=output['page_count'],
+                    tokens_used=result.get('usage', {}).get('total_tokens', 0),
+                    status=HomeworkUploadSession.STATUS_DONE,
+                )
+            except Exception as e:
+                HomeworkUploadSession.objects.filter(pk=session_id).update(
+                    status=HomeworkUploadSession.STATUS_ERROR,
+                    error_message=str(e),
+                )
+            finally:
+                django.db.connections.close_all()
+
+        t = threading.Thread(target=_process, args=(session.pk, pdf_bytes, existing_topics, existing_levels), daemon=True)
+        t.start()
+
+        return redirect('homework:pdf_processing', session_id=session.pk)
+
+
+class HomeworkPDFProcessingView(RoleRequiredMixin, View):
+    """Polling page shown while AI extracts questions in the background."""
+    required_roles = TEACHER_ROLES
+    template_name = 'homework/upload_processing.html'
+
+    def get(self, request, session_id):
+        from .models import HomeworkUploadSession
+        session = get_object_or_404(HomeworkUploadSession, pk=session_id, user=request.user)
+        return render(request, self.template_name, {'session': session})
+
+
+class HomeworkPDFStatusView(RoleRequiredMixin, View):
+    """HTMX polling endpoint — returns a redirect fragment when processing is done."""
+    required_roles = TEACHER_ROLES
+
+    def get(self, request, session_id):
+        from .models import HomeworkUploadSession
+        session = get_object_or_404(HomeworkUploadSession, pk=session_id, user=request.user)
+
+        if session.status == HomeworkUploadSession.STATUS_DONE:
+            # Tell HTMX to navigate to the preview page
+            response = HttpResponse(status=204)
+            response['HX-Redirect'] = reverse('homework:pdf_preview', args=[session_id])
+            return response
+
+        if session.status == HomeworkUploadSession.STATUS_ERROR:
+            response = HttpResponse(status=204)
+            response['HX-Redirect'] = (
+                reverse('homework:pdf_upload') + f'?error={session.error_message[:200]}'
             )
+            return response
 
-            return redirect('homework:pdf_preview', session_id=session.pk)
-
-        except ImportError:
-            messages.error(request, 'PDF processing library not installed. Please contact the administrator.')
-            return redirect('homework:pdf_upload')
-        except Exception as e:
-            messages.error(request, f'Error processing PDF: {str(e)}')
-            return redirect('homework:pdf_upload')
+        # Still processing — return 204 so HTMX keeps polling
+        return HttpResponse(status=204)
 
 
 class HomeworkPDFPreviewView(RoleRequiredMixin, View):
@@ -769,6 +826,18 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
             img_ref = request.POST.get(f'{prefix}image_ref', '')
             q['image_ref'] = img_ref if img_ref and img_ref != 'none' else None
 
+            # Handle image replacement / removal
+            if request.POST.get(f'{prefix}remove_image') == 'on':
+                q['image_ref'] = None
+            elif f'{prefix}image_upload' in request.FILES:
+                import base64 as _base64
+                import uuid as _uuid
+                uploaded = request.FILES[f'{prefix}image_upload']
+                new_ref = f'upload_{_uuid.uuid4().hex[:8]}_{uploaded.name}'
+                img_b64 = _base64.b64encode(uploaded.read()).decode('utf-8')
+                session.extracted_images[new_ref] = img_b64
+                q['image_ref'] = new_ref
+
             answers = []
             for a_idx in range(20):
                 a_text = request.POST.get(f'{prefix}answer_{a_idx}_text', '')
@@ -782,7 +851,7 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
 
         data['questions'] = questions
         session.extracted_data = data
-        session.save(update_fields=['extracted_data', 'homework_title', 'classroom'])
+        session.save(update_fields=['extracted_data', 'extracted_images', 'homework_title', 'classroom'])
 
         return redirect('homework:pdf_confirm', session_id=session.pk)
 
@@ -965,9 +1034,8 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
         # Resolve topic
         topic_name = (q.get('topic') or global_data.get('topic', '')).strip()
         subject_name = (q.get('subject') or global_data.get('subject', 'Mathematics')).strip()
-        try:
-            subject = Subject.objects.get(name__iexact=subject_name)
-        except Subject.DoesNotExist:
+        subject = Subject.objects.filter(name__iexact=subject_name).first()
+        if not subject:
             subject = Subject.objects.first()
 
         topic = None
@@ -1014,7 +1082,6 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
                 'difficulty': q.get('difficulty', 1),
                 'points': q.get('points', 1),
                 'explanation': q.get('explanation', ''),
-                'is_active': True,
                 'department_id': dept_id,
             },
         )

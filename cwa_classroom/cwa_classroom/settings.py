@@ -477,6 +477,78 @@ RECAPTCHA_SECRET_KEY = os.environ.get('RECAPTCHA_SECRET_KEY', '')
 # ---------------------------------------------------------------------------
 
 if not DEBUG:
-    SECURE_SSL_REDIRECT = True
+    SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'True') == 'True'
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+
+
+# ---------------------------------------------------------------------------
+# Logging — write errors to /var/log/cwa/ when the directory exists (server),
+# fall back to console-only when it doesn't (CI, local dev without the dir).
+# ---------------------------------------------------------------------------
+
+LOG_DIR = Path(os.environ.get('LOG_DIR', '/var/log/cwa'))
+_log_dir_exists = LOG_DIR.exists()
+
+_handlers: dict = {
+    'console': {
+        'class': 'logging.StreamHandler',
+        'formatter': 'verbose',
+    },
+}
+if _log_dir_exists:
+    _handlers['error_file'] = {
+        'class': 'logging.handlers.RotatingFileHandler',
+        'filename': str(LOG_DIR / 'django-error.log'),
+        'maxBytes': 10 * 1024 * 1024,  # 10 MB
+        'backupCount': 5,
+        'formatter': 'verbose',
+        'level': 'ERROR',
+        'delay': True,
+    }
+    _handlers['app_file'] = {
+        'class': 'logging.handlers.RotatingFileHandler',
+        'filename': str(LOG_DIR / 'django-app.log'),
+        'maxBytes': 10 * 1024 * 1024,  # 10 MB
+        'backupCount': 3,
+        'formatter': 'verbose',
+        'level': 'WARNING',
+        'delay': True,
+    }
+
+_err_handlers  = ['console'] + (['error_file'] if _log_dir_exists else [])
+_app_handlers  = ['console'] + (['app_file', 'error_file'] if _log_dir_exists else [])
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '[{asctime}] {levelname} {name} {module}:{lineno} — {message}',
+            'style': '{',
+        },
+    },
+    'handlers': _handlers,
+    'root': {
+        'handlers': _err_handlers,
+        'level': 'WARNING',
+    },
+    'loggers': {
+        'django': {
+            'handlers': _err_handlers,
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'django.request': {
+            'handlers': _err_handlers,
+            'level': 'ERROR',
+            'propagate': False,
+        },
+        # App loggers — WARNING+ goes to app log, ERROR+ also to error log
+        'worksheets': {'handlers': _app_handlers, 'level': 'WARNING', 'propagate': False},
+        'homework':   {'handlers': _app_handlers, 'level': 'WARNING', 'propagate': False},
+        'billing':    {'handlers': _app_handlers, 'level': 'WARNING', 'propagate': False},
+        'classroom':  {'handlers': _app_handlers, 'level': 'WARNING', 'propagate': False},
+    },
+}
