@@ -215,7 +215,6 @@ def check_ai_import_quota(school):
     Returns (0, 0, 0) if the school has no AI import module active.
     """
     from django.utils import timezone as tz
-    from billing.models import ModuleSubscription
 
     sub = get_school_subscription(school)
     if not sub:
