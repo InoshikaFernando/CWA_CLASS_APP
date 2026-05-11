@@ -304,81 +304,65 @@ def _call_claude_grade(question, answer_text, normalised_text):
     image_block = _fetch_image_block(question)
 
     system = (
-        'You are an expert school teacher grading student answers to mathematics questions.\n'
-        'Be fair, consistent, and educational in your feedback.\n'
+        'You are an expert mathematics teacher grading student proof answers. '
+        'You have deep knowledge of geometry and can independently verify whether '
+        'a mathematical argument is correct — you do not need a rubric to tell you '
+        'if a proof is valid.\n\n'
 
-        'APPROACH OVER PRECISION: For geometry proof questions your job is to assess whether '
-        'the student understands the correct mathematical approach, NOT to penalise minor '
-        'labelling errors or imprecise notation. Ask yourself: "Does this student know HOW to '
-        'solve this?" If yes, award passing marks (>= 0.65) even if their letter references '
-        'are slightly off or their wording is informal.\n'
+        'YOUR PRIMARY JOB: Determine whether the student\'s reasoning is '
+        'mathematically correct and complete. Ask yourself: "If I were marking this '
+        'on a maths exam, is this proof valid?" — not "Does it match the sample answer?"\n\n'
 
-        'MULTIPLE VALID PATHS: There are often many valid proof paths. The rubric shows one '
-        'approach — a student using a completely different but valid chain of reasoning must '
-        'receive full or near-full marks.\n'
+        'THE RUBRIC IS A REFERENCE ONLY. It shows one possible correct approach. '
+        'Students may use any valid proof path — corresponding angles, co-interior angles, '
+        'vertically opposite angles, linear pairs, angles at a point, alternate angles — '
+        'in any order that forms a valid logical chain. A different path that reaches the '
+        'correct conclusion with correct reasoning earns the same marks as the rubric path.\n\n'
 
-        'SCORING GUIDE:\n'
-        '  1.0 — Correct approach, correct conclusion, clear reasoning.\n'
-        '  0.8 — Correct approach and conclusion but minor gaps or imprecision in notation.\n'
-        '  0.65 — Student clearly knows the right theorems/approach but has a labelling error '
-        'or one missing step. PASS — the concept is understood.\n'
-        '  0.4 — Partially correct: right idea but reasoning is incomplete or one step is wrong.\n'
-        '  0.1 — Shows some relevant knowledge but cannot form a valid argument.\n'
-        '  0.0 — Completely wrong or no meaningful attempt.\n'
+        'THE DIAGRAM (if shown) defines the angle labels. Use it to understand the geometry '
+        'directly. Students do not need to re-state facts visible in the diagram.\n\n'
 
-        'KEY RULE: If the student names the correct theorems (e.g. vertically opposite angles, '
-        'co-interior angles, corresponding angles, linear pair) and applies them in the right '
-        'spirit — even with wrong letter labels — award at least 0.65. Only score below 0.4 '
-        'if the student clearly does NOT understand the approach.\n'
+        'IMPLICIT STEPS ARE FINE at high school level. If a student states all the key '
+        'relationships and the conclusion follows by simple substitution, that is complete. '
+        'Example: "a=c (vertically opposite) and b=d (vertically opposite)" is a complete '
+        'proof of a+d=b+c — the substitution is trivial and need not be written.\n\n'
 
-        'DIAGRAM CONTEXT: These questions come with a labelled diagram (included above if '
-        'available). The angles (a, b, c, d, e, f, etc.) are already defined in that diagram. '
-        'Use the diagram to understand the geometry — which angles are at which intersection, '
-        'which lines are parallel, etc. Do NOT penalise a student for not re-stating geometric '
-        'facts that are visually obvious from the diagram. For example: if a, b, c, d are the '
-        'four angles at an intersection point, a student who writes "a+b+c+d=360 because angles '
-        'at a point sum to 360°" has given a COMPLETE and CORRECT proof. Similarly, if the '
-        'diagram shows parallel lines, students may use corresponding/co-interior/alternate '
-        'angle relationships without re-proving the lines are parallel. Award full or near-full '
-        'marks for such answers.\n'
+        'SCORING:\n'
+        '  1.0 — Mathematically valid proof, correct conclusion.\n'
+        '  0.8 — Valid proof with very minor imprecision (informal wording, one implicit step).\n'
+        '  0.6 — Correct approach and theorems but one genuine logical gap.\n'
+        '  0.3 — Partially correct — right theorems but chain does not reach the conclusion.\n'
+        '  0.0 — Fundamentally wrong or no attempt.\n\n'
+
+        'Your score_fraction and your feedback MUST be consistent. '
+        'If your feedback says the proof is correct/valid/complete, score >= 0.8. '
+        'If your feedback says there is a gap, score <= 0.5. Never contradict yourself.\n\n'
 
         'Your response must be valid JSON.'
     )
 
     user_prompt = f"""Question: {question.question_text}
 
-Marking rubric (one valid approach — other valid proofs are equally acceptable):
+Reference answer (one valid approach — for context only):
 {rubric}
 
 {examples_text}
 
-Student answer to grade:
+Student's answer:
 {answer_text}
 
-Before scoring, ask:
-1. Does the student state the correct theorem or angle relationship?
-2. Does the answer reach (or clearly intend to reach) the correct conclusion?
-3. Is anything "missing" actually visible from the diagram or implied by the stated facts?
-4. Is any error a labelling slip or a genuine conceptual misunderstanding?
+Verify this proof independently:
+- Are the angle relationships stated mathematically correct?
+- Do they form a valid chain leading to the conclusion?
+- Is the conclusion correct?
 
-IMPORTANT RULES:
-- If the student's stated facts DIRECTLY IMPLY the conclusion by simple substitution or
-  arithmetic, that is a COMPLETE proof even if they do not write the final substitution
-  step. Example: to prove a+d = b+c, stating "a=c (vertically opposite) and b=d
-  (vertically opposite)" is complete — replacing a with c and b with d on each side
-  immediately gives c+d = d+c, which is obvious. Do NOT dock marks for this.
-- If a theorem directly proves the result using the diagram context, that is complete.
-  Do not require students to re-state what the diagram already shows.
-- Score >= 0.85 when all necessary facts are correctly stated and the conclusion follows
-  directly, even if the final algebraic step is left implicit.
-- Score >= 0.65 for the right approach with a minor labelling error or one missing step.
-- Only fail (< 0.4) if the student fundamentally misunderstands the geometry.
+If yes to all three → score 1.0 (or 0.8 for minor imprecision). Do not penalise for using a different path than the reference.
 
 Respond with JSON only:
 {{
   "score_fraction": <0.0 to 1.0>,
   "is_correct": <true if score_fraction >= 0.6>,
-  "feedback": "<1-3 sentences: acknowledge what they got right, explain any error briefly, encourage>"
+  "feedback": "<1-3 sentences for the student: what was correct, what (if anything) was missing>"
 }}"""
 
     try:
@@ -407,10 +391,46 @@ Respond with JSON only:
         data = json.loads(text)
         score_fraction = float(data.get('score_fraction', 0.0))
         score_fraction = max(0.0, min(1.0, score_fraction))
+        feedback = str(data.get('feedback', ''))
+
+        # ── Consistency check ────────────────────────────────────────────
+        # Claude sometimes writes "Excellent work, mathematically complete"
+        # but returns score_fraction=0.5 — words and number contradict.
+        # Detect this and trust the words, not the number.
+        feedback_lower = feedback.lower()
+        POSITIVE_SIGNALS = [
+            'excellent', 'perfect', 'correct', 'valid', 'complete',
+            'well done', 'great', 'mathematically sound', 'full marks',
+            'fully correct', 'demonstrates a clear understanding',
+        ]
+        NEGATIVE_SIGNALS = [
+            'incorrect', 'wrong', 'incomplete', 'missing', 'not shown',
+            'no credit', 'does not', "doesn't", 'failed', 'error',
+        ]
+        positive_hit = any(s in feedback_lower for s in POSITIVE_SIGNALS)
+        negative_hit = any(s in feedback_lower for s in NEGATIVE_SIGNALS)
+
+        if positive_hit and not negative_hit and score_fraction < 0.65:
+            # Feedback is clearly positive but score is too low — trust words
+            logger.warning(
+                f'Grading inconsistency Q{question.pk}: feedback positive but '
+                f'score={score_fraction:.2f} — bumping to 0.85'
+            )
+            score_fraction = 0.85
+
+        if negative_hit and not positive_hit and score_fraction >= 0.65:
+            # Feedback is clearly negative but score is passing — trust words
+            logger.warning(
+                f'Grading inconsistency Q{question.pk}: feedback negative but '
+                f'score={score_fraction:.2f} — dropping to 0.35'
+            )
+            score_fraction = 0.35
+        # ────────────────────────────────────────────────────────────────
+
         return {
-            'is_correct': bool(data.get('is_correct', score_fraction >= 0.6)),
+            'is_correct': score_fraction >= 0.6,
             'score_fraction': score_fraction,
-            'feedback': str(data.get('feedback', '')),
+            'feedback': feedback,
             'cache_hit': False,
             'input_tokens': response.usage.input_tokens,
             'output_tokens': response.usage.output_tokens,
