@@ -339,6 +339,48 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
 # Image rendering: PyMuPDF clip — render region directly from PDF vectors
 # ---------------------------------------------------------------------------
 
+def _render_clean_diagram(fitz_page, clip_rect, dpi=150):
+    """
+    Render *clip_rect* from *fitz_page* with any text blocks that sit
+    ABOVE the clip region whited out.
+
+    This removes page headers / section titles (e.g. "Questions") that bleed
+    into the top of the crop while keeping the diagram's own angle labels,
+    tick marks and other text that are INSIDE the clip region.
+
+    Strategy:
+      1. Find all text blocks whose bottom edge is above clip_rect.y0 + a small
+         tolerance — these are headers sitting above the diagram.
+      2. Apply white redaction rectangles over those blocks on a scratch copy
+         of the page.
+      3. Render the scratch page, clipped to clip_rect.
+
+    Returns a fitz.Pixmap.
+    """
+    import fitz
+
+    # Work on a scratch document so we never mutate the original.
+    scratch_doc = fitz.open()
+    scratch_doc.insert_pdf(fitz_page.parent, from_page=fitz_page.number, to_page=fitz_page.number)
+    scratch_page = scratch_doc[0]
+
+    # Find text blocks above or overlapping the top of the clip rect.
+    # "Above" means the block's bottom (y1) is no more than 4 pts inside the clip.
+    tolerance = 4  # pts
+    blocks = scratch_page.get_text('blocks')  # (x0, y0, x1, y1, text, block_no, block_type)
+    for b in blocks:
+        bx0, by0, bx1, by1 = b[0], b[1], b[2], b[3]
+        block_rect = fitz.Rect(bx0, by0, bx1, by1)
+        # Block is entirely above, or only just clips the top of the diagram
+        if by1 <= clip_rect.y0 + tolerance:
+            scratch_page.add_redact_annot(block_rect, fill=(1, 1, 1))
+
+    scratch_page.apply_redactions()
+    pix = scratch_page.get_pixmap(clip=clip_rect, dpi=dpi)
+    scratch_doc.close()
+    return pix
+
+
 def _tight_drawings_rect(fitz_page, search_rect, min_area_pts=50):
     """
     Return the tight bounding rect of all vector drawing elements on *fitz_page*
@@ -547,8 +589,9 @@ def render_question_images(doc, extracted_pages, classified_result):
                 clip_rect = claude_rect
                 logger.info(f'Q{idx+1}: no drawings found — using Claude bbox (may be raster)')
 
-            # Render directly from PDF vectors at high DPI
-            pix = fitz_page.get_pixmap(clip=clip_rect, dpi=SCREENSHOT_DPI)
+            # Render with header text redacted — keeps diagram labels,
+            # removes section headings that sit above the diagram.
+            pix = _render_clean_diagram(fitz_page, clip_rect, dpi=SCREENSHOT_DPI)
 
             # Trim residual whitespace
             trimmed = _trim_whitespace(pix)
