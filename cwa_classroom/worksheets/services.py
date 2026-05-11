@@ -159,8 +159,14 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                                 "Required when has_image=true. "
                                 "Pixel coordinates [left, top, right, bottom] of the visual element "
                                 "in the PAGE SCREENSHOT image. "
-                                "IMPORTANT: crop ONLY the visual — NOT the question text, NOT the answer options. "
-                                "Be precise. Include a small amount of whitespace around the visual."
+                                "CRITICAL rules for the bbox:\n"
+                                "- Crop ONLY the diagram/shape/graph itself.\n"
+                                "- Do NOT include the question text above or below the visual.\n"
+                                "- Do NOT include answer option text.\n"
+                                "- Do NOT include section headings (e.g. 'Questions', 'Section A').\n"
+                                "- Do NOT include question numbers (e.g. '1.', 'Q2').\n"
+                                "- The top edge of the bbox must be at or below the first pixel of the actual visual — never above it.\n"
+                                "- Leave a few pixels of whitespace around the visual but nothing more."
                             ),
                         },
                         "year_level": {"type": "integer"},
@@ -200,6 +206,9 @@ Rules:
    pixel bounding box of ONLY the visual in the page screenshot.
    - Do NOT include the question text in the bbox.
    - Do NOT include answer option text in the bbox.
+   - Do NOT include section headings like "Questions", "Section A", "Exercise" etc.
+   - Do NOT include question numbers (e.g. "1.", "Q2").
+   - The TOP edge of the bbox must sit at or below the first pixel of the actual visual.
    - The bbox should tightly surround just the visual element with a small margin.
 4. For numeric/calculation questions ("What is 24 ÷ 6?"), use short_answer with only
    the correct answer — do NOT invent wrong options.
@@ -381,12 +390,15 @@ def render_question_images(doc, extracted_pages, classified_result):
             # Bbox in screenshot pixel space (Claude's coordinates)
             px0, py0, px1, py1 = [float(v) for v in bbox]
 
-            # Add 12-pixel padding in screenshot space before converting
-            padding_px = 12
-            px0 = max(0, px0 - padding_px)
-            py0 = max(0, py0 - padding_px)
-            px1 = min(ss_w, px1 + padding_px)
-            py1 = min(ss_h, py1 + padding_px)
+            # Add padding in screenshot space before converting.
+            # Do NOT expand the top edge — that risks pulling in headers/question text
+            # sitting above the diagram. Only pad sides and bottom.
+            side_pad_px = 12
+            bottom_pad_px = 12
+            px0 = max(0, px0 - side_pad_px)
+            # py0 intentionally unchanged — top stays exactly where Claude placed it
+            px1 = min(ss_w, px1 + side_pad_px)
+            py1 = min(ss_h, py1 + bottom_pad_px)
 
             # Convert to PDF points
             pt0 = px0 * scale_x
