@@ -1262,6 +1262,30 @@ class HomeworkGradeAnswerView(RoleRequiredMixin, View):
         ])
         _recalculate_submission_score(answer.submission)
 
+        # ── Seed AIGradingCache with this teacher-verified answer ──────────
+        # Teacher grades are ground truth. Storing them as cache examples means
+        # future students with similar answers get classified against real
+        # human-verified grades instead of Claude reasoning from scratch.
+        if answer.question_id and answer.text_answer and answer.text_answer.strip():
+            try:
+                from worksheets.grading_service import _normalise
+                from homework.models import AIGradingCache
+                normalised = _normalise(answer.text_answer)
+                feedback = teacher_feedback or answer.ai_feedback or ''
+                AIGradingCache.objects.update_or_create(
+                    question_id=answer.question_id,
+                    normalised_answer=normalised[:500],
+                    defaults={
+                        'is_correct': answer.is_correct,
+                        'score_fraction': score_frac,
+                        'feedback': feedback[:500],
+                        'human_verified': True,
+                    },
+                )
+            except Exception:
+                pass  # Never block grading if cache write fails
+        # ──────────────────────────────────────────────────────────────────
+
         messages.success(request, 'Answer graded successfully.')
         next_url = request.POST.get('next', '')
         if next_url:

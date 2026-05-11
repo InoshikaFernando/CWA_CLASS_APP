@@ -204,10 +204,16 @@ def grade_extended_answer(question, answer_text: str, school=None):
 
 
 def _lookup_cache(question_pk, normalised_text, threshold=0.85):
-    """Check DB cache for a similar previously-graded answer. Returns result dict or None."""
+    """Check DB cache for a similar previously-graded answer. Returns result dict or None.
+
+    Human-verified entries (teacher-graded golden examples) are checked first —
+    they are ground truth and take priority over AI-generated cache entries.
+    """
     try:
         Cache = _get_cache_model()
-        entries = list(Cache.objects.filter(question_id=question_pk))
+        # human_verified first, then by hit_count — golden examples take priority
+        entries = list(Cache.objects.filter(question_id=question_pk)
+                       .order_by('-human_verified', '-hit_count'))
         if not entries:
             return None
         # Exact match first
@@ -216,10 +222,11 @@ def _lookup_cache(question_pk, normalised_text, threshold=0.85):
                 e.hit_count = models.F('hit_count') + 1
                 e.save(update_fields=['hit_count'])
                 return {'is_correct': e.is_correct, 'score_fraction': e.score_fraction, 'feedback': e.feedback}
-        # Fuzzy match
+        # Fuzzy match — use a tighter threshold for AI entries, standard for human-verified
         for e in entries:
+            match_threshold = threshold if e.human_verified else threshold + 0.05
             ratio = _levenshtein_ratio(normalised_text, e.normalised_answer)
-            if ratio >= threshold:
+            if ratio >= match_threshold:
                 e.hit_count = models.F('hit_count') + 1
                 e.save(update_fields=['hit_count'])
                 return {'is_correct': e.is_correct, 'score_fraction': e.score_fraction, 'feedback': e.feedback}
@@ -422,16 +429,21 @@ Respond with JSON only:
 
 
 def _build_examples_prompt(question_pk):
-    """Build a text block of up to 10 previously graded answers for context."""
+    """Build a text block of up to 10 previously graded answers for context.
+
+    Human-verified (teacher-graded) entries are shown first and labelled
+    [TEACHER VERIFIED] so Claude knows to trust them as ground truth.
+    """
     try:
         Cache = _get_cache_model()
-        entries = Cache.objects.filter(question_id=question_pk).order_by('-hit_count')[:10]
+        entries = Cache.objects.filter(question_id=question_pk).order_by('-human_verified', '-hit_count')[:10]
         if not entries:
             return ''
         lines = ['Previously graded answers for context (use these to classify quickly if the new answer matches):']
         for i, e in enumerate(entries, 1):
             grade = f"{e.score_fraction:.1f}/1.0"
-            lines.append(f'  Example {i} ({grade}): "{e.normalised_answer[:200]}" → {e.feedback[:100]}')
+            label = '[TEACHER VERIFIED] ' if e.human_verified else ''
+            lines.append(f'  Example {i} {label}({grade}): "{e.normalised_answer[:200]}" → {e.feedback[:100]}')
         return '\n'.join(lines) + '\n'
     except Exception:
         return ''
