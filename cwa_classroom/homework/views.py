@@ -1265,16 +1265,16 @@ class HomeworkGradeAnswerView(RoleRequiredMixin, View):
         ])
         _recalculate_submission_score(answer.submission)
 
-        # ── Seed AIGradingCache with this teacher-verified answer ──────────
-        # Teacher grades are ground truth. Storing them as cache examples means
-        # future students with similar answers get classified against real
-        # human-verified grades instead of Claude reasoning from scratch.
+        # ── Seed cache + retroactively correct similar answers ────────────
         if answer.question_id and answer.text_answer and answer.text_answer.strip():
             try:
-                from worksheets.grading_service import _normalise
-                from homework.models import AIGradingCache
+                from worksheets.grading_service import _normalise, _levenshtein_ratio
+                from django.utils import timezone as tz
+
                 normalised = _normalise(answer.text_answer)
                 feedback = teacher_feedback or answer.ai_feedback or ''
+
+                # 1. Store as golden cache entry
                 AIGradingCache.objects.update_or_create(
                     question_id=answer.question_id,
                     normalised_answer=normalised[:500],
@@ -1285,8 +1285,55 @@ class HomeworkGradeAnswerView(RoleRequiredMixin, View):
                         'human_verified': True,
                     },
                 )
+
+                # 2. Retroactively fix other AI-graded answers to the same
+                #    question that are similar enough (ratio >= 0.85).
+                #    Only update answers still marked ai_graded (not ones a
+                #    teacher has already manually reviewed).
+                siblings = (
+                    HomeworkStudentAnswer.objects
+                    .filter(
+                        question_id=answer.question_id,
+                        review_status=HomeworkStudentAnswer.REVIEW_AI_DONE,
+                    )
+                    .exclude(pk=answer.pk)
+                    .select_related('submission')
+                )
+                retro_count = 0
+                affected_submissions = set()
+                for sibling in siblings:
+                    if not sibling.text_answer or not sibling.text_answer.strip():
+                        continue
+                    sib_norm = _normalise(sibling.text_answer)
+                    if _levenshtein_ratio(normalised, sib_norm) >= 0.85:
+                        sibling.ai_score_fraction = score_frac
+                        sibling.is_correct = score_frac >= 0.6
+                        sibling.points_earned = round(
+                            (sibling.question.points if sibling.question else 1) * score_frac, 2
+                        )
+                        sibling.ai_feedback = feedback
+                        sibling.save(update_fields=[
+                            'ai_score_fraction', 'is_correct',
+                            'points_earned', 'ai_feedback',
+                        ])
+                        affected_submissions.add(sibling.submission_id)
+                        retro_count += 1
+
+                for sub_id in affected_submissions:
+                    try:
+                        _recalculate_submission_score(
+                            HomeworkSubmission.objects.get(pk=sub_id)
+                        )
+                    except HomeworkSubmission.DoesNotExist:
+                        pass
+
+                if retro_count:
+                    messages.info(
+                        request,
+                        f'{retro_count} other similar answer(s) automatically updated to match your grade.'
+                    )
             except Exception:
-                pass  # Never block grading if cache write fails
+                pass  # Never block grading if this fails
         # ──────────────────────────────────────────────────────────────────
 
         messages.success(request, 'Answer graded successfully.')
