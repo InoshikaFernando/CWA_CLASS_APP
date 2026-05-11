@@ -124,9 +124,13 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                             "type": "string",
                             "description": (
                                 "Required when validation_type is ai_graded or human_graded. "
-                                "Describe: what a correct answer must include, "
-                                "common mistakes to penalise, and partial-credit criteria. "
-                                "Leave empty for auto-validated questions."
+                                "List the KEY MATHEMATICAL FACTS, THEOREMS, and CONCEPTS a correct "
+                                "answer must use or demonstrate — do NOT prescribe one specific proof "
+                                "path. There are often multiple valid approaches; the rubric should "
+                                "describe WHAT needs to be shown (e.g. which angle relationships are "
+                                "relevant, what the final conclusion must be), not HOW the student "
+                                "must get there. Also note common mistakes to penalise and "
+                                "partial-credit criteria. Leave empty for auto-validated questions."
                             ),
                         },
                         "difficulty": {"type": "integer", "enum": [1, 2, 3]},
@@ -230,7 +234,9 @@ Choosing validation_type per question:
 For extended_answer questions (ai_graded / human_graded):
 - Set question_type = "extended_answer"
 - Set answers = [] (no fixed answer options)
-- Always write a grading_rubric"""
+- Always write a grading_rubric that lists the key facts/theorems needed,
+  NOT a single prescriptive proof path. Students may use different but equally
+  valid reasoning chains — the rubric must accept all of them."""
 
 
 def _get_anthropic_client():
