@@ -150,24 +150,31 @@ def _get_cache_model():
 
 def grade_extended_answer(question, answer_text: str, school=None):
     """
-    Grade a student's extended answer against the question's rubric.
+    Grade a student's extended answer.
+
+    Algorithm:
+      1. Normalise the answer text.
+      2. Check cache (exact then fuzzy ≥ 0.85).
+         → Hit: return cached result instantly (0 tokens).
+      3. Cache miss: Claude evaluates the proof mathematically.
+      4. Store result in cache so next similar answer is free.
+      5. If the answer is a NEW correct path → append it to the
+         question's grading rubric so future cache misses also
+         have this path as reference.
 
     Returns dict:
         {
             'is_correct': bool,
             'score_fraction': float,   # 0.0–1.0
             'feedback': str,
-            'cache_hit': bool,         # True if result came from cache (no API cost)
+            'cache_hit': bool,
             'input_tokens': int,
             'output_tokens': int,
         }
-
-    If school is provided and has no AI grading module, returns is_correct=False
-    with feedback explaining the module is not enabled.
     """
     normalised = _normalise(answer_text)
 
-    # ── 1. Exact cache lookup ─────────────────────────────────────────────
+    # ── 1. Cache check ────────────────────────────────────────────────────
     cached = _lookup_cache(question.pk, normalised, threshold=0.85)
     if cached:
         logger.info(f'AI grading cache hit for Q{question.pk}')
@@ -190,7 +197,7 @@ def grade_extended_answer(question, answer_text: str, school=None):
                 'quota_exceeded': True,
             }
 
-    # ── 3. Call Claude ────────────────────────────────────────────────────
+    # ── 3. Claude evaluates the proof mathematically ──────────────────────
     result = _call_claude_grade(question, answer_text, normalised)
 
     # ── 4. Record usage ───────────────────────────────────────────────────
@@ -199,6 +206,12 @@ def grade_extended_answer(question, answer_text: str, school=None):
 
     # ── 5. Store in cache ─────────────────────────────────────────────────
     _store_cache(question.pk, normalised, result)
+
+    # ── 6. New correct path → update rubric ──────────────────────────────
+    # If Claude found a correct answer that isn't already described in the
+    # rubric, append it so future evaluations have it as a reference.
+    if result.get('is_correct') and not result.get('error'):
+        _append_path_to_rubric(question, answer_text, result['feedback'])
 
     return result
 
@@ -250,6 +263,39 @@ def _store_cache(question_pk, normalised_text, result):
         )
     except Exception as exc:
         logger.warning(f'Cache store error: {exc}')
+
+
+def _append_path_to_rubric(question, answer_text, feedback):
+    """
+    If this correct answer represents a proof path not already in the rubric,
+    append a short description of it. This makes the rubric self-updating:
+    each new valid approach discovered by Claude gets recorded so future
+    evaluations have it as a reference even on cache misses.
+    """
+    try:
+        from maths.models import Question as MathsQuestion
+        mq = MathsQuestion.objects.get(pk=question.pk)
+        existing_rubric = mq.grading_rubric or ''
+
+        # Normalise the new answer for comparison
+        normalised_new = _normalise(answer_text)
+
+        # Skip if the rubric already describes something very similar
+        normalised_rubric = _normalise(existing_rubric)
+        if _levenshtein_ratio(normalised_new[:200], normalised_rubric[:200]) > 0.6:
+            return  # Already covered
+
+        # Build a concise one-line description of this new path
+        # Use the first sentence of the feedback (Claude's own description)
+        path_desc = feedback.split('.')[0].strip() if feedback else answer_text[:120]
+
+        separator = '\n\n' if existing_rubric else ''
+        new_entry = f'Also valid: {answer_text[:200].strip()} ({path_desc})'
+        mq.grading_rubric = existing_rubric + separator + new_entry
+        mq.save(update_fields=['grading_rubric'])
+        logger.info(f'Q{question.pk}: rubric updated with new valid path')
+    except Exception as exc:
+        logger.warning(f'Could not update rubric for Q{question.pk}: {exc}')
 
 
 def _fetch_image_block(question):
