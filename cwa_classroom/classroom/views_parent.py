@@ -212,6 +212,12 @@ class ParentInvoicesView(RoleRequiredMixin, View):
         paginator = Paginator(invoices, 25)
         page = paginator.get_page(request.GET.get('page'))
 
+        # Check if a manual payment link is configured (not Stripe Checkout)
+        has_manual_payment_link = False
+        first_outstanding = outstanding_invoices.first()
+        if first_outstanding:
+            has_manual_payment_link = bool(first_outstanding.get_stripe_payment_link())
+
         ctx = {
             'invoices': page,
             'page': page,
@@ -221,6 +227,7 @@ class ParentInvoicesView(RoleRequiredMixin, View):
             'total_outstanding': total_outstanding,
             'active_child': active_child,
             'active_school': active_school,
+            'has_manual_payment_link': has_manual_payment_link,
         }
         if request.headers.get('HX-Request'):
             return render(request, 'parent/partials/invoice_table.html', ctx)
@@ -263,6 +270,8 @@ class ParentInvoiceDetailView(RoleRequiredMixin, View):
         student_name = f'{invoice.student.first_name} {invoice.student.last_name}'.strip()
         student_id_code = school_student.student_id_code if school_student else ''
 
+        has_manual_payment_link = bool(invoice.get_stripe_payment_link())
+
         return render(request, 'parent/invoice_detail.html', {
             'invoice': invoice,
             'line_items': line_items,
@@ -273,6 +282,7 @@ class ParentInvoiceDetailView(RoleRequiredMixin, View):
             'children': children,
             'student_name': student_name,
             'student_id_code': student_id_code,
+            'has_manual_payment_link': has_manual_payment_link,
         })
 
 
@@ -323,6 +333,12 @@ class ParentInvoiceCheckoutView(RoleRequiredMixin, View):
     POST: Create a Stripe Checkout Session for the parent to pay outstanding invoices.
     Accepts optional 'amount' override; defaults to full outstanding balance.
     Allocates oldest invoices first.
+
+    If any outstanding invoice resolves a manual payment link (via the
+    invoice → department → school fallback chain), redirect to that link
+    instead of creating a Stripe Checkout Session.  This lets institutes
+    configure their own payment page (e.g. MHM) without it being
+    overridden by the built-in Stripe Checkout flow.
     """
     required_roles = [Role.PARENT]
 
@@ -346,42 +362,16 @@ class ParentInvoiceCheckoutView(RoleRequiredMixin, View):
         if not outstanding:
             return JsonResponse({'error': 'No outstanding invoices.'}, status=400)
 
-        total_outstanding = sum(inv.amount_due for inv in outstanding)
+        # Resolve payment link from the fallback chain:
+        # invoice → department → school.  If none is configured,
+        # online payment is not available for this school.
+        payment_link = outstanding[0].get_stripe_payment_link()
+        if not payment_link:
+            return JsonResponse({
+                'error': 'Online payment is not configured. Please contact your administrator.',
+            }, status=400)
 
-        # Determine amount to apply
-        raw_amount = request.POST.get('amount', '').strip()
-        try:
-            amount_applied = Decimal(raw_amount) if raw_amount else total_outstanding
-            amount_applied = amount_applied.quantize(Decimal('0.01'))
-        except Exception:
-            return JsonResponse({'error': 'Invalid amount.'}, status=400)
-
-        if amount_applied <= Decimal('0'):
-            return JsonResponse({'error': 'Amount must be greater than zero.'}, status=400)
-
-        # Build allocation list: oldest invoice first, up to amount_applied
-        remaining = amount_applied
-        allocations = []
-        for inv in outstanding:
-            if remaining <= 0:
-                break
-            alloc = min(inv.amount_due, remaining)
-            allocations.append({'invoice_id': inv.pk, 'amount': str(alloc)})
-            remaining -= alloc
-
-        try:
-            isp, session = create_invoice_checkout_session(
-                parent=request.user,
-                amount_applied=amount_applied,
-                invoice_allocations=allocations,
-                request=request,
-            )
-        except Exception as exc:
-            import logging
-            logging.getLogger(__name__).error('Invoice checkout session error: %s', exc)
-            return JsonResponse({'error': 'Payment could not be initiated. Please try again.'}, status=500)
-
-        return JsonResponse({'checkout_url': session.url})
+        return JsonResponse({'checkout_url': payment_link})
 
 
 class ParentInvoicePaymentSuccessView(RoleRequiredMixin, View):

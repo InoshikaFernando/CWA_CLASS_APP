@@ -467,8 +467,10 @@ class ParentInvoiceDetailStripeTests(TestCase):
     def _url(self):
         return reverse('parent_invoice_detail', kwargs={'invoice_id': self.invoice.id})
 
-    def test_pay_now_banner_shown_when_amount_due(self):
-        """Pay Now banner visible whenever amount_due > 0 (no static link needed)."""
+    def test_pay_now_banner_shown_when_amount_due_and_link_configured(self):
+        """Pay Now banner visible when amount_due > 0 and payment link configured."""
+        self.school.stripe_payment_link = 'https://pay.example.com'
+        self.school.save(update_fields=['stripe_payment_link'])
         response = self.client.get(self._url())
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'pay-invoice-btn')
@@ -477,9 +479,19 @@ class ParentInvoiceDetailStripeTests(TestCase):
     def test_pay_now_banner_uses_dynamic_checkout_url(self):
         """Pay Now button POSTs to the dynamic checkout endpoint, not a static link."""
         from django.urls import reverse as _reverse
+        self.school.stripe_payment_link = 'https://pay.example.com'
+        self.school.save(update_fields=['stripe_payment_link'])
         response = self.client.get(self._url())
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, _reverse('parent_invoice_pay'))
+
+    def test_pay_now_banner_hidden_when_no_payment_link(self):
+        """Pay Now banner hidden when no payment link configured."""
+        self.school.stripe_payment_link = ''
+        self.school.save(update_fields=['stripe_payment_link'])
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'pay-invoice-btn')
 
     def test_pay_now_banner_hidden_when_invoice_fully_paid(self):
         """Pay Now banner absent when amount_due == 0 (fully paid)."""
@@ -543,32 +555,39 @@ class ParentInvoicesListStripeTests(TestCase):
         return inv
 
     def test_pay_now_banner_appears_for_issued_invoice(self):
-        """Pay Now banner shown when there is an outstanding (issued) invoice."""
+        """Pay Now banner shown when there is an outstanding invoice and payment link configured."""
+        self.school.stripe_payment_link = 'https://pay.example.com'
+        self.school.save(update_fields=['stripe_payment_link'])
         self._make_invoice(status='issued')
         response = self.client.get(self._url())
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'open-pay-modal')
+        self.assertContains(response, 'direct-pay-btn')
 
     def test_pay_now_banner_appears_for_partially_paid_invoice(self):
-        """Pay Now banner shown when there is a partially-paid invoice."""
+        """Pay Now banner shown when there is a partially-paid invoice and link configured."""
+        self.school.stripe_payment_link = 'https://pay.example.com'
+        self.school.save(update_fields=['stripe_payment_link'])
         self._make_invoice(status='partially_paid')
         response = self.client.get(self._url())
-        self.assertContains(response, 'open-pay-modal')
+        self.assertContains(response, 'direct-pay-btn')
 
     def test_pay_now_banner_absent_for_fully_paid_invoices(self):
         """Pay Now banner not shown when all invoices are fully paid."""
+        self.school.stripe_payment_link = 'https://pay.example.com'
+        self.school.save(update_fields=['stripe_payment_link'])
         self._make_invoice(status='paid')
         response = self.client.get(self._url())
         self.assertEqual(response.status_code, 200)
-        self.assertNotContains(response, 'open-pay-modal')
+        self.assertNotContains(response, 'direct-pay-btn')
 
-    def test_pay_now_banner_appears_regardless_of_stripe_link(self):
-        """Banner appears based on outstanding balance, not static Stripe link config."""
-        # No Stripe payment link configured — banner should still appear
+    def test_pay_now_banner_hidden_when_no_payment_link(self):
+        """Banner hidden when no payment link configured, even with outstanding balance."""
+        self.school.stripe_payment_link = ''
+        self.school.save(update_fields=['stripe_payment_link'])
         self._make_invoice(status='issued')
         response = self.client.get(self._url())
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'open-pay-modal')
+        self.assertNotContains(response, 'direct-pay-btn')
 
     def test_total_outstanding_in_context(self):
         """total_outstanding context variable reflects combined unpaid balances."""
