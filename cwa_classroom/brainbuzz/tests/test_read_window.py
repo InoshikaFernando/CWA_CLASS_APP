@@ -7,7 +7,7 @@ per-question timer starts.
 Server-side coverage:
   - question_deadline is extended by READ_WINDOW_SEC on 'start' and 'next'
   - read_window_sec appears in the state payload
-  - submissions during the read window are rejected with HTTP 425
+  - submissions during the read window are rejected with HTTP 409
   - submissions after the read window succeed
   - time_taken_ms is measured from the start of the answer phase (not the
     start of the read window)
@@ -200,12 +200,12 @@ class TestReadWindowSubmission(TestCase):
             mock_tz.now.return_value = at_time
             return _post_json(c, submit_url, payload)
 
-    def test_submit_during_read_window_returns_425(self):
+    def test_submit_during_read_window_returns_409(self):
         t0 = timezone.now()
         self._activate_session(t0)
         # Submit 3s into the 10s read window
         resp = self._submit(t0 + timedelta(seconds=3))
-        self.assertEqual(resp.status_code, 425, resp.content)
+        self.assertEqual(resp.status_code, 409, resp.content)
 
     def test_submit_after_read_window_returns_200(self):
         t0 = timezone.now()
