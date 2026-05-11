@@ -364,15 +364,15 @@ def _render_clean_diagram(fitz_page, clip_rect, dpi=150):
     scratch_doc.insert_pdf(fitz_page.parent, from_page=fitz_page.number, to_page=fitz_page.number)
     scratch_page = scratch_doc[0]
 
-    # Find text blocks above or overlapping the top of the clip rect.
-    # "Above" means the block's bottom (y1) is no more than 4 pts inside the clip.
-    tolerance = 4  # pts
+    # Redact any text block whose TOP edge starts above the clip region.
+    # This catches headers like "Questions" that begin above the diagram but
+    # whose bottom half hangs into it. Diagram labels (a, b, c …) start
+    # inside the clip so they are never redacted.
     blocks = scratch_page.get_text('blocks')  # (x0, y0, x1, y1, text, block_no, block_type)
     for b in blocks:
         bx0, by0, bx1, by1 = b[0], b[1], b[2], b[3]
         block_rect = fitz.Rect(bx0, by0, bx1, by1)
-        # Block is entirely above, or only just clips the top of the diagram
-        if by1 <= clip_rect.y0 + tolerance:
+        if by0 < clip_rect.y0:   # block starts above the diagram — redact it
             scratch_page.add_redact_annot(block_rect, fill=(1, 1, 1))
 
     scratch_page.apply_redactions()
