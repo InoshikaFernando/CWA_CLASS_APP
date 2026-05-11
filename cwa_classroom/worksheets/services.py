@@ -567,30 +567,13 @@ def render_question_images(doc, extracted_pages, classified_result):
                 continue
 
             fitz_page = doc[page_num - 1]
-            claude_rect = fitz.Rect(pt0, pt1, pt2, pt3)
+            # Claude's bbox is the clip region — extend bottom a little to catch
+            # any slightly cut-off elements, but keep sides/top exact.
+            clip_rect = fitz.Rect(pt0, pt1, pt2, min(pdf_h, pt3 + 20))
 
-            # --- Smart crop: prefer tight drawing bounds over Claude's rough bbox ---
-            # Search a generously expanded rect so drawings that extend below/beside
-            # Claude's bbox are still detected.  Top edge is NOT expanded — that
-            # prevents section headers above the diagram being pulled in.
-            expand_side = 20   # pts
-            expand_bottom = 80  # pts — diagrams often run further down than Claude guesses
-            search_rect = fitz.Rect(
-                max(0, pt0 - expand_side),
-                pt1,                                    # top: keep Claude's boundary
-                min(pdf_w, pt2 + expand_side),
-                min(pdf_h, pt3 + expand_bottom),
-            )
-            tight = _tight_drawings_rect(fitz_page, search_rect)
-            if tight:
-                clip_rect = tight
-                logger.info(f'Q{idx+1}: using drawing-detected bbox {tight}')
-            else:
-                clip_rect = claude_rect
-                logger.info(f'Q{idx+1}: no drawings found — using Claude bbox (may be raster)')
-
-            # Render with header text redacted — keeps diagram labels,
-            # removes section headings that sit above the diagram.
+            # Render with any header text above the diagram redacted (whited out).
+            # This removes "Questions" / section headings while keeping angle labels
+            # and other text that sits inside the diagram itself.
             pix = _render_clean_diagram(fitz_page, clip_rect, dpi=SCREENSHOT_DPI)
 
             # Trim residual whitespace
