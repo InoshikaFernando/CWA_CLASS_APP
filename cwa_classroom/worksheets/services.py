@@ -378,11 +378,14 @@ def _tight_drawings_rect(fitz_page, search_rect, min_area_pts=50):
         return None
 
     margin = 6  # pts — small whitespace around the diagram
+    page_rect = fitz_page.rect
     tight = fitz.Rect(
         max(search_rect.x0, min(xs0) - margin),
         max(search_rect.y0, min(ys0) - margin),
-        min(search_rect.x1, max(xs1) + margin),
-        min(search_rect.y1, max(ys1) + margin),
+        # Right / bottom: clamp to page bounds only — drawings may legitimately
+        # extend beyond the search_rect if Claude's bbox was too tight.
+        min(page_rect.x1, max(xs1) + margin),
+        min(page_rect.y1, max(ys1) + margin),
     )
     return tight if tight.is_valid and tight.width > 10 and tight.height > 10 else None
 
@@ -525,7 +528,18 @@ def render_question_images(doc, extracted_pages, classified_result):
             claude_rect = fitz.Rect(pt0, pt1, pt2, pt3)
 
             # --- Smart crop: prefer tight drawing bounds over Claude's rough bbox ---
-            tight = _tight_drawings_rect(fitz_page, claude_rect)
+            # Search a generously expanded rect so drawings that extend below/beside
+            # Claude's bbox are still detected.  Top edge is NOT expanded — that
+            # prevents section headers above the diagram being pulled in.
+            expand_side = 20   # pts
+            expand_bottom = 80  # pts — diagrams often run further down than Claude guesses
+            search_rect = fitz.Rect(
+                max(0, pt0 - expand_side),
+                pt1,                                    # top: keep Claude's boundary
+                min(pdf_w, pt2 + expand_side),
+                min(pdf_h, pt3 + expand_bottom),
+            )
+            tight = _tight_drawings_rect(fitz_page, search_rect)
             if tight:
                 clip_rect = tight
                 logger.info(f'Q{idx+1}: using drawing-detected bbox {tight}')
