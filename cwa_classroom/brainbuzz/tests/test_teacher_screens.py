@@ -641,7 +641,9 @@ class TestActiveOptionsPayload(TestCase):
         cls.state_url = reverse('brainbuzz:api_session_state', kwargs={'join_code': cls.session.code})
 
     def _get_state(self):
-        return Client().get(self.state_url).json()
+        c = Client()
+        c.force_login(self.host)
+        return c.get(self.state_url).json()
 
     def test_options_include_is_correct_flag(self, _mock):
         data = self._get_state()
@@ -665,12 +667,56 @@ class TestActiveOptionsPayload(TestCase):
         data = self._get_state()
         self.assertEqual(data['question']['correct_short_answer'], '')
 
-    def test_correct_short_answer_present_for_sa(self, _mock):
-        # Advance to the SA question
+    def test_correct_short_answer_present_for_sa_when_host(self, _mock):
+        # Teacher (session host) must see the answer during ACTIVE phase
         self.session.current_index = 1
+        self.session.save()
+        c = Client()
+        c.force_login(self.host)
+        data = c.get(self.state_url).json()
+        self.session.current_index = 0
+        self.session.save()
+        self.assertEqual(data['question']['correct_short_answer'], 'photosynthesis')
+
+    def test_correct_short_answer_hidden_from_student_during_active(self, _mock):
+        # Students must NOT see the answer during ACTIVE phase (security fix)
+        self.session.current_index = 1
+        self.session.save()
+        data = Client().get(self.state_url).json()  # anonymous = student perspective
+        self.session.current_index = 0
+        self.session.save()
+        self.assertEqual(data['question']['correct_short_answer'], '')
+
+    def test_is_correct_hidden_from_student_during_active(self, _mock):
+        # Students must NOT see is_correct on options during ACTIVE phase
+        data = Client().get(self.state_url).json()  # anonymous = student perspective
+        for opt in data['question']['options']:
+            self.assertNotIn('is_correct', opt)
+
+    def test_is_correct_present_for_teacher_during_active(self, _mock):
+        # Teacher (host) must see is_correct on options during ACTIVE phase
+        data = self._get_state()
+        for opt in data['question']['options']:
+            self.assertIn('is_correct', opt)
+
+    def test_is_correct_visible_to_student_after_reveal(self, _mock):
+        # Students CAN see is_correct once status transitions to REVEAL
+        self.session.status = BrainBuzzSession.STATUS_REVEAL
+        self.session.save()
+        data = Client().get(self.state_url).json()
+        self.session.status = BrainBuzzSession.STATUS_ACTIVE
+        self.session.save()
+        for opt in data['question']['options']:
+            self.assertIn('is_correct', opt)
+
+    def test_correct_short_answer_visible_after_reveal(self, _mock):
+        # Students CAN see the answer once status transitions to REVEAL
+        self.session.current_index = 1
+        self.session.status = BrainBuzzSession.STATUS_REVEAL
         self.session.save()
         data = Client().get(self.state_url).json()
         self.session.current_index = 0
+        self.session.status = BrainBuzzSession.STATUS_ACTIVE
         self.session.save()
         self.assertEqual(data['question']['correct_short_answer'], 'photosynthesis')
 

@@ -2017,7 +2017,13 @@ def _inline_create_parent(request, school, student_user):
     p_phone = request.POST.get('parent_phone', '').strip()
     p_rel = request.POST.get('parent_relationship', 'guardian').strip()
 
-    if not (p_email and '@' in p_email and p_first and p_last):
+    from django.core.validators import validate_email
+    from django.core.exceptions import ValidationError as DjangoValidationError
+    try:
+        validate_email(p_email)
+    except DjangoValidationError:
+        p_email = ''
+    if not (p_email and p_first and p_last):
         return None
 
     if CustomUser.objects.filter(email=p_email).exists():

@@ -152,8 +152,20 @@ def _build_distribution(session: BrainBuzzSession, current_q: BrainBuzzSessionQu
         ]
 
 
-def _session_state_payload(session: BrainBuzzSession) -> dict:
-    """Build the canonical session state dict returned by the polling API."""
+_ANSWER_REVEAL_STATUSES = {
+    BrainBuzzSession.STATUS_REVEAL,
+    BrainBuzzSession.STATUS_BETWEEN,
+    BrainBuzzSession.STATUS_FINISHED,
+}
+
+
+def _session_state_payload(session: BrainBuzzSession, *, reveal_answer: bool = False) -> dict:
+    """Build the canonical session state dict returned by the polling API.
+
+    reveal_answer: when True, include correct_short_answer in the question payload.
+    Must be False for student-facing responses during the ACTIVE phase to prevent
+    answer leakage via JSON inspection.
+    """
     try:
         current_q = session.questions.get(order=session.current_index)
     except BrainBuzzSessionQuestion.DoesNotExist:
@@ -162,13 +174,18 @@ def _session_state_payload(session: BrainBuzzSession) -> dict:
     question_data = None
     if current_q is not None:
         from brainbuzz.utils import render_question_html
+        raw_options = current_q.options_json or []
+        options = raw_options if reveal_answer else [
+            {k: v for k, v in opt.items() if k != 'is_correct'}
+            for opt in raw_options
+        ]
         question_data = {
             'order': current_q.order,
             'question_text': current_q.question_text,
             'question_html': render_question_html(current_q.question_text),
             'question_type': current_q.question_type,
-            'options': current_q.options_json,
-            'correct_short_answer': current_q.correct_short_answer or '',
+            'options': options,
+            'correct_short_answer': (current_q.correct_short_answer or '') if reveal_answer else '',
             'time_limit_sec': current_q.time_limit_sec,
             'question_deadline': (
                 session.question_deadline.isoformat()
@@ -605,7 +622,7 @@ def teacher_lobby(request, join_code):
     qr_data_uri = _generate_qr_data_uri(join_url)
     
     # Get initial state for the frontend
-    initial_state = _session_state_payload(session)
+    initial_state = _session_state_payload(session, reveal_answer=True)
 
     return render(request, 'brainbuzz/teacher_lobby.html', {
         'session': session,
@@ -634,7 +651,7 @@ def teacher_ingame(request, join_code):
         # Seed the initial state so JS can render the question without
         # waiting for the first poll to come back. Template uses
         # |json_script which serialises this dict safely.
-        'initial_state': _session_state_payload(session),
+        'initial_state': _session_state_payload(session, reveal_answer=True),
     })
 
 
@@ -792,7 +809,11 @@ def student_play(request, join_code):
         'participant': participant,
         # Seed the initial state so the question + options render without
         # waiting for the first /state/ poll round-trip.
-        'initial_state': _session_state_payload(session),
+        # Never reveal the answer to students during the active phase.
+        'initial_state': _session_state_payload(
+            session,
+            reveal_answer=session.status in _ANSWER_REVEAL_STATUSES,
+        ),
     })
 
 
@@ -855,7 +876,9 @@ def api_session_state(request, join_code):
     if since >= 0 and session.state_version == since:
         return HttpResponse(status=304)
 
-    return JsonResponse(_session_state_payload(session))
+    is_host = request.user.is_authenticated and request.user == session.host
+    reveal = is_host or session.status in _ANSWER_REVEAL_STATUSES
+    return JsonResponse(_session_state_payload(session, reveal_answer=reveal))
 
 
 @require_POST
@@ -894,7 +917,7 @@ def api_teacher_action(request, join_code):
 
         if action == 'start':
             if session.status != BrainBuzzSession.STATUS_LOBBY:
-                return JsonResponse(_session_state_payload(session))
+                return JsonResponse(_session_state_payload(session, reveal_answer=True))
             first_q = session.questions.order_by('order').first()
             if first_q is None:
                 return JsonResponse({'error': 'No questions in session'}, status=400)
@@ -911,9 +934,9 @@ def api_teacher_action(request, join_code):
 
         elif action == 'reveal':
             if session.status != BrainBuzzSession.STATUS_ACTIVE:
-                return JsonResponse(_session_state_payload(session))
+                return JsonResponse(_session_state_payload(session, reveal_answer=True))
             if expected_index is not None and session.current_index != expected_index:
-                return JsonResponse(_session_state_payload(session))
+                return JsonResponse(_session_state_payload(session, reveal_answer=True))
             session.status = BrainBuzzSession.STATUS_REVEAL
             session.question_deadline = None
             session.state_version += 1
@@ -925,9 +948,9 @@ def api_teacher_action(request, join_code):
                 BrainBuzzSession.STATUS_ACTIVE,
                 BrainBuzzSession.STATUS_BETWEEN,
             ):
-                return JsonResponse(_session_state_payload(session))
+                return JsonResponse(_session_state_payload(session, reveal_answer=True))
             if expected_index is not None and session.current_index != expected_index:
-                return JsonResponse(_session_state_payload(session))
+                return JsonResponse(_session_state_payload(session, reveal_answer=True))
             next_index = session.current_index + 1
             next_q = session.questions.filter(order=next_index).first()
             if next_q is None:
@@ -945,7 +968,7 @@ def api_teacher_action(request, join_code):
 
         elif action == 'end':
             if session.status == BrainBuzzSession.STATUS_FINISHED:
-                return JsonResponse(_session_state_payload(session))
+                return JsonResponse(_session_state_payload(session, reveal_answer=True))
             session.status = BrainBuzzSession.STATUS_FINISHED
             session.question_deadline = None
             session.ended_at = timezone.now()
@@ -955,7 +978,7 @@ def api_teacher_action(request, join_code):
         else:
             return JsonResponse({'error': f'Unknown action: {action!r}'}, status=400)
 
-    return JsonResponse(_session_state_payload(session))
+    return JsonResponse(_session_state_payload(session, reveal_answer=True))
 
 
 @require_POST
@@ -1087,7 +1110,7 @@ def api_submit(request, join_code):
         # Reject submissions that arrive during the read window (before answer phase opens).
         read_window_ends = session.question_deadline - timedelta(seconds=q_limit)
         if now < read_window_ends:
-            return JsonResponse({'error': 'Read window active — answers not yet accepted'}, status=425)
+            return JsonResponse({'error': 'Answer window not yet open — wait for the question timer to start'}, status=409)
         question_start = session.question_deadline - timedelta(seconds=q_limit)
         server_ms = int((now - question_start).total_seconds() * 1000)
         time_taken_ms = max(0, min(server_ms, q_limit * 1000))
