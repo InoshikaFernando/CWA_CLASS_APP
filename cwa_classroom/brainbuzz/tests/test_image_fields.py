@@ -74,8 +74,8 @@ class TestSnapshotMathsImageUrl(TestCase):
     def _run_snapshot(self, q_mock, answer_mocks):
         from brainbuzz.views import _snapshot_maths_questions
 
-        with patch('brainbuzz.views.Question') as MockQ, \
-             patch('brainbuzz.views.Answer') as MockA:
+        with patch('maths.models.Question') as MockQ, \
+             patch('maths.models.Answer') as MockA:
             MockQ.objects.filter.return_value \
                 .exclude.return_value \
                 .order_by.return_value.__getitem__ = lambda self_, s: [q_mock]
