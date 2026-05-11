@@ -648,6 +648,9 @@ class TestAllURLsSitemap(FullHierarchyMixin, TestCase):
                     # to look up DiscountCode/ModuleProduct/PromoCode which won't
                     # share the same id → expected 404
                     "pk",
+                    # worksheet/homework PDF upload wizard steps — session_id is a
+                    # WorksheetUpload pk that won't exist in the test DB
+                    "session_id",
                 }
                 if not any(p in placeholder_params for p in params):
                     failures.append(f"404 {full_name!r} → {url}")

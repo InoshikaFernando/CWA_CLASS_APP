@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Processing PDF — {{ session.homework_title }}{% endblock %}
+
+{% block content %}
+<div class="p-6">
+  <div class="max-w-2xl mx-auto">
+
+    <nav class="text-sm text-gray-500 mb-4">
+      <a href="{% url 'homework:teacher_monitor' %}" class="hover:text-gray-700">Homework</a>
+      <span class="mx-2">/</span>
+      <span class="text-gray-700">Processing PDF</span>
+    </nav>
+
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-10 text-center">
+
+      <!-- Animated spinner -->
+      <div class="flex justify-center mb-6">
+        <svg class="animate-spin w-16 h-16 text-blue-500" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"/>
+          <path class="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+        </svg>
+      </div>
+
+      <h1 class="text-xl font-display font-bold text-gray-900 mb-2">Code Wizard is reading your PDF…</h1>
+      <p class="text-sm text-gray-500 mb-1">
+        <span class="font-medium text-gray-700">{{ session.pdf_filename }}</span>
+      </p>
+      <p class="text-sm text-gray-400 mb-8">
+        This can take 30–120 seconds for large documents. Please don't close this tab.
+      </p>
+
+      <!-- Animated progress bar (indeterminate) -->
+      <div class="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden mb-8">
+        <div class="h-1.5 bg-blue-500 rounded-full animate-[progress_2s_ease-in-out_infinite]"
+             style="animation: indeterminate 1.8s ease-in-out infinite;
+                    background: linear-gradient(90deg, #3b82f6 0%, #60a5fa 50%, #3b82f6 100%);
+                    background-size: 200% 100%;"></div>
+      </div>
+
+      <!-- HTMX polling: hits the status endpoint every 3s -->
+      <div hx-get="{% url 'homework:pdf_status' session.pk %}"
+           hx-trigger="every 3s"
+           hx-swap="none">
+      </div>
+
+      <p class="text-xs text-gray-300 mt-4">Session #{{ session.pk }}</p>
+    </div>
+
+  </div>
+</div>
+
+<style>
+@keyframes indeterminate {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+</style>
+{% endblock %}

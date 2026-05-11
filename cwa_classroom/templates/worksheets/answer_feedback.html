@@ -1,0 +1,49 @@
+{% load i18n %}
+{# HTMX partial — replaces #answer-area after answer submission #}
+<div id="answer-area" class="space-y-4">
+
+  {% if is_correct %}
+  <div class="flex items-start gap-3 p-4 rounded-xl bg-emerald-50 border border-emerald-200">
+    <svg class="w-6 h-6 text-emerald-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    <div>
+      <p class="font-semibold text-emerald-700">Correct!</p>
+      {% if question.explanation %}
+      <p class="text-sm text-emerald-600 mt-0.5">{{ question.explanation }}</p>
+      {% endif %}
+    </div>
+  </div>
+  {% else %}
+  <div class="flex items-start gap-3 p-4 rounded-xl bg-red-50 border border-red-200">
+    <svg class="w-6 h-6 text-red-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    <div class="flex-1">
+      <p class="font-semibold text-red-700">Not quite right</p>
+      {% if correct_answers %}
+      <p class="text-sm text-red-600 mt-1">
+        Correct answer: <strong>{% for ca in correct_answers %}{{ ca.answer_text }}{% if not forloop.last %}, {% endif %}{% endfor %}</strong>
+      </p>
+      {% endif %}
+      {% if question.explanation %}
+      <p class="text-sm text-red-600 mt-1">{{ question.explanation }}</p>
+      {% else %}
+      <p class="text-sm text-red-500 mt-1">Review this topic and try again on future questions.</p>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if is_last %}
+  <a href="{% url 'worksheets:results' assignment_pk %}"
+     class="block w-full py-3 rounded-xl bg-primary text-white font-semibold text-sm text-center shadow-sm hover:bg-primary/90 transition">
+    See My Results →
+  </a>
+  {% else %}
+  <a href="{% url 'worksheets:session' assignment_pk %}"
+     class="block w-full py-3 rounded-xl bg-primary text-white font-semibold text-sm text-center shadow-sm hover:bg-primary/90 transition">
+    Next Question →
+  </a>
+  {% endif %}
+</div>
