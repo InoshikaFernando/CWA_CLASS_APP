@@ -390,6 +390,10 @@ class ModuleProduct(models.Model):
     name = models.CharField(max_length=100)
     stripe_price_id = models.CharField(max_length=200, blank=True)
     price = models.DecimalField(max_digits=8, decimal_places=2, default=10.00)
+    pages_per_month = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text='Monthly page quota for AI import modules. NULL = not applicable, 0 = unlimited.',
+    )
     is_active = models.BooleanField(default=True)
 
     class Meta:

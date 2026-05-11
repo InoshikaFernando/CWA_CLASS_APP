@@ -208,6 +208,49 @@ def any_school_has_active_subscription(user):
     return False
 
 
+def check_ai_import_quota(school):
+    """
+    Check AI import page quota for a school.
+    Returns (remaining, limit, used).
+    Returns (0, 0, 0) if the school has no AI import module active.
+    """
+    from django.utils import timezone as tz
+    from billing.models import ModuleSubscription
+
+    sub = get_school_subscription(school)
+    if not sub:
+        return (0, 0, 0)
+
+    ai_module = sub.modules.filter(
+        module__startswith='ai_import_', is_active=True,
+    ).select_related().first()
+    if not ai_module:
+        return (0, 0, 0)
+
+    from billing.models import ModuleProduct
+    try:
+        product = ModuleProduct.objects.get(module=ai_module.module)
+    except ModuleProduct.DoesNotExist:
+        return (0, 0, 0)
+
+    if product.pages_per_month is None or product.pages_per_month == 0:
+        return (999999, 0, 0)
+
+    limit = product.pages_per_month
+
+    from ai_import.models import AIImportUsage
+    today = tz.localdate()
+    period_start = today.replace(day=1)
+    usage, _ = AIImportUsage.objects.get_or_create(
+        school=school, period_start=period_start,
+        defaults={'pages_processed': 0, 'tokens_used': 0},
+    )
+
+    used = usage.pages_processed
+    remaining = max(0, limit - used)
+    return (remaining, limit, used)
+
+
 def record_invoice_usage(school, count):
     """
     Increment the invoice usage counter for a school's subscription.
