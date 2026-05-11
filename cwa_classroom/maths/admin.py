@@ -26,9 +26,27 @@ class AnswerInline(admin.TabularInline):
 
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
-    list_display = ("question_text", "level", "topic", "question_type", "difficulty", "points")
-    list_filter = ("level", "topic", "question_type", "difficulty")
-    search_fields = ("question_text",)
+    list_display = ("question_text", "level", "topic", "question_type", "validation_type", "difficulty", "points")
+    list_filter = ("level", "topic", "question_type", "validation_type", "difficulty")
+    search_fields = ("question_text", "grading_rubric")
     inlines = [AnswerInline]
+    fieldsets = (
+        (None, {
+            'fields': ('question_text', 'level', 'topic', 'department', 'school',
+                       'question_type', 'validation_type', 'difficulty', 'points'),
+        }),
+        ('Grading', {
+            'fields': ('grading_rubric', 'explanation'),
+            'description': (
+                'grading_rubric: For ai_graded / human_graded questions — list KEY FACTS and '
+                'THEOREMS a correct answer must use. List MULTIPLE valid proof paths. '
+                'Do NOT prescribe one specific route.'
+            ),
+        }),
+        ('Image', {
+            'fields': ('image',),
+            'classes': ('collapse',),
+        }),
+    )
 
 

@@ -62,6 +62,10 @@ def check_ai_grading_quota(school):
     Returns (allowed: bool, used: int, limit: int | None)
       limit=None means unlimited (Enterprise).
     """
+    # Free schools bypass all quota checks
+    if school and getattr(school, 'free_ai_grading', False):
+        return (True, 0, None)
+
     tier = get_ai_grading_tier(school)
     if not tier:
         return (False, 0, 0)
@@ -146,24 +150,31 @@ def _get_cache_model():
 
 def grade_extended_answer(question, answer_text: str, school=None):
     """
-    Grade a student's extended answer against the question's rubric.
+    Grade a student's extended answer.
+
+    Algorithm:
+      1. Normalise the answer text.
+      2. Check cache (exact then fuzzy ≥ 0.85).
+         → Hit: return cached result instantly (0 tokens).
+      3. Cache miss: Claude evaluates the proof mathematically.
+      4. Store result in cache so next similar answer is free.
+      5. If the answer is a NEW correct path → append it to the
+         question's grading rubric so future cache misses also
+         have this path as reference.
 
     Returns dict:
         {
             'is_correct': bool,
             'score_fraction': float,   # 0.0–1.0
             'feedback': str,
-            'cache_hit': bool,         # True if result came from cache (no API cost)
+            'cache_hit': bool,
             'input_tokens': int,
             'output_tokens': int,
         }
-
-    If school is provided and has no AI grading module, returns is_correct=False
-    with feedback explaining the module is not enabled.
     """
     normalised = _normalise(answer_text)
 
-    # ── 1. Exact cache lookup ─────────────────────────────────────────────
+    # ── 1. Cache check ────────────────────────────────────────────────────
     cached = _lookup_cache(question.pk, normalised, threshold=0.85)
     if cached:
         logger.info(f'AI grading cache hit for Q{question.pk}')
@@ -186,7 +197,7 @@ def grade_extended_answer(question, answer_text: str, school=None):
                 'quota_exceeded': True,
             }
 
-    # ── 3. Call Claude ────────────────────────────────────────────────────
+    # ── 3. Claude evaluates the proof mathematically ──────────────────────
     result = _call_claude_grade(question, answer_text, normalised)
 
     # ── 4. Record usage ───────────────────────────────────────────────────
@@ -196,14 +207,26 @@ def grade_extended_answer(question, answer_text: str, school=None):
     # ── 5. Store in cache ─────────────────────────────────────────────────
     _store_cache(question.pk, normalised, result)
 
+    # ── 6. New correct path → update rubric ──────────────────────────────
+    # If Claude found a correct answer that isn't already described in the
+    # rubric, append it so future evaluations have it as a reference.
+    if result.get('is_correct') and not result.get('error'):
+        _append_path_to_rubric(question, answer_text, result['feedback'])
+
     return result
 
 
 def _lookup_cache(question_pk, normalised_text, threshold=0.85):
-    """Check DB cache for a similar previously-graded answer. Returns result dict or None."""
+    """Check DB cache for a similar previously-graded answer. Returns result dict or None.
+
+    Human-verified entries (teacher-graded golden examples) are checked first —
+    they are ground truth and take priority over AI-generated cache entries.
+    """
     try:
         Cache = _get_cache_model()
-        entries = list(Cache.objects.filter(question_id=question_pk))
+        # human_verified first, then by hit_count — golden examples take priority
+        entries = list(Cache.objects.filter(question_id=question_pk)
+                       .order_by('-human_verified', '-hit_count'))
         if not entries:
             return None
         # Exact match first
@@ -212,10 +235,11 @@ def _lookup_cache(question_pk, normalised_text, threshold=0.85):
                 e.hit_count = models.F('hit_count') + 1
                 e.save(update_fields=['hit_count'])
                 return {'is_correct': e.is_correct, 'score_fraction': e.score_fraction, 'feedback': e.feedback}
-        # Fuzzy match
+        # Fuzzy match — use a tighter threshold for AI entries, standard for human-verified
         for e in entries:
+            match_threshold = threshold if e.human_verified else threshold + 0.05
             ratio = _levenshtein_ratio(normalised_text, e.normalised_answer)
-            if ratio >= threshold:
+            if ratio >= match_threshold:
                 e.hit_count = models.F('hit_count') + 1
                 e.save(update_fields=['hit_count'])
                 return {'is_correct': e.is_correct, 'score_fraction': e.score_fraction, 'feedback': e.feedback}
@@ -241,6 +265,72 @@ def _store_cache(question_pk, normalised_text, result):
         logger.warning(f'Cache store error: {exc}')
 
 
+def _append_path_to_rubric(question, answer_text, feedback):
+    """
+    If this correct answer represents a proof path not already in the rubric,
+    append a short description of it. This makes the rubric self-updating:
+    each new valid approach discovered by Claude gets recorded so future
+    evaluations have it as a reference even on cache misses.
+    """
+    try:
+        from maths.models import Question as MathsQuestion
+        mq = MathsQuestion.objects.get(pk=question.pk)
+        existing_rubric = mq.grading_rubric or ''
+
+        # Normalise the new answer for comparison
+        normalised_new = _normalise(answer_text)
+
+        # Skip if the rubric already describes something very similar
+        normalised_rubric = _normalise(existing_rubric)
+        if _levenshtein_ratio(normalised_new[:200], normalised_rubric[:200]) > 0.6:
+            return  # Already covered
+
+        # Build a concise one-line description of this new path
+        # Use the first sentence of the feedback (Claude's own description)
+        path_desc = feedback.split('.')[0].strip() if feedback else answer_text[:120]
+
+        separator = '\n\n' if existing_rubric else ''
+        new_entry = f'Also valid: {answer_text[:200].strip()} ({path_desc})'
+        mq.grading_rubric = existing_rubric + separator + new_entry
+        mq.save(update_fields=['grading_rubric'])
+        logger.info(f'Q{question.pk}: rubric updated with new valid path')
+    except Exception as exc:
+        logger.warning(f'Could not update rubric for Q{question.pk}: {exc}')
+
+
+def _fetch_image_block(question):
+    """
+    Return an Anthropic image content block for the question's diagram, or None.
+    Fetches the image from Django storage (S3/Spaces) and base64-encodes it.
+    """
+    if not question.image:
+        return None
+    try:
+        import base64
+        from django.core.files.storage import default_storage
+        # question.image.name is the storage key (e.g. 'questions/year7/...')
+        with default_storage.open(question.image.name, 'rb') as f:
+            raw = f.read()
+        encoded = base64.standard_b64encode(raw).decode('utf-8')
+        # Detect media type from extension
+        name = question.image.name.lower()
+        if name.endswith('.png'):
+            media_type = 'image/png'
+        elif name.endswith('.gif'):
+            media_type = 'image/gif'
+        elif name.endswith('.webp'):
+            media_type = 'image/webp'
+        else:
+            media_type = 'image/jpeg'
+        return {
+            'type': 'image',
+            'source': {'type': 'base64', 'media_type': media_type, 'data': encoded},
+        }
+    except Exception as exc:
+        logger.warning(f'Could not load image for Q{question.pk}: {exc}')
+        return None
+
+
 def _call_claude_grade(question, answer_text, normalised_text):
     """Call the Anthropic API to grade the answer. Returns result dict."""
     import anthropic
@@ -255,36 +345,89 @@ def _call_claude_grade(question, answer_text, normalised_text):
         f'The model answer/explanation is: {question.explanation or "(not provided)"}'
     )
 
+    # Fetch diagram image if available — lets Claude see exactly which angles
+    # are at which intersection, eliminating ambiguity from text-only grading.
+    image_block = _fetch_image_block(question)
+
     system = (
-        'You are an expert school teacher grading student answers to mathematics questions.\n'
-        'Be fair, consistent, and educational in your feedback.\n'
-        'Award partial credit where the student shows correct understanding but incomplete reasoning.\n'
+        'You are an expert mathematics teacher grading student proof answers. '
+        'You have deep knowledge of geometry and can independently verify whether '
+        'a mathematical argument is correct — you do not need a rubric to tell you '
+        'if a proof is valid.\n\n'
+
+        'YOUR PRIMARY JOB: Determine whether the student\'s reasoning is '
+        'mathematically correct and complete. Ask yourself: "If I were marking this '
+        'on a maths exam, is this proof valid?" — not "Does it match the sample answer?"\n\n'
+
+        'THE RUBRIC IS A REFERENCE ONLY. It shows one possible correct approach. '
+        'Students may use any valid proof path — corresponding angles, co-interior angles, '
+        'vertically opposite angles, linear pairs, angles at a point, alternate angles — '
+        'in any order that forms a valid logical chain. A different path that reaches the '
+        'correct conclusion with correct reasoning earns the same marks as the rubric path.\n\n'
+
+        'THE DIAGRAM (if shown) defines the angle labels. Use it to understand the geometry '
+        'directly. Students do not need to re-state facts visible in the diagram.\n\n'
+
+        'IMPLICIT STEPS ARE FINE at high school level. If a student states all the key '
+        'relationships and the conclusion follows by simple substitution, that is complete. '
+        'Example: "a=c (vertically opposite) and b=d (vertically opposite)" is a complete '
+        'proof of a+d=b+c — the substitution is trivial and need not be written.\n\n'
+
+        'SCORING:\n'
+        '  1.0 — Mathematically valid proof, correct conclusion.\n'
+        '  0.8 — Valid proof with very minor imprecision (informal wording, one implicit step).\n'
+        '  0.6 — Correct approach and theorems but one genuine logical gap.\n'
+        '  0.3 — Partially correct — right theorems but chain does not reach the conclusion.\n'
+        '  0.0 — Fundamentally wrong or no attempt.\n\n'
+
+        'Your score_fraction and your feedback MUST be consistent. '
+        'If your feedback says the proof is correct/valid/complete, score >= 0.8. '
+        'If your feedback says there is a gap, score <= 0.5. Never contradict yourself.\n\n'
+
         'Your response must be valid JSON.'
     )
 
     user_prompt = f"""Question: {question.question_text}
 
-Marking rubric / model answer:
+Reference answer (one valid approach — for context only):
 {rubric}
 
 {examples_text}
 
-Student answer to grade:
+Student's answer:
 {answer_text}
+
+Verify this proof independently:
+- Are the angle relationships stated mathematically correct?
+- Do they form a valid chain leading to the conclusion?
+- Is the conclusion correct?
+
+If yes to all three → score 1.0 (or 0.8 for minor imprecision). Do not penalise for using a different path than the reference.
 
 Respond with JSON only:
 {{
   "score_fraction": <0.0 to 1.0>,
   "is_correct": <true if score_fraction >= 0.6>,
-  "feedback": "<1-3 sentences explaining the grade — what was right, what was wrong, what they should understand>"
+  "feedback": "<1-3 sentences for the student: what was correct, what (if anything) was missing>"
 }}"""
 
     try:
+        # Build user message — include diagram image if available so Claude
+        # can see exactly which angles are at which intersection.
+        if image_block:
+            user_content = [
+                {'type': 'text', 'text': 'Here is the question diagram:'},
+                image_block,
+                {'type': 'text', 'text': user_prompt},
+            ]
+        else:
+            user_content = user_prompt
+
         response = client.messages.create(
             model='claude-sonnet-4-20250514',
             max_tokens=400,
             system=system,
-            messages=[{'role': 'user', 'content': user_prompt}],
+            messages=[{'role': 'user', 'content': user_content}],
         )
         import json
         text = response.content[0].text.strip()
@@ -294,10 +437,46 @@ Respond with JSON only:
         data = json.loads(text)
         score_fraction = float(data.get('score_fraction', 0.0))
         score_fraction = max(0.0, min(1.0, score_fraction))
+        feedback = str(data.get('feedback', ''))
+
+        # ── Consistency check ────────────────────────────────────────────
+        # Claude sometimes writes "Excellent work, mathematically complete"
+        # but returns score_fraction=0.5 — words and number contradict.
+        # Detect this and trust the words, not the number.
+        feedback_lower = feedback.lower()
+        POSITIVE_SIGNALS = [
+            'excellent', 'perfect', 'correct', 'valid', 'complete',
+            'well done', 'great', 'mathematically sound', 'full marks',
+            'fully correct', 'demonstrates a clear understanding',
+        ]
+        NEGATIVE_SIGNALS = [
+            'incorrect', 'wrong', 'incomplete', 'missing', 'not shown',
+            'no credit', 'does not', "doesn't", 'failed', 'error',
+        ]
+        positive_hit = any(s in feedback_lower for s in POSITIVE_SIGNALS)
+        negative_hit = any(s in feedback_lower for s in NEGATIVE_SIGNALS)
+
+        if positive_hit and not negative_hit and score_fraction < 0.65:
+            # Feedback is clearly positive but score is too low — trust words
+            logger.warning(
+                f'Grading inconsistency Q{question.pk}: feedback positive but '
+                f'score={score_fraction:.2f} — bumping to 0.85'
+            )
+            score_fraction = 0.85
+
+        if negative_hit and not positive_hit and score_fraction >= 0.65:
+            # Feedback is clearly negative but score is passing — trust words
+            logger.warning(
+                f'Grading inconsistency Q{question.pk}: feedback negative but '
+                f'score={score_fraction:.2f} — dropping to 0.35'
+            )
+            score_fraction = 0.35
+        # ────────────────────────────────────────────────────────────────
+
         return {
-            'is_correct': bool(data.get('is_correct', score_fraction >= 0.6)),
+            'is_correct': score_fraction >= 0.6,
             'score_fraction': score_fraction,
-            'feedback': str(data.get('feedback', '')),
+            'feedback': feedback,
             'cache_hit': False,
             'input_tokens': response.usage.input_tokens,
             'output_tokens': response.usage.output_tokens,
@@ -316,16 +495,21 @@ Respond with JSON only:
 
 
 def _build_examples_prompt(question_pk):
-    """Build a text block of up to 10 previously graded answers for context."""
+    """Build a text block of up to 10 previously graded answers for context.
+
+    Human-verified (teacher-graded) entries are shown first and labelled
+    [TEACHER VERIFIED] so Claude knows to trust them as ground truth.
+    """
     try:
         Cache = _get_cache_model()
-        entries = Cache.objects.filter(question_id=question_pk).order_by('-hit_count')[:10]
+        entries = Cache.objects.filter(question_id=question_pk).order_by('-human_verified', '-hit_count')[:10]
         if not entries:
             return ''
         lines = ['Previously graded answers for context (use these to classify quickly if the new answer matches):']
         for i, e in enumerate(entries, 1):
             grade = f"{e.score_fraction:.1f}/1.0"
-            lines.append(f'  Example {i} ({grade}): "{e.normalised_answer[:200]}" → {e.feedback[:100]}')
+            label = '[TEACHER VERIFIED] ' if e.human_verified else ''
+            lines.append(f'  Example {i} {label}({grade}): "{e.normalised_answer[:200]}" → {e.feedback[:100]}')
         return '\n'.join(lines) + '\n'
     except Exception:
         return ''

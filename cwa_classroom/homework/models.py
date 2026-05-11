@@ -334,6 +334,10 @@ class AIGradingCache(models.Model):
         default=0,
         help_text='How many subsequent student answers matched this cache entry.',
     )
+    human_verified = models.BooleanField(
+        default=False,
+        help_text='True when a teacher manually graded this answer — used as a golden example.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
