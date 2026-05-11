@@ -266,6 +266,105 @@ class HomeworkDetailView(RoleRequiredMixin, View):
 
 
 # ---------------------------------------------------------------------------
+# Assign existing homework to another class
+# ---------------------------------------------------------------------------
+
+class HomeworkAssignToClassView(LoginRequiredMixin, View):
+    """
+    Copy an existing homework to one or more additional classrooms.
+    Reuses the exact same HomeworkQuestion records (same question PKs)
+    so the AIGradingCache is shared — answers from any class help
+    grade all other classes using the same homework.
+    """
+
+    def get(self, request, homework_id):
+        homework = get_object_or_404(Homework, id=homework_id)
+        _check_teacher_owns_class(request, homework.classroom)
+
+        # Classrooms this teacher owns, excluding the homework's current class
+        my_classrooms = _teacher_classrooms(request.user).exclude(
+            id=homework.classroom_id
+        )
+        # Which ones already have this homework assigned?
+        already_assigned = set(
+            Homework.objects
+            .filter(
+                title=homework.title,
+                classroom__in=my_classrooms,
+            )
+            .values_list('classroom_id', flat=True)
+        )
+
+        return render(request, 'homework/assign_to_class.html', {
+            'homework': homework,
+            'my_classrooms': my_classrooms,
+            'already_assigned': already_assigned,
+        })
+
+    def post(self, request, homework_id):
+        homework = get_object_or_404(Homework, id=homework_id)
+        _check_teacher_owns_class(request, homework.classroom)
+
+        classroom_ids = request.POST.getlist('classroom_ids')
+        if not classroom_ids:
+            messages.error(request, 'Please select at least one class.')
+            return redirect('homework:assign_to_class', homework_id=homework_id)
+
+        my_classroom_ids = set(
+            _teacher_classrooms(request.user).values_list('id', flat=True)
+        )
+        existing_questions = list(homework.homework_questions.all())
+        created = []
+
+        for cid in classroom_ids:
+            cid = int(cid)
+            if cid not in my_classroom_ids:
+                continue
+            classroom = ClassRoom.objects.get(pk=cid)
+
+            # Skip if already assigned
+            if Homework.objects.filter(title=homework.title, classroom=classroom).exists():
+                continue
+
+            # Create new Homework for this classroom, copying all settings
+            new_hw = Homework.objects.create(
+                classroom=classroom,
+                created_by=request.user,
+                title=homework.title,
+                description=homework.description,
+                homework_type=homework.homework_type,
+                subject_slug=homework.subject_slug,
+                num_questions=homework.num_questions,
+                due_date=homework.due_date,
+                max_attempts=homework.max_attempts,
+            )
+            new_hw.topics.set(homework.topics.all())
+
+            # Reuse the SAME HomeworkQuestion records (same question PKs)
+            # so AIGradingCache is shared across all classes
+            for hq in existing_questions:
+                HomeworkQuestion.objects.get_or_create(
+                    homework=new_hw,
+                    subject_slug=hq.subject_slug,
+                    content_id=hq.content_id,
+                    defaults={'question': hq.question, 'order': hq.order},
+                )
+
+            created.append(classroom.name)
+
+        if created:
+            messages.success(
+                request,
+                f'Homework assigned to: {", ".join(created)}. '
+                'All classes share the same grading cache — answers improve accuracy for everyone.'
+            )
+        else:
+            messages.info(request, 'No new classes were assigned.')
+
+        return redirect('homework:teacher_detail', homework_id=homework_id)
+
+
+# ---------------------------------------------------------------------------
 # Student Views
 # ---------------------------------------------------------------------------
 
