@@ -245,6 +245,39 @@ def _store_cache(question_pk, normalised_text, result):
         logger.warning(f'Cache store error: {exc}')
 
 
+def _fetch_image_block(question):
+    """
+    Return an Anthropic image content block for the question's diagram, or None.
+    Fetches the image from Django storage (S3/Spaces) and base64-encodes it.
+    """
+    if not question.image:
+        return None
+    try:
+        import base64
+        from django.core.files.storage import default_storage
+        # question.image.name is the storage key (e.g. 'questions/year7/...')
+        with default_storage.open(question.image.name, 'rb') as f:
+            raw = f.read()
+        encoded = base64.standard_b64encode(raw).decode('utf-8')
+        # Detect media type from extension
+        name = question.image.name.lower()
+        if name.endswith('.png'):
+            media_type = 'image/png'
+        elif name.endswith('.gif'):
+            media_type = 'image/gif'
+        elif name.endswith('.webp'):
+            media_type = 'image/webp'
+        else:
+            media_type = 'image/jpeg'
+        return {
+            'type': 'image',
+            'source': {'type': 'base64', 'media_type': media_type, 'data': encoded},
+        }
+    except Exception as exc:
+        logger.warning(f'Could not load image for Q{question.pk}: {exc}')
+        return None
+
+
 def _call_claude_grade(question, answer_text, normalised_text):
     """Call the Anthropic API to grade the answer. Returns result dict."""
     import anthropic
@@ -258,6 +291,10 @@ def _call_claude_grade(question, answer_text, normalised_text):
         f'Grade this answer to the question. '
         f'The model answer/explanation is: {question.explanation or "(not provided)"}'
     )
+
+    # Fetch diagram image if available — lets Claude see exactly which angles
+    # are at which intersection, eliminating ambiguity from text-only grading.
+    image_block = _fetch_image_block(question)
 
     system = (
         'You are an expert school teacher grading student answers to mathematics questions.\n'
@@ -287,15 +324,16 @@ def _call_claude_grade(question, answer_text, normalised_text):
         'spirit — even with wrong letter labels — award at least 0.65. Only score below 0.4 '
         'if the student clearly does NOT understand the approach.\n'
 
-        'DIAGRAM CONTEXT: These questions come with a labelled diagram. The angles (a, b, c, d, '
-        'e, f, etc.) are already defined in that diagram. Do NOT penalise a student for not '
-        're-stating geometric facts that are visually obvious from the diagram. For example: '
-        'if a, b, c, d are the four angles at an intersection point, a student who writes '
-        '"a+b+c+d=360 because angles at a point sum to 360°" has given a COMPLETE and CORRECT '
-        'proof — they do not need to additionally prove that a,b,c,d are at a point, because '
-        'that is shown in the diagram. Similarly, if the question labels specific angles as '
-        'parallel-line angle pairs, the student may use those relationships without re-proving '
-        'the lines are parallel. Award full or near-full marks for such answers.\n'
+        'DIAGRAM CONTEXT: These questions come with a labelled diagram (included above if '
+        'available). The angles (a, b, c, d, e, f, etc.) are already defined in that diagram. '
+        'Use the diagram to understand the geometry — which angles are at which intersection, '
+        'which lines are parallel, etc. Do NOT penalise a student for not re-stating geometric '
+        'facts that are visually obvious from the diagram. For example: if a, b, c, d are the '
+        'four angles at an intersection point, a student who writes "a+b+c+d=360 because angles '
+        'at a point sum to 360°" has given a COMPLETE and CORRECT proof. Similarly, if the '
+        'diagram shows parallel lines, students may use corresponding/co-interior/alternate '
+        'angle relationships without re-proving the lines are parallel. Award full or near-full '
+        'marks for such answers.\n'
 
         'Your response must be valid JSON.'
     )
@@ -330,11 +368,22 @@ Respond with JSON only:
 }}"""
 
     try:
+        # Build user message — include diagram image if available so Claude
+        # can see exactly which angles are at which intersection.
+        if image_block:
+            user_content = [
+                {'type': 'text', 'text': 'Here is the question diagram:'},
+                image_block,
+                {'type': 'text', 'text': user_prompt},
+            ]
+        else:
+            user_content = user_prompt
+
         response = client.messages.create(
             model='claude-sonnet-4-20250514',
             max_tokens=400,
             system=system,
-            messages=[{'role': 'user', 'content': user_prompt}],
+            messages=[{'role': 'user', 'content': user_content}],
         )
         import json
         text = response.content[0].text.strip()
