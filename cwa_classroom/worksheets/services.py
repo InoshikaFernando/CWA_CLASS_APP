@@ -159,8 +159,14 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                                 "Required when has_image=true. "
                                 "Pixel coordinates [left, top, right, bottom] of the visual element "
                                 "in the PAGE SCREENSHOT image. "
-                                "IMPORTANT: crop ONLY the visual — NOT the question text, NOT the answer options. "
-                                "Be precise. Include a small amount of whitespace around the visual."
+                                "CRITICAL rules for the bbox:\n"
+                                "- Crop ONLY the diagram/shape/graph itself.\n"
+                                "- Do NOT include the question text above or below the visual.\n"
+                                "- Do NOT include answer option text.\n"
+                                "- Do NOT include section headings (e.g. 'Questions', 'Section A').\n"
+                                "- Do NOT include question numbers (e.g. '1.', 'Q2').\n"
+                                "- The top edge of the bbox must be at or below the first pixel of the actual visual — never above it.\n"
+                                "- Leave a few pixels of whitespace around the visual but nothing more."
                             ),
                         },
                         "year_level": {"type": "integer"},
@@ -200,6 +206,9 @@ Rules:
    pixel bounding box of ONLY the visual in the page screenshot.
    - Do NOT include the question text in the bbox.
    - Do NOT include answer option text in the bbox.
+   - Do NOT include section headings like "Questions", "Section A", "Exercise" etc.
+   - Do NOT include question numbers (e.g. "1.", "Q2").
+   - The TOP edge of the bbox must sit at or below the first pixel of the actual visual.
    - The bbox should tightly surround just the visual element with a small margin.
 4. For numeric/calculation questions ("What is 24 ÷ 6?"), use short_answer with only
    the correct answer — do NOT invent wrong options.
@@ -330,13 +339,126 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
 # Image rendering: PyMuPDF clip — render region directly from PDF vectors
 # ---------------------------------------------------------------------------
 
+def _tight_drawings_rect(fitz_page, search_rect, min_area_pts=50):
+    """
+    Return the tight bounding rect of all vector drawing elements on *fitz_page*
+    that fall within *search_rect* (in PDF points).
+
+    Vector drawings (lines, curves, filled shapes) are the diagram itself.
+    Text is never a drawing, so headers / labels outside the actual visual
+    are excluded automatically.
+
+    Returns a fitz.Rect, or None if no qualifying drawings were found.
+    The returned rect is expanded by a small margin and clamped to *search_rect*.
+    """
+    import fitz
+
+    drawings = fitz_page.get_drawings()
+    if not drawings:
+        return None
+
+    xs0, ys0, xs1, ys1 = [], [], [], []
+    for d in drawings:
+        r = d.get('rect')
+        if not r:
+            continue
+        r = fitz.Rect(r)
+        # Must overlap the search region
+        if not r.intersects(search_rect):
+            continue
+        # Skip tiny artefacts (e.g. single-pixel rules)
+        if r.width * r.height < min_area_pts:
+            continue
+        xs0.append(r.x0)
+        ys0.append(r.y0)
+        xs1.append(r.x1)
+        ys1.append(r.y1)
+
+    if not xs0:
+        return None
+
+    margin = 6  # pts — small whitespace around the diagram
+    tight = fitz.Rect(
+        max(search_rect.x0, min(xs0) - margin),
+        max(search_rect.y0, min(ys0) - margin),
+        min(search_rect.x1, max(xs1) + margin),
+        min(search_rect.y1, max(ys1) + margin),
+    )
+    return tight if tight.is_valid and tight.width > 10 and tight.height > 10 else None
+
+
+def _trim_whitespace(pix):
+    """
+    Remove rows/columns of near-white pixels from all four edges of a
+    fitz.Pixmap.  Returns a new Pixmap (or the original if nothing to trim).
+
+    Threshold: a row/column is considered blank if every pixel's average
+    RGB value is >= 248 (almost white).
+    """
+    import fitz
+
+    samples = pix.samples  # raw bytes: w * h * n (n=3 for RGB)
+    w, h, n = pix.width, pix.height, pix.n
+
+    if n < 3:
+        return pix  # greyscale or alpha-only — skip
+
+    def row_blank(y):
+        off = y * w * n
+        for x in range(w):
+            r, g, b = samples[off + x * n], samples[off + x * n + 1], samples[off + x * n + 2]
+            if (r + g + b) // 3 < 248:
+                return False
+        return True
+
+    def col_blank(x):
+        for y in range(h):
+            off = y * w * n + x * n
+            r, g, b = samples[off], samples[off + 1], samples[off + 2]
+            if (r + g + b) // 3 < 248:
+                return False
+        return True
+
+    top = 0
+    while top < h and row_blank(top):
+        top += 1
+    bottom = h - 1
+    while bottom > top and row_blank(bottom):
+        bottom -= 1
+    left = 0
+    while left < w and col_blank(left):
+        left += 1
+    right = w - 1
+    while right > left and col_blank(right):
+        right -= 1
+
+    if top == 0 and bottom == h - 1 and left == 0 and right == w - 1:
+        return pix  # nothing to trim
+
+    # Re-render only the trimmed region via a sub-rect if possible,
+    # otherwise fall back to Pillow crop.
+    try:
+        from PIL import Image
+        import io
+        img = Image.frombytes('RGB', (w, h), bytes(samples))
+        img = img.crop((left, top, right + 1, bottom + 1))
+        buf = io.BytesIO()
+        img.save(buf, format='PNG')
+        return buf.getvalue()  # return raw bytes when Pillow is available
+    except ImportError:
+        return pix  # Pillow not installed — return original
+
+
 def render_question_images(doc, extracted_pages, classified_result):
     """
     For every question where has_image=True:
-      1. Convert the bbox from screenshot pixel space → PDF point space.
-      2. Call page.get_pixmap(clip=rect, dpi=150) to render that region
-         directly from the PDF — clean vector output, no JPEG artefacts.
-      3. Store as PNG base64 in extracted_images.
+      1. Convert Claude's rough bbox from screenshot pixel space → PDF points.
+      2. Use page.get_drawings() to find the tight bounds of actual vector
+         elements inside that region — this excludes text (headers, labels)
+         which are never drawings.  Falls back to Claude's bbox for raster PDFs.
+      3. Render the clean rect at high DPI directly from PDF vectors.
+      4. Trim residual whitespace from all edges.
+      5. Store as PNG base64.
 
     Returns:
         (classified_result, extracted_images dict)
@@ -378,38 +500,49 @@ def render_question_images(doc, extracted_pages, classified_result):
             scale_x = pdf_w / ss_w
             scale_y = pdf_h / ss_h
 
-            # Bbox in screenshot pixel space (Claude's coordinates)
+            # Claude's rough bbox in screenshot pixel space
             px0, py0, px1, py1 = [float(v) for v in bbox]
 
-            # Add 12-pixel padding in screenshot space before converting
-            padding_px = 12
-            px0 = max(0, px0 - padding_px)
-            py0 = max(0, py0 - padding_px)
-            px1 = min(ss_w, px1 + padding_px)
-            py1 = min(ss_h, py1 + padding_px)
+            # Add side/bottom padding only — never expand the top edge (risks
+            # pulling in section headers that sit above the diagram).
+            side_pad_px = 12
+            bottom_pad_px = 12
+            px0 = max(0, px0 - side_pad_px)
+            px1 = min(ss_w, px1 + side_pad_px)
+            py1 = min(ss_h, py1 + bottom_pad_px)
 
-            # Convert to PDF points
-            pt0 = px0 * scale_x
-            pt1 = py0 * scale_y
-            pt2 = px1 * scale_x
-            pt3 = py1 * scale_y
-
-            # Clamp to page bounds
-            pt0 = max(0, pt0)
-            pt1 = max(0, pt1)
-            pt2 = min(pdf_w, pt2)
-            pt3 = min(pdf_h, pt3)
+            # Convert to PDF points and clamp
+            pt0 = max(0.0, px0 * scale_x)
+            pt1 = max(0.0, py0 * scale_y)
+            pt2 = min(pdf_w, px1 * scale_x)
+            pt3 = min(pdf_h, py1 * scale_y)
 
             if pt2 <= pt0 or pt3 <= pt1:
                 logger.warning(f'Q{idx+1}: degenerate clip rect — skipping')
                 continue
 
-            clip_rect = fitz.Rect(pt0, pt1, pt2, pt3)
             fitz_page = doc[page_num - 1]
+            claude_rect = fitz.Rect(pt0, pt1, pt2, pt3)
 
-            # Render ONLY this region directly from PDF vectors at 150 DPI
+            # --- Smart crop: prefer tight drawing bounds over Claude's rough bbox ---
+            tight = _tight_drawings_rect(fitz_page, claude_rect)
+            if tight:
+                clip_rect = tight
+                logger.info(f'Q{idx+1}: using drawing-detected bbox {tight}')
+            else:
+                clip_rect = claude_rect
+                logger.info(f'Q{idx+1}: no drawings found — using Claude bbox (may be raster)')
+
+            # Render directly from PDF vectors at high DPI
             pix = fitz_page.get_pixmap(clip=clip_rect, dpi=SCREENSHOT_DPI)
-            img_bytes = pix.tobytes('png')
+
+            # Trim residual whitespace
+            trimmed = _trim_whitespace(pix)
+            if isinstance(trimmed, bytes):
+                img_bytes = trimmed   # Pillow-trimmed PNG bytes
+            else:
+                img_bytes = trimmed.tobytes('png')  # original or untrimmed Pixmap
+
             img_b64 = base64.b64encode(img_bytes).decode('utf-8')
 
             ref = f'worksheet_img_q{idx+1}_p{page_num}.png'
