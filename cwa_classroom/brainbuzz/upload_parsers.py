@@ -96,21 +96,39 @@ class BaseQuestionParser(ABC):
 class JSONQuestionParser(BaseQuestionParser):
     """Parser for JSON format question files.
 
-    Expected format:
+    Expected format (maths):
     {
-        "subject": "maths" or "coding",
+        "subject": "maths",
         "questions": [
             {
                 "question_text": "...",
                 "question_type": "multiple_choice",
                 "difficulty": 2,
-                "topic": "Fractions",  # topic name (will lookup ID)
-                "level": 5,  # year level 1-8 (will lookup ID)
+                "topic": "Fractions",
+                "level": 5,  # year level 1-8 (int, will lookup ID)
                 "answers": [
                     {"text": "...", "is_correct": true, "order": 1},
                     ...
-                ],
-                ...
+                ]
+            }
+        ]
+    }
+
+    Expected format (coding):
+    {
+        "subject": "coding",
+        "questions": [
+            {
+                "question_text": "...",
+                "question_type": "multiple_choice",
+                "difficulty": 1,
+                "topic": "Variables & Data Types",
+                "level": "beginner",  # "beginner", "intermediate", or "advanced"
+                "language": "Python",  # optional, disambiguates shared topic names
+                "answers": [
+                    {"text": "...", "is_correct": true},
+                    ...
+                ]
             }
         ]
     }
@@ -123,7 +141,7 @@ class JSONQuestionParser(BaseQuestionParser):
             if isinstance(file_obj, io.TextIOBase):
                 content = file_obj.read()
             else:
-                content = file_obj.read().decode('utf-8')
+                content = file_obj.read().decode('utf-8-sig')
 
             data = json.loads(content)
         except json.JSONDecodeError as e:
@@ -173,7 +191,14 @@ class JSONQuestionParser(BaseQuestionParser):
                 return None
 
             parsed['topic_name'] = topic_name
-            parsed['level_number'] = int(level_num)
+            try:
+                parsed['level_number'] = int(level_num)
+            except (ValueError, TypeError):
+                parsed['level'] = str(level_num).strip()
+
+            language = q.get('language', '').strip()
+            if language:
+                parsed['language'] = language
 
             # Parse answers
             answers = q.get('answers', [])
@@ -227,7 +252,7 @@ class CSVQuestionParser(BaseQuestionParser):
             if isinstance(file_obj, io.TextIOBase):
                 content = file_obj.read()
             else:
-                content = file_obj.read().decode('utf-8')
+                content = file_obj.read().decode('utf-8-sig')
 
             reader = csv.DictReader(io.StringIO(content))
             if not reader.fieldnames:

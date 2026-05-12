@@ -147,22 +147,31 @@
 
     <!-- Download Templates -->
     <div class="bg-white rounded-lg shadow p-6 mb-4">
-      <h3 class="font-semibold text-gray-900 mb-3">↓ Download sample template</h3>
-      <div class="flex flex-wrap gap-3">
-        <a href="{% url 'brainbuzz:download_sample_template' 'json' %}"
+      <h3 class="font-semibold text-gray-900 mb-3">↓ Download sample templates</h3>
+
+      <p class="text-sm text-gray-600 mb-2 font-medium">Maths</p>
+      <div class="flex flex-wrap gap-3 mb-4">
+        <a href="{% url 'brainbuzz:download_sample_template' 'json' %}?subject=maths"
            class="inline-flex items-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium px-4 py-2 rounded-lg transition text-sm">
           ↓ JSON
         </a>
-        <a href="{% url 'brainbuzz:download_sample_template' 'csv' %}"
+        <a href="{% url 'brainbuzz:download_sample_template' 'csv' %}?subject=maths"
            class="inline-flex items-center gap-2 bg-green-50 hover:bg-green-100 text-green-700 font-medium px-4 py-2 rounded-lg transition text-sm">
           ↓ CSV
         </a>
-        <a href="{% url 'brainbuzz:download_sample_template' 'excel' %}"
+        <a href="{% url 'brainbuzz:download_sample_template' 'excel' %}?subject=maths"
            class="inline-flex items-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-medium px-4 py-2 rounded-lg transition text-sm">
           ↓ Excel (.xlsx)
         </a>
       </div>
-      <p class="text-xs text-gray-500 mt-2">Sample files include Maths questions across multiple topics and question types.</p>
+
+      <p class="text-sm text-gray-600 mb-2 font-medium">Coding</p>
+      <div class="flex flex-wrap gap-3">
+        <a href="{% url 'brainbuzz:download_sample_template' 'json' %}?subject=coding"
+           class="inline-flex items-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium px-4 py-2 rounded-lg transition text-sm">
+          ↓ JSON
+        </a>
+      </div>
     </div>
 
     <!-- Help Section -->
@@ -176,7 +185,7 @@
           <p class="mb-2">Required columns:</p>
           <ul class="list-disc list-inside ml-2 text-xs font-mono bg-white p-3 rounded mb-2">
             <li>topic (topic name)</li>
-            <li>level (level number 1-8)</li>
+            <li>level (number 1-8 for maths, or beginner/intermediate/advanced for coding)</li>
             <li>question_text</li>
             <li>question_type (multiple_choice, true_false, short_answer, fill_blank)</li>
             <li>difficulty (1, 2, or 3)</li>
@@ -185,9 +194,9 @@
           </ul>
         </div>
 
-        <!-- JSON Format -->
+        <!-- JSON Format - Maths -->
         <div>
-          <h4 class="font-medium text-blue-900 mb-2">JSON Format</h4>
+          <h4 class="font-medium text-blue-900 mb-2">JSON Format (Maths)</h4>
           <p class="text-xs mb-2">Example structure:</p>
           <pre class="bg-white p-3 rounded text-xs overflow-x-auto"><code>{
   "subject": "maths",
@@ -204,6 +213,29 @@
     }
   ]
 }</code></pre>
+        </div>
+
+        <!-- JSON Format - Coding -->
+        <div>
+          <h4 class="font-medium text-blue-900 mb-2">JSON Format (Coding)</h4>
+          <p class="text-xs mb-2">Example structure:</p>
+          <pre class="bg-white p-3 rounded text-xs overflow-x-auto">{% verbatim %}<code>{
+  "subject": "coding",
+  "questions": [
+    {
+      "question_text": "What will x be after: x = 10?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "Python",
+      "answers": [
+        {"text": "10", "is_correct": true},
+        {"text": "x", "is_correct": false}
+      ]
+    }
+  ]
+}</code>{% endverbatim %}</pre>
         </div>
 
       </div>
