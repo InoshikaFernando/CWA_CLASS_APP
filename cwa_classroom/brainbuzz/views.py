@@ -154,6 +154,7 @@ def _session_state_payload(session: BrainBuzzSession) -> dict:
             'order': current_q.order,
             'question_text': current_q.question_text,
             'question_type': current_q.question_type,
+            'image_url': current_q.image_url or '',
             'options': current_q.options_json,
             'question_deadline': (
                 session.question_deadline.isoformat()
@@ -209,10 +210,28 @@ def _snapshot_maths_questions(session: BrainBuzzSession, topic_id: int, level_id
     )
     for i, q in enumerate(qs):
         answers = list(Answer.objects.filter(question=q).order_by('order'))
-        options = [
-            {'label': chr(65 + idx), 'text': a.answer_text, 'is_correct': a.is_correct}
-            for idx, a in enumerate(answers)
-        ]
+        options = []
+        for idx, a in enumerate(answers):
+            opt_image_url = ''
+            if a.answer_image and a.answer_image.name:
+                try:
+                    opt_image_url = a.answer_image.url
+                except Exception:
+                    pass
+            options.append({
+                'label': chr(65 + idx),
+                'text': a.answer_text,
+                'is_correct': a.is_correct,
+                'image_url': opt_image_url,
+            })
+
+        q_image_url = ''
+        if q.image and q.image.name:
+            try:
+                q_image_url = q.image.url
+            except Exception:
+                pass
+
         bb_type = MATHS_TO_BRAINBUZZ_TYPE.get(
             q.question_type,
             q.question_type if q.question_type in dict(QUIZ_QUESTION_TYPE_CHOICES) else QUESTION_TYPE_MCQ,
@@ -223,6 +242,7 @@ def _snapshot_maths_questions(session: BrainBuzzSession, topic_id: int, level_id
             question_text=q.question_text,
             question_type=bb_type,
             options_json=options,
+            image_url=q_image_url,
             correct_short_answer=None,
             points_base=1000,
             source_model='MathsQuestion',

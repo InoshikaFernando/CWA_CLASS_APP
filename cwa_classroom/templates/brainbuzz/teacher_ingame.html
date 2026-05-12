@@ -147,6 +147,15 @@
         <div class="absolute top-4 left-5">
           <span class="text-[10px] font-black uppercase tracking-[.2em] text-blue-400">Question <span x-text="(currentIndex ?? 0) + 1"></span></span>
         </div>
+        <!-- Question image (only when present) -->
+        <template x-if="questionImage">
+          <div class="flex justify-center px-10 pt-8">
+            <img :src="questionImage" alt=""
+                 loading="lazy"
+                 onerror="this.style.display='none'"
+                 class="max-h-52 w-auto max-w-full object-contain rounded-2xl border border-white/10 shadow-lg">
+          </div>
+        </template>
         <!-- Question text -->
         <div class="flex items-center justify-center px-10 py-10 min-h-[10rem]">
           <p class="text-2xl md:text-3xl lg:text-4xl font-black text-white text-center leading-snug"
@@ -164,10 +173,21 @@
               <span class="w-11 h-11 rounded-xl flex items-center justify-center font-black text-white text-lg flex-shrink-0"
                     :style="`background: ${tileAccent(idx)};`"
                     x-text="opt.label || ['A','B','C','D'][idx]"></span>
+              <!-- Option image (when present) -->
+              <template x-if="opt.image_url">
+                <img :src="opt.image_url" :alt="`Option ${opt.label || ['A','B','C','D'][idx]}`"
+                     loading="lazy"
+                     onerror="this.style.display='none'"
+                     class="h-12 w-auto max-w-[8rem] object-contain rounded-lg flex-shrink-0">
+              </template>
               <!-- Option text -->
-              <span class="font-bold text-white text-base leading-snug" x-text="opt.text"></span>
-              <!-- Shape icon (colorblind-safe) -->
-              <span class="ml-auto text-2xl opacity-60 flex-shrink-0" x-text="['▲','◆','●','■'][idx % 4]"></span>
+              <template x-if="opt.text">
+                <span class="font-bold text-white text-base leading-snug" x-text="opt.text"></span>
+              </template>
+              <!-- Shape icon (colorblind-safe, hidden when option has image) -->
+              <template x-if="!opt.image_url">
+                <span class="ml-auto text-2xl opacity-60 flex-shrink-0" x-text="['▲','◆','●','■'][idx % 4]"></span>
+              </template>
             </div>
           </template>
         </div>
@@ -185,6 +205,13 @@
                 <span class="w-11 h-11 rounded-xl flex items-center justify-center font-black text-white text-lg flex-shrink-0"
                       :style="`background: ${tileAccent(idx)};`"
                       x-text="opt.label"></span>
+                <!-- Option image in reveal tile -->
+                <template x-if="opt.image_url">
+                  <img :src="opt.image_url" :alt="opt.label"
+                       loading="lazy"
+                       onerror="this.style.display='none'"
+                       class="h-12 w-auto max-w-[8rem] object-contain rounded-lg flex-shrink-0">
+                </template>
                 <span class="flex-1 font-bold text-white text-base leading-snug" x-text="opt.text || opt.label"></span>
                 <!-- Correct checkmark -->
                 <span x-show="opt.is_correct"
@@ -313,7 +340,7 @@ function bbTeacher(joinCode, initialVersion, initialIndex, totalQuestions) {
     // (the server short-circuits with 304 when since == current version).
     joinCode, stateVersion: -1,
     currentIndex: initialIndex, totalQuestions,
-    status: 'active', questionText: '', options: [],
+    status: 'active', questionText: '', questionImage: '', options: [],
     distribution: [], countdown: 0, countdownPct: 100,
     revealCountdown: 5, leaderboard: [],
     participantCount: 0, answersReceived: 0,
@@ -377,8 +404,9 @@ function bbTeacher(joinCode, initialVersion, initialIndex, totalQuestions) {
       if (data.question) {
         const q = data.question;
         if (this.questionText !== q.question_text) {
-          this.questionText = q.question_text;
-          this.options      = q.options || [];
+          this.questionText  = q.question_text;
+          this.questionImage = q.image_url || '';
+          this.options       = q.options || [];
           this.deadlineUtc  = q.question_deadline ? new Date(q.question_deadline) : null;
           this.timeLimitSec = this.deadlineUtc
             ? Math.round((this.deadlineUtc - Date.now()) / 1000)
