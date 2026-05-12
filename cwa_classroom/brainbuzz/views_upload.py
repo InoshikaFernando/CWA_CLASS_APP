@@ -275,10 +275,14 @@ def download_sample_template(request, file_format):
     Args:
         file_format: 'json', 'csv', or 'excel'
     """
+    subject = request.GET.get('subject', 'maths')
+    if subject not in ('maths', 'coding'):
+        subject = 'maths'
+
     extension_map = {
-        'json': ('sample_maths_questions.json', 'application/json'),
-        'csv': ('sample_maths_questions.csv', 'text/csv'),
-        'excel': ('sample_maths_questions.xlsx',
+        'json': (f'sample_{subject}_questions.json', 'application/json'),
+        'csv': (f'sample_{subject}_questions.csv', 'text/csv'),
+        'excel': (f'sample_{subject}_questions.xlsx',
                   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
     }
 
@@ -289,7 +293,10 @@ def download_sample_template(request, file_format):
     filepath = os.path.join(_SAMPLES_DIR, filename)
 
     if not os.path.exists(filepath):
-        raise Http404(f"Sample file not found: {filename}")
+        maths_fallback = f'sample_maths_questions.{file_format if file_format != "excel" else "xlsx"}'
+        filepath = os.path.join(_SAMPLES_DIR, maths_fallback)
+        if not os.path.exists(filepath):
+            raise Http404(f"Sample file not found: {filename}")
 
     response = FileResponse(open(filepath, 'rb'), content_type=content_type)
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
