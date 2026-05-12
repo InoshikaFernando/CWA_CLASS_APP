@@ -293,8 +293,8 @@ def download_sample_template(request, file_format):
     filepath = os.path.join(_SAMPLES_DIR, filename)
 
     if not os.path.exists(filepath):
-        maths_fallback = f'sample_maths_questions.{file_format if file_format != "excel" else "xlsx"}'
-        filepath = os.path.join(_SAMPLES_DIR, maths_fallback)
+        filename = filename.replace(f'_{subject}_', '_maths_')
+        filepath = os.path.join(_SAMPLES_DIR, filename)
         if not os.path.exists(filepath):
             raise Http404(f"Sample file not found: {filename}")
 

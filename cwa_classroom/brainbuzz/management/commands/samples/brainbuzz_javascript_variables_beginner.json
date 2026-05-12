@@ -2,12 +2,67 @@
   "subject": "coding",
   "questions": [
     {
-      "question_text": "What will x be after: x = 10?",
+      "question_text": "Which keyword is used to declare a variable that can be reassigned?",
       "question_type": "multiple_choice",
       "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
       "answers": [
         {
-          "text": "10",
+          "text": "let",
+          "is_correct": true
+        },
+        {
+          "text": "const",
+          "is_correct": false
+        },
+        {
+          "text": "def",
+          "is_correct": false
+        },
+        {
+          "text": "variable",
+          "is_correct": false
+        }
+      ]
+    },
+    {
+      "question_text": "What does const do?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
+      "answers": [
+        {
+          "text": "Declares a variable that cannot be reassigned",
+          "is_correct": true
+        },
+        {
+          "text": "Declares a variable that can change",
+          "is_correct": false
+        },
+        {
+          "text": "Creates a function",
+          "is_correct": false
+        },
+        {
+          "text": "Deletes a variable",
+          "is_correct": false
+        }
+      ]
+    },
+    {
+      "question_text": "What is the value of x after: let x = 5;?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
+      "answers": [
+        {
+          "text": "5",
           "is_correct": true
         },
         {
@@ -15,160 +70,26 @@
           "is_correct": false
         },
         {
-          "text": "0",
+          "text": "undefined",
           "is_correct": false
         },
         {
-          "text": "Error",
+          "text": "\"5\"",
           "is_correct": false
         }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
+      ]
     },
     {
-      "question_text": "Which symbol is used to assign a value to a variable in Python?",
+      "question_text": "What is the data type of \"Hello\"?",
       "question_type": "multiple_choice",
       "difficulty": 1,
-      "answers": [
-        {
-          "text": "=",
-          "is_correct": true
-        },
-        {
-          "text": "==",
-          "is_correct": false
-        },
-        {
-          "text": ":",
-          "is_correct": false
-        },
-        {
-          "text": "=>",
-          "is_correct": false
-        }
-      ],
       "topic": "Variables & Data Types",
       "level": "beginner",
-      "language": "Python"
-    },
-    {
-      "question_text": "What is the data type of 3.14?",
-      "question_type": "multiple_choice",
-      "difficulty": 1,
+      "language": "JavaScript",
       "answers": [
         {
-          "text": "float",
+          "text": "string",
           "is_correct": true
-        },
-        {
-          "text": "int",
-          "is_correct": false
-        },
-        {
-          "text": "str",
-          "is_correct": false
-        },
-        {
-          "text": "double",
-          "is_correct": false
-        }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
-    },
-    {
-      "question_text": "What does print(type(5)) output?",
-      "question_type": "multiple_choice",
-      "difficulty": 1,
-      "answers": [
-        {
-          "text": "<class 'int'>",
-          "is_correct": true
-        },
-        {
-          "text": "<class 'float'>",
-          "is_correct": false
-        },
-        {
-          "text": "5",
-          "is_correct": false
-        },
-        {
-          "text": "<class 'str'>",
-          "is_correct": false
-        }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
-    },
-    {
-      "question_text": "Which of these is NOT a valid variable name?",
-      "question_type": "multiple_choice",
-      "difficulty": 1,
-      "answers": [
-        {
-          "text": "3name",
-          "is_correct": true
-        },
-        {
-          "text": "name3",
-          "is_correct": false
-        },
-        {
-          "text": "_name",
-          "is_correct": false
-        },
-        {
-          "text": "my_name",
-          "is_correct": false
-        }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
-    },
-    {
-      "question_text": "What is the value of x after: x = 5; x = 8?",
-      "question_type": "multiple_choice",
-      "difficulty": 1,
-      "answers": [
-        {
-          "text": "8",
-          "is_correct": true
-        },
-        {
-          "text": "5",
-          "is_correct": false
-        },
-        {
-          "text": "13",
-          "is_correct": false
-        },
-        {
-          "text": "Error",
-          "is_correct": false
-        }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
-    },
-    {
-      "question_text": "What data type is \"Hello\"?",
-      "question_type": "multiple_choice",
-      "difficulty": 1,
-      "answers": [
-        {
-          "text": "str",
-          "is_correct": true
-        },
-        {
-          "text": "int",
-          "is_correct": false
         },
         {
           "text": "char",
@@ -177,120 +98,306 @@
         {
           "text": "text",
           "is_correct": false
+        },
+        {
+          "text": "str",
+          "is_correct": false
         }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
+      ]
     },
     {
-      "question_text": "What does x = int(\"7\") store in x?",
+      "question_text": "What is the value of x after: let x = 3; x = 7;?",
       "question_type": "multiple_choice",
       "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
       "answers": [
         {
-          "text": "7 as an integer",
+          "text": "7",
           "is_correct": true
         },
         {
-          "text": "\"7\" as a string",
+          "text": "3",
+          "is_correct": false
+        },
+        {
+          "text": "10",
           "is_correct": false
         },
         {
           "text": "Error",
           "is_correct": false
-        },
-        {
-          "text": "Nothing",
-          "is_correct": false
         }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
+      ]
     },
     {
-      "question_text": "What is the result of 10 // 3?",
+      "question_text": "What happens if you try to reassign a const variable?",
       "question_type": "multiple_choice",
       "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
       "answers": [
         {
-          "text": "3",
+          "text": "TypeError",
           "is_correct": true
         },
         {
-          "text": "3.33",
+          "text": "It updates silently",
           "is_correct": false
         },
         {
-          "text": "4",
+          "text": "It creates a new variable",
           "is_correct": false
         },
         {
-          "text": "1",
+          "text": "Nothing happens",
           "is_correct": false
         }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
+      ]
     },
     {
-      "question_text": "Which function tells you the data type of a variable?",
+      "question_text": "What does typeof true return?",
       "question_type": "multiple_choice",
       "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
       "answers": [
         {
-          "text": "type()",
+          "text": "\"boolean\"",
           "is_correct": true
         },
         {
-          "text": "typeof()",
+          "text": "\"bool\"",
           "is_correct": false
         },
         {
-          "text": "datatype()",
+          "text": "\"true\"",
           "is_correct": false
         },
         {
-          "text": "check()",
+          "text": "\"number\"",
           "is_correct": false
         }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
+      ]
     },
     {
-      "question_text": "What is the value of y after: x = 3; y = x + 2?",
+      "question_text": "Which is a valid variable name in JavaScript?",
       "question_type": "multiple_choice",
       "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
       "answers": [
+        {
+          "text": "myAge",
+          "is_correct": true
+        },
+        {
+          "text": "my-age",
+          "is_correct": false
+        },
+        {
+          "text": "1stPlace",
+          "is_correct": false
+        },
+        {
+          "text": "my age",
+          "is_correct": false
+        }
+      ]
+    },
+    {
+      "question_text": "What is the result of \"3\" + 2?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
+      "answers": [
+        {
+          "text": "\"32\"",
+          "is_correct": true
+        },
         {
           "text": "5",
+          "is_correct": false
+        },
+        {
+          "text": "32",
+          "is_correct": false
+        },
+        {
+          "text": "Error",
+          "is_correct": false
+        }
+      ]
+    },
+    {
+      "question_text": "What is the value of a variable that has been declared but not assigned?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
+      "answers": [
+        {
+          "text": "undefined",
           "is_correct": true
         },
         {
-          "text": "3",
+          "text": "null",
           "is_correct": false
         },
         {
-          "text": "2",
+          "text": "0",
           "is_correct": false
         },
         {
-          "text": "x + 2",
+          "text": "\"\"",
           "is_correct": false
         }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
+      ]
     },
     {
-      "question_text": "What does str(100) return?",
+      "question_text": "Which operator is used to check both value and type?",
       "question_type": "multiple_choice",
       "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
+      "answers": [
+        {
+          "text": "===",
+          "is_correct": true
+        },
+        {
+          "text": "==",
+          "is_correct": false
+        },
+        {
+          "text": "=",
+          "is_correct": false
+        },
+        {
+          "text": "!=",
+          "is_correct": false
+        }
+      ]
+    },
+    {
+      "question_text": "What does console.log() do?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
+      "answers": [
+        {
+          "text": "Prints output to the console",
+          "is_correct": true
+        },
+        {
+          "text": "Creates a variable",
+          "is_correct": false
+        },
+        {
+          "text": "Saves data to a file",
+          "is_correct": false
+        },
+        {
+          "text": "Displays a pop-up",
+          "is_correct": false
+        }
+      ]
+    },
+    {
+      "question_text": "What is the result of: let y = 10; y += 5; console.log(y);?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
+      "answers": [
+        {
+          "text": "15",
+          "is_correct": true
+        },
+        {
+          "text": "10",
+          "is_correct": false
+        },
+        {
+          "text": "5",
+          "is_correct": false
+        },
+        {
+          "text": "105",
+          "is_correct": false
+        }
+      ]
+    },
+    {
+      "question_text": "Which of these is NOT a JavaScript data type?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
+      "answers": [
+        {
+          "text": "float",
+          "is_correct": true
+        },
+        {
+          "text": "string",
+          "is_correct": false
+        },
+        {
+          "text": "number",
+          "is_correct": false
+        },
+        {
+          "text": "boolean",
+          "is_correct": false
+        }
+      ]
+    },
+    {
+      "question_text": "What does Number(\"8\") return?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
+      "answers": [
+        {
+          "text": "8",
+          "is_correct": true
+        },
+        {
+          "text": "\"8\"",
+          "is_correct": false
+        },
+        {
+          "text": "NaN",
+          "is_correct": false
+        },
+        {
+          "text": "Error",
+          "is_correct": false
+        }
+      ]
+    },
+    {
+      "question_text": "What does String(100) return?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
       "answers": [
         {
           "text": "\"100\"",
@@ -305,122 +412,226 @@
           "is_correct": false
         },
         {
-          "text": "1.0",
+          "text": "NaN",
           "is_correct": false
         }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
+      ]
     },
     {
-      "question_text": "What data type is False?",
+      "question_text": "What is the naming convention for JavaScript variables?",
       "question_type": "multiple_choice",
       "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
       "answers": [
         {
-          "text": "bool",
+          "text": "camelCase",
           "is_correct": true
         },
         {
-          "text": "str",
+          "text": "snake_case",
           "is_correct": false
         },
         {
-          "text": "int",
+          "text": "PascalCase",
           "is_correct": false
         },
         {
-          "text": "NoneType",
+          "text": "UPPER_CASE",
           "is_correct": false
         }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
+      ]
     },
     {
-      "question_text": "What happens if you use a variable before assigning it?",
+      "question_text": "Are variable names case-sensitive in JavaScript?",
       "question_type": "multiple_choice",
       "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
       "answers": [
         {
-          "text": "NameError",
+          "text": "Yes",
           "is_correct": true
         },
-        {
-          "text": "It equals 0",
-          "is_correct": false
-        },
-        {
-          "text": "It equals None",
-          "is_correct": false
-        },
-        {
-          "text": "It equals an empty string",
-          "is_correct": false
-        }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
-    },
-    {
-      "question_text": "What is the result of \"Hi\" + \" there\"?",
-      "question_type": "multiple_choice",
-      "difficulty": 1,
-      "answers": [
-        {
-          "text": "\"Hi there\"",
-          "is_correct": true
-        },
-        {
-          "text": "Error",
-          "is_correct": false
-        },
-        {
-          "text": "\"Hithere\"",
-          "is_correct": false
-        },
-        {
-          "text": "\"Hi + there\"",
-          "is_correct": false
-        }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
-    },
-    {
-      "question_text": "Do you need to declare a variable's type before using it in Python?",
-      "question_type": "multiple_choice",
-      "difficulty": 1,
-      "answers": [
         {
           "text": "No",
-          "is_correct": true
-        },
-        {
-          "text": "Yes, always",
           "is_correct": false
         },
         {
-          "text": "Only for numbers",
+          "text": "Only for const",
           "is_correct": false
         },
         {
           "text": "Only for strings",
           "is_correct": false
         }
-      ],
+      ]
+    },
+    {
+      "question_text": "What is the result of \"Hello\" + \" \" + \"World\"?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
       "topic": "Variables & Data Types",
       "level": "beginner",
-      "language": "Python"
+      "language": "JavaScript",
+      "answers": [
+        {
+          "text": "\"Hello World\"",
+          "is_correct": true
+        },
+        {
+          "text": "\"HelloWorld\"",
+          "is_correct": false
+        },
+        {
+          "text": "Error",
+          "is_correct": false
+        },
+        {
+          "text": "\"Hello + World\"",
+          "is_correct": false
+        }
+      ]
+    },
+    {
+      "question_text": "What does NaN stand for?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
+      "answers": [
+        {
+          "text": "Not a Number",
+          "is_correct": true
+        },
+        {
+          "text": "No available name",
+          "is_correct": false
+        },
+        {
+          "text": "Null and Nothing",
+          "is_correct": false
+        },
+        {
+          "text": "New assigned number",
+          "is_correct": false
+        }
+      ]
+    },
+    {
+      "question_text": "What does typeof undefined return?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
+      "answers": [
+        {
+          "text": "\"undefined\"",
+          "is_correct": true
+        },
+        {
+          "text": "\"null\"",
+          "is_correct": false
+        },
+        {
+          "text": "\"object\"",
+          "is_correct": false
+        },
+        {
+          "text": "Error",
+          "is_correct": false
+        }
+      ]
+    },
+    {
+      "question_text": "Which way can you write a string in JavaScript?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
+      "answers": [
+        {
+          "text": "All of these",
+          "is_correct": true
+        },
+        {
+          "text": "Double quotes only",
+          "is_correct": false
+        },
+        {
+          "text": "Single quotes only",
+          "is_correct": false
+        },
+        {
+          "text": "Backticks only",
+          "is_correct": false
+        }
+      ]
+    },
+    {
+      "question_text": "What is a template literal in JavaScript?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
+      "answers": [
+        {
+          "text": "A string using backticks that can embed expressions",
+          "is_correct": true
+        },
+        {
+          "text": "A special variable type",
+          "is_correct": false
+        },
+        {
+          "text": "A function that returns text",
+          "is_correct": false
+        },
+        {
+          "text": "A comment style",
+          "is_correct": false
+        }
+      ]
+    },
+    {
+      "question_text": "What is the output of: let name = \"Jo\"; console.log(`Hi ${name}`);?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
+      "answers": [
+        {
+          "text": "Hi Jo",
+          "is_correct": true
+        },
+        {
+          "text": "Hi ${name}",
+          "is_correct": false
+        },
+        {
+          "text": "Hi name",
+          "is_correct": false
+        },
+        {
+          "text": "Error",
+          "is_correct": false
+        }
+      ]
     },
     {
       "question_text": "What is the result of 10 % 3?",
       "question_type": "multiple_choice",
       "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
       "answers": [
         {
           "text": "1",
@@ -438,278 +649,18 @@
           "text": "10",
           "is_correct": false
         }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
+      ]
     },
     {
-      "question_text": "What does float(\"2.5\") return?",
+      "question_text": "What does \"abc\".length return?",
       "question_type": "multiple_choice",
       "difficulty": 1,
-      "answers": [
-        {
-          "text": "2.5",
-          "is_correct": true
-        },
-        {
-          "text": "\"2.5\"",
-          "is_correct": false
-        },
-        {
-          "text": "2",
-          "is_correct": false
-        },
-        {
-          "text": "Error",
-          "is_correct": false
-        }
-      ],
       "topic": "Variables & Data Types",
       "level": "beginner",
-      "language": "Python"
-    },
-    {
-      "question_text": "What is the output of: name = \"Sam\"; print(\"Hi \" + name)?",
-      "question_type": "multiple_choice",
-      "difficulty": 1,
+      "language": "JavaScript",
       "answers": [
         {
-          "text": "Hi Sam",
-          "is_correct": true
-        },
-        {
-          "text": "Hi name",
-          "is_correct": false
-        },
-        {
-          "text": "\"Hi \" + name",
-          "is_correct": false
-        },
-        {
-          "text": "Error",
-          "is_correct": false
-        }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
-    },
-    {
-      "question_text": "Can a Python variable name start with an underscore?",
-      "question_type": "multiple_choice",
-      "difficulty": 1,
-      "answers": [
-        {
-          "text": "Yes",
-          "is_correct": true
-        },
-        {
-          "text": "No",
-          "is_correct": false
-        },
-        {
-          "text": "Only inside a function",
-          "is_correct": false
-        },
-        {
-          "text": "Only for private variables",
-          "is_correct": false
-        }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
-    },
-    {
-      "question_text": "What is the result of 2 ** 3?",
-      "question_type": "multiple_choice",
-      "difficulty": 1,
-      "answers": [
-        {
-          "text": "8",
-          "is_correct": true
-        },
-        {
-          "text": "6",
-          "is_correct": false
-        },
-        {
-          "text": "9",
-          "is_correct": false
-        },
-        {
-          "text": "23",
-          "is_correct": false
-        }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
-    },
-    {
-      "question_text": "Are variable names case-sensitive in Python?",
-      "question_type": "multiple_choice",
-      "difficulty": 1,
-      "answers": [
-        {
-          "text": "Yes",
-          "is_correct": true
-        },
-        {
-          "text": "No",
-          "is_correct": false
-        },
-        {
-          "text": "Only for strings",
-          "is_correct": false
-        },
-        {
-          "text": "Only for numbers",
-          "is_correct": false
-        }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
-    },
-    {
-      "question_text": "What is the data type of None?",
-      "question_type": "multiple_choice",
-      "difficulty": 1,
-      "answers": [
-        {
-          "text": "NoneType",
-          "is_correct": true
-        },
-        {
-          "text": "bool",
-          "is_correct": false
-        },
-        {
-          "text": "int",
-          "is_correct": false
-        },
-        {
-          "text": "str",
-          "is_correct": false
-        }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
-    },
-    {
-      "question_text": "What does len(\"Python\") return?",
-      "question_type": "multiple_choice",
-      "difficulty": 1,
-      "answers": [
-        {
-          "text": "6",
-          "is_correct": true
-        },
-        {
-          "text": "5",
-          "is_correct": false
-        },
-        {
-          "text": "7",
-          "is_correct": false
-        },
-        {
-          "text": "Error",
-          "is_correct": false
-        }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
-    },
-    {
-      "question_text": "What is the output of: x = 4; x += 1; print(x)?",
-      "question_type": "multiple_choice",
-      "difficulty": 1,
-      "answers": [
-        {
-          "text": "5",
-          "is_correct": true
-        },
-        {
-          "text": "4",
-          "is_correct": false
-        },
-        {
-          "text": "1",
-          "is_correct": false
-        },
-        {
-          "text": "41",
-          "is_correct": false
-        }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
-    },
-    {
-      "question_text": "Which of these creates a string variable?",
-      "question_type": "multiple_choice",
-      "difficulty": 1,
-      "answers": [
-        {
-          "text": "name = \"Alice\"",
-          "is_correct": true
-        },
-        {
-          "text": "name = Alice",
-          "is_correct": false
-        },
-        {
-          "text": "str name = \"Alice\"",
-          "is_correct": false
-        },
-        {
-          "text": "string name = Alice",
-          "is_correct": false
-        }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
-    },
-    {
-      "question_text": "What does \"ha\" * 3 produce?",
-      "question_type": "multiple_choice",
-      "difficulty": 1,
-      "answers": [
-        {
-          "text": "\"hahaha\"",
-          "is_correct": true
-        },
-        {
-          "text": "\"ha3\"",
-          "is_correct": false
-        },
-        {
-          "text": "Error",
-          "is_correct": false
-        },
-        {
-          "text": "\"ha * 3\"",
-          "is_correct": false
-        }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
-    },
-    {
-      "question_text": "What is the output of: a, b = 1, 2; print(a)?",
-      "question_type": "multiple_choice",
-      "difficulty": 1,
-      "answers": [
-        {
-          "text": "1",
+          "text": "3",
           "is_correct": true
         },
         {
@@ -717,69 +668,92 @@
           "is_correct": false
         },
         {
-          "text": "(1, 2)",
+          "text": "\"abc\"",
           "is_correct": false
         },
         {
           "text": "Error",
           "is_correct": false
         }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
+      ]
     },
     {
-      "question_text": "Which keyword is a reserved word and cannot be used as a variable name?",
+      "question_text": "Which keyword should you avoid for declaring variables in modern JavaScript?",
       "question_type": "multiple_choice",
       "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
       "answers": [
         {
-          "text": "class",
+          "text": "var",
           "is_correct": true
         },
         {
-          "text": "score",
+          "text": "let",
           "is_correct": false
         },
         {
-          "text": "total",
+          "text": "const",
           "is_correct": false
         },
         {
-          "text": "player",
+          "text": "function",
           "is_correct": false
         }
-      ],
-      "topic": "Variables & Data Types",
-      "level": "beginner",
-      "language": "Python"
+      ]
     },
     {
-      "question_text": "What will print(type(\"42\")) output?",
+      "question_text": "What does Boolean(0) return?",
       "question_type": "multiple_choice",
       "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
       "answers": [
         {
-          "text": "<class 'str'>",
+          "text": "false",
           "is_correct": true
         },
         {
-          "text": "<class 'int'>",
+          "text": "true",
           "is_correct": false
         },
         {
-          "text": "42",
+          "text": "0",
           "is_correct": false
         },
         {
-          "text": "<class 'float'>",
+          "text": "NaN",
           "is_correct": false
         }
-      ],
+      ]
+    },
+    {
+      "question_text": "What is the difference between null and undefined?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
       "topic": "Variables & Data Types",
       "level": "beginner",
-      "language": "Python"
+      "language": "JavaScript",
+      "answers": [
+        {
+          "text": "null is intentionally empty; undefined means not yet assigned",
+          "is_correct": true
+        },
+        {
+          "text": "They are the same thing",
+          "is_correct": false
+        },
+        {
+          "text": "null is for numbers; undefined is for strings",
+          "is_correct": false
+        },
+        {
+          "text": "undefined is an error; null is not",
+          "is_correct": false
+        }
+      ]
     }
   ]
 }
