@@ -35,7 +35,7 @@ class Worksheet(models.Model):
 
 
 class WorksheetQuestion(models.Model):
-    """Ordered link between a Worksheet and a maths.Question."""
+    """Ordered link between a Worksheet and a question (maths or other subject)."""
     worksheet = models.ForeignKey(
         Worksheet, on_delete=models.CASCADE, related_name='worksheet_questions',
     )
@@ -43,10 +43,37 @@ class WorksheetQuestion(models.Model):
         'maths.Question', on_delete=models.CASCADE, related_name='worksheet_entries',
     )
     order = models.PositiveIntegerField()
+    # Subject plugin fields — mirrors HomeworkQuestion pattern.
+    # subject_slug + content_id identify the question for any subject plugin.
+    # For existing maths questions, content_id == question_id (backfilled by migration).
+    subject_slug = models.CharField(
+        max_length=50, default='mathematics', db_index=True,
+        help_text='Subject plugin slug: mathematics, coding, etc.',
+    )
+    content_id = models.PositiveIntegerField(
+        default=0,
+        help_text='pk of the content row (maths.Question.id, CodingExercise.id, etc.).',
+    )
 
     class Meta:
         ordering = ['order']
-        unique_together = [('worksheet', 'order')]
+        constraints = [
+            models.UniqueConstraint(
+                fields=('worksheet', 'order'),
+                name='unique_worksheet_question_order',
+            ),
+            models.UniqueConstraint(
+                fields=('worksheet', 'subject_slug', 'content_id'),
+                name='unique_worksheet_question_content',
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        # Auto-populate content_id from the question FK for maths questions
+        # so callers don't need to set it explicitly.
+        if self.content_id == 0 and self.question_id is not None:
+            self.content_id = self.question_id
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f'{self.worksheet.name} — Q{self.order}'
@@ -115,7 +142,7 @@ class WorksheetAssignment(models.Model):
 
     @property
     def assigned_questions(self):
-        qs = self.worksheet.worksheet_questions.select_related('question__answers').filter(
+        qs = self.worksheet.worksheet_questions.select_related('question__level', 'question__topic').prefetch_related('question__answers').filter(
             order__gte=self.question_start,
         )
         if self.question_end:
@@ -188,6 +215,9 @@ class WorksheetStudentAnswer(models.Model):
     is_correct = models.BooleanField(default=False)
     points_earned = models.FloatField(default=0.0)
     answered_at = models.DateTimeField(auto_now_add=True)
+    # Stores structured answer payloads for non-MCQ question types
+    # (e.g. coding: {"code": "...", "stdout": "..."}, long-division steps, etc.)
+    answer_data = models.JSONField(default=dict, blank=True)
 
     class Meta:
         unique_together = [('submission', 'question')]
