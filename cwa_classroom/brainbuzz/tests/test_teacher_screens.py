@@ -604,3 +604,214 @@ class TestRepeatSession(TestCase):
             'question_count': 5, 'time_per_question_sec': 15,
         }
         self.session.save()
+
+
+# ---------------------------------------------------------------------------
+# Teacher ACTIVE view: answer options display (CPP-229)
+# ---------------------------------------------------------------------------
+
+@_patch_teacher
+class TestActiveOptionsPayload(TestCase):
+    """api_session_state returns is_correct flags and correct_short_answer
+    so the teacher view can render the correct-answer markers."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.host = _make_teacher('t_opts_payload')
+        cls.subject = _make_subject()
+        cls.session = _make_session(
+            cls.host, cls.subject,
+            status=BrainBuzzSession.STATUS_ACTIVE,
+            current_index=0,
+            code='OPTPAY',
+        )
+        cls.q_mcq = _add_question(
+            cls.session, 0, QUESTION_TYPE_MCQ,
+            options=[
+                {'label': 'A', 'text': 'Paris',  'is_correct': True},
+                {'label': 'B', 'text': 'Berlin', 'is_correct': False},
+                {'label': 'C', 'text': 'Rome',   'is_correct': False},
+            ],
+        )
+        cls.q_sa = _add_question(
+            cls.session, 1, QUESTION_TYPE_SHORT_ANSWER,
+            options=[],
+            correct_short_answer='photosynthesis',
+        )
+        cls.state_url = reverse('brainbuzz:api_session_state', kwargs={'join_code': cls.session.code})
+
+    def _get_state(self):
+        c = Client()
+        c.force_login(self.host)
+        return c.get(self.state_url).json()
+
+    def test_options_include_is_correct_flag(self, _mock):
+        data = self._get_state()
+        opts = data['question']['options']
+        self.assertTrue(all('is_correct' in o for o in opts))
+
+    def test_correct_option_flagged_true(self, _mock):
+        data = self._get_state()
+        opts = data['question']['options']
+        correct_opts = [o for o in opts if o['is_correct']]
+        self.assertEqual(len(correct_opts), 1)
+        self.assertEqual(correct_opts[0]['label'], 'A')
+
+    def test_incorrect_options_flagged_false(self, _mock):
+        data = self._get_state()
+        opts = data['question']['options']
+        wrong = [o for o in opts if not o['is_correct']]
+        self.assertEqual(len(wrong), 2)
+
+    def test_correct_short_answer_empty_for_mcq(self, _mock):
+        data = self._get_state()
+        self.assertEqual(data['question']['correct_short_answer'], '')
+
+    def test_correct_short_answer_present_for_sa_when_host(self, _mock):
+        # Teacher (session host) must see the answer during ACTIVE phase
+        self.session.current_index = 1
+        self.session.save()
+        c = Client()
+        c.force_login(self.host)
+        data = c.get(self.state_url).json()
+        self.session.current_index = 0
+        self.session.save()
+        self.assertEqual(data['question']['correct_short_answer'], 'photosynthesis')
+
+    def test_correct_short_answer_hidden_from_student_during_active(self, _mock):
+        # Students must NOT see the answer during ACTIVE phase (security fix)
+        self.session.current_index = 1
+        self.session.save()
+        data = Client().get(self.state_url).json()  # anonymous = student perspective
+        self.session.current_index = 0
+        self.session.save()
+        self.assertEqual(data['question']['correct_short_answer'], '')
+
+    def test_is_correct_hidden_from_student_during_active(self, _mock):
+        # Students must NOT see is_correct on options during ACTIVE phase
+        data = Client().get(self.state_url).json()  # anonymous = student perspective
+        for opt in data['question']['options']:
+            self.assertNotIn('is_correct', opt)
+
+    def test_is_correct_present_for_teacher_during_active(self, _mock):
+        # Teacher (host) must see is_correct on options during ACTIVE phase
+        data = self._get_state()
+        for opt in data['question']['options']:
+            self.assertIn('is_correct', opt)
+
+    def test_is_correct_visible_to_student_after_reveal(self, _mock):
+        # Students CAN see is_correct once status transitions to REVEAL
+        self.session.status = BrainBuzzSession.STATUS_REVEAL
+        self.session.save()
+        data = Client().get(self.state_url).json()
+        self.session.status = BrainBuzzSession.STATUS_ACTIVE
+        self.session.save()
+        for opt in data['question']['options']:
+            self.assertIn('is_correct', opt)
+
+    def test_correct_short_answer_visible_after_reveal(self, _mock):
+        # Students CAN see the answer once status transitions to REVEAL
+        self.session.current_index = 1
+        self.session.status = BrainBuzzSession.STATUS_REVEAL
+        self.session.save()
+        data = Client().get(self.state_url).json()
+        self.session.current_index = 0
+        self.session.status = BrainBuzzSession.STATUS_ACTIVE
+        self.session.save()
+        self.assertEqual(data['question']['correct_short_answer'], 'photosynthesis')
+
+    def test_payload_includes_question_type(self, _mock):
+        data = self._get_state()
+        self.assertIn('question_type', data['question'])
+        self.assertEqual(data['question']['question_type'], 'mcq')
+
+
+@_patch_teacher
+class TestTeacherIngameActiveOptions(TestCase):
+    """Teacher ingame page: initial-state JSON and template markup tests
+    for the correct-answer display during the ACTIVE phase."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.host = _make_teacher('t_ingame_opts')
+        cls.subject = _make_subject()
+        cls.session = _make_session(
+            cls.host, cls.subject,
+            status=BrainBuzzSession.STATUS_ACTIVE,
+            current_index=0,
+            code='INGOPT',
+        )
+        cls.q_mcq = _add_question(
+            cls.session, 0, QUESTION_TYPE_MCQ,
+            options=[
+                {'label': 'A', 'text': 'Water',    'is_correct': False},
+                {'label': 'B', 'text': 'Oxygen',   'is_correct': True},
+                {'label': 'C', 'text': 'Hydrogen', 'is_correct': False},
+            ],
+        )
+        cls.q_sa = _add_question(
+            cls.session, 1, QUESTION_TYPE_SHORT_ANSWER,
+            options=[],
+            correct_short_answer='mitosis',
+        )
+
+    def setUp(self):
+        self.client = Client()
+        self.client.force_login(self.host)
+        self.ingame_url = reverse('brainbuzz:teacher_ingame', kwargs={'join_code': self.session.code})
+
+    def _initial_state(self, resp):
+        import re
+        m = re.search(r'id="bb-initial-state"[^>]*>(.*?)</script>', resp.content.decode(), re.DOTALL)
+        self.assertIsNotNone(m, "bb-initial-state script tag not found in response")
+        return json.loads(m.group(1))
+
+    def test_ingame_page_renders_ok(self, _mock):
+        resp = self.client.get(self.ingame_url)
+        self.assertEqual(resp.status_code, 200)
+
+    def test_initial_state_contains_option_text(self, _mock):
+        resp = self.client.get(self.ingame_url)
+        state = self._initial_state(resp)
+        texts = [o['text'] for o in state['question']['options']]
+        self.assertIn('Oxygen', texts)
+
+    def test_initial_state_marks_correct_option(self, _mock):
+        resp = self.client.get(self.ingame_url)
+        state = self._initial_state(resp)
+        correct = [o for o in state['question']['options'] if o.get('is_correct')]
+        self.assertEqual(len(correct), 1)
+        self.assertEqual(correct[0]['label'], 'B')
+
+    def test_initial_state_has_correct_short_answer_field(self, _mock):
+        resp = self.client.get(self.ingame_url)
+        state = self._initial_state(resp)
+        self.assertIn('correct_short_answer', state['question'])
+
+    def test_template_has_correct_marker_binding(self, _mock):
+        resp = self.client.get(self.ingame_url)
+        html = resp.content.decode()
+        # Template must reference opt.is_correct to drive the correct-answer marker
+        self.assertIn('opt.is_correct', html)
+
+    def test_template_tiles_have_emerald_correct_class(self, _mock):
+        resp = self.client.get(self.ingame_url)
+        html = resp.content.decode()
+        self.assertIn('border-emerald-400', html)
+
+    def test_template_tiles_are_read_only(self, _mock):
+        resp = self.client.get(self.ingame_url)
+        html = resp.content.decode()
+        self.assertIn('pointer-events-none', html)
+
+    def test_template_has_sa_expected_answer_block(self, _mock):
+        resp = self.client.get(self.ingame_url)
+        html = resp.content.decode()
+        self.assertIn('correctShortAnswer', html)
+
+    def test_reveal_distribution_block_still_present(self, _mock):
+        resp = self.client.get(self.ingame_url)
+        html = resp.content.decode()
+        # Distribution block keyed on status === 'reveal' && distribution.length > 0
+        self.assertIn("status === 'reveal'", html)
+        self.assertIn('distribution', html)

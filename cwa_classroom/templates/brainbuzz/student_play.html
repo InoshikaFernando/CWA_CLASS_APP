@@ -5,7 +5,7 @@
 <div class="fixed inset-0 -z-10 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900"></div>
 
 {{ initial_state|json_script:"bb-initial-state" }}
-<div class="max-w-lg mx-auto py-4 px-3 space-y-4"
+<div class="max-w-lg mx-auto py-4 px-3 space-y-4 pb-safe"
      x-data="bbStudent('{{ session.code }}', {{ participant.id }}, {{ participant.score }}, '{{ session.status }}')"
      x-init="init()">
 
@@ -15,15 +15,15 @@
   <!-- ── HEADER ──────────────────────────────────────────────────────────── -->
   <div class="flex items-center justify-between px-5 py-3 bg-white/10 backdrop-blur-xl rounded-2xl border border-white/20">
     <div>
-      <p class="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Session</p>
+      <p class="text-[11px] text-gray-400 font-bold uppercase tracking-widest">Session</p>
       <p class="font-black text-white text-lg font-mono tracking-widest">{{ session.code }}</p>
     </div>
     <div class="text-center px-4 border-l border-r border-white/20">
-      <p class="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Player</p>
+      <p class="text-[11px] text-gray-400 font-bold uppercase tracking-widest">Player</p>
       <p class="font-bold text-white text-sm truncate max-w-[8rem]">{{ participant.nickname }}</p>
     </div>
     <div class="text-right">
-      <p class="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Score</p>
+      <p class="text-[11px] text-gray-400 font-bold uppercase tracking-widest">Score</p>
       <p class="font-black text-white text-lg" x-text="score.toLocaleString()"></p>
     </div>
   </div>
@@ -72,42 +72,75 @@
               x-text="`Q${question.order + 1}`"></span>
         <!-- Countdown pill -->
         <div class="flex items-center gap-2 px-4 py-2 rounded-full border-2 font-black text-lg"
-             :class="countdown > 10 ? 'border-green-400/60 bg-green-500/20 text-green-300' :
-                     countdown > 5  ? 'border-yellow-400/60 bg-yellow-500/20 text-yellow-300' :
+             :class="readWindow                ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-300' :
+                     countdown > 10            ? 'border-green-400/60 bg-green-500/20 text-green-300' :
+                     countdown > 5             ? 'border-yellow-400/60 bg-yellow-500/20 text-yellow-300' :
                      'border-red-400/60 bg-red-500/20 text-red-300 animate-pulse'">
+          <span x-text="readWindow ? '📖' : '⏱'" class="text-sm" aria-hidden="true"></span>
           <span x-text="countdown"></span>
           <span class="text-xs font-bold opacity-70">s</span>
         </div>
       </div>
 
+      <!-- Question image (only when present) -->
+      <template x-if="question.image_url">
+        <div class="flex justify-center">
+          <img :src="question.image_url" alt=""
+               loading="lazy"
+               class="max-h-52 w-auto max-w-full object-contain rounded-2xl border border-slate-600 shadow-lg">
+        </div>
+      </template>
+
       <!-- Question text -->
       <div class="bg-gradient-to-br from-slate-800 via-slate-700 to-slate-800 rounded-3xl px-6 py-8 text-white min-h-[6rem] flex items-center justify-center border border-slate-600 shadow-xl">
-        <p class="text-xl md:text-2xl font-black text-center leading-snug" x-text="question.question_text"></p>
+        <div class="bb-question-body text-xl md:text-2xl font-black text-center leading-snug w-full"
+             x-html="question.question_html || question.question_text"></div>
       </div>
+
+      <!-- Read window placeholder: question visible but answers hidden -->
+      <template x-if="readWindow && !answered">
+        <div class="flex flex-col items-center justify-center rounded-2xl border border-indigo-500/30 py-10"
+             style="background: rgba(99,102,241,0.08);"
+             role="status" aria-live="polite">
+          <p class="text-sm font-bold text-indigo-300 mb-2">📖 Read the question</p>
+          <p class="text-5xl font-black text-white tabular-nums" x-text="`${readWindowCountdown}s`"></p>
+          <p class="text-xs text-gray-500 mt-2">Answer choices appear when the timer ends</p>
+        </div>
+      </template>
 
       <!-- MCQ / True-False tiles -->
       <template x-if="question.options && question.options.length > 0">
         <div>
           <!-- Unanswered: interactive grid -->
-          <template x-if="!answered && countdown > 0">
+          <template x-if="!answered && countdown > 0 && !readWindow">
             <div class="grid grid-cols-2 gap-3">
               <template x-for="(opt, idx) in question.options" :key="idx">
                 <button
                   @click="onTileTap(opt, idx, $event)"
                   :aria-label="`Option ${opt.label || ['A','B','C','D'][idx]}: ${opt.text}`"
                   :class="_tileBgs[idx % 4]"
-                  class="relative overflow-hidden rounded-2xl flex flex-col items-center justify-center gap-2 p-4
+                  class="relative overflow-hidden rounded-2xl flex flex-col items-center justify-center gap-1.5 p-3 sm:p-4
                          text-white font-bold text-center w-full border-2 border-white/20 shadow-lg
                          transition-all duration-150 active:scale-95 focus:outline-none focus:ring-4 focus:ring-white/40"
-                  style="min-height: 120px;">
-                  <!-- SVG shape -->
-                  <div class="w-10 h-10 opacity-90" x-html="_tileSvgs[idx % 4]" aria-hidden="true"></div>
+                  style="min-height: clamp(88px, 22vw, 120px);">
+                  <!-- SVG shape (hidden when option has an image) -->
+                  <template x-if="!opt.image_url">
+                    <div class="w-10 h-10 opacity-90" x-html="_tileSvgs[idx % 4]" aria-hidden="true"></div>
+                  </template>
+                  <!-- Option image -->
+                  <template x-if="opt.image_url">
+                    <img :src="opt.image_url" :alt="`Option ${opt.label || ['A','B','C','D'][idx]}`"
+                         loading="lazy"
+                         class="w-full max-h-20 object-contain rounded-xl">
+                  </template>
                   <!-- Letter badge -->
                   <span class="text-xs font-black bg-black/25 px-2 py-0.5 rounded-lg"
                         x-text="opt.label || ['A','B','C','D'][idx]"
                         aria-hidden="true"></span>
-                  <!-- Option text -->
-                  <span class="text-xs font-semibold leading-tight text-center" x-text="opt.text"></span>
+                  <!-- Option text (hidden when the option is image-only) -->
+                  <template x-if="opt.text">
+                    <span class="text-sm font-semibold leading-tight text-center break-words" x-text="opt.text"></span>
+                  </template>
                 </button>
               </template>
             </div>
@@ -115,7 +148,7 @@
 
           <!-- Answered: lock banner -->
           <template x-if="answered">
-            <div class="relative rounded-3xl overflow-hidden border-4 px-8 py-10 text-center space-y-4 shadow-2xl"
+            <div class="relative rounded-3xl overflow-hidden border-4 px-5 py-6 sm:px-8 sm:py-10 text-center space-y-4 shadow-2xl"
                  :class="lastResult?.is_correct ? 'border-green-400 bg-gradient-to-br from-green-900/40 to-emerald-900/30' : 'border-red-400 bg-gradient-to-br from-red-900/40 to-red-800/30'"
                  role="status" aria-live="assertive">
               <div class="text-5xl font-black" x-text="lastResult?.is_correct ? '✓' : '✗'"
@@ -144,14 +177,14 @@
       <!-- Short answer / fill blank -->
       <template x-if="question.question_type === 'short' || question.question_type === 'short_answer' || question.question_type === 'fill_blank'">
         <div>
-          <template x-if="!answered && countdown > 0">
+          <template x-if="!answered && countdown > 0 && !readWindow">
             <form @submit.prevent="onShortSubmit()" class="space-y-3">
               <label class="sr-only" for="bb-text-answer">Your answer</label>
               <input id="bb-text-answer"
                      x-model="textAnswer"
                      type="text"
                      placeholder="Your answer..."
-                     autocomplete="off" autocorrect="off" spellcheck="false"
+                     inputmode="text" autocomplete="off" autocorrect="off" spellcheck="false"
                      class="w-full bg-white/10 backdrop-blur-xl border-2 border-white/30 rounded-2xl px-5 py-4 text-white placeholder-gray-400 text-base font-semibold focus:outline-none focus:ring-4 focus:ring-blue-500/40 focus:border-blue-400 transition-all">
               <button type="submit"
                       :disabled="!textAnswer.trim() || submitting"
@@ -161,7 +194,7 @@
             </form>
           </template>
           <template x-if="answered">
-            <div class="rounded-3xl px-8 py-10 text-center space-y-4"
+            <div class="rounded-3xl px-5 py-6 sm:px-8 sm:py-10 text-center space-y-4"
                  :class="lastResult?.is_correct ? 'border-4 border-green-400 bg-gradient-to-br from-green-900/40 to-emerald-900/30' : 'border-4 border-red-400 bg-gradient-to-br from-red-900/40 to-red-800/30'"
                  role="status" aria-live="assertive">
               <p class="text-5xl" x-text="lastResult?.is_correct ? '✅' : '❌'" aria-hidden="true"></p>
@@ -256,7 +289,7 @@
               <span class="w-6 text-center font-black text-xs flex-shrink-0"
                     :class="d.is_correct ? 'text-green-400' : 'text-gray-400'"
                     x-text="d.label"></span>
-              <div class="flex-1 bg-white/10 rounded-full h-3 overflow-hidden">
+              <div class="flex-1 min-w-0 bg-white/10 rounded-full h-3 overflow-hidden">
                 <div class="h-full rounded-full transition-all duration-700"
                      :class="d.is_correct ? 'bg-green-500' : 'bg-slate-500'"
                      :style="`width: ${totalAnswers > 0 ? Math.max(4, d.count / totalAnswers * 100) : (d.is_correct ? 4 : 0)}%`"></div>
@@ -297,7 +330,7 @@
         <!-- Total score -->
         <div>
           <p class="text-xs text-gray-400 font-bold uppercase tracking-widest mb-1">Total Score</p>
-          <p class="text-5xl font-black bg-gradient-to-r from-yellow-300 to-orange-300 bg-clip-text text-transparent"
+          <p class="text-4xl sm:text-5xl font-black bg-gradient-to-r from-yellow-300 to-orange-300 bg-clip-text text-transparent"
              x-text="score.toLocaleString()"></p>
         </div>
 
@@ -332,6 +365,12 @@
 
 {% csrf_token %}
 
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"
+      integrity="sha512-RwJS3k4Z0IK6TGoL3pgQlA9g2THFhKL7z9TYWdAI8u6xK0AUuMWieJuWgTRayywC9A94ifUj1RzjDa1NIlUIg=="
+      crossorigin="anonymous">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"
+        integrity="sha512-D9gUyxqja7hBtkWpPWGt9wfbfaMGVt9gnyCvYa+jojwwPHLCzUm5i8rpk7vD7wNee9bA35eYIjobYPaQuKS1MQ=="
+        crossorigin="anonymous"></script>
 <style>
   @keyframes points-pop {
     0%   { transform: scale(0.5) translateY(10px); opacity: 0; }
@@ -341,6 +380,37 @@
   .animate-points-pop { animation: points-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
 
   [x-cloak] { display: none !important; }
+
+  /* Safe-area inset for notched phones (iPhone X+) */
+  .pb-safe { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+
+  /* Code-snippet rendering inside question cards */
+  .bb-prose {
+    display: block;
+    white-space: pre-wrap;
+  }
+  .bb-code {
+    display: block;
+    margin: 0.625rem auto;
+    border-radius: 0.5rem;
+    overflow-x: auto;
+    background: #0d1117;
+    border: 1px solid rgba(255,255,255,0.12);
+    padding: 0.875rem 1rem;
+    font-family: 'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace;
+    font-size: 0.8rem;
+    line-height: 1.65;
+    white-space: pre;
+    text-align: left;
+    max-width: 100%;
+  }
+  .bb-code code {
+    background: none !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    font-size: inherit;
+    color: #e6edf3;
+  }
 </style>
 
 <script>
@@ -374,6 +444,9 @@ function bbStudent(joinCode, participantId, initialScore, initialStatus) {
     revealTimer:         null,
     answerDistribution:  [],
     ariaAnnouncement:    '',
+    readWindow:          false,
+    readWindowCountdown: 0,
+    timeLimitSec:        20,
 
     // Tile color backgrounds
     _tileBgs: [
@@ -518,12 +591,16 @@ function bbStudent(joinCode, participantId, initialScore, initialStatus) {
             this.submitError = false;
             this.questionStartedAt = Date.now();
             this.answerDistribution = [];
+            this.timeLimitSec = q.time_limit_sec || 20;
+            this.readWindow = true;
+            this.readWindowCountdown = 0;
           }
         } else {
           // Already answered this question
           this.answered = true;
         }
         this.question = q;
+        setTimeout(() => this._highlightCode(), 0);
         // Extend deadline by 3s if student first sees this question and < 5s remain
         if (isNewQuestion && q.question_deadline && !this.answered) {
           const remaining = (new Date(q.question_deadline) - Date.now()) / 1000;
@@ -540,6 +617,14 @@ function bbStudent(joinCode, participantId, initialScore, initialStatus) {
       }
     },
 
+    _highlightCode() {
+      if (typeof hljs !== 'undefined') {
+        document.querySelectorAll('.bb-question-body .bb-code code:not([data-highlighted])').forEach(el => {
+          hljs.highlightElement(el);
+        });
+      }
+    },
+
     _computeRank(participants) {
       if (!participants || participants.length === 0) return;
       const sorted = [...participants].sort((a, b) => b.score - a.score || 0);
@@ -552,13 +637,35 @@ function bbStudent(joinCode, participantId, initialScore, initialStatus) {
 
     _startCountdown() {
       if (this.countdownTimer) clearInterval(this.countdownTimer);
+      this._deadlinePollFired = false;
       this.countdownTimer = setInterval(() => {
         if (!this.deadlineUtc || this.gameStatus !== 'active') {
           this.countdown = 0;
+          this.readWindow = false;
+          this.readWindowCountdown = 0;
           return;
         }
-        const remaining = (this.deadlineUtc - Date.now()) / 1000;
-        this.countdown = Math.max(0, Math.ceil(remaining));
+        const now = Date.now();
+        const deadlineMs = this.deadlineUtc.getTime();
+        const readWindowEndsMs = deadlineMs - this.timeLimitSec * 1000;
+        this.readWindow = now < readWindowEndsMs;
+        if (this.readWindow) {
+          this.readWindowCountdown = Math.max(0, Math.ceil((readWindowEndsMs - now) / 1000));
+          this.countdown = this.readWindowCountdown;
+        } else {
+          this.readWindowCountdown = 0;
+          this.countdown = Math.max(0, Math.ceil((deadlineMs - now) / 1000));
+          // One eager poll 600 ms after deadline so the auto-reveal response
+          // arrives promptly without waiting for the next scheduled poll.
+          if (this.countdown === 0 && !this._deadlinePollFired) {
+            this._deadlinePollFired = true;
+            const msUntilGrace = Math.max(0, deadlineMs + 600 - now);
+            setTimeout(() => {
+              clearTimeout(this.pollTimer);
+              this._poll();
+            }, msUntilGrace);
+          }
+        }
       }, 200);
     },
 

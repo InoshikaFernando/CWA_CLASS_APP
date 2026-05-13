@@ -44,3 +44,6 @@ Thumbs.db
 # Misc
 mysql.txt
 venv-test/
+
+# Claude Code worktrees (machine-local)
+.claude/worktrees/

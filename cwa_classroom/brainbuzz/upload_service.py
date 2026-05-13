@@ -296,9 +296,7 @@ class QuestionUploadService:
             first_line = qt.splitlines()[0] if qt else ''
             q_dict['title'] = (first_line or qt)[:200]
 
-        # CodingExercise doesn't have difficulty / points / explanation /
-        # level_number — those come from the upload schema and the parser.
-        # Drop them so create(**q_dict) doesn't blow up. FK fields are
+        # Only keep fields that CodingExercise actually has. FK fields are
         # allowed by both their bare name (topic_level) and "_id" form
         # (topic_level_id) since the resolver writes the latter.
         _allowed = set()

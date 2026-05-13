@@ -25,7 +25,7 @@ class TestStudentSearch:
         """Search input exists on the students page."""
         self.page.goto(f"{self.url}/admin-dashboard/schools/{self.school.id}/students/")
         self.page.wait_for_load_state("networkidle")
-        search = self.page.locator("input[name='q']")
+        search = self.page.locator("input[name='q'][hx-target='#students-panel']")
         expect(search).to_be_visible()
 
     def test_search_finds_student_by_username(self):
