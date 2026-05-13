@@ -15,6 +15,7 @@ from django.utils import timezone
 from django.views import View
 
 from accounts.models import Role
+from audit.services import log_event
 from classroom.models import ClassRoom, ClassTeacher, ClassStudent
 from classroom.views import RoleRequiredMixin
 from classroom.views_teacher import _user_can_access_classroom
@@ -89,6 +90,25 @@ class HomeworkCreateView(RoleRequiredMixin, View):
                 homework.snapshot_questions()
 
             status_label = homework.get_status_display()
+
+            log_event(
+                user=request.user,
+                school=classroom.school,
+                category='data_change',
+                action='homework_created',
+                detail={
+                    'homework_id': homework.id,
+                    'title': homework.title,
+                    'classroom_id': classroom.id,
+                    'classroom_name': classroom.name,
+                    'homework_type': homework.homework_type,
+                    'status': homework.status,
+                    'due_date': str(homework.due_date) if homework.due_date else None,
+                    'max_attempts': homework.max_attempts,
+                },
+                request=request,
+            )
+
             messages.success(request, f'Homework "{homework.title}" created ({status_label}).')
             return redirect('homework:class_list', class_id=classroom.pk)
 
@@ -171,6 +191,15 @@ class HomeworkEditView(RoleRequiredMixin, View):
             messages.warning(request, 'This homework cannot be edited.')
             return redirect('homework:class_list', class_id=homework.classroom_id)
 
+        # Capture old values for before/after audit trail
+        old_data = {
+            'title': homework.title,
+            'description': homework.description or '',
+            'due_date': str(homework.due_date) if homework.due_date else None,
+            'max_attempts': homework.max_attempts,
+            'status': homework.status,
+        }
+
         form = HomeworkForm(request.POST, request.FILES, instance=homework, classroom=homework.classroom)
         if form.is_valid():
             hw = form.save(commit=False)
@@ -195,6 +224,25 @@ class HomeworkEditView(RoleRequiredMixin, View):
                     hw.quiz_topics.set([hw.topic_id])
                 hw.snapshot_questions()
 
+            log_event(
+                user=request.user,
+                school=hw.classroom.school,
+                category='data_change',
+                action='homework_edited',
+                detail={
+                    'homework_id': hw.id,
+                    'before': old_data,
+                    'after': {
+                        'title': hw.title,
+                        'description': hw.description or '',
+                        'due_date': str(hw.due_date) if hw.due_date else None,
+                        'max_attempts': hw.max_attempts,
+                        'status': hw.status,
+                    },
+                },
+                request=request,
+            )
+
             messages.success(request, f'Homework "{hw.title}" updated.')
             return redirect('homework:class_list', class_id=hw.classroom_id)
 
@@ -217,6 +265,21 @@ class HomeworkDeleteView(RoleRequiredMixin, View):
 
         homework.is_active = False
         homework.save(update_fields=['is_active', 'updated_at'])
+
+        log_event(
+            user=request.user,
+            school=homework.classroom.school,
+            category='data_change',
+            action='homework_deleted',
+            detail={
+                'homework_id': homework.id,
+                'title': homework.title,
+                'classroom_id': homework.classroom_id,
+                'classroom_name': homework.classroom.name,
+            },
+            request=request,
+        )
+
         messages.success(request, f'Homework "{homework.title}" deleted.')
         return redirect('homework:class_list', class_id=homework.classroom_id)
 
@@ -233,7 +296,23 @@ class HomeworkPublishView(RoleRequiredMixin, View):
             messages.warning(request, 'This homework is already published.')
             return redirect('homework:class_list', class_id=homework.classroom_id)
 
+        old_status = homework.status
         homework.publish()
+
+        log_event(
+            user=request.user,
+            school=homework.classroom.school,
+            category='data_change',
+            action='homework_published',
+            detail={
+                'homework_id': homework.id,
+                'title': homework.title,
+                'classroom_id': homework.classroom_id,
+                'previous_status': old_status,
+            },
+            request=request,
+        )
+
         messages.success(request, f'Homework "{homework.title}" published.')
         return redirect('homework:class_list', class_id=homework.classroom_id)
 
@@ -348,6 +427,15 @@ class GradeSubmissionView(RoleRequiredMixin, View):
             messages.error(request, "You don't have permission.")
             return redirect('teacher_dashboard')
 
+        # Capture old values for before/after audit trail
+        old_data = {
+            'score': submission.score,
+            'max_score': submission.max_score,
+            'feedback': submission.feedback or '',
+            'is_graded': submission.is_graded,
+            'is_published': submission.is_published,
+        }
+
         form = GradingForm(request.POST)
         if form.is_valid():
             submission.score = form.cleaned_data['score']
@@ -362,6 +450,30 @@ class GradeSubmissionView(RoleRequiredMixin, View):
                 submission.is_published = True
 
             submission.save()
+
+            log_event(
+                user=request.user,
+                school=submission.homework.classroom.school,
+                category='data_change',
+                action='homework_submission_graded',
+                detail={
+                    'submission_id': submission.id,
+                    'homework_id': submission.homework_id,
+                    'student_id': submission.student_id,
+                    'student_name': submission.student.get_full_name() or submission.student.username,
+                    'published': publish,
+                    'before': old_data,
+                    'after': {
+                        'score': submission.score,
+                        'max_score': submission.max_score,
+                        'feedback': submission.feedback or '',
+                        'is_graded': submission.is_graded,
+                        'is_published': submission.is_published,
+                    },
+                },
+                request=request,
+            )
+
             action = 'Graded and published' if publish else 'Graded'
             messages.success(request, f'{action} submission by {submission.student.get_full_name() or submission.student.username}.')
             return redirect('homework:submissions', hw_id=hw_id)
@@ -393,6 +505,20 @@ class BulkPublishView(RoleRequiredMixin, View):
             is_graded=True,
             is_published=False,
         ).update(is_published=True)
+
+        log_event(
+            user=request.user,
+            school=homework.classroom.school,
+            category='data_change',
+            action='homework_grades_bulk_published',
+            detail={
+                'homework_id': homework.id,
+                'title': homework.title,
+                'classroom_id': homework.classroom_id,
+                'count': count,
+            },
+            request=request,
+        )
 
         messages.success(request, f'Published grades for {count} submission(s).')
         return redirect('homework:submissions', hw_id=hw_id)

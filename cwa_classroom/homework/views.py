@@ -11,6 +11,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views import View
 
+from audit.services import log_event
 from classroom.models import ClassRoom, ClassStudent, ClassTeacher, Topic
 from classroom.notifications import create_notification
 from classroom.subject_registry import (
@@ -164,6 +165,24 @@ class HomeworkCreateView(RoleRequiredMixin, View):
             return render(request, self.template_name, self._base_context(request, classroom, plugin, form))
 
         messages.success(request, f'Homework "{homework.title}" created with {count} questions.')
+
+        log_event(
+            user=request.user,
+            school=classroom.school,
+            category='data_change',
+            action='homework_created',
+            detail={
+                'homework_id': homework.id,
+                'title': homework.title,
+                'classroom_id': classroom.id,
+                'classroom_name': classroom.name,
+                'subject_slug': homework.subject_slug,
+                'num_questions': count,
+                'due_date': str(homework.due_date) if homework.due_date else None,
+                'max_attempts': homework.max_attempts,
+            },
+            request=request,
+        )
 
         # Notify all active students in the classroom
         homework_url = reverse('homework:student_take', kwargs={'homework_id': homework.id})
@@ -571,6 +590,24 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
             submission.points = pts
             submission.save(update_fields=['score', 'points'])
 
+        log_event(
+            user=request.user,
+            school=homework.classroom.school,
+            category='data_change',
+            action='homework_submitted',
+            detail={
+                'homework_id': homework.id,
+                'homework_title': homework.title,
+                'submission_id': submission.id,
+                'attempt_number': submission.attempt_number,
+                'score': submission.score,
+                'total_questions': submission.total_questions,
+                'points': float(submission.points) if submission.points else 0,
+                'time_taken_seconds': time_taken,
+            },
+            request=request,
+        )
+
         # Trigger AI grading for any pending-AI answers (outside the atomic block
         # so a grading failure doesn't roll back the submission)
         _trigger_ai_grading_for_submission(submission, request)
@@ -760,6 +797,19 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
             status=HomeworkUploadSession.STATUS_PROCESSING,
         )
         session.pdf_file.save(pdf_file.name, ContentFile(pdf_bytes), save=True)
+
+        log_event(
+            user=request.user,
+            school=school,
+            category='data_change',
+            action='homework_pdf_upload_started',
+            detail={
+                'session_id': session.pk,
+                'pdf_filename': pdf_file.name,
+                'classroom_id': classroom.id if classroom else None,
+            },
+            request=request,
+        )
 
         # Run AI extraction in a background thread so the HTTP response returns immediately
         def _process(session_id, pdf_bytes, existing_topics, existing_levels):
@@ -1105,6 +1155,24 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
                 link=homework_url,
             )
 
+        log_event(
+            user=request.user,
+            school=school,
+            category='data_change',
+            action='homework_pdf_created',
+            detail={
+                'homework_id': homework.id,
+                'title': hw_title,
+                'session_id': session.pk,
+                'classroom_id': classroom.id,
+                'classroom_name': classroom.name,
+                'question_count': len(saved_questions),
+                'due_date': str(due_date),
+                'max_attempts': max_attempts,
+            },
+            request=request,
+        )
+
         messages.success(
             request,
             f'Homework "{homework.title}" created with {len(saved_questions)} questions and assigned to {classroom.name}.',
@@ -1324,6 +1392,24 @@ class HomeworkAIGradeView(RoleRequiredMixin, View):
                 'points_earned', 'review_status', 'graded_at',
             ])
             _recalculate_submission_score(answer.submission)
+
+            log_event(
+                user=request.user,
+                school=school,
+                category='data_change',
+                action='homework_answer_ai_graded',
+                detail={
+                    'answer_id': answer.pk,
+                    'submission_id': answer.submission_id,
+                    'student_id': answer.submission.student_id,
+                    'homework_id': answer.submission.homework_id,
+                    'ai_score_fraction': answer.ai_score_fraction,
+                    'is_correct': answer.is_correct,
+                    'points_earned': float(answer.points_earned),
+                },
+                request=request,
+            )
+
             messages.success(request, 'AI grading complete.')
         except Exception as e:
             messages.error(request, f'AI grading failed: {e}')
@@ -1347,6 +1433,15 @@ class HomeworkGradeAnswerView(RoleRequiredMixin, View):
 
         from django.utils import timezone
 
+        # Capture old values for before/after audit trail
+        old_data = {
+            'review_status': answer.review_status,
+            'points_earned': float(answer.points_earned) if answer.points_earned else 0,
+            'is_correct': answer.is_correct,
+            'ai_score_fraction': float(answer.ai_score_fraction) if answer.ai_score_fraction else 0,
+            'teacher_feedback': answer.teacher_feedback or '',
+        }
+
         score_pct = float(request.POST.get('score_pct', 0))
         score_frac = max(0.0, min(1.0, score_pct / 100))
         teacher_feedback = request.POST.get('teacher_feedback', '').strip()
@@ -1363,6 +1458,28 @@ class HomeworkGradeAnswerView(RoleRequiredMixin, View):
             'teacher_feedback', 'review_status', 'graded_by', 'graded_at',
         ])
         _recalculate_submission_score(answer.submission)
+
+        log_event(
+            user=request.user,
+            school=answer.submission.homework.classroom.school,
+            category='data_change',
+            action='homework_answer_graded',
+            detail={
+                'answer_id': answer.pk,
+                'submission_id': answer.submission_id,
+                'student_id': answer.submission.student_id,
+                'homework_id': answer.submission.homework_id,
+                'before': old_data,
+                'after': {
+                    'review_status': answer.review_status,
+                    'points_earned': float(answer.points_earned),
+                    'is_correct': answer.is_correct,
+                    'ai_score_fraction': float(answer.ai_score_fraction),
+                    'teacher_feedback': answer.teacher_feedback or '',
+                },
+            },
+            request=request,
+        )
 
         # ── Seed cache + retroactively correct similar answers ────────────
         if answer.question_id and answer.text_answer and answer.text_answer.strip():
