@@ -16,6 +16,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views import View
 
+from audit.services import log_event
 from classroom.models import ClassStudent
 
 from .forms import HomeworkSubmissionForm, PDFSubmissionForm
@@ -212,6 +213,22 @@ class HomeworkSubmitView(LoginRequiredMixin, View):
             submission.attempt_number = attempt_count + 1
             submission.save()
 
+            log_event(
+                user=request.user,
+                school=homework.classroom.school,
+                category='data_change',
+                action='homework_submitted',
+                detail={
+                    'homework_id': homework.id,
+                    'homework_title': homework.title,
+                    'submission_id': submission.id,
+                    'attempt_number': submission.attempt_number,
+                    'homework_type': homework.homework_type,
+                    'is_late': submission.is_late,
+                },
+                request=request,
+            )
+
             if submission.is_late:
                 messages.warning(request, 'Homework submitted (late).')
             else:
@@ -248,12 +265,29 @@ class MarkDoneView(LoginRequiredMixin, View):
             messages.error(request, 'Maximum attempts reached.')
             return redirect('homework:detail', hw_id=hw_id)
 
-        HomeworkSubmission.objects.create(
+        submission = HomeworkSubmission.objects.create(
             homework=homework,
             student=request.user,
             attempt_number=attempt_count + 1,
             is_auto_completed=True,
         )
+
+        log_event(
+            user=request.user,
+            school=homework.classroom.school,
+            category='data_change',
+            action='homework_submitted',
+            detail={
+                'homework_id': homework.id,
+                'homework_title': homework.title,
+                'submission_id': submission.id,
+                'attempt_number': submission.attempt_number,
+                'homework_type': homework.homework_type,
+                'marked_done': True,
+            },
+            request=request,
+        )
+
         messages.success(request, 'Marked as done.')
         return redirect('homework:detail', hw_id=hw_id)
 
@@ -422,7 +456,7 @@ class SubmitHomeworkAnswerView(LoginRequiredMixin, View):
                 homework=homework, student=request.user,
             ).count()
 
-            HomeworkSubmission.objects.create(
+            submission = HomeworkSubmission.objects.create(
                 homework=homework,
                 student=request.user,
                 attempt_number=attempt_count + 1,
@@ -432,6 +466,24 @@ class SubmitHomeworkAnswerView(LoginRequiredMixin, View):
                 is_auto_completed=True,
                 is_graded=True,
                 is_published=True,
+            )
+
+            log_event(
+                user=request.user,
+                school=homework.classroom.school,
+                category='data_change',
+                action='homework_submitted',
+                detail={
+                    'homework_id': homework.id,
+                    'homework_title': homework.title,
+                    'submission_id': submission.id,
+                    'attempt_number': submission.attempt_number,
+                    'homework_type': homework.homework_type,
+                    'score': score,
+                    'total_questions': total,
+                    'time_taken_seconds': time_taken,
+                },
+                request=request,
             )
 
             # Clean up session
