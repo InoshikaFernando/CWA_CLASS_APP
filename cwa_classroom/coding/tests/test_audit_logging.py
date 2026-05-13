@@ -41,7 +41,7 @@ class CodingAuditLoggingTestBase(TestCase):
             slug='python',
             defaults={
                 'name': 'Python', 'color': '#3b82f6', 'order': 1,
-                'is_active': True, 'piston_language': 'python3',
+                'is_active': True,
             },
         )
         cls.topic = CodingTopic.objects.create(
