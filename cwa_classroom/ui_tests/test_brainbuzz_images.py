@@ -44,6 +44,8 @@ def bb_subject(db):
 
 
 def _make_active_session(teacher, subject, code='BBIMG1'):
+    from django.utils import timezone
+    from datetime import timedelta
     from brainbuzz.models import BrainBuzzSession
     session = BrainBuzzSession.objects.create(
         code=code,
@@ -53,6 +55,7 @@ def _make_active_session(teacher, subject, code='BBIMG1'):
         current_index=0,
         state_version=1,
         time_per_question_sec=20,
+        question_deadline=timezone.now() + timedelta(seconds=60),
     )
     return session
 
@@ -87,7 +90,7 @@ def _set_participant_cookie(page, live_server_url, join_code, participant_id):
     client = Client()
     client.get(f'{live_server_url}/')
     session = client.session
-    session[f'bb_participant_{join_code}'] = participant_id
+    session[f'bb_pid_{join_code}'] = participant_id
     session.save()
     session_key = session.session_key
 
