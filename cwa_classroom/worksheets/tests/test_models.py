@@ -78,13 +78,20 @@ class TestWorksheetQuestionDefaults(WorksheetModelTestBase):
         )
         self.assertEqual(wq.subject_slug, 'mathematics')
 
-    def test_worksheet_question_content_id_defaults_to_zero(self):
+    def test_worksheet_question_content_id_field_default_is_zero(self):
+        """The model field default is 0; save() overrides it when question is set."""
+        field = WorksheetQuestion._meta.get_field('content_id')
+        self.assertEqual(field.default, 0)
+
+    def test_worksheet_question_content_id_auto_populated_from_question(self):
+        """save() sets content_id = question_id when content_id is 0."""
         wq = WorksheetQuestion.objects.create(
             worksheet=self.worksheet,
             question=self.question,
             order=1,
+            # content_id intentionally omitted — should be auto-set
         )
-        self.assertEqual(wq.content_id, 0)
+        self.assertEqual(wq.content_id, self.question.id)
 
     def test_worksheet_question_subject_slug_and_content_id_explicit(self):
         wq = WorksheetQuestion.objects.create(
@@ -206,14 +213,16 @@ class TestDataMigrationBackfill(WorksheetModelTestBase):
         """
         from django.apps import apps
 
-        # Create a row simulating the pre-migration state (content_id=0)
+        # Create a row then force content_id=0 via queryset update (bypasses save())
+        # to simulate the pre-migration state where save() didn't auto-populate.
         wq = WorksheetQuestion.objects.create(
             worksheet=self.worksheet,
             question=self.question,
             order=1,
             subject_slug='mathematics',
-            content_id=0,  # pre-migration default
         )
+        WorksheetQuestion.objects.filter(pk=wq.pk).update(content_id=0)
+        wq.refresh_from_db()
         self.assertEqual(wq.content_id, 0)
 
         # Import and call the migration function directly via importlib

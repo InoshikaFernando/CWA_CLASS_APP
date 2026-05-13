@@ -68,6 +68,13 @@ class WorksheetQuestion(models.Model):
             ),
         ]
 
+    def save(self, *args, **kwargs):
+        # Auto-populate content_id from the question FK for maths questions
+        # so callers don't need to set it explicitly.
+        if self.content_id == 0 and self.question_id is not None:
+            self.content_id = self.question_id
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f'{self.worksheet.name} — Q{self.order}'
 
