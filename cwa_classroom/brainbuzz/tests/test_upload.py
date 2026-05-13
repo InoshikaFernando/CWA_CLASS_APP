@@ -250,6 +250,93 @@ class JSONParserTests(TestCase):
         self.assertTrue(parser.errors)
 
 
+    def test_parse_coding_string_level(self):
+        """Test parsing coding JSON with string level like 'beginner'."""
+        json_data = {
+            'subject': 'coding',
+            'questions': [
+                {
+                    'question_text': 'What will x be after: x = 10?',
+                    'question_type': 'multiple_choice',
+                    'difficulty': 1,
+                    'topic': 'Variables & Data Types',
+                    'level': 'beginner',
+                    'language': 'Python',
+                    'answers': [
+                        {'text': '10', 'is_correct': True},
+                        {'text': 'x', 'is_correct': False},
+                    ]
+                }
+            ]
+        }
+        json_file = io.StringIO(json.dumps(json_data))
+
+        parser = JSONQuestionParser()
+        questions = parser.parse(json_file)
+
+        self.assertEqual(len(questions), 1)
+        self.assertEqual(questions[0]['level'], 'beginner')
+        self.assertEqual(questions[0]['language'], 'Python')
+        self.assertNotIn('level_number', questions[0])
+        self.assertFalse(parser.errors)
+
+    def test_parse_maths_int_level_still_works(self):
+        """Test that maths JSON with integer level still parses correctly."""
+        json_data = {
+            'subject': 'maths',
+            'questions': [
+                {
+                    'question_text': 'What is 5+3?',
+                    'question_type': 'multiple_choice',
+                    'difficulty': 1,
+                    'topic': 'Addition',
+                    'level': 3,
+                    'answers': [
+                        {'text': '8', 'is_correct': True},
+                        {'text': '7', 'is_correct': False},
+                    ]
+                }
+            ]
+        }
+        json_file = io.StringIO(json.dumps(json_data))
+
+        parser = JSONQuestionParser()
+        questions = parser.parse(json_file)
+
+        self.assertEqual(len(questions), 1)
+        self.assertEqual(questions[0]['level_number'], 3)
+        self.assertNotIn('level', questions[0])
+        self.assertFalse(parser.errors)
+
+    def test_parse_bom_encoded_json(self):
+        """Test parsing a UTF-8 BOM encoded JSON file."""
+        json_data = {
+            'subject': 'maths',
+            'questions': [
+                {
+                    'question_text': 'What is 1+1?',
+                    'question_type': 'multiple_choice',
+                    'difficulty': 1,
+                    'topic': 'Addition',
+                    'level': 1,
+                    'answers': [
+                        {'text': '2', 'is_correct': True},
+                        {'text': '3', 'is_correct': False},
+                    ]
+                }
+            ]
+        }
+        bom_bytes = b'\xef\xbb\xbf' + json.dumps(json_data).encode('utf-8')
+        json_file = io.BytesIO(bom_bytes)
+
+        parser = JSONQuestionParser()
+        questions = parser.parse(json_file)
+
+        self.assertEqual(len(questions), 1)
+        self.assertEqual(questions[0]['question_text'], 'What is 1+1?')
+        self.assertFalse(parser.errors)
+
+
 class CSVParserTests(TestCase):
     """Test CSV question parser."""
 

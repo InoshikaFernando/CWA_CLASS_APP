@@ -1,0 +1,47 @@
+{
+  "subject": "coding",
+  "questions": [
+    {
+      "question_text": "What will x be after: x = 10?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "Python",
+      "answers": [
+        {"text": "10", "is_correct": true},
+        {"text": "x", "is_correct": false},
+        {"text": "0", "is_correct": false},
+        {"text": "Error", "is_correct": false}
+      ]
+    },
+    {
+      "question_text": "What data type is the value True?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "Python",
+      "answers": [
+        {"text": "bool", "is_correct": true},
+        {"text": "int", "is_correct": false},
+        {"text": "str", "is_correct": false},
+        {"text": "float", "is_correct": false}
+      ]
+    },
+    {
+      "question_text": "Which keyword declares a block-scoped variable in JavaScript?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "topic": "Variables & Data Types",
+      "level": "beginner",
+      "language": "JavaScript",
+      "answers": [
+        {"text": "let", "is_correct": true},
+        {"text": "var", "is_correct": false},
+        {"text": "def", "is_correct": false},
+        {"text": "variable", "is_correct": false}
+      ]
+    }
+  ]
+}

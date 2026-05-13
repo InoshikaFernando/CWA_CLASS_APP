@@ -322,6 +322,8 @@ class WorksheetConfirmView(RoleRequiredMixin, View):
                         worksheet=worksheet,
                         question=maths_q,
                         order=order,
+                        subject_slug='mathematics',
+                        content_id=maths_q.id,
                     )
                     order += 1
 
@@ -516,7 +518,7 @@ class WorksheetSessionView(LoginRequiredMixin, View):
 
     def get(self, request, pk):
         assignment = _get_student_assignment(request, pk)
-        assigned_qs = list(assignment.assigned_questions.select_related('question__level', 'question__topic').prefetch_related('question__answers'))
+        assigned_qs = list(assignment.assigned_questions)
 
         # Get or create submission
         submission, created = WorksheetSubmission.objects.get_or_create(

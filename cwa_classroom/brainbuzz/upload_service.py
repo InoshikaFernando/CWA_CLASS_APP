@@ -178,7 +178,11 @@ class QuestionUploadService:
                 return False, q_dict
 
             # Find topic
-            topic = CodingTopic.objects.filter(name=topic_name).first()
+            topic_qs = CodingTopic.objects.filter(name=topic_name)
+            language = q_dict.pop('language', None)
+            if language:
+                topic_qs = topic_qs.filter(language__name__iexact=language)
+            topic = topic_qs.first()
             if not topic:
                 self.errors.append(
                     f"Coding topic '{topic_name}' not found"
