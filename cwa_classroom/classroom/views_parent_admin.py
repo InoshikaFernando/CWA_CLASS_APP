@@ -664,15 +664,38 @@ class AddParentView(RoleRequiredMixin, View):
 
     def get(self, request, school_id):
         school = _get_user_school_or_404(request.user, school_id)
+        from classroom.models import ClassRoom
+        classes = (
+            ClassRoom.objects.filter(school=school, is_active=True)
+            .select_related('subject', 'department')
+            .order_by('name')
+        )
         return render(request, 'admin_dashboard/add_parent.html', {
             'school': school,
             'students': self._school_students(school),
             'relationship_choices': ParentStudent.RELATIONSHIP_CHOICES,
+            'classes': classes,
         })
+
+    def _render_form(self, request, school, extra=None):
+        from classroom.models import ClassRoom
+        ctx = {
+            'school': school,
+            'students': self._school_students(school),
+            'relationship_choices': ParentStudent.RELATIONSHIP_CHOICES,
+            'classes': ClassRoom.objects.filter(school=school, is_active=True)
+                       .select_related('subject', 'department').order_by('name'),
+        }
+        if extra:
+            ctx.update(extra)
+        return render(request, 'admin_dashboard/add_parent.html', ctx)
 
     def post(self, request, school_id):
         import secrets
+        from django.db import transaction
         from accounts.models import CustomUser
+        from accounts.models import Role as _Role, UserRole as _UserRole
+        from classroom.models import ClassStudent, ClassRoom, SchoolStudent as _SS
 
         school = _get_user_school_or_404(request.user, school_id)
         email = request.POST.get('email', '').strip().lower()
@@ -680,16 +703,11 @@ class AddParentView(RoleRequiredMixin, View):
         last_name = request.POST.get('last_name', '').strip()
         phone = request.POST.get('phone', '').strip()
         relationship = request.POST.get('relationship', 'guardian').strip()
-        student_ids = request.POST.getlist('student_ids')
+        student_ids = list(request.POST.getlist('student_ids'))
 
         if not email or '@' not in email:
             messages.error(request, 'Please enter a valid email address.')
-            return render(request, 'admin_dashboard/add_parent.html', {
-                'school': school,
-                'students': self._school_students(school),
-                'relationship_choices': ParentStudent.RELATIONSHIP_CHOICES,
-                'form_data': request.POST,
-            })
+            return self._render_form(request, school, {'form_data': request.POST})
 
         # Check if a user with this email already exists
         existing = CustomUser.objects.filter(email=email).first()
@@ -699,22 +717,53 @@ class AddParentView(RoleRequiredMixin, View):
                 f'Found existing account: {existing.get_full_name()} ({existing.email}). '
                 'Use "Link Existing Parent" below to connect them to students.',
             )
-            return render(request, 'admin_dashboard/add_parent.html', {
-                'school': school,
-                'students': self._school_students(school),
-                'relationship_choices': ParentStudent.RELATIONSHIP_CHOICES,
+            return self._render_form(request, school, {
                 'existing_parent': existing,
                 'form_data': request.POST,
             })
 
         if not first_name or not last_name:
             messages.error(request, 'First name and last name are required.')
-            return render(request, 'admin_dashboard/add_parent.html', {
-                'school': school,
-                'students': self._school_students(school),
-                'relationship_choices': ParentStudent.RELATIONSHIP_CHOICES,
-                'form_data': request.POST,
-            })
+            return self._render_form(request, school, {'form_data': request.POST})
+
+        # Validate inline student fields if requested
+        inline_action = request.POST.get('inline_student_action', '').strip()
+        inline_student_fields = None
+        if inline_action == 'new':
+            s_first = request.POST.get('inline_student_first_name', '').strip()
+            s_last = request.POST.get('inline_student_last_name', '').strip()
+            s_email = request.POST.get('inline_student_email', '').strip()
+            s_password = request.POST.get('inline_student_password', '').strip()
+            s_class_ids = request.POST.getlist('inline_student_class_ids')
+            inline_errors = []
+            if not s_first:
+                inline_errors.append('Student first name is required.')
+            if not s_last:
+                inline_errors.append('Student last name is required.')
+            if not s_email or '@' not in s_email:
+                inline_errors.append('A valid student email is required.')
+            elif CustomUser.objects.filter(email=s_email).exists():
+                inline_errors.append('A user with this student email already exists.')
+            if len(s_password) < 8:
+                inline_errors.append('Student password must be at least 8 characters.')
+            if inline_errors:
+                for err in inline_errors:
+                    messages.error(request, err)
+                return self._render_form(request, school, {'form_data': request.POST})
+            # Billing limit
+            from billing.entitlements import check_student_limit
+            allowed, current, limit = check_student_limit(school)
+            if not allowed:
+                messages.error(
+                    request,
+                    f'Student limit reached ({limit}). Upgrade to add more students.',
+                )
+                return self._render_form(request, school, {'form_data': request.POST})
+            inline_student_fields = {
+                'first_name': s_first, 'last_name': s_last,
+                'email': s_email, 'password': s_password,
+                'class_ids': s_class_ids,
+            }
 
         # Build unique username from email prefix
         base_username = email.split('@')[0]
@@ -726,46 +775,90 @@ class AddParentView(RoleRequiredMixin, View):
 
         # Generate a temporary password — included in the invitation email
         temp_password = secrets.token_urlsafe(10)
-        parent_user = CustomUser.objects.create_user(
-            username=username,
-            email=email,
-            first_name=first_name,
-            last_name=last_name,
-            password=temp_password,
-            phone=phone,
-        )
-        parent_user.must_change_password = True
-        parent_user.creation_method = 'institute'
-        parent_user.profile_completed = True
-        parent_user.save(update_fields=['must_change_password', 'creation_method', 'profile_completed'])
+        inline_student_user = None
 
-        # Assign parent role
-        parent_role, _ = Role.objects.get_or_create(
-            name=Role.PARENT,
-            defaults={'display_name': 'Parent', 'description': 'Parent/guardian role'},
-        )
-        UserRole.objects.get_or_create(user=parent_user, role=parent_role)
+        with transaction.atomic():
+            parent_user = CustomUser.objects.create_user(
+                username=username,
+                email=email,
+                first_name=first_name,
+                last_name=last_name,
+                password=temp_password,
+                phone=phone,
+            )
+            parent_user.must_change_password = True
+            parent_user.creation_method = 'institute'
+            parent_user.profile_completed = True
+            parent_user.save(update_fields=['must_change_password', 'creation_method', 'profile_completed'])
 
-        # Link to selected students
-        linked_students = []
-        for sid in student_ids:
-            try:
-                ss = SchoolStudent.objects.get(school=school, student_id=int(sid), is_active=True)
-                existing_count = ParentStudent.objects.filter(
-                    student=ss.student, school=school, is_active=True,
-                ).count()
-                if existing_count < 2:
-                    ParentStudent.objects.create(
-                        parent=parent_user,
-                        student=ss.student,
-                        school=school,
-                        relationship=relationship,
-                        is_primary_contact=(existing_count == 0),
-                        created_by=request.user,
-                    )
-                    linked_students.append(ss.student)
-            except (SchoolStudent.DoesNotExist, ValueError):
-                pass
+            parent_role, _ = _Role.objects.get_or_create(
+                name=_Role.PARENT,
+                defaults={'display_name': 'Parent', 'description': 'Parent/guardian role'},
+            )
+            _UserRole.objects.get_or_create(user=parent_user, role=parent_role)
+
+            # Inline student creation
+            if inline_student_fields:
+                sf = inline_student_fields
+                s_uname_base = sf['email'].split('@')[0]
+                s_uname = s_uname_base
+                s_ctr = 1
+                while CustomUser.objects.filter(username=s_uname).exists():
+                    s_uname = f'{s_uname_base}{s_ctr}'
+                    s_ctr += 1
+                inline_student_user = CustomUser.objects.create_user(
+                    username=s_uname,
+                    email=sf['email'],
+                    first_name=sf['first_name'],
+                    last_name=sf['last_name'],
+                    password=sf['password'],
+                )
+                inline_student_user.must_change_password = True
+                inline_student_user.profile_completed = False
+                inline_student_user.save(update_fields=['must_change_password', 'profile_completed'])
+                student_role, _ = _Role.objects.get_or_create(
+                    name=_Role.STUDENT, defaults={'display_name': 'Student'},
+                )
+                _UserRole.objects.create(
+                    user=inline_student_user, role=student_role, assigned_by=request.user,
+                )
+                _SS.objects.create(school=school, student=inline_student_user)
+                # Class enrollment
+                allowed_cls_ids = set(
+                    ClassRoom.objects.filter(school=school, is_active=True)
+                    .values_list('id', flat=True)
+                )
+                for cid_str in sf['class_ids']:
+                    if cid_str.isdigit() and int(cid_str) in allowed_cls_ids:
+                        cs, _ = ClassStudent.objects.get_or_create(
+                            classroom_id=int(cid_str), student=inline_student_user,
+                        )
+                        if not cs.is_active:
+                            cs.is_active = True
+                            cs.save(update_fields=['is_active'])
+                # Add to student_ids for linking below
+                student_ids.append(str(inline_student_user.id))
+
+            # Link to selected students (existing + inline)
+            linked_students = []
+            for sid in student_ids:
+                try:
+                    ss = _SS.objects.get(school=school, student_id=int(sid), is_active=True)
+                    existing_count = ParentStudent.objects.filter(
+                        student=ss.student, school=school, is_active=True,
+                    ).count()
+                    if existing_count < 2:
+                        ParentStudent.objects.create(
+                            parent=parent_user,
+                            student=ss.student,
+                            school=school,
+                            relationship=relationship,
+                            is_primary_contact=(existing_count == 0),
+                            created_by=request.user,
+                        )
+                        linked_students.append(ss.student)
+                except (_SS.DoesNotExist, ValueError):
+                    pass
 
         # Send invitation email with temporary credentials
         email_sent = _send_parent_setup_email(
@@ -776,6 +869,25 @@ class AddParentView(RoleRequiredMixin, View):
             plain_password=temp_password,
         )
 
+        # Send student welcome email for inline-created student
+        if inline_student_user:
+            from classroom.email_utils import send_staff_welcome_email
+            send_staff_welcome_email(
+                user=inline_student_user,
+                plain_password=inline_student_fields['password'],
+                role_display='Student',
+                school=school,
+            )
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='student_added', detail={
+                    'student_username': inline_student_user.username,
+                    'student_name': inline_student_user.get_full_name(),
+                    'added_via': 'inline_parent_add',
+                },
+                request=request,
+            )
+
         log_event(
             user=request.user, school=school, category='data_change',
             action='parent_created_direct',
@@ -785,6 +897,7 @@ class AddParentView(RoleRequiredMixin, View):
                 'parent_email': email,
                 'students_linked': len(linked_students),
                 'invite_email_sent': email_sent,
+                'inline_student_created': inline_student_user is not None,
             },
             request=request,
         )

@@ -262,9 +262,9 @@
               </div>
 
               <!-- Avatar circle -->
-              <div class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl font-black text-white shadow-lg flex-shrink-0"
-                   :style="`background: ${avatarColor(i)};`"
-                   x-text="p.nickname.charAt(0).toUpperCase()"></div>
+              <div class="w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg flex-shrink-0"
+                   :style="p.avatar ? `background: rgba(255,255,255,0.12); font-size:1.75rem;` : `background: ${avatarColor(i)}; font-size:1.25rem; font-weight:900; color:#fff;`"
+                   x-text="p.avatar || p.nickname.charAt(0).toUpperCase()"></div>
 
               <!-- Name -->
               <p class="text-xs font-bold text-white text-center truncate w-full" x-text="p.nickname"></p>
