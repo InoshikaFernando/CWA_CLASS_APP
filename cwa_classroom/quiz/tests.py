@@ -1,0 +1,228 @@
+"""
+quiz/tests.py — Audit logging tests for quiz views (CPP-270).
+"""
+import json
+import time
+from unittest.mock import patch
+
+from django.contrib.auth import get_user_model
+from django.test import Client, TestCase
+from django.urls import reverse
+
+from audit.models import AuditLog
+from classroom.models import Level, School, SchoolStudent, Subject, Topic
+from maths.models import Answer, BasicFactsResult, Question, StudentFinalAnswer
+
+User = get_user_model()
+
+
+class QuizAuditLoggingTestBase(TestCase):
+    """Shared fixtures for quiz audit tests."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.school = School.objects.create(name='Test School')
+        cls.student = User.objects.create_user(
+            username='quizstudent', password='pass1234', email='qs@test.com',
+        )
+        SchoolStudent.objects.create(
+            school=cls.school, student=cls.student, is_active=True,
+        )
+
+        # Create a subject, topic, and level with questions for topic quiz
+        cls.subject, _ = Subject.objects.get_or_create(
+            slug='mathematics', school=None,
+            defaults={'name': 'Mathematics', 'is_active': True},
+        )
+        cls.level = Level.objects.create(level_number=4, display_name='Year 4')
+        cls.topic = Topic.objects.create(
+            subject=cls.subject, name='Addition', slug='addition', is_active=True,
+        )
+        cls.topic.levels.add(cls.level)
+
+        # Create questions with answers for the topic
+        cls.questions = []
+        for i in range(12):
+            q = Question.objects.create(
+                question_text=f'What is {i}+1?',
+                question_type='multiple_choice',
+                topic=cls.topic,
+                level=cls.level,
+            )
+            Answer.objects.create(question=q, answer_text=str(i + 1), is_correct=True, order=1)
+            Answer.objects.create(question=q, answer_text=str(i + 2), is_correct=False, order=2)
+            cls.questions.append(q)
+
+    def setUp(self):
+        self.client = Client()
+        AuditLog.objects.all().delete()
+
+
+class TestBasicFactsQuizAuditLog(QuizAuditLoggingTestBase):
+    """BasicFactsQuizView.post logs maths_quiz_completed."""
+
+    def test_basic_facts_completion_logs_event(self):
+        self.client.login(username='quizstudent', password='pass1234')
+
+        # Start a basic facts quiz to get a session
+        url = reverse('basic_facts_quiz', kwargs={
+            'subtopic': 'Addition', 'level_number': 100,
+        })
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+
+        # Extract session_id from session
+        session = self.client.session
+        session_key = None
+        for k in session.keys():
+            if k.startswith('bf_') and not k.startswith('bf_result_'):
+                session_key = k
+                break
+        self.assertIsNotNone(session_key, 'No basic facts session key found')
+        session_id = session_key[3:]  # strip 'bf_'
+
+        # Submit answers
+        data = {'session_id': session_id}
+        session_data = session[session_key]
+        for q in session_data['questions']:
+            data[f'answer_{q["id"]}'] = str(q['answer'])
+
+        resp = self.client.post(url, data)
+        self.assertEqual(resp.status_code, 302)
+
+        log = AuditLog.objects.filter(action='maths_quiz_completed').first()
+        self.assertIsNotNone(log, 'No maths_quiz_completed audit log found')
+        self.assertEqual(log.user, self.student)
+        self.assertEqual(log.school, self.school)
+        self.assertEqual(log.category, 'data_change')
+        self.assertEqual(log.detail['quiz_type'], 'basic_facts')
+        self.assertIn('score', log.detail)
+        self.assertIn('points', log.detail)
+
+
+class TestTopicQuizAuditLog(QuizAuditLoggingTestBase):
+    """SubmitTopicAnswerView logs maths_quiz_completed on last answer."""
+
+    def test_topic_quiz_completion_logs_event(self):
+        self.client.login(username='quizstudent', password='pass1234')
+
+        # Start a topic quiz
+        url = reverse('topic_quiz', kwargs={
+            'subject': 'mathematics',
+            'level_number': 4,
+            'topic_id': self.topic.id,
+        })
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+
+        # Find session key
+        session = self.client.session
+        session_key = None
+        for k in session.keys():
+            if k.startswith('tq_') and not k.startswith('tq_result_'):
+                session_key = k
+                break
+        self.assertIsNotNone(session_key, 'No topic quiz session key found')
+        session_id = session_key[3:]
+
+        # Submit all answers via the AJAX endpoint
+        session_data = session[session_key]
+        submit_url = reverse('api_submit_topic_answer')
+        for q_data in session_data['questions']:
+            q = Question.objects.get(pk=q_data['id'])
+            correct = q.answers.filter(is_correct=True).first()
+            resp = self.client.post(
+                submit_url,
+                data=json.dumps({
+                    'session_id': session_id,
+                    'question_id': q.id,
+                    'answer_id': correct.id,
+                }),
+                content_type='application/json',
+            )
+            self.assertEqual(resp.status_code, 200)
+
+        log = AuditLog.objects.filter(action='maths_quiz_completed').first()
+        self.assertIsNotNone(log, 'No maths_quiz_completed audit log found')
+        self.assertEqual(log.user, self.student)
+        self.assertEqual(log.detail['quiz_type'], 'topic')
+        self.assertEqual(log.detail['topic_name'], 'Addition')
+        self.assertIn('result_id', log.detail)
+
+
+class TestMixedQuizAuditLog(QuizAuditLoggingTestBase):
+    """MixedQuizView.post logs maths_quiz_completed."""
+
+    def test_mixed_quiz_completion_logs_event(self):
+        self.client.login(username='quizstudent', password='pass1234')
+
+        # Start a mixed quiz
+        url = reverse('mixed_quiz', kwargs={
+            'subject': 'mathematics',
+            'level_number': 4,
+        })
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+
+        # Find session key
+        session = self.client.session
+        session_key = None
+        for k in session.keys():
+            if k.startswith('mq_') and not k.startswith('mq_result_'):
+                session_key = k
+                break
+        self.assertIsNotNone(session_key, 'No mixed quiz session key found')
+        session_id = session_key[3:]
+        session_data = session[session_key]
+
+        # Submit answers
+        data = {'session_id': session_id}
+        for qid in session_data['question_ids']:
+            q = Question.objects.get(pk=qid)
+            correct = q.answers.filter(is_correct=True).first()
+            if q.question_type in ('multiple_choice', 'true_false'):
+                data[f'answer_{q.id}'] = str(correct.id)
+            else:
+                data[f'text_{q.id}'] = correct.answer_text
+
+        resp = self.client.post(url, data)
+        self.assertEqual(resp.status_code, 302)
+
+        log = AuditLog.objects.filter(action='maths_quiz_completed').first()
+        self.assertIsNotNone(log, 'No maths_quiz_completed audit log found')
+        self.assertEqual(log.user, self.student)
+        self.assertEqual(log.detail['quiz_type'], 'mixed')
+        self.assertIn('score', log.detail)
+
+
+class TestAuditLogResilience(QuizAuditLoggingTestBase):
+    """log_event failure must not break quiz submission."""
+
+    def test_log_event_failure_does_not_break_basic_facts(self):
+        self.client.login(username='quizstudent', password='pass1234')
+
+        url = reverse('basic_facts_quiz', kwargs={
+            'subtopic': 'Addition', 'level_number': 100,
+        })
+        resp = self.client.get(url)
+        session = self.client.session
+        session_key = None
+        for k in session.keys():
+            if k.startswith('bf_') and not k.startswith('bf_result_'):
+                session_key = k
+                break
+        session_id = session_key[3:]
+        session_data = session[session_key]
+
+        data = {'session_id': session_id}
+        for q in session_data['questions']:
+            data[f'answer_{q["id"]}'] = str(q['answer'])
+
+        with patch('audit.models.AuditLog.objects.create', side_effect=Exception('DB down')):
+            resp = self.client.post(url, data)
+
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(
+            BasicFactsResult.objects.filter(student=self.student).exists(),
+            'BasicFactsResult not created when log_event failed',
+        )

@@ -46,6 +46,9 @@ from .models import (
     QUESTION_TYPE_FILL_BLANK,
     QUIZ_QUESTION_TYPE_CHOICES,
 )
+from audit.services import log_event
+from classroom.models import SchoolStudent
+
 from .scoring import calculate_points, is_short_answer_correct
 from .ranking import compute_ranks
 from .utils import generate_join_code
@@ -1046,6 +1049,30 @@ def api_submit(request, join_code):
         BrainBuzzParticipant.objects.filter(pk=participant.pk).update(**update_data)
 
     participant.refresh_from_db()
+
+    # Audit log — only if the participant is a logged-in student (not anonymous)
+    if participant.student_id:
+        _school = None
+        _membership = SchoolStudent.objects.filter(
+            student_id=participant.student_id, is_active=True,
+        ).select_related('school').first()
+        if _membership:
+            _school = _membership.school
+        log_event(
+            user=participant.student,
+            school=_school,
+            category='data_change',
+            action='brainbuzz_answer_submitted',
+            detail={
+                'session_code': session.code,
+                'question_index': question_index,
+                'is_correct': is_correct,
+                'points_awarded': points_awarded,
+                'total_score': participant.score,
+            },
+            request=request,
+        )
+
     return JsonResponse({
         'is_correct': is_correct,
         'score_awarded': points_awarded,
