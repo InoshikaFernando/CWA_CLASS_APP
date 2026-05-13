@@ -8,12 +8,21 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.utils import timezone
 from django.conf import settings
 
+from audit.services import log_event
+from classroom.models import Level as ClassroomLevel, SchoolStudent, Topic as ClassroomTopic
 from maths.models import calculate_points
-from classroom.models import Level as ClassroomLevel, Topic as ClassroomTopic
 from .basic_facts import (
     SUBTOPIC_CONFIG, SUBTOPIC_LABELS, get_display_level,
     generate_questions, check_answer
 )
+
+
+def _get_student_school(user):
+    """Return the school for a student (via SchoolStudent), or None."""
+    membership = SchoolStudent.objects.filter(
+        student=user, is_active=True,
+    ).select_related('school').first()
+    return membership.school if membership else None
 
 
 def _cleanup_stale_quiz_keys(session, prefix):
@@ -173,6 +182,24 @@ class BasicFactsQuizView(LoginRequiredMixin, View):
                 time_taken_seconds=time_taken,
                 questions_data=results,
             )
+
+        log_event(
+            user=request.user,
+            school=_get_student_school(request.user),
+            category='data_change',
+            action='maths_quiz_completed',
+            detail={
+                'quiz_type': 'basic_facts',
+                'subtopic': subtopic,
+                'level_number': level_number,
+                'score': correct_count,
+                'total_questions': total,
+                'points': float(points),
+                'time_taken_seconds': time_taken,
+                'result_id': result.id,
+            },
+            request=request,
+        )
 
         # Clean session
         request.session.pop(session_key, None)
@@ -428,7 +455,7 @@ class TimesTablesSubmitView(LoginRequiredMixin, View):
             shuffled=shuffled,
         ).order_by('-points').first()
 
-        StudentFinalAnswer.objects.create(
+        sfa = StudentFinalAnswer.objects.create(
             student=request.user,
             topic=None,
             level=level_obj,
@@ -440,6 +467,24 @@ class TimesTablesSubmitView(LoginRequiredMixin, View):
             points=points,
             time_taken_seconds=time_taken,
             shuffled=shuffled,
+        )
+
+        log_event(
+            user=request.user,
+            school=_get_student_school(request.user),
+            category='data_change',
+            action='maths_quiz_completed',
+            detail={
+                'quiz_type': 'times_table',
+                'table_number': table,
+                'operation': operation,
+                'score': score,
+                'total_questions': total,
+                'points': float(points),
+                'time_taken_seconds': time_taken,
+                'result_id': sfa.id,
+            },
+            request=request,
         )
 
         is_new_record = prev_best is None or points > (prev_best.points or 0)
@@ -679,6 +724,23 @@ class MixedQuizView(LoginRequiredMixin, View):
                 attempt_number=attempt_num,
             )
 
+        log_event(
+            user=request.user,
+            school=_get_student_school(request.user),
+            category='data_change',
+            action='maths_quiz_completed',
+            detail={
+                'quiz_type': 'mixed',
+                'level_number': level_number,
+                'score': correct_count,
+                'total_questions': total,
+                'points': float(points),
+                'time_taken_seconds': time_taken,
+                'result_id': result.id,
+            },
+            request=request,
+        )
+
         if f'mq_{session_id}' in request.session:
             del request.session[f'mq_{session_id}']
 
@@ -832,6 +894,25 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
                 time_taken_seconds=time_taken,
                 attempt_number=attempt_num,
             )
+            log_event(
+                user=request.user,
+                school=_get_student_school(request.user),
+                category='data_change',
+                action='maths_quiz_completed',
+                detail={
+                    'quiz_type': 'topic',
+                    'topic_id': q.topic.id,
+                    'topic_name': q.topic.name,
+                    'level_number': session_data['level_number'],
+                    'score': correct,
+                    'total_questions': total,
+                    'points': float(points),
+                    'time_taken_seconds': time_taken,
+                    'result_id': result.id,
+                },
+                request=request,
+            )
+
             request.session[f'tq_result_{q.topic.id}_{session_data["level_number"]}'] = result.id
             request.session.pop(session_key, None)
             next_url = reverse('topic_results', kwargs={

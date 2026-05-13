@@ -186,6 +186,7 @@ class BrainBuzzSessionQuestion(models.Model):
     time_limit_sec = models.IntegerField(default=20)
     correct_short_answer = models.TextField(null=True, blank=True)
     explanation = models.TextField(blank=True)
+    time_limit_sec = models.IntegerField(default=20)
     points_base = models.IntegerField(default=1000)
     source_model = models.CharField(
         max_length=100,
@@ -223,7 +224,13 @@ class BrainBuzzParticipant(models.Model):
         blank=True,
         related_name='brainbuzz_participations',
     )
+    AVATAR_CHOICES = [
+        '🦁', '🐯', '🦊', '🐻', '🐼', '🦄',
+        '🐸', '🐧', '🦋', '🚀', '⚡', '🌟',
+    ]
+
     nickname = models.CharField(max_length=255)
+    avatar = models.CharField(max_length=10, default='🦁')
     joined_at = models.DateTimeField(auto_now_add=True)
     score = models.IntegerField(default=0)
     last_correct_time = models.DateTimeField(

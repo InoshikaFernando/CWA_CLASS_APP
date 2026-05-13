@@ -10,6 +10,9 @@ from django.conf import settings
 
 import logging
 
+from audit.services import log_event
+from classroom.models import SchoolStudent
+
 from .models import (
     CodingLanguage,
     CodingTopic,
@@ -50,6 +53,14 @@ def student_required(view_func):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _get_student_school(user):
+    """Return the school for a student (via SchoolStudent), or None."""
+    membership = SchoolStudent.objects.filter(
+        student=user, is_active=True,
+    ).select_related('school').first()
+    return membership.school if membership else None
+
 
 def _get_language_or_404(lang_slug):
     """Return active CodingLanguage by slug or raise 404."""
@@ -323,13 +334,28 @@ def exercise_detail(request, lang_slug, exercise_id):
         typed = (request.POST.get('quiz_answer') or '').strip()
         if typed:
             correct = _grade_quiz_answer(exercise, typed)
-            StudentExerciseSubmission.objects.create(
+            quiz_sub = StudentExerciseSubmission.objects.create(
                 student=request.user,
                 exercise=exercise,
                 code_submitted=typed,           # store the typed text in the existing column
                 output_received='',
                 stderr_received='',
                 is_completed=correct,
+            )
+            log_event(
+                user=request.user,
+                school=_get_student_school(request.user),
+                category='data_change',
+                action='coding_exercise_submitted',
+                detail={
+                    'exercise_id': exercise.id,
+                    'exercise_title': exercise.title,
+                    'language': language.slug,
+                    'question_type': exercise.question_type,
+                    'is_completed': correct,
+                    'submission_id': quiz_sub.id,
+                },
+                request=request,
             )
             if correct:
                 is_completed = True
@@ -717,6 +743,22 @@ def _save_exercise_submission(user, exercise_id, language, code, stdout, stderr,
         submission.is_completed = True
         submission.save(update_fields=['code_submitted', 'output_received', 'stderr_received', 'blocks_xml', 'is_completed'])
 
+    if completed:
+        log_event(
+            user=user,
+            school=_get_student_school(user),
+            category='data_change',
+            action='coding_exercise_submitted',
+            detail={
+                'exercise_id': exercise.id,
+                'exercise_title': exercise.title,
+                'language': getattr(language, 'slug', str(language)),
+                'topic': exercise.topic_level.topic.name if exercise.topic_level else None,
+                'is_completed': True,
+                'submission_id': submission.id,
+            },
+        )
+
 
 # ---------------------------------------------------------------------------
 # API — Submit problem (runs against all test cases)
@@ -925,7 +967,7 @@ def api_submit_problem(request, problem_id):
 
         # ── Persist ───────────────────────────────────────────────────────────
         attempt_number = StudentProblemSubmission.get_next_attempt_number(request.user, problem)
-        StudentProblemSubmission.objects.create(
+        submission = StudentProblemSubmission.objects.create(
             student=request.user,
             problem=problem,
             attempt_number=attempt_number,
@@ -938,6 +980,27 @@ def api_submit_problem(request, problem_id):
             test_results=test_results_store,
             points=best_points,          # leaderboard always uses best-of
             time_taken_seconds=time_taken,
+        )
+
+        log_event(
+            user=request.user,
+            school=_get_student_school(request.user),
+            category='data_change',
+            action='coding_problem_submitted',
+            detail={
+                'problem_id': problem.id,
+                'problem_title': problem.title,
+                'language': exec_language.slug,
+                'attempt_number': attempt_number,
+                'passed_all': eval_result.all_passed,
+                'visible_passed': eval_result.visible_passed,
+                'visible_total': eval_result.visible_total,
+                'hidden_passed': eval_result.hidden_passed,
+                'hidden_total': eval_result.hidden_total,
+                'points': float(best_points),
+                'submission_id': submission.id,
+            },
+            request=request,
         )
 
         return JsonResponse({
