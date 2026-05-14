@@ -443,6 +443,7 @@ function bbTeacher(joinCode, initialVersion, initialIndex, totalQuestions) {
       this.leaderboard      = (data.participants || []).sort((a,b) => b.score - a.score);
       this.participantCount = data.participant_count || 0;
       this.answersReceived  = data.answers_received  || 0;
+      const prevIndex       = this.currentIndex;
       this.currentIndex     = data.current_index;
 
       if (data.status === 'finished') {
@@ -451,7 +452,7 @@ function bbTeacher(joinCode, initialVersion, initialIndex, totalQuestions) {
       }
       if (data.question) {
         const q = data.question;
-        if (this.questionText !== q.question_text) {
+        if (prevIndex !== this.currentIndex || this.questionText !== q.question_text) {
           this.questionText     = q.question_text;
           this.questionImageUrl = q.image_url || '';
           this.options          = q.options || [];
