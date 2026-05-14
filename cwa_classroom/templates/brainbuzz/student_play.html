@@ -265,18 +265,42 @@
             </template>
           </div>
 
-          <!-- Correct answer highlight -->
-          <template x-if="answerDistribution && answerDistribution.length > 0">
-            <div class="bg-green-500/15 border-2 border-green-400/40 rounded-2xl px-5 py-4 space-y-2">
-              <p class="text-xs font-black text-green-400 uppercase tracking-widest">Correct Answer</p>
-              <template x-for="d in answerDistribution.filter(d => d.is_correct)" :key="d.label">
-                <div class="flex items-center gap-3">
-                  <span class="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center font-black text-white text-sm flex-shrink-0"
-                        x-text="d.label"></span>
-                  <span class="font-bold text-white" x-text="d.text"></span>
-                  <span class="text-green-400 ml-auto text-lg">✓</span>
+          <!-- MCQ tiles in REVEAL: correct option highlighted green, wrong options dimmed -->
+          <template x-if="question.options && question.options.length > 0">
+            <div class="grid grid-cols-2 gap-3">
+              <template x-for="(opt, idx) in question.options" :key="idx">
+                <div class="relative overflow-hidden rounded-2xl flex flex-col items-center justify-center gap-1.5 p-3 sm:p-4
+                            text-white font-bold text-center w-full shadow-lg border-2 transition-all"
+                     :class="opt.is_correct
+                              ? 'border-green-400 bg-gradient-to-br from-green-700/70 to-emerald-800/60 shadow-green-500/20'
+                              : 'border-white/10 bg-white/5 opacity-40'"
+                     style="min-height: clamp(88px, 22vw, 120px);">
+                  <template x-if="opt.is_correct">
+                    <span class="absolute top-2 right-2 text-green-300 text-lg font-black" aria-hidden="true">✓</span>
+                  </template>
+                  <template x-if="!opt.image_url">
+                    <div class="w-8 h-8 opacity-70" x-html="_tileSvgs[idx % 4]" aria-hidden="true"></div>
+                  </template>
+                  <template x-if="opt.image_url">
+                    <img :src="opt.image_url" :alt="`Option ${opt.label || ['A','B','C','D'][idx]}`"
+                         loading="lazy" class="w-full max-h-20 object-contain rounded-xl">
+                  </template>
+                  <span class="text-xs font-black bg-black/25 px-2 py-0.5 rounded-lg"
+                        x-text="opt.label || ['A','B','C','D'][idx]" aria-hidden="true"></span>
+                  <template x-if="opt.text">
+                    <span class="text-sm font-semibold leading-tight text-center break-words opacity-90"
+                          x-text="opt.text"></span>
+                  </template>
                 </div>
               </template>
+            </div>
+          </template>
+
+          <!-- Short answer: correct response shown in REVEAL -->
+          <template x-if="question.correct_short_answer">
+            <div class="bg-green-500/15 border-2 border-green-400/40 rounded-2xl px-5 py-4 space-y-1">
+              <p class="text-xs font-black text-green-400 uppercase tracking-widest">Correct Answer</p>
+              <p class="text-lg font-bold text-white" x-text="question.correct_short_answer"></p>
             </div>
           </template>
 
