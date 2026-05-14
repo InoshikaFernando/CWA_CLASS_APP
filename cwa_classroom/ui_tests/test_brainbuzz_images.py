@@ -122,10 +122,9 @@ class TestStudentQuestionImage:
         self.page.goto(f'{self.url}/brainbuzz/play/IMGQ01/')
         self.page.wait_for_load_state('domcontentloaded')
 
-        # Wait for Alpine.js to render (x-if is async)
-        self.page.wait_for_timeout(1500)
+        # Wait for the specific image Alpine renders via x-if
+        self.page.wait_for_selector('img[src="/media/questions/sky.png"]', timeout=5000)
 
-        # The question image <img> should be visible
         img = self.page.locator('img[src="/media/questions/sky.png"]')
         expect(img).to_have_count(1)
 
@@ -137,7 +136,9 @@ class TestStudentQuestionImage:
 
         self.page.goto(f'{self.url}/brainbuzz/play/IMGQ02/')
         self.page.wait_for_load_state('domcontentloaded')
-        self.page.wait_for_timeout(1500)
+
+        # Wait for Alpine to render the question text (proves x-if has run)
+        self.page.wait_for_selector('.bb-question-body', timeout=5000)
 
         # No orphan broken-image icons — question area img must not exist
         question_imgs = self.page.locator(
@@ -171,7 +172,9 @@ class TestStudentOptionImage:
 
         self.page.goto(f'{self.url}/brainbuzz/play/IMGO01/')
         self.page.wait_for_load_state('domcontentloaded')
-        self.page.wait_for_timeout(1500)
+
+        # Wait for the option image Alpine renders via x-if
+        self.page.wait_for_selector('img[src="/media/answers/a.png"]', timeout=5000)
 
         opt_img = self.page.locator('img[src="/media/answers/a.png"]')
         expect(opt_img).to_have_count(1)
@@ -188,7 +191,9 @@ class TestStudentOptionImage:
 
         self.page.goto(f'{self.url}/brainbuzz/play/IMGO02/')
         self.page.wait_for_load_state('domcontentloaded')
-        self.page.wait_for_timeout(1500)
+
+        # Wait for MCQ tiles to render (proves Alpine x-for has run)
+        self.page.wait_for_selector('.grid button', timeout=5000)
 
         # No option images should be rendered
         opt_imgs = self.page.locator('.grid button img')
@@ -215,7 +220,9 @@ class TestTeacherQuestionImage:
 
         self.page.goto(f'{self.url}/brainbuzz/session/IMGT01/play/')
         self.page.wait_for_load_state('domcontentloaded')
-        self.page.wait_for_timeout(1500)
+
+        # Wait for the specific image Alpine renders via x-if
+        self.page.wait_for_selector('img[src="/media/questions/diagram.png"]', timeout=5000)
 
         img = self.page.locator('img[src="/media/questions/diagram.png"]')
         expect(img).to_have_count(1)
@@ -226,7 +233,9 @@ class TestTeacherQuestionImage:
 
         self.page.goto(f'{self.url}/brainbuzz/session/IMGT02/play/')
         self.page.wait_for_load_state('domcontentloaded')
-        self.page.wait_for_timeout(1500)
+
+        # Wait for Alpine to render the question text (proves x-if has run)
+        self.page.wait_for_selector('.bb-question-body', timeout=5000)
 
         # The question card should have no <img> inside it
         question_card_imgs = self.page.locator(
@@ -244,7 +253,9 @@ class TestTeacherQuestionImage:
 
         self.page.goto(f'{self.url}/brainbuzz/session/IMGT03/play/')
         self.page.wait_for_load_state('domcontentloaded')
-        self.page.wait_for_timeout(1500)
+
+        # Wait for the specific option image Alpine renders via x-if
+        self.page.wait_for_selector('img[src="/media/answers/teacher_a.png"]', timeout=5000)
 
         img = self.page.locator('img[src="/media/answers/teacher_a.png"]')
         expect(img).to_have_count(1)
