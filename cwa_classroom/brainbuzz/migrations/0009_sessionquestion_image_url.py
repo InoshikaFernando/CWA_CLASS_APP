@@ -18,4 +18,13 @@ class Migration(migrations.Migration):
                 max_length=500,
             ),
         ),
+        migrations.AlterField(
+            model_name='brainbuzzsessionquestion',
+            name='options_json',
+            field=models.JSONField(
+                blank=True,
+                default=list,
+                help_text='MCQ/TF options: [{"label":"A","text":"...","is_correct":true,"image_url":""}]',
+            ),
+        ),
     ]

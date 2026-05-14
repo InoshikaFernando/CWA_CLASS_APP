@@ -123,9 +123,18 @@
                   class="relative overflow-hidden rounded-2xl flex flex-col items-center justify-center gap-1.5 p-3 sm:p-4
                          text-white font-bold text-center w-full border-2 border-white/20 shadow-lg
                          transition-all duration-150 active:scale-95 focus:outline-none focus:ring-4 focus:ring-white/40"
-                  style="min-height: 120px;">
-                  <!-- SVG shape -->
-                  <div class="w-10 h-10 opacity-90" x-html="_tileSvgs[idx % 4]" aria-hidden="true"></div>
+                  style="min-height: clamp(88px, 22vw, 120px);">
+                  <!-- SVG shape (hidden when option has an image) -->
+                  <template x-if="!opt.image_url">
+                    <div class="w-10 h-10 opacity-90" x-html="_tileSvgs[idx % 4]" aria-hidden="true"></div>
+                  </template>
+                  <!-- Option image -->
+                  <template x-if="opt.image_url">
+                    <img :src="opt.image_url" :alt="`Option ${opt.label || ['A','B','C','D'][idx]}`"
+                         loading="lazy"
+                         onerror="this.style.display='none'"
+                         class="w-full max-h-20 object-contain rounded-xl">
+                  </template>
                   <!-- Letter badge -->
                   <span class="text-xs font-black bg-black/25 px-2 py-0.5 rounded-lg"
                         x-text="opt.label || ['A','B','C','D'][idx]"
@@ -394,13 +403,6 @@
     white-space: pre;
     text-align: left;
     max-width: 100%;
-  }
-  .bb-code code {
-    background: none !important;
-    padding: 0 !important;
-    border-radius: 0 !important;
-    font-size: inherit;
-    color: #e6edf3;
   }
 </style>
 

@@ -376,7 +376,7 @@ function bbTeacher(joinCode, initialVersion, initialIndex, totalQuestions) {
     // (the server short-circuits with 304 when since == current version).
     joinCode, stateVersion: -1,
     currentIndex: initialIndex, totalQuestions,
-    status: 'active', questionText: '', options: [],
+    status: 'active', questionText: '', questionImageUrl: '', options: [],
     distribution: [], countdown: 0, countdownPct: 100,
     revealCountdown: 5, leaderboard: [],
     participantCount: 0, answersReceived: 0,
@@ -441,8 +441,9 @@ function bbTeacher(joinCode, initialVersion, initialIndex, totalQuestions) {
       if (data.question) {
         const q = data.question;
         if (this.questionText !== q.question_text) {
-          this.questionText = q.question_text;
-          this.options      = q.options || [];
+          this.questionText     = q.question_text;
+          this.questionImageUrl = q.image_url || '';
+          this.options          = q.options || [];
           this.deadlineUtc  = q.question_deadline ? new Date(q.question_deadline) : null;
           this.timeLimitSec = this.deadlineUtc
             ? Math.round((this.deadlineUtc - Date.now()) / 1000)
