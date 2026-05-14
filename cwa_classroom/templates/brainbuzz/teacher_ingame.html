@@ -218,8 +218,14 @@
               <span class="w-11 h-11 rounded-xl flex items-center justify-center font-black text-white text-lg flex-shrink-0"
                     :style="`background: ${tileAccent(idx)};`"
                     x-text="opt.label || ['A','B','C','D'][idx]"></span>
+              <!-- Option image (when present) -->
+              <template x-if="opt.image_url">
+                <img :src="opt.image_url" :alt="opt.label || ['A','B','C','D'][idx]"
+                     loading="lazy" onerror="this.style.display='none'"
+                     class="h-12 w-auto max-w-[6rem] object-contain rounded-lg flex-shrink-0">
+              </template>
               <!-- Option text -->
-              <span class="font-bold text-white text-base leading-snug" x-text="opt.text"></span>
+              <span class="flex-1 font-bold text-white text-base leading-snug" x-text="opt.text"></span>
               <!-- Shape icon (colorblind-safe) -->
               <span class="ml-auto text-2xl opacity-60 flex-shrink-0" x-text="['▲','◆','●','■'][idx % 4]"></span>
             </div>
@@ -248,6 +254,11 @@
                 <span class="w-11 h-11 rounded-xl flex items-center justify-center font-black text-white text-lg flex-shrink-0"
                       :style="`background: ${tileAccent(idx)};`"
                       x-text="opt.label"></span>
+                <template x-if="opt.image_url">
+                  <img :src="opt.image_url" :alt="opt.label"
+                       loading="lazy" onerror="this.style.display='none'"
+                       class="h-10 w-auto max-w-[5rem] object-contain rounded-lg flex-shrink-0">
+                </template>
                 <span class="flex-1 font-bold text-white text-base leading-snug" x-text="opt.text || opt.label"></span>
                 <!-- Correct checkmark -->
                 <span x-show="opt.is_correct"
