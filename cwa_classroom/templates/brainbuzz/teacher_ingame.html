@@ -186,7 +186,7 @@
           <div class="flex justify-center px-5 sm:px-10 pt-4 sm:pt-6 pb-2">
             <img :src="questionImageUrl" alt=""
                  loading="lazy"
-                 onerror="this.style.display='none'"
+                 @error="$el.style.display='none'"
                  class="max-h-48 w-auto max-w-full object-contain rounded-2xl border border-white/10 shadow-lg">
           </div>
         </template>
@@ -221,7 +221,7 @@
               <!-- Option image (when present) -->
               <template x-if="opt.image_url">
                 <img :src="opt.image_url" :alt="opt.label || ['A','B','C','D'][idx]"
-                     loading="lazy" onerror="this.style.display='none'"
+                     loading="lazy" @error="$el.style.display='none'"
                      class="h-12 w-auto max-w-[6rem] object-contain rounded-lg flex-shrink-0">
               </template>
               <!-- Option text -->
@@ -256,7 +256,7 @@
                       x-text="opt.label"></span>
                 <template x-if="opt.image_url">
                   <img :src="opt.image_url" :alt="opt.label"
-                       loading="lazy" onerror="this.style.display='none'"
+                       loading="lazy" @error="$el.style.display='none'"
                        class="h-10 w-auto max-w-[5rem] object-contain rounded-lg flex-shrink-0">
                 </template>
                 <span class="flex-1 font-bold text-white text-base leading-snug" x-text="opt.text || opt.label"></span>

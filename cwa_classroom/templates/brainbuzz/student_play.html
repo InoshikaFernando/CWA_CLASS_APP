@@ -87,7 +87,7 @@
         <div class="flex justify-center">
           <img :src="question.image_url" alt=""
                loading="lazy"
-               onerror="this.style.display='none'"
+               @error="$el.style.display='none'"
                class="max-h-52 w-auto max-w-full object-contain rounded-2xl border border-slate-600 shadow-lg">
         </div>
       </template>
@@ -132,7 +132,7 @@
                   <template x-if="opt.image_url">
                     <img :src="opt.image_url" :alt="`Option ${opt.label || ['A','B','C','D'][idx]}`"
                          loading="lazy"
-                         onerror="this.style.display='none'"
+                         @error="$el.style.display='none'"
                          class="w-full max-h-20 object-contain rounded-xl">
                   </template>
                   <!-- Letter badge -->
