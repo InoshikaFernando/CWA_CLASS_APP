@@ -171,9 +171,8 @@ templates/worksheets/
 | Template | Change | Status |
 |----------|--------|--------|
 | `worksheets/student_list.html` | Subject-aware title, subtitle, empty-state, and "← All subjects" back-link when `?subject=` is active | ✅ Shipped (CPP-276 sidebar) |
-| `partials/sidebar_maths.html` | "Worksheets" link in Activities section → `/worksheets/my/?subject=mathematics`, with `active_worksheet_count` badge | ✅ Shipped (CPP-276 sidebar) |
+| `partials/sidebar_student.html` | Worksheets `href` gains `?subject=mathematics` when `subject_sidebar == 'maths'`; unfiltered on all other pages | ✅ Shipped (CPP-276 sidebar) |
 | `partials/sidebar_coding.html` | "Worksheets" link in Activities section → `/worksheets/my/?subject=coding`, with `active_worksheet_count` badge | ✅ Shipped (CPP-276 sidebar) |
-| `partials/sidebar_student_common.html` | "Worksheets" link → `/worksheets/my/` (all subjects) with badge; suppressed inside `/maths/` and `/coding/` paths to avoid duplication | ✅ Shipped (CPP-276 sidebar) |
 | `worksheets/list.html` | Add "Create from Question Bank" CTA button | Sprint 2 |
 | `worksheets/session.html` | Replace inline MCQ/text block with `{% include %}` dispatch based on `question.question_type` | Sprint 1 |
 | `worksheets/detail.html` | Show creation method badge ("PDF Upload" vs "Question Bank") | Sprint 3 |
