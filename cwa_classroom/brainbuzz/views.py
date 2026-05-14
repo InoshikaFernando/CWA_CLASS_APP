@@ -248,28 +248,6 @@ def _snapshot_maths_questions(session: BrainBuzzSession, topic_id: int, level_id
         answers = list(Answer.objects.filter(question=q).order_by('order'))
         options = []
         for idx, a in enumerate(answers):
-            opt = {
-                'label': chr(65 + idx),
-                'text': a.answer_text,
-                'is_correct': a.is_correct,
-                'image_url': '',
-            }
-            if a.answer_image and a.answer_image.name:
-                try:
-                    opt['image_url'] = a.answer_image.url
-                except Exception:
-                    pass
-            options.append(opt)
-
-        q_image_url = ''
-        if q.image and q.image.name:
-            try:
-                q_image_url = q.image.url
-            except Exception:
-                pass
-
-        options = []
-        for idx, a in enumerate(answers):
             opt_image_url = ''
             if a.answer_image and a.answer_image.name:
                 try:

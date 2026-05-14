@@ -183,7 +183,6 @@ class BrainBuzzSessionQuestion(models.Model):
         default='',
         help_text='Absolute URL of the question image, snapshotted at session creation.',
     )
-    time_limit_sec = models.IntegerField(default=20)
     correct_short_answer = models.TextField(null=True, blank=True)
     explanation = models.TextField(blank=True)
     time_limit_sec = models.IntegerField(default=20)
