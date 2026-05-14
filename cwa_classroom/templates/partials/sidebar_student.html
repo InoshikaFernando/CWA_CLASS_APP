@@ -117,8 +117,8 @@ shown inline when subject_sidebar context is set, so the sidebar never
     {% endif %}
   </a>
 
-  <!-- Worksheets -->
-  <a href="{% url 'worksheets:student_list' %}"
+  <!-- Worksheets — subject-filtered when inside a subject context -->
+  <a href="{% url 'worksheets:student_list' %}{% if subject_sidebar == 'maths' %}?subject=mathematics{% endif %}"
      class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
             {% if 'worksheets' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
     <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">

@@ -670,10 +670,18 @@ class WorksheetResultsView(LoginRequiredMixin, View):
 # ---------------------------------------------------------------------------
 
 class StudentWorksheetListView(LoginRequiredMixin, View):
-    """Student: list all active worksheet assignments for their classes."""
+    """Student: list active worksheet assignments for their classes.
+
+    Accepts an optional ``?subject=<slug>`` query param to filter to worksheets
+    that contain questions from a specific subject plugin (e.g. ``mathematics``
+    or ``coding``).  Omitting the param returns all subjects.
+    """
 
     def get(self, request):
         from classroom.models import ClassStudent
+        # Optional subject filter from sidebar links (e.g. ?subject=mathematics)
+        subject_filter = request.GET.get('subject', '').strip().lower() or None
+
         # Get all active class enrolments for this student
         class_ids = ClassStudent.objects.filter(
             student=request.user, is_active=True,
@@ -684,6 +692,12 @@ class StudentWorksheetListView(LoginRequiredMixin, View):
             classroom_id__in=class_ids,
             is_active=True,
         ).select_related('worksheet', 'classroom').order_by('-assigned_at')
+
+        # Filter to a specific subject if requested
+        if subject_filter:
+            assignments = assignments.filter(
+                worksheet__worksheet_questions__subject_slug=subject_filter,
+            ).distinct()
 
         # Attach submission info to each assignment
         submissions = WorksheetSubmission.objects.filter(
@@ -704,6 +718,15 @@ class StudentWorksheetListView(LoginRequiredMixin, View):
                 'percentage': sub.percentage if sub else 0,
             })
 
+        # Human-readable subject label for the page heading
+        subject_labels = {
+            'mathematics': 'Maths',
+            'coding': 'Coding',
+        }
+        subject_label = subject_labels.get(subject_filter, subject_filter.title() if subject_filter else None)
+
         return render(request, 'worksheets/student_list.html', {
             'assignment_rows': assignment_rows,
+            'subject_filter': subject_filter,
+            'subject_label': subject_label,
         })
