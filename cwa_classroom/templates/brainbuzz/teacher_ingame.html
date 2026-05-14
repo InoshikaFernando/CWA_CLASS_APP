@@ -184,7 +184,7 @@
         <!-- Question image (only when present) -->
         <template x-if="questionImageUrl">
           <div class="flex justify-center px-5 sm:px-10 pt-4 sm:pt-6 pb-2">
-            <img :src="questionImageUrl" alt=""
+            <img :src="questionImageUrl" alt="Question image"
                  loading="lazy"
                  @error="$el.style.display='none'"
                  class="max-h-48 w-auto max-w-full object-contain rounded-2xl border border-white/10 shadow-lg">

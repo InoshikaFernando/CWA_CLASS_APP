@@ -85,7 +85,7 @@
       <!-- Question image (only when present) -->
       <template x-if="question.image_url">
         <div class="flex justify-center">
-          <img :src="question.image_url" alt=""
+          <img :src="question.image_url" alt="Question image"
                loading="lazy"
                @error="$el.style.display='none'"
                class="max-h-52 w-auto max-w-full object-contain rounded-2xl border border-slate-600 shadow-lg">
