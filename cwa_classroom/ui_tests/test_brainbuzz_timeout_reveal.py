@@ -271,8 +271,10 @@ class TestTeacherRevealUI:
         next_btn.wait_for(timeout=5_000)
         next_btn.click()
 
-        # REVEAL template (and Next button) removed from DOM when status becomes ACTIVE
-        next_btn.wait_for(state='detached', timeout=8_000)
+        # "Results" badge is REVEAL-only; its disappearance proves ACTIVE transition
+        # (teacher page also shows a Next button in ACTIVE, so waiting for that to
+        # detach would never succeed — "Results" is the reliable sentinel)
+        self.page.get_by_text('Results', exact=True).wait_for(state='hidden', timeout=8_000)
 
         # DB confirms advancement
         session.refresh_from_db()
@@ -351,8 +353,10 @@ class TestStudentRevealUI:
 
     def test_correct_short_answer_hidden_in_active(self):
         """Student ACTIVE view does NOT reveal correct_short_answer."""
-        session = _make_session(
-            self.teacher, self.subject, 'active', 'TRSV04'
+        # Use _make_active_short_timer so time_per_question_sec == deadline window,
+        # eliminating the read window that would hide the short-answer input.
+        session = _make_active_short_timer(
+            self.teacher, self.subject, 'TRSV04', timer_sec=30
         )
         from brainbuzz.models import BrainBuzzSessionQuestion, QUESTION_TYPE_SHORT_ANSWER
         BrainBuzzSessionQuestion.objects.create(
@@ -361,7 +365,7 @@ class TestStudentRevealUI:
             question_type=QUESTION_TYPE_SHORT_ANSWER,
             options_json=[],
             correct_short_answer='6',
-            time_limit_sec=20, points_base=1000,
+            time_limit_sec=30, points_base=1000,  # match session timer → no read window
             source_model='Test', source_id=0,
         )
         participant = _make_participant(session, nickname='HiddenTester')
