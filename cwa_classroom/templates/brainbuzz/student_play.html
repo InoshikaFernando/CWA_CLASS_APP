@@ -139,8 +139,10 @@
                   <span class="text-xs font-black bg-black/25 px-2 py-0.5 rounded-lg"
                         x-text="opt.label || ['A','B','C','D'][idx]"
                         aria-hidden="true"></span>
-                  <!-- Option text -->
-                  <span class="text-xs font-semibold leading-tight text-center" x-text="opt.text"></span>
+                  <!-- Option text (hidden when option is image-only) -->
+                  <template x-if="opt.text !== ''">
+                    <span class="text-xs font-semibold leading-tight text-center" x-text="opt.text"></span>
+                  </template>
                 </button>
               </template>
             </div>
