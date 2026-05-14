@@ -168,7 +168,7 @@
           <template x-if="!answered && countdown <= 0">
             <div class="bg-red-500/20 border-2 border-red-400/60 rounded-2xl px-6 py-5 text-center" role="status">
               <p class="text-red-300 font-black text-lg">⏰ Time's up!</p>
-              <p class="text-red-200 text-sm mt-1">Missed this one — moving on…</p>
+              <p class="text-red-200 text-sm mt-1 animate-pulse">Waiting for teacher to reveal the answer…</p>
             </div>
           </template>
         </div>
@@ -208,7 +208,7 @@
           <template x-if="!answered && countdown <= 0">
             <div class="bg-red-500/20 border-2 border-red-400/60 rounded-2xl px-6 py-5 text-center" role="status">
               <p class="text-red-300 font-black text-lg">⏰ Time's up!</p>
-              <p class="text-red-200 text-sm mt-1">Missed this one — moving on…</p>
+              <p class="text-red-200 text-sm mt-1 animate-pulse">Waiting for teacher to reveal the answer…</p>
             </div>
           </template>
         </div>
@@ -655,11 +655,11 @@ function bbStudent(joinCode, participantId, initialScore, initialStatus) {
         } else {
           this.readWindowCountdown = 0;
           this.countdown = Math.max(0, Math.ceil((deadlineMs - now) / 1000));
-          // One eager poll 600 ms after deadline so the auto-reveal response
+          // One eager poll 200 ms after deadline so the auto-reveal response
           // arrives promptly without waiting for the next scheduled poll.
           if (this.countdown === 0 && !this._deadlinePollFired) {
             this._deadlinePollFired = true;
-            const msUntilGrace = Math.max(0, deadlineMs + 600 - now);
+            const msUntilGrace = Math.max(0, deadlineMs + 200 - now);
             setTimeout(() => {
               clearTimeout(this.pollTimer);
               this._poll();
