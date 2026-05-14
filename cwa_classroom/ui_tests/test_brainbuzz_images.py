@@ -17,6 +17,9 @@ from .conftest import do_login, TEST_PASSWORD
 
 pytestmark = pytest.mark.brainbuzz_images
 
+# 1x1 transparent GIF — loads from memory, @error never fires
+TINY_GIF = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+
 
 # ---------------------------------------------------------------------------
 # DB fixtures
@@ -55,7 +58,7 @@ def _make_active_session(teacher, subject, code='BBIMG1'):
         current_index=0,
         state_version=1,
         time_per_question_sec=20,
-        question_deadline=timezone.now() + timedelta(seconds=60),
+        question_deadline=timezone.now() + timedelta(seconds=20),
     )
     return session
 
@@ -74,6 +77,7 @@ def _make_question(session, image_url='', options=None):
         question_type=QUESTION_TYPE_MCQ,
         options_json=options,
         image_url=image_url,
+        time_limit_sec=20,
         source_model='Test',
         source_id=1,
     )
@@ -115,17 +119,17 @@ class TestStudentQuestionImage:
 
     def test_question_image_renders_when_url_set(self):
         session = _make_active_session(self.teacher, self.subject, code='IMGQ01')
-        _make_question(session, image_url='/media/questions/sky.png')
+        _make_question(session, image_url=TINY_GIF)
         participant = _make_participant(session)
         _set_participant_cookie(self.page, self.url, 'IMGQ01', participant.id)
 
         self.page.goto(f'{self.url}/brainbuzz/play/IMGQ01/')
         self.page.wait_for_load_state('domcontentloaded')
 
-        # Wait for the specific image Alpine renders via x-if
-        self.page.wait_for_selector('img[src="/media/questions/sky.png"]', timeout=5000)
+        # Wait for the question image Alpine renders via x-if (alt text set in template)
+        self.page.wait_for_selector('img[alt="Question image"]', timeout=5000)
 
-        img = self.page.locator('img[src="/media/questions/sky.png"]')
+        img = self.page.locator('img[alt="Question image"]')
         expect(img).to_have_count(1)
 
     def test_no_img_tag_when_question_has_no_image(self):
@@ -162,8 +166,8 @@ class TestStudentOptionImage:
 
     def test_option_image_renders_in_tile(self):
         opts = [
-            {'label': 'A', 'text': '',      'is_correct': True,  'image_url': '/media/answers/a.png'},
-            {'label': 'B', 'text': 'Beta',  'is_correct': False, 'image_url': ''},
+            {'label': 'A', 'text': '',     'is_correct': True,  'image_url': TINY_GIF},
+            {'label': 'B', 'text': 'Beta', 'is_correct': False, 'image_url': ''},
         ]
         session = _make_active_session(self.teacher, self.subject, code='IMGO01')
         _make_question(session, options=opts)
@@ -173,10 +177,11 @@ class TestStudentOptionImage:
         self.page.goto(f'{self.url}/brainbuzz/play/IMGO01/')
         self.page.wait_for_load_state('domcontentloaded')
 
-        # Wait for the option image Alpine renders via x-if
-        self.page.wait_for_selector('img[src="/media/answers/a.png"]', timeout=5000)
+        # MCQ tiles only show when readWindow=false; deadline=now+20, timeLimitSec=20
+        # so readWindowEnds = deadline - 20s = now → readWindow is immediately false
+        self.page.wait_for_selector('.grid button img', timeout=5000)
 
-        opt_img = self.page.locator('img[src="/media/answers/a.png"]')
+        opt_img = self.page.locator('.grid button img')
         expect(opt_img).to_have_count(1)
 
     def test_no_option_img_when_image_url_empty(self):
@@ -216,15 +221,15 @@ class TestTeacherQuestionImage:
 
     def test_teacher_question_image_renders_when_url_set(self):
         session = _make_active_session(self.teacher, self.subject, code='IMGT01')
-        _make_question(session, image_url='/media/questions/diagram.png')
+        _make_question(session, image_url=TINY_GIF)
 
         self.page.goto(f'{self.url}/brainbuzz/session/IMGT01/play/')
         self.page.wait_for_load_state('domcontentloaded')
 
-        # Wait for the specific image Alpine renders via x-if
-        self.page.wait_for_selector('img[src="/media/questions/diagram.png"]', timeout=5000)
+        # Wait for question image (alt text added in template for accessibility)
+        self.page.wait_for_selector('img[alt="Question image"]', timeout=5000)
 
-        img = self.page.locator('img[src="/media/questions/diagram.png"]')
+        img = self.page.locator('img[alt="Question image"]')
         expect(img).to_have_count(1)
 
     def test_teacher_no_img_when_question_has_no_image(self):
@@ -245,7 +250,7 @@ class TestTeacherQuestionImage:
 
     def test_teacher_option_image_renders_in_active_tile(self):
         opts = [
-            {'label': 'A', 'text': '',     'is_correct': True,  'image_url': '/media/answers/teacher_a.png'},
+            {'label': 'A', 'text': '',     'is_correct': True,  'image_url': TINY_GIF},
             {'label': 'B', 'text': 'Beta', 'is_correct': False, 'image_url': ''},
         ]
         session = _make_active_session(self.teacher, self.subject, code='IMGT03')
@@ -254,8 +259,8 @@ class TestTeacherQuestionImage:
         self.page.goto(f'{self.url}/brainbuzz/session/IMGT03/play/')
         self.page.wait_for_load_state('domcontentloaded')
 
-        # Wait for the specific option image Alpine renders via x-if
-        self.page.wait_for_selector('img[src="/media/answers/teacher_a.png"]', timeout=5000)
+        # data: URI loads inline — @error never fires, image stays visible
+        self.page.wait_for_selector('img[src^="data:image"]', timeout=5000)
 
-        img = self.page.locator('img[src="/media/answers/teacher_a.png"]')
+        img = self.page.locator('img[src^="data:image"]')
         expect(img).to_have_count(1)
