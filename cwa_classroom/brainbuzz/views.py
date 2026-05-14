@@ -23,8 +23,11 @@ JSON API (called by JS polling / form submits):
 
 import csv
 import json
+import logging
 import re
 from datetime import timedelta
+
+logger = logging.getLogger(__name__)
 
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
@@ -253,7 +256,7 @@ def _snapshot_maths_questions(session: BrainBuzzSession, topic_id: int, level_id
                 try:
                     opt_image_url = a.answer_image.url
                 except Exception:
-                    pass
+                    logger.warning('Failed to resolve answer image URL for answer %s', a.pk, exc_info=True)
             options.append({
                 'label': chr(65 + idx),
                 'text': a.answer_text,
@@ -266,7 +269,7 @@ def _snapshot_maths_questions(session: BrainBuzzSession, topic_id: int, level_id
             try:
                 q_image_url = q.image.url
             except Exception:
-                pass
+                logger.warning('Failed to resolve question image URL for question %s', q.pk, exc_info=True)
 
         bb_type = MATHS_TO_BRAINBUZZ_TYPE.get(
             q.question_type,
