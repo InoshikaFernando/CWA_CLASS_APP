@@ -149,6 +149,15 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
             ref = q.get('image_ref')
             q['image_b64'] = session.extracted_images.get(ref) if ref else None
 
+        # Recovery: if every question ended up with include=False (stuck state
+        # from a previous all-uncheck submission), reset them all to True so
+        # the teacher doesn't have to manually re-tick every question.
+        if questions and not any(q.get('include') for q in questions):
+            for q in questions:
+                q['include'] = True
+            session.extracted_data = data
+            session.save(update_fields=['extracted_data'])
+
         return render(request, 'worksheets/preview.html', {
             'session': session,
             'data': data,
