@@ -280,9 +280,9 @@ class TestWorksheetConfirmNoAttributeError:
         expect(body).not_to_contain_text("Server Error", timeout=3_000)
         expect(body).not_to_contain_text("500", timeout=3_000)
 
-        # Submit the confirm form — target the "Save Worksheet" button inside
-        # the POST form, not the hidden logout button which also has type=submit.
-        page.locator("form[method='post'] button[type='submit']").click()
+        # Submit the confirm form by button text — avoids matching the logout
+        # button, which also lives in a form[method='post'] in the base template.
+        page.get_by_role("button", name="Save Worksheet").click()
         page.wait_for_load_state("networkidle")
 
         # Should NOT be a server error — any redirect (detail or preview) is acceptable
