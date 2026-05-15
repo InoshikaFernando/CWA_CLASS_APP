@@ -155,8 +155,15 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
         if questions and not any(q.get('include') for q in questions):
             for q in questions:
                 q['include'] = True
+            # Save only the include reset — strip image_b64 first since that
+            # is added in-memory for template rendering only and must not be
+            # persisted (it bloats the JSONField with base64 image data).
+            clean_questions = [{k: v for k, v in q.items() if k != 'image_b64'} for q in questions]
+            data['questions'] = clean_questions
             session.extracted_data = data
             session.save(update_fields=['extracted_data'])
+            # Restore the in-memory list reference so the template still gets image_b64.
+            data['questions'] = questions
 
         return render(request, 'worksheets/preview.html', {
             'session': session,
@@ -224,13 +231,6 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
         data['questions'] = questions
         session.extracted_data = data
         session.save(update_fields=['extracted_data', 'worksheet_name'])
-
-        if not any(q.get('include') for q in questions):
-            messages.error(
-                request,
-                'No questions selected. Please tick at least one question to include.',
-            )
-            return redirect('worksheets:preview', session_id=session.pk)
 
         return redirect('worksheets:confirm', session_id=session.pk)
 
