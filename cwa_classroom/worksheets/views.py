@@ -130,8 +130,19 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
         questions = data.get('questions', [])
 
         from classroom.models import Topic, Level
-        topics = Topic.objects.filter(subject__slug='mathematics').order_by('name')
         levels = Level.objects.filter(level_number__lte=12).order_by('level_number')
+
+        # Parent topics (no parent FK) for the topic picker dropdown
+        parent_topics = list(Topic.objects.filter(
+            subject__slug='mathematics', parent__isnull=True, is_active=True,
+        ).order_by('name').values_list('name', flat=True))
+
+        # Subtopics grouped by parent name for the subtopic picker
+        subtopics_map = {}
+        for st in Topic.objects.filter(
+            subject__slug='mathematics', parent__isnull=False, is_active=True,
+        ).select_related('parent').order_by('name'):
+            subtopics_map.setdefault(st.parent.name, []).append(st.name)
 
         image_list = [
             {'ref': ref, 'name': ref, 'base64': b64}
@@ -143,18 +154,36 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
             q.setdefault('subject', data.get('subject', 'Mathematics'))
             q.setdefault('strand', data.get('strand', ''))
             q.setdefault('topic', data.get('topic', ''))
+            q.setdefault('subtopic', '')
             q.setdefault('include', True)
             # Attach base64 image data directly to question dict so templates
             # don't need a custom filter for dict lookups.
             ref = q.get('image_ref')
             q['image_b64'] = session.extracted_images.get(ref) if ref else None
 
+        # Recovery: if every question ended up with include=False (stuck state
+        # from a previous all-uncheck submission), reset them all to True so
+        # the teacher doesn't have to manually re-tick every question.
+        if questions and not any(q.get('include') for q in questions):
+            for q in questions:
+                q['include'] = True
+            # Save only the include reset — strip image_b64 first since that
+            # is added in-memory for template rendering only and must not be
+            # persisted (it bloats the JSONField with base64 image data).
+            clean_questions = [{k: v for k, v in q.items() if k != 'image_b64'} for q in questions]
+            data['questions'] = clean_questions
+            session.extracted_data = data
+            session.save(update_fields=['extracted_data'])
+            # Restore the in-memory list reference so the template still gets image_b64.
+            data['questions'] = questions
+
         return render(request, 'worksheets/preview.html', {
             'session': session,
             'data': data,
             'questions': questions,
-            'topics': topics,
             'levels': levels,
+            'parent_topics_json': json.dumps(parent_topics),
+            'subtopics_json': json.dumps(subtopics_map),
             'image_list': image_list,
             'image_refs_json': json.dumps([img['ref'] for img in image_list]),
             'question_types': [
@@ -197,6 +226,7 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
             q['subject'] = request.POST.get(f'{prefix}subject', q.get('subject', data['subject']))
             q['strand'] = request.POST.get(f'{prefix}strand', q.get('strand', data['strand']))
             q['topic'] = request.POST.get(f'{prefix}topic', q.get('topic', data['topic']))
+            q['subtopic'] = request.POST.get(f'{prefix}subtopic', q.get('subtopic', ''))
 
             img_ref = request.POST.get(f'{prefix}image_ref', '')
             q['image_ref'] = img_ref if img_ref and img_ref != 'none' else None
@@ -265,6 +295,10 @@ class WorksheetConfirmView(RoleRequiredMixin, View):
             extracted_data = data
             extracted_images = session.extracted_images
             pk = session.pk
+            is_confirmed = False
+
+            def save(self, update_fields=None):
+                pass  # Real confirmation handled below after worksheet creation
 
         temp_session = _TempSession()
         result = save_questions_from_session(temp_session, request.user, data)
@@ -352,7 +386,9 @@ class WorksheetDetailView(RoleRequiredMixin, View):
     def get(self, request, pk):
         school = get_school_for_user(request.user)
         worksheet = get_object_or_404(Worksheet, pk=pk, school=school)
-        wqs = worksheet.worksheet_questions.select_related('question').prefetch_related('question__answers')
+        wqs = worksheet.worksheet_questions.select_related(
+            'question', 'question__topic', 'question__topic__parent',
+        ).prefetch_related('question__answers')
         assignments = worksheet.assignments.select_related('classroom').order_by('-assigned_at')
 
         from classroom.models import ClassRoom
