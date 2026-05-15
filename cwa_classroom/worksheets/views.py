@@ -295,6 +295,10 @@ class WorksheetConfirmView(RoleRequiredMixin, View):
             extracted_data = data
             extracted_images = session.extracted_images
             pk = session.pk
+            is_confirmed = False
+
+            def save(self, update_fields=None):
+                pass  # Real confirmation handled below after worksheet creation
 
         temp_session = _TempSession()
         result = save_questions_from_session(temp_session, request.user, data)
