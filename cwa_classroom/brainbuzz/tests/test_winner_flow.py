@@ -11,11 +11,13 @@ Flow exercised over real HTTP:
   - Leaderboard API confirms Alice is the winner
 """
 import json
+from datetime import timedelta
 from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.test import Client, TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import Role
 from classroom.models import Subject
@@ -24,6 +26,7 @@ from brainbuzz.models import (
     BrainBuzzSessionQuestion,
     QUESTION_TYPE_MCQ,
 )
+from brainbuzz.views import READ_WINDOW_SEC
 
 User = get_user_model()
 
@@ -47,7 +50,7 @@ def _make_user(username, role_name=None):
     return user
 
 
-def _build_session(teacher, code='WINNER1'):
+def _build_session(teacher, code='WIN001'):
     subject, _ = Subject.objects.get_or_create(
         slug='winner-flow-maths', defaults={'name': 'Winner Flow Maths'},
     )
@@ -74,6 +77,14 @@ def _build_session(teacher, code='WINNER1'):
             source_id=i,
         )
     return session
+
+
+def _skip_read_window(session):
+    """Advance deadline past read window so tests can submit immediately."""
+    session.refresh_from_db()
+    if session.question_deadline:
+        session.question_deadline = timezone.now() + timedelta(seconds=session.time_per_question_sec)
+        session.save()
 
 
 class TestTwoStudentWinner(TestCase):
@@ -114,6 +125,7 @@ class TestTwoStudentWinner(TestCase):
 
         r = _post_json(teacher_client, action_url, {'action': 'start'})
         self.assertEqual(r.status_code, 200, r.content)
+        _skip_read_window(session)
 
         # ── Play through every question ──────────────────────────────────
         for q_index in range(NUM_QUESTIONS):
@@ -137,6 +149,7 @@ class TestTwoStudentWinner(TestCase):
                 'action': 'next', 'expected_current_index': q_index,
             })
             self.assertEqual(r.status_code, 200, r.content)
+            _skip_read_window(session)
 
         # ── Session must now be FINISHED ─────────────────────────────────
         session.refresh_from_db()

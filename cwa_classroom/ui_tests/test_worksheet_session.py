@@ -113,18 +113,18 @@ class TestExistingPdfWorksheetSessionUnaffected:
         radio.check()
 
         # Submit the answer via the form — target the "Submit Answer" button inside
-        # the hx-post form, not the logout button which is also type=submit
-        page.locator("form[hx-post] button[type='submit']").click()
-        page.wait_for_load_state("networkidle")
+        # the hx-post form, not the logout button which is also type=submit.
+        # Use expect_response to reliably wait for the HTMX POST to complete,
+        # since wait_for_load_state("networkidle") can resolve immediately
+        # when no *navigation* occurred (HTMX swaps via XHR).
+        with page.expect_response(lambda r: "/answer/" in r.url and r.status == 200):
+            page.locator("form[hx-post] button[type='submit']").click()
 
-        # Should be on results page (either redirected or still on session with score)
-        # Accept either the results URL or a score indicator on the same page
-        body_text = page.locator("body").inner_text()
-        assert (
-            "/results/" in page.url
-            or "score" in body_text.lower()
-            or "correct" in body_text.lower()
-        ), f"Expected results indication, got URL={page.url}"
+        # After HTMX swap the feedback partial replaces #answer-area.
+        # For the last question it shows "See My Results"; for any question
+        # it shows "Correct!" or "Not quite right".
+        feedback = page.locator("#answer-area")
+        expect(feedback).to_contain_text("Correct", timeout=5000)
 
     @pytest.mark.django_db(transaction=True)
     def test_student_cannot_access_another_schools_worksheet_session(

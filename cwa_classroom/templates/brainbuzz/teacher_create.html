@@ -338,6 +338,18 @@
       <p class="mt-1 text-xs text-gray-500">1–30 questions. Questions are picked randomly from the topic.</p>
     </div>
 
+    <!-- Time per question -->
+    <div>
+      <label class="block text-sm font-semibold text-gray-700 mb-1" for="time_per_question_sec">Time per question</label>
+      <select name="time_per_question_sec" id="time_per_question_sec"
+              class="w-40 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent">
+        {% for secs, label in time_per_question_options %}
+        <option value="{{ secs }}"{% if time_per_question_sec == secs %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <p class="mt-1 text-xs text-gray-500">Answering window per question (after the 10 s read window). 5–120 s.</p>
+    </div>
+
     <button type="submit"
             class="w-full bg-accent hover:bg-blue-600 text-white font-semibold py-3 rounded-xl transition text-sm">
       Create Session &rarr;

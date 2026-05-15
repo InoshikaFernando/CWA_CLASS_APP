@@ -1,4 +1,5 @@
 from django.db import migrations
+from django.utils.text import slugify
 
 
 # (year_level, dividend, divisor)
@@ -68,7 +69,7 @@ def seed_questions(apps, schema_editor):
     def _get_topic(name):
         topic, _ = Topic.objects.get_or_create(
             name=name, subject=maths,
-            defaults={"order": 99, "is_active": True},
+            defaults={"order": 99, "is_active": True, "slug": slugify(name)},
         )
         return topic
 
