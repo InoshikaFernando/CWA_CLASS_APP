@@ -130,8 +130,19 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
         questions = data.get('questions', [])
 
         from classroom.models import Topic, Level
-        topics = Topic.objects.filter(subject__slug='mathematics').order_by('name')
         levels = Level.objects.filter(level_number__lte=12).order_by('level_number')
+
+        # Parent topics (no parent FK) for the topic picker dropdown
+        parent_topics = list(Topic.objects.filter(
+            subject__slug='mathematics', parent__isnull=True, is_active=True,
+        ).order_by('name').values_list('name', flat=True))
+
+        # Subtopics grouped by parent name for the subtopic picker
+        subtopics_map = {}
+        for st in Topic.objects.filter(
+            subject__slug='mathematics', parent__isnull=False, is_active=True,
+        ).select_related('parent').order_by('name'):
+            subtopics_map.setdefault(st.parent.name, []).append(st.name)
 
         image_list = [
             {'ref': ref, 'name': ref, 'base64': b64}
@@ -143,6 +154,7 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
             q.setdefault('subject', data.get('subject', 'Mathematics'))
             q.setdefault('strand', data.get('strand', ''))
             q.setdefault('topic', data.get('topic', ''))
+            q.setdefault('subtopic', '')
             q.setdefault('include', True)
             # Attach base64 image data directly to question dict so templates
             # don't need a custom filter for dict lookups.
@@ -169,8 +181,9 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
             'session': session,
             'data': data,
             'questions': questions,
-            'topics': topics,
             'levels': levels,
+            'parent_topics_json': json.dumps(parent_topics),
+            'subtopics_json': json.dumps(subtopics_map),
             'image_list': image_list,
             'image_refs_json': json.dumps([img['ref'] for img in image_list]),
             'question_types': [
@@ -213,6 +226,7 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
             q['subject'] = request.POST.get(f'{prefix}subject', q.get('subject', data['subject']))
             q['strand'] = request.POST.get(f'{prefix}strand', q.get('strand', data['strand']))
             q['topic'] = request.POST.get(f'{prefix}topic', q.get('topic', data['topic']))
+            q['subtopic'] = request.POST.get(f'{prefix}subtopic', q.get('subtopic', ''))
 
             img_ref = request.POST.get(f'{prefix}image_ref', '')
             q['image_ref'] = img_ref if img_ref and img_ref != 'none' else None
@@ -368,7 +382,9 @@ class WorksheetDetailView(RoleRequiredMixin, View):
     def get(self, request, pk):
         school = get_school_for_user(request.user)
         worksheet = get_object_or_404(Worksheet, pk=pk, school=school)
-        wqs = worksheet.worksheet_questions.select_related('question').prefetch_related('question__answers')
+        wqs = worksheet.worksheet_questions.select_related(
+            'question', 'question__topic', 'question__topic__parent',
+        ).prefetch_related('question__answers')
         assignments = worksheet.assignments.select_related('classroom').order_by('-assigned_at')
 
         from classroom.models import ClassRoom
