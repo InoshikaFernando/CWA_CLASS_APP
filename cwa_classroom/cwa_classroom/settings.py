@@ -439,6 +439,14 @@ SESSION_COOKIE_HTTPONLY = True                   # JS cannot read session cookie
 SESSION_COOKIE_SAMESITE = 'Lax'                 # mitigate CSRF via cross-site requests
 SESSION_COOKIE_SECURE = not DEBUG               # HTTPS-only in production
 
+# ---------------------------------------------------------------------------
+# Upload limits
+# ---------------------------------------------------------------------------
+# The worksheet preview form can have ~15 fields per question × up to 100
+# questions = ~1500 fields, which blows through Django's default of 1000.
+# Raise to 5000 to comfortably handle large worksheets.
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 5000
+
 
 # ---------------------------------------------------------------------------
 # Default primary key

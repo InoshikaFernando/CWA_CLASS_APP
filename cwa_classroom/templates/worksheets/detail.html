@@ -44,7 +44,13 @@
           <div class="flex flex-wrap gap-1.5 mt-2">
             <span class="px-2 py-0.5 rounded-full bg-slate-100 text-gray-500 text-xs">{{ wq.question.get_question_type_display }}</span>
             <span class="px-2 py-0.5 rounded-full bg-slate-100 text-gray-500 text-xs">{{ wq.question.get_difficulty_display }}</span>
-            {% if wq.question.topic %}<span class="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs">{{ wq.question.topic.name }}</span>{% endif %}
+            {% if wq.question.topic %}
+              {% if wq.question.topic.parent %}
+                <span class="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs">{{ wq.question.topic.parent.name }} › {{ wq.question.topic.name }}</span>
+              {% else %}
+                <span class="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs">{{ wq.question.topic.name }}</span>
+              {% endif %}
+            {% endif %}
           </div>
           {% if wq.question.question_type == 'multiple_choice' or wq.question.question_type == 'true_false' %}
           <div class="mt-2 space-y-1">

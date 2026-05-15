@@ -229,7 +229,7 @@ class BrainBuzzParticipant(models.Model):
     ]
 
     nickname = models.CharField(max_length=255)
-    avatar = models.CharField(max_length=10, default='🦁')
+    avatar = models.CharField(max_length=10, default='🦁', blank=True)
     joined_at = models.DateTimeField(auto_now_add=True)
     score = models.IntegerField(default=0)
     last_correct_time = models.DateTimeField(

@@ -56,9 +56,10 @@ This fix is **Sprint 1** of the implementation plan below.
 | 4 | **Teacher** | As a teacher, I want to re-assign an already-created worksheet to another class (or the same class again) without recreating it. |
 | 5 | **HoI** | As a Head of Institute, I want to see all worksheets created within my school so I can monitor content quality. |
 | 6 | **HoD** | As a Head of Department, I want to see worksheets created by teachers in my department. |
-| 7 | **Student** | As a student, I want the worksheet session to show the correct input format for each question type (MCQ radios, code editor, text box, long-division grid, factor ladder) so I can answer naturally. |
-| 8 | **Student** | As a student taking a coding question in a worksheet, I want a code editor with a Run button (Piston) so I can test my code before submitting. |
-| 9 | **Parent** | As a parent, I want to see my child's worksheet assignments and scores on my dashboard. |
+| 7 | **Student** | As a student, I want to see my assigned worksheets in the sidebar when I'm in the Maths or Coding subject area so I can access them without leaving the subject context. |
+| 8 | **Student** | As a student, I want the worksheet session to show the correct input format for each question type (MCQ radios, code editor, text box, long-division grid, factor ladder) so I can answer naturally. |
+| 9 | **Student** | As a student taking a coding question in a worksheet, I want a code editor with a Run button (Piston) so I can test my code before submitting. |
+| 10 | **Parent** | As a parent, I want to see my child's worksheet assignments and scores on my dashboard. |
 
 **Intentionally excluded:** Parents and Students cannot create or assign worksheets.
 
@@ -141,12 +142,13 @@ Teachers see the union of all four tiers. Questions are never cross-tenant.
 
 ### Modified views
 
-| View | Change |
-|------|--------|
-| `WorksheetListView` | Add "Create from Question Bank" button alongside existing "Upload PDF" button |
-| `WorksheetSessionView` | Render question-type-specific answer templates instead of MCQ-or-text binary |
-| `WorksheetAnswerView` | Handle coding answer submissions (run via Piston, store in `answer_data`) |
-| `WorksheetAssignView` | Allow re-assignment of existing worksheet to another class (already partially works — just needs UI clarity) |
+| View | Change | Status |
+|------|--------|--------|
+| `StudentWorksheetListView` | Accept `?subject=<slug>` query param; filter assignments to worksheets containing that subject's questions; pass `subject_label` to template | ✅ Shipped (CPP-276 sidebar) |
+| `WorksheetListView` | Add "Create from Question Bank" button alongside existing "Upload PDF" button | Sprint 2 |
+| `WorksheetSessionView` | Render question-type-specific answer templates instead of MCQ-or-text binary | Sprint 1 |
+| `WorksheetAnswerView` | Handle coding answer submissions (run via Piston, store in `answer_data`) | Sprint 3 |
+| `WorksheetAssignView` | Allow re-assignment of existing worksheet to another class (already partially works — just needs UI clarity) | Sprint 3 |
 
 ### New templates
 
@@ -166,11 +168,14 @@ templates/worksheets/
 
 ### Modified templates
 
-| Template | Change |
-|----------|--------|
-| `worksheets/list.html` | Add "Create from Question Bank" CTA button |
-| `worksheets/session.html` | Replace inline MCQ/text block with `{% include %}` dispatch based on `question.question_type` |
-| `worksheets/detail.html` | Show creation method badge ("PDF Upload" vs "Question Bank") |
+| Template | Change | Status |
+|----------|--------|--------|
+| `worksheets/student_list.html` | Subject-aware title, subtitle, empty-state, and "← All subjects" back-link when `?subject=` is active | ✅ Shipped (CPP-276 sidebar) |
+| `partials/sidebar_student.html` | Worksheets `href` gains `?subject=mathematics` when `subject_sidebar == 'maths'`; unfiltered on all other pages | ✅ Shipped (CPP-276 sidebar) |
+| `partials/sidebar_coding.html` | "Worksheets" link in Activities section → `/worksheets/my/?subject=coding`, with `active_worksheet_count` badge | ✅ Shipped (CPP-276 sidebar) |
+| `worksheets/list.html` | Add "Create from Question Bank" CTA button | Sprint 2 |
+| `worksheets/session.html` | Replace inline MCQ/text block with `{% include %}` dispatch based on `question.question_type` | Sprint 1 |
+| `worksheets/detail.html` | Show creation method badge ("PDF Upload" vs "Question Bank") | Sprint 3 |
 
 ### URL patterns (added to `worksheets/urls.py`)
 
@@ -260,6 +265,7 @@ The `session.html` template dispatches to a partial based on `question.question_
 | **Worksheet with zero questions** | Save button is disabled until ≥1 question is selected. Server-side validation rejects empty lists. |
 | **Re-assignment to same class** | Allowed — creates a new `WorksheetAssignment` row. Students get a fresh `WorksheetSubmission`. Teacher sees separate assignment entries. |
 | **Large question bank (performance)** | Builder questions endpoint is paginated (25 per page). Subject + topic + level filters use indexed FKs. Text search uses `question_text__icontains` (sufficient at current scale; can add full-text index later). |
+| **Student worksheet sidebar filtering** | `StudentWorksheetListView` filters by `worksheet__worksheet_questions__subject_slug` with `.distinct()` — safe for multi-question worksheets where the same subject_slug appears more than once. |
 | **Coding questions without Piston** | If `PISTON_API_URL` is unreachable, the Run button shows an error toast. Student can still submit code (graded later by teacher or when Piston comes back). |
 | **Multi-child parents** | Parent dashboard already scopes by child — worksheet scores appear per-child, no change needed. |
 | **Long division / prime factorisation answer grading** | These structured answer types store the full step data in `answer_data` JSONField. Grading compares each step against expected values from the question model. |
@@ -293,18 +299,19 @@ The `session.html` template dispatches to a partial based on `question.question_
 
 ## Sprint breakdown
 
-### Sprint 1 — Fix Worksheet Question-Type Rendering (BUG FIX) (6 stories)
+### Sprint 1 — Fix Worksheet Question-Type Rendering (BUG FIX) (7 stories)
 
 This sprint fixes the existing worksheet session so it renders all question types correctly — matching what homework already does. **Must ship before the builder**, because any worksheet (including PDF-uploaded ones) can contain long division, prime factorisation, or extended answer questions that currently render as a broken text input.
 
-| # | Story | Points |
-|---|-------|--------|
-| CPP-XXX | Add `subject_slug`, `content_id` to `WorksheetQuestion` + `answer_data` to `WorksheetStudentAnswer` + migration + backfill | 3 |
-| CPP-XXX | Extract worksheet answer rendering into type-specific partials: `_answer_mcq.html` (MCQ + T/F radios), `_answer_short.html` (short answer textarea), `_answer_text.html` (fill-blank / calculation single-line input), `_answer_extended.html` (extended answer textarea) | 3 |
-| CPP-XXX | Port long-division step grid from `_maths_take_item.html` into `_answer_long_division.html` for worksheets — quotient row, subtract/bring-down rows, remainder input, hidden field sync JS | 5 |
-| CPP-XXX | Port prime-factorisation factor ladder from `_maths_take_item.html` into `_answer_prime_factorization.html` — prime input cells, number cells, preview, hidden field sync JS | 3 |
-| CPP-XXX | Update `WorksheetSessionView` to dispatch to correct partial via `{% include %}` based on `question.question_type` (replace inline MCQ/text binary in `session.html`) | 3 |
-| CPP-XXX | Update `WorksheetAnswerView` to grade long-division (parse "quotient r remainder"), prime-factorisation (parse "2x3x5"), and extended-answer (call `grading_service.grade_answer()`) correctly | 5 |
+| # | Story | Points | Status |
+|---|-------|--------|--------|
+| CPP-276 | Add `subject_slug`, `content_id` to `WorksheetQuestion` + `answer_data` to `WorksheetStudentAnswer` + migration + backfill. Fix `WorksheetConfirmView` to set `content_id` on PDF upload. Auto-populate `content_id` from `question_id` in `save()`. | 3 | ✅ Merged (v1.4.8) |
+| CPP-276 sidebar | Add subject-filtered "Worksheets" links to maths/coding/hub sidebars; `StudentWorksheetListView` subject filter via `?subject=` param | 2 | ✅ PR #245 |
+| CPP-XXX | Extract worksheet answer rendering into type-specific partials: `_answer_mcq.html` (MCQ + T/F radios), `_answer_short.html` (short answer textarea), `_answer_text.html` (fill-blank / calculation single-line input), `_answer_extended.html` (extended answer textarea) | 3 | — |
+| CPP-XXX | Port long-division step grid from `_maths_take_item.html` into `_answer_long_division.html` for worksheets — quotient row, subtract/bring-down rows, remainder input, hidden field sync JS | 5 | — |
+| CPP-XXX | Port prime-factorisation factor ladder from `_maths_take_item.html` into `_answer_prime_factorization.html` — prime input cells, number cells, preview, hidden field sync JS | 3 | — |
+| CPP-XXX | Update `WorksheetSessionView` to dispatch to correct partial via `{% include %}` based on `question.question_type` (replace inline MCQ/text binary in `session.html`) | 3 | — |
+| CPP-XXX | Update `WorksheetAnswerView` to grade long-division (parse "quotient r remainder"), prime-factorisation (parse "2x3x5"), and extended-answer (call `grading_service.grade_answer()`) correctly | 5 | — |
 
 ### Sprint 2 — Worksheet Builder Core (5 stories)
 
