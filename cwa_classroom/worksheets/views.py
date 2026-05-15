@@ -216,6 +216,13 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
         session.extracted_data = data
         session.save(update_fields=['extracted_data', 'worksheet_name'])
 
+        if not any(q.get('include') for q in questions):
+            messages.error(
+                request,
+                'No questions selected. Please tick at least one question to include.',
+            )
+            return redirect('worksheets:preview', session_id=session.pk)
+
         return redirect('worksheets:confirm', session_id=session.pk)
 
 
