@@ -85,8 +85,9 @@
       <!-- Question image (only when present) -->
       <template x-if="question.image_url">
         <div class="flex justify-center">
-          <img :src="question.image_url" alt=""
+          <img :src="question.image_url" alt="Question image"
                loading="lazy"
+               @error="$el.style.display='none'"
                class="max-h-52 w-auto max-w-full object-contain rounded-2xl border border-slate-600 shadow-lg">
         </div>
       </template>
@@ -131,15 +132,16 @@
                   <template x-if="opt.image_url">
                     <img :src="opt.image_url" :alt="`Option ${opt.label || ['A','B','C','D'][idx]}`"
                          loading="lazy"
+                         @error="$el.style.display='none'"
                          class="w-full max-h-20 object-contain rounded-xl">
                   </template>
                   <!-- Letter badge -->
                   <span class="text-xs font-black bg-black/25 px-2 py-0.5 rounded-lg"
                         x-text="opt.label || ['A','B','C','D'][idx]"
                         aria-hidden="true"></span>
-                  <!-- Option text (hidden when the option is image-only) -->
-                  <template x-if="opt.text">
-                    <span class="text-sm font-semibold leading-tight text-center break-words" x-text="opt.text"></span>
+                  <!-- Option text (hidden when option is image-only) -->
+                  <template x-if="opt.text !== ''">
+                    <span class="text-xs font-semibold leading-tight text-center" x-text="opt.text"></span>
                   </template>
                 </button>
               </template>
@@ -441,13 +443,6 @@
     white-space: pre;
     text-align: left;
     max-width: 100%;
-  }
-  .bb-code code {
-    background: none !important;
-    padding: 0 !important;
-    border-radius: 0 !important;
-    font-size: inherit;
-    color: #e6edf3;
   }
 </style>
 

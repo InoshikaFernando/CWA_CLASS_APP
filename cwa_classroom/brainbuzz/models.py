@@ -175,10 +175,10 @@ class BrainBuzzSessionQuestion(models.Model):
     options_json = models.JSONField(
         default=list,
         blank=True,
-        help_text='MCQ/TF options: [{"label":"A","text":"...","is_correct":true}]',
+        help_text='MCQ/TF options: [{"label":"A","text":"...","is_correct":true,"image_url":""}]',
     )
-    image_url = models.CharField(
-        max_length=500,
+    image_url = models.URLField(
+        max_length=2048,
         blank=True,
         default='',
         help_text='Absolute URL of the question image, snapshotted at session creation.',

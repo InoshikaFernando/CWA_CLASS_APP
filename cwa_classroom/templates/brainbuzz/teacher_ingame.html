@@ -185,8 +185,9 @@
         <!-- Question image (only when present) -->
         <template x-if="questionImageUrl">
           <div class="flex justify-center px-5 sm:px-10 pt-4 sm:pt-6 pb-2">
-            <img :src="questionImageUrl" alt=""
+            <img :src="questionImageUrl" alt="Question image"
                  loading="lazy"
+                 @error="$el.style.display='none'"
                  class="max-h-48 w-auto max-w-full object-contain rounded-2xl border border-white/10 shadow-lg">
           </div>
         </template>
@@ -218,23 +219,16 @@
               <span class="w-11 h-11 rounded-xl flex items-center justify-center font-black text-white text-lg flex-shrink-0"
                     :style="`background: ${tileAccent(idx)};`"
                     x-text="opt.label || ['A','B','C','D'][idx]"></span>
-              <!-- Option image (image-MCQ) -->
+              <!-- Option image (when present) -->
               <template x-if="opt.image_url">
-                <img :src="opt.image_url" :alt="`Option ${opt.label || ['A','B','C','D'][idx]}`"
-                     loading="lazy"
-                     class="max-h-16 w-auto object-contain rounded-lg flex-shrink-0">
+                <img :src="opt.image_url" :alt="opt.label || ['A','B','C','D'][idx]"
+                     loading="lazy" @error="$el.style.display='none'"
+                     class="h-12 w-auto max-w-[6rem] object-contain rounded-lg flex-shrink-0">
               </template>
               <!-- Option text -->
-              <template x-if="opt.text">
-                <span class="flex-1 min-w-0 font-bold text-white text-sm sm:text-base leading-snug truncate sm:whitespace-normal" x-text="opt.text"></span>
-              </template>
-              <!-- Correct checkmark (replaces shape for correct option) -->
-              <template x-if="opt.is_correct">
-                <span class="flex items-center justify-center w-8 h-8 rounded-full bg-emerald-400 text-white font-black text-base flex-shrink-0">✓</span>
-              </template>
-              <template x-if="!opt.is_correct">
-                <span class="text-2xl opacity-40 flex-shrink-0" x-text="['▲','◆','●','■'][idx % 4]"></span>
-              </template>
+              <span class="flex-1 font-bold text-white text-base leading-snug" x-text="opt.text"></span>
+              <!-- Shape icon (colorblind-safe) -->
+              <span class="ml-auto text-2xl opacity-60 flex-shrink-0" x-text="['▲','◆','●','■'][idx % 4]"></span>
             </div>
           </template>
         </div>
@@ -261,15 +255,12 @@
                 <span class="w-11 h-11 rounded-xl flex items-center justify-center font-black text-white text-lg flex-shrink-0"
                       :style="`background: ${tileAccent(idx)};`"
                       x-text="opt.label"></span>
-                <!-- Option image (reveal distribution) -->
                 <template x-if="opt.image_url">
-                  <img :src="opt.image_url" :alt="`Option ${opt.label}`"
-                       loading="lazy"
-                       class="max-h-14 w-auto object-contain rounded-lg flex-shrink-0">
+                  <img :src="opt.image_url" :alt="opt.label"
+                       loading="lazy" @error="$el.style.display='none'"
+                       class="h-10 w-auto max-w-[5rem] object-contain rounded-lg flex-shrink-0">
                 </template>
-                <template x-if="opt.text || !opt.image_url">
-                  <span class="flex-1 min-w-0 font-bold text-white text-sm sm:text-base leading-snug truncate sm:whitespace-normal" x-text="opt.text || opt.label"></span>
-                </template>
+                <span class="flex-1 font-bold text-white text-base leading-snug" x-text="opt.text || opt.label"></span>
                 <!-- Correct checkmark -->
                 <span x-show="opt.is_correct"
                       class="flex items-center justify-center w-8 h-8 rounded-full bg-emerald-400 text-white font-black text-base flex-shrink-0">✓</span>
@@ -397,8 +388,7 @@ function bbTeacher(joinCode, initialVersion, initialIndex, totalQuestions) {
     // (the server short-circuits with 304 when since == current version).
     joinCode, stateVersion: -1,
     currentIndex: initialIndex, totalQuestions,
-    status: 'active', questionText: '', questionHtml: '', questionType: '', questionImageUrl: '', options: [],
-    correctShortAnswer: '',
+    status: 'active', questionText: '', questionImageUrl: '', options: [],
     distribution: [], countdown: 0, countdownPct: 100,
     revealCountdown: 5, leaderboard: [],
     participantCount: 0, answersReceived: 0,
@@ -454,6 +444,7 @@ function bbTeacher(joinCode, initialVersion, initialIndex, totalQuestions) {
       this.leaderboard      = (data.participants || []).sort((a,b) => b.score - a.score);
       this.participantCount = data.participant_count || 0;
       this.answersReceived  = data.answers_received  || 0;
+      const prevIndex       = this.currentIndex;
       this.currentIndex     = data.current_index;
 
       if (data.status === 'finished') {
@@ -462,15 +453,14 @@ function bbTeacher(joinCode, initialVersion, initialIndex, totalQuestions) {
       }
       if (data.question) {
         const q = data.question;
-        if (this.questionText !== q.question_text) {
-          this.questionText        = q.question_text;
-          this.questionHtml        = q.question_html || q.question_text || '';
-          this.questionType        = q.question_type || '';
-          this.questionImageUrl    = q.image_url || '';
-          this.options             = q.options || [];
-          this.correctShortAnswer  = q.correct_short_answer || '';
-          this.deadlineUtc         = q.question_deadline ? new Date(q.question_deadline) : null;
-          this.timeLimitSec        = q.time_limit_sec || 20;
+        if (prevIndex !== this.currentIndex || this.questionText !== q.question_text) {
+          this.questionText     = q.question_text;
+          this.questionImageUrl = q.image_url || '';
+          this.options          = q.options || [];
+          this.deadlineUtc  = q.question_deadline ? new Date(q.question_deadline) : null;
+          this.timeLimitSec = this.deadlineUtc
+            ? Math.round((this.deadlineUtc - Date.now()) / 1000)
+            : 20;
           this.startCountdown();
           setTimeout(() => this._highlightCode(), 0);
         }
