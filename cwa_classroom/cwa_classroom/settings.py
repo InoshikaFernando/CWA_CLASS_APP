@@ -25,8 +25,8 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # ---------------------------------------------------------------------------
 # App Version  (SemVer — bump manually on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.4.7'          # MAJOR.MINOR.PATCH
-APP_VERSION_DATE  = '2026-05-12'     # ISO date of this release
+APP_VERSION       = '1.4.9'          # MAJOR.MINOR.PATCH
+APP_VERSION_DATE  = '2026-05-14'     # ISO date of this release
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
@@ -438,6 +438,14 @@ SESSION_SAVE_EVERY_REQUEST = False
 SESSION_COOKIE_HTTPONLY = True                   # JS cannot read session cookie
 SESSION_COOKIE_SAMESITE = 'Lax'                 # mitigate CSRF via cross-site requests
 SESSION_COOKIE_SECURE = not DEBUG               # HTTPS-only in production
+
+# ---------------------------------------------------------------------------
+# Upload limits
+# ---------------------------------------------------------------------------
+# The worksheet preview form can have ~15 fields per question × up to 100
+# questions = ~1500 fields, which blows through Django's default of 1000.
+# Raise to 5000 to comfortably handle large worksheets.
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 5000
 
 
 # ---------------------------------------------------------------------------

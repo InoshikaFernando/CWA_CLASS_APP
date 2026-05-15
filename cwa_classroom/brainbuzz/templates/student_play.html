@@ -88,31 +88,44 @@
                     <p class="text-base font-semibold text-slate-900" x-text="question.question_text"></p>
                 </div>
 
-                <!-- Countdown Timer Pill -->
-                <div class="flex justify-center">
-                    <div class="relative w-24 h-24">
-                        <svg class="countdown-circle w-full h-full" viewBox="0 0 100 100">
-                            <!-- Background circle -->
-                            <circle cx="50" cy="50" r="45" fill="none" stroke="#e2e8f0" stroke-width="8"/>
-                            <!-- Progress circle (red when <5s) -->
-                            <circle 
-                                class="countdown-circle-progress"
-                                cx="50" cy="50" r="45" 
-                                fill="none"
-                                :stroke="countdown <= 5 ? '#ef4444' : '#3b82f6'"
-                                stroke-width="8"
-                                :style="`stroke-dashoffset: ${282.7 * (1 - countdown / timePerQuestion)}`"
-                            />
-                        </svg>
-                        <div class="absolute inset-0 flex items-center justify-center">
-                            <span class="text-xl font-bold" :class="countdown <= 5 ? 'text-red-600' : 'text-blue-600'"
-                                x-text="`${Math.max(0, countdown)}s`"></span>
+                <!-- Read Window Countdown (shown during read phase) -->
+                <template x-if="readWindow">
+                    <div class="flex flex-col items-center gap-2">
+                        <div class="bg-indigo-50 border border-indigo-200 rounded-xl px-6 py-4 text-center">
+                            <p class="text-xs font-bold text-indigo-500 uppercase tracking-widest mb-1">📖 Read the question</p>
+                            <p class="text-4xl font-black text-indigo-700" x-text="`${readWindowCountdown}s`"></p>
+                            <p class="text-xs text-indigo-400 mt-1">Answer options appear shortly</p>
                         </div>
                     </div>
-                </div>
+                </template>
 
-                <!-- MCQ/TF: Four Tap Targets (2×2 grid) -->
-                <template x-if="question.question_type === 'mcq' || question.question_type === 'tf'">
+                <!-- Per-Question Countdown Ring (shown during answer phase) -->
+                <template x-if="!readWindow">
+                    <div class="flex justify-center">
+                        <div class="relative w-24 h-24">
+                            <svg class="countdown-circle w-full h-full" viewBox="0 0 100 100">
+                                <!-- Background circle -->
+                                <circle cx="50" cy="50" r="45" fill="none" stroke="#e2e8f0" stroke-width="8"/>
+                                <!-- Progress circle (red when <5s) -->
+                                <circle
+                                    class="countdown-circle-progress"
+                                    cx="50" cy="50" r="45"
+                                    fill="none"
+                                    :stroke="countdown <= 5 ? '#ef4444' : '#3b82f6'"
+                                    stroke-width="8"
+                                    :style="`stroke-dashoffset: ${282.7 * (1 - countdown / timePerQuestion)}`"
+                                />
+                            </svg>
+                            <div class="absolute inset-0 flex items-center justify-center">
+                                <span class="text-xl font-bold" :class="countdown <= 5 ? 'text-red-600' : 'text-blue-600'"
+                                    x-text="`${Math.max(0, countdown)}s`"></span>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- MCQ/TF: Four Tap Targets (2×2 grid) — hidden during read window -->
+                <template x-if="!readWindow && (question.question_type === 'mcq' || question.question_type === 'tf')">
                     <div class="grid grid-cols-2 gap-3 flex-1">
                         <template x-for="(opt, idx) in question.options" :key="idx">
                             <button
@@ -153,8 +166,8 @@
                     </div>
                 </template>
 
-                <!-- Short Answer / Fill Blank: Text Input -->
-                <template x-if="question.question_type === 'short_answer' || question.question_type === 'fill_blank' || question.question_type === 'short' || question.question_type === 'fill'">
+                <!-- Short Answer / Fill Blank: Text Input — hidden during read window -->
+                <template x-if="!readWindow && (question.question_type === 'short_answer' || question.question_type === 'fill_blank' || question.question_type === 'short' || question.question_type === 'fill')">
                     <div class="flex-1 flex flex-col gap-3">
                         <input 
                             type="text"
@@ -207,7 +220,7 @@
                     aria-live="polite" 
                     aria-atomic="true"
                     class="sr-only"
-                    x-text="`Question ${currentIndex + 1} of ${totalQuestions}. ${question.question_text}. ${countdown} seconds remaining.`"
+                    x-text="readWindow ? `Question ${currentIndex + 1} of ${totalQuestions}. ${question.question_text}. Reading window: ${readWindowCountdown} seconds.` : `Question ${currentIndex + 1} of ${totalQuestions}. ${question.question_text}. ${countdown} seconds remaining.`"
                 ></div>
 
             </div>
@@ -348,6 +361,9 @@
                 alreadyAnswered: false,
                 networkError: false,
                 retryCount: 0,
+                readWindow: false,
+                readWindowCountdown: 0,
+                readWindowSec: 10,
 
                 // Lifecycle
                 async init(code) {
@@ -395,6 +411,7 @@
                     this.totalQuestions = data.total_questions || 0;
                     this.participantCount = data.participant_count || 0;
                     this.timePerQuestion = data.time_per_question_sec || this.timePerQuestion;
+                    this.readWindowSec = data.read_window_sec || this.readWindowSec;
 
                     // Reset per-question state when question changes
                     if (data.current_index !== prevIndex) {
@@ -404,6 +421,7 @@
                         this.textAnswer = '';
                         this.isCorrect = false;
                         this.pointsAwarded = 0;
+                        this.readWindow = true;
                         localStorage.setItem('bb_question_started_at', Date.now());
                     }
 
@@ -431,22 +449,29 @@
 
                 updateCountdown() {
                     if (this.gameStatus !== 'active' || !this.question) return;
-                    
-                    const now = new Date().getTime();
+
+                    const now = Date.now();
                     const deadline = new Date(this.question.question_deadline).getTime();
+                    const timeLimitMs = (this.question.time_limit_sec || this.timePerQuestion) * 1000;
+                    // Read window ends at: deadline − answer window
+                    const readWindowEnds = deadline - timeLimitMs;
+
+                    this.readWindow = now < readWindowEnds;
+                    this.readWindowCountdown = Math.max(0, Math.ceil((readWindowEnds - now) / 1000));
+
+                    // Per-question countdown (answer phase only)
                     const remaining = Math.max(0, Math.ceil((deadline - now) / 1000));
-                    
-                    this.countdown = remaining;
-                    
-                    // Trigger late-answer lock if deadline passes
-                    if (remaining <= 0 && !this.alreadyAnswered && !this.justAnswered) {
+                    this.countdown = this.readWindow ? this.timePerQuestion : remaining;
+
+                    // Lock when answer phase ends
+                    if (!this.readWindow && remaining <= 0 && !this.alreadyAnswered && !this.justAnswered) {
                         this.alreadyAnswered = true;
                     }
                 },
 
                 // Answer Submission with Offline Retry
                 async submitAnswer(payload) {
-                    if (this.alreadyAnswered) return;
+                    if (this.alreadyAnswered || this.readWindow) return;
                     
                     this.submitting = true;
                     

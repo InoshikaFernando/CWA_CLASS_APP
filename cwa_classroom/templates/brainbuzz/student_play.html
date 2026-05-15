@@ -5,7 +5,7 @@
 <div class="fixed inset-0 -z-10 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900"></div>
 
 {{ initial_state|json_script:"bb-initial-state" }}
-<div class="max-w-lg mx-auto py-4 px-3 space-y-4"
+<div class="max-w-lg mx-auto py-4 px-3 space-y-4 pb-safe"
      x-data="bbStudent('{{ session.code }}', {{ participant.id }}, {{ participant.score }}, '{{ session.status }}')"
      x-init="init()">
 
@@ -15,15 +15,15 @@
   <!-- ── HEADER ──────────────────────────────────────────────────────────── -->
   <div class="flex items-center justify-between px-5 py-3 bg-white/10 backdrop-blur-xl rounded-2xl border border-white/20">
     <div>
-      <p class="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Session</p>
+      <p class="text-[11px] text-gray-400 font-bold uppercase tracking-widest">Session</p>
       <p class="font-black text-white text-lg font-mono tracking-widest">{{ session.code }}</p>
     </div>
     <div class="text-center px-4 border-l border-r border-white/20">
-      <p class="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Player</p>
+      <p class="text-[11px] text-gray-400 font-bold uppercase tracking-widest">Player</p>
       <p class="font-bold text-white text-sm truncate max-w-[8rem]">{{ participant.nickname }}</p>
     </div>
     <div class="text-right">
-      <p class="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Score</p>
+      <p class="text-[11px] text-gray-400 font-bold uppercase tracking-widest">Score</p>
       <p class="font-black text-white text-lg" x-text="score.toLocaleString()"></p>
     </div>
   </div>
@@ -72,42 +72,77 @@
               x-text="`Q${question.order + 1}`"></span>
         <!-- Countdown pill -->
         <div class="flex items-center gap-2 px-4 py-2 rounded-full border-2 font-black text-lg"
-             :class="countdown > 10 ? 'border-green-400/60 bg-green-500/20 text-green-300' :
-                     countdown > 5  ? 'border-yellow-400/60 bg-yellow-500/20 text-yellow-300' :
+             :class="readWindow                ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-300' :
+                     countdown > 10            ? 'border-green-400/60 bg-green-500/20 text-green-300' :
+                     countdown > 5             ? 'border-yellow-400/60 bg-yellow-500/20 text-yellow-300' :
                      'border-red-400/60 bg-red-500/20 text-red-300 animate-pulse'">
+          <span x-text="readWindow ? '📖' : '⏱'" class="text-sm" aria-hidden="true"></span>
           <span x-text="countdown"></span>
           <span class="text-xs font-bold opacity-70">s</span>
         </div>
       </div>
 
+      <!-- Question image (only when present) -->
+      <template x-if="question.image_url">
+        <div class="flex justify-center">
+          <img :src="question.image_url" alt="Question image"
+               loading="lazy"
+               @error="$el.style.display='none'"
+               class="max-h-52 w-auto max-w-full object-contain rounded-2xl border border-slate-600 shadow-lg">
+        </div>
+      </template>
+
       <!-- Question text -->
       <div class="bg-gradient-to-br from-slate-800 via-slate-700 to-slate-800 rounded-3xl px-6 py-8 text-white min-h-[6rem] flex items-center justify-center border border-slate-600 shadow-xl">
-        <p class="text-xl md:text-2xl font-black text-center leading-snug" x-text="question.question_text"></p>
+        <div class="bb-question-body text-xl md:text-2xl font-black text-center leading-snug w-full"
+             x-html="question.question_html || question.question_text"></div>
       </div>
+
+      <!-- Read window placeholder: question visible but answers hidden -->
+      <template x-if="readWindow && !answered">
+        <div class="flex flex-col items-center justify-center rounded-2xl border border-indigo-500/30 py-10"
+             style="background: rgba(99,102,241,0.08);"
+             role="status" aria-live="polite">
+          <p class="text-sm font-bold text-indigo-300 mb-2">📖 Read the question</p>
+          <p class="text-5xl font-black text-white tabular-nums" x-text="`${readWindowCountdown}s`"></p>
+          <p class="text-xs text-gray-500 mt-2">Answer choices appear when the timer ends</p>
+        </div>
+      </template>
 
       <!-- MCQ / True-False tiles -->
       <template x-if="question.options && question.options.length > 0">
         <div>
           <!-- Unanswered: interactive grid -->
-          <template x-if="!answered && countdown > 0">
+          <template x-if="!answered && countdown > 0 && !readWindow">
             <div class="grid grid-cols-2 gap-3">
               <template x-for="(opt, idx) in question.options" :key="idx">
                 <button
                   @click="onTileTap(opt, idx, $event)"
                   :aria-label="`Option ${opt.label || ['A','B','C','D'][idx]}: ${opt.text}`"
                   :class="_tileBgs[idx % 4]"
-                  class="relative overflow-hidden rounded-2xl flex flex-col items-center justify-center gap-2 p-4
+                  class="relative overflow-hidden rounded-2xl flex flex-col items-center justify-center gap-1.5 p-3 sm:p-4
                          text-white font-bold text-center w-full border-2 border-white/20 shadow-lg
                          transition-all duration-150 active:scale-95 focus:outline-none focus:ring-4 focus:ring-white/40"
-                  style="min-height: 120px;">
-                  <!-- SVG shape -->
-                  <div class="w-10 h-10 opacity-90" x-html="_tileSvgs[idx % 4]" aria-hidden="true"></div>
+                  style="min-height: clamp(88px, 22vw, 120px);">
+                  <!-- SVG shape (hidden when option has an image) -->
+                  <template x-if="!opt.image_url">
+                    <div class="w-10 h-10 opacity-90" x-html="_tileSvgs[idx % 4]" aria-hidden="true"></div>
+                  </template>
+                  <!-- Option image -->
+                  <template x-if="opt.image_url">
+                    <img :src="opt.image_url" :alt="`Option ${opt.label || ['A','B','C','D'][idx]}`"
+                         loading="lazy"
+                         @error="$el.style.display='none'"
+                         class="w-full max-h-20 object-contain rounded-xl">
+                  </template>
                   <!-- Letter badge -->
                   <span class="text-xs font-black bg-black/25 px-2 py-0.5 rounded-lg"
                         x-text="opt.label || ['A','B','C','D'][idx]"
                         aria-hidden="true"></span>
-                  <!-- Option text -->
-                  <span class="text-xs font-semibold leading-tight text-center" x-text="opt.text"></span>
+                  <!-- Option text (hidden when option is image-only) -->
+                  <template x-if="opt.text !== ''">
+                    <span class="text-xs font-semibold leading-tight text-center" x-text="opt.text"></span>
+                  </template>
                 </button>
               </template>
             </div>
@@ -115,7 +150,7 @@
 
           <!-- Answered: lock banner -->
           <template x-if="answered">
-            <div class="relative rounded-3xl overflow-hidden border-4 px-8 py-10 text-center space-y-4 shadow-2xl"
+            <div class="relative rounded-3xl overflow-hidden border-4 px-5 py-6 sm:px-8 sm:py-10 text-center space-y-4 shadow-2xl"
                  :class="lastResult?.is_correct ? 'border-green-400 bg-gradient-to-br from-green-900/40 to-emerald-900/30' : 'border-red-400 bg-gradient-to-br from-red-900/40 to-red-800/30'"
                  role="status" aria-live="assertive">
               <div class="text-5xl font-black" x-text="lastResult?.is_correct ? '✓' : '✗'"
@@ -135,7 +170,7 @@
           <template x-if="!answered && countdown <= 0">
             <div class="bg-red-500/20 border-2 border-red-400/60 rounded-2xl px-6 py-5 text-center" role="status">
               <p class="text-red-300 font-black text-lg">⏰ Time's up!</p>
-              <p class="text-red-200 text-sm mt-1">Missed this one — moving on…</p>
+              <p class="text-red-200 text-sm mt-1 animate-pulse">Waiting for teacher to reveal the answer…</p>
             </div>
           </template>
         </div>
@@ -144,14 +179,14 @@
       <!-- Short answer / fill blank -->
       <template x-if="question.question_type === 'short' || question.question_type === 'short_answer' || question.question_type === 'fill_blank'">
         <div>
-          <template x-if="!answered && countdown > 0">
+          <template x-if="!answered && countdown > 0 && !readWindow">
             <form @submit.prevent="onShortSubmit()" class="space-y-3">
               <label class="sr-only" for="bb-text-answer">Your answer</label>
               <input id="bb-text-answer"
                      x-model="textAnswer"
                      type="text"
                      placeholder="Your answer..."
-                     autocomplete="off" autocorrect="off" spellcheck="false"
+                     inputmode="text" autocomplete="off" autocorrect="off" spellcheck="false"
                      class="w-full bg-white/10 backdrop-blur-xl border-2 border-white/30 rounded-2xl px-5 py-4 text-white placeholder-gray-400 text-base font-semibold focus:outline-none focus:ring-4 focus:ring-blue-500/40 focus:border-blue-400 transition-all">
               <button type="submit"
                       :disabled="!textAnswer.trim() || submitting"
@@ -161,7 +196,7 @@
             </form>
           </template>
           <template x-if="answered">
-            <div class="rounded-3xl px-8 py-10 text-center space-y-4"
+            <div class="rounded-3xl px-5 py-6 sm:px-8 sm:py-10 text-center space-y-4"
                  :class="lastResult?.is_correct ? 'border-4 border-green-400 bg-gradient-to-br from-green-900/40 to-emerald-900/30' : 'border-4 border-red-400 bg-gradient-to-br from-red-900/40 to-red-800/30'"
                  role="status" aria-live="assertive">
               <p class="text-5xl" x-text="lastResult?.is_correct ? '✅' : '❌'" aria-hidden="true"></p>
@@ -175,7 +210,7 @@
           <template x-if="!answered && countdown <= 0">
             <div class="bg-red-500/20 border-2 border-red-400/60 rounded-2xl px-6 py-5 text-center" role="status">
               <p class="text-red-300 font-black text-lg">⏰ Time's up!</p>
-              <p class="text-red-200 text-sm mt-1">Missed this one — moving on…</p>
+              <p class="text-red-200 text-sm mt-1 animate-pulse">Waiting for teacher to reveal the answer…</p>
             </div>
           </template>
         </div>
@@ -187,92 +222,130 @@
   <template x-if="gameStatus === 'reveal' && question">
     <div class="space-y-4">
 
-      <!-- Result banner -->
-      <div class="relative rounded-3xl overflow-hidden border-4 px-8 py-8 text-center space-y-3 shadow-2xl"
-           :class="lastResult?.is_correct ? 'border-green-400 bg-gradient-to-br from-green-900/40 to-emerald-900/30' :
-                   lastResult ? 'border-red-400 bg-gradient-to-br from-red-900/40 to-red-800/30' :
-                   'border-slate-600 bg-slate-800/60'"
-           role="status">
-        <template x-if="lastResult && lastResult.is_correct">
-          <div class="space-y-3">
-            <div class="text-5xl font-black text-green-400">✓</div>
-            <p class="text-2xl font-black text-white">🎯 Correct!</p>
-            <div class="animate-points-pop inline-block bg-white/10 rounded-2xl px-6 py-3">
-              <p class="text-3xl font-black text-green-400" x-text="'+' + lastResult.score_awarded + ' pts'"></p>
-            </div>
-          </div>
-        </template>
-        <template x-if="lastResult && !lastResult.is_correct">
-          <div class="space-y-3">
-            <div class="text-5xl font-black text-red-400">✗</div>
-            <p class="text-2xl font-black text-white">❌ Wrong</p>
-            <div class="inline-block bg-white/10 rounded-2xl px-6 py-3">
-              <p class="text-3xl font-black text-gray-400">+0 pts</p>
-            </div>
-          </div>
-        </template>
-        <template x-if="!lastResult">
-          <div class="space-y-2">
-            <p class="text-4xl">⏰</p>
-            <p class="text-xl font-black text-white">You missed this one!</p>
-            <p class="text-sm text-gray-400 mt-1">+0 pts</p>
-          </div>
-        </template>
-      </div>
-
-      <!-- Correct answer highlight (always shown) -->
-      <template x-if="answerDistribution && answerDistribution.length > 0">
-        <div class="bg-green-500/15 border-2 border-green-400/40 rounded-2xl px-5 py-4 space-y-2">
-          <p class="text-xs font-black text-green-400 uppercase tracking-widest">Correct Answer</p>
-          <template x-for="d in answerDistribution.filter(d => d.is_correct)" :key="d.label">
-            <div class="flex items-center gap-3">
-              <span class="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center font-black text-white text-sm flex-shrink-0"
-                    x-text="d.label"></span>
-              <span class="font-bold text-white" x-text="d.text"></span>
-              <span class="text-green-400 ml-auto text-lg">✓</span>
-            </div>
-          </template>
+      <!-- Waiting banner: shown for 2s when student ran out of time -->
+      <template x-if="revealPending && !answered">
+        <div class="bg-red-500/20 border-2 border-red-400/60 rounded-2xl px-6 py-5 text-center" role="status">
+          <p class="text-red-300 font-black text-lg">⏰ Time's up!</p>
+          <p class="text-red-200 text-sm mt-1 animate-pulse">Waiting for teacher to reveal the answer…</p>
         </div>
       </template>
 
-      <!-- Rank card -->
-      <template x-if="myRank !== null">
-        <div class="bg-white/10 backdrop-blur-xl rounded-2xl px-6 py-4 text-center border border-white/20">
-          <p class="text-xs text-gray-400 font-bold uppercase tracking-widest mb-2">Your Rank</p>
-          <div class="flex items-center justify-center gap-3">
-            <span class="text-4xl font-black bg-gradient-to-r from-yellow-300 to-amber-300 bg-clip-text text-transparent"
-                  x-text="`#${myRank}`"></span>
-            <span class="text-base text-gray-400" x-text="`of ${totalParticipants}`"></span>
-          </div>
-        </div>
-      </template>
+      <!-- Reveal content: shown after waiting period or if student answered -->
+      <template x-if="!revealPending || answered">
 
-      <!-- Answer distribution bars -->
-      <template x-if="answerDistribution && answerDistribution.length > 0">
-        <div class="bg-white/10 backdrop-blur-xl rounded-2xl px-5 py-4 space-y-3 border border-white/20">
-          <p class="text-xs font-black text-gray-400 uppercase tracking-widest">Class Answers</p>
-          <template x-for="d in answerDistribution" :key="d.label">
-            <div class="flex items-center gap-3">
-              <span class="w-6 text-center font-black text-xs flex-shrink-0"
-                    :class="d.is_correct ? 'text-green-400' : 'text-gray-400'"
-                    x-text="d.label"></span>
-              <div class="flex-1 bg-white/10 rounded-full h-3 overflow-hidden">
-                <div class="h-full rounded-full transition-all duration-700"
-                     :class="d.is_correct ? 'bg-green-500' : 'bg-slate-500'"
-                     :style="`width: ${totalAnswers > 0 ? Math.max(4, d.count / totalAnswers * 100) : (d.is_correct ? 4 : 0)}%`"></div>
+        <!-- Result banner -->
+        <div class="space-y-4">
+          <div class="relative rounded-3xl overflow-hidden border-4 px-8 py-8 text-center space-y-3 shadow-2xl"
+               :class="lastResult?.is_correct ? 'border-green-400 bg-gradient-to-br from-green-900/40 to-emerald-900/30' :
+                       lastResult ? 'border-red-400 bg-gradient-to-br from-red-900/40 to-red-800/30' :
+                       'border-slate-600 bg-slate-800/60'"
+               role="status">
+            <template x-if="lastResult && lastResult.is_correct">
+              <div class="space-y-3">
+                <div class="text-5xl font-black text-green-400">✓</div>
+                <p class="text-2xl font-black text-white">🎯 Correct!</p>
+                <div class="animate-points-pop inline-block bg-white/10 rounded-2xl px-6 py-3">
+                  <p class="text-3xl font-black text-green-400" x-text="'+' + lastResult.score_awarded + ' pts'"></p>
+                </div>
               </div>
-              <span class="w-5 text-right text-xs font-bold flex-shrink-0"
-                    :class="d.is_correct ? 'text-green-300' : 'text-gray-400'"
-                    x-text="d.count"></span>
+            </template>
+            <template x-if="lastResult && !lastResult.is_correct">
+              <div class="space-y-3">
+                <div class="text-5xl font-black text-red-400">✗</div>
+                <p class="text-2xl font-black text-white">❌ Wrong</p>
+                <div class="inline-block bg-white/10 rounded-2xl px-6 py-3">
+                  <p class="text-3xl font-black text-gray-400">+0 pts</p>
+                </div>
+              </div>
+            </template>
+            <template x-if="!lastResult">
+              <div class="space-y-2">
+                <p class="text-4xl">⏰</p>
+                <p class="text-xl font-black text-white">You missed this one!</p>
+                <p class="text-sm text-gray-400 mt-1">+0 pts</p>
+              </div>
+            </template>
+          </div>
+
+          <!-- MCQ tiles in REVEAL: correct option highlighted green, wrong options dimmed -->
+          <template x-if="question.options && question.options.length > 0">
+            <div class="grid grid-cols-2 gap-3">
+              <template x-for="(opt, idx) in question.options" :key="idx">
+                <div class="relative overflow-hidden rounded-2xl flex flex-col items-center justify-center gap-1.5 p-3 sm:p-4
+                            text-white font-bold text-center w-full shadow-lg border-2 transition-all"
+                     :class="opt.is_correct
+                              ? 'border-green-400 bg-gradient-to-br from-green-700/70 to-emerald-800/60 shadow-green-500/20'
+                              : 'border-white/10 bg-white/5 opacity-40'"
+                     style="min-height: clamp(88px, 22vw, 120px);">
+                  <template x-if="opt.is_correct">
+                    <span class="absolute top-2 right-2 text-green-300 text-lg font-black" aria-hidden="true">✓</span>
+                  </template>
+                  <template x-if="!opt.image_url">
+                    <div class="w-8 h-8 opacity-70" x-html="_tileSvgs[idx % 4]" aria-hidden="true"></div>
+                  </template>
+                  <template x-if="opt.image_url">
+                    <img :src="opt.image_url" :alt="`Option ${opt.label || ['A','B','C','D'][idx]}`"
+                         loading="lazy" class="w-full max-h-20 object-contain rounded-xl">
+                  </template>
+                  <span class="text-xs font-black bg-black/25 px-2 py-0.5 rounded-lg"
+                        x-text="opt.label || ['A','B','C','D'][idx]" aria-hidden="true"></span>
+                  <template x-if="opt.text">
+                    <span class="text-sm font-semibold leading-tight text-center break-words opacity-90"
+                          x-text="opt.text"></span>
+                  </template>
+                </div>
+              </template>
+            </div>
+          </template>
+
+          <!-- Short answer: correct response shown in REVEAL -->
+          <template x-if="question.correct_short_answer">
+            <div class="bg-green-500/15 border-2 border-green-400/40 rounded-2xl px-5 py-4 space-y-1">
+              <p class="text-xs font-black text-green-400 uppercase tracking-widest">Correct Answer</p>
+              <p class="text-lg font-bold text-white" x-text="question.correct_short_answer"></p>
+            </div>
+          </template>
+
+          <!-- Rank card -->
+          <template x-if="myRank !== null">
+            <div class="bg-white/10 backdrop-blur-xl rounded-2xl px-6 py-4 text-center border border-white/20">
+              <p class="text-xs text-gray-400 font-bold uppercase tracking-widest mb-2">Your Rank</p>
+              <div class="flex items-center justify-center gap-3">
+                <span class="text-4xl font-black bg-gradient-to-r from-yellow-300 to-amber-300 bg-clip-text text-transparent"
+                      x-text="`#${myRank}`"></span>
+                <span class="text-base text-gray-400" x-text="`of ${totalParticipants}`"></span>
+              </div>
+            </div>
+          </template>
+
+          <!-- Answer distribution bars -->
+          <template x-if="answerDistribution && answerDistribution.length > 0">
+            <div class="bg-white/10 backdrop-blur-xl rounded-2xl px-5 py-4 space-y-3 border border-white/20">
+              <p class="text-xs font-black text-gray-400 uppercase tracking-widest">Class Answers</p>
+              <template x-for="d in answerDistribution" :key="d.label">
+                <div class="flex items-center gap-3">
+                  <span class="w-6 text-center font-black text-xs flex-shrink-0"
+                        :class="d.is_correct ? 'text-green-400' : 'text-gray-400'"
+                        x-text="d.label"></span>
+                  <div class="flex-1 min-w-0 bg-white/10 rounded-full h-3 overflow-hidden">
+                    <div class="h-full rounded-full transition-all duration-700"
+                         :class="d.is_correct ? 'bg-green-500' : 'bg-slate-500'"
+                         :style="`width: ${totalAnswers > 0 ? Math.max(4, d.count / totalAnswers * 100) : (d.is_correct ? 4 : 0)}%`"></div>
+                  </div>
+                  <span class="w-5 text-right text-xs font-bold flex-shrink-0"
+                        :class="d.is_correct ? 'text-green-300' : 'text-gray-400'"
+                        x-text="d.count"></span>
+                </div>
+              </template>
             </div>
           </template>
         </div>
+
       </template>
 
-      <!-- Auto-advance countdown -->
+      <!-- Footer: waiting for teacher to advance -->
       <div class="text-center pb-2">
-        <p class="text-sm text-gray-400 font-semibold animate-pulse"
-           x-text="revealCountdown > 0 ? `Next in ${revealCountdown}s…` : 'Moving on…'"></p>
+        <p class="text-sm text-gray-400 font-semibold animate-pulse">Waiting for teacher to continue…</p>
       </div>
     </div>
   </template>
@@ -297,7 +370,7 @@
         <!-- Total score -->
         <div>
           <p class="text-xs text-gray-400 font-bold uppercase tracking-widest mb-1">Total Score</p>
-          <p class="text-5xl font-black bg-gradient-to-r from-yellow-300 to-orange-300 bg-clip-text text-transparent"
+          <p class="text-4xl sm:text-5xl font-black bg-gradient-to-r from-yellow-300 to-orange-300 bg-clip-text text-transparent"
              x-text="score.toLocaleString()"></p>
         </div>
 
@@ -332,6 +405,12 @@
 
 {% csrf_token %}
 
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"
+      integrity="sha512-RwJS3k4Z0IK6TGoL3pgQlA9g2THFhKL7z9TYWdAI8u6xK0AUuMWieJuWgTRayywC9A94ifUj1RzjDa1NIlUIg=="
+      crossorigin="anonymous">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"
+        integrity="sha512-D9gUyxqja7hBtkWpPWGt9wfbfaMGVt9gnyCvYa+jojwwPHLCzUm5i8rpk7vD7wNee9bA35eYIjobYPaQuKS1MQ=="
+        crossorigin="anonymous"></script>
 <style>
   @keyframes points-pop {
     0%   { transform: scale(0.5) translateY(10px); opacity: 0; }
@@ -341,6 +420,30 @@
   .animate-points-pop { animation: points-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
 
   [x-cloak] { display: none !important; }
+
+  /* Safe-area inset for notched phones (iPhone X+) */
+  .pb-safe { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+
+  /* Code-snippet rendering inside question cards */
+  .bb-prose {
+    display: block;
+    white-space: pre-wrap;
+  }
+  .bb-code {
+    display: block;
+    margin: 0.625rem auto;
+    border-radius: 0.5rem;
+    overflow-x: auto;
+    background: #0d1117;
+    border: 1px solid rgba(255,255,255,0.12);
+    padding: 0.875rem 1rem;
+    font-family: 'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace;
+    font-size: 0.8rem;
+    line-height: 1.65;
+    white-space: pre;
+    text-align: left;
+    max-width: 100%;
+  }
 </style>
 
 <script>
@@ -372,8 +475,13 @@ function bbStudent(joinCode, participantId, initialScore, initialStatus) {
     finalRank:           null,
     revealCountdown:     3,
     revealTimer:         null,
+    revealPending:       false,
+    revealPendingTimer:  null,
     answerDistribution:  [],
     ariaAnnouncement:    '',
+    readWindow:          false,
+    readWindowCountdown: 0,
+    timeLimitSec:        20,
 
     // Tile color backgrounds
     _tileBgs: [
@@ -502,6 +610,14 @@ function bbStudent(joinCode, participantId, initialScore, initialStatus) {
         this._computeRank(data.participants || []);
         if (prevStatus !== 'reveal') {
           this._startRevealCountdown();
+          // Hold "waiting" banner for 2s if student didn't answer in time,
+          // ensuring it's visible regardless of how fast the server transitions.
+          if (this.revealPending && !this.answered) {
+            if (this.revealPendingTimer) clearTimeout(this.revealPendingTimer);
+            this.revealPendingTimer = setTimeout(() => { this.revealPending = false; }, 2000);
+          } else {
+            this.revealPending = false;
+          }
         }
       }
 
@@ -518,12 +634,18 @@ function bbStudent(joinCode, participantId, initialScore, initialStatus) {
             this.submitError = false;
             this.questionStartedAt = Date.now();
             this.answerDistribution = [];
+            this.timeLimitSec = q.time_limit_sec || 20;
+            this.readWindow = true;
+            this.readWindowCountdown = 0;
+            this.revealPending = false;
+            if (this.revealPendingTimer) { clearTimeout(this.revealPendingTimer); this.revealPendingTimer = null; }
           }
         } else {
           // Already answered this question
           this.answered = true;
         }
         this.question = q;
+        setTimeout(() => this._highlightCode(), 0);
         // Extend deadline by 3s if student first sees this question and < 5s remain
         if (isNewQuestion && q.question_deadline && !this.answered) {
           const remaining = (new Date(q.question_deadline) - Date.now()) / 1000;
@@ -540,6 +662,14 @@ function bbStudent(joinCode, participantId, initialScore, initialStatus) {
       }
     },
 
+    _highlightCode() {
+      if (typeof hljs !== 'undefined') {
+        document.querySelectorAll('.bb-question-body .bb-code code:not([data-highlighted])').forEach(el => {
+          hljs.highlightElement(el);
+        });
+      }
+    },
+
     _computeRank(participants) {
       if (!participants || participants.length === 0) return;
       const sorted = [...participants].sort((a, b) => b.score - a.score || 0);
@@ -552,13 +682,36 @@ function bbStudent(joinCode, participantId, initialScore, initialStatus) {
 
     _startCountdown() {
       if (this.countdownTimer) clearInterval(this.countdownTimer);
+      this._deadlinePollFired = false;
       this.countdownTimer = setInterval(() => {
         if (!this.deadlineUtc || this.gameStatus !== 'active') {
           this.countdown = 0;
+          this.readWindow = false;
+          this.readWindowCountdown = 0;
           return;
         }
-        const remaining = (this.deadlineUtc - Date.now()) / 1000;
-        this.countdown = Math.max(0, Math.ceil(remaining));
+        const now = Date.now();
+        const deadlineMs = this.deadlineUtc.getTime();
+        const readWindowEndsMs = deadlineMs - this.timeLimitSec * 1000;
+        this.readWindow = now < readWindowEndsMs;
+        if (this.readWindow) {
+          this.readWindowCountdown = Math.max(0, Math.ceil((readWindowEndsMs - now) / 1000));
+          this.countdown = this.readWindowCountdown;
+        } else {
+          this.readWindowCountdown = 0;
+          this.countdown = Math.max(0, Math.ceil((deadlineMs - now) / 1000));
+          // One eager poll 200 ms after deadline so the auto-reveal response
+          // arrives promptly without waiting for the next scheduled poll.
+          if (this.countdown === 0 && !this._deadlinePollFired) {
+            this._deadlinePollFired = true;
+            if (!this.answered) this.revealPending = true;
+            const msUntilGrace = Math.max(0, deadlineMs + 200 - now);
+            setTimeout(() => {
+              clearTimeout(this.pollTimer);
+              this._poll();
+            }, msUntilGrace);
+          }
+        }
       }, 200);
     },
 

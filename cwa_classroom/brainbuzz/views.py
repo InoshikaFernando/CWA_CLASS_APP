@@ -23,8 +23,11 @@ JSON API (called by JS polling / form submits):
 
 import csv
 import json
+import logging
 import re
 from datetime import timedelta
+
+logger = logging.getLogger(__name__)
 
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
@@ -46,9 +49,23 @@ from .models import (
     QUESTION_TYPE_FILL_BLANK,
     QUIZ_QUESTION_TYPE_CHOICES,
 )
+from audit.services import log_event
+from classroom.models import SchoolStudent
+
 from .scoring import calculate_points, is_short_answer_correct
 from .ranking import compute_ranks
 from .utils import generate_join_code
+
+# Read window: students see only the question for this many seconds before
+# answer tiles appear and the per-question timer starts.
+READ_WINDOW_SEC = 10
+
+# Grace period: submissions and auto-reveal both use this window after deadline.
+ANSWER_GRACE_MS = 500
+
+TIME_PER_QUESTION_MIN = 5
+TIME_PER_QUESTION_MAX = 120
+TIME_PER_QUESTION_DEFAULT = 20
 
 # Nickname: 1–20 chars, letters / digits / internal spaces
 _NICKNAME_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9 ]{0,19}$')
@@ -141,8 +158,20 @@ def _build_distribution(session: BrainBuzzSession, current_q: BrainBuzzSessionQu
         ]
 
 
-def _session_state_payload(session: BrainBuzzSession) -> dict:
-    """Build the canonical session state dict returned by the polling API."""
+_ANSWER_REVEAL_STATUSES = {
+    BrainBuzzSession.STATUS_REVEAL,
+    BrainBuzzSession.STATUS_BETWEEN,
+    BrainBuzzSession.STATUS_FINISHED,
+}
+
+
+def _session_state_payload(session: BrainBuzzSession, *, reveal_answer: bool = False) -> dict:
+    """Build the canonical session state dict returned by the polling API.
+
+    reveal_answer: when True, include correct_short_answer in the question payload.
+    Must be False for student-facing responses during the ACTIVE phase to prevent
+    answer leakage via JSON inspection.
+    """
     try:
         current_q = session.questions.get(order=session.current_index)
     except BrainBuzzSessionQuestion.DoesNotExist:
@@ -150,11 +179,21 @@ def _session_state_payload(session: BrainBuzzSession) -> dict:
 
     question_data = None
     if current_q is not None:
+        from brainbuzz.utils import render_question_html
+        raw_options = current_q.options_json or []
+        options = raw_options if reveal_answer else [
+            {k: v for k, v in opt.items() if k != 'is_correct'}
+            for opt in raw_options
+        ]
         question_data = {
             'order': current_q.order,
             'question_text': current_q.question_text,
+            'question_html': render_question_html(current_q.question_text),
             'question_type': current_q.question_type,
-            'options': current_q.options_json,
+            'image_url': current_q.image_url or '',
+            'options': options,
+            'correct_short_answer': (current_q.correct_short_answer or '') if reveal_answer else '',
+            'time_limit_sec': current_q.time_limit_sec,
             'question_deadline': (
                 session.question_deadline.isoformat()
                 if session.question_deadline else None
@@ -162,7 +201,7 @@ def _session_state_payload(session: BrainBuzzSession) -> dict:
         }
 
     participants = list(
-        session.participants.order_by('-score', 'joined_at').values('id', 'nickname', 'score')
+        session.participants.order_by('-score', 'joined_at').values('id', 'nickname', 'score', 'avatar')
     )
 
     answers_received = 0
@@ -178,6 +217,7 @@ def _session_state_payload(session: BrainBuzzSession) -> dict:
         'state_version': session.state_version,
         'current_index': session.current_index,
         'time_per_question_sec': session.time_per_question_sec,
+        'read_window_sec': READ_WINDOW_SEC,
         'question': question_data,
         'participant_count': len(participants),
         'participants': participants,
@@ -209,10 +249,28 @@ def _snapshot_maths_questions(session: BrainBuzzSession, topic_id: int, level_id
     )
     for i, q in enumerate(qs):
         answers = list(Answer.objects.filter(question=q).order_by('order'))
-        options = [
-            {'label': chr(65 + idx), 'text': a.answer_text, 'is_correct': a.is_correct}
-            for idx, a in enumerate(answers)
-        ]
+        options = []
+        for idx, a in enumerate(answers):
+            opt_image_url = ''
+            if a.answer_image and a.answer_image.name:
+                try:
+                    opt_image_url = a.answer_image.url
+                except Exception:
+                    logger.warning('Failed to resolve answer image URL for answer %s', a.pk, exc_info=True)
+            options.append({
+                'label': chr(65 + idx),
+                'text': a.answer_text,
+                'is_correct': a.is_correct,
+                'image_url': opt_image_url,
+            })
+
+        q_image_url = ''
+        if q.image and q.image.name:
+            try:
+                q_image_url = q.image.url
+            except Exception:
+                logger.warning('Failed to resolve question image URL for question %s', q.pk, exc_info=True)
+
         bb_type = MATHS_TO_BRAINBUZZ_TYPE.get(
             q.question_type,
             q.question_type if q.question_type in dict(QUIZ_QUESTION_TYPE_CHOICES) else QUESTION_TYPE_MCQ,
@@ -223,7 +281,9 @@ def _snapshot_maths_questions(session: BrainBuzzSession, topic_id: int, level_id
             question_text=q.question_text,
             question_type=bb_type,
             options_json=options,
+            image_url=q_image_url,
             correct_short_answer=None,
+            time_limit_sec=session.time_per_question_sec,
             points_base=1000,
             source_model='MathsQuestion',
             source_id=q.id,
@@ -246,6 +306,7 @@ def _snapshot_quiz_questions(session: BrainBuzzSession, quiz) -> None:
             question_type=q.question_type if q.question_type in dict(QUIZ_QUESTION_TYPE_CHOICES) else QUESTION_TYPE_MCQ,
             options_json=options,
             correct_short_answer=q.correct_short_answer or None,
+            time_limit_sec=max(5, min(120, q.time_limit)),
             points_base=1000,
             source_model='BrainBuzzQuizQuestion',
             source_id=q.id,
@@ -301,6 +362,7 @@ def _snapshot_coding_questions(session: BrainBuzzSession, topic_level_id: int, c
             question_type=bb_type,
             options_json=options,
             correct_short_answer=ex.correct_short_answer or None,
+            time_limit_sec=session.time_per_question_sec,
             points_base=1000,
             source_model='CodingExercise',
             source_id=ex.id,
@@ -357,9 +419,20 @@ def create_session(request):
         except (ValueError, TypeError):
             question_count = 10
 
+        time_per_question_sec, time_error = _parse_time_per_question(
+            request.POST.get('time_per_question_sec', TIME_PER_QUESTION_DEFAULT)
+        )
+        if time_error:
+            return render(request, 'brainbuzz/teacher_create.html', {
+                **_create_context(),
+                'error': time_error,
+                'time_per_question_sec': time_per_question_sec,
+            })
+
         if not subject_key:
             return render(request, 'brainbuzz/teacher_create.html', {
                 'error': 'Invalid subject.',
+                'time_per_question_sec': time_per_question_sec,
                 **_create_context(),
             })
 
@@ -374,6 +447,7 @@ def create_session(request):
         if not subject_obj:
             return render(request, 'brainbuzz/teacher_create.html', {
                 'error': 'Invalid subject.',
+                'time_per_question_sec': time_per_question_sec,
                 **_create_context(),
             })
 
@@ -383,6 +457,7 @@ def create_session(request):
             if not topic_id or not level_id:
                 return render(request, 'brainbuzz/teacher_create.html', {
                     'error': 'Select a topic and level.',
+                    'time_per_question_sec': time_per_question_sec,
                     **_create_context(),
                 })
             config = {
@@ -390,7 +465,7 @@ def create_session(request):
                 'topic_id': int(topic_id),
                 'level_id': int(level_id),
                 'question_count': question_count,
-                'time_per_question_sec': int(request.POST.get('time_per_question_sec', 20)),
+                'time_per_question_sec': time_per_question_sec,
             }
             with transaction.atomic():
                 session = BrainBuzzSession.objects.create(
@@ -398,7 +473,7 @@ def create_session(request):
                     host=request.user,
                     subject=subject_obj,
                     status=BrainBuzzSession.STATUS_LOBBY,
-                    time_per_question_sec=config['time_per_question_sec'],
+                    time_per_question_sec=time_per_question_sec,
                     config_json=config,
                 )
                 _snapshot_maths_questions(session, int(topic_id), int(level_id), question_count)
@@ -406,6 +481,7 @@ def create_session(request):
                 session.delete()
                 return render(request, 'brainbuzz/teacher_create.html', {
                     'error': 'No suitable questions found for that topic and level. Try a different selection.',
+                    'time_per_question_sec': time_per_question_sec,
                     **_create_context(),
                 })
             return redirect('brainbuzz:teacher_lobby', join_code=session.code)
@@ -415,13 +491,14 @@ def create_session(request):
             if not topic_level_id:
                 return render(request, 'brainbuzz/teacher_create.html', {
                     'error': 'Select a coding topic level.',
+                    'time_per_question_sec': time_per_question_sec,
                     **_create_context(),
                 })
             config = {
                 'subject': subject_key,
                 'topic_level_id': int(topic_level_id),
                 'question_count': question_count,
-                'time_per_question_sec': int(request.POST.get('time_per_question_sec', 20)),
+                'time_per_question_sec': time_per_question_sec,
             }
             with transaction.atomic():
                 session = BrainBuzzSession.objects.create(
@@ -429,7 +506,7 @@ def create_session(request):
                     host=request.user,
                     subject=subject_obj,
                     status=BrainBuzzSession.STATUS_LOBBY,
-                    time_per_question_sec=config['time_per_question_sec'],
+                    time_per_question_sec=time_per_question_sec,
                     config_json=config,
                 )
                 _snapshot_coding_questions(session, int(topic_level_id), question_count)
@@ -437,12 +514,14 @@ def create_session(request):
                 session.delete()
                 return render(request, 'brainbuzz/teacher_create.html', {
                     'error': 'No MCQ/TF/short-answer coding exercises found for that topic level.',
+                    'time_per_question_sec': time_per_question_sec,
                     **_create_context(),
                 })
             return redirect('brainbuzz:teacher_lobby', join_code=session.code)
 
         return render(request, 'brainbuzz/teacher_create.html', {
             'error': 'Invalid subject.',
+            'time_per_question_sec': time_per_question_sec,
             **_create_context(),
         })
 
@@ -459,6 +538,18 @@ def _create_context():
         'maths_topics': [],
         'maths_levels': [],
         'coding_topic_levels': [],
+        'time_per_question_sec': TIME_PER_QUESTION_DEFAULT,
+        'time_per_question_options': [
+            (5,   '5 seconds'),
+            (10,  '10 seconds'),
+            (15,  '15 seconds'),
+            (20,  '20 seconds'),
+            (30,  '30 seconds'),
+            (45,  '45 seconds'),
+            (60,  '60 seconds'),
+            (90,  '90 seconds'),
+            (120, '120 seconds'),
+        ],
     }
     for plugin in brainbuzz_plugins():
         ctx['bb_subject_choices'].append((plugin.brainbuzz_subject_key, plugin.display_name))
@@ -517,6 +608,23 @@ def _create_context():
     return ctx
 
 
+def _parse_time_per_question(raw) -> tuple[int, str | None]:
+    """Parse and validate the time_per_question_sec form field.
+
+    Returns (value, error_message).  error_message is None on success.
+    """
+    try:
+        value = int(raw)
+    except (ValueError, TypeError):
+        return TIME_PER_QUESTION_DEFAULT, 'Time per question must be a whole number of seconds.'
+    if not (TIME_PER_QUESTION_MIN <= value <= TIME_PER_QUESTION_MAX):
+        return value, (
+            f'Time per question must be between {TIME_PER_QUESTION_MIN} '
+            f'and {TIME_PER_QUESTION_MAX} seconds.'
+        )
+    return value, None
+
+
 _INGAME_STATUSES = {
     BrainBuzzSession.STATUS_ACTIVE,
     BrainBuzzSession.STATUS_REVEAL,
@@ -540,7 +648,7 @@ def teacher_lobby(request, join_code):
     qr_data_uri = _generate_qr_data_uri(join_url)
     
     # Get initial state for the frontend
-    initial_state = _session_state_payload(session)
+    initial_state = _session_state_payload(session, reveal_answer=True)
 
     return render(request, 'brainbuzz/teacher_lobby.html', {
         'session': session,
@@ -569,7 +677,7 @@ def teacher_ingame(request, join_code):
         # Seed the initial state so JS can render the question without
         # waiting for the first poll to come back. Template uses
         # |json_script which serialises this dict safely.
-        'initial_state': _session_state_payload(session),
+        'initial_state': _session_state_payload(session, reveal_answer=True),
     })
 
 
@@ -727,7 +835,11 @@ def student_play(request, join_code):
         'participant': participant,
         # Seed the initial state so the question + options render without
         # waiting for the first /state/ poll round-trip.
-        'initial_state': _session_state_payload(session),
+        # Never reveal the answer to students during the active phase.
+        'initial_state': _session_state_payload(
+            session,
+            reveal_answer=session.status in _ANSWER_REVEAL_STATUSES,
+        ),
     })
 
 
@@ -735,13 +847,52 @@ def student_play(request, join_code):
 # JSON API
 # ---------------------------------------------------------------------------
 
+def _auto_reveal_if_expired(session: BrainBuzzSession) -> BrainBuzzSession:
+    """Lazily transition ACTIVE → REVEAL when question_deadline has elapsed.
+
+    Called on every state poll so no background worker is needed.  Uses
+    select_for_update inside a transaction so concurrent requests from
+    many clients can't double-transition the same session.
+
+    Returns the (possibly updated) session instance.
+    """
+    if (
+        session.status != BrainBuzzSession.STATUS_ACTIVE
+        or session.question_deadline is None
+        or timezone.now() < session.question_deadline + timedelta(milliseconds=ANSWER_GRACE_MS)
+    ):
+        return session
+
+    with transaction.atomic():
+        locked = BrainBuzzSession.objects.select_for_update().get(pk=session.pk)
+        # Re-check inside the lock — another request may have already transitioned.
+        if (
+            locked.status == BrainBuzzSession.STATUS_ACTIVE
+            and locked.question_deadline is not None
+            and timezone.now() >= locked.question_deadline + timedelta(milliseconds=ANSWER_GRACE_MS)
+        ):
+            locked.status = BrainBuzzSession.STATUS_REVEAL
+            locked.question_deadline = None
+            locked.state_version += 1
+            locked.save()
+            return locked
+        return locked
+
+
 @require_GET
 def api_session_state(request, join_code):
     """Versioned polling endpoint.
 
     ?since=<state_version>  → 304 if unchanged, else full state.
+
+    Before answering, lazily transitions ACTIVE → REVEAL if the question
+    deadline has elapsed, so no background worker is needed.
     """
     session = get_object_or_404(BrainBuzzSession, code=join_code.upper())
+
+    # Lazy auto-reveal — must happen before the 304 check so the caller
+    # always sees the new status in the same response that detects expiry.
+    session = _auto_reveal_if_expired(session)
 
     try:
         since = int(request.GET.get('since', -1))
@@ -751,7 +902,9 @@ def api_session_state(request, join_code):
     if since >= 0 and session.state_version == since:
         return HttpResponse(status=304)
 
-    return JsonResponse(_session_state_payload(session))
+    is_host = request.user.is_authenticated and request.user == session.host
+    reveal = is_host or session.status in _ANSWER_REVEAL_STATUSES
+    return JsonResponse(_session_state_payload(session, reveal_answer=reveal))
 
 
 @require_POST
@@ -790,7 +943,7 @@ def api_teacher_action(request, join_code):
 
         if action == 'start':
             if session.status != BrainBuzzSession.STATUS_LOBBY:
-                return JsonResponse(_session_state_payload(session))
+                return JsonResponse(_session_state_payload(session, reveal_answer=True))
             first_q = session.questions.order_by('order').first()
             if first_q is None:
                 return JsonResponse({'error': 'No questions in session'}, status=400)
@@ -800,16 +953,16 @@ def api_teacher_action(request, join_code):
                 return JsonResponse({'error': 'At least 1 participant must join before starting'}, status=400)
             session.status = BrainBuzzSession.STATUS_ACTIVE
             session.current_index = 0
-            session.question_deadline = timezone.now() + timedelta(seconds=session.time_per_question_sec)
+            session.question_deadline = timezone.now() + timedelta(seconds=READ_WINDOW_SEC + first_q.time_limit_sec)
             session.started_at = timezone.now()
             session.state_version += 1
             session.save()
 
         elif action == 'reveal':
             if session.status != BrainBuzzSession.STATUS_ACTIVE:
-                return JsonResponse(_session_state_payload(session))
+                return JsonResponse(_session_state_payload(session, reveal_answer=True))
             if expected_index is not None and session.current_index != expected_index:
-                return JsonResponse(_session_state_payload(session))
+                return JsonResponse(_session_state_payload(session, reveal_answer=True))
             session.status = BrainBuzzSession.STATUS_REVEAL
             session.question_deadline = None
             session.state_version += 1
@@ -821,9 +974,9 @@ def api_teacher_action(request, join_code):
                 BrainBuzzSession.STATUS_ACTIVE,
                 BrainBuzzSession.STATUS_BETWEEN,
             ):
-                return JsonResponse(_session_state_payload(session))
+                return JsonResponse(_session_state_payload(session, reveal_answer=True))
             if expected_index is not None and session.current_index != expected_index:
-                return JsonResponse(_session_state_payload(session))
+                return JsonResponse(_session_state_payload(session, reveal_answer=True))
             next_index = session.current_index + 1
             next_q = session.questions.filter(order=next_index).first()
             if next_q is None:
@@ -835,13 +988,13 @@ def api_teacher_action(request, join_code):
             else:
                 session.status = BrainBuzzSession.STATUS_ACTIVE
                 session.current_index = next_index
-                session.question_deadline = timezone.now() + timedelta(seconds=session.time_per_question_sec)
+                session.question_deadline = timezone.now() + timedelta(seconds=READ_WINDOW_SEC + next_q.time_limit_sec)
                 session.state_version += 1
                 session.save()
 
         elif action == 'end':
             if session.status == BrainBuzzSession.STATUS_FINISHED:
-                return JsonResponse(_session_state_payload(session))
+                return JsonResponse(_session_state_payload(session, reveal_answer=True))
             session.status = BrainBuzzSession.STATUS_FINISHED
             session.question_deadline = None
             session.ended_at = timezone.now()
@@ -851,7 +1004,7 @@ def api_teacher_action(request, join_code):
         else:
             return JsonResponse({'error': f'Unknown action: {action!r}'}, status=400)
 
-    return JsonResponse(_session_state_payload(session))
+    return JsonResponse(_session_state_payload(session, reveal_answer=True))
 
 
 @require_POST
@@ -875,6 +1028,9 @@ def api_join(request):
 
     code = body.get('code', '').strip().upper()
     nickname_raw = body.get('nickname', '').strip()
+    avatar_raw = body.get('avatar', '').strip()
+    if avatar_raw not in BrainBuzzParticipant.AVATAR_CHOICES:
+        avatar_raw = BrainBuzzParticipant.AVATAR_CHOICES[0]
 
     if not code:
         return JsonResponse({'error': 'Game code is required.'}, status=400)
@@ -914,6 +1070,7 @@ def api_join(request):
         session=session,
         student=user,
         nickname=resolved_nickname,
+        avatar=avatar_raw,
     )
 
     # Bump state_version so the teacher's versioned poll detects the new
@@ -925,6 +1082,7 @@ def api_join(request):
     return JsonResponse({
         'participant_id': participant.id,
         'nickname': resolved_nickname,
+        'avatar': participant.avatar,
         'code': code,
         'redirect_url': f'/brainbuzz/play/{code}/',
     })
@@ -961,16 +1119,6 @@ def api_submit(request, join_code):
     question_index = body.get('question_index')
     answer_payload = body.get('answer_payload', {})
 
-    # Compute time_taken_ms server-side from question_deadline to prevent
-    # clients sending time_taken_ms=0 for max points.
-    now = timezone.now()
-    if session.question_deadline is not None:
-        question_start = session.question_deadline - timedelta(seconds=session.time_per_question_sec)
-        server_ms = int((now - question_start).total_seconds() * 1000)
-        time_taken_ms = max(0, min(server_ms, session.time_per_question_sec * 1000))
-    else:
-        time_taken_ms = 0
-
     if question_index != session.current_index:
         return JsonResponse({'error': 'Wrong question index — this question is no longer active'}, status=409)
 
@@ -980,12 +1128,26 @@ def api_submit(request, join_code):
         order=question_index,
     )
 
-    grace_period_ms = 500
+    # Compute time_taken_ms server-side from question_deadline to prevent
+    # clients sending time_taken_ms=0 for max points.
+    now = timezone.now()
+    q_limit = session_question.time_limit_sec
+    if session.question_deadline is not None:
+        # Reject submissions that arrive during the read window (before answer phase opens).
+        read_window_ends = session.question_deadline - timedelta(seconds=q_limit)
+        if now < read_window_ends:
+            return JsonResponse({'error': 'Answer window not yet open — wait for the question timer to start'}, status=409)
+        question_start = session.question_deadline - timedelta(seconds=q_limit)
+        server_ms = int((now - question_start).total_seconds() * 1000)
+        time_taken_ms = max(0, min(server_ms, q_limit * 1000))
+    else:
+        time_taken_ms = 0
+
     is_on_time = session.question_deadline is None or (
-        now <= session.question_deadline + timedelta(milliseconds=grace_period_ms)
+        now <= session.question_deadline + timedelta(milliseconds=ANSWER_GRACE_MS)
     )
     is_late = session.question_deadline is not None and (
-        now > session.question_deadline + timedelta(milliseconds=grace_period_ms)
+        now > session.question_deadline + timedelta(milliseconds=ANSWER_GRACE_MS)
     )
 
     existing = BrainBuzzAnswer.objects.filter(
@@ -1022,7 +1184,7 @@ def api_submit(request, join_code):
     points_awarded = calculate_points(
         is_correct=is_correct,
         time_taken_ms=time_taken_ms,
-        time_per_question_sec=session.time_per_question_sec,
+        time_per_question_sec=q_limit,
         points_base=session_question.points_base,
         is_late=is_late
     )
@@ -1046,6 +1208,30 @@ def api_submit(request, join_code):
         BrainBuzzParticipant.objects.filter(pk=participant.pk).update(**update_data)
 
     participant.refresh_from_db()
+
+    # Audit log — only if the participant is a logged-in student (not anonymous)
+    if participant.student_id:
+        _school = None
+        _membership = SchoolStudent.objects.filter(
+            student_id=participant.student_id, is_active=True,
+        ).select_related('school').first()
+        if _membership:
+            _school = _membership.school
+        log_event(
+            user=participant.student,
+            school=_school,
+            category='data_change',
+            action='brainbuzz_answer_submitted',
+            detail={
+                'session_code': session.code,
+                'question_index': question_index,
+                'is_correct': is_correct,
+                'points_awarded': points_awarded,
+                'total_score': participant.score,
+            },
+            request=request,
+        )
+
     return JsonResponse({
         'is_correct': is_correct,
         'score_awarded': points_awarded,
