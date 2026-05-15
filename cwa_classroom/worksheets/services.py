@@ -308,9 +308,12 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
 
     response = client.messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=8192,
+        max_tokens=16384,
         system=system,
         tools=[WORKSHEET_CLASSIFICATION_TOOL],
+        # Force the model to call the tool — avoids text-only responses that
+        # bypass the tool_use block and cause "no structured data" errors.
+        tool_choice={"type": "tool", "name": "classify_worksheet_questions"},
         messages=[{"role": "user", "content": content_blocks}],
     )
 
@@ -330,6 +333,18 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
                     pass
 
     if not result:
+        stop_reason = getattr(response, 'stop_reason', 'unknown')
+        logger.error(
+            'classify_worksheet_questions: no structured result. '
+            'stop_reason=%s content_types=%s',
+            stop_reason,
+            [b.type for b in response.content],
+        )
+        if stop_reason == 'max_tokens':
+            raise ValueError(
+                'The worksheet is too large to process in one pass. '
+                'Try splitting it into smaller sections and uploading each separately.'
+            )
         raise ValueError("AI did not return structured question data. Please try again.")
 
     result['usage'] = {
