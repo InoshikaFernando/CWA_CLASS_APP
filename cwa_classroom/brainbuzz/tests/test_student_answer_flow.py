@@ -185,13 +185,17 @@ class TestMcqSubmissionSuccess(TestCase):
         self.assertTrue(resp.json()['is_correct'])
 
     def test_correct_answer_awards_points(self):
-        resp = self.client.post(
-            self.url,
-            _submit_answer_payload(self.participant.id, 0, {'option_label': 'B'}, 0),
-            content_type='application/json',
-        )
-        # Server computes time_taken_ms from question_deadline; exact 1000
-        # requires zero wall-clock elapsed which isn't realistic. Allow drift.
+        # Freeze time so server_ms = 0 → score = 1000, regardless of test-runner speed.
+        frozen = timezone.now()
+        with mock.patch('django.utils.timezone.now', return_value=frozen):
+            BrainBuzzSession.objects.filter(pk=self.session.pk).update(
+                question_deadline=frozen + timedelta(seconds=self.q0.time_limit_sec),
+            )
+            resp = self.client.post(
+                self.url,
+                _submit_answer_payload(self.participant.id, 0, {'option_label': 'B'}, 0),
+                content_type='application/json',
+            )
         self.assertGreaterEqual(resp.json()['score_awarded'], 900)
         self.assertLessEqual(resp.json()['score_awarded'], 1000)
 
@@ -220,11 +224,17 @@ class TestMcqSubmissionSuccess(TestCase):
         self.assertEqual(resp.json()['score_awarded'], 0)
 
     def test_answer_stored_in_db(self):
-        self.client.post(
-            self.url,
-            _submit_answer_payload(self.participant.id, 0, {'option_label': 'B'}, 0),
-            content_type='application/json',
-        )
+        # Freeze time so server_ms = 0 → score = 1000, regardless of test-runner speed.
+        frozen = timezone.now()
+        with mock.patch('django.utils.timezone.now', return_value=frozen):
+            BrainBuzzSession.objects.filter(pk=self.session.pk).update(
+                question_deadline=frozen + timedelta(seconds=self.q0.time_limit_sec),
+            )
+            self.client.post(
+                self.url,
+                _submit_answer_payload(self.participant.id, 0, {'option_label': 'B'}, 0),
+                content_type='application/json',
+            )
         answer = BrainBuzzAnswer.objects.get(participant=self.participant, session_question=self.q0)
         self.assertEqual(answer.selected_option_label, 'B')
         self.assertTrue(answer.is_correct)
@@ -256,11 +266,16 @@ class TestMcqSubmissionSuccess(TestCase):
 
     def test_participant_score_updated(self):
         self.assertEqual(self.participant.score, 0)
-        self.client.post(
-            self.url,
-            _submit_answer_payload(self.participant.id, 0, {'option_label': 'B'}, 0),
-            content_type='application/json',
-        )
+        frozen = timezone.now()
+        with mock.patch('django.utils.timezone.now', return_value=frozen):
+            BrainBuzzSession.objects.filter(pk=self.session.pk).update(
+                question_deadline=frozen + timedelta(seconds=self.q0.time_limit_sec),
+            )
+            self.client.post(
+                self.url,
+                _submit_answer_payload(self.participant.id, 0, {'option_label': 'B'}, 0),
+                content_type='application/json',
+            )
         self.participant.refresh_from_db()
         self.assertGreaterEqual(self.participant.score, 900)
         self.assertLessEqual(self.participant.score, 1000)
@@ -305,13 +320,17 @@ class TestShortAnswerSubmission(TestCase):
         self.url = reverse('brainbuzz:api_submit', kwargs={'join_code': self.session.code})
 
     def test_correct_short_answer(self):
-        resp = self.client.post(
-            self.url,
-            _submit_answer_payload(self.participant.id, 0, {'text': 'python'}, 0),
-            content_type='application/json',
-        )
+        frozen = timezone.now()
+        with mock.patch('django.utils.timezone.now', return_value=frozen):
+            BrainBuzzSession.objects.filter(pk=self.session.pk).update(
+                question_deadline=frozen + timedelta(seconds=self.q0.time_limit_sec),
+            )
+            resp = self.client.post(
+                self.url,
+                _submit_answer_payload(self.participant.id, 0, {'text': 'python'}, 0),
+                content_type='application/json',
+            )
         self.assertTrue(resp.json()['is_correct'])
-        # Server-computed time has minor wall-clock drift; allow tolerance
         self.assertGreaterEqual(resp.json()['score_awarded'], 900)
         self.assertLessEqual(resp.json()['score_awarded'], 1000)
 
@@ -711,61 +730,72 @@ class TestMultipleAnswerFlow(TestCase):
         self.url = reverse('brainbuzz:api_submit', kwargs={'join_code': self.session.code})
 
     def test_answer_three_questions_in_sequence(self):
-        # Answer Q0: correct
-        resp0 = self.client.post(
-            self.url,
-            _submit_answer_payload(self.participant.id, 0, {'option_label': 'A'}, 0),
-            content_type='application/json',
-        )
-        self.assertTrue(resp0.json()['is_correct'])
-        score_after_q0 = resp0.json()['total_score']
-        self.assertGreaterEqual(score_after_q0, 900)
-        self.assertLessEqual(score_after_q0, 1000)
+        frozen = timezone.now()
+        with mock.patch('django.utils.timezone.now', return_value=frozen):
+            # Q0: correct
+            BrainBuzzSession.objects.filter(pk=self.session.pk).update(
+                current_index=0,
+                question_deadline=frozen + timedelta(seconds=self.q0.time_limit_sec),
+            )
+            resp0 = self.client.post(
+                self.url,
+                _submit_answer_payload(self.participant.id, 0, {'option_label': 'A'}, 0),
+                content_type='application/json',
+            )
+            self.assertTrue(resp0.json()['is_correct'])
+            score_after_q0 = resp0.json()['total_score']
+            self.assertGreaterEqual(score_after_q0, 900)
+            self.assertLessEqual(score_after_q0, 1000)
 
-        # Advance to Q1
-        self.session.current_index = 1
-        self.session.question_deadline = timezone.now() + timedelta(seconds=20)
-        self.session.save()
+            # Advance to Q1
+            BrainBuzzSession.objects.filter(pk=self.session.pk).update(
+                current_index=1,
+                question_deadline=frozen + timedelta(seconds=self.q1.time_limit_sec),
+            )
+            resp1 = self.client.post(
+                self.url,
+                _submit_answer_payload(self.participant.id, 1, {'option_label': 'A'}, 1500),
+                content_type='application/json',
+            )
+            self.assertFalse(resp1.json()['is_correct'])
+            self.assertEqual(resp1.json()['total_score'], score_after_q0)
 
-        # Answer Q1: incorrect — total unchanged
-        resp1 = self.client.post(
-            self.url,
-            _submit_answer_payload(self.participant.id, 1, {'option_label': 'A'}, 1500),
-            content_type='application/json',
-        )
-        self.assertFalse(resp1.json()['is_correct'])
-        self.assertEqual(resp1.json()['total_score'], score_after_q0)
-
-        # Advance to Q2
-        self.session.current_index = 2
-        self.session.question_deadline = timezone.now() + timedelta(seconds=20)
-        self.session.save()
-
-        # Answer Q2: correct — total grows by ~1000
-        resp2 = self.client.post(
-            self.url,
-            _submit_answer_payload(self.participant.id, 2, {'text': 'python'}, 0),
-            content_type='application/json',
-        )
+            # Advance to Q2
+            BrainBuzzSession.objects.filter(pk=self.session.pk).update(
+                current_index=2,
+                question_deadline=frozen + timedelta(seconds=self.q2.time_limit_sec),
+            )
+            resp2 = self.client.post(
+                self.url,
+                _submit_answer_payload(self.participant.id, 2, {'text': 'python'}, 0),
+                content_type='application/json',
+            )
         self.assertTrue(resp2.json()['is_correct'])
         self.assertGreaterEqual(resp2.json()['total_score'], 1800)
         self.assertLessEqual(resp2.json()['total_score'], 2000)
 
     def test_participant_final_score(self):
-        # Answer Q0 correctly, Q1 incorrectly, Q2 correctly. Two correct
-        # answers in a 20s window with negligible elapsed time give close
-        # to but not exactly 2 × 1000 (server-side timing drift).
-        self.client.post(self.url, _submit_answer_payload(self.participant.id, 0, {'option_label': 'A'}, 0), content_type='application/json')
+        # Q0 correct, Q1 incorrect, Q2 correct → final score ≈ 2 × 1000.
+        # Freeze time so server_ms = 0 for each question, giving exact 1000.
+        frozen = timezone.now()
+        with mock.patch('django.utils.timezone.now', return_value=frozen):
+            BrainBuzzSession.objects.filter(pk=self.session.pk).update(
+                current_index=0,
+                question_deadline=frozen + timedelta(seconds=self.q0.time_limit_sec),
+            )
+            self.client.post(self.url, _submit_answer_payload(self.participant.id, 0, {'option_label': 'A'}, 0), content_type='application/json')
 
-        self.session.current_index = 1
-        self.session.question_deadline = timezone.now() + timedelta(seconds=20)
-        self.session.save()
-        self.client.post(self.url, _submit_answer_payload(self.participant.id, 1, {'option_label': 'C'}, 1500), content_type='application/json')
+            BrainBuzzSession.objects.filter(pk=self.session.pk).update(
+                current_index=1,
+                question_deadline=frozen + timedelta(seconds=self.q1.time_limit_sec),
+            )
+            self.client.post(self.url, _submit_answer_payload(self.participant.id, 1, {'option_label': 'C'}, 1500), content_type='application/json')
 
-        self.session.current_index = 2
-        self.session.question_deadline = timezone.now() + timedelta(seconds=20)
-        self.session.save()
-        self.client.post(self.url, _submit_answer_payload(self.participant.id, 2, {'text': 'python'}, 0), content_type='application/json')
+            BrainBuzzSession.objects.filter(pk=self.session.pk).update(
+                current_index=2,
+                question_deadline=frozen + timedelta(seconds=self.q2.time_limit_sec),
+            )
+            self.client.post(self.url, _submit_answer_payload(self.participant.id, 2, {'text': 'python'}, 0), content_type='application/json')
 
         self.participant.refresh_from_db()
         self.assertGreaterEqual(self.participant.score, 1800)

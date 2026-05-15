@@ -1,11 +1,14 @@
 """
-Playwright UI tests — CPP-276 regression guard.
+Playwright UI tests — CPP-276 regression guard + worksheet confirm fix.
 
-Verifies that a pre-existing PDF-extracted maths worksheet (where
-WorksheetQuestion rows have subject_slug='mathematics' and
-content_id=question.id after the backfill migration) still works
-end-to-end for a student: session loads, MCQ question renders,
-answer is accepted, and the results page shows the score.
+1. Verifies that a pre-existing PDF-extracted maths worksheet (where
+   WorksheetQuestion rows have subject_slug='mathematics' and
+   content_id=question.id after the backfill migration) still works
+   end-to-end for a student: session loads, MCQ question renders,
+   answer is accepted, and the results page shows the score.
+
+2. Regression test for the _TempSession AttributeError fix (PR #255):
+   a teacher can confirm a PDF upload session without a 500 error.
 """
 
 from __future__ import annotations
@@ -13,7 +16,7 @@ from __future__ import annotations
 import pytest
 from playwright.sync_api import Page, expect
 
-from .conftest import do_login, TEST_PASSWORD
+from .conftest import _RUN_ID, do_login, TEST_PASSWORD
 
 
 # ---------------------------------------------------------------------------
@@ -199,3 +202,95 @@ class TestExistingPdfWorksheetSessionUnaffected:
                page.locator("body").inner_text().lower().count("not found") > 0 or \
                "/accounts/login" in page.url, \
                "Expected 404 or login redirect for cross-tenant access"
+
+
+# ---------------------------------------------------------------------------
+# PR #255 regression — _TempSession AttributeError on confirm
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def upload_session(db, teacher_user, school, level):
+    """
+    A WorksheetUploadSession owned by teacher_user, with one short-answer
+    question at Year 7.  Level 7 must already exist (provided by the `level`
+    fixture) so _resolve_topic_for_question can look it up via Level.objects.get().
+    """
+    from worksheets.models import WorksheetUploadSession
+
+    return WorksheetUploadSession.objects.create(
+        user=teacher_user,
+        school=school,
+        pdf_filename="regression_pr255.pdf",
+        worksheet_name="PR-255 Regression",
+        extracted_data={
+            "year_level": 7,
+            "subject": "Mathematics",
+            "topic": f"pr255-addition-{_RUN_ID}",
+            "questions": [
+                {
+                    "include": True,
+                    "question_text": "What is 3 + 3?",
+                    "question_type": "short_answer",
+                    "difficulty": 1,
+                    "points": 1,
+                    "year_level": 7,
+                    "topic": f"pr255-addition-{_RUN_ID}",
+                    "subject": "Mathematics",
+                    "explanation": "Basic addition.",
+                    "answers": [],
+                }
+            ],
+        },
+        is_confirmed=False,
+    )
+
+
+class TestWorksheetConfirmNoAttributeError:
+    """
+    PR #255 regression: WorksheetConfirmView.post() previously threw
+    AttributeError: '_TempSession' object has no attribute 'save'.
+    """
+
+    @pytest.mark.django_db(transaction=True)
+    def test_teacher_confirm_pdf_upload_no_server_error(
+        self,
+        page: Page,
+        live_server,
+        teacher_user,
+        school,
+        subject,
+        level,
+        classroom,     # ensures teacher_user is a SchoolTeacher for get_school_for_user()
+        upload_session,
+    ):
+        """
+        Teacher loads the confirm page (Step 3) and submits the confirm form.
+        Before PR #255 this raised AttributeError and returned a 500 response.
+        After the fix it should redirect to the worksheet detail page.
+        """
+        do_login(page, live_server.url, teacher_user)
+
+        confirm_url = f"{live_server.url}/worksheets/upload/{upload_session.pk}/confirm/"
+        page.goto(confirm_url)
+        page.wait_for_load_state("networkidle")
+
+        # Confirm page should load without errors
+        body = page.locator("body")
+        expect(body).not_to_contain_text("AttributeError", timeout=3_000)
+        expect(body).not_to_contain_text("Server Error", timeout=3_000)
+        expect(body).not_to_contain_text("500", timeout=3_000)
+
+        # Submit the confirm form by button text — avoids matching the logout
+        # button, which also lives in a form[method='post'] in the base template.
+        page.get_by_role("button", name="Save Worksheet").click()
+        page.wait_for_load_state("networkidle")
+
+        # Should NOT be a server error — any redirect (detail or preview) is acceptable
+        body_text = page.locator("body").inner_text()
+        assert "AttributeError" not in body_text, \
+            f"Got AttributeError after confirm POST — _TempSession fix may have been reverted. URL: {page.url}"
+        assert "Server Error" not in body_text, \
+            f"Got 500 Server Error after confirm POST. URL: {page.url}"
+        # Should have left the confirm page (redirected to detail or preview)
+        assert "/confirm/" not in page.url, \
+            f"Expected redirect away from confirm page but still at: {page.url}"
