@@ -11,6 +11,11 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='brainbuzzparticipant',
             name='avatar',
-            field=models.CharField(default='🦁', max_length=10),
+            # Use empty string as the DB-level default so MySQL doesn't need to
+            # store a 4-byte emoji in the column default (which requires the
+            # column to already have utf8mb4 charset, which ALTER TABLE ADD
+            # COLUMN doesn't guarantee).  The model-level default='🦁' still
+            # applies when creating BrainBuzzParticipant objects in Python.
+            field=models.CharField(default='', max_length=10, blank=True),
         ),
     ]
