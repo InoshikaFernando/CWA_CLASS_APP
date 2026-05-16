@@ -1,13 +1,21 @@
 """
-Worksheet Builder views — CPP-282.
+Worksheet Builder views — CPP-282 / CPP-284.
 
-Teachers browse the global question bank with filter panel (subject, topic,
-level, free-text search). Question results are loaded via HTMX and paginated.
+CPP-282: Teachers browse the global question bank with filter panel
+         (subject, topic, level, free-text search). Results via HTMX.
+CPP-284: WorksheetBuilderSaveView — POST to persist the selection as a
+         Worksheet + WorksheetQuestion rows, then redirect to detail page.
 """
 
+import json
+
+from django.contrib import messages
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import Q
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
+from django.urls import reverse
 
 from accounts.models import Role
 from billing.entitlements import get_school_for_user
@@ -16,6 +24,7 @@ from classroom.views import RoleRequiredMixin
 from django.views import View
 
 from maths.models import Question
+from worksheets.models import Worksheet, WorksheetQuestion
 
 PAGE_SIZE = 25
 
@@ -124,3 +133,100 @@ class WorksheetBuilderQuestionsView(RoleRequiredMixin, View):
             'filter_params': filter_params,
             'total_count': paginator.count,
         })
+
+
+class WorksheetBuilderSaveView(RoleRequiredMixin, View):
+    """
+    POST /worksheets/builder/save/
+
+    Persists the teacher's builder selection as a Worksheet + WorksheetQuestion rows.
+
+    Expected POST fields:
+        name           — worksheet name (str, required, max 100 chars)
+        level_id       — year level pk (int, optional)
+        questions_json — JSON array of {subject_slug, content_id} (required, ≥1 item)
+
+    Returns:
+        On success: 200 with HX-Redirect header → worksheets:detail (HTMX navigates)
+        On error:   400 with JSON {error: "..."} for inline display in sidebar
+
+    Note: WorksheetQuestion.question FK is non-nullable in this sprint. All builder
+    questions are maths questions (subject_slug='mathematics', content_id=question_id).
+    TODO CPP-Sprint3: make question FK nullable to support coding questions.
+    """
+    required_roles = BUILDER_ROLES
+
+    def post(self, request):
+        school = get_school_for_user(request.user)
+
+        # --- Parse and validate name ---
+        name = request.POST.get('name', '').strip()
+        if not name:
+            return JsonResponse({'error': 'Worksheet name is required.'}, status=400)
+        if len(name) > 100:
+            return JsonResponse({'error': 'Worksheet name must be 100 characters or fewer.'}, status=400)
+
+        # --- Parse and validate level (optional) ---
+        level = None
+        level_id_raw = request.POST.get('level_id', '').strip()
+        if level_id_raw:
+            try:
+                level = Level.objects.get(level_number=int(level_id_raw))
+            except (Level.DoesNotExist, ValueError, TypeError):
+                pass  # Level is optional — ignore invalid values
+
+        # --- Parse questions JSON ---
+        try:
+            questions = json.loads(request.POST.get('questions_json', '[]'))
+        except (json.JSONDecodeError, TypeError):
+            return JsonResponse({'error': 'Invalid question data. Please try again.'}, status=400)
+
+        if not isinstance(questions, list) or len(questions) == 0:
+            return JsonResponse({'error': 'Please select at least one question.'}, status=400)
+
+        # --- Check for duplicates in submitted list ---
+        seen = set()
+        for item in questions:
+            key = (item.get('subject_slug', ''), item.get('content_id', 0))
+            if key in seen:
+                return JsonResponse({'error': 'Duplicate questions detected. Please remove duplicates and try again.'}, status=400)
+            seen.add(key)
+
+        # --- Validate all questions are visible to this school (one query) ---
+        content_ids = [item['content_id'] for item in questions]
+        visible_questions = Question.objects.filter(
+            pk__in=content_ids
+        ).filter(Q(school__isnull=True) | Q(school=school))
+
+        visible_map = {q.pk: q for q in visible_questions}
+        if len(visible_map) != len(content_ids):
+            return JsonResponse({'error': 'One or more questions are not available for your school.'}, status=400)
+
+        # --- Create Worksheet + WorksheetQuestion rows atomically ---
+        with transaction.atomic():
+            worksheet = Worksheet.objects.create(
+                school=school,
+                name=name,
+                level=level,
+                original_filename='',
+                pdf_file=None,
+                created_by=request.user,
+            )
+
+            WorksheetQuestion.objects.bulk_create([
+                WorksheetQuestion(
+                    worksheet=worksheet,
+                    question=visible_map[item['content_id']],
+                    subject_slug=item.get('subject_slug', 'mathematics'),
+                    content_id=item['content_id'],
+                    order=idx + 1,
+                )
+                for idx, item in enumerate(questions)
+            ])
+
+            worksheet.refresh_question_count()
+
+        messages.success(request, f'Worksheet "{name}" created successfully.')
+        response = HttpResponse(status=200)
+        response['HX-Redirect'] = reverse('worksheets:detail', args=[worksheet.pk])
+        return response
