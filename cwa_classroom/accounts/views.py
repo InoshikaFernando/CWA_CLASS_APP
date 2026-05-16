@@ -58,6 +58,9 @@ class AuditLoginView(LoginView):
             action='login_success',
             request=self.request,
         )
+        # Store login timestamp for session-duration calculation at logout
+        import time
+        self.request.session['login_at'] = time.time()
         # Clear stale active_role from previous session
         self.request.session.pop('active_role', None)
         # Clear rate limit on successful login

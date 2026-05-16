@@ -11,11 +11,20 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='brainbuzzsessionquestion',
             name='image_url',
-            field=models.CharField(
+            field=models.URLField(
                 blank=True,
                 default='',
                 help_text='Absolute URL of the question image, snapshotted at session creation.',
-                max_length=500,
+                max_length=2048,
+            ),
+        ),
+        migrations.AlterField(
+            model_name='brainbuzzsessionquestion',
+            name='options_json',
+            field=models.JSONField(
+                blank=True,
+                default=list,
+                help_text='MCQ/TF options: [{"label":"A","text":"...","is_correct":true,"image_url":""}]',
             ),
         ),
     ]
