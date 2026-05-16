@@ -282,6 +282,7 @@
       if (existing) newOrder.push(existing);
     });
     selectedQuestions = newOrder;
+    renderSidebar();
     syncHiddenInput();
     validateForm();
   }
@@ -355,7 +356,7 @@
     var valid = name.length > 0 && name.length <= 100 && selectedQuestions.length > 0;
     saveBtn.disabled = !valid;
     if (valid) {
-      saveBtn.className = 'w-full py-2.5 rounded-xl text-sm font-semibold transition bg-primary text-white hover:bg-primary-dark cursor-pointer';
+      saveBtn.className = 'w-full py-2.5 rounded-xl text-sm font-semibold transition bg-primary text-white hover:opacity-90 cursor-pointer';
     } else {
       saveBtn.className = 'w-full py-2.5 rounded-xl text-sm font-semibold transition bg-slate-100 text-slate-400 cursor-not-allowed disabled:opacity-60';
     }

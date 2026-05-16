@@ -10,7 +10,7 @@
   {% for question in page_obj %}
   <div class="question-card bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex items-start gap-4"
        data-content-id="{{ question.pk }}"
-       data-subject-slug="mathematics"
+       data-subject-slug="mathematics"  {# TODO CPP-284+: derive from question.subject_slug when coding questions added #}
        data-question-text="{{ question.question_text|truncatechars:80 }}"
        data-level="{% if question.level %}Year {{ question.level.level_number }}{% endif %}"
        data-difficulty="{{ question.difficulty_label }}">
