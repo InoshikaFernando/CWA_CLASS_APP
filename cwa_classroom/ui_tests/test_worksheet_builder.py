@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 from playwright.sync_api import Page, expect
+from re import compile as re_compile
 
 from .conftest import do_login, TEST_PASSWORD
 
@@ -366,3 +367,73 @@ class TestWorksheetBuilderSidebar:
         reloaded_card = page.locator(f"#question-list .question-card[data-content-id='{content_id}']")
         if reloaded_card.count() > 0:
             expect(reloaded_card.locator("button.add-question-btn")).to_be_disabled(timeout=3000)
+
+
+# ---------------------------------------------------------------------------
+# CPP-284: Save endpoint — full builder flow
+# ---------------------------------------------------------------------------
+
+class TestWorksheetBuilderSave:
+    """CPP-284: Teacher completes builder flow and saves a worksheet."""
+
+    @pytest.mark.django_db(transaction=True)
+    def test_teacher_completes_builder_flow_and_sees_detail_page(
+        self,
+        page: Page,
+        live_server,
+        teacher_user,
+        question_bank,
+        classroom,
+    ):
+        """Full flow: add question → name → save → redirect to detail page."""
+        do_login(page, live_server.url, teacher_user)
+        page.goto(f"{live_server.url}/worksheets/builder/")
+        page.wait_for_selector("#question-list .question-card", timeout=6000)
+
+        # Add first question
+        page.locator("#question-list button.add-question-btn").first.click()
+        expect(page.locator("#sidebar-question-list li")).to_have_count(1, timeout=3000)
+
+        # Fill worksheet name
+        page.locator("#worksheet-name").fill("My Builder Worksheet")
+
+        # Save button should now be enabled
+        expect(page.locator("#save-worksheet-btn")).to_be_enabled(timeout=3000)
+
+        # Click Save and wait for redirect to detail page
+        with page.expect_navigation(timeout=8000):
+            page.locator("#save-worksheet-btn").click()
+
+        # Should be on the worksheet detail page showing the new worksheet
+        expect(page).to_have_url(re_compile(r"/worksheets/\d+/"), timeout=5000)
+        expect(page.locator("body")).to_contain_text("My Builder Worksheet", timeout=5000)
+
+    @pytest.mark.django_db(transaction=True)
+    def test_teacher_sees_inline_error_on_save_failure(
+        self,
+        page: Page,
+        live_server,
+        teacher_user,
+        question_bank,
+        classroom,
+    ):
+        """If Save is somehow clicked without a name, inline error appears."""
+        do_login(page, live_server.url, teacher_user)
+        page.goto(f"{live_server.url}/worksheets/builder/")
+        page.wait_for_selector("#question-list .question-card", timeout=6000)
+
+        # Add a question
+        page.locator("#question-list button.add-question-btn").first.click()
+        expect(page.locator("#sidebar-question-list li")).to_have_count(1, timeout=3000)
+
+        # Force-enable save button and submit without a name (bypass JS validation)
+        page.evaluate("document.getElementById('save-worksheet-btn').removeAttribute('disabled')")
+        page.evaluate("document.getElementById('worksheet-name').value = ''")
+
+        with page.expect_response(lambda r: "builder/save" in r.url):
+            page.locator("#save-worksheet-btn").click()
+
+        # Error div should appear with a message
+        error_div = page.locator("#save-error")
+        expect(error_div).not_to_be_hidden(timeout=3000)
+        expect(error_div).to_contain_text("required", timeout=3000)

@@ -139,6 +139,7 @@
           <label class="block text-xs font-medium text-gray-500 mb-1">Name <span class="text-red-400">*</span></label>
           <input type="text"
                  id="worksheet-name"
+                 name="name"
                  maxlength="100"
                  placeholder="e.g. Fractions Review"
                  class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition" />
@@ -170,16 +171,32 @@
           <ul id="sidebar-question-list" class="space-y-2"></ul>
         </div>
 
-        <!-- Hidden JSON input for form submission -->
+        <!-- Hidden inputs for form submission (collected by hx-include) -->
         <input type="hidden" id="questions-json" name="questions_json" value="[]" />
+        <input type="hidden" id="sidebar-level-id" name="level_id" value="" />
+
+        <!-- Inline error display (HTMX target on validation failure) -->
+        <div id="save-error" class="hidden text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2"></div>
 
         <!-- Save button -->
         <button type="button"
                 id="save-worksheet-btn"
                 disabled
+                hx-post="{% url 'worksheets:builder_save' %}"
+                hx-include="#worksheet-name, #questions-json, #sidebar-level-id"
+                hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+                hx-target="#save-error"
+                hx-swap="innerHTML"
+                hx-indicator="#save-indicator"
                 class="w-full py-2.5 rounded-xl text-sm font-semibold transition
                        bg-slate-100 text-slate-400 cursor-not-allowed
                        disabled:opacity-60">
+          <span id="save-indicator" class="htmx-indicator">
+            <svg class="inline animate-spin h-4 w-4 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+            </svg>
+          </span>
           Save Worksheet
         </button>
 
@@ -223,6 +240,33 @@
   filterLevel.addEventListener('change', function () {
     if (filterLevel.value) {
       levelSelect.value = filterLevel.value;
+      document.getElementById('sidebar-level-id').value = filterLevel.value;
+    }
+  });
+
+  // Keep sidebar-level-id hidden input in sync with sidebar level select
+  levelSelect.addEventListener('change', function () {
+    document.getElementById('sidebar-level-id').value = levelSelect.value;
+  });
+
+  // Show/hide the error div after HTMX response — on success HX-Redirect fires,
+  // on error the JSON {error: "..."} is swapped into #save-error
+  document.body.addEventListener('htmx:afterRequest', function (evt) {
+    if (evt.detail.elt && evt.detail.elt.id === 'save-worksheet-btn') {
+      var errorDiv = document.getElementById('save-error');
+      if (evt.detail.xhr.status === 400) {
+        try {
+          var data = JSON.parse(evt.detail.xhr.responseText);
+          errorDiv.textContent = data.error || 'An error occurred. Please try again.';
+          errorDiv.classList.remove('hidden');
+        } catch (e) {
+          errorDiv.textContent = 'An error occurred. Please try again.';
+          errorDiv.classList.remove('hidden');
+        }
+      } else {
+        errorDiv.classList.add('hidden');
+        errorDiv.textContent = '';
+      }
     }
   });
 
