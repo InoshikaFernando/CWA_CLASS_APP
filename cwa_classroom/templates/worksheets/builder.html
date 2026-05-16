@@ -26,13 +26,14 @@
         <div>
           <label class="block text-xs font-medium text-gray-500 mb-1">Subject</label>
           <select id="filter-subject"
-                  class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
+                  name="subject"
+                  class="filter-input w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
                   hx-get="{% url 'worksheets:builder_questions' %}"
                   hx-target="#question-list"
                   hx-swap="innerHTML show:top"
                   hx-trigger="change"
-                  hx-include="#filter-form"
-                  name="subject">
+                  hx-include=".filter-input"
+                  hx-indicator="#question-list-indicator">
             <option value="">All Subjects</option>
             {% for subject in subjects %}
             <option value="{{ subject.slug }}">{{ subject.name }}</option>
@@ -44,13 +45,14 @@
         <div>
           <label class="block text-xs font-medium text-gray-500 mb-1">Topic</label>
           <select id="filter-topic"
-                  class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
+                  name="topic"
+                  class="filter-input w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
                   hx-get="{% url 'worksheets:builder_questions' %}"
                   hx-target="#question-list"
                   hx-swap="innerHTML show:top"
                   hx-trigger="change"
-                  hx-include="#filter-form"
-                  name="topic">
+                  hx-include=".filter-input"
+                  hx-indicator="#question-list-indicator">
             <option value="">All Topics</option>
             {% for topic in topics %}
             <option value="{{ topic.pk }}" data-subject="{{ topic.subject.slug }}">{{ topic.name }}</option>
@@ -62,13 +64,14 @@
         <div>
           <label class="block text-xs font-medium text-gray-500 mb-1">Year Level</label>
           <select id="filter-level"
-                  class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
+                  name="level"
+                  class="filter-input w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
                   hx-get="{% url 'worksheets:builder_questions' %}"
                   hx-target="#question-list"
                   hx-swap="innerHTML show:top"
                   hx-trigger="change"
-                  hx-include="#filter-form"
-                  name="level">
+                  hx-include=".filter-input"
+                  hx-indicator="#question-list-indicator">
             <option value="">All Levels</option>
             {% for level in levels %}
             <option value="{{ level.level_number }}">Year {{ level.level_number }}</option>
@@ -83,30 +86,35 @@
                  id="filter-search"
                  name="q"
                  placeholder="Search question text…"
-                 class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
+                 class="filter-input w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
                  hx-get="{% url 'worksheets:builder_questions' %}"
                  hx-target="#question-list"
                  hx-swap="innerHTML show:top"
                  hx-trigger="input changed delay:400ms"
-                 hx-include="#filter-form" />
+                 hx-include=".filter-input"
+                 hx-indicator="#question-list-indicator" />
         </div>
       </div>
     </aside>
 
-    <!-- Hidden form to collect all filter values for hx-include -->
-    <form id="filter-form" class="hidden">
-      <input type="hidden" name="subject" id="form-subject" value="" />
-      <input type="hidden" name="topic" id="form-topic" value="" />
-      <input type="hidden" name="level" id="form-level" value="" />
-      <input type="hidden" name="q" id="form-q" value="" />
-    </form>
-
     <!-- Question List -->
     <div class="flex-1 min-w-0">
+
+      <!-- HTMX loading indicator -->
+      <div id="question-list-indicator"
+           class="htmx-indicator flex items-center justify-center h-10 mb-2">
+        <svg class="animate-spin h-5 w-5 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+        </svg>
+        <span class="ml-2 text-sm text-gray-400">Loading…</span>
+      </div>
+
       <div id="question-list"
            hx-get="{% url 'worksheets:builder_questions' %}"
            hx-trigger="load"
-           hx-swap="innerHTML show:top">
+           hx-swap="innerHTML show:top"
+           hx-indicator="#question-list-indicator">
         <div class="flex items-center justify-center h-40 text-gray-400 text-sm">
           Loading questions…
         </div>
@@ -136,18 +144,6 @@
     }
 
     subjectEl.addEventListener('change', filterTopics);
-
-    // Sync hidden form inputs so hx-include picks up current values
-    function syncForm() {
-      document.getElementById('form-subject').value = subjectEl.value;
-      document.getElementById('form-topic').value = topicEl.value;
-      document.getElementById('form-level').value = document.getElementById('filter-level').value;
-      document.getElementById('form-q').value = document.getElementById('filter-search').value;
-    }
-
-    document.querySelectorAll('#filter-subject, #filter-topic, #filter-level, #filter-search')
-      .forEach(function (el) { el.addEventListener('change', syncForm); });
-    document.getElementById('filter-search').addEventListener('input', syncForm);
   })();
 </script>
 {% endblock %}

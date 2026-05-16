@@ -4,7 +4,6 @@ Unit tests for WorksheetBuilderView and WorksheetBuilderQuestionsView — CPP-28
 Run with:
     pytest worksheets/tests/test_views_builder.py -v
 """
-import pytest
 from django.test import TestCase
 from django.urls import reverse
 

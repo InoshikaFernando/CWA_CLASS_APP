@@ -7,7 +7,6 @@ level, free-text search). Question results are loaded via HTMX and paginated.
 
 from django.core.paginator import Paginator
 from django.db.models import Q
-from django.http import HttpResponseBadRequest
 from django.shortcuts import render
 
 from accounts.models import Role
@@ -54,7 +53,7 @@ class WorksheetBuilderView(RoleRequiredMixin, View):
             subject__in=subjects
         ).select_related('subject').order_by('subject__name', 'name')
 
-        levels = Level.objects.filter(level_number__lte=13).order_by('level_number')
+        levels = Level.objects.filter(level_number__lte=12).order_by('level_number')
 
         return render(request, 'worksheets/builder.html', {
             'subjects': subjects,
