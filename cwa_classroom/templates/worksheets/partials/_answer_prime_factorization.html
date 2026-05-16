@@ -1,0 +1,56 @@
+{% comment %}
+CPP-279: prime_factorization factor-ladder partial.
+Context: question  (must have target_number, prime_factorization_rows)
+Ported from homework/partials/_maths_take_item.html (lines 101-150).
+Key difference: hidden input name is "text_answer" (not "answer_<id>").
+{% endcomment %}
+<input type="hidden" name="text_answer" data-pf-hidden="{{ question.pk }}" />
+<p class="text-xs text-gray-500 mb-2">Fill each prime factor on the left until you reach 1.</p>
+<div class="font-mono text-xl leading-none inline-block" data-pf-wrap="{{ question.pk }}">
+  {% for row in question.prime_factorization_rows %}
+    <div class="flex items-stretch border-b-2 border-gray-800">
+      {% if row.prime_input %}
+        <input type="text" maxlength="3" inputmode="numeric" data-pf-p="{{ question.pk }}"
+               class="w-14 h-10 text-center bg-amber-50 border-2 border-amber-200 rounded m-1
+                      font-bold text-amber-700 focus:border-primary focus:bg-white focus:outline-none" />
+      {% else %}
+        <div class="w-14 h-10"></div>
+      {% endif %}
+      <div class="border-l-2 border-gray-800 w-16 h-10 flex items-center justify-center p-1">
+        {% if row.show_number %}
+          <span class="font-bold text-blue-600">{{ row.number }}</span>
+        {% else %}
+          <input type="text" maxlength="6" inputmode="numeric"
+                 class="w-full h-full text-center bg-blue-50 border-2 border-blue-200 rounded
+                        font-bold text-blue-700 focus:border-primary focus:bg-white focus:outline-none" />
+        {% endif %}
+      </div>
+    </div>
+  {% endfor %}
+</div>
+<input type="text" readonly data-pf-preview="{{ question.pk }}"
+       placeholder="2×3×5…"
+       class="block mt-3 max-w-xs rounded-lg border-2 border-gray-200 bg-gray-50 px-3 py-2
+              text-sm font-mono font-bold text-gray-700 cursor-not-allowed" />
+<script>
+(function(){
+  var id   = "{{ question.pk }}";
+  var wrap = document.querySelector('[data-pf-wrap="' + id + '"]');
+  var h    = document.querySelector('[data-pf-hidden="' + id + '"]');
+  var pv   = document.querySelector('[data-pf-preview="' + id + '"]');
+  if (!wrap || !h || !pv) return;
+  var primes = wrap.querySelectorAll('[data-pf-p="' + id + '"]');
+  function refresh(){
+    var vals = Array.from(primes).map(function(el){ return (el.value || '').trim(); }).filter(Boolean);
+    h.value  = vals.join('x');
+    pv.value = vals.join('×');
+  }
+  primes.forEach(function(el){
+    el.addEventListener('input',  refresh);
+    el.addEventListener('change', refresh);
+    el.addEventListener('blur',   refresh);
+  });
+  var form = wrap.closest('form');
+  if (form) form.addEventListener('submit', refresh, true);
+})();
+</script>

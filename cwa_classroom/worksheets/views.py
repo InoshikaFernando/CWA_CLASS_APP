@@ -3,6 +3,9 @@ Worksheets views: PDF upload → AI extraction → preview → confirm → assig
 """
 import json
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -16,6 +19,7 @@ from accounts.models import Role
 from billing.entitlements import get_school_for_user
 from classroom.views import RoleRequiredMixin
 
+from .grading_service import grade_extended_answer
 from .models import (
     Worksheet,
     WorksheetAssignment,
@@ -24,6 +28,23 @@ from .models import (
     WorksheetSubmission,
     WorksheetUploadSession,
 )
+
+# ---------------------------------------------------------------------------
+# CPP-280: Answer partial dispatch map — question_type → template path
+# ---------------------------------------------------------------------------
+_PARTIAL = 'worksheets/partials/'
+ANSWER_PARTIAL_MAP = {
+    'multiple_choice':    _PARTIAL + '_answer_mcq.html',
+    'true_false':         _PARTIAL + '_answer_mcq.html',
+    'short_answer':       _PARTIAL + '_answer_short.html',
+    'fill_blank':         _PARTIAL + '_answer_text.html',
+    'calculation':        _PARTIAL + '_answer_text.html',
+    'extended_answer':    _PARTIAL + '_answer_extended.html',
+    'long_division':      _PARTIAL + '_answer_long_division.html',
+    'prime_factorization': _PARTIAL + '_answer_prime_factorization.html',
+}
+_ANSWER_PARTIAL_DEFAULT = _PARTIAL + '_answer_text.html'
+
 
 TEACHER_ROLES = [
     Role.INSTITUTE_OWNER,
@@ -581,18 +602,82 @@ class WorksheetSessionView(LoginRequiredMixin, View):
             return redirect('worksheets:results', pk=pk)
 
         question_number = assigned_qs.index(current_wq) + 1
-        answers = list(current_wq.question.answers.order_by('order'))
+        question = current_wq.question
+        answers = list(question.answers.order_by('order'))
+        answer_partial = ANSWER_PARTIAL_MAP.get(question.question_type, _ANSWER_PARTIAL_DEFAULT)
 
         return render(request, 'worksheets/session.html', {
             'assignment': assignment,
             'submission': submission,
             'current_wq': current_wq,
-            'question': current_wq.question,
+            'question': question,
             'answers': answers,
+            'answer_partial': answer_partial,
             'question_number': question_number,
             'total_questions': len(assigned_qs),
             'answered_count': len(answered_ids),
         })
+
+
+# ---------------------------------------------------------------------------
+# CPP-281: Grading helpers
+# ---------------------------------------------------------------------------
+
+def _grade_long_division(question, text_answer: str) -> bool:
+    """
+    Grade a long-division answer submitted as "quotient r remainder" or just "quotient".
+    Accepts "6 r 0" and "6" as equivalent when expected remainder is 0.
+    """
+    if not (question.dividend and question.divisor):
+        return False
+    try:
+        expected_quotient = question.dividend // question.divisor
+        expected_remainder = question.dividend % question.divisor
+
+        text = text_answer.strip().lower().replace(' r ', ' r')
+        if ' r' in text:
+            parts = text.split(' r', 1)
+            submitted_quotient = int(parts[0].strip())
+            submitted_remainder = int(parts[1].strip()) if parts[1].strip() else 0
+        else:
+            submitted_quotient = int(text.strip())
+            submitted_remainder = 0
+
+        return submitted_quotient == expected_quotient and submitted_remainder == expected_remainder
+    except (ValueError, TypeError, IndexError):
+        return False
+
+
+def _prime_factors(n: int):
+    """Return sorted list of prime factors of n (with repetition), e.g. 12 → [2, 2, 3]."""
+    factors = []
+    d = 2
+    while d * d <= n:
+        while n % d == 0:
+            factors.append(d)
+            n //= d
+        d += 1
+    if n > 1:
+        factors.append(n)
+    return sorted(factors)
+
+
+def _grade_prime_factorization(question, text_answer: str) -> bool:
+    """
+    Grade a prime-factorisation answer submitted as "2x3x5" (factors joined by 'x').
+    Order-insensitive — compares sorted factor lists.
+    """
+    if not question.target_number:
+        return False
+    try:
+        raw = text_answer.strip().lower().replace('×', 'x')
+        if not raw:
+            return False
+        submitted_factors = sorted(int(f.strip()) for f in raw.split('x') if f.strip())
+        expected_factors = _prime_factors(question.target_number)
+        return submitted_factors == expected_factors
+    except (ValueError, TypeError):
+        return False
 
 
 class WorksheetAnswerView(LoginRequiredMixin, View):
@@ -614,6 +699,7 @@ class WorksheetAnswerView(LoginRequiredMixin, View):
         text_answer = ''
         is_correct = False
         points_earned = 0.0
+        answer_data = {}
 
         if question.question_type in ('multiple_choice', 'true_false'):
             answer_id = request.POST.get('answer_id')
@@ -622,7 +708,40 @@ class WorksheetAnswerView(LoginRequiredMixin, View):
                 is_correct = selected_answer.is_correct
                 if is_correct:
                     points_earned = float(question.points)
+
+        elif question.question_type == 'long_division':
+            text_answer = request.POST.get('text_answer', '').strip()
+            is_correct = _grade_long_division(question, text_answer)
+            if is_correct:
+                points_earned = float(question.points)
+
+        elif question.question_type == 'prime_factorization':
+            text_answer = request.POST.get('text_answer', '').strip()
+            is_correct = _grade_prime_factorization(question, text_answer)
+            if is_correct:
+                points_earned = float(question.points)
+
+        elif question.question_type == 'extended_answer':
+            text_answer = request.POST.get('text_answer', '').strip()
+            school = get_school_for_user(request.user)
+            try:
+                result = grade_extended_answer(question, text_answer, school=school)
+                is_correct = result.get('is_correct', False)
+                answer_data = {
+                    'feedback': result.get('feedback', ''),
+                    'score_fraction': result.get('score_fraction', 0.0),
+                    'cache_hit': result.get('cache_hit', False),
+                }
+                if result.get('quota_exceeded'):
+                    answer_data['review_status'] = 'pending_ai'
+                if is_correct:
+                    points_earned = float(question.points)
+            except Exception as exc:
+                logger.exception(f'Extended answer grading failed for Q{question.pk}: {exc}')
+                answer_data = {'review_status': 'pending_ai'}
+
         else:
+            # short_answer, fill_blank, calculation — exact text match (case-insensitive)
             text_answer = request.POST.get('text_answer', '').strip()
             correct_answers = [
                 a.answer_text.strip().lower()
@@ -641,6 +760,7 @@ class WorksheetAnswerView(LoginRequiredMixin, View):
                 'text_answer': text_answer,
                 'is_correct': is_correct,
                 'points_earned': points_earned,
+                'answer_data': answer_data,
             },
         )
 
