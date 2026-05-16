@@ -1,0 +1,90 @@
+{% comment %}
+CPP-278: long_division step-grid partial.
+Context: question  (must have dividend, divisor, long_division_step_count)
+Ported from homework/partials/_maths_take_item.html (lines 26-99).
+Key difference: hidden input name is "text_answer" (not "answer_<id>").
+{% endcomment %}
+<input type="hidden" name="text_answer" data-ld-hidden="{{ question.pk }}" />
+<div class="font-mono text-2xl leading-none mb-2 inline-block overflow-x-auto max-w-full"
+     data-ld-wrap="{{ question.pk }}">
+  {# Quotient row #}
+  <div class="flex">
+    <span class="w-10 inline-block"></span>
+    <span class="w-3 inline-block"></span>
+    {% for d in question.dividend|stringformat:"d" %}
+      <input type="text" maxlength="1" inputmode="numeric"
+             data-ld-q="{{ question.pk }}"
+             class="w-10 h-10 text-center bg-blue-50 border-2 border-blue-200 rounded
+                    font-bold text-blue-700 focus:border-primary focus:bg-white focus:outline-none" />
+    {% endfor %}
+  </div>
+  {# Divisor + dividend display row #}
+  <div class="flex items-stretch mt-1">
+    <div class="w-10 inline-flex items-center justify-end pr-2 font-bold text-gray-800">{{ question.divisor }}</div>
+    <div class="pt-1 border-l-2 border-t-2 border-gray-800 rounded-tl-lg flex">
+      <span class="w-3 inline-block"></span>
+      {% for d in question.dividend|stringformat:"d" %}
+        <span class="w-10 h-10 inline-flex items-center justify-center font-bold text-gray-800">{{ d }}</span>
+      {% endfor %}
+    </div>
+  </div>
+  {# Working rows: subtract + bring-down rows per step #}
+  {% for step in ""|center:question.long_division_step_count %}
+    <div class="flex mt-1">
+      <span class="w-10 inline-block"></span>
+      <span class="w-3 inline-block"></span>
+      {% for d in question.dividend|stringformat:"d" %}
+        <input type="text" maxlength="2" inputmode="numeric"
+               class="w-10 h-9 text-center bg-rose-50 border-2 border-rose-200 rounded
+                      text-rose-700 font-bold text-xl focus:border-primary focus:bg-white focus:outline-none" />
+      {% endfor %}
+    </div>
+    <div class="flex">
+      <span class="w-10 inline-block"></span>
+      <span class="w-3 inline-block"></span>
+      {% for d in question.dividend|stringformat:"d" %}
+        <input type="text" maxlength="2" inputmode="numeric"
+               class="w-10 h-9 text-center bg-emerald-50 border-2 border-emerald-200 border-t-2
+                      border-t-gray-800 rounded text-emerald-700 font-bold text-xl
+                      focus:border-primary focus:bg-white focus:outline-none" />
+      {% endfor %}
+    </div>
+  {% endfor %}
+  {# Remainder #}
+  <div class="flex items-center gap-2 mt-3 text-sm">
+    <span class="text-gray-600 font-semibold">Remainder:</span>
+    <input type="text" maxlength="3" inputmode="numeric" data-ld-r="{{ question.pk }}"
+           class="w-14 h-9 text-center border-2 border-gray-300 rounded
+                  focus:border-primary focus:outline-none font-bold" />
+  </div>
+</div>
+<script>
+(function(){
+  var id   = "{{ question.pk }}";
+  var wrap = document.querySelector('[data-ld-wrap="' + id + '"]');
+  var h    = document.querySelector('[data-ld-hidden="' + id + '"]');
+  if (!wrap || !h) return;
+  var qs = wrap.querySelectorAll('[data-ld-q="' + id + '"]');
+  var r  = wrap.querySelector('[data-ld-r="' + id + '"]');
+  function refresh(){
+    var quot = Array.from(qs).map(function(c){ return (c.value || '').trim() || '0'; })
+                             .join('').replace(/^0+(?=\d)/, '') || '0';
+    var rem  = r ? (r.value || '').trim() : '0';
+    if (!rem) rem = '0';
+    h.value = rem === '0' ? quot : quot + ' r ' + rem;
+  }
+  qs.forEach(function(el, i){
+    el.addEventListener('input',  function(){ refresh(); if (el.value && i < qs.length - 1) qs[i + 1].focus(); });
+    el.addEventListener('change', refresh);
+    el.addEventListener('blur',   refresh);
+    el.addEventListener('keydown', function(e){ if (e.key === 'Backspace' && !el.value && i > 0) qs[i - 1].focus(); });
+  });
+  if (r) {
+    r.addEventListener('input',  refresh);
+    r.addEventListener('change', refresh);
+    r.addEventListener('blur',   refresh);
+  }
+  var form = wrap.closest('form');
+  if (form) form.addEventListener('submit', refresh, true);
+})();
+</script>

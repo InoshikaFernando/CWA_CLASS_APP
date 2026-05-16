@@ -1,0 +1,12 @@
+{% comment %}
+CPP-277: extended_answer partial — larger multi-line textarea.
+Context: question
+{% endcomment %}
+<div>
+  <textarea name="text_answer" required rows="6"
+            placeholder="Write your extended answer here…"
+            class="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm
+                   focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent
+                   transition resize-y"></textarea>
+  <p class="text-xs text-gray-400 mt-1">Write in full sentences. Show your working where possible.</p>
+</div>

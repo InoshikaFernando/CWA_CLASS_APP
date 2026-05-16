@@ -294,3 +294,161 @@ class TestWorksheetConfirmNoAttributeError:
         # Should have left the confirm page (redirected to detail or preview)
         assert "/confirm/" not in page.url, \
             f"Expected redirect away from confirm page but still at: {page.url}"
+
+
+# ---------------------------------------------------------------------------
+# CPP-277–280: Per-type answer partial rendering
+# ---------------------------------------------------------------------------
+
+def _make_session_assignment(question_type, school, teacher_user, level, topic,
+                              classroom, enrolled_student, **q_kwargs):
+    """Create a worksheet + assignment + enrollemt for a student session test."""
+    from maths.models import Answer, Question
+    from worksheets.models import Worksheet, WorksheetAssignment, WorksheetQuestion
+
+    defaults = dict(
+        level=level, topic=topic,
+        question_text='Test question for rendering',
+        question_type=question_type,
+        difficulty=1, points=1,
+    )
+    defaults.update(q_kwargs)
+    question = Question.objects.create(**defaults)
+
+    ws = Worksheet.objects.create(
+        school=school, name=f'Rendering Test — {question_type}',
+        original_filename='', created_by=teacher_user, question_count=1,
+    )
+    WorksheetQuestion.objects.create(
+        worksheet=ws, question=question,
+        subject_slug='mathematics', content_id=question.pk, order=1,
+    )
+    assignment = WorksheetAssignment.objects.create(
+        worksheet=ws, classroom=classroom, is_active=True, assigned_by=teacher_user,
+    )
+    return assignment, question
+
+
+class TestAnswerPartialRendering:
+    """CPP-277–280: correct input widget for each question type."""
+
+    @pytest.mark.django_db(transaction=True)
+    def test_mcq_question_renders_radio_buttons(
+        self, page: Page, live_server,
+        enrolled_student, school, teacher_user, level, topic, classroom,
+    ):
+        """MCQ question shows radio button answer options."""
+        from maths.models import Answer
+        assignment, question = _make_session_assignment(
+            'multiple_choice', school, teacher_user, level, topic, classroom, enrolled_student,
+            question_text='What is 3 + 3?',
+        )
+        Answer.objects.create(question=question, answer_text='6', is_correct=True, order=1)
+        Answer.objects.create(question=question, answer_text='5', is_correct=False, order=2)
+
+        do_login(page, live_server.url, enrolled_student)
+        page.goto(f"{live_server.url}/worksheets/assignments/{assignment.pk}/session/")
+        page.wait_for_load_state('networkidle')
+
+        # Radio buttons rendered
+        expect(page.locator("input[type='radio'][name='answer_id']").first).to_be_visible()
+
+    @pytest.mark.django_db(transaction=True)
+    def test_short_answer_renders_textarea(
+        self, page: Page, live_server,
+        enrolled_student, school, teacher_user, level, topic, classroom,
+    ):
+        """short_answer shows a <textarea> (not a single-line input)."""
+        assignment, _ = _make_session_assignment(
+            'short_answer', school, teacher_user, level, topic, classroom, enrolled_student,
+        )
+
+        do_login(page, live_server.url, enrolled_student)
+        page.goto(f"{live_server.url}/worksheets/assignments/{assignment.pk}/session/")
+        page.wait_for_load_state('networkidle')
+
+        expect(page.locator("textarea[name='text_answer']")).to_be_visible()
+        # Confirm it is a textarea (rows attribute) not an input
+        rows = page.locator("textarea[name='text_answer']").get_attribute("rows")
+        assert rows is not None, "Expected <textarea> with rows attribute"
+
+    @pytest.mark.django_db(transaction=True)
+    def test_extended_answer_renders_large_textarea(
+        self, page: Page, live_server,
+        enrolled_student, school, teacher_user, level, topic, classroom,
+    ):
+        """extended_answer shows a larger <textarea> (rows=6)."""
+        assignment, _ = _make_session_assignment(
+            'extended_answer', school, teacher_user, level, topic, classroom, enrolled_student,
+        )
+
+        do_login(page, live_server.url, enrolled_student)
+        page.goto(f"{live_server.url}/worksheets/assignments/{assignment.pk}/session/")
+        page.wait_for_load_state('networkidle')
+
+        textarea = page.locator("textarea[name='text_answer']")
+        expect(textarea).to_be_visible()
+        rows = int(textarea.get_attribute("rows") or 0)
+        assert rows >= 5, f"Expected extended_answer textarea to have rows >= 5, got {rows}"
+
+    @pytest.mark.django_db(transaction=True)
+    def test_long_division_grid_renders_and_submits(
+        self, page: Page, live_server,
+        enrolled_student, school, teacher_user, level, topic, classroom,
+    ):
+        """Long-division shows the step grid and accepts submission."""
+        assignment, question = _make_session_assignment(
+            'long_division', school, teacher_user, level, topic, classroom, enrolled_student,
+            question_text='Divide 84 ÷ 7',
+            dividend=84, divisor=7,
+        )
+
+        do_login(page, live_server.url, enrolled_student)
+        page.goto(f"{live_server.url}/worksheets/assignments/{assignment.pk}/session/")
+        page.wait_for_load_state('networkidle')
+
+        # Grid should be visible — quotient input cells
+        quotient_cells = page.locator("[data-ld-q]")
+        expect(quotient_cells.first).to_be_visible(timeout=5000)
+
+        # Fill quotient cells: 84 ÷ 7 = 12
+        quotient_cells.nth(0).fill('1')
+        quotient_cells.nth(1).fill('2')
+
+        # Submit
+        with page.expect_response(lambda r: '/answer/' in r.url and r.status == 200):
+            page.locator("form[hx-post] button[type='submit']").click()
+
+        # Feedback should appear
+        expect(page.locator('#answer-area')).to_contain_text('Correct', timeout=6000)
+
+    @pytest.mark.django_db(transaction=True)
+    def test_prime_factorisation_ladder_renders_and_submits(
+        self, page: Page, live_server,
+        enrolled_student, school, teacher_user, level, topic, classroom,
+    ):
+        """Prime-factorisation shows the factor ladder and accepts submission."""
+        assignment, question = _make_session_assignment(
+            'prime_factorization', school, teacher_user, level, topic, classroom, enrolled_student,
+            question_text='Find the prime factors of 12',
+            target_number=12,
+        )
+
+        do_login(page, live_server.url, enrolled_student)
+        page.goto(f"{live_server.url}/worksheets/assignments/{assignment.pk}/session/")
+        page.wait_for_load_state('networkidle')
+
+        # Factor ladder cells
+        prime_cells = page.locator("[data-pf-p]")
+        expect(prime_cells.first).to_be_visible(timeout=5000)
+
+        # Fill prime factors for 12: 2, 2, 3
+        prime_cells.nth(0).fill('2')
+        prime_cells.nth(1).fill('2')
+        prime_cells.nth(2).fill('3')
+
+        # Submit
+        with page.expect_response(lambda r: '/answer/' in r.url and r.status == 200):
+            page.locator("form[hx-post] button[type='submit']").click()
+
+        expect(page.locator('#answer-area')).to_contain_text('Correct', timeout=6000)
