@@ -1,0 +1,89 @@
+{% if page_obj.object_list %}
+<div class="space-y-3">
+
+  <!-- Result count -->
+  <p class="text-xs text-gray-400">
+    Showing {{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ total_count }} question{{ total_count|pluralize }}
+  </p>
+
+  <!-- Question cards -->
+  {% for question in page_obj %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex items-start gap-4">
+    <div class="flex-1 min-w-0">
+      <!-- Badges -->
+      <div class="flex flex-wrap gap-1.5 mb-2">
+        <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+          {{ question.get_question_type_display }}
+        </span>
+        <span class="px-2 py-0.5 rounded-full text-xs font-medium
+          {% if question.difficulty == 1 %}bg-emerald-50 text-emerald-700
+          {% elif question.difficulty == 2 %}bg-amber-50 text-amber-700
+          {% else %}bg-red-50 text-red-700{% endif %}">
+          {{ question.difficulty_label }}
+        </span>
+        {% if question.topic %}
+        <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
+          {{ question.topic.name }}
+        </span>
+        {% endif %}
+        {% if question.level %}
+        <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-50 text-purple-700">
+          Year {{ question.level.level_number }}
+        </span>
+        {% endif %}
+      </div>
+
+      <!-- Question text -->
+      <p class="text-sm text-gray-800 line-clamp-2">{{ question.question_text }}</p>
+    </div>
+
+    <!-- Select button (disabled — add mechanic in CPP-283) -->
+    <button type="button"
+            disabled
+            title="Worksheet selection coming soon"
+            class="shrink-0 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-gray-400 bg-slate-50 opacity-50 cursor-not-allowed">
+      Select
+    </button>
+  </div>
+  {% endfor %}
+
+  <!-- Pagination -->
+  {% if page_obj.has_other_pages %}
+  <div class="flex items-center justify-between pt-2">
+    <div>
+      {% if page_obj.has_previous %}
+      <button type="button"
+              class="px-4 py-2 rounded-xl border border-slate-200 text-sm text-gray-600 hover:bg-slate-50 transition"
+              hx-get="?page={{ page_obj.previous_page_number }}{% for k, v in filter_params.items %}&{{ k }}={{ v }}{% endfor %}"
+              hx-target="#question-list"
+              hx-swap="innerHTML show:top">
+        ← Previous
+      </button>
+      {% endif %}
+    </div>
+    <span class="text-xs text-gray-400">
+      Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+    </span>
+    <div>
+      {% if page_obj.has_next %}
+      <button type="button"
+              class="px-4 py-2 rounded-xl border border-slate-200 text-sm text-gray-600 hover:bg-slate-50 transition"
+              hx-get="?page={{ page_obj.next_page_number }}{% for k, v in filter_params.items %}&{{ k }}={{ v }}{% endfor %}"
+              hx-target="#question-list"
+              hx-swap="innerHTML show:top">
+        Next →
+      </button>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% else %}
+<!-- Empty state -->
+<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-10 text-center">
+  <div class="text-4xl mb-3">🔍</div>
+  <p class="text-gray-600 font-medium">No questions match your filters.</p>
+  <p class="text-sm text-gray-400 mt-1">Try a different subject, topic, or search term.</p>
+</div>
+{% endif %}

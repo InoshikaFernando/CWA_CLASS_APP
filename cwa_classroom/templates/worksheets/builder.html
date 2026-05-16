@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}Worksheet Builder{% endblock %}
+{% block content %}
+<div class="max-w-7xl mx-auto space-y-6">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="font-display text-2xl text-primary">Worksheet Builder</h1>
+      <p class="text-gray-400 text-sm mt-1">Browse the question bank and select questions to build a worksheet.</p>
+    </div>
+    <a href="{% url 'worksheets:list' %}"
+       class="px-4 py-2 rounded-xl border border-slate-200 text-sm text-gray-600 hover:bg-slate-50 transition">
+      ← My Worksheets
+    </a>
+  </div>
+
+  <div class="flex gap-6">
+
+    <!-- Filter Panel -->
+    <aside class="w-64 shrink-0 space-y-4">
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+        <h2 class="text-sm font-semibold text-gray-700">Filter Questions</h2>
+
+        <!-- Subject -->
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1">Subject</label>
+          <select id="filter-subject"
+                  class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
+                  hx-get="{% url 'worksheets:builder_questions' %}"
+                  hx-target="#question-list"
+                  hx-swap="innerHTML show:top"
+                  hx-trigger="change"
+                  hx-include="#filter-form"
+                  name="subject">
+            <option value="">All Subjects</option>
+            {% for subject in subjects %}
+            <option value="{{ subject.slug }}">{{ subject.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <!-- Topic (client-side filtered by subject) -->
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1">Topic</label>
+          <select id="filter-topic"
+                  class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
+                  hx-get="{% url 'worksheets:builder_questions' %}"
+                  hx-target="#question-list"
+                  hx-swap="innerHTML show:top"
+                  hx-trigger="change"
+                  hx-include="#filter-form"
+                  name="topic">
+            <option value="">All Topics</option>
+            {% for topic in topics %}
+            <option value="{{ topic.pk }}" data-subject="{{ topic.subject.slug }}">{{ topic.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <!-- Level -->
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1">Year Level</label>
+          <select id="filter-level"
+                  class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
+                  hx-get="{% url 'worksheets:builder_questions' %}"
+                  hx-target="#question-list"
+                  hx-swap="innerHTML show:top"
+                  hx-trigger="change"
+                  hx-include="#filter-form"
+                  name="level">
+            <option value="">All Levels</option>
+            {% for level in levels %}
+            <option value="{{ level.level_number }}">Year {{ level.level_number }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <!-- Search -->
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1">Search</label>
+          <input type="text"
+                 id="filter-search"
+                 name="q"
+                 placeholder="Search question text…"
+                 class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
+                 hx-get="{% url 'worksheets:builder_questions' %}"
+                 hx-target="#question-list"
+                 hx-swap="innerHTML show:top"
+                 hx-trigger="input changed delay:400ms"
+                 hx-include="#filter-form" />
+        </div>
+      </div>
+    </aside>
+
+    <!-- Hidden form to collect all filter values for hx-include -->
+    <form id="filter-form" class="hidden">
+      <input type="hidden" name="subject" id="form-subject" value="" />
+      <input type="hidden" name="topic" id="form-topic" value="" />
+      <input type="hidden" name="level" id="form-level" value="" />
+      <input type="hidden" name="q" id="form-q" value="" />
+    </form>
+
+    <!-- Question List -->
+    <div class="flex-1 min-w-0">
+      <div id="question-list"
+           hx-get="{% url 'worksheets:builder_questions' %}"
+           hx-trigger="load"
+           hx-swap="innerHTML show:top">
+        <div class="flex items-center justify-center h-40 text-gray-400 text-sm">
+          Loading questions…
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  // Client-side topic cascade — filter topic dropdown by selected subject
+  (function () {
+    const subjectEl = document.getElementById('filter-subject');
+    const topicEl = document.getElementById('filter-topic');
+
+    function filterTopics() {
+      const selectedSubject = subjectEl.value;
+      const allOptions = topicEl.querySelectorAll('option[data-subject]');
+
+      allOptions.forEach(function (opt) {
+        const match = !selectedSubject || opt.dataset.subject === selectedSubject;
+        opt.hidden = !match;
+        if (!match && opt.selected) {
+          topicEl.value = '';
+        }
+      });
+    }
+
+    subjectEl.addEventListener('change', filterTopics);
+
+    // Sync hidden form inputs so hx-include picks up current values
+    function syncForm() {
+      document.getElementById('form-subject').value = subjectEl.value;
+      document.getElementById('form-topic').value = topicEl.value;
+      document.getElementById('form-level').value = document.getElementById('filter-level').value;
+      document.getElementById('form-q').value = document.getElementById('filter-search').value;
+    }
+
+    document.querySelectorAll('#filter-subject, #filter-topic, #filter-level, #filter-search')
+      .forEach(function (el) { el.addEventListener('change', syncForm); });
+    document.getElementById('filter-search').addEventListener('input', syncForm);
+  })();
+</script>
+{% endblock %}
