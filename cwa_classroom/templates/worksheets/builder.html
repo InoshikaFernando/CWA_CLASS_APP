@@ -184,6 +184,7 @@
                 disabled
                 hx-post="{% url 'worksheets:builder_save' %}"
                 hx-include="#worksheet-name, #questions-json, #sidebar-level-id"
+                hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
                 hx-target="#save-error"
                 hx-swap="innerHTML"
                 hx-indicator="#save-indicator"
