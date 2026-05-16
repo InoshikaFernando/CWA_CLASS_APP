@@ -18,7 +18,7 @@
   <div class="flex gap-6">
 
     <!-- Filter Panel -->
-    <aside class="w-64 shrink-0 space-y-4">
+    <aside class="w-56 shrink-0 space-y-4">
       <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
         <h2 class="text-sm font-semibold text-gray-700">Filter Questions</h2>
 
@@ -121,29 +121,275 @@
       </div>
     </div>
 
+    <!-- Selection Sidebar -->
+    <aside class="w-72 shrink-0">
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4 sticky top-6">
+
+        <!-- Sidebar header with count badge -->
+        <div class="flex items-center justify-between">
+          <h2 class="text-sm font-semibold text-gray-700">Worksheet</h2>
+          <span id="question-count-badge"
+                class="px-2 py-0.5 rounded-full text-xs font-semibold bg-primary text-white hidden">
+            0
+          </span>
+        </div>
+
+        <!-- Worksheet name -->
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1">Name <span class="text-red-400">*</span></label>
+          <input type="text"
+                 id="worksheet-name"
+                 maxlength="100"
+                 placeholder="e.g. Fractions Review"
+                 class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition" />
+        </div>
+
+        <!-- Level -->
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1">Year Level</label>
+          <select id="sidebar-level"
+                  class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition">
+            <option value="">— Select —</option>
+            {% for level in levels %}
+            <option value="{{ level.level_number }}">Year {{ level.level_number }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <!-- Selected questions list (SortableJS target) -->
+        <div>
+          <p class="text-xs font-medium text-gray-500 mb-2">Questions</p>
+
+          <!-- Empty state -->
+          <div id="sidebar-empty"
+               class="flex flex-col items-center justify-center py-8 border-2 border-dashed border-slate-200 rounded-xl text-center">
+            <p class="text-xs text-gray-400 leading-relaxed">No questions yet.<br>Click <strong>+ Add</strong> on any question.</p>
+          </div>
+
+          <!-- Sortable list -->
+          <ul id="sidebar-question-list" class="space-y-2"></ul>
+        </div>
+
+        <!-- Hidden JSON input for form submission -->
+        <input type="hidden" id="questions-json" name="questions_json" value="[]" />
+
+        <!-- Save button -->
+        <button type="button"
+                id="save-worksheet-btn"
+                disabled
+                class="w-full py-2.5 rounded-xl text-sm font-semibold transition
+                       bg-slate-100 text-slate-400 cursor-not-allowed
+                       disabled:opacity-60">
+          Save Worksheet
+        </button>
+
+      </div>
+    </aside>
+
   </div>
 </div>
 
+<!-- SortableJS v1.15.2 -->
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+
 <script>
-  // Client-side topic cascade — filter topic dropdown by selected subject
-  (function () {
-    const subjectEl = document.getElementById('filter-subject');
-    const topicEl = document.getElementById('filter-topic');
+(function () {
+  'use strict';
 
-    function filterTopics() {
-      const selectedSubject = subjectEl.value;
-      const allOptions = topicEl.querySelectorAll('option[data-subject]');
+  // ─── State ────────────────────────────────────────────────────────────────
+  // selectedQuestions: [{content_id, subject_slug, text, level, difficulty}]
+  var selectedQuestions = [];
 
-      allOptions.forEach(function (opt) {
-        const match = !selectedSubject || opt.dataset.subject === selectedSubject;
-        opt.hidden = !match;
-        if (!match && opt.selected) {
-          topicEl.value = '';
-        }
-      });
+  // ─── DOM refs ─────────────────────────────────────────────────────────────
+  var sidebarList    = document.getElementById('sidebar-question-list');
+  var sidebarEmpty   = document.getElementById('sidebar-empty');
+  var countBadge     = document.getElementById('question-count-badge');
+  var nameInput      = document.getElementById('worksheet-name');
+  var levelSelect    = document.getElementById('sidebar-level');
+  var saveBtn        = document.getElementById('save-worksheet-btn');
+  var questionsJson  = document.getElementById('questions-json');
+  var filterLevel    = document.getElementById('filter-level');
+
+  // ─── SortableJS ───────────────────────────────────────────────────────────
+  Sortable.create(sidebarList, {
+    handle: '.drag-handle',
+    animation: 150,
+    onEnd: function () {
+      rebuildQuestionsFromDOM();
+    }
+  });
+
+  // ─── Sync level filter → sidebar level default ───────────────────────────
+  filterLevel.addEventListener('change', function () {
+    if (filterLevel.value) {
+      levelSelect.value = filterLevel.value;
+    }
+  });
+
+  // ─── Add question ─────────────────────────────────────────────────────────
+  document.body.addEventListener('click', function (e) {
+    var btn = e.target.closest('.add-question-btn');
+    if (!btn) return;
+    var card = btn.closest('[data-content-id]');
+    if (!card) return;
+
+    var contentId   = parseInt(card.dataset.contentId, 10);
+    var subjectSlug = card.dataset.subjectSlug || 'mathematics';
+
+    // Prevent duplicates
+    if (selectedQuestions.some(function (q) { return q.content_id === contentId; })) return;
+
+    selectedQuestions.push({
+      content_id:   contentId,
+      subject_slug: subjectSlug,
+      text:         card.dataset.questionText || '',
+      level:        card.dataset.level || '',
+      difficulty:   card.dataset.difficulty || ''
+    });
+
+    renderSidebar();
+    reapplySelectedState();
+    syncHiddenInput();
+    validateForm();
+  });
+
+  // ─── Remove question ──────────────────────────────────────────────────────
+  sidebarList.addEventListener('click', function (e) {
+    var btn = e.target.closest('.remove-question-btn');
+    if (!btn) return;
+    var li = btn.closest('li[data-content-id]');
+    if (!li) return;
+
+    var contentId = parseInt(li.dataset.contentId, 10);
+    selectedQuestions = selectedQuestions.filter(function (q) { return q.content_id !== contentId; });
+
+    renderSidebar();
+    reapplySelectedState();
+    syncHiddenInput();
+    validateForm();
+  });
+
+  // ─── Name input validation ────────────────────────────────────────────────
+  nameInput.addEventListener('input', validateForm);
+
+  // ─── Rebuild array from DOM after drag ───────────────────────────────────
+  function rebuildQuestionsFromDOM() {
+    var items = sidebarList.querySelectorAll('li[data-content-id]');
+    var newOrder = [];
+    items.forEach(function (li) {
+      var contentId = parseInt(li.dataset.contentId, 10);
+      var existing  = selectedQuestions.find(function (q) { return q.content_id === contentId; });
+      if (existing) newOrder.push(existing);
+    });
+    selectedQuestions = newOrder;
+    syncHiddenInput();
+    validateForm();
+  }
+
+  // ─── Render sidebar list ──────────────────────────────────────────────────
+  function renderSidebar() {
+    sidebarList.innerHTML = '';
+
+    if (selectedQuestions.length === 0) {
+      sidebarEmpty.classList.remove('hidden');
+      countBadge.classList.add('hidden');
+      return;
     }
 
-    subjectEl.addEventListener('change', filterTopics);
-  })();
+    sidebarEmpty.classList.add('hidden');
+    countBadge.classList.remove('hidden');
+    countBadge.textContent = selectedQuestions.length;
+
+    selectedQuestions.forEach(function (q, idx) {
+      var li = document.createElement('li');
+      li.className = 'flex items-start gap-2 bg-slate-50 rounded-xl p-3 border border-slate-200';
+      li.dataset.contentId = q.content_id;
+      li.innerHTML =
+        '<span class="drag-handle mt-0.5 cursor-grab text-gray-300 hover:text-gray-500 shrink-0" title="Drag to reorder">' +
+          '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16"/></svg>' +
+        '</span>' +
+        '<div class="flex-1 min-w-0">' +
+          '<p class="text-xs font-medium text-gray-500 mb-0.5">Q' + (idx + 1) + (q.level ? ' · ' + q.level : '') + (q.difficulty ? ' · ' + q.difficulty : '') + '</p>' +
+          '<p class="text-xs text-gray-700 line-clamp-2">' + escapeHtml(q.text) + '</p>' +
+        '</div>' +
+        '<button type="button" class="remove-question-btn shrink-0 text-gray-300 hover:text-red-400 transition" title="Remove">' +
+          '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>' +
+        '</button>';
+      sidebarList.appendChild(li);
+    });
+  }
+
+  // ─── Re-apply selected state after HTMX swap ─────────────────────────────
+  function reapplySelectedState() {
+    // Reset all cards first
+    document.querySelectorAll('.add-question-btn').forEach(function (btn) {
+      btn.disabled = false;
+      btn.textContent = '+ Add';
+      btn.className = 'add-question-btn shrink-0 px-3 py-1.5 rounded-lg border border-primary text-xs font-medium text-primary bg-white hover:bg-primary hover:text-white transition';
+    });
+
+    // Grey out already-selected cards
+    selectedQuestions.forEach(function (q) {
+      var card = document.querySelector('.question-card[data-content-id="' + q.content_id + '"]');
+      if (!card) return;
+      var btn = card.querySelector('.add-question-btn');
+      if (!btn) return;
+      btn.disabled = true;
+      btn.textContent = '✓ Added';
+      btn.className = 'add-question-btn shrink-0 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-400 bg-slate-50 cursor-not-allowed';
+    });
+  }
+
+  // ─── Sync hidden JSON input ───────────────────────────────────────────────
+  function syncHiddenInput() {
+    questionsJson.value = JSON.stringify(
+      selectedQuestions.map(function (q) {
+        return { subject_slug: q.subject_slug, content_id: q.content_id };
+      })
+    );
+  }
+
+  // ─── Save button validation ───────────────────────────────────────────────
+  function validateForm() {
+    var name = nameInput.value.trim();
+    var valid = name.length > 0 && name.length <= 100 && selectedQuestions.length > 0;
+    saveBtn.disabled = !valid;
+    if (valid) {
+      saveBtn.className = 'w-full py-2.5 rounded-xl text-sm font-semibold transition bg-primary text-white hover:bg-primary-dark cursor-pointer';
+    } else {
+      saveBtn.className = 'w-full py-2.5 rounded-xl text-sm font-semibold transition bg-slate-100 text-slate-400 cursor-not-allowed disabled:opacity-60';
+    }
+  }
+
+  // ─── Re-apply state after HTMX question list swap ────────────────────────
+  document.body.addEventListener('htmx:afterSwap', function (evt) {
+    if (evt.target && evt.target.id === 'question-list') {
+      reapplySelectedState();
+    }
+  });
+
+  // ─── HTML escaping helper ─────────────────────────────────────────────────
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // ─── Topic cascade ────────────────────────────────────────────────────────
+  var subjectEl = document.getElementById('filter-subject');
+  var topicEl   = document.getElementById('filter-topic');
+
+  subjectEl.addEventListener('change', function () {
+    var selectedSubject = subjectEl.value;
+    topicEl.querySelectorAll('option[data-subject]').forEach(function (opt) {
+      var match = !selectedSubject || opt.dataset.subject === selectedSubject;
+      opt.hidden = !match;
+      if (!match && opt.selected) { topicEl.value = ''; }
+    });
+  });
+
+})();
 </script>
 {% endblock %}
