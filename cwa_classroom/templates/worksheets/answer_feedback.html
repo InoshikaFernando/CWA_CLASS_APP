@@ -2,7 +2,7 @@
 {# HTMX partial — replaces #answer-area after answer submission #}
 <div id="answer-area" class="space-y-4">
 
-  {% with ai_feedback=student_answer.answer_data.feedback pending_review=student_answer.answer_data.review_status %}
+  {% with ai_feedback=student_answer.answer_data.feedback pending_review=student_answer.answer_data.review_status is_partial=student_answer.answer_data.is_partial what_was_correct=student_answer.answer_data.what_was_correct what_to_add=student_answer.answer_data.what_to_add %}
 
   {% if pending_review == 'pending_ai' %}
   {# Extended answer — AI grading unavailable; teacher will review #}
@@ -31,6 +31,29 @@
     </div>
   </div>
 
+  {% elif is_partial %}
+  {# Partial credit — amber — some correct, something still missing #}
+  <div class="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200">
+    <svg class="w-6 h-6 text-amber-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+    </svg>
+    <div class="flex-1">
+      <p class="font-semibold text-amber-700">Partially correct</p>
+      {% if what_was_correct and what_was_correct != 'None' %}
+      <p class="text-sm text-amber-700 mt-2">
+        <span class="font-medium">✓ What you got right:</span> {{ what_was_correct }}
+      </p>
+      {% endif %}
+      {% if what_to_add and what_to_add != 'Nothing' %}
+      <p class="text-sm text-amber-700 mt-1">
+        <span class="font-medium">What to add for full marks:</span> {{ what_to_add }}
+      </p>
+      {% elif ai_feedback %}
+      <p class="text-sm text-amber-600 mt-1">{{ ai_feedback }}</p>
+      {% endif %}
+    </div>
+  </div>
+
   {% else %}
   <div class="flex items-start gap-3 p-4 rounded-xl bg-red-50 border border-red-200">
     <svg class="w-6 h-6 text-red-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
@@ -40,6 +63,11 @@
       <p class="font-semibold text-red-700">Not quite right</p>
       {% if ai_feedback %}
       <p class="text-sm text-red-600 mt-1">{{ ai_feedback }}</p>
+      {% if what_to_add and what_to_add != 'Nothing' %}
+      <p class="text-sm text-red-600 mt-1">
+        <span class="font-medium">What to include:</span> {{ what_to_add }}
+      </p>
+      {% endif %}
       {% else %}
         {% if correct_answers %}
         <p class="text-sm text-red-600 mt-1">

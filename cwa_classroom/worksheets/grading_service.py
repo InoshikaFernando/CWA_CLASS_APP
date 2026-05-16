@@ -178,7 +178,9 @@ def grade_extended_answer(question, answer_text: str, school=None):
     cached = _lookup_cache(question.pk, normalised, threshold=0.85)
     if cached:
         logger.info(f'AI grading cache hit for Q{question.pk}')
-        return {**cached, 'cache_hit': True, 'input_tokens': 0, 'output_tokens': 0}
+        result = {**cached, 'cache_hit': True, 'input_tokens': 0, 'output_tokens': 0}
+        result.setdefault('is_partial', 0.1 <= result.get('score_fraction', 0.0) < 0.6)
+        return result
 
     # ── 2. Quota check ────────────────────────────────────────────────────
     if school:
@@ -216,6 +218,26 @@ def grade_extended_answer(question, answer_text: str, school=None):
     return result
 
 
+def _parse_cache_feedback(raw_feedback: str) -> dict:
+    """Parse a cache feedback field — may be a plain string or a JSON-encoded dict
+    (new format including what_was_correct / what_to_add).
+
+    Returns a dict with keys: feedback, what_was_correct, what_to_add.
+    """
+    import json as _json
+    try:
+        data = _json.loads(raw_feedback)
+        if isinstance(data, dict):
+            return {
+                'feedback': data.get('feedback', raw_feedback),
+                'what_was_correct': data.get('what_was_correct', ''),
+                'what_to_add': data.get('what_to_add', ''),
+            }
+    except (ValueError, TypeError):
+        pass
+    return {'feedback': raw_feedback, 'what_was_correct': '', 'what_to_add': ''}
+
+
 def _lookup_cache(question_pk, normalised_text, threshold=0.85):
     """Check DB cache for a similar previously-graded answer. Returns result dict or None.
 
@@ -229,12 +251,23 @@ def _lookup_cache(question_pk, normalised_text, threshold=0.85):
                        .order_by('-human_verified', '-hit_count'))
         if not entries:
             return None
+
+        def _make_result(e):
+            parsed = _parse_cache_feedback(e.feedback)
+            score = e.score_fraction
+            return {
+                'is_correct': e.is_correct,
+                'score_fraction': score,
+                'is_partial': 0.1 <= score < 0.6,
+                **parsed,
+            }
+
         # Exact match first
         for e in entries:
             if e.normalised_answer == normalised_text:
                 e.hit_count = models.F('hit_count') + 1
                 e.save(update_fields=['hit_count'])
-                return {'is_correct': e.is_correct, 'score_fraction': e.score_fraction, 'feedback': e.feedback}
+                return _make_result(e)
         # Fuzzy match — use a tighter threshold for AI entries, standard for human-verified
         for e in entries:
             match_threshold = threshold if e.human_verified else threshold + 0.05
@@ -242,23 +275,38 @@ def _lookup_cache(question_pk, normalised_text, threshold=0.85):
             if ratio >= match_threshold:
                 e.hit_count = models.F('hit_count') + 1
                 e.save(update_fields=['hit_count'])
-                return {'is_correct': e.is_correct, 'score_fraction': e.score_fraction, 'feedback': e.feedback}
+                return _make_result(e)
     except Exception as exc:
         logger.warning(f'Cache lookup error: {exc}')
     return None
 
 
 def _store_cache(question_pk, normalised_text, result):
-    """Persist a grading result to cache."""
+    """Persist a grading result to cache.
+
+    If the result includes what_was_correct / what_to_add, those are serialised
+    into the feedback field as JSON so they survive a cache hit round-trip.
+    """
+    import json as _json
     try:
         Cache = _get_cache_model()
+        what_was_correct = result.get('what_was_correct', '')
+        what_to_add = result.get('what_to_add', '')
+        if what_was_correct or what_to_add:
+            feedback_stored = _json.dumps({
+                'feedback': result['feedback'],
+                'what_was_correct': what_was_correct,
+                'what_to_add': what_to_add,
+            })
+        else:
+            feedback_stored = result['feedback']
         Cache.objects.update_or_create(
             question_id=question_pk,
             normalised_answer=normalised_text[:500],
             defaults={
                 'is_correct': result['is_correct'],
                 'score_fraction': result['score_fraction'],
-                'feedback': result['feedback'],
+                'feedback': feedback_stored,
             },
         )
     except Exception as exc:
@@ -350,39 +398,42 @@ def _call_claude_grade(question, answer_text, normalised_text):
     image_block = _fetch_image_block(question)
 
     system = (
-        'You are an expert mathematics teacher grading student proof answers. '
-        'You have deep knowledge of geometry and can independently verify whether '
-        'a mathematical argument is correct — you do not need a rubric to tell you '
-        'if a proof is valid.\n\n'
+        'You are an expert teacher grading student extended answers across subjects '
+        'including mathematics, science, and language arts.\n\n'
 
-        'YOUR PRIMARY JOB: Determine whether the student\'s reasoning is '
-        'mathematically correct and complete. Ask yourself: "If I were marking this '
-        'on a maths exam, is this proof valid?" — not "Does it match the sample answer?"\n\n'
+        'YOUR PRIMARY JOB: Evaluate whether the student\'s answer correctly and '
+        'completely addresses the question. Credit substance and meaning, not '
+        'phrasing — a student who expresses the right idea in different words '
+        'should not lose marks.\n\n'
 
-        'THE RUBRIC IS A REFERENCE ONLY. It shows one possible correct approach. '
-        'Students may use any valid proof path — corresponding angles, co-interior angles, '
-        'vertically opposite angles, linear pairs, angles at a point, alternate angles — '
-        'in any order that forms a valid logical chain. A different path that reaches the '
-        'correct conclusion with correct reasoning earns the same marks as the rubric path.\n\n'
+        'QUESTION TYPE GUIDANCE:\n'
+        '• DEFINITIONS — Award credit for each key concept or keyword that is '
+        'correctly included. A definition with 3 of 4 required elements earns ~0.75. '
+        'Missing all key elements earns 0.0. Different but accurate wording is fine.\n'
+        '• EXPLANATIONS / REASONING — Check whether the key ideas are present and '
+        'the reasoning is logically sound. Partial explanations earn partial credit.\n'
+        '• MATHEMATICAL PROOFS — Verify the argument step by step. A different valid '
+        'proof path earns the same marks as the reference. Implicit trivial steps are fine.\n'
+        '• SHORT ANSWERS — One or two correct key points earns near-full credit.\n\n'
 
-        'THE DIAGRAM (if shown) defines the angle labels. Use it to understand the geometry '
-        'directly. Students do not need to re-state facts visible in the diagram.\n\n'
+        'THE RUBRIC (if provided) shows one correct approach. Students may express '
+        'the same ideas differently. A different path that is correct earns full marks.\n\n'
 
-        'IMPLICIT STEPS ARE FINE at high school level. If a student states all the key '
-        'relationships and the conclusion follows by simple substitution, that is complete. '
-        'Example: "a=c (vertically opposite) and b=d (vertically opposite)" is a complete '
-        'proof of a+d=b+c — the substitution is trivial and need not be written.\n\n'
+        'THE DIAGRAM (if shown) defines labels/notation. Students need not re-state '
+        'what is visible in the diagram.\n\n'
 
         'SCORING:\n'
-        '  1.0 — Mathematically valid proof, correct conclusion.\n'
-        '  0.8 — Valid proof with very minor imprecision (informal wording, one implicit step).\n'
-        '  0.6 — Correct approach and theorems but one genuine logical gap.\n'
-        '  0.3 — Partially correct — right theorems but chain does not reach the conclusion.\n'
+        '  1.0 — Fully correct and complete.\n'
+        '  0.8 — Mostly correct with very minor omission or imprecision.\n'
+        '  0.6 — Correct approach, one genuine gap (still passes).\n'
+        '  0.3 — Partially correct — some right ideas but missing key elements.\n'
+        '  0.1 — Only a small fragment is correct.\n'
         '  0.0 — Fundamentally wrong or no attempt.\n\n'
 
-        'Your score_fraction and your feedback MUST be consistent. '
-        'If your feedback says the proof is correct/valid/complete, score >= 0.8. '
-        'If your feedback says there is a gap, score <= 0.5. Never contradict yourself.\n\n'
+        'CONSISTENCY: Your score_fraction and feedback MUST agree. '
+        'If feedback says "correct/complete/well done", score >= 0.8. '
+        'If feedback says "incorrect/missing/wrong", score <= 0.5. '
+        'Never contradict yourself.\n\n'
 
         'Your response must be valid JSON.'
     )
@@ -397,18 +448,18 @@ Reference answer (one valid approach — for context only):
 Student's answer:
 {answer_text}
 
-Verify this proof independently:
-- Are the angle relationships stated mathematically correct?
-- Do they form a valid chain leading to the conclusion?
-- Is the conclusion correct?
-
-If yes to all three → score 1.0 (or 0.8 for minor imprecision). Do not penalise for using a different path than the reference.
+Evaluate this answer:
+1. What key concepts, keywords, or reasoning steps did the student include correctly?
+2. What is missing, incorrect, or needs to be added for full marks?
+3. Does it earn full, partial, or no credit?
 
 Respond with JSON only:
 {{
   "score_fraction": <0.0 to 1.0>,
   "is_correct": <true if score_fraction >= 0.6>,
-  "feedback": "<1-3 sentences for the student: what was correct, what (if anything) was missing>"
+  "what_was_correct": "<specifically what the student got right — be concrete; 'None' if nothing>",
+  "what_to_add": "<specifically what is missing or must be added for full marks — 'Nothing' if already full marks>",
+  "feedback": "<1-2 sentence combined summary for the student>"
 }}"""
 
     try:
@@ -425,7 +476,7 @@ Respond with JSON only:
 
         response = client.messages.create(
             model='claude-sonnet-4-20250514',
-            max_tokens=400,
+            max_tokens=500,
             system=system,
             messages=[{'role': 'user', 'content': user_content}],
         )
@@ -438,6 +489,8 @@ Respond with JSON only:
         score_fraction = float(data.get('score_fraction', 0.0))
         score_fraction = max(0.0, min(1.0, score_fraction))
         feedback = str(data.get('feedback', ''))
+        what_was_correct = str(data.get('what_was_correct', ''))
+        what_to_add = str(data.get('what_to_add', ''))
 
         # ── Consistency check ────────────────────────────────────────────
         # Claude sometimes writes "Excellent work, mathematically complete"
@@ -475,8 +528,11 @@ Respond with JSON only:
 
         return {
             'is_correct': score_fraction >= 0.6,
+            'is_partial': 0.1 <= score_fraction < 0.6,
             'score_fraction': score_fraction,
             'feedback': feedback,
+            'what_was_correct': what_was_correct,
+            'what_to_add': what_to_add,
             'cache_hit': False,
             'input_tokens': response.usage.input_tokens,
             'output_tokens': response.usage.output_tokens,
@@ -485,8 +541,11 @@ Respond with JSON only:
         logger.exception(f'Claude grading call failed: {exc}')
         return {
             'is_correct': False,
+            'is_partial': False,
             'score_fraction': 0.0,
             'feedback': 'Automatic grading failed. Your teacher will review this answer.',
+            'what_was_correct': '',
+            'what_to_add': '',
             'cache_hit': False,
             'input_tokens': 0,
             'output_tokens': 0,

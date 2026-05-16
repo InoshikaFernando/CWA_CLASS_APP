@@ -727,15 +727,22 @@ class WorksheetAnswerView(LoginRequiredMixin, View):
             try:
                 result = grade_extended_answer(question, text_answer, school=school)
                 is_correct = result.get('is_correct', False)
+                score_frac = result.get('score_fraction', 0.0)
                 answer_data = {
                     'feedback': result.get('feedback', ''),
-                    'score_fraction': result.get('score_fraction', 0.0),
+                    'score_fraction': score_frac,
                     'cache_hit': result.get('cache_hit', False),
+                    'is_partial': result.get('is_partial', 0.1 <= score_frac < 0.6),
+                    'what_was_correct': result.get('what_was_correct', ''),
+                    'what_to_add': result.get('what_to_add', ''),
                 }
                 if result.get('quota_exceeded'):
                     answer_data['review_status'] = 'pending_ai'
                 if is_correct:
                     points_earned = float(question.points)
+                elif answer_data['is_partial']:
+                    # Award proportional points for partial credit
+                    points_earned = round(float(question.points) * score_frac, 2)
             except Exception as exc:
                 logger.exception(f'Extended answer grading failed for Q{question.pk}: {exc}')
                 answer_data = {'review_status': 'pending_ai'}
