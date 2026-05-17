@@ -1,14 +1,20 @@
 # Rewritten to be fully idempotent (safe to re-run after partial failure).
 #
-# The original auto-generated migration used AlterUniqueTogether which
-# triggers Django's MySQL backend to create a replacement FK index before
-# dropping the old unique index.  On the test server this caused:
-#   - Attempt 1: duplicate-data error adding the new unique constraint
-#   - Attempt 2: duplicate-key error creating the FK index (already exists)
+# History of failures on the test server:
+#   - Attempt 1: AlterUniqueTogether ran, dropped old unique, created standalone
+#                FK index on submission_id, then failed on new unique (duplicate
+#                content_id=0 data).
+#   - Attempt 2: Re-ran AlterUniqueTogether(set()), tried to create FK index
+#                again → OperationalError 1061 (duplicate key name).
+#   - Attempt 3: RunPython idempotent approach, but MySQL error 1553:
+#                "Cannot drop index: needed in a foreign key constraint" —
+#                the old unique was the ONLY index on submission_id so MySQL
+#                refuses to drop it until a replacement FK index exists.
 #
-# Fix: replace all schema operations with RunPython steps that check the
-# current DB state via information_schema before acting.  This makes the
-# migration safe to re-run regardless of how far the previous attempt got.
+# Fix: before dropping the old unique index, ensure a standalone index on
+# submission_id exists (creating it if needed). Then the DROP succeeds.
+# Every step checks information_schema before acting, making this safe to
+# re-run from any partial state.
 #
 # Django state is kept in sync via SeparateDatabaseAndState — the state_operations
 # tell Django's ORM what the schema looks like; the database_operations are no-ops
@@ -48,6 +54,11 @@ def apply_forward(apps, schema_editor):
     with conn.cursor() as c:
 
         # ── 1. Drop old unique_together (submission, question) if still present ──
+        #
+        # MySQL error 1553: you cannot drop a unique index that is the ONLY
+        # index covering a FK column until a replacement index exists.
+        # submission_id is a FK → worksheets_worksheetsubmission.id, so we
+        # must create a standalone index on submission_id first (if needed).
         c.execute(
             """SELECT CONSTRAINT_NAME
                FROM information_schema.TABLE_CONSTRAINTS
@@ -56,11 +67,30 @@ def apply_forward(apps, schema_editor):
                AND CONSTRAINT_TYPE = 'UNIQUE'""",
             [TABLE],
         )
-        for (name,) in c.fetchall():
-            # Only drop constraints that look like the old (submission, question) one —
-            # i.e. NOT the new one we're about to create.
-            if 'subject_sl' not in name and 'content_id' not in name:
-                c.execute(f'ALTER TABLE `{TABLE}` DROP INDEX `{name}`')
+        old_uniques = [
+            name for (name,) in c.fetchall()
+            if 'subject_sl' not in name and 'content_id' not in name
+        ]
+        for name in old_uniques:
+            # Check whether any index OTHER than this unique already covers
+            # submission_id as its leading column.
+            c.execute(
+                """SELECT COUNT(*) FROM information_schema.STATISTICS
+                   WHERE TABLE_SCHEMA = DATABASE()
+                   AND TABLE_NAME = %s
+                   AND COLUMN_NAME = 'submission_id'
+                   AND SEQ_IN_INDEX = 1
+                   AND INDEX_NAME != %s""",
+                [TABLE, name],
+            )
+            if c.fetchone()[0] == 0:
+                # No other index leads with submission_id — create one so
+                # MySQL can maintain the FK after we drop the unique.
+                c.execute(
+                    f'CREATE INDEX `{TABLE}_submission_id_fk_idx`'
+                    f' ON `{TABLE}` (`submission_id`)'
+                )
+            c.execute(f'ALTER TABLE `{TABLE}` DROP INDEX `{name}`')
 
         # ── 2. Add new columns (each idempotent) ─────────────────────────────────
 
