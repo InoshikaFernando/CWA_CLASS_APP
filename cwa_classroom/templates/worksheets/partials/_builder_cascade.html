@@ -1,14 +1,8 @@
-{# -----------------------------------------------------------------------
-   Worksheet Builder cascade partial — returned by WorksheetBuilderCascadeView.
-
-   PRIMARY content (goes to hx-target="#question-list"):
-     The updated question list for the current filter state.
-
-   OOB elements (HTMX swaps them into the DOM by matching id):
-     - #filter-topic-wrapper  — topic/language dropdown   (on step=subject)
-     - #filter-subtopic-wrapper — subtopic/concept dropdown (on step=subject or step=topic)
-     - #filter-level-wrapper  — year-level or difficulty   (on step=subject)
-   ----------------------------------------------------------------------- #}
+{% comment %}
+Worksheet Builder cascade partial — returned by WorksheetBuilderCascadeView.
+PRIMARY content (hx-target="#question-list"): updated question list.
+OOB: #filter-topic-wrapper (step=subject), #filter-subtopic-wrapper (step=subject|topic), #filter-level-wrapper (step=subject).
+{% endcomment %}
 
 {# ── Primary: question list ─────────────────────────────────────────── #}
 {% include 'worksheets/partials/_builder_question_list.html' %}
