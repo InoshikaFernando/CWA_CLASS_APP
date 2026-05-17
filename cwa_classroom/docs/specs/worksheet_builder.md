@@ -317,8 +317,8 @@ This sprint fixes the existing worksheet session so it renders all question type
 
 | # | Story | Points |
 |---|-------|--------|
-| CPP-XXX | Build `WorksheetBuilderView` — filter panel (subject/topic/level/search) + paginated question list via HTMX | 5 |
-| CPP-XXX | Build question selection sidebar with drag-to-reorder (SortableJS) + worksheet name/level inputs | 5 |
+| CPP-282 | Build `WorksheetBuilderView` — filter panel (subject/topic/level/search) + paginated question list via HTMX | 5 | ✅ Shipped |
+| CPP-283 | Build question selection sidebar with drag-to-reorder (SortableJS) + worksheet name/level inputs | 5 | 🚧 In Progress |
 | CPP-XXX | Build `WorksheetBuilderSaveView` — validate + create `Worksheet` + `WorksheetQuestion` rows from selection | 3 |
 | CPP-XXX | Build `WorksheetBuilderPreviewAPI` — HTMX modal showing full question detail when teacher clicks a question in the results list | 2 |
 | CPP-XXX | Add "Create from Question Bank" button to worksheet list page alongside existing "Upload PDF" | 1 |
