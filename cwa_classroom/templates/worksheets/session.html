@@ -1,5 +1,25 @@
 {% extends "base.html" %}
 {% block title %}{{ assignment.worksheet.name }} — Question {{ question_number }}{% endblock %}
+
+{% block extra_head %}
+{% if is_coding %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/selection/active-line.min.js"></script>
+<style>
+  .ws-code-wrap .CodeMirror { height: auto; min-height: 200px; border-radius: 0.5rem; font-size: 0.8rem; }
+</style>
+{% endif %}
+{% endblock %}
+
 {% block content %}
 <div class="max-w-2xl mx-auto space-y-6">
 
@@ -13,7 +33,7 @@
       <div class="h-2.5 rounded-full bg-primary transition-all duration-500"
            style="width: {% widthratio answered_count total_questions 100 %}%"></div>
     </div>
-    <p class="text-xs text-gray-400">{{ answered_count }} answered · {{ total_questions|add:"-1"|add:"1" }} total</p>
+    <p class="text-xs text-gray-400">{{ answered_count }} answered · {{ total_questions }} total</p>
   </div>
 
   <!-- Question card -->
@@ -23,12 +43,6 @@
         {{ question_number }}
       </div>
       <div class="flex-1 space-y-4">
-        <p class="text-gray-800 text-lg leading-relaxed">{{ question.question_text }}</p>
-
-        {% if question.image %}
-        <img src="{{ question.image.url }}" alt="Question image"
-             class="max-h-56 rounded-xl border border-gray-200 object-contain" />
-        {% endif %}
 
         <!-- Answer area — replaced by HTMX feedback after submission -->
         <div id="answer-area">
@@ -37,9 +51,75 @@
                 hx-swap="outerHTML"
                 class="space-y-3">
             {% csrf_token %}
-            <input type="hidden" name="question_id" value="{{ question.pk }}" />
+            <input type="hidden" name="subject_slug" value="{{ current_wq.subject_slug }}" />
+            <input type="hidden" name="content_id" value="{{ current_wq.content_id }}" />
 
+            {% if is_coding %}
+            {# ── Coding exercise ──────────────────────────────────────── #}
+            {% with ex=coding_ctx.exercise lang=coding_ctx.language %}
+            <p class="text-gray-900 font-medium mb-1">{{ ex.title }}</p>
+            <p class="text-sm text-gray-600 mb-3 whitespace-pre-line">{{ ex.description }}</p>
+
+            <div class="flex flex-wrap gap-2 text-xs mb-3">
+              <span class="bg-blue-50 text-blue-700 px-2 py-0.5 rounded">{{ lang.name }}</span>
+              <span class="bg-gray-50 text-gray-600 px-2 py-0.5 rounded">{{ ex.topic_level.get_level_choice_display }}</span>
+            </div>
+
+            {% if ex.expected_output %}
+            <div class="mb-3">
+              <p class="text-xs font-semibold text-gray-500 mb-1">Expected output</p>
+              <pre class="font-mono text-xs bg-gray-50 border border-gray-200 rounded-lg p-2 overflow-x-auto">{{ ex.expected_output }}</pre>
+            </div>
+            {% endif %}
+
+            <label for="code_{{ coding_ctx.content_id }}" class="block text-xs font-semibold text-gray-500 mb-1">Your code</label>
+            <div class="border border-gray-300 rounded-lg overflow-hidden">
+              <textarea name="code_{{ coding_ctx.content_id }}" id="code_{{ coding_ctx.content_id }}" rows="10"
+                        class="w-full font-mono text-xs px-3 py-2 focus:outline-none"
+                        data-ws-code-editor="1"
+                        data-language-slug="{{ lang.slug }}"
+                        data-exercise-id="{{ ex.id }}"
+                        data-content-id="{{ coding_ctx.content_id }}"
+                        placeholder="Write your solution here..."
+                        spellcheck="false">{{ ex.starter_code }}</textarea>
+            </div>
+
+            <div class="flex items-center gap-2 mt-2">
+              <button type="button"
+                      class="ws-run-btn inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition"
+                      data-target="{{ coding_ctx.content_id }}">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z"/>
+                </svg>
+                <span>Run</span>
+              </button>
+              <span class="ws-run-status text-xs text-gray-400" data-target="{{ coding_ctx.content_id }}"></span>
+            </div>
+
+            <div class="ws-run-output hidden mt-2" data-target="{{ coding_ctx.content_id }}">
+              <p class="text-xs font-semibold text-gray-500 mb-1">Output</p>
+              <pre class="ws-run-stdout font-mono text-xs bg-gray-900 text-gray-100 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap min-h-[2.5rem]"></pre>
+              <pre class="ws-run-stderr font-mono text-xs bg-red-50 text-red-700 border border-red-200 rounded-lg p-2 mt-1 overflow-x-auto whitespace-pre-wrap hidden"></pre>
+              <p class="ws-run-match text-xs mt-1 hidden"></p>
+            </div>
+
+            {% if ex.hints %}
+            <details class="mt-2">
+              <summary class="text-xs text-blue-600 cursor-pointer hover:underline">Show hint</summary>
+              <p class="text-xs text-gray-600 mt-1 whitespace-pre-line">{{ ex.hints }}</p>
+            </details>
+            {% endif %}
+            {% endwith %}
+
+            {% else %}
+            {# ── Maths question ───────────────────────────────────────── #}
+            <p class="text-gray-800 text-lg leading-relaxed">{{ question.question_text }}</p>
+            {% if question.image %}
+            <img src="{{ question.image.url }}" alt="Question image"
+                 class="max-h-56 rounded-xl border border-gray-200 object-contain" />
+            {% endif %}
             {% include answer_partial with question=question answers=answers %}
+            {% endif %}
 
             <button type="submit"
                     class="w-full py-3 rounded-xl bg-primary text-white font-semibold text-sm shadow-sm hover:bg-primary/90 transition">
@@ -47,6 +127,7 @@
             </button>
           </form>
         </div>
+
       </div>
     </div>
   </div>
@@ -54,4 +135,97 @@
   <!-- Small info footer -->
   <p class="text-xs text-center text-gray-300">{{ assignment.classroom.name }} · {{ assignment.worksheet.name }}</p>
 </div>
+
+{% if is_coding %}
+<script>
+(function () {
+  const modeMap = {
+    python: 'python', javascript: 'javascript',
+    html: 'htmlmixed', 'html-css': 'htmlmixed', css: 'css', scratch: 'python',
+  };
+  const editors = new Map();
+
+  document.querySelectorAll('textarea[data-ws-code-editor="1"]').forEach(ta => {
+    const wrap = ta.closest('div');
+    if (wrap) wrap.classList.add('ws-code-wrap');
+    const lang = ta.dataset.languageSlug || '';
+    const contentId = ta.dataset.contentId;
+    const cm = CodeMirror.fromTextArea(ta, {
+      mode: modeMap[lang] || 'text/plain', theme: 'dracula',
+      lineNumbers: true, indentUnit: 2, tabSize: 2, indentWithTabs: false,
+      autoCloseBrackets: true, matchBrackets: true, styleActiveLine: true,
+      extraKeys: {
+        'Tab': cm => cm.somethingSelected() ? cm.indentSelection('add') : cm.replaceSelection('  ', 'end'),
+        'Shift-Tab': 'indentLess',
+      },
+    });
+    cm.setSize('100%', 220);
+    editors.set(contentId, { cm, lang, exerciseId: ta.dataset.exerciseId, ta });
+  });
+
+  function getCsrf() {
+    const m = document.cookie.match(/csrftoken=([^;]+)/);
+    return m ? m[1] : '';
+  }
+
+  document.querySelectorAll('.ws-run-btn').forEach(btn => {
+    btn.addEventListener('click', async function () {
+      const contentId = this.dataset.target;
+      const entry = editors.get(contentId);
+      if (!entry) return;
+      entry.cm.save();
+      const code = entry.ta.value.trim();
+      const statusEl = document.querySelector(`.ws-run-status[data-target="${contentId}"]`);
+      const outWrap  = document.querySelector(`.ws-run-output[data-target="${contentId}"]`);
+      const outStd   = outWrap.querySelector('.ws-run-stdout');
+      const outErr   = outWrap.querySelector('.ws-run-stderr');
+      const matchEl  = outWrap.querySelector('.ws-run-match');
+      if (!code) { statusEl.textContent = 'Write some code first.'; return; }
+      statusEl.textContent = 'Running…';
+      this.disabled = true;
+      outWrap.classList.remove('hidden');
+      outStd.textContent = ''; outErr.classList.add('hidden'); matchEl.classList.add('hidden');
+      try {
+        const resp = await fetch('/coding/api/run/', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf(), 'X-Requested-With': 'XMLHttpRequest' },
+          body: JSON.stringify({ language_slug: entry.lang, code, exercise_id: entry.exerciseId, mark_complete: false }),
+        });
+        const data = await resp.json();
+        if (data.browser_sandbox) {
+          statusEl.textContent = 'Browser-only runtime — preview not available here.';
+          outStd.textContent = '(run the code on the exercise page to see rendered output)';
+        } else {
+          outStd.textContent = data.stdout || '(no stdout)';
+          if (data.stderr) { outErr.textContent = data.stderr; outErr.classList.remove('hidden'); }
+          if (typeof data.exercise_score === 'number' && data.exercise_has_expected) {
+            matchEl.classList.remove('hidden');
+            if (data.exercise_score === 100) {
+              matchEl.className = 'ws-run-match text-xs mt-1 text-green-700 font-semibold';
+              matchEl.textContent = '✓ Output matches — you\'re ready to submit.';
+            } else {
+              matchEl.className = 'ws-run-match text-xs mt-1 text-amber-700 font-semibold';
+              matchEl.textContent = '✗ Output doesn\'t match. Keep iterating.';
+            }
+          }
+          statusEl.textContent = '';
+        }
+      } catch (err) {
+        outErr.textContent = 'Network error: ' + (err.message || err);
+        outErr.classList.remove('hidden');
+      } finally { this.disabled = false; }
+    });
+  });
+
+  // Sync CodeMirror → textarea before HTMX submits the form
+  document.querySelector('#answer-area form').addEventListener('htmx:configRequest', function () {
+    editors.forEach(({ cm }) => cm.save());
+  });
+  // Fallback: sync on native submit too
+  document.querySelector('#answer-area form').addEventListener('submit', function () {
+    editors.forEach(({ cm }) => cm.save());
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}

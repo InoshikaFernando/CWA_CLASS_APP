@@ -470,7 +470,7 @@ class TestAnswerViewGrading(SessionDispatchTestBase):
     def _submit_answer(self, assignment, question, **post_data):
         self.client.force_login(self.student)
         submission = self._make_submission(assignment)
-        data = {'question_id': question.pk}
+        data = {'content_id': question.pk, 'subject_slug': 'mathematics'}
         data.update(post_data)
         return self.client.post(
             reverse('worksheets:answer', args=[assignment.pk]),
@@ -483,7 +483,7 @@ class TestAnswerViewGrading(SessionDispatchTestBase):
         assignment, _ = self._make_worksheet_with_question(q)
         resp = self._submit_answer(assignment, q, text_answer='12')
         self.assertEqual(resp.status_code, 200)
-        sa = WorksheetStudentAnswer.objects.get(question=q)
+        sa = WorksheetStudentAnswer.objects.get(content_id=q.pk, subject_slug='mathematics')
         self.assertTrue(sa.is_correct)
         self.assertEqual(sa.points_earned, 1.0)
 
@@ -492,7 +492,7 @@ class TestAnswerViewGrading(SessionDispatchTestBase):
         assignment, _ = self._make_worksheet_with_question(q)
         resp = self._submit_answer(assignment, q, text_answer='11')
         self.assertEqual(resp.status_code, 200)
-        sa = WorksheetStudentAnswer.objects.get(question=q)
+        sa = WorksheetStudentAnswer.objects.get(content_id=q.pk, subject_slug='mathematics')
         self.assertFalse(sa.is_correct)
         self.assertEqual(sa.points_earned, 0.0)
 
@@ -501,7 +501,7 @@ class TestAnswerViewGrading(SessionDispatchTestBase):
         assignment, _ = self._make_worksheet_with_question(q)
         resp = self._submit_answer(assignment, q, text_answer='2x3x5')
         self.assertEqual(resp.status_code, 200)
-        sa = WorksheetStudentAnswer.objects.get(question=q)
+        sa = WorksheetStudentAnswer.objects.get(content_id=q.pk, subject_slug='mathematics')
         self.assertTrue(sa.is_correct)
 
     def test_grade_prime_factorization_wrong_via_view(self):
@@ -509,7 +509,7 @@ class TestAnswerViewGrading(SessionDispatchTestBase):
         assignment, _ = self._make_worksheet_with_question(q)
         resp = self._submit_answer(assignment, q, text_answer='2x5')
         self.assertEqual(resp.status_code, 200)
-        sa = WorksheetStudentAnswer.objects.get(question=q)
+        sa = WorksheetStudentAnswer.objects.get(content_id=q.pk, subject_slug='mathematics')
         self.assertFalse(sa.is_correct)
 
     @patch('worksheets.views.grade_extended_answer')
@@ -528,7 +528,7 @@ class TestAnswerViewGrading(SessionDispatchTestBase):
         resp = self._submit_answer(assignment, q, text_answer='My detailed answer.')
         self.assertEqual(resp.status_code, 200)
         mock_grade.assert_called_once()
-        sa = WorksheetStudentAnswer.objects.get(question=q)
+        sa = WorksheetStudentAnswer.objects.get(content_id=q.pk, subject_slug='mathematics')
         self.assertTrue(sa.is_correct)
         self.assertEqual(sa.answer_data['feedback'], 'Excellent reasoning.')
         self.assertFalse(sa.answer_data['is_partial'])
@@ -549,7 +549,7 @@ class TestAnswerViewGrading(SessionDispatchTestBase):
         assignment, _ = self._make_worksheet_with_question(q)
         resp = self._submit_answer(assignment, q, text_answer='Gravity pulls things down.')
         self.assertEqual(resp.status_code, 200)
-        sa = WorksheetStudentAnswer.objects.get(question=q)
+        sa = WorksheetStudentAnswer.objects.get(content_id=q.pk, subject_slug='mathematics')
         self.assertFalse(sa.is_correct)
         self.assertTrue(sa.answer_data['is_partial'])
         self.assertEqual(sa.answer_data['what_was_correct'], 'Mentioned gravity correctly.')
@@ -566,7 +566,7 @@ class TestAnswerViewGrading(SessionDispatchTestBase):
         assignment, _ = self._make_worksheet_with_question(q)
         resp = self._submit_answer(assignment, q, text_answer='My answer.')
         self.assertEqual(resp.status_code, 200)
-        sa = WorksheetStudentAnswer.objects.get(question=q)
+        sa = WorksheetStudentAnswer.objects.get(content_id=q.pk, subject_slug='mathematics')
         self.assertFalse(sa.is_correct)
         self.assertEqual(sa.answer_data.get('review_status'), 'pending_ai')
 
@@ -576,5 +576,5 @@ class TestAnswerViewGrading(SessionDispatchTestBase):
         assignment, _ = self._make_worksheet_with_question(q)
         resp = self._submit_answer(assignment, q, text_answer='seven')  # case-insensitive
         self.assertEqual(resp.status_code, 200)
-        sa = WorksheetStudentAnswer.objects.get(question=q)
+        sa = WorksheetStudentAnswer.objects.get(content_id=q.pk, subject_slug='mathematics')
         self.assertTrue(sa.is_correct)
