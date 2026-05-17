@@ -1,0 +1,66 @@
+{% comment %}
+Worksheet Builder cascade partial — returned by WorksheetBuilderCascadeView.
+PRIMARY content (hx-target="#question-list"): updated question list.
+OOB: #filter-topic-wrapper (step=subject), #filter-subtopic-wrapper (step=subject|topic), #filter-level-wrapper (step=subject).
+{% endcomment %}
+
+{# ── Primary: question list ─────────────────────────────────────────── #}
+{% include 'worksheets/partials/_builder_question_list.html' %}
+
+{# ── OOB: topic wrapper — replace when subject changes ─────────────── #}
+{% if step == 'subject' %}
+<div id="filter-topic-wrapper" hx-swap-oob="innerHTML">
+  <label class="block text-xs font-medium text-gray-500 mb-1">
+    {% if subject_slug == 'coding' %}Language{% else %}Topic{% endif %}
+  </label>
+  <select id="filter-topic"
+          class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition">
+    <option value="">All {% if subject_slug == 'coding' %}Languages{% else %}Topics{% endif %}</option>
+    {% for item in parent_items %}
+    <option value="{{ item.pk }}">{{ item.name }}</option>
+    {% endfor %}
+  </select>
+</div>
+{% endif %}
+
+{# ── OOB: subtopic wrapper — replace when subject OR topic changes ─── #}
+{% if step == 'subject' or step == 'topic' %}
+<div id="filter-subtopic-wrapper" hx-swap-oob="innerHTML">
+  {% if subtopic_items %}
+  <div>
+    <label class="block text-xs font-medium text-gray-500 mb-1">
+      {% if subject_slug == 'coding' %}Concept{% else %}Sub-topic{% endif %}
+    </label>
+    <select id="filter-subtopic"
+            class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition">
+      <option value="">All</option>
+      {% for item in subtopic_items %}
+      <option value="{{ item.pk }}">{{ item.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{# ── OOB: level wrapper — replace when subject changes ─────────────── #}
+{% if step == 'subject' %}
+<div id="filter-level-wrapper" hx-swap-oob="innerHTML">
+  <label class="block text-xs font-medium text-gray-500 mb-1">
+    {% if subject_slug == 'coding' %}Difficulty{% else %}Year Level{% endif %}
+  </label>
+  <select id="filter-level"
+          class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition">
+    <option value="">All</option>
+    {% if level_type == 'coding' %}
+    {% for val, label in level_options %}
+    <option value="{{ val }}">{{ label }}</option>
+    {% endfor %}
+    {% else %}
+    {% for level in level_options %}
+    <option value="{{ level.level_number }}">Year {{ level.level_number }}</option>
+    {% endfor %}
+    {% endif %}
+  </select>
+</div>
+{% endif %}

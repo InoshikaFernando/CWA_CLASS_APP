@@ -18,7 +18,7 @@
   <div class="flex gap-6">
 
     <!-- Filter Panel -->
-    <aside class="w-64 shrink-0 space-y-4">
+    <aside class="w-56 shrink-0 space-y-4">
       <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
         <h2 class="text-sm font-semibold text-gray-700">Filter Questions</h2>
 
@@ -26,52 +26,35 @@
         <div>
           <label class="block text-xs font-medium text-gray-500 mb-1">Subject</label>
           <select id="filter-subject"
-                  name="subject"
-                  class="filter-input w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
-                  hx-get="{% url 'worksheets:builder_questions' %}"
-                  hx-target="#question-list"
-                  hx-swap="innerHTML show:top"
-                  hx-trigger="change"
-                  hx-include=".filter-input"
-                  hx-indicator="#question-list-indicator">
-            <option value="">All Subjects</option>
-            {% for subject in subjects %}
-            <option value="{{ subject.slug }}">{{ subject.name }}</option>
-            {% endfor %}
+                  class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition">
+            <option value="mathematics">Mathematics</option>
+            <option value="coding">Coding</option>
           </select>
         </div>
 
-        <!-- Topic (client-side filtered by subject) -->
-        <div>
+        <!-- Topic — parent topics for maths, languages for coding.
+             Wrapper div is the HTMX OOB target when subject changes. -->
+        <div id="filter-topic-wrapper">
           <label class="block text-xs font-medium text-gray-500 mb-1">Topic</label>
           <select id="filter-topic"
-                  name="topic"
-                  class="filter-input w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
-                  hx-get="{% url 'worksheets:builder_questions' %}"
-                  hx-target="#question-list"
-                  hx-swap="innerHTML show:top"
-                  hx-trigger="change"
-                  hx-include=".filter-input"
-                  hx-indicator="#question-list-indicator">
+                  class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition">
             <option value="">All Topics</option>
-            {% for topic in topics %}
-            <option value="{{ topic.pk }}" data-subject="{{ topic.subject.slug }}">{{ topic.name }}</option>
+            {% for topic in maths_parent_topics %}
+            <option value="{{ topic.pk }}">{{ topic.name }}</option>
             {% endfor %}
           </select>
         </div>
 
-        <!-- Level -->
-        <div>
+        <!-- Sub-topic — populated by cascade when a parent topic is selected.
+             Wrapper is OOB target; starts empty (no subtopic selected initially). -->
+        <div id="filter-subtopic-wrapper"></div>
+
+        <!-- Level — Year 1-12 for maths, Beginner/Int/Adv for coding.
+             Wrapper is OOB target when subject changes. -->
+        <div id="filter-level-wrapper">
           <label class="block text-xs font-medium text-gray-500 mb-1">Year Level</label>
           <select id="filter-level"
-                  name="level"
-                  class="filter-input w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
-                  hx-get="{% url 'worksheets:builder_questions' %}"
-                  hx-target="#question-list"
-                  hx-swap="innerHTML show:top"
-                  hx-trigger="change"
-                  hx-include=".filter-input"
-                  hx-indicator="#question-list-indicator">
+                  class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition">
             <option value="">All Levels</option>
             {% for level in levels %}
             <option value="{{ level.level_number }}">Year {{ level.level_number }}</option>
@@ -84,15 +67,8 @@
           <label class="block text-xs font-medium text-gray-500 mb-1">Search</label>
           <input type="text"
                  id="filter-search"
-                 name="q"
                  placeholder="Search question text…"
-                 class="filter-input w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition"
-                 hx-get="{% url 'worksheets:builder_questions' %}"
-                 hx-target="#question-list"
-                 hx-swap="innerHTML show:top"
-                 hx-trigger="input changed delay:400ms"
-                 hx-include=".filter-input"
-                 hx-indicator="#question-list-indicator" />
+                 class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition" />
         </div>
       </div>
     </aside>
@@ -121,29 +97,367 @@
       </div>
     </div>
 
+    <!-- Selection Sidebar -->
+    <aside class="w-72 shrink-0">
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4 sticky top-6">
+
+        <!-- Sidebar header with count badge -->
+        <div class="flex items-center justify-between">
+          <h2 class="text-sm font-semibold text-gray-700">Worksheet</h2>
+          <span id="question-count-badge"
+                class="px-2 py-0.5 rounded-full text-xs font-semibold bg-primary text-white hidden">
+            0
+          </span>
+        </div>
+
+        <!-- Worksheet name -->
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1">Name <span class="text-red-400">*</span></label>
+          <input type="text"
+                 id="worksheet-name"
+                 name="name"
+                 maxlength="100"
+                 placeholder="e.g. Fractions Review"
+                 class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition" />
+        </div>
+
+        <!-- Level -->
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1">Year Level</label>
+          <select id="sidebar-level"
+                  class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition">
+            <option value="">— Select —</option>
+            {% for level in levels %}
+            <option value="{{ level.level_number }}">Year {{ level.level_number }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <!-- Selected questions list (SortableJS target) -->
+        <div>
+          <p class="text-xs font-medium text-gray-500 mb-2">Questions</p>
+
+          <!-- Empty state -->
+          <div id="sidebar-empty"
+               class="flex flex-col items-center justify-center py-8 border-2 border-dashed border-slate-200 rounded-xl text-center">
+            <p class="text-xs text-gray-400 leading-relaxed">No questions yet.<br>Click <strong>+ Add</strong> on any question.</p>
+          </div>
+
+          <!-- Sortable list -->
+          <ul id="sidebar-question-list" class="space-y-2"></ul>
+        </div>
+
+        <!-- Hidden inputs for form submission (collected by hx-include) -->
+        <input type="hidden" id="questions-json" name="questions_json" value="[]" />
+        <input type="hidden" id="sidebar-level-id" name="level_id" value="" />
+
+        <!-- Inline error display (HTMX target on validation failure) -->
+        <div id="save-error" class="hidden text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2"></div>
+
+        <!-- Save button -->
+        <button type="button"
+                id="save-worksheet-btn"
+                disabled
+                hx-post="{% url 'worksheets:builder_save' %}"
+                hx-include="#worksheet-name, #questions-json, #sidebar-level-id"
+                hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+                hx-target="#save-error"
+                hx-swap="innerHTML"
+                hx-indicator="#save-indicator"
+                class="w-full py-2.5 rounded-xl text-sm font-semibold transition
+                       bg-slate-100 text-slate-400 cursor-not-allowed
+                       disabled:opacity-60">
+          <span id="save-indicator" class="htmx-indicator">
+            <svg class="inline animate-spin h-4 w-4 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+            </svg>
+          </span>
+          Save Worksheet
+        </button>
+
+      </div>
+    </aside>
+
   </div>
 </div>
 
+<!-- SortableJS v1.15.2 -->
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+
 <script>
-  // Client-side topic cascade — filter topic dropdown by selected subject
-  (function () {
-    const subjectEl = document.getElementById('filter-subject');
-    const topicEl = document.getElementById('filter-topic');
+(function () {
+  'use strict';
 
-    function filterTopics() {
-      const selectedSubject = subjectEl.value;
-      const allOptions = topicEl.querySelectorAll('option[data-subject]');
+  // ─── State ────────────────────────────────────────────────────────────────
+  // selectedQuestions: [{content_id, subject_slug, text, level, difficulty}]
+  var selectedQuestions = [];
 
-      allOptions.forEach(function (opt) {
-        const match = !selectedSubject || opt.dataset.subject === selectedSubject;
-        opt.hidden = !match;
-        if (!match && opt.selected) {
-          topicEl.value = '';
+  // ─── DOM refs ─────────────────────────────────────────────────────────────
+  var sidebarList    = document.getElementById('sidebar-question-list');
+  var sidebarEmpty   = document.getElementById('sidebar-empty');
+  var countBadge     = document.getElementById('question-count-badge');
+  var nameInput      = document.getElementById('worksheet-name');
+  var levelSelect    = document.getElementById('sidebar-level');
+  var saveBtn        = document.getElementById('save-worksheet-btn');
+  var questionsJson  = document.getElementById('questions-json');
+  // ─── SortableJS ───────────────────────────────────────────────────────────
+  Sortable.create(sidebarList, {
+    handle: '.drag-handle',
+    animation: 150,
+    onEnd: function () {
+      rebuildQuestionsFromDOM();
+    }
+  });
+
+  // Keep sidebar-level-id hidden input in sync with sidebar level select
+  levelSelect.addEventListener('change', function () {
+    document.getElementById('sidebar-level-id').value = levelSelect.value;
+  });
+
+  // Show/hide the error div after HTMX response — on success HX-Redirect fires,
+  // on error the JSON {error: "..."} is swapped into #save-error
+  document.body.addEventListener('htmx:afterRequest', function (evt) {
+    if (evt.detail.elt && evt.detail.elt.id === 'save-worksheet-btn') {
+      var errorDiv = document.getElementById('save-error');
+      if (evt.detail.xhr.status === 400) {
+        try {
+          var data = JSON.parse(evt.detail.xhr.responseText);
+          errorDiv.textContent = data.error || 'An error occurred. Please try again.';
+          errorDiv.classList.remove('hidden');
+        } catch (e) {
+          errorDiv.textContent = 'An error occurred. Please try again.';
+          errorDiv.classList.remove('hidden');
         }
-      });
+      } else {
+        errorDiv.classList.add('hidden');
+        errorDiv.textContent = '';
+      }
+    }
+  });
+
+  // ─── Add question ─────────────────────────────────────────────────────────
+  document.body.addEventListener('click', function (e) {
+    var btn = e.target.closest('.add-question-btn');
+    if (!btn) return;
+    var card = btn.closest('[data-content-id]');
+    if (!card) return;
+
+    var contentId   = parseInt(card.dataset.contentId, 10);
+    var subjectSlug = card.dataset.subjectSlug || 'mathematics';
+
+    // Prevent duplicates
+    if (selectedQuestions.some(function (q) { return q.content_id === contentId; })) return;
+
+    selectedQuestions.push({
+      content_id:   contentId,
+      subject_slug: subjectSlug,
+      text:         card.dataset.questionText || '',
+      level:        card.dataset.level || '',
+      difficulty:   card.dataset.difficulty || ''
+    });
+
+    renderSidebar();
+    reapplySelectedState();
+    syncHiddenInput();
+    validateForm();
+  });
+
+  // ─── Remove question ──────────────────────────────────────────────────────
+  sidebarList.addEventListener('click', function (e) {
+    var btn = e.target.closest('.remove-question-btn');
+    if (!btn) return;
+    var li = btn.closest('li[data-content-id]');
+    if (!li) return;
+
+    var contentId = parseInt(li.dataset.contentId, 10);
+    selectedQuestions = selectedQuestions.filter(function (q) { return q.content_id !== contentId; });
+
+    renderSidebar();
+    reapplySelectedState();
+    syncHiddenInput();
+    validateForm();
+  });
+
+  // ─── Name input validation ────────────────────────────────────────────────
+  nameInput.addEventListener('input', validateForm);
+
+  // ─── Rebuild array from DOM after drag ───────────────────────────────────
+  function rebuildQuestionsFromDOM() {
+    var items = sidebarList.querySelectorAll('li[data-content-id]');
+    var newOrder = [];
+    items.forEach(function (li) {
+      var contentId = parseInt(li.dataset.contentId, 10);
+      var existing  = selectedQuestions.find(function (q) { return q.content_id === contentId; });
+      if (existing) newOrder.push(existing);
+    });
+    selectedQuestions = newOrder;
+    renderSidebar();
+    syncHiddenInput();
+    validateForm();
+  }
+
+  // ─── Render sidebar list ──────────────────────────────────────────────────
+  function renderSidebar() {
+    sidebarList.innerHTML = '';
+
+    if (selectedQuestions.length === 0) {
+      sidebarEmpty.classList.remove('hidden');
+      countBadge.classList.add('hidden');
+      return;
     }
 
-    subjectEl.addEventListener('change', filterTopics);
-  })();
+    sidebarEmpty.classList.add('hidden');
+    countBadge.classList.remove('hidden');
+    countBadge.textContent = selectedQuestions.length;
+
+    selectedQuestions.forEach(function (q, idx) {
+      var li = document.createElement('li');
+      li.className = 'flex items-start gap-2 bg-slate-50 rounded-xl p-3 border border-slate-200';
+      li.dataset.contentId = q.content_id;
+      li.innerHTML =
+        '<span class="drag-handle mt-0.5 cursor-grab text-gray-300 hover:text-gray-500 shrink-0" title="Drag to reorder">' +
+          '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16"/></svg>' +
+        '</span>' +
+        '<div class="flex-1 min-w-0">' +
+          '<p class="text-xs font-medium text-gray-500 mb-0.5">Q' + (idx + 1) + (q.level ? ' · ' + q.level : '') + (q.difficulty ? ' · ' + q.difficulty : '') + '</p>' +
+          '<p class="text-xs text-gray-700 line-clamp-2">' + escapeHtml(q.text) + '</p>' +
+        '</div>' +
+        '<button type="button" class="remove-question-btn shrink-0 text-gray-300 hover:text-red-400 transition" title="Remove">' +
+          '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>' +
+        '</button>';
+      sidebarList.appendChild(li);
+    });
+  }
+
+  // ─── Re-apply selected state after HTMX swap ─────────────────────────────
+  function reapplySelectedState() {
+    // Reset all cards first
+    document.querySelectorAll('.add-question-btn').forEach(function (btn) {
+      btn.disabled = false;
+      btn.textContent = '+ Add';
+      btn.className = 'add-question-btn shrink-0 px-3 py-1.5 rounded-lg border border-primary text-xs font-medium text-primary bg-white hover:bg-primary hover:text-white transition';
+    });
+
+    // Grey out already-selected cards
+    selectedQuestions.forEach(function (q) {
+      var card = document.querySelector('.question-card[data-content-id="' + q.content_id + '"]');
+      if (!card) return;
+      var btn = card.querySelector('.add-question-btn');
+      if (!btn) return;
+      btn.disabled = true;
+      btn.textContent = '✓ Added';
+      btn.className = 'add-question-btn shrink-0 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-400 bg-slate-50 cursor-not-allowed';
+    });
+  }
+
+  // ─── Sync hidden JSON input ───────────────────────────────────────────────
+  function syncHiddenInput() {
+    questionsJson.value = JSON.stringify(
+      selectedQuestions.map(function (q) {
+        return { subject_slug: q.subject_slug, content_id: q.content_id };
+      })
+    );
+  }
+
+  // ─── Save button validation ───────────────────────────────────────────────
+  function validateForm() {
+    var name = nameInput.value.trim();
+    var valid = name.length > 0 && name.length <= 100 && selectedQuestions.length > 0;
+    saveBtn.disabled = !valid;
+    if (valid) {
+      saveBtn.className = 'w-full py-2.5 rounded-xl text-sm font-semibold transition bg-primary text-white hover:opacity-90 cursor-pointer';
+    } else {
+      saveBtn.className = 'w-full py-2.5 rounded-xl text-sm font-semibold transition bg-slate-100 text-slate-400 cursor-not-allowed disabled:opacity-60';
+    }
+  }
+
+  // ─── Re-apply state after HTMX question list swap ────────────────────────
+  document.body.addEventListener('htmx:afterSwap', function (evt) {
+    if (evt.target && evt.target.id === 'question-list') {
+      reapplySelectedState();
+    }
+  });
+
+  // ─── HTML escaping helper ─────────────────────────────────────────────────
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // ─── Filter cascade (HTMX-based) ─────────────────────────────────────────
+  var CASCADE_URL   = '{% url "worksheets:builder_cascade" %}';
+  var QUESTIONS_URL = '{% url "worksheets:builder_questions" %}';
+
+  function builderGetFilters() {
+    return {
+      subject:  document.getElementById('filter-subject')?.value  || '',
+      topic:    document.getElementById('filter-topic')?.value    || '',
+      subtopic: document.getElementById('filter-subtopic')?.value || '',
+      level:    document.getElementById('filter-level')?.value    || '',
+      q:        document.getElementById('filter-search')?.value   || '',
+    };
+  }
+
+  function builderCascade(step, resetFields) {
+    if (resetFields) {
+      resetFields.forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+    }
+    var params = new URLSearchParams(Object.assign({}, builderGetFilters(), { step: step }));
+    htmx.ajax('GET', CASCADE_URL + '?' + params.toString(), {
+      target: '#question-list', swap: 'innerHTML show:top'
+    });
+  }
+
+  function builderRefreshQuestions() {
+    var params = new URLSearchParams(builderGetFilters());
+    htmx.ajax('GET', QUESTIONS_URL + '?' + params.toString(), {
+      target: '#question-list', swap: 'innerHTML show:top'
+    });
+  }
+
+  // Subject change — cascade everything (topic, subtopic, level all reset)
+  document.getElementById('filter-subject').addEventListener('change', function () {
+    builderCascade('subject', ['filter-topic', 'filter-subtopic', 'filter-level']);
+  });
+
+  // Event delegation for OOB-replaced elements (topic, subtopic, level)
+  document.addEventListener('change', function (e) {
+    if (e.target.id === 'filter-topic') {
+      builderCascade('topic', ['filter-subtopic']);
+    }
+    if (e.target.id === 'filter-subtopic') {
+      builderRefreshQuestions();
+    }
+    if (e.target.id === 'filter-level') {
+      builderRefreshQuestions();
+      // Sync maths year level to sidebar default (only meaningful for numeric levels)
+      var val = e.target.value;
+      if (val && !isNaN(parseInt(val, 10))) {
+        levelSelect.value = val;
+        document.getElementById('sidebar-level-id').value = val;
+      }
+    }
+  });
+
+  // Keep sidebar-level-id hidden input in sync with sidebar level select
+  levelSelect.addEventListener('change', function () {
+    document.getElementById('sidebar-level-id').value = levelSelect.value;
+  });
+
+  // Search input with debounce
+  document.getElementById('filter-search').addEventListener('input', function () {
+    clearTimeout(this._searchTimer);
+    var self = this;
+    self._searchTimer = setTimeout(function () { builderRefreshQuestions(); }, 400);
+  });
+
+})();
 </script>
 {% endblock %}

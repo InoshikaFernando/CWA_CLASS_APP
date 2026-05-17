@@ -22,49 +22,14 @@
     <p class="text-xs text-gray-400 mt-1">{{ assignment.worksheet.name }} · {{ assignment.classroom.name }}</p>
   </div>
 
-  {% if wrong_answers %}
+  <!-- Answer review — all questions, plugin-dispatched rendering -->
+  {% if review_items %}
   <div class="space-y-3">
-    <h2 class="font-semibold text-gray-700">Review — Questions You Missed</h2>
-    {% for ans in wrong_answers %}
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
-      <p class="text-gray-800 text-sm font-medium">{{ ans.question.question_text }}</p>
-
-      {% if ans.question.image %}
-      <img src="{{ ans.question.image.url }}" alt="Question image"
-           class="max-h-40 rounded-lg border border-gray-200 object-contain" />
-      {% endif %}
-
-      {% if ans.selected_answer %}
-      <div class="flex items-center gap-2 text-sm text-red-600">
-        <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-        </svg>
-        Your answer: <span class="font-medium">{{ ans.selected_answer.answer_text }}</span>
-      </div>
-      {% elif ans.text_answer %}
-      <div class="flex items-center gap-2 text-sm text-red-600">
-        <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-        </svg>
-        Your answer: <span class="font-medium">{{ ans.text_answer }}</span>
-      </div>
-      {% endif %}
-
-      <div class="flex items-center gap-2 text-sm text-emerald-600">
-        <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
-        </svg>
-        Correct answer:
-        <span class="font-medium">
-          {% for correct_ans in ans.question.answers.all %}{% if correct_ans.is_correct %}{{ correct_ans.answer_text }}{% if not forloop.last %}, {% endif %}{% endif %}{% endfor %}
-        </span>
-      </div>
-
-      {% if ans.question.explanation %}
-      <div class="bg-slate-50 rounded-xl p-3 text-sm text-gray-600">
-        <span class="font-semibold text-gray-700">Why: </span>{{ ans.question.explanation }}
-      </div>
-      {% endif %}
+    <h2 class="font-semibold text-gray-700">Answer Review</h2>
+    {% for item in review_items %}
+    <div class="bg-white rounded-2xl border shadow-sm p-5
+      {% if item.ans.is_correct %}border-emerald-200{% else %}border-red-200{% endif %}">
+      {% include item.template with ctx=item.ctx %}
     </div>
     {% endfor %}
   </div>

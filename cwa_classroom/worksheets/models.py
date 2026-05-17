@@ -41,6 +41,11 @@ class WorksheetQuestion(models.Model):
     )
     question = models.ForeignKey(
         'maths.Question', on_delete=models.CASCADE, related_name='worksheet_entries',
+        null=True, blank=True,
+    )
+    coding_exercise = models.ForeignKey(
+        'coding.CodingExercise', on_delete=models.CASCADE, related_name='worksheet_entries',
+        null=True, blank=True,
     )
     order = models.PositiveIntegerField()
     # Subject plugin fields — mirrors HomeworkQuestion pattern.
@@ -69,10 +74,12 @@ class WorksheetQuestion(models.Model):
         ]
 
     def save(self, *args, **kwargs):
-        # Auto-populate content_id from the question FK for maths questions
-        # so callers don't need to set it explicitly.
-        if self.content_id == 0 and self.question_id is not None:
-            self.content_id = self.question_id
+        # Auto-populate content_id from the relevant FK so callers don't have to set it.
+        if self.content_id == 0:
+            if self.question_id is not None:
+                self.content_id = self.question_id
+            elif self.coding_exercise_id is not None:
+                self.content_id = self.coding_exercise_id
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -142,7 +149,10 @@ class WorksheetAssignment(models.Model):
 
     @property
     def assigned_questions(self):
-        qs = self.worksheet.worksheet_questions.select_related('question__level', 'question__topic').prefetch_related('question__answers').filter(
+        qs = self.worksheet.worksheet_questions.select_related(
+            'question__level', 'question__topic',
+            'coding_exercise__topic_level__topic__language',
+        ).prefetch_related('question__answers').filter(
             order__gte=self.question_start,
         )
         if self.question_end:
@@ -199,13 +209,31 @@ class WorksheetSubmission(models.Model):
 
 
 class WorksheetStudentAnswer(models.Model):
-    """A student's answer to a single question in a worksheet submission."""
+    """A student's answer to a single question in a worksheet submission.
+
+    Identified by (submission, subject_slug, content_id) so it works for any
+    subject plugin. The ``question`` / ``coding_exercise`` FKs are kept
+    nullable for backward-compat and fast joins — content_id is the authoritative key.
+    """
     submission = models.ForeignKey(
         WorksheetSubmission, on_delete=models.CASCADE, related_name='answers',
     )
+    # Subject-plugin identity — mirrors HomeworkStudentAnswer pattern.
+    subject_slug = models.CharField(
+        max_length=50, default='mathematics', db_index=True,
+    )
+    content_id = models.PositiveIntegerField(
+        default=0,
+        help_text='pk of the content row (maths.Question.id, CodingExercise.id, etc.).',
+    )
+    # Convenience FKs (nullable — only one will be set per row)
     question = models.ForeignKey(
         'maths.Question', on_delete=models.CASCADE,
-        related_name='worksheet_student_answers',
+        null=True, blank=True, related_name='worksheet_student_answers',
+    )
+    coding_exercise = models.ForeignKey(
+        'coding.CodingExercise', on_delete=models.CASCADE,
+        null=True, blank=True, related_name='worksheet_student_answers',
     )
     selected_answer = models.ForeignKey(
         'maths.Answer', on_delete=models.SET_NULL,
@@ -220,8 +248,31 @@ class WorksheetStudentAnswer(models.Model):
     answer_data = models.JSONField(default=dict, blank=True)
 
     class Meta:
-        unique_together = [('submission', 'question')]
+        unique_together = [('submission', 'subject_slug', 'content_id')]
+
+    @property
+    def ai_score_fraction(self):
+        """Compatibility shim — homework result partials read this field directly."""
+        return self.answer_data.get('score_fraction')
+
+    @property
+    def ai_feedback(self):
+        """Compatibility shim — homework result partials read this field directly."""
+        return self.answer_data.get('feedback', '')
+
+    def save(self, *args, **kwargs):
+        # Auto-populate content_id and subject_slug from FK if not already set.
+        if self.content_id == 0:
+            if self.question_id:
+                self.content_id = self.question_id
+                if not self.subject_slug:
+                    self.subject_slug = 'mathematics'
+            elif self.coding_exercise_id:
+                self.content_id = self.coding_exercise_id
+                if not self.subject_slug:
+                    self.subject_slug = 'coding'
+        super().save(*args, **kwargs)
 
     def __str__(self):
         status = 'Correct' if self.is_correct else 'Wrong'
-        return f'{self.submission} — Q{self.question_id} — {status}'
+        return f'{self.submission} — {self.subject_slug}:{self.content_id} — {status}'

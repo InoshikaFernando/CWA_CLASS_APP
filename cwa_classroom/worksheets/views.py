@@ -3,6 +3,9 @@ Worksheets views: PDF upload → AI extraction → preview → confirm → assig
 """
 import json
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -16,6 +19,7 @@ from accounts.models import Role
 from billing.entitlements import get_school_for_user
 from classroom.views import RoleRequiredMixin
 
+from .grading_service import grade_extended_answer
 from .models import (
     Worksheet,
     WorksheetAssignment,
@@ -24,6 +28,23 @@ from .models import (
     WorksheetSubmission,
     WorksheetUploadSession,
 )
+
+# ---------------------------------------------------------------------------
+# CPP-280: Answer partial dispatch map — question_type → template path
+# ---------------------------------------------------------------------------
+_PARTIAL = 'worksheets/partials/'
+ANSWER_PARTIAL_MAP = {
+    'multiple_choice':    _PARTIAL + '_answer_mcq.html',
+    'true_false':         _PARTIAL + '_answer_mcq.html',
+    'short_answer':       _PARTIAL + '_answer_short.html',
+    'fill_blank':         _PARTIAL + '_answer_text.html',
+    'calculation':        _PARTIAL + '_answer_text.html',
+    'extended_answer':    _PARTIAL + '_answer_extended.html',
+    'long_division':      _PARTIAL + '_answer_long_division.html',
+    'prime_factorization': _PARTIAL + '_answer_prime_factorization.html',
+}
+_ANSWER_PARTIAL_DEFAULT = _PARTIAL + '_answer_text.html'
+
 
 TEACHER_ROLES = [
     Role.INSTITUTE_OWNER,
@@ -553,6 +574,8 @@ class WorksheetSessionView(LoginRequiredMixin, View):
     """Student: start or resume a worksheet session."""
 
     def get(self, request, pk):
+        from classroom.subject_registry import get as get_plugin
+
         assignment = _get_student_assignment(request, pk)
         assigned_qs = list(assignment.assigned_questions)
 
@@ -566,112 +589,268 @@ class WorksheetSessionView(LoginRequiredMixin, View):
         if submission.is_complete:
             return redirect('worksheets:results', pk=pk)
 
-        # Find the next unanswered question
-        answered_ids = set(submission.answers.values_list('question_id', flat=True))
+        # Track answered by (subject_slug, content_id) pairs — works for any plugin
+        answered_pairs = set(
+            submission.answers.values_list('subject_slug', 'content_id')
+        )
         current_wq = None
         for wq in assigned_qs:
-            if wq.question_id not in answered_ids:
+            if (wq.subject_slug, wq.content_id) not in answered_pairs:
                 current_wq = wq
                 break
 
         if current_wq is None:
-            # All answered — mark complete
             submission.completed_at = timezone.now()
             submission.save(update_fields=['completed_at'])
             return redirect('worksheets:results', pk=pk)
 
         question_number = assigned_qs.index(current_wq) + 1
-        answers = list(current_wq.question.answers.order_by('order'))
+        answered_count = len(answered_pairs)
+
+        # Dispatch rendering by subject plugin
+        if current_wq.subject_slug == 'coding':
+            plugin = get_plugin('coding')
+            ctx = plugin.take_item_context(current_wq.content_id)
+            return render(request, 'worksheets/session.html', {
+                'assignment': assignment,
+                'submission': submission,
+                'current_wq': current_wq,
+                'question_number': question_number,
+                'total_questions': len(assigned_qs),
+                'answered_count': answered_count,
+                'is_coding': True,
+                'coding_ctx': ctx,
+            })
+
+        # Maths question
+        question = current_wq.question
+        answers = list(question.answers.order_by('order'))
+        answer_partial = ANSWER_PARTIAL_MAP.get(question.question_type, _ANSWER_PARTIAL_DEFAULT)
 
         return render(request, 'worksheets/session.html', {
             'assignment': assignment,
             'submission': submission,
             'current_wq': current_wq,
-            'question': current_wq.question,
+            'question': question,
             'answers': answers,
+            'answer_partial': answer_partial,
             'question_number': question_number,
             'total_questions': len(assigned_qs),
-            'answered_count': len(answered_ids),
+            'answered_count': answered_count,
         })
+
+
+# ---------------------------------------------------------------------------
+# CPP-281: Grading helpers
+# ---------------------------------------------------------------------------
+
+def _grade_long_division(question, text_answer: str) -> bool:
+    """
+    Grade a long-division answer submitted as "quotient r remainder" or just "quotient".
+    Accepts "6 r 0" and "6" as equivalent when expected remainder is 0.
+    """
+    if not (question.dividend and question.divisor):
+        return False
+    try:
+        expected_quotient = question.dividend // question.divisor
+        expected_remainder = question.dividend % question.divisor
+
+        text = text_answer.strip().lower().replace(' r ', ' r')
+        if ' r' in text:
+            parts = text.split(' r', 1)
+            submitted_quotient = int(parts[0].strip())
+            submitted_remainder = int(parts[1].strip()) if parts[1].strip() else 0
+        else:
+            submitted_quotient = int(text.strip())
+            submitted_remainder = 0
+
+        return submitted_quotient == expected_quotient and submitted_remainder == expected_remainder
+    except (ValueError, TypeError, IndexError):
+        return False
+
+
+def _prime_factors(n: int):
+    """Return sorted list of prime factors of n (with repetition), e.g. 12 → [2, 2, 3]."""
+    factors = []
+    d = 2
+    while d * d <= n:
+        while n % d == 0:
+            factors.append(d)
+            n //= d
+        d += 1
+    if n > 1:
+        factors.append(n)
+    return sorted(factors)
+
+
+def _grade_prime_factorization(question, text_answer: str) -> bool:
+    """
+    Grade a prime-factorisation answer submitted as "2x3x5" (factors joined by 'x').
+    Order-insensitive — compares sorted factor lists.
+    """
+    if not question.target_number:
+        return False
+    try:
+        raw = text_answer.strip().lower().replace('×', 'x')
+        if not raw:
+            return False
+        submitted_factors = sorted(int(f.strip()) for f in raw.split('x') if f.strip())
+        expected_factors = _prime_factors(question.target_number)
+        return submitted_factors == expected_factors
+    except (ValueError, TypeError):
+        return False
 
 
 class WorksheetAnswerView(LoginRequiredMixin, View):
     """HTMX: student submits an answer; returns feedback partial."""
 
     def post(self, request, pk):
+        from classroom.subject_registry import get as get_plugin
+
         assignment = _get_student_assignment(request, pk)
-        assigned_qs = list(assignment.assigned_questions.select_related('question').prefetch_related('question__answers'))
+        assigned_qs = list(assignment.assigned_questions.select_related(
+            'question', 'coding_exercise',
+        ).prefetch_related('question__answers'))
 
         submission = get_object_or_404(
             WorksheetSubmission, assignment=assignment, student=request.user,
         )
 
-        question_id = int(request.POST.get('question_id', 0))
-        from maths.models import Question as MathsQuestion, Answer as MathsAnswer
-        question = get_object_or_404(MathsQuestion, pk=question_id)
+        subject_slug = request.POST.get('subject_slug', 'mathematics')
+        content_id = int(request.POST.get('content_id', 0))
 
-        selected_answer = None
-        text_answer = ''
-        is_correct = False
-        points_earned = 0.0
+        # --- Coding exercise grading ---
+        if subject_slug == 'coding':
+            from coding.models import CodingExercise as CodingExModel
+            plugin = get_plugin('coding')
+            result = plugin.grade_answer(content_id, request.POST)
+            coding_ex = get_object_or_404(CodingExModel, pk=content_id)
+            student_answer, _ = WorksheetStudentAnswer.objects.update_or_create(
+                submission=submission,
+                subject_slug='coding',
+                content_id=content_id,
+                defaults={
+                    'coding_exercise': coding_ex,
+                    'question': None,
+                    'text_answer': result.get('text_answer', ''),
+                    'is_correct': result.get('is_correct', False),
+                    'points_earned': float(result.get('points_earned', 0)),
+                    'answer_data': result.get('answer_data', {}),
+                },
+            )
+        else:
+            # --- Maths question grading ---
+            from maths.models import Question as MathsQuestion, Answer as MathsAnswer
+            question = get_object_or_404(MathsQuestion, pk=content_id)
 
-        if question.question_type in ('multiple_choice', 'true_false'):
-            answer_id = request.POST.get('answer_id')
-            if answer_id:
-                selected_answer = get_object_or_404(MathsAnswer, pk=answer_id, question=question)
-                is_correct = selected_answer.is_correct
+            selected_answer = None
+            text_answer = ''
+            is_correct = False
+            points_earned = 0.0
+            answer_data = {}
+
+            if question.question_type in ('multiple_choice', 'true_false'):
+                answer_id = request.POST.get('answer_id')
+                if answer_id:
+                    selected_answer = get_object_or_404(MathsAnswer, pk=answer_id, question=question)
+                    is_correct = selected_answer.is_correct
+                    if is_correct:
+                        points_earned = float(question.points)
+
+            elif question.question_type == 'long_division':
+                text_answer = request.POST.get('text_answer', '').strip()
+                is_correct = _grade_long_division(question, text_answer)
                 if is_correct:
                     points_earned = float(question.points)
-        else:
-            text_answer = request.POST.get('text_answer', '').strip()
-            correct_answers = [
-                a.answer_text.strip().lower()
-                for a in question.answers.filter(is_correct=True)
-            ]
-            if text_answer.lower() in correct_answers:
-                is_correct = True
-                points_earned = float(question.points)
 
-        # Upsert answer (idempotent — re-submit stays same question)
-        student_answer, _ = WorksheetStudentAnswer.objects.update_or_create(
-            submission=submission,
-            question=question,
-            defaults={
-                'selected_answer': selected_answer,
-                'text_answer': text_answer,
-                'is_correct': is_correct,
-                'points_earned': points_earned,
-            },
-        )
+            elif question.question_type == 'prime_factorization':
+                text_answer = request.POST.get('text_answer', '').strip()
+                is_correct = _grade_prime_factorization(question, text_answer)
+                if is_correct:
+                    points_earned = float(question.points)
+
+            elif question.question_type == 'extended_answer':
+                text_answer = request.POST.get('text_answer', '').strip()
+                school = get_school_for_user(request.user)
+                try:
+                    result = grade_extended_answer(question, text_answer, school=school)
+                    is_correct = result.get('is_correct', False)
+                    score_frac = result.get('score_fraction', 0.0)
+                    answer_data = {
+                        'feedback': result.get('feedback', ''),
+                        'score_fraction': score_frac,
+                        'cache_hit': result.get('cache_hit', False),
+                        'is_partial': result.get('is_partial', 0.1 <= score_frac < 0.6),
+                        'what_was_correct': result.get('what_was_correct', ''),
+                        'what_to_add': result.get('what_to_add', ''),
+                    }
+                    if result.get('quota_exceeded'):
+                        answer_data['review_status'] = 'pending_ai'
+                    if is_correct:
+                        points_earned = float(question.points)
+                    elif answer_data['is_partial']:
+                        points_earned = round(float(question.points) * score_frac, 2)
+                except Exception as exc:
+                    logger.exception(f'Extended answer grading failed for Q{question.pk}: {exc}')
+                    answer_data = {'review_status': 'pending_ai'}
+
+            else:
+                text_answer = request.POST.get('text_answer', '').strip()
+                correct_answers = [
+                    a.answer_text.strip().lower()
+                    for a in question.answers.filter(is_correct=True)
+                ]
+                if text_answer.lower() in correct_answers:
+                    is_correct = True
+                    points_earned = float(question.points)
+
+            student_answer, _ = WorksheetStudentAnswer.objects.update_or_create(
+                submission=submission,
+                subject_slug='mathematics',
+                content_id=content_id,
+                defaults={
+                    'question': question,
+                    'selected_answer': selected_answer,
+                    'text_answer': text_answer,
+                    'is_correct': is_correct,
+                    'points_earned': points_earned,
+                    'answer_data': answer_data,
+                },
+            )
 
         # Update submission score
-        total_correct = submission.answers.filter(is_correct=True).count()
-        total_points = sum(a.points_earned for a in submission.answers.all())
-        submission.score = total_correct
+        submission.score = submission.answers.filter(is_correct=True).count()
         submission.save(update_fields=['score'])
 
         # Determine next question
-        answered_ids = set(submission.answers.values_list('question_id', flat=True))
+        answered_pairs = set(submission.answers.values_list('subject_slug', 'content_id'))
         next_wq = None
         for wq in assigned_qs:
-            if wq.question_id not in answered_ids:
+            if (wq.subject_slug, wq.content_id) not in answered_pairs:
                 next_wq = wq
                 break
 
-        # If no more questions, mark complete
         is_last = next_wq is None
         if is_last and not submission.is_complete:
             submission.completed_at = timezone.now()
             submission.save(update_fields=['completed_at'])
 
-        # Find correct answer(s) for display
-        correct_answers_display = list(question.answers.filter(is_correct=True).values('answer_text'))
+        # Render feedback partial
+        if subject_slug == 'coding':
+            return render(request, 'worksheets/answer_feedback.html', {
+                'student_answer': student_answer,
+                'is_correct': student_answer.is_correct,
+                'is_last': is_last,
+                'assignment_pk': pk,
+                'next_wq': next_wq,
+                'is_coding': True,
+            })
 
         return render(request, 'worksheets/answer_feedback.html', {
             'question': question,
             'student_answer': student_answer,
             'is_correct': is_correct,
-            'correct_answers': correct_answers_display,
+            'correct_answers': list(question.answers.filter(is_correct=True).values('answer_text')),
             'is_last': is_last,
             'assignment_pk': pk,
             'next_wq': next_wq,
@@ -682,22 +861,34 @@ class WorksheetResultsView(LoginRequiredMixin, View):
     """Student: show completion screen with score and wrong-answer review."""
 
     def get(self, request, pk):
+        from classroom.subject_registry import get as get_plugin
+
         assignment = _get_student_assignment(request, pk)
         submission = get_object_or_404(
             WorksheetSubmission, assignment=assignment, student=request.user,
         )
 
-        answers = submission.answers.select_related(
-            'question', 'selected_answer',
-        ).prefetch_related('question__answers').order_by('answered_at')
+        answers = list(submission.answers.select_related(
+            'question', 'selected_answer', 'coding_exercise',
+        ).prefetch_related('question__answers').order_by('answered_at'))
 
-        wrong_answers = [a for a in answers if not a.is_correct]
+        # Build plugin-dispatched review items (same pattern as homework result view)
+        review_items = []
+        for ans in answers:
+            plugin = get_plugin(ans.subject_slug)
+            if plugin is None:
+                continue
+            review_items.append({
+                'ans': ans,
+                'template': plugin.result_item_template(),
+                'ctx': plugin.result_item_context(ans),
+            })
 
         return render(request, 'worksheets/results.html', {
             'assignment': assignment,
             'submission': submission,
             'answers': answers,
-            'wrong_answers': wrong_answers,
+            'review_items': review_items,
         })
 
 

@@ -1,15 +1,19 @@
 """
-Unit tests for WorksheetBuilderView and WorksheetBuilderQuestionsView — CPP-282.
+Unit tests for WorksheetBuilderView, WorksheetBuilderQuestionsView,
+and WorksheetBuilderSaveView — CPP-282 / CPP-284.
 
 Run with:
     pytest worksheets/tests/test_views_builder.py -v
 """
+import json
+
 from django.test import TestCase
 from django.urls import reverse
 
 from accounts.models import CustomUser, Role
 from classroom.models import Level, School, SchoolTeacher, Subject, Topic
 from maths.models import Question
+from worksheets.models import Worksheet, WorksheetQuestion
 
 
 # ---------------------------------------------------------------------------
@@ -178,8 +182,10 @@ class TestBuilderViewAccess(BuilderTestBase):
     def test_builder_view_context_has_subjects_topics_levels(self):
         resp = self.client.get(reverse('worksheets:builder'))
         self.assertIn('subjects', resp.context)
-        self.assertIn('topics', resp.context)
+        self.assertIn('maths_parent_topics', resp.context)
         self.assertIn('levels', resp.context)
+        self.assertIn('coding_languages', resp.context)
+        self.assertIn('coding_levels', resp.context)
 
 
 # ---------------------------------------------------------------------------
@@ -291,3 +297,128 @@ class TestBuilderQuestionsPagination(BuilderTestBase):
     def test_invalid_page_falls_back_to_last(self):
         resp = self.client.get(self._questions_url(page=9999))
         self.assertEqual(resp.status_code, 200)
+
+
+# ---------------------------------------------------------------------------
+# WorksheetBuilderSaveView — CPP-284
+# ---------------------------------------------------------------------------
+
+class TestBuilderSaveView(BuilderTestBase):
+    """Tests for POST /worksheets/builder/save/"""
+
+    def _save_url(self):
+        return reverse('worksheets:builder_save')
+
+    def _valid_payload(self, questions=None):
+        if questions is None:
+            questions = [{'subject_slug': 'mathematics', 'content_id': self.q_global.pk}]
+        return {
+            'name': 'Test Worksheet',
+            'questions_json': json.dumps(questions),
+        }
+
+    # --- Happy path ---
+
+    def test_builder_save_creates_worksheet_and_questions(self):
+        payload = self._valid_payload([
+            {'subject_slug': 'mathematics', 'content_id': self.q_global.pk},
+            {'subject_slug': 'mathematics', 'content_id': self.q_school_a.pk},
+        ])
+        resp = self.client.post(self._save_url(), payload)
+        self.assertEqual(resp.status_code, 200)
+        worksheet = Worksheet.objects.get(name='Test Worksheet')
+        self.assertEqual(worksheet.school, self.school_a)
+        self.assertEqual(worksheet.created_by, self.teacher)
+        wqs = WorksheetQuestion.objects.filter(worksheet=worksheet).order_by('order')
+        self.assertEqual(wqs.count(), 2)
+        self.assertEqual(wqs[0].content_id, self.q_global.pk)
+        self.assertEqual(wqs[0].order, 1)
+        self.assertEqual(wqs[1].content_id, self.q_school_a.pk)
+        self.assertEqual(wqs[1].order, 2)
+
+    def test_builder_save_question_count_refreshed(self):
+        payload = self._valid_payload([
+            {'subject_slug': 'mathematics', 'content_id': self.q_global.pk},
+            {'subject_slug': 'mathematics', 'content_id': self.q_school_a.pk},
+        ])
+        self.client.post(self._save_url(), payload)
+        worksheet = Worksheet.objects.get(name='Test Worksheet')
+        self.assertEqual(worksheet.question_count, 2)
+
+    def test_builder_save_redirects_to_detail_via_hx_redirect(self):
+        resp = self.client.post(self._save_url(), self._valid_payload())
+        self.assertEqual(resp.status_code, 200)
+        worksheet = Worksheet.objects.get(name='Test Worksheet')
+        expected = reverse('worksheets:detail', args=[worksheet.pk])
+        self.assertEqual(resp['HX-Redirect'], expected)
+
+    def test_builder_save_with_level(self):
+        payload = self._valid_payload()
+        payload['level_id'] = self.level_y5.level_number
+        self.client.post(self._save_url(), payload)
+        worksheet = Worksheet.objects.get(name='Test Worksheet')
+        self.assertEqual(worksheet.level, self.level_y5)
+
+    # --- Validation errors ---
+
+    def test_builder_save_rejects_empty_name(self):
+        payload = self._valid_payload()
+        payload['name'] = ''
+        resp = self.client.post(self._save_url(), payload)
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(Worksheet.objects.filter(name='').exists())
+
+    def test_builder_save_rejects_whitespace_name(self):
+        payload = self._valid_payload()
+        payload['name'] = '   '
+        resp = self.client.post(self._save_url(), payload)
+        self.assertEqual(resp.status_code, 400)
+
+    def test_builder_save_rejects_empty_question_list(self):
+        payload = {'name': 'Empty', 'questions_json': '[]'}
+        resp = self.client.post(self._save_url(), payload)
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(Worksheet.objects.filter(name='Empty').exists())
+
+    def test_builder_save_rejects_malformed_json(self):
+        payload = {'name': 'Bad JSON', 'questions_json': 'not-json'}
+        resp = self.client.post(self._save_url(), payload)
+        self.assertEqual(resp.status_code, 400)
+
+    def test_builder_save_rejects_duplicate_question(self):
+        payload = self._valid_payload([
+            {'subject_slug': 'mathematics', 'content_id': self.q_global.pk},
+            {'subject_slug': 'mathematics', 'content_id': self.q_global.pk},
+        ])
+        resp = self.client.post(self._save_url(), payload)
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(Worksheet.objects.filter(name='Test Worksheet').exists())
+
+    def test_builder_save_rejects_cross_tenant_question(self):
+        """Teacher from School A cannot include School B's question."""
+        payload = self._valid_payload([
+            {'subject_slug': 'mathematics', 'content_id': self.q_school_b.pk},
+        ])
+        resp = self.client.post(self._save_url(), payload)
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(Worksheet.objects.filter(name='Test Worksheet').exists())
+
+    def test_builder_save_rejects_nonexistent_question(self):
+        payload = self._valid_payload([
+            {'subject_slug': 'mathematics', 'content_id': 999999},
+        ])
+        resp = self.client.post(self._save_url(), payload)
+        self.assertEqual(resp.status_code, 400)
+
+    # --- Access control ---
+
+    def test_builder_save_student_gets_redirect_or_403(self):
+        self.client.force_login(self.student)
+        resp = self.client.post(self._save_url(), self._valid_payload())
+        self.assertIn(resp.status_code, [302, 403])
+        self.assertFalse(Worksheet.objects.filter(name='Test Worksheet').exists())
+
+    def test_builder_save_unauthenticated_redirects(self):
+        self.client.logout()
+        resp = self.client.post(self._save_url(), self._valid_payload())
+        self.assertIn(resp.status_code, [302, 403])
