@@ -8,6 +8,7 @@ urlpatterns = [
     # Teacher: worksheet builder (CPP-282 / CPP-283 / CPP-284)
     path('builder/', views_builder.WorksheetBuilderView.as_view(), name='builder'),
     path('builder/questions/', views_builder.WorksheetBuilderQuestionsView.as_view(), name='builder_questions'),
+    path('builder/cascade/', views_builder.WorksheetBuilderCascadeView.as_view(), name='builder_cascade'),
     path('builder/save/', views_builder.WorksheetBuilderSaveView.as_view(), name='builder_save'),
 
     # Teacher: worksheet library

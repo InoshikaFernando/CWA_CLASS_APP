@@ -182,8 +182,10 @@ class TestBuilderViewAccess(BuilderTestBase):
     def test_builder_view_context_has_subjects_topics_levels(self):
         resp = self.client.get(reverse('worksheets:builder'))
         self.assertIn('subjects', resp.context)
-        self.assertIn('topics', resp.context)
+        self.assertIn('maths_parent_topics', resp.context)
         self.assertIn('levels', resp.context)
+        self.assertIn('coding_languages', resp.context)
+        self.assertIn('coding_levels', resp.context)
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,10 @@
-{% if page_obj.object_list %}
+{% if coding_coming_soon %}
+<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-10 text-center">
+  <div class="text-4xl mb-3">🚧</div>
+  <p class="text-gray-600 font-medium">Coding exercises coming soon</p>
+  <p class="text-sm text-gray-400 mt-1">The worksheet builder will support coding exercises in a future update.</p>
+</div>
+{% elif page_obj.object_list %}
 <div class="space-y-3">
 
   <!-- Result count -->

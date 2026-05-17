@@ -26,6 +26,13 @@ from django.views import View
 from maths.models import Question
 from worksheets.models import Worksheet, WorksheetQuestion
 
+# Coding level choices (from coding.TopicLevel.level_choice)
+CODING_LEVELS = [
+    ('beginner', 'Beginner'),
+    ('intermediate', 'Intermediate'),
+    ('advanced', 'Advanced'),
+]
+
 PAGE_SIZE = 25
 
 BUILDER_ROLES = [
@@ -57,16 +64,24 @@ class WorksheetBuilderView(RoleRequiredMixin, View):
             Q(school__isnull=True) | Q(school=school)
         ).order_by('name')
 
-        # All topics grouped — client-side JS filters by subject
-        topics = Topic.objects.filter(
-            subject__in=subjects
-        ).select_related('subject').order_by('subject__name', 'name')
+        # Maths parent topics (top-level only — subtopics fetched via HTMX cascade)
+        maths_global = Subject.objects.filter(slug='mathematics', school__isnull=True).first()
+        maths_parent_topics = (
+            Topic.objects.filter(subject=maths_global, parent__isnull=True).order_by('name')
+            if maths_global else []
+        )
+
+        # Coding: languages as top-level topics
+        from coding.models import CodingLanguage
+        coding_languages = CodingLanguage.objects.filter(is_active=True).order_by('order', 'name')
 
         levels = Level.objects.filter(level_number__lte=12).order_by('level_number')
 
         return render(request, 'worksheets/builder.html', {
             'subjects': subjects,
-            'topics': topics,
+            'maths_parent_topics': maths_parent_topics,
+            'coding_languages': coding_languages,
+            'coding_levels': CODING_LEVELS,
             'levels': levels,
         })
 
@@ -83,29 +98,52 @@ class WorksheetBuilderQuestionsView(RoleRequiredMixin, View):
     def get(self, request):
         school = get_school_for_user(request.user)
 
-        # Tenant-scoped question queryset: global questions + school's own questions
+        subject_slug = request.GET.get('subject', '').strip()
+        topic_id = request.GET.get('topic', '').strip()
+        subtopic_id = request.GET.get('subtopic', '').strip()
+        level_filter = request.GET.get('level', '').strip()
+        search = request.GET.get('q', '').strip()
+
+        # Coding exercises are not yet integrated in the builder (Sprint 3 TODO:
+        # make WorksheetQuestion.question nullable and add coding_exercise FK).
+        if subject_slug == 'coding':
+            return render(request, 'worksheets/partials/_builder_question_list.html', {
+                'page_obj': None,
+                'filter_params': {},
+                'total_count': 0,
+                'coding_coming_soon': True,
+            })
+
+        # Tenant-scoped question queryset: global + school's own
         qs = Question.objects.filter(
             Q(school__isnull=True) | Q(school=school)
         ).select_related('topic__subject', 'level').order_by('level', 'difficulty', 'pk')
 
         # --- Filters ---
-        subject_slug = request.GET.get('subject', '').strip()
-        topic_id = request.GET.get('topic', '').strip()
-        level_number = request.GET.get('level', '').strip()
-        search = request.GET.get('q', '').strip()
-
         if subject_slug:
             qs = qs.filter(topic__subject__slug=subject_slug)
+        else:
+            # Default to maths when no subject chosen (coding has no maths.Question rows)
+            qs = qs.filter(topic__subject__slug='mathematics')
 
-        if topic_id:
+        if subtopic_id:
+            # Specific subtopic selected — exact filter
             try:
-                qs = qs.filter(topic_id=int(topic_id))
+                qs = qs.filter(topic_id=int(subtopic_id))
+            except (ValueError, TypeError):
+                pass
+        elif topic_id:
+            # Parent topic selected — include the topic itself AND all its children
+            try:
+                tid = int(topic_id)
+                child_ids = list(Topic.objects.filter(parent_id=tid).values_list('pk', flat=True))
+                qs = qs.filter(topic_id__in=[tid] + child_ids)
             except (ValueError, TypeError):
                 pass
 
-        if level_number:
+        if level_filter:
             try:
-                qs = qs.filter(level__level_number=int(level_number))
+                qs = qs.filter(level__level_number=int(level_filter))
             except (ValueError, TypeError):
                 pass
 
@@ -121,17 +159,108 @@ class WorksheetBuilderQuestionsView(RoleRequiredMixin, View):
             page_number = 1
         page_obj = paginator.get_page(page_number)
 
-        # Annotate difficulty labels
         for q in page_obj:
             q.difficulty_label = DIFFICULTY_LABELS.get(q.difficulty, 'Unknown')
 
-        # Preserve filter params for pagination links
         filter_params = {k: v for k, v in request.GET.items() if k != 'page'}
 
         return render(request, 'worksheets/partials/_builder_question_list.html', {
             'page_obj': page_obj,
             'filter_params': filter_params,
             'total_count': paginator.count,
+        })
+
+
+class WorksheetBuilderCascadeView(RoleRequiredMixin, View):
+    """
+    GET /worksheets/builder/cascade/
+
+    HTMX cascade endpoint — returns an OOB partial that updates the
+    topic, subtopic, and level dropdowns when the subject or parent-topic
+    selection changes.  The PRIMARY response body is the updated question
+    list (same as builder_questions), so the caller targets #question-list.
+    OOB elements update the filter dropdowns in-place.
+
+    Query params: subject (slug), topic (parent topic pk), step (subject|topic)
+    """
+    required_roles = BUILDER_ROLES
+
+    def get(self, request):
+        school = get_school_for_user(request.user)
+        subject_slug = request.GET.get('subject', '').strip()
+        topic_id = request.GET.get('topic', '').strip()
+        step = request.GET.get('step', 'subject')  # 'subject' or 'topic'
+
+        # --- Build cascade data ---
+        if subject_slug == 'coding':
+            from coding.models import CodingLanguage, CodingTopic as CodingTopicModel
+            parent_items = list(CodingLanguage.objects.filter(is_active=True).order_by('order', 'name'))
+            subtopic_items = []
+            if topic_id:
+                try:
+                    subtopic_items = list(
+                        CodingTopicModel.objects.filter(language_id=int(topic_id))
+                        .order_by('order', 'name')
+                    )
+                except (ValueError, TypeError):
+                    pass
+            level_options = CODING_LEVELS
+            level_type = 'coding'
+        else:
+            # Mathematics (or default)
+            maths_global = Subject.objects.filter(slug='mathematics', school__isnull=True).first()
+            parent_items = (
+                list(Topic.objects.filter(subject=maths_global, parent__isnull=True).order_by('name'))
+                if maths_global else []
+            )
+            subtopic_items = []
+            if topic_id:
+                try:
+                    subtopic_items = list(Topic.objects.filter(parent_id=int(topic_id)).order_by('name'))
+                except (ValueError, TypeError):
+                    pass
+            level_options = list(Level.objects.filter(level_number__lte=12).order_by('level_number'))
+            level_type = 'year'
+
+        # --- Question list (same logic as WorksheetBuilderQuestionsView) ---
+        if subject_slug == 'coding':
+            page_obj = None
+            total_count = 0
+            coding_coming_soon = True
+        else:
+            qs = Question.objects.filter(
+                Q(school__isnull=True) | Q(school=school)
+            ).select_related('topic__subject', 'level').order_by('level', 'difficulty', 'pk')
+            qs = qs.filter(topic__subject__slug='mathematics')
+            if topic_id:
+                try:
+                    tid = int(topic_id)
+                    child_ids = list(Topic.objects.filter(parent_id=tid).values_list('pk', flat=True))
+                    qs = qs.filter(topic_id__in=[tid] + child_ids)
+                except (ValueError, TypeError):
+                    pass
+            search = request.GET.get('q', '').strip()
+            if search:
+                qs = qs.filter(question_text__icontains=search)
+            paginator = Paginator(qs, PAGE_SIZE)
+            page_obj = paginator.get_page(1)
+            for q in page_obj:
+                q.difficulty_label = DIFFICULTY_LABELS.get(q.difficulty, 'Unknown')
+            total_count = paginator.count
+            coding_coming_soon = False
+
+        return render(request, 'worksheets/partials/_builder_cascade.html', {
+            'subject_slug': subject_slug,
+            'topic_id': topic_id,
+            'step': step,
+            'parent_items': parent_items,
+            'subtopic_items': subtopic_items,
+            'level_options': level_options,
+            'level_type': level_type,
+            'page_obj': page_obj,
+            'filter_params': {k: v for k, v in request.GET.items() if k not in ('page', 'step')},
+            'total_count': total_count,
+            'coding_coming_soon': coding_coming_soon,
         })
 
 
