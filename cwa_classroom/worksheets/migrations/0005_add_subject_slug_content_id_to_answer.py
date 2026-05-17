@@ -4,6 +4,22 @@ from django.db import migrations, models
 import django.db.models.deletion
 
 
+def backfill_content_id(apps, schema_editor):
+    """Set content_id = question_id for all existing maths student-answer rows.
+
+    Without this, every row gets content_id=0 (the column default), which
+    causes a duplicate-key error when the new unique_together constraint on
+    (submission, subject_slug, content_id) is applied to a submission that
+    already has more than one answer.
+    """
+    WorksheetStudentAnswer = apps.get_model('worksheets', 'WorksheetStudentAnswer')
+    (
+        WorksheetStudentAnswer.objects
+        .filter(question_id__isnull=False, content_id=0)
+        .update(content_id=models.F('question_id'))
+    )
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -37,6 +53,10 @@ class Migration(migrations.Migration):
             name='question',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='worksheet_student_answers', to='maths.question'),
         ),
+        # Backfill content_id from question_id BEFORE adding the unique constraint.
+        # Without this, existing submissions with multiple answers all have
+        # content_id=0 and collide on (submission, 'mathematics', 0).
+        migrations.RunPython(backfill_content_id, migrations.RunPython.noop),
         migrations.AlterUniqueTogether(
             name='worksheetstudentanswer',
             unique_together={('submission', 'subject_slug', 'content_id')},
