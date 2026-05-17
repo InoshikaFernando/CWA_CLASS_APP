@@ -1,45 +1,58 @@
-# Rewritten to be fully idempotent (safe to re-run after partial failure).
+# Fully idempotent migration — safe to re-run from any partial state.
 #
-# The original auto-generated migration used AlterUniqueTogether which
-# triggers Django's MySQL backend to create a replacement FK index before
-# dropping the old unique index.  On the test server this caused:
-#   - Attempt 1: duplicate-data error adding the new unique constraint
-#   - Attempt 2: duplicate-key error creating the FK index (already exists)
+# Uses SET foreign_key_checks = 0 for the entire block so every DROP INDEX
+# and MODIFY COLUMN succeeds regardless of FK constraints (bypasses MySQL
+# errors 1553 and similar). Error 3780 (FK type mismatch on MODIFY COLUMN)
+# is handled separately by reading the actual COLUMN_TYPE from
+# information_schema rather than hardcoding a type.
 #
-# Fix: replace all schema operations with RunPython steps that check the
-# current DB state via information_schema before acting.  This makes the
-# migration safe to re-run regardless of how far the previous attempt got.
+# Every DDL step checks information_schema first so re-runs are no-ops.
 #
-# Django state is kept in sync via SeparateDatabaseAndState — the state_operations
-# tell Django's ORM what the schema looks like; the database_operations are no-ops
-# because the RunPython steps handle everything directly.
+# Django ORM state is kept in sync via SeparateDatabaseAndState —
+# state_operations describe the final model shape; database_operations=[]
+# because RunPython already handled all DDL.
 
 from django.db import migrations, models
 import django.db.models.deletion
 
 
-def _column_exists(cursor, table, column):
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _col(cursor, table, column):
+    """Return (is_nullable, column_type) for a column, or None if not found."""
     cursor.execute(
-        """SELECT COUNT(*) FROM information_schema.COLUMNS
+        """SELECT IS_NULLABLE, COLUMN_TYPE
+           FROM information_schema.COLUMNS
            WHERE TABLE_SCHEMA = DATABASE()
            AND TABLE_NAME = %s AND COLUMN_NAME = %s""",
         [table, column],
     )
+    return cursor.fetchone()
+
+
+def _index_exists(cursor, table, index_name):
+    cursor.execute(
+        """SELECT COUNT(*) FROM information_schema.STATISTICS
+           WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = %s AND INDEX_NAME = %s""",
+        [table, index_name],
+    )
     return cursor.fetchone()[0] > 0
 
 
-def _unique_index_exists(cursor, table, columns_substring):
-    """True if there is a unique index whose name contains columns_substring."""
+def _unique_exists(cursor, table, name_substr):
     cursor.execute(
         """SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
            WHERE TABLE_SCHEMA = DATABASE()
            AND TABLE_NAME = %s
            AND CONSTRAINT_TYPE = 'UNIQUE'
            AND CONSTRAINT_NAME LIKE %s""",
-        [table, f'%{columns_substring}%'],
+        [table, f'%{name_substr}%'],
     )
     return cursor.fetchone()[0] > 0
 
+
+# ── Forward migration ─────────────────────────────────────────────────────────
 
 def apply_forward(apps, schema_editor):
     TABLE = 'worksheets_worksheetstudentanswer'
@@ -47,66 +60,85 @@ def apply_forward(apps, schema_editor):
 
     with conn.cursor() as c:
 
-        # ── 1. Drop old unique_together (submission, question) if still present ──
-        c.execute(
-            """SELECT CONSTRAINT_NAME
-               FROM information_schema.TABLE_CONSTRAINTS
-               WHERE TABLE_SCHEMA = DATABASE()
-               AND TABLE_NAME = %s
-               AND CONSTRAINT_TYPE = 'UNIQUE'""",
-            [TABLE],
-        )
-        for (name,) in c.fetchall():
-            # Only drop constraints that look like the old (submission, question) one —
-            # i.e. NOT the new one we're about to create.
-            if 'subject_sl' not in name and 'content_id' not in name:
-                c.execute(f'ALTER TABLE `{TABLE}` DROP INDEX `{name}`')
+        # Disable FK checks for the whole block.
+        # ▸ Bypasses error 1553 ("cannot drop index: needed in FK constraint")
+        #   so we can drop the old unique index without first creating a
+        #   replacement FK-backing index on submission_id.
+        # ▸ MySQL automatically re-enables FK checks when the session ends,
+        #   so a mid-migration failure is safe.
+        c.execute('SET foreign_key_checks = 0')
+        try:
 
-        # ── 2. Add new columns (each idempotent) ─────────────────────────────────
+            # ── 1. Drop old unique_together (submission, question) ───────────
+            c.execute(
+                """SELECT CONSTRAINT_NAME
+                   FROM information_schema.TABLE_CONSTRAINTS
+                   WHERE TABLE_SCHEMA = DATABASE()
+                   AND TABLE_NAME = %s
+                   AND CONSTRAINT_TYPE = 'UNIQUE'""",
+                [TABLE],
+            )
+            for (name,) in c.fetchall():
+                # Drop any unique that isn't our new (submission, subject_slug,
+                # content_id) constraint — identified by NOT containing
+                # 'subject_sl' or 'content_id' in the auto-generated name.
+                if 'subject_sl' not in name and 'content_id' not in name:
+                    c.execute(f'ALTER TABLE `{TABLE}` DROP INDEX `{name}`')
 
-        if not _column_exists(c, TABLE, 'coding_exercise_id'):
+            # ── 2. Add new columns (idempotent) ─────────────────────────────
+            if not _col(c, TABLE, 'coding_exercise_id'):
+                c.execute(
+                    f'ALTER TABLE `{TABLE}`'
+                    f' ADD COLUMN `coding_exercise_id` bigint NULL'
+                )
+            if not _col(c, TABLE, 'content_id'):
+                c.execute(
+                    f'ALTER TABLE `{TABLE}`'
+                    f" ADD COLUMN `content_id` int unsigned NOT NULL DEFAULT 0"
+                )
+            if not _col(c, TABLE, 'subject_slug'):
+                c.execute(
+                    f'ALTER TABLE `{TABLE}`'
+                    f" ADD COLUMN `subject_slug` varchar(50) NOT NULL DEFAULT 'mathematics'"
+                )
+            # Index for subject_slug — created separately so a re-run that
+            # finds the column already present can still create a missing index.
+            if not _index_exists(c, TABLE, f'{TABLE}_subject_slug_idx'):
+                c.execute(
+                    f'CREATE INDEX `{TABLE}_subject_slug_idx`'
+                    f' ON `{TABLE}` (`subject_slug`)'
+                )
+
+            # ── 3. Make question_id nullable ─────────────────────────────────
+            # Read the actual COLUMN_TYPE (e.g. 'bigint') to avoid MySQL 3780:
+            # "Referencing column and referenced column are incompatible."
+            # Hardcoding 'INT UNSIGNED' fails when the PK is BIGINT (signed).
+            row = _col(c, TABLE, 'question_id')
+            if row and row[0] == 'NO':          # IS_NULLABLE == 'NO'
+                col_type = row[1]               # e.g. 'bigint'
+                c.execute(
+                    f'ALTER TABLE `{TABLE}`'
+                    f' MODIFY COLUMN `question_id` {col_type} NULL'
+                )
+
+            # ── 4. Backfill content_id from question_id ──────────────────────
             c.execute(
-                f'ALTER TABLE `{TABLE}` ADD COLUMN `coding_exercise_id` INT UNSIGNED NULL'
-            )
-        if not _column_exists(c, TABLE, 'content_id'):
-            c.execute(
-                f"ALTER TABLE `{TABLE}` ADD COLUMN `content_id` INT UNSIGNED NOT NULL DEFAULT 0"
-            )
-        if not _column_exists(c, TABLE, 'subject_slug'):
-            c.execute(
-                f"ALTER TABLE `{TABLE}` ADD COLUMN `subject_slug` VARCHAR(50) NOT NULL DEFAULT 'mathematics'"
-            )
-            c.execute(
-                f'CREATE INDEX `{TABLE}_subject_slug_idx` ON `{TABLE}` (`subject_slug`)'
+                f'UPDATE `{TABLE}`'
+                f' SET content_id = question_id'
+                f' WHERE question_id IS NOT NULL AND content_id = 0'
             )
 
-        # ── 3. Make question_id nullable if it isn't already ────────────────────
-        c.execute(
-            """SELECT IS_NULLABLE FROM information_schema.COLUMNS
-               WHERE TABLE_SCHEMA = DATABASE()
-               AND TABLE_NAME = %s AND COLUMN_NAME = 'question_id'""",
-            [TABLE],
-        )
-        row = c.fetchone()
-        if row and row[0] == 'NO':
-            c.execute(
-                f'ALTER TABLE `{TABLE}` MODIFY COLUMN `question_id` INT UNSIGNED NULL'
-            )
+            # ── 5. Create new unique constraint ──────────────────────────────
+            if not _unique_exists(c, TABLE, 'subject_sl'):
+                c.execute(
+                    f'ALTER TABLE `{TABLE}`'
+                    f' ADD UNIQUE KEY'
+                    f' `worksheets_worksheetstud_submission_id_subject_sl_445dca9d_uniq`'
+                    f' (`submission_id`, `subject_slug`, `content_id`)'
+                )
 
-        # ── 4. Backfill content_id = question_id for all existing maths rows ────
-        c.execute(
-            f'UPDATE `{TABLE}` SET content_id = question_id '
-            f'WHERE question_id IS NOT NULL AND content_id = 0'
-        )
-
-        # ── 5. Create new unique constraint if not already present ───────────────
-        if not _unique_index_exists(c, TABLE, 'subject_sl'):
-            c.execute(
-                f"""ALTER TABLE `{TABLE}`
-                    ADD UNIQUE KEY
-                    `worksheets_worksheetstud_submission_id_subject_sl_445dca9d_uniq`
-                    (`submission_id`, `subject_slug`, `content_id`)"""
-            )
+        finally:
+            c.execute('SET foreign_key_checks = 1')
 
 
 class Migration(migrations.Migration):
@@ -118,9 +150,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # All schema + data work is done in the idempotent RunPython above.
-        # SeparateDatabaseAndState keeps Django's ORM state in sync without
-        # re-running any DDL that the RunPython already handled.
         migrations.RunPython(apply_forward, migrations.RunPython.noop),
 
         migrations.SeparateDatabaseAndState(
