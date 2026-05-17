@@ -111,16 +111,23 @@ def apply_forward(apps, schema_editor):
             )
 
         # ── 3. Make question_id nullable if it isn't already ────────────────────
+        #
+        # MySQL 8 error 3780: MODIFY COLUMN must use the exact same base type
+        # as the referenced column or MySQL rejects the FK as incompatible.
+        # Read COLUMN_TYPE from information_schema (e.g. 'bigint') and reuse
+        # it — only the NOT NULL → NULL change is needed.
         c.execute(
-            """SELECT IS_NULLABLE FROM information_schema.COLUMNS
+            """SELECT IS_NULLABLE, COLUMN_TYPE
+               FROM information_schema.COLUMNS
                WHERE TABLE_SCHEMA = DATABASE()
                AND TABLE_NAME = %s AND COLUMN_NAME = 'question_id'""",
             [TABLE],
         )
         row = c.fetchone()
         if row and row[0] == 'NO':
+            col_type = row[1]  # e.g. 'bigint' or 'int'
             c.execute(
-                f'ALTER TABLE `{TABLE}` MODIFY COLUMN `question_id` INT UNSIGNED NULL'
+                f'ALTER TABLE `{TABLE}` MODIFY COLUMN `question_id` {col_type} NULL'
             )
 
         # ── 4. Backfill content_id = question_id for all existing maths rows ────
