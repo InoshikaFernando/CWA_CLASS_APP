@@ -23,6 +23,7 @@ from classroom.models import Level, Subject, Topic
 from classroom.views import RoleRequiredMixin
 from django.views import View
 
+from coding.models import CodingExercise, CodingLanguage, CodingTopic as CodingTopicModel
 from maths.models import Question
 from worksheets.models import Worksheet, WorksheetQuestion
 
@@ -72,7 +73,6 @@ class WorksheetBuilderView(RoleRequiredMixin, View):
         )
 
         # Coding: languages as top-level topics
-        from coding.models import CodingLanguage
         coding_languages = CodingLanguage.objects.filter(is_active=True).order_by('order', 'name')
 
         levels = Level.objects.filter(level_number__lte=12).order_by('level_number')
@@ -104,36 +104,24 @@ class WorksheetBuilderQuestionsView(RoleRequiredMixin, View):
         level_filter = request.GET.get('level', '').strip()
         search = request.GET.get('q', '').strip()
 
-        # Coding exercises are not yet integrated in the builder (Sprint 3 TODO:
-        # make WorksheetQuestion.question nullable and add coding_exercise FK).
-        if subject_slug == 'coding':
-            return render(request, 'worksheets/partials/_builder_question_list.html', {
-                'page_obj': None,
-                'filter_params': {},
-                'total_count': 0,
-                'coding_coming_soon': True,
-            })
+        filter_params = {k: v for k, v in request.GET.items() if k != 'page'}
 
-        # Tenant-scoped question queryset: global + school's own
+        if subject_slug == 'coding':
+            return self._coding_response(request, topic_id, subtopic_id, level_filter, search, filter_params)
+
+        # --- Maths (default) ---
         qs = Question.objects.filter(
             Q(school__isnull=True) | Q(school=school)
         ).select_related('topic__subject', 'level').order_by('level', 'difficulty', 'pk')
 
-        # --- Filters ---
-        if subject_slug:
-            qs = qs.filter(topic__subject__slug=subject_slug)
-        else:
-            # Default to maths when no subject chosen (coding has no maths.Question rows)
-            qs = qs.filter(topic__subject__slug='mathematics')
+        qs = qs.filter(topic__subject__slug='mathematics')
 
         if subtopic_id:
-            # Specific subtopic selected — exact filter
             try:
                 qs = qs.filter(topic_id=int(subtopic_id))
             except (ValueError, TypeError):
                 pass
         elif topic_id:
-            # Parent topic selected — include the topic itself AND all its children
             try:
                 tid = int(topic_id)
                 child_ids = list(Topic.objects.filter(parent_id=tid).values_list('pk', flat=True))
@@ -150,7 +138,6 @@ class WorksheetBuilderQuestionsView(RoleRequiredMixin, View):
         if search:
             qs = qs.filter(question_text__icontains=search)
 
-        # --- Pagination ---
         paginator = Paginator(qs, PAGE_SIZE)
         page_number = request.GET.get('page', 1)
         try:
@@ -162,12 +149,53 @@ class WorksheetBuilderQuestionsView(RoleRequiredMixin, View):
         for q in page_obj:
             q.difficulty_label = DIFFICULTY_LABELS.get(q.difficulty, 'Unknown')
 
-        filter_params = {k: v for k, v in request.GET.items() if k != 'page'}
+        return render(request, 'worksheets/partials/_builder_question_list.html', {
+            'page_obj': page_obj,
+            'filter_params': filter_params,
+            'total_count': paginator.count,
+        })
+
+    def _coding_response(self, request, topic_id, subtopic_id, level_filter, search, filter_params):
+        """Build and paginate a CodingExercise queryset for the given filters."""
+        qs = CodingExercise.objects.filter(
+            is_active=True,
+        ).select_related(
+            'topic_level__topic__language',
+        ).order_by('topic_level__topic__language__order', 'topic_level__level_choice', 'order')
+
+        # topic_id = CodingLanguage pk, subtopic_id = CodingTopic pk
+        if subtopic_id:
+            try:
+                qs = qs.filter(topic_level__topic_id=int(subtopic_id))
+            except (ValueError, TypeError):
+                pass
+        elif topic_id:
+            try:
+                qs = qs.filter(topic_level__topic__language_id=int(topic_id))
+            except (ValueError, TypeError):
+                pass
+
+        if level_filter:
+            qs = qs.filter(topic_level__level_choice=level_filter)
+
+        if search:
+            qs = qs.filter(
+                Q(title__icontains=search) | Q(description__icontains=search)
+            )
+
+        paginator = Paginator(qs, PAGE_SIZE)
+        page_number = request.GET.get('page', 1)
+        try:
+            page_number = int(page_number)
+        except (ValueError, TypeError):
+            page_number = 1
+        page_obj = paginator.get_page(page_number)
 
         return render(request, 'worksheets/partials/_builder_question_list.html', {
             'page_obj': page_obj,
             'filter_params': filter_params,
             'total_count': paginator.count,
+            'is_coding': True,
         })
 
 
@@ -193,7 +221,6 @@ class WorksheetBuilderCascadeView(RoleRequiredMixin, View):
 
         # --- Build cascade data ---
         if subject_slug == 'coding':
-            from coding.models import CodingLanguage, CodingTopic as CodingTopicModel
             parent_items = list(CodingLanguage.objects.filter(is_active=True).order_by('order', 'name'))
             subtopic_items = []
             if topic_id:
@@ -223,10 +250,22 @@ class WorksheetBuilderCascadeView(RoleRequiredMixin, View):
             level_type = 'year'
 
         # --- Question list (same logic as WorksheetBuilderQuestionsView) ---
-        if subject_slug == 'coding':
-            page_obj = None
-            total_count = 0
-            coding_coming_soon = True
+        is_coding = (subject_slug == 'coding')
+        if is_coding:
+            qs = CodingExercise.objects.filter(is_active=True).select_related(
+                'topic_level__topic__language',
+            ).order_by('topic_level__topic__language__order', 'topic_level__level_choice', 'order')
+            if topic_id:
+                try:
+                    qs = qs.filter(topic_level__topic__language_id=int(topic_id))
+                except (ValueError, TypeError):
+                    pass
+            search = request.GET.get('q', '').strip()
+            if search:
+                qs = qs.filter(Q(title__icontains=search) | Q(description__icontains=search))
+            paginator = Paginator(qs, PAGE_SIZE)
+            page_obj = paginator.get_page(1)
+            total_count = paginator.count
         else:
             qs = Question.objects.filter(
                 Q(school__isnull=True) | Q(school=school)
@@ -247,7 +286,6 @@ class WorksheetBuilderCascadeView(RoleRequiredMixin, View):
             for q in page_obj:
                 q.difficulty_label = DIFFICULTY_LABELS.get(q.difficulty, 'Unknown')
             total_count = paginator.count
-            coding_coming_soon = False
 
         return render(request, 'worksheets/partials/_builder_cascade.html', {
             'subject_slug': subject_slug,
@@ -260,7 +298,7 @@ class WorksheetBuilderCascadeView(RoleRequiredMixin, View):
             'page_obj': page_obj,
             'filter_params': {k: v for k, v in request.GET.items() if k not in ('page', 'step')},
             'total_count': total_count,
-            'coding_coming_soon': coding_coming_soon,
+            'is_coding': is_coding,
         })
 
 
@@ -321,15 +359,32 @@ class WorksheetBuilderSaveView(RoleRequiredMixin, View):
                 return JsonResponse({'error': 'Duplicate questions detected. Please remove duplicates and try again.'}, status=400)
             seen.add(key)
 
-        # --- Validate all questions are visible to this school (one query) ---
-        content_ids = [item['content_id'] for item in questions]
-        visible_questions = Question.objects.filter(
-            pk__in=content_ids
-        ).filter(Q(school__isnull=True) | Q(school=school))
+        # --- Validate all questions are visible to this school ---
+        maths_items = [item for item in questions if item.get('subject_slug', 'mathematics') != 'coding']
+        coding_items = [item for item in questions if item.get('subject_slug') == 'coding']
 
-        visible_map = {q.pk: q for q in visible_questions}
-        if len(visible_map) != len(content_ids):
-            return JsonResponse({'error': 'One or more questions are not available for your school.'}, status=400)
+        maths_ids = [item['content_id'] for item in maths_items]
+        coding_ids = [item['content_id'] for item in coding_items]
+
+        visible_maths = {}
+        if maths_ids:
+            visible_maths = {
+                q.pk: q for q in Question.objects.filter(
+                    pk__in=maths_ids
+                ).filter(Q(school__isnull=True) | Q(school=school))
+            }
+            if len(visible_maths) != len(maths_ids):
+                return JsonResponse({'error': 'One or more maths questions are not available for your school.'}, status=400)
+
+        visible_coding = {}
+        if coding_ids:
+            visible_coding = {
+                ex.pk: ex for ex in CodingExercise.objects.filter(
+                    pk__in=coding_ids, is_active=True
+                ).filter(Q(school__isnull=True) | Q(school=school))
+            }
+            if len(visible_coding) != len(coding_ids):
+                return JsonResponse({'error': 'One or more coding exercises are not available.'}, status=400)
 
         # --- Create Worksheet + WorksheetQuestion rows atomically ---
         with transaction.atomic():
@@ -342,16 +397,28 @@ class WorksheetBuilderSaveView(RoleRequiredMixin, View):
                 created_by=request.user,
             )
 
-            WorksheetQuestion.objects.bulk_create([
-                WorksheetQuestion(
-                    worksheet=worksheet,
-                    question=visible_map[item['content_id']],
-                    subject_slug=item.get('subject_slug', 'mathematics'),
-                    content_id=item['content_id'],
-                    order=idx + 1,
-                )
-                for idx, item in enumerate(questions)
-            ])
+            wq_rows = []
+            for idx, item in enumerate(questions):
+                slug = item.get('subject_slug', 'mathematics')
+                cid = item['content_id']
+                if slug == 'coding':
+                    wq_rows.append(WorksheetQuestion(
+                        worksheet=worksheet,
+                        question=None,
+                        coding_exercise=visible_coding[cid],
+                        subject_slug='coding',
+                        content_id=cid,
+                        order=idx + 1,
+                    ))
+                else:
+                    wq_rows.append(WorksheetQuestion(
+                        worksheet=worksheet,
+                        question=visible_maths[cid],
+                        subject_slug=slug,
+                        content_id=cid,
+                        order=idx + 1,
+                    ))
+            WorksheetQuestion.objects.bulk_create(wq_rows)
 
             worksheet.refresh_question_count()
 

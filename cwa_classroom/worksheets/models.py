@@ -41,6 +41,11 @@ class WorksheetQuestion(models.Model):
     )
     question = models.ForeignKey(
         'maths.Question', on_delete=models.CASCADE, related_name='worksheet_entries',
+        null=True, blank=True,
+    )
+    coding_exercise = models.ForeignKey(
+        'coding.CodingExercise', on_delete=models.CASCADE, related_name='worksheet_entries',
+        null=True, blank=True,
     )
     order = models.PositiveIntegerField()
     # Subject plugin fields — mirrors HomeworkQuestion pattern.
@@ -69,10 +74,12 @@ class WorksheetQuestion(models.Model):
         ]
 
     def save(self, *args, **kwargs):
-        # Auto-populate content_id from the question FK for maths questions
-        # so callers don't need to set it explicitly.
-        if self.content_id == 0 and self.question_id is not None:
-            self.content_id = self.question_id
+        # Auto-populate content_id from the relevant FK so callers don't have to set it.
+        if self.content_id == 0:
+            if self.question_id is not None:
+                self.content_id = self.question_id
+            elif self.coding_exercise_id is not None:
+                self.content_id = self.coding_exercise_id
         super().save(*args, **kwargs)
 
     def __str__(self):
