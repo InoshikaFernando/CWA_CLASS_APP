@@ -1,14 +1,66 @@
+from datetime import timedelta
+
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
+from django.db.models import Count
 from django.shortcuts import render, redirect
+from django.utils import timezone
 from django.views import View
 
 from accounts.models import Role
 from classroom.views import RoleRequiredMixin
 
 
+# ---- Roles shown in the activity summary (excludes internal/admin roles) ----
+_SUMMARY_ROLES = [Role.TEACHER, Role.PARENT, Role.STUDENT]
+
+
+def _get_role_activity_summary(school_ids=None, days=7):
+    """
+    Return a list of dicts: [{role_name, display_name, count}, ...] for the
+    last *days* days, optionally scoped to a set of schools.
+    """
+    from .models import AuditLog
+
+    cutoff = timezone.now() - timedelta(days=days)
+    qs = AuditLog.objects.filter(created_at__gte=cutoff)
+    if school_ids is not None:
+        qs = qs.filter(school_id__in=school_ids)
+
+    counts = dict(
+        qs.filter(user__user_roles__role__name__in=_SUMMARY_ROLES)
+        .values_list('user__user_roles__role__name')
+        .annotate(c=Count('id'))
+        .values_list('user__user_roles__role__name', 'c')
+    )
+
+    display_map = dict(
+        Role.objects.filter(name__in=_SUMMARY_ROLES)
+        .values_list('name', 'display_name')
+    )
+
+    return [
+        {
+            'role_name': r,
+            'display_name': display_map.get(r, r.replace('_', ' ').title()),
+            'count': counts.get(r, 0),
+        }
+        for r in _SUMMARY_ROLES
+    ]
+
+
+def _get_top_actions(qs, limit=5):
+    """Return the top *limit* actions from a queryset as [(action, count), ...]."""
+    return list(
+        qs.values('action')
+        .annotate(c=Count('id'))
+        .order_by('-c')
+        .values_list('action', 'c')[:limit]
+    )
+
+
 class AuditDashboardView(RoleRequiredMixin, View):
-    """Admin-only dashboard showing risk summary and recent audit events."""
+    """Admin-only dashboard showing risk summary, role activity, and recent events."""
     required_roles = [Role.ADMIN]
 
     def get(self, request):
@@ -17,51 +69,26 @@ class AuditDashboardView(RoleRequiredMixin, View):
 
         summary = get_risk_summary()
         recent_events = AuditLog.objects.select_related('user', 'school').order_by('-created_at')[:50]
+        role_summary = _get_role_activity_summary()
 
         return render(request, 'audit/dashboard.html', {
             'summary': summary,
             'recent_events': recent_events,
+            'role_summary': role_summary,
         })
 
 
 class AuditLogListView(RoleRequiredMixin, View):
-    """Paginated, filterable audit log list. Admin only."""
+    """Legacy audit log list — redirects to the superior EventsView."""
     required_roles = [Role.ADMIN]
 
-    PAGE_SIZE = 50
-
     def get(self, request):
-        from .models import AuditLog
-
-        qs = AuditLog.objects.select_related('user', 'school').order_by('-created_at')
-
-        # Filters
-        category = request.GET.get('category', '')
-        action = request.GET.get('action', '')
-        result = request.GET.get('result', '')
-        if category:
-            qs = qs.filter(category=category)
-        if action:
-            qs = qs.filter(action__icontains=action)
-        if result:
-            qs = qs.filter(result=result)
-
-        # Pagination
-        page = int(request.GET.get('page', 1))
-        offset = (page - 1) * self.PAGE_SIZE
-        events = qs[offset:offset + self.PAGE_SIZE + 1]
-        has_next = len(events) > self.PAGE_SIZE
-        events = events[:self.PAGE_SIZE]
-
-        return render(request, 'audit/log_list.html', {
-            'events': events,
-            'category': category,
-            'action': action,
-            'result': result,
-            'page': page,
-            'has_next': has_next,
-            'categories': AuditLog.CATEGORY_CHOICES,
-        })
+        # Preserve query parameters in redirect
+        query_string = request.META.get('QUERY_STRING', '')
+        url = '/audit/events/'
+        if query_string:
+            url += '?' + query_string
+        return redirect(url, permanent=False)
 
 
 class EventsView(RoleRequiredMixin, View):
@@ -126,6 +153,9 @@ class EventsView(RoleRequiredMixin, View):
         # Roles for dropdown
         roles_list = Role.objects.filter(is_active=True).order_by('display_name')
 
+        # Top actions (for current filtered queryset)
+        top_actions = _get_top_actions(qs)
+
         # Pagination
         paginator = Paginator(qs, self.PAGE_SIZE)
         page_number = request.GET.get('page', 1)
@@ -147,4 +177,5 @@ class EventsView(RoleRequiredMixin, View):
             'date_from': date_from,
             'date_to': date_to,
             'role': role,
+            'top_actions': top_actions,
         })
