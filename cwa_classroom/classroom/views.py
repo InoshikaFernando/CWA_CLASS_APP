@@ -4104,8 +4104,10 @@ class UpdateStudentFeeView(RoleRequiredMixin, View):
             from decimal import Decimal, InvalidOperation
             try:
                 fee_val = Decimal(fee_str)
-                # 0 means "clear override" — fall through to inherited fee
-                cs.fee_override = fee_val if fee_val > 0 else None
+                if fee_val < 0:
+                    messages.error(request, 'Fee cannot be negative.')
+                    return redirect('class_detail', class_id=class_id)
+                cs.fee_override = fee_val  # 0 = free student; positive = custom fee
             except InvalidOperation:
                 messages.error(request, 'Invalid fee amount.')
                 return redirect('class_detail', class_id=class_id)
@@ -4166,6 +4168,47 @@ class ClassStudentRemoveView(RoleRequiredMixin, View):
             messages.success(request, f'{name} has been removed from {classroom.name}.')
         else:
             messages.warning(request, 'Student not found in this class.')
+        return redirect('class_detail', class_id=class_id)
+
+
+class ClassTeacherRemoveView(RoleRequiredMixin, View):
+    """Remove a teacher from a class. HoD+ only (teachers cannot remove each other)."""
+    required_roles = [
+        Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT,
+    ]
+
+    def post(self, request, class_id, teacher_id):
+        from django.db.models import Q
+        user = request.user
+        if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
+            classroom = get_object_or_404(ClassRoom, id=class_id, school__admin=user)
+        elif user.has_role(Role.HEAD_OF_DEPARTMENT):
+            classroom = ClassRoom.objects.filter(
+                Q(department__head=user) | Q(teachers=user),
+                id=class_id,
+            ).distinct().first()
+            if not classroom:
+                raise Http404
+        else:
+            raise Http404
+
+        ct = ClassTeacher.objects.filter(
+            classroom=classroom, teacher_id=teacher_id,
+        ).select_related('teacher').first()
+
+        if ct:
+            name = ct.teacher.get_full_name() or ct.teacher.username
+            ct.delete()
+            log_event(
+                user=request.user, school=classroom.school, category='data_change',
+                action='class_teacher_removed',
+                detail={'class_id': classroom.id, 'class_name': classroom.name, 'teacher_id': teacher_id, 'teacher_name': name},
+                request=request,
+            )
+            messages.success(request, f'{name} has been removed from {classroom.name}.')
+        else:
+            messages.warning(request, 'Teacher not found in this class.')
         return redirect('class_detail', class_id=class_id)
 
 
