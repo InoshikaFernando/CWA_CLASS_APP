@@ -148,7 +148,7 @@ class StudentReportView(RoleRequiredMixin, View):
             'page_obj': page_obj,
             'form': form,
             'available_classes': available_classes,
-            'total_count': qs.count(),
+            'total_count': paginator.count,
             'filters': filters,
             'is_hod_only': hod_only,
         }
