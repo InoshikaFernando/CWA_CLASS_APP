@@ -357,6 +357,7 @@ else:
 # ---------------------------------------------------------------------------
 
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'info@wizardslearninghub.co.nz')
+DAILY_EMAIL_LIMIT = int(os.environ.get('DAILY_EMAIL_LIMIT', '90'))
 
 # Priority: Resend API (recommended) > SMTP (legacy) > Console (dev)
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
