@@ -1112,22 +1112,26 @@ _DAY_WEEKDAY = {
 
 
 def _count_orphaned_sessions(classroom):
-    """Count future scheduled sessions whose date no longer matches classroom.day."""
+    """Count strictly-future scheduled sessions whose date no longer matches classroom.day.
+    Today's session is excluded — it must never be touched regardless of status.
+    """
     from datetime import date as _date
     new_weekday = _DAY_WEEKDAY.get(classroom.day)
     if new_weekday is None:
         return 0
     today = _date.today()
     future = ClassSession.objects.filter(
-        classroom=classroom, status='scheduled', date__gte=today,
+        classroom=classroom, status='scheduled', date__gt=today,
     )
     return sum(1 for s in future if s.date.weekday() != new_weekday)
 
 
 def _delete_orphaned_sessions(classroom):
     """
-    Delete future scheduled sessions whose date no longer matches classroom.day.
-    Skips any session that has attendance records (lesson already happened).
+    Delete strictly-future scheduled sessions whose date no longer matches classroom.day.
+    - Today's session is always preserved (date__gt=today).
+    - Completed sessions are excluded (status='scheduled' filter).
+    - Sessions with any attendance record are never deleted.
     Returns count of sessions deleted.
     """
     from datetime import date as _date
@@ -1135,13 +1139,12 @@ def _delete_orphaned_sessions(classroom):
     today = _date.today()
 
     future = ClassSession.objects.filter(
-        classroom=classroom, status='scheduled', date__gte=today,
+        classroom=classroom, status='scheduled', date__gt=today,
     )
     orphan_ids = [s.id for s in future if s.date.weekday() != new_weekday]
     if not orphan_ids:
         return 0
 
-    # Never delete sessions with any attendance recorded
     attended_ids = set(
         StudentAttendance.objects
         .filter(session_id__in=orphan_ids)
@@ -1150,6 +1153,97 @@ def _delete_orphaned_sessions(classroom):
     safe_ids = [i for i in orphan_ids if i not in attended_ids]
     ClassSession.objects.filter(id__in=safe_ids).delete()
     return len(safe_ids)
+
+
+def _sync_sessions_after_reschedule(classroom, created_by):
+    """
+    Create new scheduled sessions for `classroom` on its new day within active
+    term dates, after a schedule change.
+
+    Key rule: if the classroom already has any non-cancelled session in the
+    current ISO week (Monday–Sunday), skip that week entirely. This prevents
+    creating an extra session in a week the class already ran on the old day.
+
+    Returns count of sessions created.
+    """
+    from datetime import date as _date, timedelta as _td
+    from .models import Term, SchoolHoliday, PublicHoliday
+
+    today = _date.today()
+    new_weekday = _DAY_WEEKDAY.get(classroom.day)
+    if new_weekday is None:
+        return 0
+
+    # ISO week bounds for today (Monday=0)
+    week_start = today - _td(days=today.weekday())
+    week_end = week_start + _td(days=6)
+
+    # If any non-cancelled session exists this week, start creating from next week.
+    has_session_this_week = ClassSession.objects.filter(
+        classroom=classroom,
+        date__range=(week_start, week_end),
+    ).exclude(status='cancelled').exists()
+
+    create_from = (week_start + _td(weeks=1)) if has_session_this_week else today
+
+    terms = Term.objects.filter(
+        school=classroom.school,
+        end_date__gte=create_from,
+    ).order_by('start_date')
+
+    if not terms.exists():
+        return 0
+
+    overall_start = create_from
+    overall_end = max(t.end_date for t in terms)
+
+    holiday_dates = set()
+    for h in SchoolHoliday.objects.filter(
+        school=classroom.school,
+        start_date__lte=overall_end,
+        end_date__gte=overall_start,
+    ):
+        d = max(h.start_date, overall_start)
+        while d <= min(h.end_date, overall_end):
+            holiday_dates.add(d)
+            d += _td(days=1)
+    for h in PublicHoliday.objects.filter(
+        school=classroom.school,
+        date__range=(overall_start, overall_end),
+    ):
+        holiday_dates.add(h.date)
+
+    existing_dates = set(
+        ClassSession.objects.filter(
+            classroom=classroom,
+            date__range=(overall_start, overall_end),
+        ).values_list('date', flat=True)
+    )
+
+    to_create = []
+    seen_dates = set(existing_dates)
+    for term in terms:
+        effective_start = max(term.start_date, create_from)
+        if effective_start > term.end_date:
+            continue
+        days_ahead = (new_weekday - effective_start.weekday()) % 7
+        session_date = effective_start + _td(days=days_ahead)
+        while session_date <= term.end_date:
+            if session_date not in holiday_dates and session_date not in seen_dates:
+                to_create.append(ClassSession(
+                    classroom=classroom,
+                    date=session_date,
+                    start_time=classroom.start_time,
+                    end_time=classroom.end_time,
+                    status='scheduled',
+                    created_by=created_by,
+                ))
+                seen_dates.add(session_date)
+            session_date += _td(weeks=1)
+
+    if to_create:
+        ClassSession.objects.bulk_create(to_create, ignore_conflicts=True)
+    return len(to_create)
 
 
 # ---------------------------------------------------------------------------
@@ -1192,11 +1286,7 @@ class ConfirmRescheduleView(RoleRequiredMixin, View):
         request.session.pop(f'reschedule_{class_id}_count', None)
 
         deleted = _delete_orphaned_sessions(classroom)
-
-        from .invoicing_services import sync_sessions_for_school
-        created, _ = sync_sessions_for_school(
-            classroom.school, created_by=request.user,
-        )
+        created = _sync_sessions_after_reschedule(classroom, created_by=request.user)
 
         log_event(
             user=request.user, school=classroom.school,

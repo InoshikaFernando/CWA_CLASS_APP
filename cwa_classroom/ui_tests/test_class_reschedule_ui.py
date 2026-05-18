@@ -383,6 +383,50 @@ class TestConfirmRescheduleAccess:
 # TestDeleteWithAttendanceProtection
 # ---------------------------------------------------------------------------
 
+class TestTodaySessionProtection:
+    """Today's session must never be deleted during a reschedule."""
+
+    @pytest.mark.django_db(transaction=True)
+    def test_todays_session_preserved_after_confirm(
+        self, page: Page, live_server, admin_user, classroom
+    ):
+        """Session dated today is NOT deleted even if it's on the old day."""
+        from classroom.models import ClassSession
+
+        today = datetime.date.today()
+        today_session = ClassSession.objects.create(
+            classroom=classroom,
+            date=today,
+            start_time=datetime.time(9, 0),
+            end_time=datetime.time(10, 0),
+            status='scheduled',
+            created_by=admin_user,
+        )
+        # Also create a future session on the old day so the confirm page appears
+        next_monday = _next_monday()
+        ClassSession.objects.create(
+            classroom=classroom,
+            date=next_monday,
+            start_time=datetime.time(9, 0),
+            end_time=datetime.time(10, 0),
+            status='scheduled',
+            created_by=admin_user,
+        )
+
+        do_login(page, live_server.url, admin_user)
+        _goto_edit_and_change_day(page, live_server.url, classroom.pk, "friday")
+
+        if "confirm-reschedule" in page.url:
+            _click_confirm(page)
+
+        assert ClassSession.objects.filter(id=today_session.id).exists(), (
+            "Today's session must not be deleted during reschedule"
+        )
+        # cleanup
+        classroom.day = "monday"
+        classroom.save(update_fields=["day"])
+
+
 class TestDeleteWithAttendanceProtection:
     """Sessions with student attendance are never deleted."""
 

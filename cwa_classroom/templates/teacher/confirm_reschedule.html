@@ -21,7 +21,8 @@
           You changed this class from
           <strong>{{ old_day|capfirst }}</strong> to
           <strong>{{ classroom.day|capfirst }}</strong>.
-          Confirming will delete <strong>{{ orphan_count }}</strong> old session(s) and automatically create new sessions on the new day.
+          Confirming will delete <strong>{{ orphan_count }}</strong> future session(s) on the old schedule and create new sessions on the new day.
+          Today's session and any completed sessions will not be affected.
         </p>
       </div>
     </div>

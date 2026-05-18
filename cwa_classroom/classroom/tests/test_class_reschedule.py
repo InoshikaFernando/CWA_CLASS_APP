@@ -8,9 +8,11 @@ from django.urls import reverse
 
 from accounts.models import CustomUser, Role
 from classroom.models import (
-    School, SchoolTeacher, Department, ClassRoom, ClassSession, StudentAttendance,
+    School, SchoolTeacher, Department, ClassRoom, ClassSession, StudentAttendance, Term,
 )
-from classroom.views import _count_orphaned_sessions, _delete_orphaned_sessions
+from classroom.views import (
+    _count_orphaned_sessions, _delete_orphaned_sessions, _sync_sessions_after_reschedule,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +146,19 @@ class TestCountOrphanedSessions(RescheduleTestBase):
         self.assertEqual(_count_orphaned_sessions(self.classroom), 3)
         self.classroom.day = 'monday'
 
+    def test_todays_session_not_counted_as_orphan(self):
+        """Session dated today is protected — must never be treated as an orphan."""
+        today = datetime.date.today()
+        ClassSession.objects.create(
+            classroom=self.classroom, date=today,
+            start_time=datetime.time(9, 0), end_time=datetime.time(10, 0),
+            status='scheduled', created_by=self.admin_user,
+        )
+        # Even if today's weekday doesn't match new day, count must be 0
+        self.classroom.day = 'friday'
+        self.assertEqual(_count_orphaned_sessions(self.classroom), 0)
+        self.classroom.day = 'monday'
+
 
 # ---------------------------------------------------------------------------
 # _delete_orphaned_sessions
@@ -186,6 +201,20 @@ class TestDeleteOrphanedSessions(RescheduleTestBase):
         self.classroom.day = 'friday'
         deleted = _delete_orphaned_sessions(self.classroom)
         self.assertEqual(deleted, 0)
+        self.classroom.day = 'monday'
+
+    def test_todays_session_not_deleted(self):
+        """Session dated today must never be deleted, even if it's on the old day."""
+        today = datetime.date.today()
+        today_session = ClassSession.objects.create(
+            classroom=self.classroom, date=today,
+            start_time=datetime.time(9, 0), end_time=datetime.time(10, 0),
+            status='scheduled', created_by=self.admin_user,
+        )
+        self.classroom.day = 'friday'
+        deleted = _delete_orphaned_sessions(self.classroom)
+        self.assertEqual(deleted, 0)
+        self.assertTrue(ClassSession.objects.filter(id=today_session.id).exists())
         self.classroom.day = 'monday'
 
     def test_mixed_attended_and_safe_sessions(self):
@@ -386,3 +415,167 @@ class TestConfirmReschedulePost(RescheduleTestBase):
         s.save()
         response = self.client.post(self.url, {})
         self.assertRedirects(response, '/custom-return/', fetch_redirect_response=False)
+
+
+# ---------------------------------------------------------------------------
+# _sync_sessions_after_reschedule
+# ---------------------------------------------------------------------------
+
+class TestSyncSessionsAfterReschedule(RescheduleTestBase):
+    """
+    Verify that _sync_sessions_after_reschedule:
+      - Creates sessions for the new day within term dates
+      - Skips the current ISO week when the classroom already has a session this week
+      - Does not create duplicates
+      - Returns 0 when no terms exist
+    """
+
+    def setUp(self):
+        ClassSession.objects.filter(classroom=self.classroom).delete()
+        # Create a term covering today + 4 weeks so sync has dates to work with
+        today = datetime.date.today()
+        self.term = Term.objects.create(
+            school=self.school,
+            name='Test Term',
+            start_date=today - datetime.timedelta(days=7),
+            end_date=today + datetime.timedelta(weeks=4),
+        )
+
+    def tearDown(self):
+        ClassSession.objects.filter(classroom=self.classroom).delete()
+        Term.objects.filter(id=self.term.id).delete()
+        self.classroom.day = 'monday'
+        self.classroom.save(update_fields=['day'])
+
+    def test_returns_zero_with_no_terms(self):
+        """No terms → no sessions created, returns 0."""
+        self.term.delete()
+        self.classroom.day = 'friday'
+        self.classroom.save(update_fields=['day'])
+        created = _sync_sessions_after_reschedule(self.classroom, self.admin_user)
+        self.assertEqual(created, 0)
+
+    def test_creates_sessions_on_new_day(self):
+        """Sessions are created on the new weekday within the term."""
+        self.classroom.day = 'friday'
+        self.classroom.save(update_fields=['day'])
+        created = _sync_sessions_after_reschedule(self.classroom, self.admin_user)
+        self.assertGreater(created, 0)
+        # All created sessions must fall on Friday (weekday=4)
+        sessions = ClassSession.objects.filter(classroom=self.classroom)
+        for s in sessions:
+            self.assertEqual(s.date.weekday(), 4, f'{s.date} is not a Friday')
+
+    def test_skips_current_week_when_session_exists_this_week(self):
+        """
+        If any non-cancelled session exists in the current ISO week, no new session
+        is created for this week on the new day.
+        """
+        today = datetime.date.today()
+        week_start = today - datetime.timedelta(days=today.weekday())
+
+        # Create a completed Monday session this week (simulates class already ran)
+        ClassSession.objects.create(
+            classroom=self.classroom, date=week_start,
+            start_time=datetime.time(9, 0), end_time=datetime.time(10, 0),
+            status='completed', created_by=self.admin_user,
+        )
+
+        # Change to Friday
+        self.classroom.day = 'friday'
+        self.classroom.save(update_fields=['day'])
+        _sync_sessions_after_reschedule(self.classroom, self.admin_user)
+
+        # No session should exist for this week (Monday–Sunday)
+        week_end = week_start + datetime.timedelta(days=6)
+        this_week_new = ClassSession.objects.filter(
+            classroom=self.classroom,
+            date__range=(week_start, week_end),
+            status='scheduled',
+        ).count()
+        self.assertEqual(this_week_new, 0,
+            'No new session should be created for the current week when one already exists')
+
+    def test_creates_from_next_week_when_current_week_occupied(self):
+        """First new session must be in the following week when this week is occupied."""
+        today = datetime.date.today()
+        week_start = today - datetime.timedelta(days=today.weekday())
+
+        # Existing session this week
+        ClassSession.objects.create(
+            classroom=self.classroom, date=week_start,
+            start_time=datetime.time(9, 0), end_time=datetime.time(10, 0),
+            status='completed', created_by=self.admin_user,
+        )
+
+        self.classroom.day = 'friday'
+        self.classroom.save(update_fields=['day'])
+        _sync_sessions_after_reschedule(self.classroom, self.admin_user)
+
+        scheduled = ClassSession.objects.filter(
+            classroom=self.classroom, status='scheduled',
+        ).order_by('date')
+        if scheduled.exists():
+            first = scheduled.first().date
+            next_week_start = week_start + datetime.timedelta(weeks=1)
+            self.assertGreaterEqual(first, next_week_start,
+                f'First new session {first} should be in next week (>= {next_week_start})')
+
+    def test_no_duplicates_created(self):
+        """Calling sync twice does not create duplicate sessions."""
+        self.classroom.day = 'friday'
+        self.classroom.save(update_fields=['day'])
+        created_first = _sync_sessions_after_reschedule(self.classroom, self.admin_user)
+        created_second = _sync_sessions_after_reschedule(self.classroom, self.admin_user)
+        self.assertEqual(created_second, 0, 'Second call must not create duplicates')
+
+    def test_scheduled_session_this_week_also_blocks_new_one(self):
+        """A scheduled (not just completed) session this week also prevents current-week creation."""
+        today = datetime.date.today()
+        week_start = today - datetime.timedelta(days=today.weekday())
+
+        ClassSession.objects.create(
+            classroom=self.classroom, date=week_start,
+            start_time=datetime.time(9, 0), end_time=datetime.time(10, 0),
+            status='scheduled', created_by=self.admin_user,
+        )
+
+        self.classroom.day = 'friday'
+        self.classroom.save(update_fields=['day'])
+        _sync_sessions_after_reschedule(self.classroom, self.admin_user)
+
+        week_end = week_start + datetime.timedelta(days=6)
+        friday_this_week = ClassSession.objects.filter(
+            classroom=self.classroom,
+            date__range=(week_start, week_end),
+            date__week_day=6,  # Friday in Django (1=Sun, 6=Fri, 7=Sat)
+        ).count()
+        self.assertEqual(friday_this_week, 0)
+
+    def test_cancelled_session_this_week_does_not_block(self):
+        """A cancelled session this week does NOT block creation of a new session this week."""
+        today = datetime.date.today()
+        week_start = today - datetime.timedelta(days=today.weekday())
+
+        ClassSession.objects.create(
+            classroom=self.classroom, date=week_start,
+            start_time=datetime.time(9, 0), end_time=datetime.time(10, 0),
+            status='cancelled', created_by=self.admin_user,
+        )
+
+        # Find what day this week's Friday is
+        days_to_friday = (4 - today.weekday()) % 7
+        this_friday = today + datetime.timedelta(days=days_to_friday)
+
+        self.classroom.day = 'friday'
+        self.classroom.save(update_fields=['day'])
+
+        if this_friday >= today and this_friday <= self.term.end_date:
+            _sync_sessions_after_reschedule(self.classroom, self.admin_user)
+            # Should have created a Friday session this week (not blocked by cancelled)
+            created = ClassSession.objects.filter(
+                classroom=self.classroom, status='scheduled',
+                date=this_friday,
+            ).count()
+            self.assertGreaterEqual(created, 1,
+                'Cancelled session should not block new session for this week')
