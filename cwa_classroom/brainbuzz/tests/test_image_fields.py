@@ -1,4 +1,4 @@
-"""
+﻿"""
 test_image_fields.py
 ~~~~~~~~~~~~~~~~~~~~
 Tests for image propagation through the BrainBuzz snapshot pipeline.
@@ -7,11 +7,15 @@ Coverage:
   - Snapshot copies question image_url from maths.Question.image
   - Snapshot copies per-option image_url from maths.Answer.answer_image
   - Questions without images produce empty image_url (no broken-image markup)
+  - image_url key always present on every option even when empty
+  - Quiz questions snapshot unaffected by image fields
   - _session_state_payload exposes image_url in the question dict
   - Per-option image_url is present in the payload options array
+  - image_url NOT stripped by is_correct filter for students
+  - api_session_state endpoint returns image_url in JSON body
 """
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, PropertyMock
 
 from django.test import TestCase, Client
 from django.contrib.auth import get_user_model
@@ -30,11 +34,11 @@ User = get_user_model()
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_session(host):
+def _make_session(host, code='IMG001'):
     from classroom.models import Subject
     subject, _ = Subject.objects.get_or_create(name='Mathematics', defaults={'slug': 'mathematics'})
     return BrainBuzzSession.objects.create(
-        code='IMG001',
+        code=code,
         host=host,
         subject=subject,
         status=BrainBuzzSession.STATUS_LOBBY,
@@ -155,16 +159,34 @@ class TestSnapshotMathsImageUrl(TestCase):
         sq = BrainBuzzSessionQuestion.objects.get(session=self.session)
         self.assertEqual(sq.options_json[0]['image_url'], '')
 
+    def test_options_always_include_image_url_key(self):
+        """image_url key must be present on every option, even when empty."""
+        q = MagicMock()
+        q.question_text = 'Key always present Q'
+        q.question_type = 'multiple_choice'
+        q.image = None
+        q.id = 5
+
+        answers = [
+            MagicMock(answer_text='A', is_correct=True, answer_image=None),
+            MagicMock(answer_text='B', is_correct=False, answer_image=None),
+        ]
+        self._run_snapshot(q, answers)
+
+        sq = BrainBuzzSessionQuestion.objects.get(session=self.session)
+        for opt in sq.options_json:
+            self.assertIn('image_url', opt)
+
     def test_image_url_exception_handled_gracefully(self):
-        """If .url raises (e.g. missing file in test), falls back to empty string."""
+        """If .url raises (e.g. missing file in storage), falls back to ''."""
         q = MagicMock()
         q.question_text = 'Bad image Q'
         q.question_type = 'multiple_choice'
-        q.image = MagicMock()
-        q.image.name = 'questions/bad.png'
-        q.image.url = property(lambda self: (_ for _ in ()).throw(Exception('storage error')))
-        type(q.image).url = property(lambda s: (_ for _ in ()).throw(Exception('storage error')))
-        q.id = 5
+        bad_image = MagicMock()
+        bad_image.name = 'questions/bad.png'
+        type(bad_image).url = PropertyMock(side_effect=Exception('storage error'))
+        q.image = bad_image
+        q.id = 6
 
         a = MagicMock()
         a.answer_text = 'Option A'
@@ -174,6 +196,31 @@ class TestSnapshotMathsImageUrl(TestCase):
         self._run_snapshot(q, [a])
 
         sq = BrainBuzzSessionQuestion.objects.get(session=self.session)
+        self.assertEqual(sq.image_url, '')
+
+    def test_quiz_snapshot_unaffected(self):
+        """BrainBuzzQuizQuestion snapshot works -- quiz questions have no image fields."""
+        from brainbuzz.models import BrainBuzzQuiz, BrainBuzzQuizQuestion
+        from brainbuzz.views import _snapshot_quiz_questions
+        from classroom.models import Subject
+
+        subject, _ = Subject.objects.get_or_create(
+            name='Mathematics', defaults={'slug': 'mathematics'}
+        )
+        quiz = BrainBuzzQuiz.objects.create(
+            title='Image Test Quiz',
+            created_by=self.host,
+            subject=subject,
+        )
+        BrainBuzzQuizQuestion.objects.create(
+            quiz=quiz,
+            order=0,
+            question_text='Quiz Q1',
+            question_type=QUESTION_TYPE_MCQ,
+        )
+        _snapshot_quiz_questions(self.session, quiz)
+
+        sq = BrainBuzzSessionQuestion.objects.get(session=self.session, order=0)
         self.assertEqual(sq.image_url, '')
 
 
@@ -186,7 +233,7 @@ class TestPayloadImageUrl(TestCase):
 
     def setUp(self):
         self.host = User.objects.create_user(username='payhost', password='pass')
-        self.session = _make_session(self.host)
+        self.session = _make_session(self.host, code='PAYIMG')
         self.session.status = BrainBuzzSession.STATUS_ACTIVE
         self.session.current_index = 0
         self.session.save()
@@ -201,6 +248,11 @@ class TestPayloadImageUrl(TestCase):
         payload = _session_state_payload(self.session)
         self.assertEqual(payload['question']['image_url'], '')
 
+    def test_image_url_key_always_present_in_payload(self):
+        _make_session_question(self.session, image_url='')
+        payload = _session_state_payload(self.session)
+        self.assertIn('image_url', payload['question'])
+
     def test_option_image_url_in_payload(self):
         options = [
             {'label': 'A', 'text': '', 'is_correct': True,  'image_url': '/media/answers/a.png'},
@@ -211,18 +263,21 @@ class TestPayloadImageUrl(TestCase):
         self.assertEqual(payload['question']['options'][0]['image_url'], '/media/answers/a.png')
         self.assertEqual(payload['question']['options'][1]['image_url'], '')
 
-    def test_option_image_url_present_for_student_during_active(self):
-        """image_url on options is NOT stripped by the is_correct filter."""
+    def test_option_image_url_not_stripped_by_is_correct_filter(self):
+        """image_url on options must survive the is_correct strip for students."""
         options = [
             {'label': 'A', 'text': 'yes', 'is_correct': True,  'image_url': '/media/answers/a.png'},
             {'label': 'B', 'text': 'no',  'is_correct': False, 'image_url': ''},
         ]
         _make_session_question(self.session, options=options)
         payload = _session_state_payload(self.session, reveal_answer=False)
-        # is_correct must be stripped
         self.assertNotIn('is_correct', payload['question']['options'][0])
-        # image_url must be preserved
         self.assertEqual(payload['question']['options'][0]['image_url'], '/media/answers/a.png')
+
+    def test_payload_no_question_returns_none(self):
+        """Session with no questions at current_index returns question=None safely."""
+        payload = _session_state_payload(self.session)
+        self.assertIsNone(payload['question'])
 
 
 # ---------------------------------------------------------------------------
@@ -234,8 +289,7 @@ class TestApiImageUrl(TestCase):
 
     def setUp(self):
         self.host = User.objects.create_user(username='apihost_img', password='pass')
-        self.session = _make_session(self.host)
-        self.session.code = 'IMG002'
+        self.session = _make_session(self.host, code='IMG002')
         self.session.status = BrainBuzzSession.STATUS_ACTIVE
         self.session.current_index = 0
         self.session.save()

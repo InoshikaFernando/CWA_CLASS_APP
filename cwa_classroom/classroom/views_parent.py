@@ -13,12 +13,33 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
 
 from accounts.models import Role
+from audit.services import log_event
 from .models import (
     ParentStudent, ClassStudent, ClassSession, StudentAttendance,
     Invoice, InvoicePayment, ProgressRecord, ParentLinkRequest,
     ProgressCriteria, SchoolStudent, ClassRoom,
 )
 from .views import RoleRequiredMixin
+
+
+def _log_parent_view(request, action, child, school, extra_detail=None):
+    """Log a parent read-access audit event."""
+    if not child:
+        return
+    detail = {
+        'child_id': child.id,
+        'child_name': f'{child.first_name} {child.last_name}'.strip(),
+    }
+    if extra_detail:
+        detail.update(extra_detail)
+    log_event(
+        user=request.user,
+        school=school,
+        category='data_change',
+        action=action,
+        detail=detail,
+        request=request,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +111,6 @@ class ParentSwitchChildView(RoleRequiredMixin, View):
         link = _verify_parent_access(request.user, student_id)
         if link:
             request.session['active_child_id'] = student_id
-            from audit.services import log_event
             log_event(
                 user=request.user, school=link.school, category='data_change',
                 action='parent_switched_child',
@@ -217,6 +237,8 @@ class ParentInvoicesView(RoleRequiredMixin, View):
         first_outstanding = outstanding_invoices.first()
         if first_outstanding:
             has_manual_payment_link = bool(first_outstanding.get_stripe_payment_link())
+
+        _log_parent_view(request, 'parent_viewed_invoices', active_child, active_school)
 
         ctx = {
             'invoices': page,
@@ -489,6 +511,8 @@ class ParentAttendanceView(RoleRequiredMixin, View):
                 'pct': pct,
             })
 
+        _log_parent_view(request, 'parent_viewed_attendance', child, school)
+
         return render(request, 'parent/attendance.html', {
             'attendance_records': records[:50],
             'class_summaries': class_summaries,
@@ -728,6 +752,8 @@ class ParentProgressView(RoleRequiredMixin, View):
         time_daily = _format_seconds(daily_secs)
         time_weekly = _format_seconds(weekly_secs)
 
+        _log_parent_view(request, 'parent_viewed_progress', child, school)
+
         return render(request, 'parent/progress.html', {
             'grouped_progress': grouped_progress,
             'overall': overall,
@@ -794,6 +820,8 @@ class ParentHomeworkView(RoleRequiredMixin, View):
                 'submitted_at': best.submitted_at if best else None,
                 'attempt_count': attempt_count,
             })
+
+        _log_parent_view(request, 'parent_viewed_homework', child, school)
 
         return render(request, 'parent/homework.html', {
             'child': child,
@@ -890,7 +918,6 @@ class ParentAddChildView(RoleRequiredMixin, View):
         # Switch to newly added child
         request.session['active_child_id'] = school_student.student_id
 
-        from audit.services import log_event
         log_event(
             user=request.user, school=school_student.school,
             category='data_change', action='parent_linked_child',
@@ -948,6 +975,8 @@ class ParentClassesView(RoleRequiredMixin, View):
             .select_related('classroom')
             .order_by('date', 'start_time')
         )
+
+        _log_parent_view(request, 'parent_viewed_classes', child, school)
 
         return render(request, 'parent/classes.html', {
             'enrollments': enrollments,
@@ -1069,19 +1098,15 @@ class BecomeParentView(LoginRequiredMixin, View):
         # Switch active role so they land on the parent dashboard
         request.session['active_role'] = Role.PARENT
 
-        try:
-            from audit.services import log_event
-            log_event(
-                user=request.user, school=school_student.school,
-                category='data_change', action='user_added_parent_role',
-                detail={
-                    'student_id_code': student_id_code,
-                    'relationship': relationship,
-                },
-                request=request,
-            )
-        except Exception:
-            pass
+        log_event(
+            user=request.user, school=school_student.school,
+            category='data_change', action='user_added_parent_role',
+            detail={
+                'student_id_code': student_id_code,
+                'relationship': relationship,
+            },
+            request=request,
+        )
 
         messages.success(
             request,

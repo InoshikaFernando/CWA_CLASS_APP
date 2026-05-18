@@ -1,11 +1,14 @@
 """
-Playwright UI tests — CPP-276 regression guard.
+Playwright UI tests — CPP-276 regression guard + worksheet confirm fix.
 
-Verifies that a pre-existing PDF-extracted maths worksheet (where
-WorksheetQuestion rows have subject_slug='mathematics' and
-content_id=question.id after the backfill migration) still works
-end-to-end for a student: session loads, MCQ question renders,
-answer is accepted, and the results page shows the score.
+1. Verifies that a pre-existing PDF-extracted maths worksheet (where
+   WorksheetQuestion rows have subject_slug='mathematics' and
+   content_id=question.id after the backfill migration) still works
+   end-to-end for a student: session loads, MCQ question renders,
+   answer is accepted, and the results page shows the score.
+
+2. Regression test for the _TempSession AttributeError fix (PR #255):
+   a teacher can confirm a PDF upload session without a 500 error.
 """
 
 from __future__ import annotations
@@ -13,7 +16,7 @@ from __future__ import annotations
 import pytest
 from playwright.sync_api import Page, expect
 
-from .conftest import do_login, TEST_PASSWORD
+from .conftest import _RUN_ID, do_login, TEST_PASSWORD
 
 
 # ---------------------------------------------------------------------------
@@ -199,3 +202,253 @@ class TestExistingPdfWorksheetSessionUnaffected:
                page.locator("body").inner_text().lower().count("not found") > 0 or \
                "/accounts/login" in page.url, \
                "Expected 404 or login redirect for cross-tenant access"
+
+
+# ---------------------------------------------------------------------------
+# PR #255 regression — _TempSession AttributeError on confirm
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def upload_session(db, teacher_user, school, level):
+    """
+    A WorksheetUploadSession owned by teacher_user, with one short-answer
+    question at Year 7.  Level 7 must already exist (provided by the `level`
+    fixture) so _resolve_topic_for_question can look it up via Level.objects.get().
+    """
+    from worksheets.models import WorksheetUploadSession
+
+    return WorksheetUploadSession.objects.create(
+        user=teacher_user,
+        school=school,
+        pdf_filename="regression_pr255.pdf",
+        worksheet_name="PR-255 Regression",
+        extracted_data={
+            "year_level": 7,
+            "subject": "Mathematics",
+            "topic": f"pr255-addition-{_RUN_ID}",
+            "questions": [
+                {
+                    "include": True,
+                    "question_text": "What is 3 + 3?",
+                    "question_type": "short_answer",
+                    "difficulty": 1,
+                    "points": 1,
+                    "year_level": 7,
+                    "topic": f"pr255-addition-{_RUN_ID}",
+                    "subject": "Mathematics",
+                    "explanation": "Basic addition.",
+                    "answers": [],
+                }
+            ],
+        },
+        is_confirmed=False,
+    )
+
+
+class TestWorksheetConfirmNoAttributeError:
+    """
+    PR #255 regression: WorksheetConfirmView.post() previously threw
+    AttributeError: '_TempSession' object has no attribute 'save'.
+    """
+
+    @pytest.mark.django_db(transaction=True)
+    def test_teacher_confirm_pdf_upload_no_server_error(
+        self,
+        page: Page,
+        live_server,
+        teacher_user,
+        school,
+        subject,
+        level,
+        classroom,     # ensures teacher_user is a SchoolTeacher for get_school_for_user()
+        upload_session,
+    ):
+        """
+        Teacher loads the confirm page (Step 3) and submits the confirm form.
+        Before PR #255 this raised AttributeError and returned a 500 response.
+        After the fix it should redirect to the worksheet detail page.
+        """
+        do_login(page, live_server.url, teacher_user)
+
+        confirm_url = f"{live_server.url}/worksheets/upload/{upload_session.pk}/confirm/"
+        page.goto(confirm_url)
+        page.wait_for_load_state("networkidle")
+
+        # Confirm page should load without errors
+        body = page.locator("body")
+        expect(body).not_to_contain_text("AttributeError", timeout=3_000)
+        expect(body).not_to_contain_text("Server Error", timeout=3_000)
+        expect(body).not_to_contain_text("500", timeout=3_000)
+
+        # Submit the confirm form by button text — avoids matching the logout
+        # button, which also lives in a form[method='post'] in the base template.
+        page.get_by_role("button", name="Save Worksheet").click()
+        page.wait_for_load_state("networkidle")
+
+        # Should NOT be a server error — any redirect (detail or preview) is acceptable
+        body_text = page.locator("body").inner_text()
+        assert "AttributeError" not in body_text, \
+            f"Got AttributeError after confirm POST — _TempSession fix may have been reverted. URL: {page.url}"
+        assert "Server Error" not in body_text, \
+            f"Got 500 Server Error after confirm POST. URL: {page.url}"
+        # Should have left the confirm page (redirected to detail or preview)
+        assert "/confirm/" not in page.url, \
+            f"Expected redirect away from confirm page but still at: {page.url}"
+
+
+# ---------------------------------------------------------------------------
+# CPP-277–280: Per-type answer partial rendering
+# ---------------------------------------------------------------------------
+
+def _make_session_assignment(question_type, school, teacher_user, level, topic,
+                              classroom, enrolled_student, **q_kwargs):
+    """Create a worksheet + assignment + enrollemt for a student session test."""
+    from maths.models import Answer, Question
+    from worksheets.models import Worksheet, WorksheetAssignment, WorksheetQuestion
+
+    defaults = dict(
+        level=level, topic=topic,
+        question_text='Test question for rendering',
+        question_type=question_type,
+        difficulty=1, points=1,
+    )
+    defaults.update(q_kwargs)
+    question = Question.objects.create(**defaults)
+
+    ws = Worksheet.objects.create(
+        school=school, name=f'Rendering Test — {question_type}',
+        original_filename='', created_by=teacher_user, question_count=1,
+    )
+    WorksheetQuestion.objects.create(
+        worksheet=ws, question=question,
+        subject_slug='mathematics', content_id=question.pk, order=1,
+    )
+    assignment = WorksheetAssignment.objects.create(
+        worksheet=ws, classroom=classroom, is_active=True, assigned_by=teacher_user,
+    )
+    return assignment, question
+
+
+class TestAnswerPartialRendering:
+    """CPP-277–280: correct input widget for each question type."""
+
+    @pytest.mark.django_db(transaction=True)
+    def test_mcq_question_renders_radio_buttons(
+        self, page: Page, live_server,
+        enrolled_student, school, teacher_user, level, topic, classroom,
+    ):
+        """MCQ question shows radio button answer options."""
+        from maths.models import Answer
+        assignment, question = _make_session_assignment(
+            'multiple_choice', school, teacher_user, level, topic, classroom, enrolled_student,
+            question_text='What is 3 + 3?',
+        )
+        Answer.objects.create(question=question, answer_text='6', is_correct=True, order=1)
+        Answer.objects.create(question=question, answer_text='5', is_correct=False, order=2)
+
+        do_login(page, live_server.url, enrolled_student)
+        page.goto(f"{live_server.url}/worksheets/assignments/{assignment.pk}/session/")
+        page.wait_for_load_state('networkidle')
+
+        # Radio buttons rendered
+        expect(page.locator("input[type='radio'][name='answer_id']").first).to_be_visible()
+
+    @pytest.mark.django_db(transaction=True)
+    def test_short_answer_renders_textarea(
+        self, page: Page, live_server,
+        enrolled_student, school, teacher_user, level, topic, classroom,
+    ):
+        """short_answer shows a <textarea> (not a single-line input)."""
+        assignment, _ = _make_session_assignment(
+            'short_answer', school, teacher_user, level, topic, classroom, enrolled_student,
+        )
+
+        do_login(page, live_server.url, enrolled_student)
+        page.goto(f"{live_server.url}/worksheets/assignments/{assignment.pk}/session/")
+        page.wait_for_load_state('networkidle')
+
+        expect(page.locator("textarea[name='text_answer']")).to_be_visible()
+        # Confirm it is a textarea (rows attribute) not an input
+        rows = page.locator("textarea[name='text_answer']").get_attribute("rows")
+        assert rows is not None, "Expected <textarea> with rows attribute"
+
+    @pytest.mark.django_db(transaction=True)
+    def test_extended_answer_renders_large_textarea(
+        self, page: Page, live_server,
+        enrolled_student, school, teacher_user, level, topic, classroom,
+    ):
+        """extended_answer shows a larger <textarea> (rows=6)."""
+        assignment, _ = _make_session_assignment(
+            'extended_answer', school, teacher_user, level, topic, classroom, enrolled_student,
+        )
+
+        do_login(page, live_server.url, enrolled_student)
+        page.goto(f"{live_server.url}/worksheets/assignments/{assignment.pk}/session/")
+        page.wait_for_load_state('networkidle')
+
+        textarea = page.locator("textarea[name='text_answer']")
+        expect(textarea).to_be_visible()
+        rows = int(textarea.get_attribute("rows") or 0)
+        assert rows >= 5, f"Expected extended_answer textarea to have rows >= 5, got {rows}"
+
+    @pytest.mark.django_db(transaction=True)
+    def test_long_division_grid_renders_and_submits(
+        self, page: Page, live_server,
+        enrolled_student, school, teacher_user, level, topic, classroom,
+    ):
+        """Long-division shows the step grid and accepts submission."""
+        assignment, question = _make_session_assignment(
+            'long_division', school, teacher_user, level, topic, classroom, enrolled_student,
+            question_text='Divide 84 ÷ 7',
+            dividend=84, divisor=7,
+        )
+
+        do_login(page, live_server.url, enrolled_student)
+        page.goto(f"{live_server.url}/worksheets/assignments/{assignment.pk}/session/")
+        page.wait_for_load_state('networkidle')
+
+        # Grid should be visible — quotient input cells
+        quotient_cells = page.locator("[data-ld-q]")
+        expect(quotient_cells.first).to_be_visible(timeout=5000)
+
+        # Fill quotient cells: 84 ÷ 7 = 12
+        quotient_cells.nth(0).fill('1')
+        quotient_cells.nth(1).fill('2')
+
+        # Submit
+        with page.expect_response(lambda r: '/answer/' in r.url and r.status == 200):
+            page.locator("form[hx-post] button[type='submit']").click()
+
+        # Feedback should appear
+        expect(page.locator('#answer-area')).to_contain_text('Correct', timeout=6000)
+
+    @pytest.mark.django_db(transaction=True)
+    def test_prime_factorisation_ladder_renders_and_submits(
+        self, page: Page, live_server,
+        enrolled_student, school, teacher_user, level, topic, classroom,
+    ):
+        """Prime-factorisation shows the factor ladder and accepts submission."""
+        assignment, question = _make_session_assignment(
+            'prime_factorization', school, teacher_user, level, topic, classroom, enrolled_student,
+            question_text='Find the prime factors of 12',
+            target_number=12,
+        )
+
+        do_login(page, live_server.url, enrolled_student)
+        page.goto(f"{live_server.url}/worksheets/assignments/{assignment.pk}/session/")
+        page.wait_for_load_state('networkidle')
+
+        # Factor ladder cells
+        prime_cells = page.locator("[data-pf-p]")
+        expect(prime_cells.first).to_be_visible(timeout=5000)
+
+        # Fill prime factors for 12: 2, 2, 3
+        prime_cells.nth(0).fill('2')
+        prime_cells.nth(1).fill('2')
+        prime_cells.nth(2).fill('3')
+
+        # Submit
+        with page.expect_response(lambda r: '/answer/' in r.url and r.status == 200):
+            page.locator("form[hx-post] button[type='submit']").click()
+
+        expect(page.locator('#answer-area')).to_contain_text('Correct', timeout=6000)

@@ -175,10 +175,10 @@ class BrainBuzzSessionQuestion(models.Model):
     options_json = models.JSONField(
         default=list,
         blank=True,
-        help_text='MCQ/TF options: [{"label":"A","text":"...","is_correct":true}]',
+        help_text='MCQ/TF options: [{"label":"A","text":"...","is_correct":true,"image_url":""}]',
     )
-    image_url = models.CharField(
-        max_length=500,
+    image_url = models.URLField(
+        max_length=2048,
         blank=True,
         default='',
         help_text='Absolute URL of the question image, snapshotted at session creation.',
@@ -229,7 +229,7 @@ class BrainBuzzParticipant(models.Model):
     ]
 
     nickname = models.CharField(max_length=255)
-    avatar = models.CharField(max_length=10, default='🦁')
+    avatar = models.CharField(max_length=10, default='🦁', blank=True)
     joined_at = models.DateTimeField(auto_now_add=True)
     score = models.IntegerField(default=0)
     last_correct_time = models.DateTimeField(
