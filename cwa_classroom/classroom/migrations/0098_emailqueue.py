@@ -6,7 +6,7 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('classroom', '0096_perf_composite_indexes'),
+        ('classroom', '0097_cpp240_invoice_recipient_policy'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
