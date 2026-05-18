@@ -1186,44 +1186,37 @@ class ConfirmRescheduleView(RoleRequiredMixin, View):
 
     def post(self, request, class_id):
         classroom = self._get_classroom(request, class_id)
-        action = request.POST.get('action')
 
         old_day = request.session.pop(f'reschedule_{class_id}_old_day', '')
         next_url = request.session.pop(f'reschedule_{class_id}_next', '')
         request.session.pop(f'reschedule_{class_id}_count', None)
 
-        if action == 'delete_old':
-            deleted = _delete_orphaned_sessions(classroom)
+        deleted = _delete_orphaned_sessions(classroom)
 
-            from .invoicing_services import sync_sessions_for_school
-            created, _ = sync_sessions_for_school(
-                classroom.school, created_by=request.user,
-            )
+        from .invoicing_services import sync_sessions_for_school
+        created, _ = sync_sessions_for_school(
+            classroom.school, created_by=request.user,
+        )
 
-            log_event(
-                user=request.user, school=classroom.school,
-                category='data_change', action='sessions_rescheduled',
-                detail={
-                    'class_id': classroom.id,
-                    'class_name': classroom.name,
-                    'old_day': old_day,
-                    'new_day': classroom.day,
-                    'sessions_deleted': deleted,
-                    'sessions_created': created,
-                },
-                request=request,
-            )
-            messages.success(
-                request,
-                f'Deleted {deleted} old session{"s" if deleted != 1 else ""} and '
-                f'created {created} new session{"s" if created != 1 else ""} '
-                f'for {classroom.get_day_display()} schedule.',
-            )
-        else:
-            messages.info(
-                request,
-                'Old sessions kept. New sessions will appear on the next scheduled sync.',
-            )
+        log_event(
+            user=request.user, school=classroom.school,
+            category='data_change', action='sessions_rescheduled',
+            detail={
+                'class_id': classroom.id,
+                'class_name': classroom.name,
+                'old_day': old_day,
+                'new_day': classroom.day,
+                'sessions_deleted': deleted,
+                'sessions_created': created,
+            },
+            request=request,
+        )
+        messages.success(
+            request,
+            f'Deleted {deleted} old session{"s" if deleted != 1 else ""} and '
+            f'created {created} new session{"s" if created != 1 else ""} '
+            f'for {classroom.get_day_display()} schedule.',
+        )
 
         if next_url:
             return redirect(next_url)

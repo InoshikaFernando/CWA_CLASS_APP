@@ -334,10 +334,10 @@ class TestConfirmRescheduleViewGet(RescheduleTestBase):
 
 
 # ---------------------------------------------------------------------------
-# ConfirmRescheduleView — POST delete_old
+# ConfirmRescheduleView — POST (always deletes orphans and syncs new sessions)
 # ---------------------------------------------------------------------------
 
-class TestConfirmRescheduleDeleteOld(RescheduleTestBase):
+class TestConfirmReschedulePost(RescheduleTestBase):
 
     def setUp(self):
         ClassSession.objects.filter(classroom=self.classroom).delete()
@@ -365,68 +365,24 @@ class TestConfirmRescheduleDeleteOld(RescheduleTestBase):
         self.classroom.day = 'monday'
         self.classroom.save(update_fields=['day'])
 
-    def test_delete_old_removes_orphan(self):
-        self.client.post(self.url, {'action': 'delete_old'})
+    def test_confirm_removes_orphan(self):
+        self.client.post(self.url, {})
         self.assertFalse(ClassSession.objects.filter(id=self.orphan.id).exists())
 
-    def test_delete_old_clears_session_keys(self):
-        self.client.post(self.url, {'action': 'delete_old'})
+    def test_confirm_clears_session_keys(self):
+        self.client.post(self.url, {})
         s = self.client.session
         self.assertNotIn(f'reschedule_{self.classroom.id}_old_day', s)
         self.assertNotIn(f'reschedule_{self.classroom.id}_count', s)
 
-    def test_delete_old_redirects_to_class_detail(self):
-        response = self.client.post(self.url, {'action': 'delete_old'})
+    def test_confirm_redirects_to_class_detail(self):
+        response = self.client.post(self.url, {})
         self.assertEqual(response.status_code, 302)
         self.assertIn(str(self.classroom.id), response['Location'])
 
-    def test_delete_old_follows_next_url(self):
+    def test_confirm_follows_next_url(self):
         s = self.client.session
         s[f'reschedule_{self.classroom.id}_next'] = '/custom-return/'
         s.save()
-        response = self.client.post(self.url, {'action': 'delete_old'})
+        response = self.client.post(self.url, {})
         self.assertRedirects(response, '/custom-return/', fetch_redirect_response=False)
-
-
-# ---------------------------------------------------------------------------
-# ConfirmRescheduleView — POST keep_old
-# ---------------------------------------------------------------------------
-
-class TestConfirmRescheduleKeepOld(RescheduleTestBase):
-
-    def setUp(self):
-        ClassSession.objects.filter(classroom=self.classroom).delete()
-        self.client = Client()
-        self.client.force_login(self.admin_user)
-        self.url = reverse('confirm_reschedule', args=[self.classroom.id])
-        # Classroom on friday, orphan on monday
-        self.classroom.day = 'friday'
-        self.classroom.save(update_fields=['day'])
-        monday = _make_monday()
-        self.orphan = ClassSession.objects.create(
-            classroom=self.classroom, date=monday,
-            start_time=datetime.time(9, 0), end_time=datetime.time(10, 0),
-            status='scheduled', created_by=self.admin_user,
-        )
-        s = self.client.session
-        s[f'reschedule_{self.classroom.id}_old_day'] = 'monday'
-        s[f'reschedule_{self.classroom.id}_count'] = 1
-        s.save()
-
-    def tearDown(self):
-        ClassSession.objects.filter(classroom=self.classroom).delete()
-        self.classroom.day = 'monday'
-        self.classroom.save(update_fields=['day'])
-
-    def test_keep_old_does_not_delete_sessions(self):
-        self.client.post(self.url, {'action': 'keep_old'})
-        self.assertTrue(ClassSession.objects.filter(id=self.orphan.id).exists())
-
-    def test_keep_old_clears_session_keys(self):
-        self.client.post(self.url, {'action': 'keep_old'})
-        s = self.client.session
-        self.assertNotIn(f'reschedule_{self.classroom.id}_old_day', s)
-
-    def test_keep_old_redirects(self):
-        response = self.client.post(self.url, {'action': 'keep_old'})
-        self.assertEqual(response.status_code, 302)

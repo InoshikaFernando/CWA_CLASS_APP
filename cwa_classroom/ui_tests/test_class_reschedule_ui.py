@@ -5,11 +5,10 @@ confirmation flow.
 Tests cover:
   - EditClassView redirects to confirm_reschedule when future sessions exist on old day
   - ConfirmRescheduleView renders warning card with old day, new day, orphan count
-  - "Delete old sessions" action removes sessions and redirects
-  - "Keep old sessions" action leaves sessions intact and redirects
+  - Confirming deletes old sessions and creates new ones on the new day
   - No-orphan edits save normally (no confirmation page)
   - Unauthenticated access to confirm_reschedule is denied
-  - Warning card UI elements are visible (heading, counts, buttons)
+  - Warning card UI elements are visible (heading, counts, confirm button)
 """
 
 from __future__ import annotations
@@ -63,6 +62,13 @@ def _goto_edit_and_change_day(page: Page, url: str, classroom_id: int, new_day: 
     page.wait_for_load_state("domcontentloaded")
 
 
+def _click_confirm(page: Page):
+    """Click the single confirm button on the reschedule confirmation page."""
+    page.get_by_role("button", name=re.compile(r"Confirm", re.I)).click()
+    page.wait_for_url(lambda u: "confirm-reschedule" not in u, timeout=15_000)
+    page.wait_for_load_state("domcontentloaded")
+
+
 # ---------------------------------------------------------------------------
 # Fixture: classroom with sessions on Monday, then day changed to Friday
 # ---------------------------------------------------------------------------
@@ -104,13 +110,13 @@ class TestConfirmReschedulePageRender:
     def test_warning_card_is_visible(
         self, page: Page, live_server, admin_user, classroom_with_monday_sessions
     ):
-        """Warning card (amber) with heading 'Orphaned sessions detected' shows."""
+        """Warning card (amber) with heading 'Schedule change detected' shows."""
         do_login(page, live_server.url, admin_user)
         _goto_edit_and_change_day(
             page, live_server.url,
             classroom_with_monday_sessions.pk, "friday",
         )
-        expect(page.get_by_text("Orphaned sessions detected")).to_be_visible()
+        expect(page.get_by_text("Schedule change detected")).to_be_visible()
         # restore
         classroom_with_monday_sessions.day = "monday"
         classroom_with_monday_sessions.save(update_fields=["day"])
@@ -148,33 +154,33 @@ class TestConfirmReschedulePageRender:
         classroom_with_monday_sessions.save(update_fields=["day"])
 
     @pytest.mark.django_db(transaction=True)
-    def test_delete_button_is_visible(
+    def test_confirm_button_is_visible(
         self, page: Page, live_server, admin_user, classroom_with_monday_sessions
     ):
-        """'Delete N old sessions' button is present on the page."""
+        """'Confirm & update sessions' button is present on the page."""
         do_login(page, live_server.url, admin_user)
         _goto_edit_and_change_day(
             page, live_server.url,
             classroom_with_monday_sessions.pk, "friday",
         )
-        delete_btn = page.locator("button[value='delete_old']")
-        expect(delete_btn).to_be_visible()
+        expect(
+            page.get_by_role("button", name=re.compile(r"Confirm", re.I))
+        ).to_be_visible()
         # restore
         classroom_with_monday_sessions.day = "monday"
         classroom_with_monday_sessions.save(update_fields=["day"])
 
     @pytest.mark.django_db(transaction=True)
-    def test_keep_button_is_visible(
+    def test_cancel_link_is_visible(
         self, page: Page, live_server, admin_user, classroom_with_monday_sessions
     ):
-        """'Keep old sessions' button is present on the page."""
+        """Cancel link is present on the page."""
         do_login(page, live_server.url, admin_user)
         _goto_edit_and_change_day(
             page, live_server.url,
             classroom_with_monday_sessions.pk, "friday",
         )
-        keep_btn = page.locator("button[value='keep_old']")
-        expect(keep_btn).to_be_visible()
+        expect(page.get_by_role("link", name=re.compile(r"Cancel", re.I))).to_be_visible()
         # restore
         classroom_with_monday_sessions.day = "monday"
         classroom_with_monday_sessions.save(update_fields=["day"])
@@ -211,17 +217,17 @@ class TestConfirmReschedulePageRender:
 
 
 # ---------------------------------------------------------------------------
-# TestDeleteOldSessions
+# TestConfirmSessions
 # ---------------------------------------------------------------------------
 
-class TestDeleteOldSessions:
-    """Confirm delete action removes orphaned sessions and redirects."""
+class TestConfirmSessions:
+    """Confirm action deletes old sessions and creates new ones."""
 
     @pytest.mark.django_db(transaction=True)
-    def test_delete_removes_sessions_from_db(
+    def test_confirm_removes_sessions_from_db(
         self, page: Page, live_server, admin_user, classroom_with_monday_sessions
     ):
-        """After clicking Delete, no scheduled sessions remain on old day."""
+        """After confirming, no scheduled sessions remain on old day."""
         from classroom.models import ClassSession
 
         do_login(page, live_server.url, admin_user)
@@ -229,115 +235,41 @@ class TestDeleteOldSessions:
             page, live_server.url,
             classroom_with_monday_sessions.pk, "friday",
         )
-        # On confirmation page — click delete
-        page.locator("button[value='delete_old']").click()
-        page.wait_for_url(lambda u: "confirm-reschedule" not in u, timeout=15_000)
-        page.wait_for_load_state("domcontentloaded")
+        _click_confirm(page)
 
-        # Verify no scheduled sessions on old monday remain
         monday = _next_monday()
         remaining = ClassSession.objects.filter(
             classroom=classroom_with_monday_sessions,
             date=monday,
             status="scheduled",
         ).count()
-        assert remaining == 0, f"Expected 0 sessions after delete, got {remaining}"
+        assert remaining == 0, f"Expected 0 sessions after confirm, got {remaining}"
 
     @pytest.mark.django_db(transaction=True)
-    def test_delete_redirects_to_class_detail(
+    def test_confirm_redirects_to_class_detail(
         self, page: Page, live_server, admin_user, classroom_with_monday_sessions
     ):
-        """After delete, user lands on class detail page (or elsewhere, not confirm)."""
+        """After confirming, user leaves the confirmation page."""
         do_login(page, live_server.url, admin_user)
         _goto_edit_and_change_day(
             page, live_server.url,
             classroom_with_monday_sessions.pk, "friday",
         )
-        page.locator("button[value='delete_old']").click()
-        page.wait_for_url(lambda u: "confirm-reschedule" not in u, timeout=15_000)
-        # Not on confirm-reschedule anymore
+        _click_confirm(page)
         assert "confirm-reschedule" not in page.url
 
     @pytest.mark.django_db(transaction=True)
-    def test_delete_shows_success_message(
+    def test_confirm_shows_success_message(
         self, page: Page, live_server, admin_user, classroom_with_monday_sessions
     ):
-        """After delete, a success flash message contains 'Deleted'."""
+        """After confirming, a success flash message contains 'Deleted'."""
         do_login(page, live_server.url, admin_user)
         _goto_edit_and_change_day(
             page, live_server.url,
             classroom_with_monday_sessions.pk, "friday",
         )
-        page.locator("button[value='delete_old']").click()
-        page.wait_for_url(lambda u: "confirm-reschedule" not in u, timeout=15_000)
-        page.wait_for_load_state("domcontentloaded")
-        # Flash message contains "Deleted"
+        _click_confirm(page)
         expect(page.locator("body")).to_contain_text("Deleted")
-
-
-# ---------------------------------------------------------------------------
-# TestKeepOldSessions
-# ---------------------------------------------------------------------------
-
-class TestKeepOldSessions:
-    """Confirm keep action leaves sessions intact and redirects."""
-
-    @pytest.mark.django_db(transaction=True)
-    def test_keep_leaves_sessions_in_db(
-        self, page: Page, live_server, admin_user, classroom_with_monday_sessions
-    ):
-        """After clicking Keep, sessions on old day still exist in DB."""
-        from classroom.models import ClassSession
-
-        do_login(page, live_server.url, admin_user)
-        _goto_edit_and_change_day(
-            page, live_server.url,
-            classroom_with_monday_sessions.pk, "friday",
-        )
-        page.locator("button[value='keep_old']").click()
-        page.wait_for_url(lambda u: "confirm-reschedule" not in u, timeout=15_000)
-        page.wait_for_load_state("domcontentloaded")
-
-        # Both monday sessions must still be scheduled
-        monday = _next_monday()
-        kept = ClassSession.objects.filter(
-            classroom=classroom_with_monday_sessions,
-            date=monday,
-            status="scheduled",
-        ).count()
-        assert kept == 1, f"Expected 1 session kept on next monday, got {kept}"
-
-    @pytest.mark.django_db(transaction=True)
-    def test_keep_redirects_away_from_confirm(
-        self, page: Page, live_server, admin_user, classroom_with_monday_sessions
-    ):
-        """After keep, user leaves the confirmation page."""
-        do_login(page, live_server.url, admin_user)
-        _goto_edit_and_change_day(
-            page, live_server.url,
-            classroom_with_monday_sessions.pk, "friday",
-        )
-        page.locator("button[value='keep_old']").click()
-        page.wait_for_url(lambda u: "confirm-reschedule" not in u, timeout=15_000)
-        assert "confirm-reschedule" not in page.url
-
-    @pytest.mark.django_db(transaction=True)
-    def test_keep_shows_info_message(
-        self, page: Page, live_server, admin_user, classroom_with_monday_sessions
-    ):
-        """After keep, an info flash message is shown."""
-        do_login(page, live_server.url, admin_user)
-        _goto_edit_and_change_day(
-            page, live_server.url,
-            classroom_with_monday_sessions.pk, "friday",
-        )
-        page.locator("button[value='keep_old']").click()
-        page.wait_for_url(lambda u: "confirm-reschedule" not in u, timeout=15_000)
-        page.wait_for_load_state("domcontentloaded")
-        # Flash message references session keeping
-        expect(page.locator("body")).to_contain_text(
-            re.compile(r"(kept|keep)", re.I)
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -354,7 +286,6 @@ class TestNoOrphansNoConfirmation:
         """No sessions → day change saves without showing confirm-reschedule."""
         do_login(page, live_server.url, admin_user)
 
-        # classroom fixture has no sessions by default
         page.goto(f"{live_server.url}/class/{classroom.pk}/edit/")
         page.wait_for_load_state("domcontentloaded")
         page.locator("select[name='day']").select_option("friday")
@@ -442,7 +373,6 @@ class TestConfirmRescheduleAccess:
             page, live_server.url,
             classroom_with_monday_sessions.pk, "friday",
         )
-        # HoD should be on the confirmation page, not get a 403/404
         expect(page.get_by_role("heading", name="Confirm Schedule Change")).to_be_visible()
         # restore
         classroom_with_monday_sessions.day = "monday"
@@ -482,11 +412,8 @@ class TestDeleteWithAttendanceProtection:
         do_login(page, live_server.url, admin_user)
         _goto_edit_and_change_day(page, live_server.url, classroom.pk, "friday")
 
-        # Will be on confirm page — click delete
         if "confirm-reschedule" in page.url:
-            page.locator("button[value='delete_old']").click()
-            page.wait_for_url(lambda u: "confirm-reschedule" not in u, timeout=15_000)
-            page.wait_for_load_state("domcontentloaded")
+            _click_confirm(page)
 
         # Session with attendance must still exist
         assert ClassSession.objects.filter(id=session.id).exists(), (
