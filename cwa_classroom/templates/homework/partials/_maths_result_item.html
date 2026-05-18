@@ -1,6 +1,11 @@
 {% comment %}
 Renders one maths answer-review block on the homework result page.
 Receives ``ctx`` with key: ans (HomeworkStudentAnswer, question prefetched).
+
+States:
+  is_correct              → green tick
+  is_partial (ai_score_fraction 0.1–0.59) → amber warning — shows ai_feedback
+  otherwise               → red cross — shows correct answer / explanation
 {% endcomment %}
 {% with ans=ctx.ans q=ctx.ans.question %}
 <div class="flex items-start gap-3">
@@ -8,6 +13,10 @@ Receives ``ctx`` with key: ans (HomeworkStudentAnswer, question prefetched).
     {% if ans.is_correct %}
     <svg class="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
       <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    {% elif ans.ai_score_fraction and ans.ai_score_fraction >= 0.1 and ans.ai_score_fraction < 0.6 %}
+    <svg class="w-5 h-5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
     </svg>
     {% else %}
     <svg class="w-5 h-5 text-red-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
@@ -20,13 +29,13 @@ Receives ``ctx`` with key: ans (HomeworkStudentAnswer, question prefetched).
 
     {% if ans.selected_answer %}
       <p class="text-xs text-gray-500">Your answer:
-        <span class="font-medium {% if ans.is_correct %}text-green-700{% else %}text-red-600{% endif %}">
+        <span class="font-medium {% if ans.is_correct %}text-green-700{% elif ans.ai_score_fraction and ans.ai_score_fraction >= 0.1 and ans.ai_score_fraction < 0.6 %}text-amber-600{% else %}text-red-600{% endif %}">
           {{ ans.selected_answer.answer_text }}
         </span>
       </p>
     {% elif ans.text_answer %}
       <p class="text-xs text-gray-500">Your answer:
-        <span class="font-medium {% if ans.is_correct %}text-green-700{% else %}text-red-600{% endif %}">
+        <span class="font-medium {% if ans.is_correct %}text-green-700{% elif ans.ai_score_fraction and ans.ai_score_fraction >= 0.1 and ans.ai_score_fraction < 0.6 %}text-amber-600{% else %}text-red-600{% endif %}">
           {{ ans.text_answer }}
         </span>
       </p>
@@ -34,17 +43,28 @@ Receives ``ctx`` with key: ans (HomeworkStudentAnswer, question prefetched).
       <p class="text-xs text-gray-400 italic">No answer given</p>
     {% endif %}
 
-    {% if not ans.is_correct %}
+    {% if ans.is_correct %}
+      {# nothing extra needed for correct #}
+    {% elif ans.ai_score_fraction and ans.ai_score_fraction >= 0.1 and ans.ai_score_fraction < 0.6 %}
+      {# Partial credit — show AI feedback #}
+      <p class="text-xs font-medium text-amber-600 mt-1">Partially correct</p>
+      {% if ans.ai_feedback %}
+      <p class="text-xs text-amber-700 mt-0.5">{{ ans.ai_feedback }}</p>
+      {% endif %}
+    {% else %}
+      {# Wrong — show correct answer and/or explanation #}
       {% with correct=q.answers.all %}
       {% for a in correct %}{% if a.is_correct %}
       <p class="text-xs text-green-700 mt-1">Correct answer: <span class="font-medium">{{ a.answer_text }}</span></p>
       {% endif %}{% endfor %}
       {% endwith %}
+      {% if ans.ai_feedback %}
+      <p class="text-xs text-red-600 mt-1">{{ ans.ai_feedback }}</p>
+      {% elif q.explanation %}
+      <p class="text-xs text-gray-400 mt-1 italic">{{ q.explanation }}</p>
+      {% endif %}
     {% endif %}
 
-    {% if q.explanation %}
-    <p class="text-xs text-gray-400 mt-1 italic">{{ q.explanation }}</p>
-    {% endif %}
   </div>
 </div>
 {% endwith %}

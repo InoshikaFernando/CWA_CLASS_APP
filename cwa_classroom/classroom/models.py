@@ -260,6 +260,20 @@ class School(models.Model):
         help_text='School-wide default fee per session. Used when no class, level, subject, or department fee is configured.',
     )
 
+    # Invoice email recipient policy
+    INVOICE_RECIPIENT_POLICY_CHOICES = [
+        ('parents_fallback_student', 'Parents (student if no parents)'),
+        ('parents_only',             'Parents only (no email if no parents)'),
+        ('parents_and_student',      'Parents and student always'),
+        ('student_only',             'Student only'),
+    ]
+    invoice_recipient_policy = models.CharField(
+        max_length=30,
+        choices=INVOICE_RECIPIENT_POLICY_CHOICES,
+        default='parents_fallback_student',
+        help_text='Controls who receives invoice and cancellation emails.',
+    )
+
     # Stripe payment
     stripe_payment_link = models.URLField(
         blank=True,
@@ -348,6 +362,7 @@ class School(models.Model):
     SETTINGS_FIELDS = [
         'bank_name', 'bank_bsb', 'bank_account_number', 'bank_account_name',
         'invoice_terms', 'invoice_due_days',
+        'invoice_recipient_policy',
         'outgoing_email',
         'abn', 'gst_number',
         'street_address', 'city', 'state_region', 'postal_code', 'country',
@@ -503,6 +518,7 @@ class Department(models.Model):
     bank_account_name = models.CharField(max_length=200, blank=True)
     invoice_terms = models.TextField(blank=True)
     invoice_due_days = models.PositiveIntegerField(null=True, blank=True)
+    invoice_recipient_policy = models.CharField(max_length=30, blank=True)
     outgoing_email = models.EmailField(blank=True)
     abn = models.CharField('Business Registration Number', max_length=50, blank=True)
     gst_number = models.CharField(

@@ -414,7 +414,7 @@ class SchoolSettingsView(RoleRequiredMixin, View):
         'outgoing_email',
         # Banking & invoice
         'bank_name', 'bank_bsb', 'bank_account_number', 'bank_account_name',
-        'invoice_terms', 'invoice_due_days',
+        'invoice_terms', 'invoice_due_days', 'invoice_recipient_policy',
         # Fees
         'default_fee',
         # Payments

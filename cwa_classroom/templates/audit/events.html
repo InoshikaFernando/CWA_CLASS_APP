@@ -109,6 +109,21 @@
     </div>
   </form>
 
+  <!-- Top Actions -->
+  {% if top_actions %}
+  <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-6">
+    <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Top Actions{% if role %} for {{ role }}{% endif %}</h3>
+    <div class="flex flex-wrap gap-2">
+      {% for action_name, count in top_actions %}
+      <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-sm">
+        <span class="font-mono text-xs text-gray-700">{{ action_name }}</span>
+        <span class="text-xs font-semibold text-accent bg-accent/10 px-1.5 py-0.5 rounded">{{ count }}</span>
+      </span>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Results count -->
   <p class="text-sm text-gray-500 mb-3">
     {{ page.paginator.count }} event{{ page.paginator.count|pluralize }} found

@@ -39,6 +39,7 @@ def _setup_school_local(admin, school_name):
         admin=admin,
         is_active=True,
         invoice_due_days=30,
+        invoice_recipient_policy='parents_and_student',
     )
     plan, _ = InstitutePlan.objects.get_or_create(
         slug='test-plan-resend',
