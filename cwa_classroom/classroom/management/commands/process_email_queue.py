@@ -31,6 +31,14 @@ class Command(BaseCommand):
         dry_run = options['dry_run']
         today = timezone.now().date()
 
+        # Reset previously failed emails back to pending for one retry attempt
+        retried = EmailQueue.objects.filter(
+            status=EmailQueue.STATUS_FAILED,
+            sent_at__isnull=True,
+        ).update(status=EmailQueue.STATUS_PENDING, error_message='')
+        if retried:
+            self.stdout.write(f'Reset {retried} previously failed email(s) to pending for retry.')
+
         sent_today = EmailLog.objects.filter(status='sent', sent_at__date=today).count()
         remaining = DAILY_EMAIL_LIMIT - sent_today
 
