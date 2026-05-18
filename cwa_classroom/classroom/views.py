@@ -1036,6 +1036,11 @@ class EditClassView(RoleRequiredMixin, View):
             messages.error(request, 'Class name is required.')
             return redirect('edit_class', class_id=class_id)
 
+        # Capture old schedule before mutating (for orphan detection)
+        old_day = classroom.day
+        old_start_time = str(classroom.start_time)[:5] if classroom.start_time else None
+        old_end_time = str(classroom.end_time)[:5] if classroom.end_time else None
+
         classroom.name = name
         classroom.day = day
         classroom.start_time = start_time
@@ -1069,6 +1074,21 @@ class EditClassView(RoleRequiredMixin, View):
         classroom.save()
         classroom.levels.set(selected_levels)
 
+        # Detect schedule change and intercept with confirmation if orphans exist
+        schedule_changed = (
+            day != old_day
+            or start_time != old_start_time
+            or end_time != old_end_time
+        )
+        if schedule_changed and day:
+            orphan_count = _count_orphaned_sessions(classroom)
+            if orphan_count > 0:
+                request.session[f'reschedule_{class_id}_old_day'] = old_day
+                request.session[f'reschedule_{class_id}_count'] = orphan_count
+                if next_url:
+                    request.session[f'reschedule_{class_id}_next'] = next_url
+                return redirect('confirm_reschedule', class_id=class_id)
+
         log_event(
             user=request.user, school=classroom.school, category='data_change',
             action='class_edited',
@@ -1076,6 +1096,135 @@ class EditClassView(RoleRequiredMixin, View):
             request=request,
         )
         messages.success(request, f'Class "{name}" updated.')
+        if next_url:
+            return redirect(next_url)
+        return redirect('class_detail', class_id=class_id)
+
+
+# ---------------------------------------------------------------------------
+# Helpers: orphaned session counting and deletion
+# ---------------------------------------------------------------------------
+
+_DAY_WEEKDAY = {
+    'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
+    'friday': 4, 'saturday': 5, 'sunday': 6,
+}
+
+
+def _count_orphaned_sessions(classroom):
+    """Count future scheduled sessions whose date no longer matches classroom.day."""
+    from datetime import date as _date
+    new_weekday = _DAY_WEEKDAY.get(classroom.day)
+    if new_weekday is None:
+        return 0
+    today = _date.today()
+    future = ClassSession.objects.filter(
+        classroom=classroom, status='scheduled', date__gte=today,
+    )
+    return sum(1 for s in future if s.date.weekday() != new_weekday)
+
+
+def _delete_orphaned_sessions(classroom):
+    """
+    Delete future scheduled sessions whose date no longer matches classroom.day.
+    Skips any session that has attendance records (lesson already happened).
+    Returns count of sessions deleted.
+    """
+    from datetime import date as _date
+    new_weekday = _DAY_WEEKDAY.get(classroom.day)
+    today = _date.today()
+
+    future = ClassSession.objects.filter(
+        classroom=classroom, status='scheduled', date__gte=today,
+    )
+    orphan_ids = [s.id for s in future if s.date.weekday() != new_weekday]
+    if not orphan_ids:
+        return 0
+
+    # Never delete sessions with any attendance recorded
+    attended_ids = set(
+        StudentAttendance.objects
+        .filter(session_id__in=orphan_ids)
+        .values_list('session_id', flat=True)
+    )
+    safe_ids = [i for i in orphan_ids if i not in attended_ids]
+    ClassSession.objects.filter(id__in=safe_ids).delete()
+    return len(safe_ids)
+
+
+# ---------------------------------------------------------------------------
+# ConfirmRescheduleView — two-step confirmation after a class schedule change
+# ---------------------------------------------------------------------------
+
+class ConfirmRescheduleView(RoleRequiredMixin, View):
+    """
+    Shown after EditClassView detects orphaned sessions from a day/time change.
+    GET  — renders a warning page showing old day → new day + orphan count.
+    POST — either deletes orphans + syncs new sessions, or keeps them and moves on.
+    """
+    required_roles = [
+        Role.TEACHER, Role.HEAD_OF_DEPARTMENT,
+        Role.HEAD_OF_INSTITUTE, Role.INSTITUTE_OWNER, Role.ADMIN,
+    ]
+
+    def _get_classroom(self, request, class_id):
+        return get_object_or_404(
+            ClassRoom.objects.select_related('school', 'department'),
+            id=class_id,
+        )
+
+    def get(self, request, class_id):
+        classroom = self._get_classroom(request, class_id)
+        old_day = request.session.get(f'reschedule_{class_id}_old_day', '')
+        orphan_count = request.session.get(f'reschedule_{class_id}_count', 0)
+        return render(request, 'teacher/confirm_reschedule.html', {
+            'classroom': classroom,
+            'old_day': old_day,
+            'new_day': classroom.day,
+            'orphan_count': orphan_count,
+        })
+
+    def post(self, request, class_id):
+        classroom = self._get_classroom(request, class_id)
+        action = request.POST.get('action')
+
+        old_day = request.session.pop(f'reschedule_{class_id}_old_day', '')
+        next_url = request.session.pop(f'reschedule_{class_id}_next', '')
+        request.session.pop(f'reschedule_{class_id}_count', None)
+
+        if action == 'delete_old':
+            deleted = _delete_orphaned_sessions(classroom)
+
+            from .invoicing_services import sync_sessions_for_school
+            created, _ = sync_sessions_for_school(
+                classroom.school, created_by=request.user,
+            )
+
+            log_event(
+                user=request.user, school=classroom.school,
+                category='data_change', action='sessions_rescheduled',
+                detail={
+                    'class_id': classroom.id,
+                    'class_name': classroom.name,
+                    'old_day': old_day,
+                    'new_day': classroom.day,
+                    'sessions_deleted': deleted,
+                    'sessions_created': created,
+                },
+                request=request,
+            )
+            messages.success(
+                request,
+                f'Deleted {deleted} old session{"s" if deleted != 1 else ""} and '
+                f'created {created} new session{"s" if created != 1 else ""} '
+                f'for {classroom.get_day_display()} schedule.',
+            )
+        else:
+            messages.info(
+                request,
+                'Old sessions kept. New sessions will appear on the next scheduled sync.',
+            )
+
         if next_url:
             return redirect(next_url)
         return redirect('class_detail', class_id=class_id)

@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Confirm Schedule Change{% endblock %}
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+  <div>
+    <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
+    <h1 class="font-display text-2xl font-bold text-gray-900 mt-2">Confirm Schedule Change</h1>
+    <p class="text-gray-500 text-sm mt-1">{{ classroom.name }}</p>
+  </div>
+
+  <!-- Warning card -->
+  <div class="bg-amber-50 border border-amber-300 rounded-2xl p-6 space-y-4">
+    <div class="flex items-start gap-3">
+      <svg class="w-6 h-6 text-amber-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+      </svg>
+      <div>
+        <h2 class="text-amber-800 font-semibold text-base">Orphaned sessions detected</h2>
+        <p class="text-amber-700 text-sm mt-1">
+          You changed this class from
+          <strong>{{ old_day|capfirst }}</strong> to
+          <strong>{{ classroom.day|capfirst }}</strong>.
+          There are <strong>{{ orphan_count }}</strong> future scheduled session(s) on the old day that no longer match the new schedule.
+        </p>
+      </div>
+    </div>
+
+    <div class="border-t border-amber-200 pt-4 text-sm text-amber-700 space-y-1">
+      <p><strong>Old day:</strong> {{ old_day|capfirst }}</p>
+      <p><strong>New day:</strong> {{ classroom.day|capfirst }}</p>
+      <p><strong>Orphaned sessions:</strong> {{ orphan_count }}</p>
+    </div>
+  </div>
+
+  <!-- Action choice -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
+    <h3 class="font-semibold text-gray-800">What would you like to do with the old sessions?</h3>
+
+    <form method="post" class="space-y-3">
+      {% csrf_token %}
+
+      <button type="submit" name="action" value="delete_old"
+              class="w-full flex items-center justify-between rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 px-5 py-4 transition text-left group">
+        <div>
+          <p class="font-semibold text-red-700 text-sm">Delete {{ orphan_count }} old session(s)</p>
+          <p class="text-red-500 text-xs mt-0.5">Remove sessions on the old schedule. New sessions on the new day will be created automatically.</p>
+        </div>
+        <svg class="w-5 h-5 text-red-400 group-hover:text-red-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+        </svg>
+      </button>
+
+      <button type="submit" name="action" value="keep_old"
+              class="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 px-5 py-4 transition text-left group">
+        <div>
+          <p class="font-semibold text-gray-700 text-sm">Keep old sessions</p>
+          <p class="text-gray-500 text-xs mt-0.5">Leave existing sessions as-is. They will remain on the old schedule and no new sessions are created.</p>
+        </div>
+        <svg class="w-5 h-5 text-gray-400 group-hover:text-gray-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+        </svg>
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}
