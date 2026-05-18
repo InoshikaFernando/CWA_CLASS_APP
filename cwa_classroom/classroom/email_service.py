@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 25
 BATCH_PAUSE_SECONDS = 2
+DAILY_EMAIL_LIMIT = getattr(settings, 'DAILY_EMAIL_LIMIT', 90)
 
 
 def _get_email_logo_url(school=None, department=None):
@@ -57,7 +58,7 @@ def send_templated_email(
     department=None,
 ):
     """Send a single HTML email using a Django template."""
-    from .models import EmailLog, EmailPreference
+    from .models import EmailLog, EmailPreference, EmailQueue
 
     # Check user preferences
     if recipient_user:
@@ -97,6 +98,28 @@ def send_templated_email(
 
     cc = resolve_cc_email(school, department)
     reply_to = cc if cc else []
+
+    # Check daily sending limit — queue the email if limit is reached
+    today = timezone.now().date()
+    sent_today = EmailLog.objects.filter(status='sent', sent_at__date=today).count()
+    if sent_today >= DAILY_EMAIL_LIMIT:
+        EmailQueue.objects.create(
+            recipient=recipient_user,
+            recipient_email=recipient_email,
+            subject=subject,
+            from_email=from_email,
+            html_content=html_content,
+            text_content=text_content,
+            cc=cc,
+            reply_to=reply_to,
+            notification_type=notification_type,
+            campaign=campaign,
+        )
+        logger.info(
+            'Daily email limit reached (%d). Queued email to %s.',
+            DAILY_EMAIL_LIMIT, recipient_email,
+        )
+        return True
 
     try:
         msg = EmailMultiAlternatives(
