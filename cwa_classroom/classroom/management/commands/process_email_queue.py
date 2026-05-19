@@ -2,9 +2,9 @@
 Management command: process_email_queue
 
 Drains the EmailQueue table up to the remaining daily sending quota.
-Run via cron at midnight each day:
+Run via cron every 2 minutes to deliver queued emails promptly:
 
-    0 0 * * * /home/cwa/CWA_CLASS_APP/venv/bin/python manage.py process_email_queue
+    */2 * * * * /home/cwa/CWA_CLASS_APP/venv/bin/python manage.py process_email_queue
 """
 import logging
 
