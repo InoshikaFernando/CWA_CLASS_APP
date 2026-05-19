@@ -691,17 +691,20 @@ def _apply_exercise_scoring(user, exercise_id, exercise_obj, language,
         # patterns must appear in the submitted code. The pattern check stops
         # students bypassing the exercise intent (e.g. hardcoding the expected
         # output instead of using the variable the exercise asked for).
-        score = evaluate_exercise_output(stdout, exercise_obj.expected_output)
-        if score == 100 and not code_matches_required_patterns(
+        output_score = evaluate_exercise_output(stdout, exercise_obj.expected_output)
+        pattern_ok = code_matches_required_patterns(
             code, exercise_obj.required_code_patterns or ''
-        ):
-            score = 0
+        )
+        score = 100 if (output_score == 100 and pattern_ok) else 0
         auto_complete = score == 100
         if auto_complete or mark_complete:
             _save_exercise_submission(user, exercise_id, language, code,
                                       stdout, stderr, completed=True,
                                       blocks_xml=blocks_xml)
-        return {'exercise_score': score, 'exercise_has_expected': True}, auto_complete
+        extras = {'exercise_score': score, 'exercise_has_expected': True}
+        if output_score == 100 and not pattern_ok:
+            extras['exercise_pattern_fail'] = True
+        return extras, auto_complete
 
     # Free-form exercise (no expected_output).
     # Auto-complete whenever the student produces any output, or via explicit mark_complete.
