@@ -775,3 +775,52 @@ class CouponStripeDurationTests(TestCase):
         call_kwargs = mock_coupon.call_args[1]
         self.assertEqual(call_kwargs['duration'], 'repeating')
         self.assertEqual(call_kwargs['duration_in_months'], 12)
+
+
+# ===========================================================================
+# CPP-301: Unlimited packages display "0" → "Unlimited"
+# ===========================================================================
+
+class CPP301_UnlimitedDisplayTest(TestCase):
+    """CPP-301: Verify that limit=0 fields display 'Unlimited' instead of '0'."""
+
+    def setUp(self):
+        self.superuser = _create_superuser('unlimsuper')
+        self.client.login(username='unlimsuper', password='testpass123')
+        self.unlimited_plan = _create_plan(
+            name='Unlimited Plan', slug='unlimited',
+            price=Decimal('999.00'),
+            class_limit=0, student_limit=0, invoice_limit_yearly=0,
+            stripe_price_id='price_test_unlimited',
+        )
+        self.school = _create_school(self.superuser, name='Unlim School', slug='unlim-school')
+        self.sub = SchoolSubscription.objects.create(
+            school=self.school, plan=self.unlimited_plan, status='active',
+        )
+
+    def test_plan_list_shows_unlimited(self):
+        resp = self.client.get(reverse('billing_admin_plan_list'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Unlimited')
+        self.assertNotContains(resp, '>0<', html=False)
+
+    def test_subscription_list_shows_unlimited(self):
+        resp = self.client.get(reverse('billing_admin_subscription_list'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Unlimited')
+
+    def test_subscription_detail_shows_unlimited(self):
+        resp = self.client.get(reverse('billing_admin_subscription_detail', args=[self.sub.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Unlimited')
+
+    def test_upgrade_page_shows_unlimited(self):
+        """The institute upgrade page should show 'Unlimited' for 0-limit plans."""
+        hoi_role, _ = Role.objects.get_or_create(
+            name=Role.HEAD_OF_INSTITUTE,
+            defaults={'display_name': 'Head of Institute'},
+        )
+        UserRole.objects.get_or_create(user=self.superuser, role=hoi_role)
+        resp = self.client.get(reverse('institute_plan_upgrade'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Unlimited')
