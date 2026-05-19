@@ -777,7 +777,11 @@ class IssueInvoicesView(RoleRequiredMixin, View):
                     'invoice_ids': [inv.id for inv in issued]},
             request=request,
         )
-        messages.success(request, f'{len(issued)} invoice(s) issued successfully.')
+        messages.success(
+            request,
+            f'{len(issued)} invoice(s) issued successfully. '
+            f'Emails have been queued and will be delivered shortly.',
+        )
         return redirect('invoice_list')
 
 
