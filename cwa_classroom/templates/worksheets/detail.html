@@ -37,6 +37,28 @@
       <div class="bg-white rounded-xl border border-slate-200 p-4 flex gap-4">
         <div class="w-8 h-8 rounded-full bg-primary/10 text-primary text-sm font-bold flex items-center justify-center shrink-0">{{ wq.order }}</div>
         <div class="flex-1 min-w-0">
+          {% if wq.coding_exercise %}
+          {# ── Coding exercise ── #}
+          <p class="text-sm font-medium text-gray-800">{{ wq.coding_exercise.title }}</p>
+          <p class="text-xs text-gray-500 mt-1">{{ wq.coding_exercise.description|truncatewords:30 }}</p>
+          <div class="flex flex-wrap gap-1.5 mt-2">
+            <span class="px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 text-xs">Coding</span>
+            <span class="px-2 py-0.5 rounded-full bg-slate-100 text-gray-500 text-xs">{{ wq.coding_exercise.get_question_type_display }}</span>
+            <span class="px-2 py-0.5 rounded-full bg-slate-100 text-gray-500 text-xs">{{ wq.coding_exercise.get_level_display }}</span>
+            <span class="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs">{{ wq.coding_exercise.topic_level.topic.language.name }} › {{ wq.coding_exercise.topic_level.topic.name }}</span>
+          </div>
+          {% if wq.coding_exercise.question_type == 'multiple_choice' or wq.coding_exercise.question_type == 'true_false' %}
+          <div class="mt-2 space-y-1">
+            {% for ans in wq.coding_exercise.answers.all %}
+            <div class="flex items-center gap-2 text-xs {% if ans.is_correct %}text-emerald-700 font-semibold{% else %}text-gray-500{% endif %}">
+              <span class="{% if ans.is_correct %}text-emerald-500{% else %}text-gray-300{% endif %}">{% if ans.is_correct %}✓{% else %}○{% endif %}</span>
+              {{ ans.answer_text }}
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+          {% elif wq.question %}
+          {# ── Maths question ── #}
           <p class="text-sm text-gray-800">{{ wq.question.question_text }}</p>
           {% if wq.question.image %}
           <img src="{{ wq.question.image.url }}" alt="Question image" class="mt-2 max-h-32 rounded-lg border border-gray-200 object-contain" />
@@ -61,6 +83,7 @@
             </div>
             {% endfor %}
           </div>
+          {% endif %}
           {% endif %}
         </div>
       </div>
