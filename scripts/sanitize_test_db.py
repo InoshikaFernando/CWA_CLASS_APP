@@ -43,9 +43,8 @@ print(f'    {count} users updated.')
 # ── 2. Replace email addresses ──────────────────────────────────────────────
 print('==> Replacing email addresses with test addresses ...')
 for user in User.objects.all():
-    if user.email:
-        user.email = f'user{user.pk}@test.local'
-        user.save(update_fields=['email'])
+    user.email = f'codewizardsaotearoa+{user.username}@gmail.com'
+    user.save(update_fields=['email'])
 print(f'    {User.objects.count()} user emails replaced.')
 
 # PendingRegistration
@@ -119,6 +118,6 @@ print('    Done.')
 print('')
 print('==> Sanitization complete!')
 print('    All passwords: Password1!')
-print('    All emails: user<id>@test.local')
+print('    All emails: codewizardsaotearoa+<username>@gmail.com')
 print('    Stripe IDs: cleared')
 print('    Email logs: cleared')
