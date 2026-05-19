@@ -787,9 +787,9 @@ def issue_invoices(invoice_ids, user):
 
             issued.append(invoice)
 
-    # Send email notifications (outside transaction)
+    # Queue email notifications for background delivery (outside transaction)
     for invoice in issued:
-        _send_invoice_email(invoice)
+        _send_invoice_email(invoice, force_queue=True)
 
     return issued
 
@@ -813,9 +813,12 @@ def _resolve_invoice_recipients(policy, parent_links, guardian_links):
     return (not has_parents), True
 
 
-def _send_invoice_email(invoice):
+def _send_invoice_email(invoice, force_queue=False):
     """
     Send the invoice issued email to the student + linked parents/guardians.
+
+    When ``force_queue`` is True, emails are written to the EmailQueue table
+    for background delivery instead of being sent synchronously.
 
     Returns a dict:
         {
@@ -956,6 +959,7 @@ def _send_invoice_email(invoice):
                 notification_type='invoice',
                 school=school,
                 department=primary_dept,
+                force_queue=force_queue,
             )
             sent_emails.add(student.email.lower())
             result['sent'].append(student.email)
@@ -977,6 +981,7 @@ def _send_invoice_email(invoice):
                         notification_type='invoice',
                         school=school,
                         department=primary_dept,
+                        force_queue=force_queue,
                     )
                     sent_emails.add(link.parent.email.lower())
                     result['sent'].append(link.parent.email)
@@ -996,6 +1001,7 @@ def _send_invoice_email(invoice):
                         notification_type='invoice',
                         school=school,
                         department=primary_dept,
+                        force_queue=force_queue,
                     )
                     sent_emails.add(sg.guardian.email.lower())
                     result['sent'].append(sg.guardian.email)
