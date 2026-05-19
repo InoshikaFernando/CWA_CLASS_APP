@@ -964,6 +964,14 @@ class InvoiceDetailView(RoleRequiredMixin, View):
             if g['account_number'] or g['gst']
         ]
 
+        from .models import EmailLog
+        email_logs = (
+            EmailLog.objects
+            .filter(invoice=invoice)
+            .select_related('recipient')
+            .order_by('-sent_at')
+        )
+
         return render(request, 'invoicing/invoice_detail.html', {
             'invoice': invoice,
             'school': school,
@@ -976,6 +984,7 @@ class InvoiceDetailView(RoleRequiredMixin, View):
             'payment_groups': payment_groups,
             'student_name': student_name,
             'student_id_code': student_id_code,
+            'email_logs': email_logs,
         })
 
     def post(self, request, invoice_id):

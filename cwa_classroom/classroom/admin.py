@@ -291,10 +291,11 @@ class EmailCampaignAdmin(admin.ModelAdmin):
 
 @admin.register(EmailLog)
 class EmailLogAdmin(admin.ModelAdmin):
-    list_display = ('recipient_email', 'subject', 'status', 'notification_type', 'sent_at')
-    list_filter = ('status', 'notification_type')
+    list_display = ('recipient_email', 'subject', 'status', 'notification_type', 'school', 'invoice', 'sent_at')
+    list_filter = ('status', 'notification_type', 'school')
     search_fields = ('recipient_email', 'subject')
     date_hierarchy = 'sent_at'
+    raw_id_fields = ('invoice',)
 
 
 @admin.register(EmailPreference)

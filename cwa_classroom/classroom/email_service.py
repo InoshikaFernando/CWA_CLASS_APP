@@ -56,6 +56,7 @@ def send_templated_email(
     fail_silently=True,
     school=None,
     department=None,
+    invoice=None,
 ):
     """Send a single HTML email using a Django template."""
     from .models import EmailLog, EmailPreference, EmailQueue
@@ -135,6 +136,8 @@ def send_templated_email(
             subject=subject,
             notification_type=notification_type,
             campaign=campaign,
+            school=school,
+            invoice=invoice,
             status='sent',
         )
         return True
@@ -147,6 +150,8 @@ def send_templated_email(
             subject=subject,
             notification_type=notification_type,
             campaign=campaign,
+            school=school,
+            invoice=invoice,
             status='failed',
             error_message=str(e),
         )

@@ -946,61 +946,61 @@ def _send_invoice_email(invoice):
 
     # 1. Send to student
     if send_to_student and student.email:
-        try:
-            send_templated_email(
-                recipient_email=student.email,
-                subject=subject,
-                template_name='email/transactional/invoice_issued.html',
-                context=context,
-                recipient_user=student,
-                notification_type='invoice',
-                school=school,
-                department=primary_dept,
-            )
+        success = send_templated_email(
+            recipient_email=student.email,
+            subject=subject,
+            template_name='email/transactional/invoice_issued.html',
+            context=context,
+            recipient_user=student,
+            notification_type='invoice',
+            school=school,
+            department=primary_dept,
+            invoice=invoice,
+        )
+        if success:
             sent_emails.add(student.email.lower())
             result['sent'].append(student.email)
-        except Exception as e:
-            logger.exception('Failed to send invoice email for %s: %s', invoice.invoice_number, e)
+        else:
             result['failed'].append(student.email)
 
     if send_to_parents:
         # 2. Send to parent accounts (ParentStudent links)
         for link in parent_links:
             if link.parent.email and link.parent.email.lower() not in sent_emails:
-                try:
-                    send_templated_email(
-                        recipient_email=link.parent.email,
-                        subject=subject,
-                        template_name='email/transactional/invoice_issued.html',
-                        context=context,
-                        recipient_user=link.parent,
-                        notification_type='invoice',
-                        school=school,
-                        department=primary_dept,
-                    )
+                success = send_templated_email(
+                    recipient_email=link.parent.email,
+                    subject=subject,
+                    template_name='email/transactional/invoice_issued.html',
+                    context=context,
+                    recipient_user=link.parent,
+                    notification_type='invoice',
+                    school=school,
+                    department=primary_dept,
+                    invoice=invoice,
+                )
+                if success:
                     sent_emails.add(link.parent.email.lower())
                     result['sent'].append(link.parent.email)
-                except Exception as e:
-                    logger.exception('Failed to send invoice email to parent %s: %s', link.parent.email, e)
+                else:
                     result['failed'].append(link.parent.email)
 
         # 3. Send to guardian contacts (StudentGuardian links)
         for sg in guardian_links:
             if sg.guardian.email and sg.guardian.email.lower() not in sent_emails:
-                try:
-                    send_templated_email(
-                        recipient_email=sg.guardian.email,
-                        subject=subject,
-                        template_name='email/transactional/invoice_issued.html',
-                        context=context,
-                        notification_type='invoice',
-                        school=school,
-                        department=primary_dept,
-                    )
+                success = send_templated_email(
+                    recipient_email=sg.guardian.email,
+                    subject=subject,
+                    template_name='email/transactional/invoice_issued.html',
+                    context=context,
+                    notification_type='invoice',
+                    school=school,
+                    department=primary_dept,
+                    invoice=invoice,
+                )
+                if success:
                     sent_emails.add(sg.guardian.email.lower())
                     result['sent'].append(sg.guardian.email)
-                except Exception as e:
-                    logger.exception('Failed to send invoice email to guardian %s: %s', sg.guardian.email, e)
+                else:
                     result['failed'].append(sg.guardian.email)
 
     return result
@@ -1126,56 +1126,50 @@ def _send_invoice_cancelled_email(invoice, reason, credit_returned):
 
     # 1. Student
     if send_to_student and student.email:
-        try:
-            send_templated_email(
-                recipient_email=student.email,
-                subject=subject,
-                template_name='email/transactional/invoice_cancelled.html',
-                context=context,
-                recipient_user=student,
-                notification_type='invoice_cancelled',
-                school=school,
-                department=primary_dept,
-            )
-            sent_emails.add(student.email.lower())
-        except Exception as e:
-            logger.exception('Failed to send invoice cancellation email for %s: %s', invoice.invoice_number, e)
+        send_templated_email(
+            recipient_email=student.email,
+            subject=subject,
+            template_name='email/transactional/invoice_cancelled.html',
+            context=context,
+            recipient_user=student,
+            notification_type='invoice_cancelled',
+            school=school,
+            department=primary_dept,
+            invoice=invoice,
+        )
+        sent_emails.add(student.email.lower())
 
     if send_to_parents:
         # 2. Parents
         for link in parent_links:
             if link.parent.email and link.parent.email.lower() not in sent_emails:
-                try:
-                    send_templated_email(
-                        recipient_email=link.parent.email,
-                        subject=subject,
-                        template_name='email/transactional/invoice_cancelled.html',
-                        context=context,
-                        recipient_user=link.parent,
-                        notification_type='invoice_cancelled',
-                        school=school,
-                        department=primary_dept,
-                    )
-                    sent_emails.add(link.parent.email.lower())
-                except Exception as e:
-                    logger.exception('Failed to send invoice cancellation email to parent %s: %s', link.parent.email, e)
+                send_templated_email(
+                    recipient_email=link.parent.email,
+                    subject=subject,
+                    template_name='email/transactional/invoice_cancelled.html',
+                    context=context,
+                    recipient_user=link.parent,
+                    notification_type='invoice_cancelled',
+                    school=school,
+                    department=primary_dept,
+                    invoice=invoice,
+                )
+                sent_emails.add(link.parent.email.lower())
 
         # 3. Guardians
         for sg in guardian_links:
             if sg.guardian.email and sg.guardian.email.lower() not in sent_emails:
-                try:
-                    send_templated_email(
-                        recipient_email=sg.guardian.email,
-                        subject=subject,
-                        template_name='email/transactional/invoice_cancelled.html',
-                        context=context,
-                        notification_type='invoice_cancelled',
-                        school=school,
-                        department=primary_dept,
-                    )
-                    sent_emails.add(sg.guardian.email.lower())
-                except Exception as e:
-                    logger.exception('Failed to send invoice cancellation email to guardian %s: %s', sg.guardian.email, e)
+                send_templated_email(
+                    recipient_email=sg.guardian.email,
+                    subject=subject,
+                    template_name='email/transactional/invoice_cancelled.html',
+                    context=context,
+                    notification_type='invoice_cancelled',
+                    school=school,
+                    department=primary_dept,
+                    invoice=invoice,
+                )
+                sent_emails.add(sg.guardian.email.lower())
 
 
 # ---------------------------------------------------------------------------

@@ -69,6 +69,19 @@ def apply_forward(apps, schema_editor):
         c.execute('SET foreign_key_checks = 0')
         try:
 
+            # Ensure submission_id has a standalone index before dropping the
+            # combined unique.  MySQL error 1553 fires structurally (not just
+            # as a data-integrity check) when the combined unique is the ONLY
+            # index covering submission_id — foreign_key_checks=0 does NOT
+            # suppress it.  Once the new (submission, subject_slug, content_id)
+            # unique is in place (step 5), this temporary index is redundant
+            # because submission_id is its leftmost column.
+            if not _index_exists(c, TABLE, f'{TABLE}_submission_id_tmp_idx'):
+                c.execute(
+                    f'CREATE INDEX `{TABLE}_submission_id_tmp_idx`'
+                    f' ON `{TABLE}` (`submission_id`)'
+                )
+
             # ── 1. Drop old unique_together (submission, question) ───────────
             c.execute(
                 """SELECT CONSTRAINT_NAME
@@ -135,6 +148,13 @@ def apply_forward(apps, schema_editor):
                     f' ADD UNIQUE KEY'
                     f' `worksheets_worksheetstud_submission_id_subject_sl_445dca9d_uniq`'
                     f' (`submission_id`, `subject_slug`, `content_id`)'
+                )
+
+            # Drop the temporary standalone index — now redundant because the
+            # new unique above has submission_id as its leftmost column.
+            if _index_exists(c, TABLE, f'{TABLE}_submission_id_tmp_idx'):
+                c.execute(
+                    f'DROP INDEX `{TABLE}_submission_id_tmp_idx` ON `{TABLE}`'
                 )
 
         finally:
