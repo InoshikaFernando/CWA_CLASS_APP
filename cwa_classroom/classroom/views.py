@@ -1301,12 +1301,16 @@ class ConfirmRescheduleView(RoleRequiredMixin, View):
             },
             request=request,
         )
-        messages.success(
-            request,
-            f'Deleted {deleted} old session{"s" if deleted != 1 else ""} and '
-            f'created {created} new session{"s" if created != 1 else ""} '
-            f'for {classroom.get_day_display()} schedule.',
-        )
+        parts = []
+        if deleted:
+            parts.append(f'Removed {deleted} old session{"s" if deleted != 1 else ""}')
+        if created:
+            parts.append(f'created {created} new session{"s" if created != 1 else ""}')
+        if parts:
+            msg = ' and '.join(parts) + f' on {classroom.get_day_display()}.'
+        else:
+            msg = f'Schedule updated to {classroom.get_day_display()}. No sessions changed.'
+        messages.success(request, msg)
 
         if next_url:
             return redirect(next_url)

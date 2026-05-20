@@ -262,14 +262,14 @@ class TestConfirmSessions:
     def test_confirm_shows_success_message(
         self, page: Page, live_server, admin_user, classroom_with_monday_sessions
     ):
-        """After confirming, a success flash message contains 'Deleted'."""
+        """After confirming, a success flash message contains 'Removed'."""
         do_login(page, live_server.url, admin_user)
         _goto_edit_and_change_day(
             page, live_server.url,
             classroom_with_monday_sessions.pk, "friday",
         )
         _click_confirm(page)
-        expect(page.locator("body")).to_contain_text("Deleted")
+        expect(page.locator("body")).to_contain_text("Removed")
 
 
 # ---------------------------------------------------------------------------
