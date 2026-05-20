@@ -2067,6 +2067,13 @@ def _inline_create_parent(request, school, student_user):
             is_primary_contact=(existing_count == 0),
             created_by=request.user,
         )
+    else:
+        messages.warning(
+            request,
+            f'Parent account created for {p_first} {p_last} but could not be linked — '
+            'this student already has 2 linked parents (the maximum). '
+            'Link from the Parents page once a parent is removed.',
+        )
     return (parent_user, temp_pw)
 
 
@@ -2097,7 +2104,18 @@ def _inline_link_parent(request, school, student_user):
     existing_count = ParentStudent.objects.filter(
         student=student_user, school=school, is_active=True,
     ).count()
-    if not already_linked and existing_count < 2:
+    if already_linked:
+        messages.warning(
+            request,
+            f'{parent_user.get_full_name()} is already linked to this student.',
+        )
+    elif existing_count >= 2:
+        messages.warning(
+            request,
+            'Could not link parent — this student already has 2 linked parents (the maximum). '
+            'Remove a parent link first.',
+        )
+    else:
         ParentStudent.objects.create(
             parent=parent_user, student=student_user, school=school,
             relationship=p_rel,

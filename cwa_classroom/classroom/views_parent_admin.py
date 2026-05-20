@@ -729,6 +729,16 @@ class AddParentView(RoleRequiredMixin, View):
         # Validate inline student fields if requested
         inline_action = request.POST.get('inline_student_action', '').strip()
         inline_student_fields = None
+        inline_link_student_id = None
+        if inline_action == 'link':
+            sid = request.POST.get('inline_student_id', '').strip()
+            if not (sid and sid.isdigit()):
+                messages.error(request, 'Please select a student to link.')
+                return self._render_form(request, school, {'form_data': request.POST})
+            if not SchoolStudent.objects.filter(school=school, student_id=int(sid), is_active=True).exists():
+                messages.error(request, 'Selected student not found in this school.')
+                return self._render_form(request, school, {'form_data': request.POST})
+            inline_link_student_id = int(sid)
         if inline_action == 'new':
             s_first = request.POST.get('inline_student_first_name', '').strip()
             s_last = request.POST.get('inline_student_last_name', '').strip()
@@ -838,6 +848,10 @@ class AddParentView(RoleRequiredMixin, View):
                             cs.save(update_fields=['is_active'])
                 # Add to student_ids for linking below
                 student_ids.append(str(inline_student_user.id))
+
+            # Link-existing-student path (inline_action='link')
+            if inline_link_student_id:
+                student_ids.append(str(inline_link_student_id))
 
             # Link to selected students (existing + inline)
             linked_students = []
@@ -1007,6 +1021,40 @@ class LinkExistingParentView(RoleRequiredMixin, View):
         return redirect('admin_school_parents', school_id=school.id)
 
 
+class StudentAccountSearchView(RoleRequiredMixin, View):
+    """HTMX: search for existing school students to link as children when adding a parent."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request, school_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        q = request.GET.get('q', '').strip()
+        parent_id = request.GET.get('parent_id', '').strip()
+        results = []
+        if len(q) >= 2:
+            qs = SchoolStudent.objects.filter(
+                school=school, is_active=True,
+            ).filter(
+                Q(student__email__icontains=q)
+                | Q(student__first_name__icontains=q)
+                | Q(student__last_name__icontains=q)
+                | Q(student__username__icontains=q)
+            ).select_related('student')[:15]
+            results = list(qs)
+            if parent_id and parent_id.isdigit():
+                linked_ids = set(
+                    ParentStudent.objects.filter(
+                        parent_id=int(parent_id), school=school,
+                    ).values_list('student_id', flat=True)
+                )
+                for ss in results:
+                    ss.already_linked = ss.student_id in linked_ids
+        return render(request, 'admin_dashboard/partials/student_account_search_results.html', {
+            'results': results,
+            'school': school,
+            'q': q,
+        })
+
+
 class ParentAccountSearchView(RoleRequiredMixin, View):
     """HTMX: search for existing user accounts to link as parents."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
@@ -1014,17 +1062,27 @@ class ParentAccountSearchView(RoleRequiredMixin, View):
     def get(self, request, school_id):
         school = _get_user_school_or_404(request.user, school_id)
         q = request.GET.get('q', '').strip()
+        student_id = request.GET.get('student_id', '').strip()
         results = []
         if len(q) >= 2:
             from accounts.models import CustomUser
-            results = list(
-                CustomUser.objects.filter(
-                    Q(email__icontains=q)
-                    | Q(first_name__icontains=q)
-                    | Q(last_name__icontains=q)
-                    | Q(username__icontains=q)
-                ).exclude(is_superuser=True)[:15]
-            )
+            qs = CustomUser.objects.filter(
+                roles__name=Role.PARENT,
+            ).filter(
+                Q(email__icontains=q)
+                | Q(first_name__icontains=q)
+                | Q(last_name__icontains=q)
+                | Q(username__icontains=q)
+            ).exclude(is_superuser=True).distinct()[:15]
+            results = list(qs)
+            if student_id and student_id.isdigit():
+                linked_ids = set(
+                    ParentStudent.objects.filter(
+                        student_id=int(student_id), school=school,
+                    ).values_list('parent_id', flat=True)
+                )
+                for user in results:
+                    user.already_linked = user.id in linked_ids
         return render(request, 'admin_dashboard/partials/parent_account_search_results.html', {
             'results': results,
             'school': school,

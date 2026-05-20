@@ -5,11 +5,15 @@
         <button type="button"
                 onclick="selectParent({{ user.id }}, '{{ user.get_full_name|escapejs }}', '{{ user.email|escapejs }}')"
                 class="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50 transition text-left">
-          <div>
-            <p class="font-medium text-gray-900 text-sm">{{ user.get_full_name }}</p>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2">
+              <p class="font-medium text-gray-900 text-sm">{{ user.get_full_name }}</p>
+              <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-violet-100 text-violet-700">PARENT</span>
+              {% if user.already_linked %}<span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700">Already linked</span>{% endif %}
+            </div>
             <p class="text-xs text-gray-500">{{ user.email }}{% if user.username %} · @{{ user.username }}{% endif %}</p>
           </div>
-          <span class="text-xs text-accent font-medium">Select</span>
+          <span class="text-xs text-accent font-medium flex-shrink-0">Select</span>
         </button>
       </li>
     {% endfor %}

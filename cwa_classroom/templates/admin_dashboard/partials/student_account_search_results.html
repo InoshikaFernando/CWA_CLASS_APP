@@ -1,0 +1,29 @@
+{% if results %}
+  <ul class="divide-y divide-slate-100 rounded-xl border border-slate-200 overflow-hidden mt-2">
+    {% for ss in results %}
+      <li>
+        {% if ss.already_linked %}
+          <div class="w-full flex items-center justify-between gap-3 px-4 py-3 bg-slate-50 text-left opacity-60 cursor-not-allowed">
+            <div>
+              <p class="font-medium text-gray-700 text-sm">{{ ss.student.get_full_name }}</p>
+              <p class="text-xs text-gray-400">{{ ss.student.email }}{% if ss.student.username %} · @{{ ss.student.username }}{% endif %}</p>
+            </div>
+            <span class="text-xs text-gray-400 font-medium">Already linked</span>
+          </div>
+        {% else %}
+          <button type="button"
+                  onclick="selectInlineStudent({{ ss.student.id }}, '{{ ss.student.get_full_name|escapejs }}')"
+                  class="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50 transition text-left">
+            <div>
+              <p class="font-medium text-gray-900 text-sm">{{ ss.student.get_full_name }}</p>
+              <p class="text-xs text-gray-500">{{ ss.student.email }}{% if ss.student.username %} · @{{ ss.student.username }}{% endif %}</p>
+            </div>
+            <span class="text-xs text-accent font-medium">Select</span>
+          </button>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+{% elif q %}
+  <p class="text-sm text-gray-500 text-center py-3">No students found for "{{ q }}".</p>
+{% endif %}

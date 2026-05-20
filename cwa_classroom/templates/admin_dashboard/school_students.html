@@ -82,7 +82,8 @@
   <div x-show="showAddModal" x-cloak
        class="fixed inset-0 z-50 flex items-center justify-center"
        @keydown.escape.window="showAddModal = false"
-       x-data="{ parentAction: 'none', linkedParentId: '', linkedParentName: '' }">
+       x-data="{ parentAction: 'none', linkedParentId: '', linkedParentName: '' }"
+       @parent-selected.document="linkedParentId = $event.detail.id; linkedParentName = $event.detail.name">
     <div class="fixed inset-0 bg-black/50 backdrop-blur-sm" @click="showAddModal = false"></div>
     <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto" @click.stop>
       <div class="flex items-center justify-between p-6 pb-4 border-b border-slate-100 sticky top-0 bg-white z-10 rounded-t-2xl">
@@ -232,7 +233,7 @@
               <span x-text="linkedParentName"></span>
               <button type="button" @click="linkedParentId=''; linkedParentName=''" class="ml-auto text-emerald-600 hover:text-emerald-800 text-xs">Clear</button>
             </div>
-            <div>
+            <div x-show="linkedParentId" x-cloak>
               <label class="block text-xs font-medium text-gray-600 mb-1">Relationship</label>
               <select name="parent_relationship"
                       class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition bg-white">
@@ -326,15 +327,12 @@
 <script>
 // Called by parent_account_search_results.html partial when user clicks a result
 function selectParent(id, name, email) {
-  const modal = document.querySelector('[x-data*="linkedParentId"]');
-  if (modal && modal._x_dataStack) {
-    const data = modal._x_dataStack[0];
-    data.linkedParentId = String(id);
-    data.linkedParentName = name + ' (' + email + ')';
-    document.getElementById('modal-parent-results').innerHTML = '';
-    const searchInput = document.getElementById('modal-parent-search');
-    if (searchInput) searchInput.value = '';
-  }
+  document.dispatchEvent(new CustomEvent('parent-selected', {
+    detail: { id: String(id), name: name + ' (' + email + ')' }
+  }));
+  document.getElementById('modal-parent-results').innerHTML = '';
+  const searchInput = document.getElementById('modal-parent-search');
+  if (searchInput) searchInput.value = '';
 }
 
 (function() {
