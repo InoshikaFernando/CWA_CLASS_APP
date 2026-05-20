@@ -362,6 +362,7 @@ class TeacherCenterRegisterView(View):
                         'Your account has been created but we could not redirect to payment. '
                         'Please set up billing from your dashboard or contact support.',
                     )
+                    return redirect('subjects_hub')
 
             messages.success(request, f'Welcome! Your school "{center_name}" is ready.')
             return redirect('subjects_hub')
