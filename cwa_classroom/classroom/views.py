@@ -1036,6 +1036,11 @@ class EditClassView(RoleRequiredMixin, View):
             messages.error(request, 'Class name is required.')
             return redirect('edit_class', class_id=class_id)
 
+        # Capture old schedule before mutating (for orphan detection)
+        old_day = classroom.day
+        old_start_time = str(classroom.start_time)[:5] if classroom.start_time else None
+        old_end_time = str(classroom.end_time)[:5] if classroom.end_time else None
+
         classroom.name = name
         classroom.day = day
         classroom.start_time = start_time
@@ -1069,6 +1074,21 @@ class EditClassView(RoleRequiredMixin, View):
         classroom.save()
         classroom.levels.set(selected_levels)
 
+        # Detect schedule change and intercept with confirmation if orphans exist
+        schedule_changed = (
+            day != old_day
+            or start_time != old_start_time
+            or end_time != old_end_time
+        )
+        if schedule_changed and day:
+            orphan_count = _count_orphaned_sessions(classroom)
+            if orphan_count > 0:
+                request.session[f'reschedule_{class_id}_old_day'] = old_day
+                request.session[f'reschedule_{class_id}_count'] = orphan_count
+                if next_url:
+                    request.session[f'reschedule_{class_id}_next'] = next_url
+                return redirect('confirm_reschedule', class_id=class_id)
+
         log_event(
             user=request.user, school=classroom.school, category='data_change',
             action='class_edited',
@@ -1076,6 +1096,222 @@ class EditClassView(RoleRequiredMixin, View):
             request=request,
         )
         messages.success(request, f'Class "{name}" updated.')
+        if next_url:
+            return redirect(next_url)
+        return redirect('class_detail', class_id=class_id)
+
+
+# ---------------------------------------------------------------------------
+# Helpers: orphaned session counting and deletion
+# ---------------------------------------------------------------------------
+
+_DAY_WEEKDAY = {
+    'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
+    'friday': 4, 'saturday': 5, 'sunday': 6,
+}
+
+
+def _count_orphaned_sessions(classroom):
+    """Count strictly-future scheduled sessions whose date no longer matches classroom.day.
+    Today's session is excluded — it must never be touched regardless of status.
+    """
+    from datetime import date as _date
+    new_weekday = _DAY_WEEKDAY.get(classroom.day)
+    if new_weekday is None:
+        return 0
+    today = _date.today()
+    future = ClassSession.objects.filter(
+        classroom=classroom, status='scheduled', date__gt=today,
+    )
+    return sum(1 for s in future if s.date.weekday() != new_weekday)
+
+
+def _delete_orphaned_sessions(classroom):
+    """
+    Delete strictly-future scheduled sessions whose date no longer matches classroom.day.
+    - Today's session is always preserved (date__gt=today).
+    - Completed sessions are excluded (status='scheduled' filter).
+    - Sessions with any attendance record are never deleted.
+    Returns count of sessions deleted.
+    """
+    from datetime import date as _date
+    new_weekday = _DAY_WEEKDAY.get(classroom.day)
+    today = _date.today()
+
+    future = ClassSession.objects.filter(
+        classroom=classroom, status='scheduled', date__gt=today,
+    )
+    orphan_ids = [s.id for s in future if s.date.weekday() != new_weekday]
+    if not orphan_ids:
+        return 0
+
+    attended_ids = set(
+        StudentAttendance.objects
+        .filter(session_id__in=orphan_ids)
+        .values_list('session_id', flat=True)
+    )
+    safe_ids = [i for i in orphan_ids if i not in attended_ids]
+    ClassSession.objects.filter(id__in=safe_ids).delete()
+    return len(safe_ids)
+
+
+def _sync_sessions_after_reschedule(classroom, created_by):
+    """
+    Create new scheduled sessions for `classroom` on its new day within active
+    term dates, after a schedule change.
+
+    Key rule: if the classroom already has any non-cancelled session in the
+    current ISO week (Monday–Sunday), skip that week entirely. This prevents
+    creating an extra session in a week the class already ran on the old day.
+
+    Returns count of sessions created.
+    """
+    from datetime import date as _date, timedelta as _td
+    from .models import Term, SchoolHoliday, PublicHoliday
+
+    today = _date.today()
+    new_weekday = _DAY_WEEKDAY.get(classroom.day)
+    if new_weekday is None:
+        return 0
+
+    # ISO week bounds for today (Monday=0)
+    week_start = today - _td(days=today.weekday())
+    week_end = week_start + _td(days=6)
+
+    # If any non-cancelled session exists this week, start creating from next week.
+    has_session_this_week = ClassSession.objects.filter(
+        classroom=classroom,
+        date__range=(week_start, week_end),
+    ).exclude(status='cancelled').exists()
+
+    create_from = (week_start + _td(weeks=1)) if has_session_this_week else today
+
+    terms = Term.objects.filter(
+        school=classroom.school,
+        end_date__gte=create_from,
+    ).order_by('start_date')
+
+    if not terms.exists():
+        return 0
+
+    overall_start = create_from
+    overall_end = max(t.end_date for t in terms)
+
+    holiday_dates = set()
+    for h in SchoolHoliday.objects.filter(
+        school=classroom.school,
+        start_date__lte=overall_end,
+        end_date__gte=overall_start,
+    ):
+        d = max(h.start_date, overall_start)
+        while d <= min(h.end_date, overall_end):
+            holiday_dates.add(d)
+            d += _td(days=1)
+    for h in PublicHoliday.objects.filter(
+        school=classroom.school,
+        date__range=(overall_start, overall_end),
+    ):
+        holiday_dates.add(h.date)
+
+    existing_dates = set(
+        ClassSession.objects.filter(
+            classroom=classroom,
+            date__range=(overall_start, overall_end),
+        ).values_list('date', flat=True)
+    )
+
+    to_create = []
+    seen_dates = set(existing_dates)
+    for term in terms:
+        effective_start = max(term.start_date, create_from)
+        if effective_start > term.end_date:
+            continue
+        days_ahead = (new_weekday - effective_start.weekday()) % 7
+        session_date = effective_start + _td(days=days_ahead)
+        while session_date <= term.end_date:
+            if session_date not in holiday_dates and session_date not in seen_dates:
+                to_create.append(ClassSession(
+                    classroom=classroom,
+                    date=session_date,
+                    start_time=classroom.start_time,
+                    end_time=classroom.end_time,
+                    status='scheduled',
+                    created_by=created_by,
+                ))
+                seen_dates.add(session_date)
+            session_date += _td(weeks=1)
+
+    if to_create:
+        ClassSession.objects.bulk_create(to_create, ignore_conflicts=True)
+    return len(to_create)
+
+
+# ---------------------------------------------------------------------------
+# ConfirmRescheduleView — two-step confirmation after a class schedule change
+# ---------------------------------------------------------------------------
+
+class ConfirmRescheduleView(RoleRequiredMixin, View):
+    """
+    Shown after EditClassView detects orphaned sessions from a day/time change.
+    GET  — renders a warning page showing old day → new day + orphan count.
+    POST — either deletes orphans + syncs new sessions, or keeps them and moves on.
+    """
+    required_roles = [
+        Role.TEACHER, Role.HEAD_OF_DEPARTMENT,
+        Role.HEAD_OF_INSTITUTE, Role.INSTITUTE_OWNER, Role.ADMIN,
+    ]
+
+    def _get_classroom(self, request, class_id):
+        return get_object_or_404(
+            ClassRoom.objects.select_related('school', 'department'),
+            id=class_id,
+        )
+
+    def get(self, request, class_id):
+        classroom = self._get_classroom(request, class_id)
+        old_day = request.session.get(f'reschedule_{class_id}_old_day', '')
+        orphan_count = request.session.get(f'reschedule_{class_id}_count', 0)
+        return render(request, 'teacher/confirm_reschedule.html', {
+            'classroom': classroom,
+            'old_day': old_day,
+            'new_day': classroom.day,
+            'orphan_count': orphan_count,
+        })
+
+    def post(self, request, class_id):
+        classroom = self._get_classroom(request, class_id)
+
+        old_day = request.session.pop(f'reschedule_{class_id}_old_day', '')
+        next_url = request.session.pop(f'reschedule_{class_id}_next', '')
+        request.session.pop(f'reschedule_{class_id}_count', None)
+
+        deleted = _delete_orphaned_sessions(classroom)
+        created = _sync_sessions_after_reschedule(classroom, created_by=request.user)
+
+        log_event(
+            user=request.user, school=classroom.school,
+            category='data_change', action='sessions_rescheduled',
+            detail={
+                'class_id': classroom.id,
+                'class_name': classroom.name,
+                'old_day': old_day,
+                'new_day': classroom.day,
+                'sessions_deleted': deleted,
+                'sessions_created': created,
+            },
+            request=request,
+        )
+        parts = []
+        if deleted:
+            parts.append(f'Removed {deleted} old session{"s" if deleted != 1 else ""}')
+        if created:
+            parts.append(f'created {created} new session{"s" if created != 1 else ""}')
+        if parts:
+            msg = ' and '.join(parts) + f' on {classroom.get_day_display()}.'
+        else:
+            msg = f'Schedule updated to {classroom.get_day_display()}. No sessions changed.'
+        messages.success(request, msg)
+
         if next_url:
             return redirect(next_url)
         return redirect('class_detail', class_id=class_id)
