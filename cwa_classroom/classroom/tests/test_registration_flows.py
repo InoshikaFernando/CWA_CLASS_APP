@@ -52,7 +52,11 @@ class InstituteRegistrationCompanyDetailsTest(TestCase):
                 name='Basic', slug='basic', price=89,
                 class_limit=5, student_limit=100,
                 invoice_limit_yearly=500, extra_invoice_rate=0.30,
+                stripe_price_id='price_test_basic',
             )
+        elif not plan.stripe_price_id:
+            plan.stripe_price_id = 'price_test_basic'
+            plan.save(update_fields=['stripe_price_id'])
 
         resp = self.client.post(reverse('register_teacher_center'), {
             'center_name': 'Test Academy',
@@ -89,7 +93,11 @@ class InstituteRegistrationCompanyDetailsTest(TestCase):
                 name='Basic', slug='basic', price=89,
                 class_limit=5, student_limit=100,
                 invoice_limit_yearly=500, extra_invoice_rate=0.30,
+                stripe_price_id='price_test_basic',
             )
+        elif not plan.stripe_price_id:
+            plan.stripe_price_id = 'price_test_basic'
+            plan.save(update_fields=['stripe_price_id'])
 
         resp = self.client.post(reverse('register_teacher_center'), {
             'center_name': 'Minimal School',
@@ -113,6 +121,7 @@ class InstituteRegistrationCompanyDetailsTest(TestCase):
                 name='Basic', slug='basic', price=89,
                 class_limit=5, student_limit=100,
                 invoice_limit_yearly=500, extra_invoice_rate=0.30,
+                stripe_price_id='price_test_basic',
             )
 
         resp = self.client.post(reverse('register_teacher_center'), {
@@ -139,8 +148,11 @@ class IndividualStudentAddressTest(TestCase):
 
     @classmethod
     def setUpTestData(cls):
+        # Use a free package so the user is created immediately (not via
+        # PendingRegistration).  These tests verify address-field persistence,
+        # not the Stripe payment flow.
         cls.package = Package.objects.create(
-            name='Student Basic', price=19.90, class_limit=3,
+            name='Student Basic', price=0, class_limit=3,
             trial_days=14, is_active=True,
         )
 
@@ -173,7 +185,7 @@ class IndividualStudentAddressTest(TestCase):
         self.assertEqual(user.country, 'New Zealand')
 
     def test_register_creates_subscription(self):
-        """Registration should create a trialing subscription."""
+        """Registration with free package should create a trialing subscription."""
         self.client.post(reverse('register_individual_student'), {
             'username': 'studentsub',
             'email': 'wlhtestmails+studentsub@gmail.com',
