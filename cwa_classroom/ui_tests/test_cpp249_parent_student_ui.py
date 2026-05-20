@@ -67,8 +67,8 @@ class TestParentSearchRoleBadge:
         search = self.page.locator("#modal-parent-search")
         search.fill(parent.first_name)
         self.page.wait_for_timeout(600)
-        # PARENT badge should appear
-        expect(self.page.locator("span", has_text="PARENT").first).to_be_visible(timeout=5000)
+        # PARENT badge should appear inside results container
+        expect(self.page.locator("#modal-parent-results .bg-violet-100").first).to_be_visible(timeout=5000)
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +140,7 @@ class TestAddParentLinkExistingStudent:
         expect(search).to_be_visible()
         search.fill(stu.first_name)
         self.page.wait_for_timeout(600)
-        expect(self.page.get_by_text(stu.get_full_name(), exact=True)).to_be_visible(timeout=5000)
+        expect(self.page.locator("#inline-student-results").get_by_text(stu.get_full_name())).to_be_visible(timeout=5000)
 
     @pytest.mark.django_db(transaction=True)
     def test_link_student_creates_parent_student(self):
@@ -168,12 +168,17 @@ class TestAddParentLinkExistingStudent:
         # Search and select student
         search = self.page.locator("#inline-student-search")
         search.fill(stu.first_name)
-        self.page.wait_for_timeout(700)
-        self.page.get_by_text("Select").first.click()
-        self.page.wait_for_timeout(300)
+        # Wait for HTMX results to appear before clicking (avoid clicking unrelated "Select" labels)
+        expect(self.page.locator("#inline-student-results button")).to_be_visible(timeout=5000)
+        self.page.locator("#inline-student-results button").first.click()
+        # Wait for Alpine to process the custom event and update the hidden input
+        self.page.wait_for_function(
+            "() => { const el = document.querySelector(\"input[name='inline_student_id']\"); return el && el.value !== ''; }",
+            timeout=10000,
+        )
 
         # Confirmation pill should appear
-        expect(self.page.get_by_text(stu.get_full_name(), exact=True)).to_be_visible()
+        expect(self.page.locator("[x-text='linkedStudentName']")).to_be_visible()
 
         # Submit
         self.page.get_by_role("button", name="Create Parent Account").click()
