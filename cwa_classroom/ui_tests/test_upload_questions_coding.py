@@ -210,7 +210,7 @@ class TestUploadQuestionsCoding:
         _goto_upload(page, live_server.url)
         page.locator("select[name='subject']").select_option("coding")
         expect(
-            page.get_by_text("required_code_patterns")
+            page.get_by_text("required_code_patterns").first
         ).to_be_visible()
 
     @pytest.mark.django_db(transaction=True)
