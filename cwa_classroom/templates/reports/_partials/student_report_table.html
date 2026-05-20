@@ -1,0 +1,92 @@
+<!-- Summary row -->
+<div class="flex items-center justify-between mb-3">
+  <p class="text-sm text-gray-500">
+    <span class="font-semibold text-gray-900">{{ total_count }}</span> student{{ total_count|pluralize }} found
+  </p>
+</div>
+
+{% if page_obj.object_list %}
+<div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+  <div class="overflow-x-auto">
+    <table class="min-w-full divide-y divide-slate-200 text-sm">
+      <thead class="bg-slate-50">
+        <tr>
+          <th class="px-4 py-3 text-left font-semibold text-gray-600">Student</th>
+          <th class="px-4 py-3 text-left font-semibold text-gray-600">Student ID</th>
+          <th class="px-4 py-3 text-left font-semibold text-gray-600">Classes</th>
+          <th class="px-4 py-3 text-left font-semibold text-gray-600">Enrollment</th>
+          <th class="px-4 py-3 text-left font-semibold text-gray-600">Payment</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for ss in page_obj %}
+        <tr class="hover:bg-slate-50 transition">
+          <td class="px-4 py-3">
+            <div class="font-medium text-gray-900">{{ ss.student.get_full_name|default:ss.student.username }}</div>
+            <div class="text-xs text-gray-400">{{ ss.student.email }}</div>
+          </td>
+          <td class="px-4 py-3 text-gray-600 font-mono text-xs">{{ ss.student_id_code|default:"—" }}</td>
+          <td class="px-4 py-3">
+            {% if ss.active_class_count > 0 %}
+              <span class="inline-flex items-center gap-1 text-gray-700">
+                <span class="font-medium">{{ ss.active_class_count }}</span>
+                <span class="text-gray-400">class{{ ss.active_class_count|pluralize:"es" }}</span>
+              </span>
+            {% else %}
+              <span class="text-amber-600 text-xs font-medium">No class</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3">
+            {% if ss.is_active %}
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">Active</span>
+            {% else %}
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">Inactive</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3">
+            {% if ss.student.is_blocked %}
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-100 text-rose-700">Blocked</span>
+            {% else %}
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-600">OK</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Pagination -->
+{% if page_obj.has_other_pages %}
+<div class="flex items-center justify-between mt-4">
+  <div class="text-sm text-gray-500">
+    Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+  </div>
+  <div class="flex gap-2">
+    {% if page_obj.has_previous %}
+      <a href="?{% for key, val in request.GET.items %}{% if key != 'page' %}{{ key }}={{ val }}&{% endif %}{% endfor %}page={{ page_obj.previous_page_number }}"
+         class="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50 transition">
+        &larr; Prev
+      </a>
+    {% endif %}
+    {% if page_obj.has_next %}
+      <a href="?{% for key, val in request.GET.items %}{% if key != 'page' %}{{ key }}={{ val }}&{% endif %}{% endfor %}page={{ page_obj.next_page_number }}"
+         class="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50 transition">
+        Next &rarr;
+      </a>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% else %}
+<!-- Empty state -->
+<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">
+  <svg class="w-12 h-12 text-slate-300 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"/>
+  </svg>
+  <p class="text-gray-500 font-medium">No students match these filters</p>
+  <a href="{% url 'reports_students' %}" class="mt-3 inline-block text-sm text-accent hover:underline">Reset filters</a>
+</div>
+{% endif %}

@@ -12,6 +12,7 @@ from . import views_salaries
 from . import views_parent
 from . import views_parent_admin
 from . import views_password_admin
+from . import views_reports
 from attendance import views_student as attendance_views_student
 from attendance import views_teacher as attendance_views_teacher
 
@@ -265,6 +266,7 @@ urlpatterns = [
     # Per-student fee override
     path('class/<int:class_id>/student/<int:student_id>/fee/', views.UpdateStudentFeeView.as_view(), name='update_student_fee'),
     path('class/<int:class_id>/student/<int:student_id>/remove/', views.ClassStudentRemoveView.as_view(), name='class_student_remove'),
+    path('class/<int:class_id>/teacher/<int:teacher_id>/remove/', views.ClassTeacherRemoveView.as_view(), name='class_teacher_remove'),
 
     # API
     path('api/department/<int:dept_id>/levels/', views.DepartmentLevelsAPIView.as_view(), name='api_department_levels'),
@@ -282,6 +284,7 @@ urlpatterns = [
     path('department/assign-class/', views.HoDAssignClassView.as_view(), name='hod_assign_class'),
     path('department/workload/', views.HoDWorkloadView.as_view(), name='hod_workload'),
     path('department/reports/', views.HoDReportsView.as_view(), name='hod_reports'),
+    path('reports/students/', views_reports.StudentReportView.as_view(), name='reports_students'),
     path('department/attendance/', views.HoDAttendanceReportView.as_view(), name='hod_attendance_report'),
     path('department/attendance/detail/', views.AttendanceDetailView.as_view(), name='attendance_detail'),
     path('department/subject-levels/', views.HoDSubjectLevelsView.as_view(), name='hod_subject_levels'),

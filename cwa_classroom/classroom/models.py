@@ -260,6 +260,20 @@ class School(models.Model):
         help_text='School-wide default fee per session. Used when no class, level, subject, or department fee is configured.',
     )
 
+    # Invoice email recipient policy
+    INVOICE_RECIPIENT_POLICY_CHOICES = [
+        ('parents_fallback_student', 'Parents (student if no parents)'),
+        ('parents_only',             'Parents only (no email if no parents)'),
+        ('parents_and_student',      'Parents and student always'),
+        ('student_only',             'Student only'),
+    ]
+    invoice_recipient_policy = models.CharField(
+        max_length=30,
+        choices=INVOICE_RECIPIENT_POLICY_CHOICES,
+        default='parents_fallback_student',
+        help_text='Controls who receives invoice and cancellation emails.',
+    )
+
     # Stripe payment
     stripe_payment_link = models.URLField(
         blank=True,
@@ -348,6 +362,7 @@ class School(models.Model):
     SETTINGS_FIELDS = [
         'bank_name', 'bank_bsb', 'bank_account_number', 'bank_account_name',
         'invoice_terms', 'invoice_due_days',
+        'invoice_recipient_policy',
         'outgoing_email',
         'abn', 'gst_number',
         'street_address', 'city', 'state_region', 'postal_code', 'country',
@@ -503,6 +518,7 @@ class Department(models.Model):
     bank_account_name = models.CharField(max_length=200, blank=True)
     invoice_terms = models.TextField(blank=True)
     invoice_due_days = models.PositiveIntegerField(null=True, blank=True)
+    invoice_recipient_policy = models.CharField(max_length=30, blank=True)
     outgoing_email = models.EmailField(blank=True)
     abn = models.CharField('Business Registration Number', max_length=50, blank=True)
     gst_number = models.CharField(
@@ -1808,6 +1824,49 @@ class EmailLog(models.Model):
 
     class Meta:
         ordering = ['-sent_at']
+
+    def __str__(self):
+        return f'{self.recipient_email} — {self.subject} ({self.status})'
+
+
+class EmailQueue(models.Model):
+    """Stores emails that couldn't be sent due to daily sending limits.
+
+    Processed by the process_email_queue management command, which runs
+    daily via cron and drains this queue up to the remaining daily quota.
+    """
+    STATUS_PENDING = 'pending'
+    STATUS_SENT = 'sent'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_SENT, 'Sent'),
+        (STATUS_FAILED, 'Failed'),
+    ]
+
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='queued_emails',
+    )
+    recipient_email = models.EmailField()
+    subject = models.CharField(max_length=300)
+    from_email = models.EmailField()
+    html_content = models.TextField()
+    text_content = models.TextField(blank=True)
+    cc = models.JSONField(default=list, blank=True)
+    reply_to = models.JSONField(default=list, blank=True)
+    notification_type = models.CharField(max_length=30, blank=True)
+    campaign = models.ForeignKey(
+        'EmailCampaign', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='queued_emails',
+    )
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['created_at']
 
     def __str__(self):
         return f'{self.recipient_email} — {self.subject} ({self.status})'

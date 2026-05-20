@@ -833,10 +833,15 @@ class InvoiceNotificationTest(TestCase):
         self.assertIsNotNone(invoice)
         self.assertEqual(invoice.status, 'issued')
 
-        # Check that email was sent (Django test runner uses locmem backend)
-        self.assertGreaterEqual(len(mail.outbox), 1)
-        sent_to = [m.to[0] for m in mail.outbox if m.to]
-        self.assertIn('wlhtestmails+frank@gmail.com', sent_to)
+        # Emails are now queued for background delivery instead of sent inline
+        from classroom.models import EmailQueue
+        queued = EmailQueue.objects.filter(
+            status=EmailQueue.STATUS_PENDING,
+            notification_type='invoice',
+        )
+        self.assertGreaterEqual(queued.count(), 1)
+        queued_to = list(queued.values_list('recipient_email', flat=True))
+        self.assertIn('wlhtestmails+frank@gmail.com', queued_to)
 
     def test_issued_invoice_has_due_date(self):
         """Issued invoice has a due_date calculated from school.invoice_due_days."""

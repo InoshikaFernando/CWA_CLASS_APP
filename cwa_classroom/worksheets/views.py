@@ -409,7 +409,10 @@ class WorksheetDetailView(RoleRequiredMixin, View):
         worksheet = get_object_or_404(Worksheet, pk=pk, school=school)
         wqs = worksheet.worksheet_questions.select_related(
             'question', 'question__topic', 'question__topic__parent',
-        ).prefetch_related('question__answers')
+            'coding_exercise', 'coding_exercise__topic_level',
+            'coding_exercise__topic_level__topic',
+            'coding_exercise__topic_level__topic__language',
+        ).prefetch_related('question__answers', 'coding_exercise__answers')
         assignments = worksheet.assignments.select_related('classroom').order_by('-assigned_at')
 
         from classroom.models import ClassRoom

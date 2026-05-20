@@ -511,10 +511,15 @@ class CodingExerciseParser(BaseQuestionParser):
                 result.errors.append(f'Exercise {i} ({title!r}): {exc}')
                 result.failed += 1
 
+        patterns_count = sum(
+            1 for ex in exercises
+            if self._normalize_required_patterns(ex.get('required_code_patterns'))
+        )
         result.detail = {
             'language': language.name,
             'topic': topic.name,
             'level': level,
+            'patterns_count': patterns_count,
         }
         return result.to_dict()
 

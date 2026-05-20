@@ -45,10 +45,25 @@
     </div>
   </div>
 
+  <!-- Role Activity Summary (7 days) -->
+  {% if role_summary %}
+  <h2 class="text-lg font-semibold mb-3">Activity by Role (7 days)</h2>
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+    {% for rs in role_summary %}
+    <a href="{% url 'audit_events' %}?role={{ rs.role_name }}" class="card hover:shadow-md transition">
+      <div class="card-body text-center">
+        <p class="text-3xl font-bold text-accent">{{ rs.count }}</p>
+        <p class="text-sm text-gray-500">{{ rs.display_name }} actions</p>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   <!-- Recent Events -->
   <div class="flex justify-between items-center mb-3">
     <h2 class="text-lg font-semibold">Recent Events</h2>
-    <a href="{% url 'audit_log_list' %}" class="text-blue-600 hover:underline text-sm">View All &rarr;</a>
+    <a href="{% url 'audit_events' %}" class="text-blue-600 hover:underline text-sm">View All &rarr;</a>
   </div>
   <div class="card overflow-x-auto">
     <table class="w-full text-sm">
