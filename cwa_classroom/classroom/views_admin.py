@@ -1876,6 +1876,7 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
             ],
             'add_student_classes': add_student_classes,
             'relationship_choices': ParentStudent.RELATIONSHIP_CHOICES,
+            'default_relationship': 'guardian',
         }
         if request.headers.get('HX-Request'):
             return render(request, 'admin_dashboard/partials/students_table.html', ctx)

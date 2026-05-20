@@ -30,9 +30,8 @@ def _enrol_student(school):
     return stu
 
 
-def _make_parent(school=None):
+def _make_parent():
     from accounts.models import Role
-    from classroom.models import SchoolTeacher
     parent = _make_user(f"cpp249_par_{_RUN_ID}", Role.PARENT,
                         first_name="Par249", last_name="Test")
     return parent
@@ -57,16 +56,15 @@ class TestParentSearchRoleBadge:
         stu = _enrol_student(self.school)
         self.page.goto(f"{self.url}/admin-dashboard/schools/{self.school.id}/students/")
         self.page.wait_for_load_state("domcontentloaded")
-        # Open Add Student modal
+        # Open Add Student modal — wait for modal contents before interacting
         self.page.get_by_role("button", name="Add Student").click()
-        self.page.wait_for_timeout(300)
+        expect(self.page.get_by_role("button", name="Link existing parent")).to_be_visible(timeout=3000)
         # Switch to "Link existing parent"
         self.page.get_by_role("button", name="Link existing parent").click()
-        self.page.wait_for_timeout(200)
+        expect(self.page.locator("#modal-parent-search")).to_be_visible(timeout=3000)
         # Type in search
         search = self.page.locator("#modal-parent-search")
         search.fill(parent.first_name)
-        self.page.wait_for_timeout(600)
         # PARENT badge should appear inside results container
         expect(self.page.locator("#modal-parent-results .bg-violet-100").first).to_be_visible(timeout=5000)
 
@@ -135,11 +133,9 @@ class TestAddParentLinkExistingStudent:
         )
         self.page.wait_for_load_state("domcontentloaded")
         self.page.get_by_role("button", name="Link existing student").click()
-        self.page.wait_for_timeout(300)
         search = self.page.locator("#inline-student-search")
-        expect(search).to_be_visible()
+        expect(search).to_be_visible(timeout=3000)
         search.fill(stu.first_name)
-        self.page.wait_for_timeout(600)
         expect(self.page.locator("#inline-student-results").get_by_text(stu.get_full_name())).to_be_visible(timeout=5000)
 
     @pytest.mark.django_db(transaction=True)
@@ -161,12 +157,12 @@ class TestAddParentLinkExistingStudent:
         self.page.locator("input[name='last_name']").fill("249Test")
         self.page.locator("input[name='email']").fill(parent_email)
 
-        # Switch to link existing student
+        # Switch to link existing student — wait for search input
         self.page.get_by_role("button", name="Link existing student").click()
-        self.page.wait_for_timeout(300)
+        search = self.page.locator("#inline-student-search")
+        expect(search).to_be_visible(timeout=3000)
 
         # Search and select student
-        search = self.page.locator("#inline-student-search")
         search.fill(stu.first_name)
         # Wait for HTMX results to appear before clicking (avoid clicking unrelated "Select" labels)
         expect(self.page.locator("#inline-student-results button")).to_be_visible(timeout=5000)
@@ -213,8 +209,7 @@ class TestAddStudentInlineParent:
         )
         self.page.wait_for_load_state("domcontentloaded")
         self.page.get_by_role("button", name="Add Student").click()
-        self.page.wait_for_timeout(300)
-        expect(self.page.get_by_role("button", name="Add new parent")).to_be_visible()
+        expect(self.page.get_by_role("button", name="Add new parent")).to_be_visible(timeout=3000)
 
     @pytest.mark.django_db(transaction=True)
     def test_add_new_parent_inline_form_shown_on_click(self):
@@ -224,10 +219,9 @@ class TestAddStudentInlineParent:
         )
         self.page.wait_for_load_state("domcontentloaded")
         self.page.get_by_role("button", name="Add Student").click()
-        self.page.wait_for_timeout(300)
+        expect(self.page.get_by_role("button", name="Add new parent")).to_be_visible(timeout=3000)
         self.page.get_by_role("button", name="Add new parent").click()
-        self.page.wait_for_timeout(200)
-        expect(self.page.locator("input[name='parent_email']")).to_be_visible()
+        expect(self.page.locator("input[name='parent_email']")).to_be_visible(timeout=3000)
 
     @pytest.mark.django_db(transaction=True)
     def test_link_existing_parent_search_visible(self):
@@ -237,10 +231,9 @@ class TestAddStudentInlineParent:
         )
         self.page.wait_for_load_state("domcontentloaded")
         self.page.get_by_role("button", name="Add Student").click()
-        self.page.wait_for_timeout(300)
+        expect(self.page.get_by_role("button", name="Link existing parent")).to_be_visible(timeout=3000)
         self.page.get_by_role("button", name="Link existing parent").click()
-        self.page.wait_for_timeout(200)
-        expect(self.page.locator("#modal-parent-search")).to_be_visible()
+        expect(self.page.locator("#modal-parent-search")).to_be_visible(timeout=3000)
 
     @pytest.mark.django_db(transaction=True)
     def test_parent_selected_confirmation_pill_appears(self):
@@ -251,13 +244,13 @@ class TestAddStudentInlineParent:
         )
         self.page.wait_for_load_state("domcontentloaded")
         self.page.get_by_role("button", name="Add Student").click()
-        self.page.wait_for_timeout(300)
+        expect(self.page.get_by_role("button", name="Link existing parent")).to_be_visible(timeout=3000)
         self.page.get_by_role("button", name="Link existing parent").click()
-        self.page.wait_for_timeout(200)
         search = self.page.locator("#modal-parent-search")
+        expect(search).to_be_visible(timeout=3000)
         search.fill(parent.first_name)
-        self.page.wait_for_timeout(700)
-        self.page.get_by_text("Select").first.click()
-        self.page.wait_for_timeout(300)
+        # Wait for HTMX results, then select
+        expect(self.page.locator("#modal-parent-results button").first).to_be_visible(timeout=5000)
+        self.page.locator("#modal-parent-results button").first.click()
         # Confirmation pill should show the parent name
-        expect(self.page.get_by_text(parent.get_full_name(), exact=False)).to_be_visible()
+        expect(self.page.get_by_text(parent.get_full_name(), exact=False)).to_be_visible(timeout=5000)

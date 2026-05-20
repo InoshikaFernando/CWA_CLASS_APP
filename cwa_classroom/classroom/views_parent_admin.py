@@ -674,6 +674,7 @@ class AddParentView(RoleRequiredMixin, View):
             'school': school,
             'students': self._school_students(school),
             'relationship_choices': ParentStudent.RELATIONSHIP_CHOICES,
+            'default_relationship': 'guardian',
             'classes': classes,
         })
 
@@ -683,6 +684,7 @@ class AddParentView(RoleRequiredMixin, View):
             'school': school,
             'students': self._school_students(school),
             'relationship_choices': ParentStudent.RELATIONSHIP_CHOICES,
+            'default_relationship': 'guardian',
             'classes': ClassRoom.objects.filter(school=school, is_active=True)
                        .select_related('subject', 'department').order_by('name'),
         }
@@ -1049,6 +1051,8 @@ class StudentAccountSearchView(RoleRequiredMixin, View):
                 | Q(student__username__icontains=q)
             ).select_related('student')[:15]
             results = list(qs)
+            for ss in results:
+                ss.already_linked = False
             if parent_id and parent_id.isdigit():
                 linked_ids = set(
                     ParentStudent.objects.filter(
@@ -1084,6 +1088,8 @@ class ParentAccountSearchView(RoleRequiredMixin, View):
                 | Q(username__icontains=q)
             ).exclude(is_superuser=True).distinct()[:15]
             results = list(qs)
+            for user in results:
+                user.already_linked = False
             if student_id and student_id.isdigit():
                 linked_ids = set(
                     ParentStudent.objects.filter(

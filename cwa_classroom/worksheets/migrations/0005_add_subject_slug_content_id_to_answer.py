@@ -109,7 +109,10 @@ def apply_forward(apps, schema_editor):
             [TABLE],
         )
         for (name,) in c.fetchall():
-            if 'subject_sl' not in name and 'content_id' not in name:
+            # Target only the old question-based constraint. Using a positive
+            # match ('question' in name) avoids accidentally dropping unrelated
+            # unique constraints added by other migrations.
+            if 'question' in name and 'subject_sl' not in name:
                 c.execute(f'ALTER TABLE `{TABLE}` DROP INDEX `{name}`')
 
         # ── 4. Make question_id nullable ──────────────────────────────────────
@@ -152,7 +155,7 @@ def apply_forward(apps, schema_editor):
             [TABLE],
         )
         for (name,) in c.fetchall():
-            if 'subject_sl' not in name and 'content_id' not in name:
+            if 'question' in name and 'subject_sl' not in name:
                 c.execute(f'ALTER TABLE `{TABLE}` DROP INDEX `{name}`')
 
 

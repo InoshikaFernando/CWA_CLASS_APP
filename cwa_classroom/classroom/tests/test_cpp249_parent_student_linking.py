@@ -139,41 +139,37 @@ class InlineLinkParentWarningTest(TestCase):
         }, follow=True)
 
     def test_warning_when_max_parents_reached(self):
-        # Fill up 2 parent slots
+        """_inline_link_parent warns when student already has 2 active parents."""
+        from django.test import RequestFactory
+        from django.contrib.messages.storage.fallback import FallbackStorage
+        from classroom.views_admin import _inline_link_parent
+
+        # Pre-fill student with 2 parents (at the limit)
         for i in range(2):
-            p = _make_user(f'full_p{i}_lp', Role.PARENT)
+            p = _make_user(f'maxpar_p{i}_lp', Role.PARENT)
             ParentStudent.objects.create(
                 parent=p, student=self.student, school=self.school,
                 relationship='guardian', is_primary_contact=(i == 0),
             )
-        # Create a brand-new student then try to link an existing student that is full
-        # Actually this test works differently: we add a new student and try to link self.parent
-        # but the student is new (just created), so let's test the path through a pre-built student
-        # by posting a link to a student who already has 2 parents
-        # We'll create a student and pre-fill parents, then try link via a new student POST
-        pre_student = _make_user('pre_stu_lp', Role.STUDENT)
-        SchoolStudent.objects.create(school=self.school, student=pre_student)
-        for i in range(2):
-            p = _make_user(f'pre_p{i}_lp', Role.PARENT)
-            ParentStudent.objects.create(
-                parent=p, student=pre_student, school=self.school,
-                relationship='guardian', is_primary_contact=(i == 0),
-            )
-        # _inline_link_parent is called with the NEWLY created student (not pre_student)
-        # so the new student has 0 parents — this will succeed, not warn
-        # The correct test is: new student created, then parent_action='link' with self.parent
-        # with max already reached on the NEW student — which can't be set up this way.
-        # Test the already_linked warning instead:
-        ParentStudent.objects.create(
-            parent=self.parent, student=self.student, school=self.school,
-            relationship='guardian', is_primary_contact=True,
+
+        # Call _inline_link_parent directly via RequestFactory so the student
+        # is pre-existing (not newly created), allowing the max-parent path to fire.
+        factory = RequestFactory()
+        request = factory.post('/', {
+            'parent_id': str(self.parent.id),
+            'parent_relationship': 'guardian',
+        })
+        request.user = self.hoi
+        setattr(request, 'session', 'session')
+        setattr(request, '_messages', FallbackStorage(request))
+
+        _inline_link_parent(request, self.school, self.student)
+
+        msgs = [str(m) for m in get_messages(request)]
+        self.assertTrue(
+            any('already has 2 linked parents' in m for m in msgs),
+            f'Expected max-parent warning, got: {msgs}',
         )
-        resp = self._post_link(self.parent.id)
-        msgs = [str(m) for m in get_messages(resp.wsgi_request)]
-        # The new student won't have this parent linked because it's a brand-new student
-        # already_linked applies only to the new student → since brand new, not already linked
-        # This test mainly verifies the flow works without error
-        self.assertIn(resp.status_code, [200, 302])
 
 
 class AddParentViewInlineStudentLinkTest(TestCase):
