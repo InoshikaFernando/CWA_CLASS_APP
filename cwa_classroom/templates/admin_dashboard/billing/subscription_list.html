@@ -47,7 +47,7 @@
             </td>
             <td class="px-6 py-4">
               <div class="flex items-center gap-2">
-                <span class="text-sm text-gray-700">{{ item.classes_count }}{% if item.sub.plan %}/{{ item.sub.plan.class_limit }}{% endif %}</span>
+                <span class="text-sm text-gray-700">{{ item.classes_count }}{% if item.sub.plan %}/{% if item.sub.plan.class_limit == 0 %}Unlimited{% else %}{{ item.sub.plan.class_limit }}{% endif %}{% endif %}</span>
                 {% if item.sub.plan and item.sub.plan.class_limit > 0 %}
                   <div class="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
                     {% widthratio item.classes_count item.sub.plan.class_limit 100 as pct %}
@@ -58,7 +58,7 @@
             </td>
             <td class="px-6 py-4">
               <div class="flex items-center gap-2">
-                <span class="text-sm text-gray-700">{{ item.students_count }}{% if item.sub.plan %}/{{ item.sub.plan.student_limit }}{% endif %}</span>
+                <span class="text-sm text-gray-700">{{ item.students_count }}{% if item.sub.plan %}/{% if item.sub.plan.student_limit == 0 %}Unlimited{% else %}{{ item.sub.plan.student_limit }}{% endif %}{% endif %}</span>
                 {% if item.sub.plan and item.sub.plan.student_limit > 0 %}
                   <div class="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
                     {% widthratio item.students_count item.sub.plan.student_limit 100 as pct %}
@@ -68,7 +68,7 @@
               </div>
             </td>
             <td class="px-6 py-4">
-              <span class="text-sm text-gray-700">{{ item.sub.invoices_used_this_year }}{% if item.sub.plan %}/{{ item.sub.plan.invoice_limit_yearly }}{% endif %}</span>
+              <span class="text-sm text-gray-700">{{ item.sub.invoices_used_this_year }}{% if item.sub.plan %}/{% if item.sub.plan.invoice_limit_yearly == 0 %}Unlimited{% else %}{{ item.sub.plan.invoice_limit_yearly }}{% endif %}{% endif %}</span>
             </td>
             <td class="px-6 py-4 text-sm text-gray-500">
               {% if item.sub.trial_end %}{{ item.sub.trial_end|date:"M d, Y" }}{% else %}-{% endif %}
