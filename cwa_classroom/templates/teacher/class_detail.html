@@ -203,11 +203,20 @@
       {% if teachers %}
       <ul class="space-y-2">
         {% for t in teachers %}
-        <li class="flex items-center gap-2 py-2 border-b border-gray-50 last:border-0">
-          <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-blue-100 text-blue-600 text-xs font-bold">
-            {{ t.username|slice:":2"|upper }}
-          </span>
-          <span class="text-sm font-semibold text-gray-700">{{ t.get_full_name|default:t.username }}</span>
+        <li class="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+          <div class="flex items-center gap-2">
+            <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-blue-100 text-blue-600 text-xs font-bold">
+              {{ t.username|slice:":2"|upper }}
+            </span>
+            <span class="text-sm font-semibold text-gray-700">{{ t.get_full_name|default:t.username }}</span>
+          </div>
+          {% if can_edit_fee %}
+          <form method="post" action="{% url 'class_teacher_remove' class_id=classroom.id teacher_id=t.id %}" class="inline"
+                onsubmit="return confirm('Remove {{ t.get_full_name|default:t.username }} from teaching this class?')">
+            {% csrf_token %}
+            <button type="submit" class="text-xs text-red-500 hover:text-red-700 font-medium">Remove</button>
+          </form>
+          {% endif %}
         </li>
         {% endfor %}
       </ul>

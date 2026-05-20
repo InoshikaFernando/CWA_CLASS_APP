@@ -400,15 +400,16 @@ class GapT_AuditDashboardTest(TestCase):
         resp = self.client.get('/audit/dashboard/')
         self.assertNotEqual(resp.status_code, 200)
 
-    def test_audit_log_list_accessible(self):
-        """Audit log list should be accessible to admins."""
+    def test_audit_log_list_redirects_to_events(self):
+        """Audit log list redirects admins to /audit/events/ (CPP-272)."""
         admin = CustomUser.objects.create_user(username='audit_admin2', password='pass12345', email='aa2@t.com')
         role = _create_role(Role.ADMIN)
         UserRole.objects.create(user=admin, role=role)
 
         self.client.login(username='audit_admin2', password='pass12345')
         resp = self.client.get('/audit/logs/')
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/audit/events/', resp.url)
 
 
 # ---------------------------------------------------------------------------

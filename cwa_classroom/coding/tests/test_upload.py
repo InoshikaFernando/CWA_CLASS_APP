@@ -294,6 +294,27 @@ class CodingExerciseParserTests(TestCase):
         ex = CodingExercise.objects.get(title='Blank Pattern Exercise')
         self.assertEqual(ex.required_code_patterns, 'name\\s*=\nprint\\(')
 
+    def test_result_detail_contains_patterns_count(self):
+        payload = _coding_payload(exercises=[
+            {
+                'title': 'With Patterns',
+                'instructions': 'Do A.',
+                'expected_output': 'A',
+                'required_code_patterns': ['print('],
+            },
+            {
+                'title': 'Without Patterns',
+                'instructions': 'Do B.',
+                'expected_output': 'B',
+            },
+        ])
+        result = self._run_parser(payload)
+        self.assertEqual(result['detail']['patterns_count'], 1)
+
+    def test_result_detail_patterns_count_zero_when_none_have_patterns(self):
+        result = self._run_parser(_coding_payload())
+        self.assertEqual(result['detail']['patterns_count'], 0)
+
     def test_all_three_levels_accepted(self):
         for level in ('beginner', 'intermediate', 'advanced'):
             payload = _coding_payload(

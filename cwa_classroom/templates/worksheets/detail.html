@@ -34,34 +34,90 @@
     <div class="lg:col-span-2 space-y-3">
       <h2 class="font-semibold text-gray-700">Questions</h2>
       {% for wq in worksheet_questions %}
-      <div class="bg-white rounded-xl border border-slate-200 p-4 flex gap-4">
-        <div class="w-8 h-8 rounded-full bg-primary/10 text-primary text-sm font-bold flex items-center justify-center shrink-0">{{ wq.order }}</div>
-        <div class="flex-1 min-w-0">
-          <p class="text-sm text-gray-800">{{ wq.question.question_text }}</p>
-          {% if wq.question.image %}
-          <img src="{{ wq.question.image.url }}" alt="Question image" class="mt-2 max-h-32 rounded-lg border border-gray-200 object-contain" />
-          {% endif %}
-          <div class="flex flex-wrap gap-1.5 mt-2">
-            <span class="px-2 py-0.5 rounded-full bg-slate-100 text-gray-500 text-xs">{{ wq.question.get_question_type_display }}</span>
-            <span class="px-2 py-0.5 rounded-full bg-slate-100 text-gray-500 text-xs">{{ wq.question.get_difficulty_display }}</span>
-            {% if wq.question.topic %}
-              {% if wq.question.topic.parent %}
-                <span class="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs">{{ wq.question.topic.parent.name }} › {{ wq.question.topic.name }}</span>
-              {% else %}
-                <span class="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs">{{ wq.question.topic.name }}</span>
-              {% endif %}
-            {% endif %}
-          </div>
-          {% if wq.question.question_type == 'multiple_choice' or wq.question.question_type == 'true_false' %}
-          <div class="mt-2 space-y-1">
-            {% for ans in wq.question.answers.all %}
-            <div class="flex items-center gap-2 text-xs {% if ans.is_correct %}text-emerald-700 font-semibold{% else %}text-gray-500{% endif %}">
-              <span class="{% if ans.is_correct %}text-emerald-500{% else %}text-gray-300{% endif %}">{% if ans.is_correct %}✓{% else %}○{% endif %}</span>
-              {{ ans.answer_text }}
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-5">
+        <div class="flex items-start gap-3">
+          <div class="w-9 h-9 rounded-full bg-primary/10 text-primary font-bold text-sm flex items-center justify-center shrink-0">{{ wq.order }}</div>
+          <div class="flex-1 space-y-3">
+
+            {% if wq.coding_exercise %}
+            {% with ex=wq.coding_exercise %}
+            <p class="text-gray-900 font-medium">{{ ex.title }}</p>
+            <p class="text-sm text-gray-600 whitespace-pre-line">{{ ex.description }}</p>
+
+            <div class="flex flex-wrap gap-2 text-xs">
+              <span class="bg-blue-50 text-blue-700 px-2 py-0.5 rounded">{{ ex.topic_level.topic.language.name }}</span>
+              <span class="bg-gray-50 text-gray-600 px-2 py-0.5 rounded">{{ ex.get_level_display }}</span>
+              <span class="bg-gray-50 text-gray-600 px-2 py-0.5 rounded">{{ ex.topic_level.topic.name }}</span>
             </div>
-            {% endfor %}
+
+            {% if ex.expected_output %}
+            <div>
+              <p class="text-xs font-semibold text-gray-500 mb-1">Expected output</p>
+              <pre class="font-mono text-xs bg-gray-50 border border-gray-200 rounded-lg p-2 overflow-x-auto">{{ ex.expected_output }}</pre>
+            </div>
+            {% endif %}
+
+            {% if ex.starter_code %}
+            <div>
+              <p class="text-xs font-semibold text-gray-500 mb-1">Starter code</p>
+              <pre class="font-mono text-xs bg-gray-900 text-gray-100 rounded-lg p-3 overflow-x-auto">{{ ex.starter_code }}</pre>
+            </div>
+            {% endif %}
+
+            {% if ex.question_type == 'multiple_choice' or ex.question_type == 'true_false' %}
+            <div class="space-y-2">
+              {% for ans in ex.answers.all %}
+              <div class="flex items-center gap-3 p-3 rounded-xl border {% if ans.is_correct %}border-emerald-300 bg-emerald-50{% else %}border-gray-200{% endif %}">
+                <span class="w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 {% if ans.is_correct %}border-emerald-500 bg-emerald-500{% else %}border-gray-300{% endif %}">
+                  {% if ans.is_correct %}<svg class="w-2.5 h-2.5 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>{% endif %}
+                </span>
+                <span class="text-sm {% if ans.is_correct %}text-emerald-800 font-medium{% else %}text-gray-700{% endif %}">{{ ans.answer_text }}</span>
+              </div>
+              {% endfor %}
+            </div>
+            {% endif %}
+
+            {% if ex.hints %}
+            <details>
+              <summary class="text-xs text-blue-600 cursor-pointer hover:underline">Show hint</summary>
+              <p class="text-xs text-gray-600 mt-1 whitespace-pre-line">{{ ex.hints }}</p>
+            </details>
+            {% endif %}
+            {% endwith %}
+
+            {% elif wq.question %}
+            {% with q=wq.question %}
+            <p class="text-gray-800 text-lg leading-relaxed">{{ q.question_text }}</p>
+            {% if q.image %}
+            <img src="{{ q.image.url }}" alt="Question image"
+                 class="max-h-56 rounded-xl border border-gray-200 object-contain" />
+            {% endif %}
+
+            {% if q.question_type == 'multiple_choice' or q.question_type == 'true_false' %}
+            <div class="space-y-2">
+              {% for ans in q.answers.all %}
+              <div class="flex items-center gap-3 p-3 rounded-xl border {% if ans.is_correct %}border-emerald-300 bg-emerald-50{% else %}border-gray-200{% endif %}">
+                <span class="w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 {% if ans.is_correct %}border-emerald-500 bg-emerald-500{% else %}border-gray-300{% endif %}">
+                  {% if ans.is_correct %}<svg class="w-2.5 h-2.5 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>{% endif %}
+                </span>
+                <span class="text-sm {% if ans.is_correct %}text-emerald-800 font-medium{% else %}text-gray-700{% endif %}">
+                  {{ ans.answer_text }}
+                  {% if ans.answer_image %}
+                  <img src="{{ ans.answer_image.url }}" alt="Answer option" class="mt-1 max-h-20 rounded object-contain" />
+                  {% endif %}
+                </span>
+              </div>
+              {% endfor %}
+            </div>
+            {% elif q.question_type == 'short_answer' or q.question_type == 'fill_blank' or q.question_type == 'calculation' %}
+            <div class="p-3 rounded-xl border border-gray-200 bg-gray-50">
+              <p class="text-xs text-gray-400 italic">Student types their answer</p>
+            </div>
+            {% endif %}
+            {% endwith %}
+            {% endif %}
+
           </div>
-          {% endif %}
         </div>
       </div>
       {% empty %}

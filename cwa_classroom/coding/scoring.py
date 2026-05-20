@@ -259,12 +259,13 @@ def evaluate_exercise_output(user_output: str, expected_output: str) -> int:
 def code_matches_required_patterns(user_code: str, required_patterns: str) -> bool:
     """Return True when *user_code* contains every pattern in *required_patterns*.
 
-    Patterns are one-per-line regexes applied with ``re.search`` (not fullmatch).
+    Patterns are one-per-line. Each is first checked as a literal substring
+    (most patterns are code snippets like ``fruits[0]`` or ``print(num)``
+    that contain regex-special characters). Only if the literal check fails
+    is the pattern tried as a regex via ``re.search``.
+
     Blank lines are ignored. An empty / blank *required_patterns* string returns
     True — no constraint configured.
-
-    A pattern that fails to compile is treated as a literal substring so a typo
-    can't silently pass every submission.
     """
     import re
 
@@ -274,12 +275,13 @@ def code_matches_required_patterns(user_code: str, required_patterns: str) -> bo
 
     code = user_code or ''
     for pattern in patterns:
+        if pattern in code:
+            continue
         try:
             if not re.search(pattern, code):
                 return False
         except re.error:
-            if pattern not in code:
-                return False
+            return False
     return True
 
 
