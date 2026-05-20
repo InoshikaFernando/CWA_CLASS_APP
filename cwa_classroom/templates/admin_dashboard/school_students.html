@@ -226,21 +226,23 @@
               <div id="modal-parent-results"></div>
             </div>
             <div x-show="linkedParentId" x-cloak
-                 class="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-800">
-              <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
-              </svg>
-              <span x-text="linkedParentName"></span>
-              <button type="button" @click="linkedParentId=''; linkedParentName=''" class="ml-auto text-emerald-600 hover:text-emerald-800 text-xs">Clear</button>
-            </div>
-            <div x-show="linkedParentId" x-cloak>
-              <label class="block text-xs font-medium text-gray-600 mb-1">Relationship</label>
-              <select name="parent_relationship"
-                      class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition bg-white">
-                {% for val, label in relationship_choices %}
-                  <option value="{{ val }}" {% if val == 'guardian' %}selected{% endif %}>{{ label }}</option>
-                {% endfor %}
-              </select>
+                 class="flex flex-col gap-2 px-3 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm">
+              <div class="flex items-center gap-2 text-emerald-800">
+                <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
+                </svg>
+                <span x-text="linkedParentName" class="font-medium"></span>
+                <button type="button" @click="linkedParentId=''; linkedParentName=''" class="ml-auto text-emerald-600 hover:text-emerald-800 text-xs">Clear</button>
+              </div>
+              <div class="flex items-center gap-2 pl-6">
+                <label class="text-xs font-medium text-gray-600 whitespace-nowrap">Relationship</label>
+                <select name="parent_relationship"
+                        class="flex-1 text-xs border border-slate-300 rounded-lg px-2 py-1 bg-white text-gray-700 focus:ring-1 focus:ring-accent focus:border-accent transition">
+                  {% for val, label in relationship_choices %}
+                    <option value="{{ val }}" {% if val == 'guardian' %}selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
             </div>
           </div>
         </div>

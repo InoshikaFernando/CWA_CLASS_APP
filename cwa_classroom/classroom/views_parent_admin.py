@@ -838,6 +838,7 @@ class AddParentView(RoleRequiredMixin, View):
                     ClassRoom.objects.filter(school=school, is_active=True)
                     .values_list('id', flat=True)
                 )
+                skipped_classes = 0
                 for cid_str in sf['class_ids']:
                     if cid_str.isdigit() and int(cid_str) in allowed_cls_ids:
                         cs, _ = ClassStudent.objects.get_or_create(
@@ -846,6 +847,14 @@ class AddParentView(RoleRequiredMixin, View):
                         if not cs.is_active:
                             cs.is_active = True
                             cs.save(update_fields=['is_active'])
+                    elif cid_str.isdigit():
+                        skipped_classes += 1
+                if skipped_classes:
+                    messages.warning(
+                        request,
+                        f'Student created but {skipped_classes} class assignment(s) could not be '
+                        'applied (class not found or inactive). Enrol from the Classes page.',
+                    )
                 # Add to student_ids for linking below
                 student_ids.append(str(inline_student_user.id))
 
