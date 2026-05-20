@@ -66,6 +66,12 @@
         <p class="text-xs text-gray-400 font-semibold">Images</p>
       </div>
       {% endif %}
+      {% if upload_results.detail.patterns_count %}
+      <div class="text-center">
+        <p class="font-display text-3xl text-violet-600">{{ upload_results.detail.patterns_count }}</p>
+        <p class="text-xs text-gray-400 font-semibold">With Patterns</p>
+      </div>
+      {% endif %}
     </div>
 
     {% if upload_results.image_dir %}
@@ -227,6 +233,7 @@
       "instructions": "Use a for loop to print numbers 1 through 5, each on a new line.",
       "starter_code": "# Use a for loop\nfor i in range(?, ?):\n    print(?)\n",
       "expected_output": "1\n2\n3\n4\n5",
+      "required_code_patterns": ["for", "in range(", "print("],
       "hints": "range(1, 6) generates numbers 1 through 5",
       "display_order": 1
     },
@@ -235,6 +242,7 @@
       "instructions": "Use a while loop to count down from 5 to 1.",
       "starter_code": "count = 5\nwhile count > 0:\n    # Print count and decrease it\n    pass\n",
       "expected_output": "5\n4\n3\n2\n1",
+      "required_code_patterns": ["while", "count -= 1"],
       "hints": "Don't forget: count -= 1 inside the loop",
       "display_order": 2
     }
@@ -261,6 +269,7 @@
             <tr><td class="px-3 py-1.5 font-mono">exercises[].instructions</td><td class="px-3 py-1.5">✅</td><td class="px-3 py-1.5">Shown to the student</td></tr>
             <tr><td class="px-3 py-1.5 font-mono">exercises[].expected_output</td><td class="px-3 py-1.5">—</td><td class="px-3 py-1.5">Exact stdout the correct solution produces (leave blank for HTML/CSS/DOM/Scratch)</td></tr>
             <tr><td class="px-3 py-1.5 font-mono">exercises[].starter_code</td><td class="px-3 py-1.5">—</td><td class="px-3 py-1.5">Pre-filled editor code</td></tr>
+            <tr><td class="px-3 py-1.5 font-mono">exercises[].required_code_patterns</td><td class="px-3 py-1.5">—</td><td class="px-3 py-1.5">Array of substrings the student's code must contain to pass</td></tr>
             <tr><td class="px-3 py-1.5 font-mono">exercises[].hints</td><td class="px-3 py-1.5">—</td><td class="px-3 py-1.5">Hint text shown on request</td></tr>
             <tr><td class="px-3 py-1.5 font-mono">exercises[].display_order</td><td class="px-3 py-1.5">—</td><td class="px-3 py-1.5">Defaults to array index</td></tr>
           </tbody>
