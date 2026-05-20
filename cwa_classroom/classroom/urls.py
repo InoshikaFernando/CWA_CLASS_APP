@@ -29,6 +29,7 @@ urlpatterns = [
     path('create-class/', views.CreateClassView.as_view(), name='create_class'),
     path('class/<int:class_id>/', views.ClassDetailView.as_view(), name='class_detail'),
     path('class/<int:class_id>/edit/', views.EditClassView.as_view(), name='edit_class'),
+    path('class/<int:class_id>/confirm-reschedule/', views.ConfirmRescheduleView.as_view(), name='confirm_reschedule'),
     path('class/<int:class_id>/assign-students/', views.AssignStudentsView.as_view(), name='assign_students'),
     path('class/<int:class_id>/assign-teachers/', views.AssignTeachersView.as_view(), name='assign_teachers'),
     path('class/<int:class_id>/attendance/', views.ClassAttendanceView.as_view(), name='class_attendance'),
@@ -266,6 +267,7 @@ urlpatterns = [
     # Per-student fee override
     path('class/<int:class_id>/student/<int:student_id>/fee/', views.UpdateStudentFeeView.as_view(), name='update_student_fee'),
     path('class/<int:class_id>/student/<int:student_id>/remove/', views.ClassStudentRemoveView.as_view(), name='class_student_remove'),
+    path('class/<int:class_id>/teacher/<int:teacher_id>/remove/', views.ClassTeacherRemoveView.as_view(), name='class_teacher_remove'),
 
     # API
     path('api/department/<int:dept_id>/levels/', views.DepartmentLevelsAPIView.as_view(), name='api_department_levels'),

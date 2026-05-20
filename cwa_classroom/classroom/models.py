@@ -1829,6 +1829,49 @@ class EmailLog(models.Model):
         return f'{self.recipient_email} — {self.subject} ({self.status})'
 
 
+class EmailQueue(models.Model):
+    """Stores emails that couldn't be sent due to daily sending limits.
+
+    Processed by the process_email_queue management command, which runs
+    daily via cron and drains this queue up to the remaining daily quota.
+    """
+    STATUS_PENDING = 'pending'
+    STATUS_SENT = 'sent'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_SENT, 'Sent'),
+        (STATUS_FAILED, 'Failed'),
+    ]
+
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='queued_emails',
+    )
+    recipient_email = models.EmailField()
+    subject = models.CharField(max_length=300)
+    from_email = models.EmailField()
+    html_content = models.TextField()
+    text_content = models.TextField(blank=True)
+    cc = models.JSONField(default=list, blank=True)
+    reply_to = models.JSONField(default=list, blank=True)
+    notification_type = models.CharField(max_length=30, blank=True)
+    campaign = models.ForeignKey(
+        'EmailCampaign', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='queued_emails',
+    )
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f'{self.recipient_email} — {self.subject} ({self.status})'
+
+
 class EmailPreference(models.Model):
     """Per-user email opt-in/opt-out preferences."""
     user = models.OneToOneField(

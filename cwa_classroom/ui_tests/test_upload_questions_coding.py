@@ -203,6 +203,42 @@ class TestUploadQuestionsCoding:
         ).to_be_visible()
 
     @pytest.mark.django_db(transaction=True)
+    def test_field_reference_shows_required_code_patterns(
+        self, page: Page, live_server, teacher_user, classroom
+    ):
+        do_login(page, live_server.url, teacher_user)
+        _goto_upload(page, live_server.url)
+        page.locator("select[name='subject']").select_option("coding")
+        expect(
+            page.get_by_role("cell", name="exercises[].required_code_patterns")
+        ).to_be_visible()
+
+    @pytest.mark.django_db(transaction=True)
+    def test_sample_json_shows_required_code_patterns(
+        self, page: Page, live_server, teacher_user, classroom
+    ):
+        do_login(page, live_server.url, teacher_user)
+        _goto_upload(page, live_server.url)
+        page.locator("select[name='subject']").select_option("coding")
+        pre_block = page.locator("pre").filter(has_text="required_code_patterns")
+        expect(pre_block).to_be_visible()
+
+    @pytest.mark.django_db(transaction=True)
+    def test_upload_with_patterns_shows_patterns_count(
+        self, page: Page, live_server, teacher_user, classroom,
+        coding_language, coding_topic, tmp_path,
+    ):
+        do_login(page, live_server.url, teacher_user)
+        _goto_upload(page, live_server.url)
+
+        payload = _valid_coding_payload()
+        payload["exercises"][0]["required_code_patterns"] = ["print("]
+        fp = _write_json(tmp_path, payload, name="with_patterns.json")
+        _submit(page, fp)
+
+        expect(page.get_by_text("With Patterns")).to_be_visible()
+
+    @pytest.mark.django_db(transaction=True)
     def test_missing_instructions_reports_per_item_error(
         self, page: Page, live_server, teacher_user, classroom,
         coding_language, coding_topic, tmp_path,

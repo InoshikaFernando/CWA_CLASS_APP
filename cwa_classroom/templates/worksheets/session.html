@@ -203,6 +203,9 @@
             if (data.exercise_score === 100) {
               matchEl.className = 'ws-run-match text-xs mt-1 text-green-700 font-semibold';
               matchEl.textContent = '✓ Output matches — you\'re ready to submit.';
+            } else if (data.exercise_pattern_fail) {
+              matchEl.className = 'ws-run-match text-xs mt-1 text-amber-700 font-semibold';
+              matchEl.textContent = '✗ Output is correct, but use the approach shown in the starter code.';
             } else {
               matchEl.className = 'ws-run-match text-xs mt-1 text-amber-700 font-semibold';
               matchEl.textContent = '✗ Output doesn\'t match. Keep iterating.';

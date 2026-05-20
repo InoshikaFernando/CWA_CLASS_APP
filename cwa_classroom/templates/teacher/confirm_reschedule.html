@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Confirm Schedule Change{% endblock %}
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+  <div>
+    <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
+    <h1 class="font-display text-2xl font-bold text-gray-900 mt-2">Confirm Schedule Change</h1>
+    <p class="text-gray-500 text-sm mt-1">{{ classroom.name }}</p>
+  </div>
+
+  <!-- Info card -->
+  <div class="bg-amber-50 border border-amber-300 rounded-2xl p-6 space-y-4">
+    <div class="flex items-start gap-3">
+      <svg class="w-6 h-6 text-amber-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+      </svg>
+      <div>
+        <h2 class="text-amber-800 font-semibold text-base">Schedule change detected</h2>
+        <p class="text-amber-700 text-sm mt-1">
+          You changed this class from
+          <strong>{{ old_day|capfirst }}</strong> to
+          <strong>{{ classroom.day|capfirst }}</strong>.
+          Confirming will remove <strong>{{ orphan_count }}</strong> future session{{ orphan_count|pluralize }} on the old schedule and create new sessions on the new day.
+          Today's session and any completed sessions will not be affected.
+        </p>
+      </div>
+    </div>
+
+    <div class="border-t border-amber-200 pt-4 text-sm text-amber-700 space-y-1">
+      <p><strong>Old day:</strong> {{ old_day|capfirst }}</p>
+      <p><strong>New day:</strong> {{ classroom.day|capfirst }}</p>
+      <p><strong>Sessions to remove:</strong> {{ orphan_count }}</p>
+    </div>
+  </div>
+
+  <!-- Confirm action -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+    <form method="post" class="flex flex-col sm:flex-row gap-3">
+      {% csrf_token %}
+      <button type="submit"
+              class="flex-1 rounded-xl bg-primary hover:bg-primary-dark text-white font-semibold px-6 py-3 transition">
+        Confirm &amp; update sessions
+      </button>
+      <a href="javascript:history.back()"
+         class="flex-1 text-center rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-100 text-gray-700 font-semibold px-6 py-3 transition">
+        Cancel
+      </a>
+    </form>
+  </div>
+</div>
+{% endblock %}
