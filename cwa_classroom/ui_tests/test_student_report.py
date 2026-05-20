@@ -75,7 +75,7 @@ class TestHoiStudentReport:
         self.page.select_option("select[name='class_id']", str(classroom.pk))
         self.page.wait_for_load_state("domcontentloaded")
 
-        expect(self.page.get_by_text(stu.get_full_name() or stu.username)).to_be_visible()
+        expect(self.page.get_by_text(stu.get_full_name() or stu.username, exact=True)).to_be_visible()
 
     def test_hoi_filter_by_status_inactive(self):
         from classroom.models import SchoolStudent
@@ -89,7 +89,7 @@ class TestHoiStudentReport:
         self.page.select_option("select[name='status']", "inactive")
         self.page.wait_for_load_state("domcontentloaded")
 
-        expect(self.page.get_by_text("Inactive")).to_be_visible()
+        expect(self.page.locator("td span", has_text="Inactive").first).to_be_visible()
 
     def test_hoi_not_in_class_filter(self, classroom):
         stu_in_class = _enrol_student_in_school(self.school, "in_cls")
@@ -107,7 +107,7 @@ class TestHoiStudentReport:
     def test_hoi_reset_clears_filters(self):
         self.page.goto(f"{self.url}/reports/students/?status=inactive")
         self.page.wait_for_load_state("domcontentloaded")
-        self.page.get_by_role("link", name="Reset").click()
+        self.page.get_by_role("link", name="Reset", exact=True).click()
         self.page.wait_for_load_state("domcontentloaded")
         expect(self.page).to_have_url(f"{self.url}/reports/students/")
 
