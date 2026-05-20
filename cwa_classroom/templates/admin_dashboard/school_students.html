@@ -201,7 +201,7 @@
                 <select name="parent_relationship"
                         class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition bg-white">
                   {% for val, label in relationship_choices %}
-                    <option value="{{ val }}">{{ label }}</option>
+                    <option value="{{ val }}" {% if val == 'guardian' %}selected{% endif %}>{{ label }}</option>
                   {% endfor %}
                 </select>
               </div>
@@ -238,7 +238,7 @@
               <select name="parent_relationship"
                       class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition bg-white">
                 {% for val, label in relationship_choices %}
-                  <option value="{{ val }}">{{ label }}</option>
+                  <option value="{{ val }}" {% if val == 'guardian' %}selected{% endif %}>{{ label }}</option>
                 {% endfor %}
               </select>
             </div>
