@@ -63,7 +63,7 @@ def apply_forward(apps, schema_editor):
 
     with conn.cursor() as c:
 
-        # ── 1. Add new columns (idempotent) ─────────────────────────────────
+        # ── 1. Add new columns first (idempotent) ────────────────────────────
         if not _col(c, TABLE, 'coding_exercise_id'):
             c.execute(
                 f'ALTER TABLE `{TABLE}`'
@@ -85,17 +85,44 @@ def apply_forward(apps, schema_editor):
                 f' ON `{TABLE}` (`subject_slug`)'
             )
 
-        # ── 2. Make question_id nullable ─────────────────────────────────────
-        # Read actual COLUMN_TYPE to avoid MySQL 3780 (FK type mismatch on MODIFY).
+        # ── 2. Create new unique BEFORE dropping old one ──────────────────────
+        # The old unique (submission_id, question_id) backs the FK on
+        # submission_id. MySQL error 1553 prevents dropping it while it's the
+        # only backing index. Adding the new unique (submission_id, subject_slug,
+        # content_id) first gives MySQL an alternative backing index, so the
+        # subsequent DROP INDEX succeeds without touching foreign_key_checks.
+        if not _unique_exists(c, TABLE, 'subject_sl'):
+            c.execute(
+                f'ALTER TABLE `{TABLE}`'
+                f' ADD UNIQUE KEY'
+                f' `worksheets_worksheetstud_submission_id_subject_sl_445dca9d_uniq`'
+                f' (`submission_id`, `subject_slug`, `content_id`)'
+            )
+
+        # ── 3. Drop old unique_together (submission, question) ────────────────
+        c.execute(
+            """SELECT CONSTRAINT_NAME
+               FROM information_schema.TABLE_CONSTRAINTS
+               WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = %s
+               AND CONSTRAINT_TYPE = 'UNIQUE'""",
+            [TABLE],
+        )
+        for (name,) in c.fetchall():
+            if 'subject_sl' not in name and 'content_id' not in name:
+                c.execute(f'ALTER TABLE `{TABLE}` DROP INDEX `{name}`')
+
+        # ── 4. Make question_id nullable ──────────────────────────────────────
+        # Read actual COLUMN_TYPE to avoid MySQL 3780 on MODIFY COLUMN.
         row = _col(c, TABLE, 'question_id')
-        if row and row[0] == 'NO':          # IS_NULLABLE == 'NO'
-            col_type = row[1]               # e.g. 'bigint'
+        if row and row[0] == 'NO':
+            col_type = row[1]
             c.execute(
                 f'ALTER TABLE `{TABLE}`'
                 f' MODIFY COLUMN `question_id` {col_type} NULL'
             )
 
-        # ── 3. Backfill content_id from question_id ──────────────────────────
+        # ── 5. Backfill content_id from question_id ───────────────────────────
         c.execute(
             f'UPDATE `{TABLE}`'
             f' SET content_id = question_id'
