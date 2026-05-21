@@ -1,5 +1,6 @@
 import math
 
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
@@ -43,6 +44,13 @@ class Package(models.Model):
 
     def __str__(self):
         return self.name
+
+    def clean(self):
+        super().clean()
+        if self.price > 0 and not self.stripe_price_id:
+            raise ValidationError(
+                {'stripe_price_id': 'Paid packages (price > $0) must have a Stripe Price ID.'},
+            )
 
     @property
     def is_free(self):
@@ -300,6 +308,13 @@ class InstitutePlan(models.Model):
 
     class Meta:
         ordering = ['order', 'price']
+
+    def clean(self):
+        super().clean()
+        if self.price > 0 and not self.stripe_price_id:
+            raise ValidationError(
+                {'stripe_price_id': 'Paid plans (price > $0) must have a Stripe Price ID.'},
+            )
 
     def __str__(self):
         return f'{self.name} (${self.price}/mo)'

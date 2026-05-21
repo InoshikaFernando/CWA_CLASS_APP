@@ -89,7 +89,7 @@ class TestHoiStudentReport:
         self.page.select_option("select[name='status']", "inactive")
         self.page.wait_for_load_state("domcontentloaded")
 
-        expect(self.page.locator("span.rounded-full", has_text="Inactive")).to_be_visible()
+        expect(self.page.locator(".font-medium", has_text="Inactive Stu")).to_be_visible()
 
     def test_hoi_not_in_class_filter(self, classroom):
         stu_in_class = _enrol_student_in_school(self.school, "in_cls")

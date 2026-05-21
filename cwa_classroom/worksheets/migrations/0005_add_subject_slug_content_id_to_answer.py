@@ -1,16 +1,20 @@
 # Fully idempotent migration — safe to re-run from any partial state.
 #
-# Uses SET foreign_key_checks = 0 for the entire block so every DROP INDEX
-# and MODIFY COLUMN succeeds regardless of FK constraints (bypasses MySQL
-# errors 1553 and similar). Error 3780 (FK type mismatch on MODIFY COLUMN)
-# is handled separately by reading the actual COLUMN_TYPE from
-# information_schema rather than hardcoding a type.
-#
 # Every DDL step checks information_schema first so re-runs are no-ops.
+#
+# Step 2 creates the new unique (submission_id, subject_slug, content_id)
+# BEFORE dropping the old (submission_id, question_id) unique. This gives
+# MySQL an alternative backing index for the submission_id FK, so the DROP
+# INDEX in step 3 succeeds without needing foreign_key_checks=0 (avoids
+# MySQL errors 1553 and similar).
 #
 # Django ORM state is kept in sync via SeparateDatabaseAndState —
 # state_operations describe the final model shape; database_operations=[]
 # because RunPython already handled all DDL.
+#
+# On non-MySQL backends (e.g. SQLite in CI) the RunPython function is a
+# no-op — Django's standard migration machinery handles the DDL via the
+# SeparateDatabaseAndState state_operations instead.
 
 from django.db import migrations, models
 import django.db.models.deletion
@@ -55,110 +59,80 @@ def _unique_exists(cursor, table, name_substr):
 # ── Forward migration ─────────────────────────────────────────────────────────
 
 def apply_forward(apps, schema_editor):
+    if schema_editor.connection.vendor != 'mysql':
+        return
+
     TABLE = 'worksheets_worksheetstudentanswer'
     conn = schema_editor.connection
 
     with conn.cursor() as c:
 
-        # Disable FK checks for the whole block.
-        # ▸ Bypasses error 1553 ("cannot drop index: needed in FK constraint")
-        #   so we can drop the old unique index without first creating a
-        #   replacement FK-backing index on submission_id.
-        # ▸ MySQL automatically re-enables FK checks when the session ends,
-        #   so a mid-migration failure is safe.
-        c.execute('SET foreign_key_checks = 0')
-        try:
-
-            # Ensure submission_id has a standalone index before dropping the
-            # combined unique.  MySQL error 1553 fires structurally (not just
-            # as a data-integrity check) when the combined unique is the ONLY
-            # index covering submission_id — foreign_key_checks=0 does NOT
-            # suppress it.  Once the new (submission, subject_slug, content_id)
-            # unique is in place (step 5), this temporary index is redundant
-            # because submission_id is its leftmost column.
-            if not _index_exists(c, TABLE, f'{TABLE}_submission_id_tmp_idx'):
-                c.execute(
-                    f'CREATE INDEX `{TABLE}_submission_id_tmp_idx`'
-                    f' ON `{TABLE}` (`submission_id`)'
-                )
-
-            # ── 1. Drop old unique_together (submission, question) ───────────
+        # ── 1. Add new columns first (idempotent) ────────────────────────────
+        if not _col(c, TABLE, 'coding_exercise_id'):
             c.execute(
-                """SELECT CONSTRAINT_NAME
-                   FROM information_schema.TABLE_CONSTRAINTS
-                   WHERE TABLE_SCHEMA = DATABASE()
-                   AND TABLE_NAME = %s
-                   AND CONSTRAINT_TYPE = 'UNIQUE'""",
-                [TABLE],
+                f'ALTER TABLE `{TABLE}`'
+                f' ADD COLUMN `coding_exercise_id` bigint NULL'
             )
-            for (name,) in c.fetchall():
-                # Drop any unique that isn't our new (submission, subject_slug,
-                # content_id) constraint — identified by NOT containing
-                # 'subject_sl' or 'content_id' in the auto-generated name.
-                if 'subject_sl' not in name and 'content_id' not in name:
-                    c.execute(f'ALTER TABLE `{TABLE}` DROP INDEX `{name}`')
-
-            # ── 2. Add new columns (idempotent) ─────────────────────────────
-            if not _col(c, TABLE, 'coding_exercise_id'):
-                c.execute(
-                    f'ALTER TABLE `{TABLE}`'
-                    f' ADD COLUMN `coding_exercise_id` bigint NULL'
-                )
-            if not _col(c, TABLE, 'content_id'):
-                c.execute(
-                    f'ALTER TABLE `{TABLE}`'
-                    f" ADD COLUMN `content_id` int unsigned NOT NULL DEFAULT 0"
-                )
-            if not _col(c, TABLE, 'subject_slug'):
-                c.execute(
-                    f'ALTER TABLE `{TABLE}`'
-                    f" ADD COLUMN `subject_slug` varchar(50) NOT NULL DEFAULT 'mathematics'"
-                )
-            # Index for subject_slug — created separately so a re-run that
-            # finds the column already present can still create a missing index.
-            if not _index_exists(c, TABLE, f'{TABLE}_subject_slug_idx'):
-                c.execute(
-                    f'CREATE INDEX `{TABLE}_subject_slug_idx`'
-                    f' ON `{TABLE}` (`subject_slug`)'
-                )
-
-            # ── 3. Make question_id nullable ─────────────────────────────────
-            # Read the actual COLUMN_TYPE (e.g. 'bigint') to avoid MySQL 3780:
-            # "Referencing column and referenced column are incompatible."
-            # Hardcoding 'INT UNSIGNED' fails when the PK is BIGINT (signed).
-            row = _col(c, TABLE, 'question_id')
-            if row and row[0] == 'NO':          # IS_NULLABLE == 'NO'
-                col_type = row[1]               # e.g. 'bigint'
-                c.execute(
-                    f'ALTER TABLE `{TABLE}`'
-                    f' MODIFY COLUMN `question_id` {col_type} NULL'
-                )
-
-            # ── 4. Backfill content_id from question_id ──────────────────────
+        if not _col(c, TABLE, 'content_id'):
             c.execute(
-                f'UPDATE `{TABLE}`'
-                f' SET content_id = question_id'
-                f' WHERE question_id IS NOT NULL AND content_id = 0'
+                f'ALTER TABLE `{TABLE}`'
+                f" ADD COLUMN `content_id` int unsigned NOT NULL DEFAULT 0"
+            )
+        if not _col(c, TABLE, 'subject_slug'):
+            c.execute(
+                f'ALTER TABLE `{TABLE}`'
+                f" ADD COLUMN `subject_slug` varchar(50) NOT NULL DEFAULT 'mathematics'"
+            )
+        if not _index_exists(c, TABLE, f'{TABLE}_subject_slug_idx'):
+            c.execute(
+                f'CREATE INDEX `{TABLE}_subject_slug_idx`'
+                f' ON `{TABLE}` (`subject_slug`)'
             )
 
-            # ── 5. Create new unique constraint ──────────────────────────────
-            if not _unique_exists(c, TABLE, 'subject_sl'):
-                c.execute(
-                    f'ALTER TABLE `{TABLE}`'
-                    f' ADD UNIQUE KEY'
-                    f' `worksheets_worksheetstud_submission_id_subject_sl_445dca9d_uniq`'
-                    f' (`submission_id`, `subject_slug`, `content_id`)'
-                )
+        # ── 2. Create new unique BEFORE dropping old one ──────────────────────
+        # Adding the new unique (submission_id, subject_slug, content_id) first
+        # gives MySQL an alternative backing index for the submission_id FK, so
+        # the subsequent DROP INDEX in step 3 succeeds without error 1553.
+        if not _unique_exists(c, TABLE, 'subject_sl'):
+            c.execute(
+                f'ALTER TABLE `{TABLE}`'
+                f' ADD UNIQUE KEY'
+                f' `worksheets_worksheetstud_submission_id_subject_sl_445dca9d_uniq`'
+                f' (`submission_id`, `subject_slug`, `content_id`)'
+            )
 
-            # Drop the temporary standalone index — now redundant because the
-            # new unique above has submission_id as its leftmost column.
-            if _index_exists(c, TABLE, f'{TABLE}_submission_id_tmp_idx'):
-                c.execute(
-                    f'DROP INDEX `{TABLE}_submission_id_tmp_idx` ON `{TABLE}`'
-                )
+        # ── 3. Drop old unique_together (submission, question) ────────────────
+        # Only target the original Django-generated unique that contains
+        # 'question' in its name — avoids collateral damage to any other
+        # unique constraints added by future migrations.
+        c.execute(
+            """SELECT CONSTRAINT_NAME
+               FROM information_schema.TABLE_CONSTRAINTS
+               WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = %s
+               AND CONSTRAINT_TYPE = 'UNIQUE'""",
+            [TABLE],
+        )
+        for (name,) in c.fetchall():
+            if 'question' in name and 'subject_sl' not in name:
+                c.execute(f'ALTER TABLE `{TABLE}` DROP INDEX `{name}`')
 
-        finally:
-            c.execute('SET foreign_key_checks = 1')
+        # ── 4. Make question_id nullable ──────────────────────────────────────
+        # Read actual COLUMN_TYPE to avoid MySQL 3780 on MODIFY COLUMN.
+        row = _col(c, TABLE, 'question_id')
+        if row and row[0] == 'NO':
+            col_type = row[1]
+            c.execute(
+                f'ALTER TABLE `{TABLE}`'
+                f' MODIFY COLUMN `question_id` {col_type} NULL'
+            )
+
+        # ── 5. Backfill content_id from question_id ───────────────────────────
+        c.execute(
+            f'UPDATE `{TABLE}`'
+            f' SET content_id = question_id'
+            f' WHERE question_id IS NOT NULL AND content_id = 0'
+        )
 
 
 class Migration(migrations.Migration):

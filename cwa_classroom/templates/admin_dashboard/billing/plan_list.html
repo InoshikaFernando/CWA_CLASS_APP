@@ -46,7 +46,7 @@
             <td class="px-6 py-4 text-gray-700">${{ plan.price }}/mo</td>
             <td class="px-6 py-4 text-gray-700">{% if plan.class_limit == 0 %}Unlimited{% else %}{{ plan.class_limit }}{% endif %}</td>
             <td class="px-6 py-4 text-gray-700">{% if plan.student_limit == 0 %}Unlimited{% else %}{{ plan.student_limit }}{% endif %}</td>
-            <td class="px-6 py-4 text-gray-700">{{ plan.invoice_limit_yearly }}</td>
+            <td class="px-6 py-4 text-gray-700">{% if plan.invoice_limit_yearly == 0 %}Unlimited{% else %}{{ plan.invoice_limit_yearly }}{% endif %}</td>
             <td class="px-6 py-4">
               {% if plan.stripe_price_id %}
                 <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
