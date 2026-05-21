@@ -84,6 +84,21 @@ class ParentAccountSearchRoleFilterTest(TestCase):
         resp = self._get('x')
         self.assertNotContains(resp, 'parent_srch@test.local')
 
+    def test_cross_school_student_id_not_annotated(self):
+        """S3: student_id from a different school must not leak already_linked data."""
+        other_admin = _make_user('other_adm_s3', Role.ADMIN)
+        other_school = _make_school(other_admin, 'Other School S3')
+        other_student = _make_user('other_stu_s3', Role.STUDENT)
+        SchoolStudent.objects.create(school=other_school, student=other_student)
+        # Link self.parent to other_school's student — should NOT be visible via self.school's search
+        ParentStudent.objects.create(
+            parent=self.parent, student=other_student, school=other_school,
+            relationship='guardian', is_primary_contact=True,
+        )
+        url = reverse('admin_school_parent_search', args=[self.school.id])
+        resp = self.client.get(url, {'q': 'srch', 'student_id': str(other_student.id)})
+        self.assertNotContains(resp, 'Already linked')
+
 
 class InlineCreateParentWarningTest(TestCase):
     """_inline_create_parent must warn when parent email already belongs to an existing account."""
@@ -276,3 +291,15 @@ class StudentAccountSearchViewTest(TestCase):
     def test_short_query_returns_empty(self):
         resp = self._get('x')
         self.assertNotContains(resp, 'stu_sas@test.local')
+
+    def test_non_parent_role_id_not_annotated(self):
+        """S4: parent_id for a non-PARENT user must not be used for already_linked lookup."""
+        teacher = _make_user('tch_s4_sas', Role.TEACHER)
+        # Link self.student to teacher record (shouldn't happen in prod, but test the guard)
+        ParentStudent.objects.create(
+            parent=teacher, student=self.student, school=self.school,
+            relationship='guardian', is_primary_contact=True,
+        )
+        # Passing a teacher's ID as parent_id — should not show Already linked
+        resp = self._get('sas', parent_id=str(teacher.id))
+        self.assertNotContains(resp, 'Already linked')

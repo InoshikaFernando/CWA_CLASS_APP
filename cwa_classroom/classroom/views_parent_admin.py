@@ -8,7 +8,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 from django.views import View
 
-from accounts.models import Role, UserRole
+from accounts.models import CustomUser, Role, UserRole
 from audit.services import log_event
 from django.core.paginator import Paginator
 from django.db.models import Q
@@ -1054,13 +1054,15 @@ class StudentAccountSearchView(RoleRequiredMixin, View):
             for ss in results:
                 ss.already_linked = False
             if parent_id and parent_id.isdigit():
-                linked_ids = set(
-                    ParentStudent.objects.filter(
-                        parent_id=int(parent_id), school=school,
-                    ).values_list('student_id', flat=True)
-                )
-                for ss in results:
-                    ss.already_linked = ss.student_id in linked_ids
+                pid = int(parent_id)
+                if CustomUser.objects.filter(id=pid, roles__name=Role.PARENT).exists():
+                    linked_ids = set(
+                        ParentStudent.objects.filter(
+                            parent_id=pid, school=school,
+                        ).values_list('student_id', flat=True)
+                    )
+                    for ss in results:
+                        ss.already_linked = ss.student_id in linked_ids
         return render(request, 'admin_dashboard/partials/student_account_search_results.html', {
             'results': results,
             'school': school,
@@ -1078,7 +1080,6 @@ class ParentAccountSearchView(RoleRequiredMixin, View):
         student_id = request.GET.get('student_id', '').strip()
         results = []
         if len(q) >= 2:
-            from accounts.models import CustomUser
             qs = CustomUser.objects.filter(
                 roles__name=Role.PARENT,
             ).filter(
@@ -1091,13 +1092,15 @@ class ParentAccountSearchView(RoleRequiredMixin, View):
             for user in results:
                 user.already_linked = False
             if student_id and student_id.isdigit():
-                linked_ids = set(
-                    ParentStudent.objects.filter(
-                        student_id=int(student_id), school=school,
-                    ).values_list('parent_id', flat=True)
-                )
-                for user in results:
-                    user.already_linked = user.id in linked_ids
+                sid = int(student_id)
+                if SchoolStudent.objects.filter(student_id=sid, school=school, is_active=True).exists():
+                    linked_ids = set(
+                        ParentStudent.objects.filter(
+                            student_id=sid, school=school,
+                        ).values_list('parent_id', flat=True)
+                    )
+                    for user in results:
+                        user.already_linked = user.id in linked_ids
         return render(request, 'admin_dashboard/partials/parent_account_search_results.html', {
             'results': results,
             'school': school,
