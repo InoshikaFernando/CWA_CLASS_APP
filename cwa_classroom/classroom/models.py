@@ -1818,6 +1818,16 @@ class EmailLog(models.Model):
         EmailCampaign, on_delete=models.SET_NULL,
         null=True, blank=True, related_name='logs',
     )
+    school = models.ForeignKey(
+        'School', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='email_logs',
+        db_index=True,
+    )
+    invoice = models.ForeignKey(
+        'Invoice', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='email_logs',
+        db_index=True,
+    )
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='sent')
     error_message = models.TextField(blank=True)
     sent_at = models.DateTimeField(auto_now_add=True)
