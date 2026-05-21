@@ -1,10 +1,13 @@
 # Fully idempotent migration — safe to re-run from any partial state.
 #
-# Uses SET foreign_key_checks = 0 for the entire block so every DROP INDEX
-# and MODIFY COLUMN succeeds regardless of FK constraints (bypasses MySQL
-# errors 1553 and similar). Error 3780 (FK type mismatch on MODIFY COLUMN)
-# is handled separately by reading the actual COLUMN_TYPE from
-# information_schema rather than hardcoding a type.
+# Key ordering constraint: the new unique key (submission, subject_slug, content_id)
+# must be created BEFORE dropping the old unique key (submission, question) because
+# MySQL error 1553 fires when dropping an index that backs a FK constraint, even
+# with foreign_key_checks=0. Creating the replacement first keeps submission_id
+# covered by an index so the subsequent DROP INDEX succeeds.
+#
+# Error 3780 (FK type mismatch on MODIFY COLUMN) is avoided by reading the actual
+# COLUMN_TYPE from information_schema rather than hardcoding a type.
 #
 # Every DDL step checks information_schema first so re-runs are no-ops.
 #
@@ -106,7 +109,10 @@ def apply_forward(apps, schema_editor):
             [TABLE],
         )
         for (name,) in c.fetchall():
-            if 'subject_sl' not in name and 'content_id' not in name:
+            # Target only the old question-based constraint. Using a positive
+            # match ('question' in name) avoids accidentally dropping unrelated
+            # unique constraints added by other migrations.
+            if 'question' in name and 'subject_sl' not in name:
                 c.execute(f'ALTER TABLE `{TABLE}` DROP INDEX `{name}`')
 
         # ── 4. Make question_id nullable ──────────────────────────────────────
@@ -125,6 +131,32 @@ def apply_forward(apps, schema_editor):
             f' SET content_id = question_id'
             f' WHERE question_id IS NOT NULL AND content_id = 0'
         )
+
+        # ── 4. Create new unique constraint FIRST ────────────────────────────
+        # Must exist before dropping the old unique index so MySQL still has a
+        # backing index for the FK on submission_id (MySQL error 1553 fires
+        # even with foreign_key_checks=0 when no replacement index exists).
+        if not _unique_exists(c, TABLE, 'subject_sl'):
+            c.execute(
+                f'ALTER TABLE `{TABLE}`'
+                f' ADD UNIQUE KEY'
+                f' `worksheets_worksheetstud_submission_id_subject_sl_445dca9d_uniq`'
+                f' (`submission_id`, `subject_slug`, `content_id`)'
+            )
+
+        # ── 5. Drop old unique_together (submission, question) ───────────────
+        # Safe now because submission_id is backed by the new unique above.
+        c.execute(
+            """SELECT CONSTRAINT_NAME
+               FROM information_schema.TABLE_CONSTRAINTS
+               WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = %s
+               AND CONSTRAINT_TYPE = 'UNIQUE'""",
+            [TABLE],
+        )
+        for (name,) in c.fetchall():
+            if 'question' in name and 'subject_sl' not in name:
+                c.execute(f'ALTER TABLE `{TABLE}` DROP INDEX `{name}`')
 
 
 class Migration(migrations.Migration):

@@ -166,8 +166,8 @@ def do_login(page: Page, live_server_url: str, user) -> None:
     # Ensure desktop viewport so sidebar (hidden md:flex) is visible
     page.set_viewport_size({"width": 1280, "height": 800})
     page.goto(f"{live_server_url}/accounts/login/")
-    # Wait for Tailwind CDN to finish generating styles
-    page.wait_for_load_state("networkidle")
+    # domcontentloaded is sufficient — networkidle times out when CDN resources are slow
+    page.wait_for_load_state("domcontentloaded")
     page.locator("#id_username").fill(user.username)
     page.locator("#id_password").fill(TEST_PASSWORD)
     page.locator("button[type='submit'], input[type='submit']").first.click()

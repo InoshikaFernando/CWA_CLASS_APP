@@ -293,7 +293,8 @@ class AddParentViewTest(ParentAdminTestBase):
         resp = self.client.get(self.url)
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'Add New Parent')
-        self.assertContains(resp, 'Zara Student')
+        # Student linking is now search-based (not a checkbox list)
+        self.assertContains(resp, 'inline-student-search')
 
     def test_post_creates_parent_user_and_link(self):
         resp = self.client.post(self.url, {
