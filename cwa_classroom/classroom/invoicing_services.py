@@ -963,6 +963,7 @@ def _send_invoice_email(invoice, force_queue=False):
                 force_queue=force_queue,
             )
         except Exception:
+            logger.warning('Invoice %s: unexpected error sending to student %s', invoice.invoice_number, student.email, exc_info=True)
             success = False
         if success:
             sent_emails.add(student.email.lower())
@@ -988,6 +989,7 @@ def _send_invoice_email(invoice, force_queue=False):
                         force_queue=force_queue,
                     )
                 except Exception:
+                    logger.warning('Invoice %s: unexpected error sending to parent %s', invoice.invoice_number, link.parent.email, exc_info=True)
                     success = False
                 if success:
                     sent_emails.add(link.parent.email.lower())
@@ -1011,6 +1013,7 @@ def _send_invoice_email(invoice, force_queue=False):
                         force_queue=force_queue,
                     )
                 except Exception:
+                    logger.warning('Invoice %s: unexpected error sending to guardian %s', invoice.invoice_number, sg.guardian.email, exc_info=True)
                     success = False
                 if success:
                     sent_emails.add(sg.guardian.email.lower())
@@ -1141,50 +1144,62 @@ def _send_invoice_cancelled_email(invoice, reason, credit_returned):
 
     # 1. Student
     if send_to_student and student.email:
-        send_templated_email(
-            recipient_email=student.email,
-            subject=subject,
-            template_name='email/transactional/invoice_cancelled.html',
-            context=context,
-            recipient_user=student,
-            notification_type='invoice_cancelled',
-            school=school,
-            department=primary_dept,
-            invoice=invoice,
-        )
-        sent_emails.add(student.email.lower())
+        try:
+            success = send_templated_email(
+                recipient_email=student.email,
+                subject=subject,
+                template_name='email/transactional/invoice_cancelled.html',
+                context=context,
+                recipient_user=student,
+                notification_type='invoice_cancelled',
+                school=school,
+                department=primary_dept,
+                invoice=invoice,
+            )
+        except Exception:
+            success = False
+        if success:
+            sent_emails.add(student.email.lower())
 
     if send_to_parents:
         # 2. Parents
         for link in parent_links:
             if link.parent.email and link.parent.email.lower() not in sent_emails:
-                send_templated_email(
-                    recipient_email=link.parent.email,
-                    subject=subject,
-                    template_name='email/transactional/invoice_cancelled.html',
-                    context=context,
-                    recipient_user=link.parent,
-                    notification_type='invoice_cancelled',
-                    school=school,
-                    department=primary_dept,
-                    invoice=invoice,
-                )
-                sent_emails.add(link.parent.email.lower())
+                try:
+                    success = send_templated_email(
+                        recipient_email=link.parent.email,
+                        subject=subject,
+                        template_name='email/transactional/invoice_cancelled.html',
+                        context=context,
+                        recipient_user=link.parent,
+                        notification_type='invoice_cancelled',
+                        school=school,
+                        department=primary_dept,
+                        invoice=invoice,
+                    )
+                except Exception:
+                    success = False
+                if success:
+                    sent_emails.add(link.parent.email.lower())
 
         # 3. Guardians
         for sg in guardian_links:
             if sg.guardian.email and sg.guardian.email.lower() not in sent_emails:
-                send_templated_email(
-                    recipient_email=sg.guardian.email,
-                    subject=subject,
-                    template_name='email/transactional/invoice_cancelled.html',
-                    context=context,
-                    notification_type='invoice_cancelled',
-                    school=school,
-                    department=primary_dept,
-                    invoice=invoice,
-                )
-                sent_emails.add(sg.guardian.email.lower())
+                try:
+                    success = send_templated_email(
+                        recipient_email=sg.guardian.email,
+                        subject=subject,
+                        template_name='email/transactional/invoice_cancelled.html',
+                        context=context,
+                        notification_type='invoice_cancelled',
+                        school=school,
+                        department=primary_dept,
+                        invoice=invoice,
+                    )
+                except Exception:
+                    success = False
+                if success:
+                    sent_emails.add(sg.guardian.email.lower())
 
 
 # ---------------------------------------------------------------------------

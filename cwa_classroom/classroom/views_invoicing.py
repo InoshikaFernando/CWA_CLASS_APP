@@ -23,7 +23,7 @@ from .models import (
     School, Department, ClassRoom, ClassSession, ClassStudent, SchoolStudent, SchoolTeacher,
     DepartmentFee, StudentFeeOverride, Invoice, InvoiceLineItem,
     CSVColumnTemplate, CSVImport, PaymentReferenceMapping,
-    InvoicePayment, CreditTransaction, Term, AcademicYear,
+    InvoicePayment, CreditTransaction, Term, AcademicYear, EmailLog,
 )
 from .views import RoleRequiredMixin
 from . import invoicing_services as svc
@@ -968,10 +968,9 @@ class InvoiceDetailView(RoleRequiredMixin, View):
             if g['account_number'] or g['gst']
         ]
 
-        from .models import EmailLog
         email_logs = (
             EmailLog.objects
-            .filter(invoice=invoice)
+            .filter(invoice=invoice, school=school)
             .select_related('recipient')
             .order_by('-sent_at')
         )
