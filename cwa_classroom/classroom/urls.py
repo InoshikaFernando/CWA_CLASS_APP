@@ -161,6 +161,7 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/parents/add/', views_parent_admin.AddParentView.as_view(), name='admin_school_add_parent'),
     path('admin-dashboard/schools/<int:school_id>/parents/link/', views_parent_admin.LinkExistingParentView.as_view(), name='admin_school_link_parent'),
     path('admin-dashboard/schools/<int:school_id>/parents/search/', views_parent_admin.ParentAccountSearchView.as_view(), name='admin_school_parent_search'),
+    path('admin-dashboard/schools/<int:school_id>/students/search/', views_parent_admin.StudentAccountSearchView.as_view(), name='admin_school_student_search'),
     path('admin-dashboard/schools/<int:school_id>/guardians/<int:guardian_id>/edit-modal/', views_parent_admin.GuardianEditModalView.as_view(), name='admin_guardian_edit_modal'),
     path('admin-dashboard/schools/<int:school_id>/guardians/<int:guardian_id>/edit/', views_parent_admin.GuardianUpdateView.as_view(), name='admin_guardian_update'),
     path('admin-dashboard/schools/<int:school_id>/parent-links/<int:link_id>/edit-modal/', views_parent_admin.ParentLinkEditModalView.as_view(), name='admin_parent_link_edit_modal'),
@@ -194,6 +195,7 @@ urlpatterns = [
     path('admin-dashboard/email/compose/', views_email.EmailComposeView.as_view(), name='email_compose'),
     path('admin-dashboard/email/campaigns/', views_email.EmailCampaignListView.as_view(), name='email_campaign_list'),
     path('admin-dashboard/email/campaigns/<int:campaign_id>/', views_email.EmailCampaignDetailView.as_view(), name='email_campaign_detail'),
+    path('admin-dashboard/email/logs/', views_email.TransactionalEmailLogView.as_view(), name='email_log_list'),
 
     # Teacher dashboard & management
     path('teacher/', views_teacher.TeacherDashboardView.as_view(), name='teacher_dashboard'),

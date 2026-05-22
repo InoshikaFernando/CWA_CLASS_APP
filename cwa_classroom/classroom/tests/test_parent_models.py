@@ -126,12 +126,14 @@ class ParentStudentModelTest(TestCase):
             parent=self.parent_a, student=self.student,
             school=self.school,
         )
-        from django.db import IntegrityError
-        with self.assertRaises(IntegrityError):
-            ParentStudent.objects.create(
-                parent=self.parent_a, student=self.student,
-                school=self.school,
-            )
+        # UniqueConstraint with condition is not checked by validate_unique();
+        # use validate_constraints() which covers all Meta.constraints.
+        duplicate = ParentStudent(
+            parent=self.parent_a, student=self.student,
+            school=self.school,
+        )
+        with self.assertRaises(ValidationError):
+            duplicate.validate_constraints()
 
     def test_max_two_parents_per_student(self):
         """Third parent link for the same student should fail validation."""

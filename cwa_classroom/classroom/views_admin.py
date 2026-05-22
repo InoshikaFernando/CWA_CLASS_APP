@@ -28,6 +28,8 @@ from .views import RoleRequiredMixin
 from .email_utils import send_staff_welcome_email
 from audit.services import log_event
 
+MAX_PARENTS_PER_STUDENT = 2
+
 
 def _get_user_school(user, school_id=None):
     """Get a school the user has access to (as admin or HoI via SchoolTeacher).
@@ -1876,6 +1878,7 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
             ],
             'add_student_classes': add_student_classes,
             'relationship_choices': ParentStudent.RELATIONSHIP_CHOICES,
+            'default_relationship': 'guardian',
         }
         if request.headers.get('HX-Request'):
             return render(request, 'admin_dashboard/partials/students_table.html', ctx)
@@ -2057,15 +2060,22 @@ def _inline_create_parent(request, school, student_user):
     )
     UserRole.objects.get_or_create(user=parent_user, role=parent_role)
 
-    existing_count = ParentStudent.objects.filter(
+    existing_count = ParentStudent.objects.select_for_update().filter(
         student=student_user, school=school, is_active=True,
     ).count()
-    if existing_count < 2:
+    if existing_count < MAX_PARENTS_PER_STUDENT:
         ParentStudent.objects.create(
             parent=parent_user, student=student_user, school=school,
             relationship=p_rel,
             is_primary_contact=(existing_count == 0),
             created_by=request.user,
+        )
+    else:
+        messages.warning(
+            request,
+            f'Parent account created for {p_first} {p_last} but could not be linked — '
+            f'this student already has {MAX_PARENTS_PER_STUDENT} linked parents (the maximum). '
+            'Link from the Parents page once a parent is removed.',
         )
     return (parent_user, temp_pw)
 
@@ -2086,6 +2096,10 @@ def _inline_link_parent(request, school, student_user):
         messages.warning(request, 'Parent account not found. Student created without parent link.')
         return
 
+    if parent_user.has_role(Role.STUDENT):
+        messages.warning(request, 'Cannot link a student account as a parent. Student created without parent link.')
+        return
+
     parent_role, _ = Role.objects.get_or_create(
         name=Role.PARENT, defaults={'display_name': 'Parent', 'description': 'Parent/guardian role'},
     )
@@ -2094,10 +2108,21 @@ def _inline_link_parent(request, school, student_user):
     already_linked = ParentStudent.objects.filter(
         parent=parent_user, student=student_user, school=school,
     ).exists()
-    existing_count = ParentStudent.objects.filter(
+    existing_count = ParentStudent.objects.select_for_update().filter(
         student=student_user, school=school, is_active=True,
     ).count()
-    if not already_linked and existing_count < 2:
+    if already_linked:
+        messages.warning(
+            request,
+            f'{parent_user.get_full_name()} is already linked to this student.',
+        )
+    elif existing_count >= MAX_PARENTS_PER_STUDENT:
+        messages.warning(
+            request,
+            f'Could not link parent — this student already has {MAX_PARENTS_PER_STUDENT} linked parents (the maximum). '
+            'Remove a parent link first.',
+        )
+    else:
         ParentStudent.objects.create(
             parent=parent_user, student=student_user, school=school,
             relationship=p_rel,

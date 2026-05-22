@@ -233,6 +233,15 @@ class TeacherCenterRegisterView(View):
             elif not discount_obj.is_valid():
                 errors.append('This discount code has expired or reached its usage limit.')
 
+        # Block registration if paid plan has no Stripe Price ID configured
+        is_free = discount_obj and getattr(discount_obj, 'is_fully_free', False)
+        if plan and plan.price > 0 and not plan.stripe_price_id and not is_free:
+            logger.error(
+                'InstitutePlan %s (%s) has no stripe_price_id — blocking registration',
+                plan.id, plan.name,
+            )
+            errors.append('Payment is not currently configured for this plan. Please contact support.')
+
         if errors:
             return render(request, 'accounts/register_teacher.html', {
                 'errors': errors, 'username': username, 'email': email,
@@ -344,8 +353,16 @@ class TeacherCenterRegisterView(View):
                     )
                     return redirect(session.url)
                 except Exception:
-                    # Stripe not configured or failed — fall through to dashboard
-                    pass
+                    logger.exception(
+                        'Stripe checkout session creation failed for institute %s (plan %s)',
+                        school.id, plan.id,
+                    )
+                    messages.warning(
+                        request,
+                        'Your account has been created but we could not redirect to payment. '
+                        'Please set up billing from your dashboard or contact support.',
+                    )
+                    return redirect('subjects_hub')
 
             messages.success(request, f'Welcome! Your school "{center_name}" is ready.')
             return redirect('subjects_hub')
@@ -543,11 +560,20 @@ class IndividualStudentRegisterView(View):
                 ctx['errors'] = ['This discount code has expired or reached its usage limit.']
                 return render(request, 'accounts/register_individual_student.html', ctx)
 
+        is_fully_free_discount = discount and discount.is_fully_free
         needs_stripe_payment = (
             not package.is_free
-            and package.stripe_price_id
-            and not (discount and discount.is_fully_free)
+            and not is_fully_free_discount
         )
+
+        # Block registration if paid package has no Stripe Price ID configured
+        if needs_stripe_payment and not package.stripe_price_id:
+            logger.error(
+                'Package %s (%s) has no stripe_price_id — blocking individual student registration',
+                package.id, package.name,
+            )
+            ctx['errors'] = ['Payment is not currently configured for this package. Please contact support.']
+            return render(request, 'accounts/register_individual_student.html', ctx)
 
         # ── Paid package: gate account creation behind Stripe payment ──────────
         if needs_stripe_payment:
@@ -1047,8 +1073,7 @@ class CompleteProfileView(LoginRequiredMixin, View):
                         )
                         return redirect(session.url)
                     except Exception as e:
-                        import logging
-                        logging.getLogger(__name__).error(
+                        logger.error(
                             'Stripe checkout session creation failed for user %s: %s', user.id, e
                         )
                         messages.error(request, 'Could not redirect to payment page. Please try again or contact support.')
@@ -1057,8 +1082,7 @@ class CompleteProfileView(LoginRequiredMixin, View):
                         })
                 else:
                     # Package not configured for Stripe — block until admin fixes it
-                    import logging
-                    logging.getLogger(__name__).error(
+                    logger.error(
                         'Package %s (%s) has no stripe_price_id — cannot process payment for user %s',
                         package.id, package.name, user.id,
                     )
