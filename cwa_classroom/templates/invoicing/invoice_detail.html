@@ -358,6 +358,59 @@
         </div>
       {% endif %}
 
+      <!-- Email History -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-gray-900">Email History</h3>
+          {% if email_logs %}
+            <span class="text-xs text-gray-400">{{ email_logs|length }} email{{ email_logs|length|pluralize }}</span>
+          {% endif %}
+        </div>
+
+        {% if email_logs %}
+          <ul class="divide-y divide-slate-50">
+            {% for log in email_logs %}
+            <li class="px-5 py-3">
+              <div class="flex items-start gap-2.5">
+                {% if log.status == 'sent' %}
+                  <span class="mt-0.5 flex-shrink-0 w-2 h-2 rounded-full bg-emerald-400"></span>
+                {% else %}
+                  <span class="mt-0.5 flex-shrink-0 w-2 h-2 rounded-full bg-red-400"></span>
+                {% endif %}
+                <div class="min-w-0 flex-1">
+                  <p class="text-xs font-medium text-gray-800 truncate">{{ log.recipient_email }}</p>
+                  <p class="text-xs text-gray-400 mt-0.5">{{ log.sent_at|date:"M d, Y H:i" }}</p>
+                  {% if log.status == 'failed' and log.error_message %}
+                    <p class="text-xs text-red-600 mt-1 break-words">{{ log.error_message|truncatechars:120 }}</p>
+                  {% endif %}
+                </div>
+                <span class="flex-shrink-0 text-xs font-medium px-1.5 py-0.5 rounded
+                  {% if log.status == 'sent' %}bg-emerald-50 text-emerald-700{% else %}bg-red-50 text-red-700{% endif %}">
+                  {{ log.get_status_display }}
+                </span>
+              </div>
+            </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <div class="px-5 py-6 text-center">
+            <p class="text-xs text-gray-400">No emails sent for this invoice yet.</p>
+          </div>
+        {% endif %}
+
+        {% if invoice.status != 'draft' and invoice.status != 'cancelled' %}
+          <div class="px-5 py-3 border-t border-slate-100">
+            <form method="post" action="{% url 'resend_invoice' invoice_id=invoice.id %}">
+              {% csrf_token %}
+              <button type="submit"
+                class="w-full px-3 py-2 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-gray-700 rounded-lg transition">
+                Resend Invoice Email
+              </button>
+            </form>
+          </div>
+        {% endif %}
+      </div>
+
       <!-- Stripe Payment Link -->
       {% if invoice.status != 'cancelled' %}
         <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">

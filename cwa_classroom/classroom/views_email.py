@@ -13,6 +13,21 @@ from .models import (
 )
 from .email_service import send_bulk_emails
 
+_NOTIFICATION_TYPE_LABELS = {
+    'invoice': 'Invoice',
+    'invoice_cancelled': 'Invoice Cancelled',
+    'enrollment_approved': 'Enrollment Approved',
+    'enrollment_rejected': 'Enrollment Rejected',
+    'enrollment_request': 'Enrollment Request',
+    'criteria_approval': 'Criteria Approval',
+    'criteria_approved': 'Criteria Approved',
+    'criteria_rejected': 'Criteria Rejected',
+    'attendance': 'Attendance',
+    'homework_assigned': 'Homework',
+    'school_published': 'School Published',
+    'general': 'General',
+}
+
 
 class EmailDashboardView(RoleRequiredMixin, View):
     """Email management overview with stats and recent campaigns."""
@@ -24,8 +39,8 @@ class EmailDashboardView(RoleRequiredMixin, View):
             messages.error(request, 'No school found.')
             return redirect('admin_dashboard')
 
-        total_sent = EmailLog.objects.filter(status='sent').count()
-        total_failed = EmailLog.objects.filter(status='failed').count()
+        total_sent = EmailLog.objects.filter(school=school, status='sent').count()
+        total_failed = EmailLog.objects.filter(school=school, status='failed').count()
         recent_campaigns = EmailCampaign.objects.filter(school=school)[:10]
 
         return render(request, 'admin_dashboard/email_dashboard.html', {
@@ -152,6 +167,53 @@ class EmailCampaignDetailView(RoleRequiredMixin, View):
         return render(request, 'admin_dashboard/email_campaign_detail.html', {
             'campaign': campaign,
             'logs': logs,
+        })
+
+
+class TransactionalEmailLogView(RoleRequiredMixin, View):
+    """Browse and filter all transactional (non-campaign) email logs for the school."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request):
+        school = School.objects.filter(admin=request.user).first()
+        if not school:
+            messages.error(request, 'No school found.')
+            return redirect('admin_dashboard')
+
+        qs = (
+            EmailLog.objects
+            .filter(school=school, campaign__isnull=True)
+            .select_related('recipient', 'invoice')
+            .order_by('-sent_at')
+        )
+
+        notification_type = request.GET.get('type', '').strip()
+        status_filter = request.GET.get('status', '').strip()
+        search_q = request.GET.get('q', '').strip()
+
+        if notification_type:
+            qs = qs.filter(notification_type=notification_type)
+        if status_filter in ('sent', 'failed'):
+            qs = qs.filter(status=status_filter)
+        if search_q:
+            qs = qs.filter(recipient_email__icontains=search_q)
+
+        paginator = Paginator(qs, 50)
+        page = paginator.get_page(request.GET.get('page'))
+
+        type_choices = [
+            (k, v) for k, v in _NOTIFICATION_TYPE_LABELS.items()
+        ]
+
+        return render(request, 'admin_dashboard/email_log_list.html', {
+            'school': school,
+            'logs': page,
+            'page': page,
+            'notification_type': notification_type,
+            'status_filter': status_filter,
+            'search_q': search_q,
+            'type_choices': type_choices,
+            'type_label': _NOTIFICATION_TYPE_LABELS.get(notification_type, 'All'),
         })
 
 

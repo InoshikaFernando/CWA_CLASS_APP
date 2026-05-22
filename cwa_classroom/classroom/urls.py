@@ -195,6 +195,7 @@ urlpatterns = [
     path('admin-dashboard/email/compose/', views_email.EmailComposeView.as_view(), name='email_compose'),
     path('admin-dashboard/email/campaigns/', views_email.EmailCampaignListView.as_view(), name='email_campaign_list'),
     path('admin-dashboard/email/campaigns/<int:campaign_id>/', views_email.EmailCampaignDetailView.as_view(), name='email_campaign_detail'),
+    path('admin-dashboard/email/logs/', views_email.TransactionalEmailLogView.as_view(), name='email_log_list'),
 
     # Teacher dashboard & management
     path('teacher/', views_teacher.TeacherDashboardView.as_view(), name='teacher_dashboard'),
