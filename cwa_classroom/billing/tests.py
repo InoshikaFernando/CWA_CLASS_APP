@@ -28,13 +28,17 @@ def _ensure_plans_exist():
     """Create the 4 standard InstitutePlans if they don't exist (e.g. when migrations are skipped)."""
     PLANS = [
         {'slug': 'basic', 'name': 'Basic', 'price': Decimal('89.00'), 'class_limit': 5,
-         'student_limit': 100, 'invoice_limit_yearly': 500, 'extra_invoice_rate': Decimal('0.30'), 'order': 0},
+         'student_limit': 100, 'invoice_limit_yearly': 500, 'extra_invoice_rate': Decimal('0.30'),
+         'stripe_price_id': 'price_test_basic', 'order': 0},
         {'slug': 'silver', 'name': 'Silver', 'price': Decimal('149.00'), 'class_limit': 15,
-         'student_limit': 300, 'invoice_limit_yearly': 1500, 'extra_invoice_rate': Decimal('0.25'), 'order': 1},
+         'student_limit': 300, 'invoice_limit_yearly': 1500, 'extra_invoice_rate': Decimal('0.25'),
+         'stripe_price_id': 'price_test_silver', 'order': 1},
         {'slug': 'gold', 'name': 'Gold', 'price': Decimal('249.00'), 'class_limit': 50,
-         'student_limit': 1000, 'invoice_limit_yearly': 5000, 'extra_invoice_rate': Decimal('0.20'), 'order': 2},
+         'student_limit': 1000, 'invoice_limit_yearly': 5000, 'extra_invoice_rate': Decimal('0.20'),
+         'stripe_price_id': 'price_test_gold', 'order': 2},
         {'slug': 'platinum', 'name': 'Platinum', 'price': Decimal('449.00'), 'class_limit': 200,
-         'student_limit': 5000, 'invoice_limit_yearly': 20000, 'extra_invoice_rate': Decimal('0.15'), 'order': 3},
+         'student_limit': 5000, 'invoice_limit_yearly': 20000, 'extra_invoice_rate': Decimal('0.15'),
+         'stripe_price_id': 'price_test_platinum', 'order': 3},
     ]
     for p in PLANS:
         InstitutePlan.objects.get_or_create(slug=p['slug'], defaults=p)

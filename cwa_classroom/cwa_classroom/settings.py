@@ -25,7 +25,7 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # ---------------------------------------------------------------------------
 # App Version  (SemVer — bump manually on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.4.21'         # MAJOR.MINOR.PATCH
+APP_VERSION       = '1.4.22'         # MAJOR.MINOR.PATCH
 APP_VERSION_DATE  = '2026-05-20'     # ISO date of this release
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
@@ -435,7 +435,7 @@ else:
 # ---------------------------------------------------------------------------
 
 SESSION_COOKIE_AGE = 60 * 60 * 24 * 7          # 1 week (default is 2 weeks)
-SESSION_SAVE_EVERY_REQUEST = False
+SESSION_SAVE_EVERY_REQUEST = True               # refresh expiry on every request so active users stay logged in
 SESSION_COOKIE_HTTPONLY = True                   # JS cannot read session cookie
 SESSION_COOKIE_SAMESITE = 'Lax'                 # mitigate CSRF via cross-site requests
 SESSION_COOKIE_SECURE = not DEBUG               # HTTPS-only in production
