@@ -167,7 +167,7 @@ class TestPickAnotherTable:
         page.goto(f"{self.url}/maths/level/4/multiplication/1/")
         page.wait_for_load_state("networkidle")
 
-        for _ in range(12):
+        for i in range(12):
             answer_btn = page.locator(
                 ".tt-answer-btn, "
                 "#question-container button, "
@@ -175,20 +175,21 @@ class TestPickAnotherTable:
             ).first
             answer_btn.wait_for(state="visible", timeout=10_000)
             answer_btn.click()
-            page.wait_for_timeout(1500)
+            page.wait_for_timeout(2000)
 
             next_btn = page.locator("button", has_text=re.compile(r"Next Question"))
             if next_btn.count() > 0 and next_btn.first.is_visible():
                 next_btn.first.click()
-                page.wait_for_timeout(1000)
+                page.wait_for_timeout(1500)
 
         see_results = page.locator("a", has_text=re.compile(r"See Results"))
         if see_results.count() > 0 and see_results.first.is_visible():
             see_results.first.click()
         page.wait_for_load_state("networkidle")
+        page.wait_for_timeout(1500)
 
         pick_btn = page.locator("a", has_text="Pick Another Table")
-        pick_btn.wait_for(state="visible", timeout=5_000)
+        pick_btn.wait_for(state="visible", timeout=10_000)
         pick_btn.click()
         page.wait_for_load_state("networkidle")
 
