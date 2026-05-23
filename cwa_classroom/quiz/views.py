@@ -254,11 +254,11 @@ TIMES_TABLES_BY_YEAR = {
     1: [1],
     2: [1, 2, 10],
     3: [1, 2, 3, 4, 5, 10],
-    4: list(range(1, 13)),
-    5: list(range(1, 13)),
-    6: list(range(1, 13)),
-    7: list(range(1, 13)),
-    8: list(range(1, 13)),
+    4: list(range(1, 16)),
+    5: list(range(1, 16)),
+    6: list(range(1, 16)),
+    7: list(range(1, 16)),
+    8: list(range(1, 16)),
 }
 
 
@@ -307,11 +307,11 @@ class TimesTablesHomeView(LoginRequiredMixin, View):
             if hub_levels.exists():
                 year = hub_levels.order_by('-level_number').first().level_number
 
-        available_tables = TIMES_TABLES_BY_YEAR.get(year, list(range(1, 13)))
+        available_tables = TIMES_TABLES_BY_YEAR.get(year, list(range(1, 16)))
 
         return render(request, 'quiz/times_tables_select.html', {
             'available_tables': available_tables,
-            'all_tables': range(1, 13),
+            'all_tables': range(1, 16),
             'year': year,
         })
 
@@ -320,7 +320,7 @@ class TimesTablesSelectView(LoginRequiredMixin, View):
     def get(self, request, level_number, operation):
         level = get_object_or_404(ClassroomLevel, level_number=level_number)
         year = level_number
-        available = TIMES_TABLES_BY_YEAR.get(year, list(range(1, 13)))
+        available = TIMES_TABLES_BY_YEAR.get(year, list(range(1, 16)))
         return render(request, 'quiz/times_tables_select.html', {
             'level': level, 'operation': operation,
             'available_tables': available,
