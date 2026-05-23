@@ -350,7 +350,7 @@ class StudentDashboardView(LoginRequiredMixin, View):
 
         # ── Times Tables results ──────────────────────────────────────────────
         tt_results = []
-        for table in range(1, 13):
+        for table in range(1, 16):
             best_mul = _tt_best(request.user, 'multiplication', table)
             best_div = _tt_best(request.user, 'division', table)
             # Legacy: attempts without operation saved (old records)

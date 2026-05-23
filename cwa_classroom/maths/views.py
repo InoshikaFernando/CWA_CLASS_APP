@@ -53,7 +53,7 @@ TOPIC_SESSION_SLUGS = {
 }
 
 # Add dynamic slugs for all multiplication/division times tables
-for _tt in range(1, 13):
+for _tt in range(1, 16):
     TOPIC_SESSION_SLUGS[f"Multiplication ({_tt}\u00d7)"] = f"mult_{_tt}"
     TOPIC_SESSION_SLUGS[f"Division ({_tt}\u00d7)"] = f"div_{_tt}"
 
