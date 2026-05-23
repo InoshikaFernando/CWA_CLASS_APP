@@ -262,7 +262,7 @@ TIMES_TABLES_BY_YEAR = {
 }
 
 
-def _generate_times_tables_questions(table, operation, count=15, shuffle=False):
+def _generate_times_tables_questions(table, operation, count=12, shuffle=False):
     import random
     multipliers = list(range(1, count + 1))
     if shuffle:

@@ -1,6 +1,6 @@
 # Times tables available per year for Multiplication and Division topics.
 # Edit this dict to change which times tables are available for each year.
-# Each times table generates questions up to X * 15.
+# Each times table generates questions up to X * 12.
 TIMES_TABLES_BY_YEAR = {
     1: [1],
     2: [1, 2, 10],
