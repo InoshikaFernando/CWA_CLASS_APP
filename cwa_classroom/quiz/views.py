@@ -324,6 +324,8 @@ class TimesTablesSelectView(LoginRequiredMixin, View):
         return render(request, 'quiz/times_tables_select.html', {
             'level': level, 'operation': operation,
             'available_tables': available,
+            'all_tables': range(1, 16),
+            'year': year,
         })
 
 

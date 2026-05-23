@@ -150,3 +150,48 @@ class TestTimesTablesSelect:
         """Links for tables 1-12 should be present."""
         links = self.page.locator("a[href*='multiplication'], a[href*='division']")
         assert links.count() > 0
+
+
+class TestPickAnotherTable:
+    """CPP-304: 'Pick Another Table' on results page must show the selection grid."""
+
+    @pytest.fixture(autouse=True)
+    def _setup(self, live_server, page, enrolled_student, school, classroom):
+        self.url = live_server.url
+        self.page = page
+        do_login(page, self.url, enrolled_student)
+
+    def test_pick_another_table_shows_grid(self):
+        page = self.page
+
+        page.goto(f"{self.url}/maths/level/4/multiplication/1/")
+        page.wait_for_load_state("networkidle")
+
+        for _ in range(12):
+            answer_btn = page.locator(
+                ".tt-answer-btn, "
+                "#question-container button, "
+                "button[onclick*='submitAnswer']"
+            ).first
+            answer_btn.wait_for(state="visible", timeout=10_000)
+            answer_btn.click()
+            page.wait_for_timeout(1500)
+
+            next_btn = page.locator("button", has_text=re.compile(r"Next Question"))
+            if next_btn.count() > 0 and next_btn.first.is_visible():
+                next_btn.first.click()
+                page.wait_for_timeout(1000)
+
+        see_results = page.locator("a", has_text=re.compile(r"See Results"))
+        if see_results.count() > 0 and see_results.first.is_visible():
+            see_results.first.click()
+        page.wait_for_load_state("networkidle")
+
+        pick_btn = page.locator("a", has_text="Pick Another Table")
+        pick_btn.wait_for(state="visible", timeout=5_000)
+        pick_btn.click()
+        page.wait_for_load_state("networkidle")
+
+        assert_page_has_text(page, "Times Tables")
+        links = page.locator("a[href*='multiplication'], a[href*='division']")
+        assert links.count() > 0, "Selection grid should show table links"

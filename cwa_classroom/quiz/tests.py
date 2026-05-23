@@ -226,3 +226,45 @@ class TestAuditLogResilience(QuizAuditLoggingTestBase):
             BasicFactsResult.objects.filter(student=self.student).exists(),
             'BasicFactsResult not created when log_event failed',
         )
+
+
+class TimesTablesSelectViewTest(TestCase):
+    """CPP-304: 'Pick Another Table' was rendering a blank page because
+    TimesTablesSelectView didn't pass all_tables or year to the template."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.school = School.objects.create(name='Test School')
+        cls.student = User.objects.create_user(
+            username='ttstudent', password='pass1234', email='tt@test.com',
+        )
+        SchoolStudent.objects.create(
+            school=cls.school, student=cls.student, is_active=True,
+        )
+        cls.level = Level.objects.create(level_number=4, display_name='Year 4')
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='ttstudent', password='pass1234')
+
+    def test_multiplication_select_returns_200(self):
+        url = reverse('multiplication_select', kwargs={'level_number': 4})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+
+    def test_division_select_returns_200(self):
+        url = reverse('division_select', kwargs={'level_number': 4})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+
+    def test_select_view_context_has_all_tables(self):
+        url = reverse('multiplication_select', kwargs={'level_number': 4})
+        resp = self.client.get(url)
+        self.assertIn('all_tables', resp.context)
+        self.assertEqual(list(resp.context['all_tables']), list(range(1, 16)))
+
+    def test_select_view_context_has_year(self):
+        url = reverse('multiplication_select', kwargs={'level_number': 4})
+        resp = self.client.get(url)
+        self.assertIn('year', resp.context)
+        self.assertEqual(resp.context['year'], 4)
