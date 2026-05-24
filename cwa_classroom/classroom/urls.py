@@ -288,6 +288,7 @@ urlpatterns = [
     path('department/workload/', views.HoDWorkloadView.as_view(), name='hod_workload'),
     path('department/reports/', views.HoDReportsView.as_view(), name='hod_reports'),
     path('reports/students/', views_reports.StudentReportView.as_view(), name='reports_students'),
+    path('reports/teachers/', views_reports.TeacherReportView.as_view(), name='reports_teachers'),
     path('department/attendance/', views.HoDAttendanceReportView.as_view(), name='hod_attendance_report'),
     path('department/attendance/detail/', views.AttendanceDetailView.as_view(), name='attendance_detail'),
     path('department/subject-levels/', views.HoDSubjectLevelsView.as_view(), name='hod_subject_levels'),
