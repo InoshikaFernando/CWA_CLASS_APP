@@ -150,24 +150,3 @@ class TestTimesTablesSelect:
         """Links for tables 1-12 should be present."""
         links = self.page.locator("a[href*='multiplication'], a[href*='division']")
         assert links.count() > 0
-
-
-class TestPickAnotherTable:
-    """CPP-304: Verify the select page (target of 'Pick Another Table') renders
-    the grid. The full quiz-completion E2E is covered by TestTimesTablesE2E in
-    test_quiz_e2e.py; this test hits the select URL directly."""
-
-    @pytest.fixture(autouse=True)
-    def _setup(self, live_server, page, enrolled_student, school, classroom):
-        self.url = live_server.url
-        self.page = page
-        do_login(page, self.url, enrolled_student)
-
-    def test_select_page_shows_grid(self):
-        page = self.page
-        page.goto(f"{self.url}/maths/level/4/multiplication/")
-        page.wait_for_load_state("networkidle")
-
-        assert_page_has_text(page, "Times Tables")
-        links = page.locator("a[href*='multiplication'], a[href*='division']")
-        assert links.count() > 0, "Selection grid should show table links"
