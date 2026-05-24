@@ -168,6 +168,53 @@ class InstituteRegistrationTest(TestCase):
         self.assertContains(resp, 'select a plan')
 
 
+class UnlimitedPlanDisplayTest(TestCase):
+    """CPP-298: Plans with limit=0 should display 'Unlimited' on signup page."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.limited_plan = InstitutePlan.objects.create(
+            slug='limited', name='Basic', price=89, class_limit=5,
+            student_limit=100, invoice_limit_yearly=500,
+            extra_invoice_rate=0.30, trial_days=14, order=1,
+            stripe_price_id='price_test_limited',
+        )
+        cls.unlimited_plan = InstitutePlan.objects.create(
+            slug='platinum', name='Platinum', price=189, class_limit=0,
+            student_limit=0, invoice_limit_yearly=0,
+            extra_invoice_rate=0, trial_days=14, order=4,
+            stripe_price_id='price_test_platinum',
+        )
+
+    def test_signup_unlimited_plan_shows_unlimited(self):
+        resp = self.client.get(reverse('register_teacher_center'))
+        self.assertContains(resp, 'Unlimited classes')
+        self.assertContains(resp, 'Unlimited students')
+
+    def test_signup_limited_plan_shows_numbers(self):
+        resp = self.client.get(reverse('register_teacher_center'))
+        self.assertContains(resp, '5 classes')
+        self.assertContains(resp, '100 students')
+
+    def test_trial_expired_unlimited_plan_shows_unlimited(self):
+        from classroom.models import School
+        user = CustomUser.objects.create_user('hoiuser', 'wlhtestmails+hoi298@gmail.com', 'testpass123')
+        hoi_role, _ = Role.objects.get_or_create(
+            name=Role.HEAD_OF_INSTITUTE,
+            defaults={'display_name': 'Head of Institute'},
+        )
+        from accounts.models import UserRole
+        UserRole.objects.get_or_create(user=user, role=hoi_role)
+        school = School.objects.create(name='Test School 298', slug='test-298', admin=user)
+        SchoolSubscription.objects.create(
+            school=school, plan=self.unlimited_plan, status='trial_expired',
+        )
+        self.client.login(username='hoiuser', password='testpass123')
+        resp = self.client.get(reverse('institute_trial_expired'))
+        self.assertContains(resp, 'Unlimited')
+        self.assertNotContains(resp, '0 classes, 0 students')
+
+
 class SchoolStudentRegistrationTest(TestCase):
     """Test SchoolStudentRegisterView — simple registration, no package."""
 
