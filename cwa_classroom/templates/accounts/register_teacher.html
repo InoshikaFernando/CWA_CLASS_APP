@@ -172,8 +172,8 @@
                  class="sr-only" onchange="selectPlan(this)" />
           <div class="font-display text-xl text-primary mb-1">{{ plan.name }}</div>
           <div class="text-xs text-gray-500 space-y-0.5 mb-2">
-            <div>{{ plan.class_limit }} class{{ plan.class_limit|pluralize:"es" }}</div>
-            <div>{{ plan.student_limit }} student{{ plan.student_limit|pluralize }}</div>
+            <div>{% if plan.class_limit == 0 %}Unlimited classes{% else %}{{ plan.class_limit }} class{{ plan.class_limit|pluralize:"es" }}{% endif %}</div>
+            <div>{% if plan.student_limit == 0 %}Unlimited students{% else %}{{ plan.student_limit }} student{{ plan.student_limit|pluralize }}{% endif %}</div>
           </div>
           <div class="text-lg font-bold text-gray-800">${{ plan.price }}<span class="text-xs font-normal text-gray-400">/mo</span></div>
           <div class="mt-2 inline-block bg-accent-light text-yellow-800 text-xs font-semibold px-2 py-0.5 rounded-full">
