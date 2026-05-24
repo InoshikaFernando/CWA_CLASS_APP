@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Teacher Report{% endblock %}
+{% block content %}
+<div class="max-w-7xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-6">
+    <h1 class="text-2xl font-display font-bold text-gray-900">Teacher Report</h1>
+    <p class="text-gray-500 mt-1">Filter and view teachers across your school</p>
+  </div>
+
+  <!-- Filter bar -->
+  <form method="get"
+        hx-get="{% url 'reports_teachers' %}"
+        hx-target="#report-table-container"
+        hx-swap="innerHTML"
+        hx-push-url="true"
+        hx-trigger="change from:select, change from:input[type=checkbox]"
+        class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 mb-6">
+
+    <div class="flex flex-wrap gap-4 items-end">
+
+      <!-- Class filter -->
+      <div class="flex flex-col gap-1 min-w-[180px]">
+        <label class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Class</label>
+        <select name="class_id"
+                class="rounded-lg border border-slate-300 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-accent/40">
+          <option value="">All classes</option>
+          {% for cls in available_classes %}
+            <option value="{{ cls.id }}" {% if filters.class_id == cls.id %}selected{% endif %}>{{ cls.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Subject filter -->
+      <div class="flex flex-col gap-1 min-w-[160px]">
+        <label class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Subject</label>
+        <select name="subject_id"
+                class="rounded-lg border border-slate-300 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-accent/40">
+          <option value="">All subjects</option>
+          {% for subj in available_subjects %}
+            <option value="{{ subj.id }}" {% if filters.subject_id == subj.id %}selected{% endif %}>{{ subj.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Department filter -->
+      <div class="flex flex-col gap-1 min-w-[160px]">
+        <label class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Department</label>
+        <select name="department_id"
+                class="rounded-lg border border-slate-300 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-accent/40">
+          <option value="">All departments</option>
+          {% for dept in available_departments %}
+            <option value="{{ dept.id }}" {% if filters.department_id == dept.id %}selected{% endif %}>{{ dept.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Status filter -->
+      <div class="flex flex-col gap-1 min-w-[130px]">
+        <label class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</label>
+        <select name="status"
+                class="rounded-lg border border-slate-300 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-accent/40">
+          <option value="all" {% if filters.status == 'all' or not filters.status %}selected{% endif %}>All</option>
+          <option value="active" {% if filters.status == 'active' %}selected{% endif %}>Active</option>
+          <option value="inactive" {% if filters.status == 'inactive' %}selected{% endif %}>Inactive</option>
+        </select>
+      </div>
+
+      <!-- Role filter -->
+      <div class="flex flex-col gap-1 min-w-[160px]">
+        <label class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Role</label>
+        <select name="role"
+                class="rounded-lg border border-slate-300 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-accent/40">
+          <option value="all" {% if filters.role == 'all' or not filters.role %}selected{% endif %}>All roles</option>
+          <option value="head_of_institute" {% if filters.role == 'head_of_institute' %}selected{% endif %}>Head of Institute</option>
+          <option value="head_of_department" {% if filters.role == 'head_of_department' %}selected{% endif %}>Head of Department</option>
+          <option value="senior_teacher" {% if filters.role == 'senior_teacher' %}selected{% endif %}>Senior Teacher</option>
+          <option value="teacher" {% if filters.role == 'teacher' %}selected{% endif %}>Teacher</option>
+          <option value="junior_teacher" {% if filters.role == 'junior_teacher' %}selected{% endif %}>Junior Teacher</option>
+          <option value="accountant" {% if filters.role == 'accountant' %}selected{% endif %}>Accountant</option>
+        </select>
+      </div>
+
+      <!-- Not in class -->
+      <div class="flex items-center gap-2 pb-2">
+        <input type="checkbox" id="no_class" name="no_class" value="1"
+               {% if filters.no_class %}checked{% endif %}
+               class="rounded border-slate-300 text-accent focus:ring-accent/40">
+        <label for="no_class" class="text-sm font-medium text-gray-700">Not in any class</label>
+      </div>
+
+      <!-- Submit (for no-JS fallback) + reset -->
+      <div class="flex gap-2 pb-2 ml-auto">
+        <button type="submit"
+                class="px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 transition">
+          Apply
+        </button>
+        <a href="{% url 'reports_teachers' %}"
+           class="px-4 py-2 bg-slate-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition">
+          Reset
+        </a>
+      </div>
+
+    </div>
+  </form>
+
+  <!-- Results table -->
+  <div id="report-table-container">
+    {% include "reports/_partials/teacher_report_table.html" %}
+  </div>
+
+</div>
+{% endblock %}
