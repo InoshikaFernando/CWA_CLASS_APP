@@ -287,8 +287,6 @@ class TeacherReportView(RoleRequiredMixin, View):
 
         qs = qs.order_by('teacher__first_name', 'teacher__last_name')
 
-        teacher_ids_on_page_all = list(qs.values_list('teacher_id', flat=True))
-
         paginator = Paginator(qs, PAGE_SIZE)
         page_obj = paginator.get_page(request.GET.get('page', 1))
 
