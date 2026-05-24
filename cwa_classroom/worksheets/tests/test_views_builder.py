@@ -12,7 +12,7 @@ from django.urls import reverse
 
 from accounts.models import CustomUser, Role
 from classroom.models import Level, School, SchoolTeacher, Subject, Topic
-from maths.models import Question
+from maths.models import Answer, Question
 from worksheets.models import Worksheet, WorksheetQuestion
 
 
@@ -421,4 +421,98 @@ class TestBuilderSaveView(BuilderTestBase):
     def test_builder_save_unauthenticated_redirects(self):
         self.client.logout()
         resp = self.client.post(self._save_url(), self._valid_payload())
+        self.assertIn(resp.status_code, [302, 403])
+
+
+# ---------------------------------------------------------------------------
+# WorksheetBuilderPreviewView — CPP-285
+# ---------------------------------------------------------------------------
+
+class TestBuilderPreviewView(BuilderTestBase):
+    """Tests for GET /worksheets/builder/preview/<subject_slug>/<content_id>/"""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        # Add answer options to the global question for preview testing
+        cls.answer_correct = Answer.objects.create(
+            question=cls.q_global, answer_text='1/2', is_correct=True, order=1,
+        )
+        cls.answer_wrong = Answer.objects.create(
+            question=cls.q_global, answer_text='1/3', is_correct=False, order=2,
+        )
+
+    def _preview_url(self, subject_slug='mathematics', content_id=None):
+        if content_id is None:
+            content_id = self.q_global.pk
+        return reverse('worksheets:builder_preview', kwargs={
+            'subject_slug': subject_slug,
+            'content_id': content_id,
+        })
+
+    # --- Happy path ---
+
+    def test_preview_returns_partial(self):
+        resp = self.client.get(self._preview_url())
+        self.assertEqual(resp.status_code, 200)
+        content = resp.content.decode()
+        self.assertIn('Global fraction question', content)
+        self.assertIn('1/2', content)
+        self.assertIn('1/3', content)
+
+    def test_preview_shows_correct_answer_highlighted(self):
+        resp = self.client.get(self._preview_url())
+        content = resp.content.decode()
+        self.assertIn('bg-emerald-50', content)
+
+    def test_preview_shows_explanation(self):
+        self.q_global.explanation = 'Test explanation text'
+        self.q_global.save()
+        resp = self.client.get(self._preview_url())
+        content = resp.content.decode()
+        self.assertIn('Test explanation text', content)
+        self.q_global.explanation = ''
+        self.q_global.save()
+
+    def test_preview_shows_question_type_badge(self):
+        resp = self.client.get(self._preview_url())
+        content = resp.content.decode()
+        self.assertIn('Multiple Choice', content)
+
+    def test_preview_school_a_question_accessible(self):
+        resp = self.client.get(self._preview_url(content_id=self.q_school_a.pk))
+        self.assertEqual(resp.status_code, 200)
+        content = resp.content.decode()
+        self.assertIn('School A algebra question', content)
+
+    # --- Tenant isolation ---
+
+    def test_preview_rejects_cross_tenant_question(self):
+        resp = self.client.get(self._preview_url(content_id=self.q_school_b.pk))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_preview_nonexistent_question_returns_404(self):
+        resp = self.client.get(self._preview_url(content_id=999999))
+        self.assertEqual(resp.status_code, 404)
+
+    # --- Access control ---
+
+    def test_preview_student_gets_403(self):
+        self.client.force_login(self.student)
+        resp = self.client.get(self._preview_url())
+        self.assertIn(resp.status_code, [302, 403])
+
+    def test_preview_parent_gets_403(self):
+        self.client.force_login(self.parent)
+        resp = self.client.get(self._preview_url())
+        self.assertIn(resp.status_code, [302, 403])
+
+    def test_preview_owner_can_access(self):
+        self.client.force_login(self.owner_a)
+        resp = self.client.get(self._preview_url())
+        self.assertEqual(resp.status_code, 200)
+
+    def test_preview_unauthenticated_redirects(self):
+        self.client.logout()
+        resp = self.client.get(self._preview_url())
         self.assertIn(resp.status_code, [302, 403])

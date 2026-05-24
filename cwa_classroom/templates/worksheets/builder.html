@@ -218,6 +218,14 @@
   </div>
 </div>
 
+<!-- Preview modal overlay (CPP-285) -->
+<div id="preview-modal"
+     class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+     onclick="if(event.target===this)this.classList.add('hidden')">
+  <div id="preview-modal-content" class="w-full max-w-lg max-h-[85vh] overflow-y-auto mx-4">
+  </div>
+</div>
+
 <!-- SortableJS v1.15.2 -->
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 
@@ -441,6 +449,57 @@ function switchMobileTab(tab) {
       saveBtn.className = 'w-full py-2.5 rounded-xl text-sm font-semibold transition bg-slate-100 text-slate-400 cursor-not-allowed disabled:opacity-60';
     }
   }
+
+  // ─── Preview modal (CPP-285) ───────────────────────────────────────────────
+  var PREVIEW_BASE = '{% url "worksheets:builder" %}' + 'preview/__SUBJECT__/__ID__/';
+
+  document.body.addEventListener('click', function (e) {
+    var card = e.target.closest('.question-card');
+    if (!card) return;
+    if (e.target.closest('.add-question-btn')) return;
+
+    var contentId   = card.dataset.contentId;
+    var subjectSlug = card.dataset.subjectSlug || 'mathematics';
+    var url = PREVIEW_BASE.replace('__SUBJECT__', subjectSlug).replace('__ID__', contentId);
+
+    htmx.ajax('GET', url, {
+      target: '#preview-modal-content',
+      swap: 'innerHTML',
+    }).then(function () {
+      document.getElementById('preview-modal').classList.remove('hidden');
+    });
+  });
+
+  document.body.addEventListener('click', function (e) {
+    var btn = e.target.closest('.preview-add-btn');
+    if (!btn) return;
+
+    var contentId   = parseInt(btn.dataset.contentId, 10);
+    var subjectSlug = btn.dataset.subjectSlug || 'mathematics';
+
+    var card = document.querySelector('.question-card[data-content-id="' + contentId + '"]');
+    if (card && !selectedQuestions.some(function (q) { return q.content_id === contentId; })) {
+      selectedQuestions.push({
+        content_id:   contentId,
+        subject_slug: subjectSlug,
+        text:         card.dataset.questionText || '',
+        level:        card.dataset.level || '',
+        difficulty:   card.dataset.difficulty || ''
+      });
+      renderSidebar();
+      reapplySelectedState();
+      syncHiddenInput();
+      validateForm();
+    }
+
+    document.getElementById('preview-modal').classList.add('hidden');
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      document.getElementById('preview-modal').classList.add('hidden');
+    }
+  });
 
   // ─── Re-apply state after HTMX question list swap ────────────────────────
   document.body.addEventListener('htmx:afterSwap', function (evt) {
