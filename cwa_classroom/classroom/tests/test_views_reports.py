@@ -17,7 +17,7 @@ from accounts.models import CustomUser, Role, UserRole
 from billing.models import InstitutePlan, SchoolSubscription
 from classroom.models import (
     ClassRoom, ClassStudent, ClassTeacher, Department, DepartmentSubject,
-    DepartmentTeacher, School, SchoolStudent, SchoolTeacher, Subject,
+    DepartmentTeacher, Expense, School, SchoolStudent, SchoolTeacher, Subject,
 )
 
 URL = reverse('reports_students')
@@ -514,3 +514,232 @@ class TestTeacherReportFilters(TestCase):
                 break
         else:
             self.fail('t1 not found in page_obj')
+
+
+# ===========================================================================
+# Expense Report Tests (CPP-297)
+# ===========================================================================
+
+import datetime
+from django.urls import reverse as _reverse
+
+EXPENSE_URL = _reverse('reports_expenses')
+EXPENSE_ADD_URL = _reverse('expense_add')
+
+
+def _expense(school, created_by, **kwargs):
+    defaults = {
+        'category': 'rent',
+        'description': 'Monthly rent',
+        'amount': Decimal('1500.00'),
+        'date': datetime.date(2026, 5, 1),
+    }
+    defaults.update(kwargs)
+    return Expense.objects.create(school=school, created_by=created_by, **defaults)
+
+
+class TestExpenseReportAccess(TestCase):
+
+    def setUp(self):
+        self.client = Client()
+        self.hoi = _user('exp_hoi', Role.HEAD_OF_INSTITUTE)
+        self.school = _school(self.hoi)
+
+    def test_unauthenticated_redirects(self):
+        resp = self.client.get(EXPENSE_URL)
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('login', resp.url)
+
+    def test_student_gets_403(self):
+        stu = _user('exp_stu', Role.STUDENT)
+        self.client.force_login(stu)
+        resp = self.client.get(EXPENSE_URL)
+        self.assertIn(resp.status_code, [302, 403])
+
+    def test_teacher_gets_403(self):
+        t = _user('exp_teacher', Role.TEACHER)
+        self.client.force_login(t)
+        resp = self.client.get(EXPENSE_URL)
+        self.assertIn(resp.status_code, [302, 403])
+
+    def test_hoi_can_access(self):
+        self.client.force_login(self.hoi)
+        resp = self.client.get(EXPENSE_URL)
+        self.assertEqual(resp.status_code, 200)
+
+    def test_hod_can_access(self):
+        hod = _user('exp_hod', Role.HEAD_OF_DEPARTMENT)
+        _dept(self.school, head=hod)
+        self.client.force_login(hod)
+        resp = self.client.get(EXPENSE_URL)
+        self.assertEqual(resp.status_code, 200)
+
+
+class TestExpenseReportScoping(TestCase):
+
+    def setUp(self):
+        self.client = Client()
+        self.hoi = _user('scope_hoi', Role.HEAD_OF_INSTITUTE)
+        self.school = _school(self.hoi)
+        self.dept = _dept(self.school)
+        self.e1 = _expense(self.school, self.hoi, description='Rent A')
+        self.e2 = _expense(self.school, self.hoi, description='Supplies B',
+                           category='supplies', department=self.dept)
+
+    def test_hoi_sees_all_school_expenses(self):
+        self.client.force_login(self.hoi)
+        resp = self.client.get(EXPENSE_URL)
+        self.assertEqual(resp.context['total_count'], 2)
+
+    def test_tenant_isolation(self):
+        other_hoi = _user('other_hoi_exp', Role.HEAD_OF_INSTITUTE)
+        other_school = _school(other_hoi)
+        _expense(other_school, other_hoi, description='Other school rent')
+        self.client.force_login(self.hoi)
+        resp = self.client.get(EXPENSE_URL)
+        self.assertEqual(resp.context['total_count'], 2)
+
+    def test_hod_sees_only_department_expenses(self):
+        hod = _user('scope_hod', Role.HEAD_OF_DEPARTMENT)
+        dept = _dept(self.school, head=hod)
+        _expense(self.school, self.hoi, description='Dept expense',
+                 category='utilities', department=dept)
+        self.client.force_login(hod)
+        resp = self.client.get(EXPENSE_URL)
+        self.assertEqual(resp.context['total_count'], 1)
+        self.assertEqual(resp.context['page_obj'][0].description, 'Dept expense')
+
+    def test_hod_no_departments_sees_empty(self):
+        hod = _user('scope_hod_empty', Role.HEAD_OF_DEPARTMENT)
+        self.client.force_login(hod)
+        resp = self.client.get(EXPENSE_URL)
+        self.assertEqual(resp.context['total_count'], 0)
+
+
+class TestExpenseReportFilters(TestCase):
+
+    def setUp(self):
+        self.client = Client()
+        self.hoi = _user('filt_hoi', Role.HEAD_OF_INSTITUTE)
+        self.school = _school(self.hoi)
+        self.dept = _dept(self.school)
+        self.e1 = _expense(self.school, self.hoi, category='rent',
+                           date=datetime.date(2026, 3, 1))
+        self.e2 = _expense(self.school, self.hoi, category='supplies',
+                           department=self.dept, date=datetime.date(2026, 5, 15))
+        self.e3 = _expense(self.school, self.hoi, category='rent',
+                           date=datetime.date(2026, 6, 1))
+        self.client.force_login(self.hoi)
+
+    def test_filter_by_category(self):
+        resp = self.client.get(EXPENSE_URL, {'category': 'rent'})
+        self.assertEqual(resp.context['total_count'], 2)
+
+    def test_filter_by_department(self):
+        resp = self.client.get(EXPENSE_URL, {'department_id': self.dept.pk})
+        self.assertEqual(resp.context['total_count'], 1)
+
+    def test_filter_by_date_range(self):
+        resp = self.client.get(EXPENSE_URL, {
+            'date_from': '2026-04-01', 'date_to': '2026-05-31',
+        })
+        self.assertEqual(resp.context['total_count'], 1)
+
+    def test_combined_filters(self):
+        resp = self.client.get(EXPENSE_URL, {
+            'category': 'supplies', 'department_id': self.dept.pk,
+        })
+        self.assertEqual(resp.context['total_count'], 1)
+
+    def test_total_amount_in_context(self):
+        resp = self.client.get(EXPENSE_URL)
+        self.assertEqual(resp.context['total_amount'], Decimal('4500.00'))
+
+    def test_htmx_returns_partial(self):
+        resp = self.client.get(EXPENSE_URL, HTTP_HX_REQUEST='true')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTemplateUsed(resp, 'reports/_partials/expense_report_table.html')
+        self.assertTemplateNotUsed(resp, 'reports/expenses.html')
+
+    def test_full_request_returns_full_page(self):
+        resp = self.client.get(EXPENSE_URL)
+        self.assertTemplateUsed(resp, 'reports/expenses.html')
+        self.assertTemplateUsed(resp, 'reports/_partials/expense_report_table.html')
+
+
+class TestExpenseCRUD(TestCase):
+
+    def setUp(self):
+        self.client = Client()
+        self.hoi = _user('crud_hoi', Role.HEAD_OF_INSTITUTE)
+        self.school = _school(self.hoi)
+        self.client.force_login(self.hoi)
+
+    def test_create_expense(self):
+        resp = self.client.post(EXPENSE_ADD_URL, {
+            'category': 'utilities',
+            'description': 'Electricity bill',
+            'amount': '250.00',
+            'date': '2026-05-10',
+        })
+        self.assertRedirects(resp, EXPENSE_URL)
+        self.assertTrue(Expense.objects.filter(description='Electricity bill').exists())
+        expense = Expense.objects.get(description='Electricity bill')
+        self.assertEqual(expense.school, self.school)
+        self.assertEqual(expense.created_by, self.hoi)
+
+    def test_edit_expense(self):
+        expense = _expense(self.school, self.hoi)
+        url = _reverse('expense_edit', args=[expense.pk])
+        resp = self.client.post(url, {
+            'category': 'maintenance',
+            'description': 'Updated description',
+            'amount': '2000.00',
+            'date': '2026-05-05',
+        })
+        self.assertRedirects(resp, EXPENSE_URL)
+        expense.refresh_from_db()
+        self.assertEqual(expense.description, 'Updated description')
+        self.assertEqual(expense.category, 'maintenance')
+
+    def test_delete_expense(self):
+        expense = _expense(self.school, self.hoi)
+        url = _reverse('expense_delete', args=[expense.pk])
+        resp = self.client.post(url)
+        self.assertRedirects(resp, EXPENSE_URL)
+        self.assertFalse(Expense.objects.filter(pk=expense.pk).exists())
+
+    def test_cannot_edit_other_school_expense(self):
+        other_hoi = _user('other_crud_hoi', Role.HEAD_OF_INSTITUTE)
+        other_school = _school(other_hoi)
+        expense = _expense(other_school, other_hoi)
+        url = _reverse('expense_edit', args=[expense.pk])
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 404)
+
+    def test_cannot_delete_other_school_expense(self):
+        other_hoi = _user('other_crud_hoi2', Role.HEAD_OF_INSTITUTE)
+        other_school = _school(other_hoi)
+        expense = _expense(other_school, other_hoi)
+        url = _reverse('expense_delete', args=[expense.pk])
+        resp = self.client.post(url)
+        self.assertEqual(resp.status_code, 404)
+
+    def test_hod_cannot_create_expense(self):
+        hod = _user('crud_hod', Role.HEAD_OF_DEPARTMENT)
+        _dept(self.school, head=hod)
+        self.client.force_login(hod)
+        resp = self.client.get(EXPENSE_ADD_URL)
+        self.assertIn(resp.status_code, [302, 403])
+
+    def test_create_expense_get_renders_form(self):
+        resp = self.client.get(EXPENSE_ADD_URL)
+        self.assertEqual(resp.status_code, 200)
+        self.assertTemplateUsed(resp, 'reports/expense_form.html')
+
+    def test_edit_expense_get_renders_form(self):
+        expense = _expense(self.school, self.hoi)
+        url = _reverse('expense_edit', args=[expense.pk])
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Save Changes')
