@@ -156,6 +156,14 @@ urlpatterns = [
          views_password_admin.AdminPasswordResetView.as_view(),
          name='admin_user_password_reset'),
 
+    # HoI resend welcome email (any school member)
+    path('admin-dashboard/schools/<int:school_id>/users/<int:user_id>/resend-welcome/modal/',
+         views_password_admin.ResendWelcomeModalView.as_view(),
+         name='admin_user_resend_welcome_modal'),
+    path('admin-dashboard/schools/<int:school_id>/users/<int:user_id>/resend-welcome/',
+         views_password_admin.ResendWelcomeEmailView.as_view(),
+         name='admin_user_resend_welcome'),
+
     # Parent list & edit (school-level)
     path('admin-dashboard/schools/<int:school_id>/parents/', views_parent_admin.SchoolParentListView.as_view(), name='admin_school_parents'),
     path('admin-dashboard/schools/<int:school_id>/parents/add/', views_parent_admin.AddParentView.as_view(), name='admin_school_add_parent'),
