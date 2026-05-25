@@ -294,9 +294,10 @@ class TestResendWelcomeNotificationBypassesGuard(TestCase):
         SchoolTeacher.objects.create(
             school=self.school, teacher=user, role='teacher', is_active=True,
         )
+        from notifications.services import NOTIF_WELCOME_RESEND
         resend_welcome_notification(user=user, school=self.school)
         call_kwargs = mock_send.call_args.kwargs
-        self.assertEqual(call_kwargs.get('notification_type'), 'welcome_resend')
+        self.assertEqual(call_kwargs.get('notification_type'), NOTIF_WELCOME_RESEND)
 
 
 # ---------------------------------------------------------------------------

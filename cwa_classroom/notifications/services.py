@@ -57,6 +57,7 @@ logger = logging.getLogger(__name__)
 # Notification type constants (stored in EmailLog.notification_type)
 # ---------------------------------------------------------------------------
 NOTIF_WELCOME = 'welcome'
+NOTIF_WELCOME_RESEND = 'welcome_resend'
 NOTIF_EMAIL_CHANGED = 'email_changed'
 NOTIF_PASSWORD_CHANGED = 'password_changed'
 
@@ -287,7 +288,7 @@ def resend_welcome_notification(user, plain_password=None, school=None):
         context=ctx,
         user=user,
         school=resolved_school,
-        notification_type='welcome_resend',
+        notification_type=NOTIF_WELCOME_RESEND,
     )
 
     if success:
