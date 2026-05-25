@@ -380,14 +380,22 @@ class RevenueReportView(RoleRequiredMixin, View):
             available_classes = ClassRoom.objects.filter(
                 school_id__in=school_ids, department_id__in=dept_ids, is_active=True,
             ).order_by('name')
+            dept_student_ids = ClassStudent.objects.filter(
+                classroom__department_id__in=dept_ids,
+                classroom__school_id__in=school_ids,
+                is_active=True,
+            ).values_list('student_id', flat=True).distinct()
+            available_students = SchoolStudent.objects.filter(
+                school_id__in=school_ids, is_active=True,
+                student_id__in=dept_student_ids,
+            ).select_related('student').order_by('student__first_name', 'student__last_name')
         else:
             available_classes = ClassRoom.objects.filter(
                 school_id__in=school_ids, is_active=True,
             ).order_by('name')
-
-        available_students = SchoolStudent.objects.filter(
-            school_id__in=school_ids, is_active=True,
-        ).select_related('student').order_by('student__first_name', 'student__last_name')
+            available_students = SchoolStudent.objects.filter(
+                school_id__in=school_ids, is_active=True,
+            ).select_related('student').order_by('student__first_name', 'student__last_name')
 
         form = RevenueReportFilterForm(request.GET or None)
         filters = {}
@@ -435,13 +443,8 @@ class RevenueReportView(RoleRequiredMixin, View):
 
         payment_method = filters.get('payment_method') or 'all'
         if payment_method == 'stripe':
-            from billing.models import InvoiceStripePayment
-            stripe_invoice_ids = set()
-            for sp in InvoiceStripePayment.objects.filter(
-                status='succeeded',
-            ):
-                for alloc in sp.invoice_allocations:
-                    stripe_invoice_ids.add(alloc.get('invoice_id'))
+            candidate_ids = set(qs.values_list('id', flat=True))
+            stripe_invoice_ids = self._get_stripe_invoice_ids(candidate_ids)
             qs = qs.filter(id__in=stripe_invoice_ids)
         elif payment_method != 'all':
             has_method_ids = InvoicePayment.objects.filter(
@@ -536,3 +539,16 @@ class RevenueReportView(RoleRequiredMixin, View):
                 if inv_id in invoice_id_set:
                     stripe_map[inv_id] = stripe_map.get(inv_id, Decimal('0.00')) + Decimal(str(alloc.get('amount', 0)))
         return stripe_map
+
+    @staticmethod
+    def _get_stripe_invoice_ids(candidate_ids):
+        from billing.models import InvoiceStripePayment
+        result = set()
+        if not candidate_ids:
+            return result
+        for sp in InvoiceStripePayment.objects.filter(status='succeeded'):
+            for alloc in sp.invoice_allocations:
+                inv_id = alloc.get('invoice_id')
+                if inv_id in candidate_ids:
+                    result.add(inv_id)
+        return result
