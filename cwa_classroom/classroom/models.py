@@ -2365,3 +2365,39 @@ class SalaryPayment(models.Model):
 
     def __str__(self):
         return f'${self.amount} — {self.teacher} ({self.status})'
+
+
+class Expense(models.Model):
+    CATEGORY_CHOICES = [
+        ('rent', 'Rent'),
+        ('utilities', 'Utilities'),
+        ('salaries', 'Salaries'),
+        ('supplies', 'Supplies'),
+        ('transport', 'Transport'),
+        ('maintenance', 'Maintenance'),
+        ('marketing', 'Marketing'),
+        ('other', 'Other'),
+    ]
+
+    school = models.ForeignKey('School', on_delete=models.CASCADE,
+                                related_name='expenses')
+    department = models.ForeignKey('Department', on_delete=models.SET_NULL,
+                                    null=True, blank=True,
+                                    related_name='expenses')
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
+    description = models.CharField(max_length=255)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    date = models.DateField()
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                    null=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-date', '-created_at']
+        indexes = [
+            models.Index(fields=['school', 'date']),
+        ]
+
+    def __str__(self):
+        return f'{self.get_category_display()} — ${self.amount} ({self.date})'
