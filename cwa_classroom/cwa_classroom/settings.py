@@ -25,8 +25,8 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # ---------------------------------------------------------------------------
 # App Version  (SemVer — bump manually on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.4.26'         # MAJOR.MINOR.PATCH
-APP_VERSION_DATE  = '2026-05-24'     # ISO date of this release
+APP_VERSION       = '1.4.27'         # MAJOR.MINOR.PATCH
+APP_VERSION_DATE  = '2026-05-25'     # ISO date of this release
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
@@ -356,7 +356,7 @@ else:
 # Email
 # ---------------------------------------------------------------------------
 
-DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'info@wizardslearninghub.co.nz')
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@wizardslearninghub.co.nz')
 DAILY_EMAIL_LIMIT = int(os.environ.get('DAILY_EMAIL_LIMIT', '90'))
 
 # Priority: Resend API (recommended) > SMTP (legacy) > Console (dev)
