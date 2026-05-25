@@ -125,5 +125,9 @@
   <div class="text-4xl mb-3">🔍</div>
   <p class="text-gray-600 font-medium">No questions match your filters.</p>
   <p class="text-sm text-gray-400 mt-1">Try a different subject, topic, or search term.</p>
+  <a href="{% url 'worksheets:upload' %}"
+     class="inline-block mt-4 px-4 py-2 rounded-xl text-sm font-medium text-primary border border-primary hover:bg-primary hover:text-white transition">
+    Upload Questions
+  </a>
 </div>
 {% endif %}
