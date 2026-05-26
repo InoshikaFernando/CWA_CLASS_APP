@@ -354,8 +354,7 @@
 
   <!-- Password-reset modal overlay -->
   <div x-show="showEditModal" x-cloak
-       class="fixed inset-0 z-50 flex items-center justify-center"
-       @keydown.escape.window="showEditModal = false">
+       class="fixed inset-0 z-50 flex items-center justify-center">
     <div class="fixed inset-0 bg-black/50 backdrop-blur-sm" @click="showEditModal = false"></div>
     <div class="relative z-10 bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6"
          id="class-edit-modal-content">

@@ -7,14 +7,13 @@ Covers:
 3. Senior teacher can reset password for own student
 4. HoD can reset password for student in their department's class
 5. Teacher DENIED (404) for student not in their classes
-6. Student role DENIED (403)
-7. Parent role DENIED (403)
+6. Student role DENIED (302 redirect via RoleRequiredMixin)
+7. Parent role DENIED (302 redirect via RoleRequiredMixin)
 8. Admin/HoI still works (unchanged)
 9. `next` redirect parameter honoured on POST
-10. HoI-supplied known password mode works for teacher
+10. Open redirect blocked
 """
 import uuid
-import pytest
 from django.test import TestCase, Client
 from django.urls import reverse
 
@@ -150,7 +149,8 @@ class TeacherPasswordResetPostTest(CPP305Base):
     def test_teacher_can_reset_own_student_random(self):
         self.client.force_login(self.teacher)
         resp = self._post_reset(self.school.id, self.student.id)
-        self.assertIn(resp.status_code, [200, 302])
+        # Success → redirect to admin_school_students (student role_label)
+        self.assertEqual(resp.status_code, 302)
 
     def test_teacher_denied_reset_for_other_student(self):
         self.client.force_login(self.teacher)
