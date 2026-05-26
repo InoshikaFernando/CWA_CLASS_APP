@@ -139,11 +139,11 @@ def institute_student(db, roles, resend_school):
 
 
 def _teachers_url(live_server, school):
-    return f"{live_server.url}/classroom/admin-dashboard/schools/{school.id}/teachers/"
+    return f"{live_server.url}/admin-dashboard/schools/{school.id}/teachers/"
 
 
 def _students_url(live_server, school):
-    return f"{live_server.url}/classroom/admin-dashboard/schools/{school.id}/students/"
+    return f"{live_server.url}/admin-dashboard/schools/{school.id}/students/"
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +157,7 @@ class TestWelcomeStatusBadge:
     ):
         do_login(page, live_server.url, hoi_admin)
         page.goto(_teachers_url(live_server, resend_school))
-        page.wait_for_load_state("domcontentloaded")
+        page.wait_for_load_state("networkidle")
         expect(page.locator("text=Welcome not sent").first).to_be_visible()
 
     def test_sent_badge_visible_for_self_reg_teacher(
@@ -165,7 +165,7 @@ class TestWelcomeStatusBadge:
     ):
         do_login(page, live_server.url, hoi_admin)
         page.goto(_teachers_url(live_server, resend_school))
-        page.wait_for_load_state("domcontentloaded")
+        page.wait_for_load_state("networkidle")
         expect(page.locator("text=Welcome sent").first).to_be_visible()
 
 
@@ -180,7 +180,7 @@ class TestResendButtonVisible:
     ):
         do_login(page, live_server.url, hoi_admin)
         page.goto(_teachers_url(live_server, resend_school))
-        page.wait_for_load_state("domcontentloaded")
+        page.wait_for_load_state("networkidle")
 
         # Click the teacher row to expand it
         page.locator(f"text={institute_teacher.get_full_name()}").first.click()
@@ -200,7 +200,7 @@ class TestResendWelcomeModal:
     ):
         do_login(page, live_server.url, hoi_admin)
         page.goto(_teachers_url(live_server, resend_school))
-        page.wait_for_load_state("domcontentloaded")
+        page.wait_for_load_state("networkidle")
 
         page.locator(f"text={institute_teacher.get_full_name()}").first.click()
         page.wait_for_timeout(300)
@@ -216,7 +216,7 @@ class TestResendWelcomeModal:
     ):
         do_login(page, live_server.url, hoi_admin)
         page.goto(_teachers_url(live_server, resend_school))
-        page.wait_for_load_state("domcontentloaded")
+        page.wait_for_load_state("networkidle")
 
         page.locator(f"text={institute_teacher.get_full_name()}").first.click()
         page.wait_for_timeout(300)
@@ -231,7 +231,7 @@ class TestResendWelcomeModal:
     ):
         do_login(page, live_server.url, hoi_admin)
         page.goto(_teachers_url(live_server, resend_school))
-        page.wait_for_load_state("domcontentloaded")
+        page.wait_for_load_state("networkidle")
 
         page.locator(f"text={self_reg_teacher.get_full_name()}").first.click()
         page.wait_for_timeout(300)
@@ -245,17 +245,17 @@ class TestResendWelcomeModal:
     ):
         do_login(page, live_server.url, hoi_admin)
         page.goto(_teachers_url(live_server, resend_school))
-        page.wait_for_load_state("domcontentloaded")
+        page.wait_for_load_state("networkidle")
 
         page.locator(f"text={institute_teacher.get_full_name()}").first.click()
         page.wait_for_timeout(300)
         page.locator("button:has-text('Resend Welcome')").first.click()
         page.wait_for_timeout(500)
 
-        page.locator("button:has-text('Cancel')").first.click()
+        page.locator("#staff-edit-modal-content button:has-text('Cancel')").first.click()
         page.wait_for_timeout(300)
 
-        expect(page.locator("text=Resend Welcome Email")).not_to_be_visible()
+        expect(page.locator("h2:has-text('Resend Welcome Email')").first).not_to_be_visible()
 
 
 # ---------------------------------------------------------------------------
@@ -269,7 +269,7 @@ class TestResendWelcomeSubmit:
     ):
         do_login(page, live_server.url, hoi_admin)
         page.goto(_teachers_url(live_server, resend_school))
-        page.wait_for_load_state("domcontentloaded")
+        page.wait_for_load_state("networkidle")
 
         page.locator(f"text={institute_teacher.get_full_name()}").first.click()
         page.wait_for_timeout(300)
@@ -278,13 +278,10 @@ class TestResendWelcomeSubmit:
 
         # Submit the modal form
         page.locator("button[type='submit']:has-text('Resend Welcome Email')").click()
-        page.wait_for_load_state("domcontentloaded")
+        page.wait_for_load_state("networkidle")
 
-        # Should be back on teachers page with a message
-        expect(page).to_have_url(page.url)
-        # Success or warning message should appear
-        msg_locator = page.locator(".messages, [role='alert'], .alert").first
-        expect(msg_locator).to_be_visible(timeout=5000)
+        # Toast message (success or warning) should appear
+        expect(page.locator(".toast-item").first).to_be_visible(timeout=5000)
 
 
 # ---------------------------------------------------------------------------
@@ -298,7 +295,7 @@ class TestStudentDashboardResend:
     ):
         do_login(page, live_server.url, hoi_admin)
         page.goto(_students_url(live_server, resend_school))
-        page.wait_for_load_state("domcontentloaded")
+        page.wait_for_load_state("networkidle")
 
         expect(page.locator("text=Welcome not sent").first).to_be_visible()
 
@@ -307,7 +304,7 @@ class TestStudentDashboardResend:
     ):
         do_login(page, live_server.url, hoi_admin)
         page.goto(_students_url(live_server, resend_school))
-        page.wait_for_load_state("domcontentloaded")
+        page.wait_for_load_state("networkidle")
 
         page.locator(f"text={institute_student.get_full_name()}").first.click()
         page.wait_for_timeout(300)
