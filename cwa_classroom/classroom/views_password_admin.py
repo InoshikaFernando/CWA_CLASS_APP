@@ -1,16 +1,20 @@
 """
-HoI/Admin password reset for school members (students, parents, teachers).
+Password reset for school members (students, parents, teachers).
 
-The HoI can:
+Accessible by:
+  - HoI / Admin: any member of their school.
+  - Teacher / Senior Teacher / Junior Teacher: only students enrolled in a
+    class they teach at that school.
+  - HoD: students in their class (via ClassTeacher) OR in any class within
+    their department.
+
+The actor can:
   - Generate a random password, OR
   - Set a known password (provided in the modal).
 
 The user receives an email with the new password and a soft suggestion to
 change it on next login. We do NOT set ``must_change_password = True`` —
 the user is not forced to change.
-
-Authorization: HoI must have admin/HoI access to the school AND the target
-user must be linked to that school as a student, teacher, or parent.
 """
 import logging
 import secrets
@@ -34,6 +38,8 @@ _TEACHER_ROLES = [
     Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
 ]
 _ALL_RESET_ROLES = _ADMIN_ROLES + _TEACHER_ROLES
+
+logger = logging.getLogger(__name__)
 
 
 def _get_school_for_password_reset(request_user, school_id, target_user_id):
@@ -75,8 +81,6 @@ def _get_school_for_password_reset(request_user, school_id, target_user_id):
             return school
 
     raise Http404
-
-logger = logging.getLogger(__name__)
 
 
 # Password alphabet excluding confusable characters (0/O, 1/l/I).
