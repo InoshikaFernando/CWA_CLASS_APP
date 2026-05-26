@@ -29,6 +29,53 @@ from .models import School, SchoolStudent, SchoolTeacher, ParentStudent
 from .views import RoleRequiredMixin
 from .views_admin import _get_user_school_or_404
 
+_ADMIN_ROLES = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+_TEACHER_ROLES = [
+    Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+]
+_ALL_RESET_ROLES = _ADMIN_ROLES + _TEACHER_ROLES
+
+
+def _get_school_for_password_reset(request_user, school_id, target_user_id):
+    """
+    Return the School if request_user is authorised to reset target's password.
+
+    Admin / HoI: unrestricted within their school (delegates to existing helper).
+    Teacher-level: must teach a class at the school that has the target student.
+    HoD also passes if the target student is in any class within their department.
+    Raises Http404 on any authorisation failure.
+    """
+    from django.http import Http404
+
+    if (request_user.is_superuser
+            or any(request_user.has_role(r) for r in _ADMIN_ROLES)):
+        return _get_user_school_or_404(request_user, school_id)
+
+    school = School.objects.filter(id=school_id, is_active=True).first()
+    if not school:
+        raise Http404
+
+    from .models import ClassTeacher, ClassStudent
+
+    if ClassTeacher.objects.filter(
+        teacher=request_user,
+        classroom__school=school,
+        classroom__class_students__student_id=target_user_id,
+        classroom__class_students__is_active=True,
+    ).exists():
+        return school
+
+    if request_user.has_role(Role.HEAD_OF_DEPARTMENT):
+        if ClassStudent.objects.filter(
+            student_id=target_user_id,
+            is_active=True,
+            classroom__school=school,
+            classroom__department__head=request_user,
+        ).exists():
+            return school
+
+    raise Http404
+
 logger = logging.getLogger(__name__)
 
 
@@ -106,30 +153,32 @@ def _send_password_reset_email(user, school, plain_password, actor):
 
 class AdminPasswordResetModalView(RoleRequiredMixin, View):
     """Return the password-reset modal partial via HTMX."""
-    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+    required_roles = _ALL_RESET_ROLES
 
     def get(self, request, school_id, user_id):
-        school = _get_user_school_or_404(request.user, school_id)
         target = get_object_or_404(CustomUser, id=user_id)
+        school = _get_school_for_password_reset(request.user, school_id, user_id)
         role_label, err = _resolve_user_school_role(target, school)
         if err:
             messages.error(request, err)
             return redirect('admin_school_detail', school_id=school.id)
+        next_url = request.GET.get('next', '')
         return render(request, 'admin_dashboard/partials/password_reset_modal.html', {
             'school': school,
             'target_user': target,
             'role_label': role_label,
             'reset_url': reverse('admin_user_password_reset', args=[school.id, target.id]),
+            'next_url': next_url,
         })
 
 
 class AdminPasswordResetView(RoleRequiredMixin, View):
     """Reset a user's password (random or HoI-supplied) and email them the new value."""
-    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+    required_roles = _ALL_RESET_ROLES
 
     def post(self, request, school_id, user_id):
-        school = _get_user_school_or_404(request.user, school_id)
         target = get_object_or_404(CustomUser, id=user_id)
+        school = _get_school_for_password_reset(request.user, school_id, user_id)
         role_label, err = _resolve_user_school_role(target, school)
         if err:
             messages.error(request, err)
@@ -187,6 +236,10 @@ class AdminPasswordResetView(RoleRequiredMixin, View):
                 f'Password reset for {target.get_full_name() or target.username}, '
                 f'but the email could not be sent. Share the new password manually: {new_password}',
             )
+
+        next_url = request.POST.get('next', '').strip()
+        if next_url and next_url.startswith('/') and '//' not in next_url:
+            return redirect(next_url)
         return redirect(self._return_url(school, role_label))
 
     @staticmethod
