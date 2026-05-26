@@ -153,7 +153,7 @@ class TestOutgoingEmailCcOnInvoice:
         self.invoice = invoice
         # Use in-memory email backend so we can inspect mail.outbox
         settings.EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
-        settings.DEFAULT_FROM_EMAIL = "info@wizardslearninghub.co.nz"
+        settings.DEFAULT_FROM_EMAIL = "noreply@wizardslearninghub.co.nz"
         mail.outbox.clear()
         do_login(page, self.url, admin_user)
 
@@ -203,7 +203,7 @@ class TestOutgoingEmailCcOnInvoice:
         assert sent_email.cc == ["institute@school.com"], (
             f"Expected CC ['institute@school.com'], got {sent_email.cc}"
         )
-        assert sent_email.from_email == "info@wizardslearninghub.co.nz"
+        assert sent_email.from_email == "noreply@wizardslearninghub.co.nz"
 
 
 # ===========================================================================
