@@ -61,7 +61,7 @@ INSTALLED_APPS = [..., 'notifications', ...]
 
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
-DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'info@wizardslearninghub.co.nz')
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@wizardslearninghub.co.nz')
 ```
 
 When SMTP credentials are not configured, the project falls back to the console email backend automatically — `notifications` will still "send", but messages are printed instead of delivered.
