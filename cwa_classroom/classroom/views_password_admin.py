@@ -162,11 +162,13 @@ class AdminPasswordResetModalView(RoleRequiredMixin, View):
     def get(self, request, school_id, user_id):
         target = get_object_or_404(CustomUser, id=user_id)
         school = _get_school_for_password_reset(request.user, school_id, user_id)
+        next_url = request.GET.get('next', '')
         role_label, err = _resolve_user_school_role(target, school)
         if err:
             messages.error(request, err)
+            if next_url and next_url.startswith('/') and '//' not in next_url:
+                return redirect(next_url)
             return redirect('admin_school_detail', school_id=school.id)
-        next_url = request.GET.get('next', '')
         return render(request, 'admin_dashboard/partials/password_reset_modal.html', {
             'school': school,
             'target_user': target,
@@ -181,17 +183,28 @@ class AdminPasswordResetView(RoleRequiredMixin, View):
     required_roles = _ALL_RESET_ROLES
 
     def post(self, request, school_id, user_id):
+        # Extract next_url early so ALL redirect paths (errors included) can
+        # return teacher-level callers to the page they came from.
+        next_url = request.POST.get('next', '').strip()
+        safe_next = (
+            next_url
+            if next_url and next_url.startswith('/') and '//' not in next_url
+            else None
+        )
+
         target = get_object_or_404(CustomUser, id=user_id)
         school = _get_school_for_password_reset(request.user, school_id, user_id)
         role_label, err = _resolve_user_school_role(target, school)
         if err:
             messages.error(request, err)
+            if safe_next:
+                return redirect(safe_next)
             return redirect('admin_school_detail', school_id=school.id)
 
         # HoI cannot reset a superuser via this UI.
         if target.is_superuser:
             messages.error(request, 'Superuser passwords cannot be reset from this screen.')
-            return redirect(self._return_url(school, role_label))
+            return redirect(safe_next or self._return_url(school, role_label))
 
         mode = request.POST.get('mode', 'random').strip()
         if mode == 'known':
@@ -199,10 +212,10 @@ class AdminPasswordResetView(RoleRequiredMixin, View):
             confirm = request.POST.get('confirm_password', '')
             if len(new_password) < 8:
                 messages.error(request, 'Password must be at least 8 characters.')
-                return redirect(self._return_url(school, role_label))
+                return redirect(safe_next or self._return_url(school, role_label))
             if new_password != confirm:
                 messages.error(request, 'Passwords do not match.')
-                return redirect(self._return_url(school, role_label))
+                return redirect(safe_next or self._return_url(school, role_label))
         else:
             new_password = _generate_random_password()
 
@@ -241,10 +254,7 @@ class AdminPasswordResetView(RoleRequiredMixin, View):
                 f'but the email could not be sent. Share the new password manually: {new_password}',
             )
 
-        next_url = request.POST.get('next', '').strip()
-        if next_url and next_url.startswith('/') and '//' not in next_url:
-            return redirect(next_url)
-        return redirect(self._return_url(school, role_label))
+        return redirect(safe_next or self._return_url(school, role_label))
 
     @staticmethod
     def _return_url(school, role_label):
