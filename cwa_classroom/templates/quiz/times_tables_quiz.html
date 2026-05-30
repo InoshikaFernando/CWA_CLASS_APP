@@ -30,9 +30,10 @@
 
 {% block extra_js %}
 <script>
-  // Timer
   let s = 0;
+  let timerRunning = true;
   setInterval(() => {
+    if (!timerRunning) return;
     s++;
     const m = Math.floor(s / 60);
     document.getElementById('timer').textContent = m + ':' + String(s % 60).padStart(2, '0');
@@ -49,6 +50,7 @@
 
   function submitAnswer(choice) {
     document.querySelectorAll('.tt-answer-btn').forEach(b => b.disabled = true);
+    timerRunning = false;
     fetch("{% url 'api_tt_answer' %}", {
       method: 'POST',
       headers: {
@@ -66,6 +68,7 @@
     .catch(() => {
       document.getElementById('question-container').innerHTML =
         '<p class="text-red-500 text-center p-8">Something went wrong. Please refresh.</p>';
+      timerRunning = true;
     });
   }
 
@@ -74,10 +77,14 @@
       headers: { 'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content }
     })
     .then(r => r.text())
-    .then(html => { document.getElementById('question-container').innerHTML = html; })
+    .then(html => {
+      document.getElementById('question-container').innerHTML = html;
+      timerRunning = true;
+    })
     .catch(() => {
       document.getElementById('question-container').innerHTML =
         '<p class="text-red-500 text-center p-8">Something went wrong. Please refresh.</p>';
+      timerRunning = true;
     });
   }
 </script>
