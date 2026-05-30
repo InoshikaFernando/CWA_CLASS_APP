@@ -343,6 +343,8 @@ class TimesTablesQuizView(LoginRequiredMixin, View):
             'level_number': level_number,
             'questions': questions,
             'start_time': time.time(),
+            'question_shown_at': time.time(),
+            'thinking_time': 0.0,
             'current': 0,
             'shuffled': shuffled,
         }
@@ -383,6 +385,10 @@ class TimesTablesAnswerView(LoginRequiredMixin, View):
         q['is_correct'] = is_correct
         questions[current] = q
         session_data['current'] = current + 1
+
+        if 'question_shown_at' in session_data:
+            session_data['thinking_time'] = session_data.get('thinking_time', 0.0) + (time.time() - session_data['question_shown_at'])
+
         request.session[session_key] = session_data
         is_last = (current + 1) >= len(questions)
 
@@ -414,6 +420,8 @@ class TimesTablesNextView(LoginRequiredMixin, View):
             return redirect(reverse('times_tables_submit', kwargs={'session_id': session_id}))
 
         q = questions[current]
+        session_data['question_shown_at'] = time.time()
+        request.session[session_key] = session_data
         return render(request, 'quiz/partials/tt_question.html', {
             'question': q,
             'question_number': current + 1,
@@ -442,7 +450,11 @@ class TimesTablesSubmitView(LoginRequiredMixin, View):
         shuffled = session_data.get('shuffled', False)
         score = sum(1 for q in questions if q.get('is_correct', False))
         total = len(questions) or 1
-        time_taken = max(1, int(_time.time() - start_time))
+        thinking_time = session_data.get('thinking_time', 0.0)
+        if thinking_time > 0:
+            time_taken = max(1, int(thinking_time))
+        else:
+            time_taken = max(1, int(_time.time() - start_time))
         points = calculate_points(score, total, time_taken)
 
         # Save to DB
