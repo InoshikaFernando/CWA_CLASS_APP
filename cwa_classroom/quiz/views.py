@@ -386,8 +386,8 @@ class TimesTablesAnswerView(LoginRequiredMixin, View):
         questions[current] = q
         session_data['current'] = current + 1
 
-        question_shown_at = session_data.get('question_shown_at', time.time())
-        session_data['thinking_time'] = session_data.get('thinking_time', 0.0) + (time.time() - question_shown_at)
+        if 'question_shown_at' in session_data:
+            session_data['thinking_time'] = session_data.get('thinking_time', 0.0) + (time.time() - session_data['question_shown_at'])
 
         request.session[session_key] = session_data
         is_last = (current + 1) >= len(questions)
