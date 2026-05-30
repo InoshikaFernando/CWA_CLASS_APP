@@ -453,19 +453,36 @@ function switchMobileTab(tab) {
   // ─── Preview modal (CPP-285) ───────────────────────────────────────────────
   var PREVIEW_BASE = '{% url "worksheets:builder" %}' + 'preview/__SUBJECT__/__ID__/';
 
+  var previewLoading = false;
   document.body.addEventListener('click', function (e) {
     var card = e.target.closest('.question-card');
     if (!card) return;
     if (e.target.closest('.add-question-btn')) return;
+    if (previewLoading) return;
 
     var contentId   = card.dataset.contentId;
     var subjectSlug = card.dataset.subjectSlug || 'mathematics';
     var url = PREVIEW_BASE.replace('__SUBJECT__', subjectSlug).replace('__ID__', contentId);
 
+    previewLoading = true;
     htmx.ajax('GET', url, {
       target: '#preview-modal-content',
       swap: 'innerHTML',
     }).then(function () {
+      previewLoading = false;
+      // Update Add button state based on whether question is already selected
+      var addBtn = document.querySelector('#preview-modal-content .preview-add-btn');
+      if (addBtn) {
+        var cid = parseInt(addBtn.dataset.contentId, 10);
+        var alreadyAdded = selectedQuestions.some(function (q) { return q.content_id === cid; });
+        if (alreadyAdded) {
+          addBtn.textContent = '✓ Already Added';
+          addBtn.disabled = true;
+          addBtn.className = 'preview-add-btn w-full py-2.5 rounded-xl text-sm font-semibold transition bg-slate-100 text-slate-400 cursor-not-allowed';
+        } else {
+          addBtn.className = 'preview-add-btn w-full py-2.5 rounded-xl text-sm font-semibold transition bg-primary text-white hover:opacity-90';
+        }
+      }
       document.getElementById('preview-modal').classList.remove('hidden');
     });
   });
@@ -497,7 +514,10 @@ function switchMobileTab(tab) {
 
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') {
-      document.getElementById('preview-modal').classList.add('hidden');
+      var modal = document.getElementById('preview-modal');
+      if (!modal.classList.contains('hidden')) {
+        modal.classList.add('hidden');
+      }
     }
   });
 

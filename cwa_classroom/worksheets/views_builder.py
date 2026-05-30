@@ -440,7 +440,12 @@ class WorksheetBuilderPreviewView(RoleRequiredMixin, View):
     required_roles = BUILDER_ROLES
 
     def get(self, request, subject_slug, content_id):
+        if subject_slug not in ('mathematics', 'coding'):
+            raise Http404
+
         school = get_school_for_user(request.user)
+        if school is None:
+            raise Http404
 
         if subject_slug == 'coding':
             exercise = get_object_or_404(

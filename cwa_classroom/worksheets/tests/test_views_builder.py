@@ -516,3 +516,7 @@ class TestBuilderPreviewView(BuilderTestBase):
         self.client.logout()
         resp = self.client.get(self._preview_url())
         self.assertIn(resp.status_code, [302, 403])
+
+    def test_preview_invalid_subject_slug_returns_404(self):
+        resp = self.client.get(self._preview_url(subject_slug='science'))
+        self.assertEqual(resp.status_code, 404)
