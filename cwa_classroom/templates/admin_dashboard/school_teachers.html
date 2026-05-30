@@ -255,9 +255,9 @@
                     <span class="text-xs font-medium px-2 py-1 rounded-full ml-1 bg-red-100 text-red-600">Inactive</span>
                     {% endif %}
                     {% if st.teacher.welcome_email_sent %}
-                    <span class="text-xs font-medium px-2 py-1 rounded-full ml-1 bg-green-100 text-green-700" title="Welcome email sent {{ st.teacher.welcome_email_sent|date:'d M Y' }}">&#10003; Welcome sent</span>
+                    <span class="text-xs font-medium px-2 py-0.5 rounded-full ml-1 bg-green-100 text-green-700" title="Welcome email sent {{ st.teacher.welcome_email_sent|date:'d M Y' }}">&#10003; Welcome sent</span>
                     {% else %}
-                    <span class="text-xs font-medium px-2 py-1 rounded-full ml-1 bg-amber-100 text-amber-700">Welcome not sent</span>
+                    <span class="text-xs font-medium px-2 py-0.5 rounded-full ml-1 bg-amber-100 text-amber-700">Welcome not sent</span>
                     {% endif %}
                   </div>
                   <svg class="w-4 h-4 text-gray-400 transition-transform duration-200 flex-shrink-0"

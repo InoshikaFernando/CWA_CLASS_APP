@@ -251,14 +251,19 @@ class ResendWelcomeEmailView(RoleRequiredMixin, View):
             messages.error(request, 'Superuser welcome emails cannot be resent from this screen.')
             return redirect(AdminPasswordResetView._return_url(school, role_label))
 
-        new_password = None
-        if target.creation_method == 'institute':
-            new_password = _generate_random_password()
+        # Generate a new password for institute accounts but only persist
+        # after the email is confirmed sent — avoids locking the user out
+        # with an unknown password if the email fails.
+        is_institute = target.creation_method == 'institute'
+        new_password = _generate_random_password() if is_institute else None
+
+        email_sent = _send_resend_welcome_email(target, school, new_password)
+
+        # Only change the password if the email was actually delivered.
+        if email_sent and new_password:
             target.set_password(new_password)
             target.must_change_password = True
             target.save(update_fields=['password', 'must_change_password'])
-
-        email_sent = _send_resend_welcome_email(target, school, new_password)
 
         log_event(
             user=request.user, school=school, category='communication',
@@ -269,7 +274,7 @@ class ResendWelcomeEmailView(RoleRequiredMixin, View):
                 'target_role': role_label,
                 'creation_method': target.creation_method,
                 'email_sent': email_sent,
-                'password_reset': new_password is not None,
+                'password_reset': email_sent and new_password is not None,
             },
             request=request,
         )
