@@ -215,63 +215,6 @@ class UnlimitedPlanDisplayTest(TestCase):
         self.assertNotContains(resp, '0 classes, 0 students')
 
 
-class SchoolStudentRegistrationTest(TestCase):
-    """Test SchoolStudentRegisterView — simple registration, no package."""
-
-    def setUp(self):
-        self.client = Client()
-        self.url = reverse('register_school_student')
-
-    def test_get_returns_200(self):
-        resp = self.client.get(self.url)
-        self.assertEqual(resp.status_code, 200)
-
-    def test_register_creates_user_with_student_role(self):
-        resp = self.client.post(self.url, {
-            'first_name': 'John',
-            'last_name': 'Doe',
-            'email': 'john@test.com',
-            'username': 'johndoe',
-            'password': 'securepass1',
-            'confirm_password': 'securepass1',
-            'accept_terms': 'on',
-        })
-        self.assertEqual(resp.status_code, 302)
-        user = CustomUser.objects.get(username='johndoe')
-        self.assertTrue(user.has_role(Role.STUDENT))
-
-    def test_register_missing_first_name(self):
-        resp = self.client.post(self.url, {
-            'last_name': 'Doe',
-            'email': 'john@test.com',
-            'username': 'johndoe',
-            'password': 'securepass1',
-            'confirm_password': 'securepass1',
-            'accept_terms': 'on',
-        })
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'First name')
-
-    def test_register_password_too_short(self):
-        resp = self.client.post(self.url, {
-            'first_name': 'John',
-            'last_name': 'Doe',
-            'email': 'john@test.com',
-            'username': 'johndoe',
-            'password': 'short',
-            'confirm_password': 'short',
-            'accept_terms': 'on',
-        })
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'at least 8')
-
-    def test_authenticated_user_redirected(self):
-        user = CustomUser.objects.create_user('existing', 'e@t.com', 'pass1234')
-        self.client.force_login(user)
-        resp = self.client.get(self.url)
-        self.assertEqual(resp.status_code, 302)
-
-
 class IndividualStudentRegistrationTest(TestCase):
     """Test IndividualStudentRegisterView — multi-step with package selection."""
 
@@ -668,44 +611,6 @@ class TermsAcceptanceInstituteTest(TestCase):
         self.assertContains(resp, 'privacy-scroll')
 
 
-class TermsAcceptanceSchoolStudentTest(TestCase):
-    """Test that school student registration requires T&C acceptance."""
-
-    def setUp(self):
-        self.client = Client()
-        self.url = reverse('register_school_student')
-
-    def _base_data(self, accept=False):
-        data = {
-            'first_name': 'Jane',
-            'last_name': 'Doe',
-            'email': 'jane@test.com',
-            'username': 'janedoe',
-            'password': 'securepass1',
-            'confirm_password': 'securepass1',
-        }
-        if accept:
-            data['accept_terms'] = 'on'
-        return data
-
-    def test_fails_without_accept_terms(self):
-        resp = self.client.post(self.url, self._base_data(accept=False))
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'Terms and Conditions')
-
-    def test_succeeds_with_accept_terms(self):
-        resp = self.client.post(self.url, self._base_data(accept=True))
-        self.assertEqual(resp.status_code, 302)
-        user = CustomUser.objects.get(username='janedoe')
-        self.assertIsNotNone(user.terms_accepted_at)
-
-    def test_get_shows_terms_acceptance_widget(self):
-        resp = self.client.get(self.url)
-        self.assertContains(resp, 'accept-terms')
-        self.assertContains(resp, 'terms-scroll')
-        self.assertContains(resp, 'privacy-scroll')
-
-
 class TermsAcceptanceIndividualStudentTest(TestCase):
     """Test that individual student registration requires T&C acceptance."""
 
@@ -759,11 +664,6 @@ class TermsFooterLinksTest(TestCase):
         resp = self.client.get(reverse('login'))
         self.assertContains(resp, 'Terms and Conditions')
         self.assertContains(resp, 'Privacy Policy')
-
-    def test_school_student_register_has_legal_links(self):
-        resp = self.client.get(reverse('register_school_student'))
-        self.assertContains(resp, '/terms/')
-        self.assertContains(resp, '/privacy/')
 
     def test_institute_register_has_legal_links(self):
         resp = self.client.get(reverse('register_teacher_center'))

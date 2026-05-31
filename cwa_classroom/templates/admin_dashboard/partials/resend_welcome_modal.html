@@ -1,0 +1,66 @@
+{# Resend welcome email modal — loaded via HTMX into a host page's edit-modal slot. #}
+{# Host page must define `showEditModal` (Alpine x-data) for the close button. #}
+<div>
+  <div class="flex items-center justify-between mb-5">
+    <h2 class="text-lg font-semibold text-gray-900">Resend Welcome Email</h2>
+    <button @click="showEditModal = false" type="button" class="text-gray-400 hover:text-gray-600 transition">
+      <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Target user banner -->
+  <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-5">
+    <p class="text-xs uppercase tracking-wide text-slate-500 font-semibold mb-1">
+      {{ role_label|capfirst }}
+    </p>
+    <p class="text-sm font-semibold text-gray-900">{{ target_user.get_full_name|default:target_user.username }}</p>
+    <p class="text-xs text-gray-500 mt-0.5">
+      <span class="font-mono">@{{ target_user.username }}</span>
+      {% if target_user.email %} &middot; {{ target_user.email }}{% endif %}
+    </p>
+    {% if target_user.welcome_email_sent %}
+    <p class="text-xs text-gray-400 mt-1.5">
+      Last welcome email: {{ target_user.welcome_email_sent|date:"d M Y, H:i" }}
+    </p>
+    {% else %}
+    <p class="text-xs text-amber-600 font-medium mt-1.5">Welcome email has not been sent yet.</p>
+    {% endif %}
+  </div>
+
+  {% if not target_user.email %}
+  <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4">
+    <p class="text-sm text-amber-800">
+      <strong>No email address on file.</strong> Add an email address before resending.
+    </p>
+  </div>
+  {% elif target_user.creation_method == 'institute' %}
+  <div class="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4">
+    <p class="text-sm text-blue-900">
+      This is an institute-created account. A <strong>new temporary password</strong> will be generated,
+      set on the account, and included in the email. The user will be required to change it on next login.
+    </p>
+  </div>
+  {% else %}
+  <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4">
+    <p class="text-sm text-slate-700">
+      This is a self-registered account. The welcome email will be resent
+      <strong>without a new password</strong>.
+    </p>
+  </div>
+  {% endif %}
+
+  <form method="post" action="{{ resend_url }}">
+    {% csrf_token %}
+    <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+      <button type="button" @click="showEditModal = false"
+              class="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 transition">Cancel</button>
+      <button type="submit"
+              {% if not target_user.email %}disabled{% endif %}
+              class="px-6 py-2 bg-accent text-white text-sm font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+        Resend Welcome Email
+      </button>
+    </div>
+  </form>
+</div>

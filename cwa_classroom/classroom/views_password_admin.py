@@ -265,3 +265,96 @@ class AdminPasswordResetView(RoleRequiredMixin, View):
         if role_label == 'parent':
             return reverse('admin_school_parents', args=[school.id])
         return reverse('admin_school_detail', args=[school.id])
+
+
+def _send_resend_welcome_email(user, school, plain_password):
+    """Delegate to resend_welcome_notification. Returns True/False, never raises."""
+    try:
+        from notifications.services import resend_welcome_notification
+        return resend_welcome_notification(user=user, plain_password=plain_password, school=school)
+    except Exception:
+        logger.exception('Unexpected error during welcome resend for %s', user.email)
+        return False
+
+
+class ResendWelcomeModalView(RoleRequiredMixin, View):
+    """Return the resend-welcome modal partial via HTMX."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request, school_id, user_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        target = get_object_or_404(CustomUser, id=user_id)
+        role_label, err = _resolve_user_school_role(target, school)
+        if err:
+            messages.error(request, err)
+            return redirect('admin_school_detail', school_id=school.id)
+        return render(request, 'admin_dashboard/partials/resend_welcome_modal.html', {
+            'school': school,
+            'target_user': target,
+            'role_label': role_label,
+            'resend_url': reverse('admin_user_resend_welcome', args=[school.id, target.id]),
+        })
+
+
+class ResendWelcomeEmailView(RoleRequiredMixin, View):
+    """
+    Resend the welcome email to a school member.
+
+    Institute accounts: generates a new temporary password, updates the account,
+    includes the password in the email, sets must_change_password=True.
+    Self-registered accounts: resends the welcome email without a password.
+    """
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def post(self, request, school_id, user_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        target = get_object_or_404(CustomUser, id=user_id)
+        role_label, err = _resolve_user_school_role(target, school)
+        if err:
+            messages.error(request, err)
+            return redirect('admin_school_detail', school_id=school.id)
+
+        if target.is_superuser:
+            messages.error(request, 'Superuser welcome emails cannot be resent from this screen.')
+            return redirect(AdminPasswordResetView._return_url(school, role_label))
+
+        new_password = None
+        if target.creation_method == 'institute':
+            new_password = _generate_random_password()
+            target.set_password(new_password)
+            target.must_change_password = True
+            target.save(update_fields=['password', 'must_change_password'])
+
+        email_sent = _send_resend_welcome_email(target, school, new_password)
+
+        log_event(
+            user=request.user, school=school, category='communication',
+            action='welcome_email_resent',
+            detail={
+                'target_user_id': target.id,
+                'target_user': target.get_full_name() or target.username,
+                'target_role': role_label,
+                'creation_method': target.creation_method,
+                'email_sent': email_sent,
+                'password_reset': new_password is not None,
+            },
+            request=request,
+        )
+
+        name = target.get_full_name() or target.username
+        if email_sent:
+            if new_password:
+                messages.success(
+                    request,
+                    f'Welcome email resent to {name}. A new temporary password was generated and included.',
+                )
+            else:
+                messages.success(request, f'Welcome email resent to {name}.')
+        else:
+            messages.warning(
+                request,
+                f'Welcome email for {name} could not be sent. '
+                f'Check their email address ({target.email or "none"}) and try again.',
+            )
+
+        return redirect(AdminPasswordResetView._return_url(school, role_label))

@@ -57,6 +57,7 @@ logger = logging.getLogger(__name__)
 # Notification type constants (stored in EmailLog.notification_type)
 # ---------------------------------------------------------------------------
 NOTIF_WELCOME = 'welcome'
+NOTIF_WELCOME_RESEND = 'welcome_resend'
 NOTIF_EMAIL_CHANGED = 'email_changed'
 NOTIF_PASSWORD_CHANGED = 'password_changed'
 
@@ -242,6 +243,60 @@ def send_welcome_notification(user, plain_password=None, school=None):
         logger.info('Welcome email sent to user %s (%s).', user.pk, user.email)
     else:
         logger.warning('Welcome email FAILED for user %s (%s).', user.pk, user.email)
+
+    return success
+
+
+def resend_welcome_notification(user, plain_password=None, school=None):
+    """
+    Force-send a welcome email, bypassing the duplicate-send guard.
+
+    Used by the HoI "Resend Welcome Email" action. The caller has already
+    confirmed intent and optionally reset the user's password for institute
+    accounts. Updates ``welcome_email_sent`` to now on success.
+    """
+    if not user.email:
+        logger.warning('Cannot resend welcome to user %s: no email address.', user.pk)
+        return False
+
+    resolved_school = _resolve_school(user, school)
+    creation = user.creation_method or 'self_registered'
+    bucket = _role_bucket(user)
+    template = _WELCOME_TEMPLATES.get(
+        (bucket, creation), _WELCOME_TEMPLATES[('teacher', 'self_registered')]
+    )
+
+    ctx = _build_base_context(user, resolved_school)
+    ctx['is_institute_created'] = (creation == 'institute')
+    ctx['role_display'] = {
+        'parent': 'Parent',
+        'student': 'Student',
+        'teacher': 'Staff Member',
+    }.get(bucket, 'Member')
+
+    if plain_password and creation == 'institute':
+        ctx['temp_password'] = plain_password
+        ctx['username'] = user.username
+
+    school_label = resolved_school.name if resolved_school else 'Wizards Learning Hub'
+    subject = f'Welcome to {school_label} — Your Account is Ready'
+
+    success = _send(
+        recipient_email=user.email,
+        subject=subject,
+        template=template,
+        context=ctx,
+        user=user,
+        school=resolved_school,
+        notification_type=NOTIF_WELCOME_RESEND,
+    )
+
+    if success:
+        user.welcome_email_sent = timezone.now()
+        user.save(update_fields=['welcome_email_sent'])
+        logger.info('Welcome resend sent to user %s (%s).', user.pk, user.email)
+    else:
+        logger.warning('Welcome resend FAILED for user %s (%s).', user.pk, user.email)
 
     return success
 
