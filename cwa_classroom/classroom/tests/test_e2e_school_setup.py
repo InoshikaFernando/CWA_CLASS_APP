@@ -252,27 +252,6 @@ class StudentManagementTest(TestCase):
 
     # -- tests ---------------------------------------------------------------
 
-    def test_register_school_student(self):
-        """POST to register_school_student creates a user with the student role."""
-        client = Client()
-        url = reverse('register_school_student')
-        data = {
-            'first_name': 'Tom',
-            'last_name': 'Student',
-            'email': 'wlhtestmails+tom.student@gmail.com',
-            'username': 'tom_student',
-            'password': 'securepass123',
-            'confirm_password': 'securepass123',
-            'accept_terms': 'on',
-        }
-        response = client.post(url, data)
-
-        # Registration redirects to student_join_class
-        self.assertEqual(response.status_code, 302)
-        user = CustomUser.objects.get(username='tom_student')
-        self.assertTrue(user.has_role(Role.STUDENT))
-        self.assertEqual(user.first_name, 'Tom')
-
     def test_student_joins_class_by_code(self):
         """POST to student_join_class with a valid class code creates a pending enrollment."""
         from classroom.models import Enrollment

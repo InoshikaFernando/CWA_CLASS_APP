@@ -25,7 +25,6 @@
   /accounts/register/individual-student/                                   register_individual_student
   /accounts/register/parent-join/                                          register_parent_join
   /accounts/register/parent/<uuid:token>/                                  register_parent
-  /accounts/register/school-student/                                       register_school_student
   /accounts/register/teacher-center/                                       register_teacher_center
   /accounts/reset/<uidb64>/<token>/                                        password_reset_confirm
   /accounts/reset/done/                                                    password_reset_complete
