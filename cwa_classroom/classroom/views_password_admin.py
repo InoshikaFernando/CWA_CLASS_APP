@@ -295,14 +295,17 @@ def _resend_welcome_to_user(user, school):
     new_password = None
     if user.creation_method == CustomUser.CREATION_INSTITUTE:
         new_password = _generate_random_password()
+
+    sent = _send_resend_welcome_email(user, school, new_password)
+
+    if sent and new_password is not None:
         user.set_password(new_password)
         user.must_change_password = True
         user.save(update_fields=['password', 'must_change_password'])
 
-    sent = _send_resend_welcome_email(user, school, new_password)
     return {
         'sent': sent,
-        'password_reset': new_password is not None,
+        'password_reset': new_password is not None and sent,
         'skipped': False,
     }
 
