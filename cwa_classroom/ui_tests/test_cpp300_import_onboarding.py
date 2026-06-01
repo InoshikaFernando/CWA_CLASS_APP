@@ -45,8 +45,6 @@ import pytest
 from django.core import mail
 from playwright.sync_api import expect
 
-from .conftest import do_login, do_logout
-
 
 pytestmark = pytest.mark.csv_import
 
@@ -257,27 +255,23 @@ class TestImportIntoUnpublishedThenPublish:
         assert mail.outbox == [], "welcome email leaked before publish"
         assert ss.student.profile_completed is False  # gated regardless of publish
 
-        # ── Admin publishes the school via the browser ─────────────────────
-        do_login(page, url, admin_user)
-        # SchoolPublishView is a POST endpoint; submit it from the authenticated
-        # browser session so the real view runs and sends the emails.
-        page.evaluate(
-            """([base, schoolId]) => {
-                const form = document.createElement('form');
-                form.method = 'POST';
-                form.action = `${base}/admin-dashboard/schools/${schoolId}/publish/`;
-                const csrf = document.createElement('input');
-                csrf.type = 'hidden';
-                csrf.name = 'csrfmiddlewaretoken';
-                const m = document.cookie.match(/csrftoken=([^;]+)/);
-                csrf.value = m ? m[1] : '';
-                form.appendChild(csrf);
-                document.body.appendChild(form);
-                form.submit();
-            }""",
-            [url, school.id],
+        # ── Admin publishes the school ─────────────────────────────────────
+        # SchoolPublishView's behaviour (flip is_published, send notifications)
+        # is exercised here. We invoke the real view server-side via the test
+        # Client rather than a browser POST on purpose: under CI the UI tests
+        # run on SQLite with parallel workers, and a publish POST handled in the
+        # live-server thread while this test thread holds a connection trips
+        # "database table is locked" on a multi-row write. Driving it in-process
+        # keeps it on a single connection. The student-facing steps below remain
+        # real browser interactions.
+        from django.test import Client
+
+        admin_client = Client()
+        admin_client.force_login(admin_user)
+        pub_resp = admin_client.post(
+            f"/admin-dashboard/schools/{school.id}/publish/"
         )
-        page.wait_for_load_state("domcontentloaded")
+        assert pub_resp.status_code in (302, 200)
 
         # Now the credentials have been emailed.
         ss.refresh_from_db()
@@ -285,8 +279,6 @@ class TestImportIntoUnpublishedThenPublish:
         assert ss.pending_password == "", "pending_password not cleared on publish"
         assert any(creds["email"] in (m.to or []) for m in mail.outbox), \
             "no welcome email to the student after publish"
-
-        do_logout(page, url)
 
         # ── Student logs in with the now-delivered credentials ─────────────
         _login_with_password(page, url, creds["username"], creds["password"])
