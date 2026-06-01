@@ -901,9 +901,13 @@ class ClassDetailView(RoleRequiredMixin, View):
             classroom=classroom, is_active=True,
         ).values_list('student_id', flat=True)
 
+        # Bulk "Resend Welcome" is available to admin/HoI and the class's teachers.
+        can_resend_welcome = bool(classroom.school_id)
+
         return render(request, 'teacher/class_detail.html', {
             'classroom': classroom,
             'students': CustomUser.objects.filter(id__in=active_student_ids),
+            'can_resend_welcome': can_resend_welcome,
             'teachers': classroom.teachers.all(),
             'sessions': sessions,
             'todays_session': todays_session,
