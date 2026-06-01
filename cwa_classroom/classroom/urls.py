@@ -156,6 +156,19 @@ urlpatterns = [
          views_password_admin.AdminPasswordResetView.as_view(),
          name='admin_user_password_reset'),
 
+    # HoI resend welcome email (any school member)
+    path('admin-dashboard/schools/<int:school_id>/users/<int:user_id>/resend-welcome/modal/',
+         views_password_admin.ResendWelcomeModalView.as_view(),
+         name='admin_user_resend_welcome_modal'),
+    path('admin-dashboard/schools/<int:school_id>/users/<int:user_id>/resend-welcome/',
+         views_password_admin.ResendWelcomeEmailView.as_view(),
+         name='admin_user_resend_welcome'),
+
+    # Per-class bulk resend welcome (CPP-300) — students + their parents
+    path('class/<int:class_id>/resend-welcome/',
+         views_password_admin.BulkResendWelcomeView.as_view(),
+         name='class_bulk_resend_welcome'),
+
     # Parent list & edit (school-level)
     path('admin-dashboard/schools/<int:school_id>/parents/', views_parent_admin.SchoolParentListView.as_view(), name='admin_school_parents'),
     path('admin-dashboard/schools/<int:school_id>/parents/add/', views_parent_admin.AddParentView.as_view(), name='admin_school_add_parent'),
@@ -233,6 +246,7 @@ urlpatterns = [
     path('parent/attendance/', views_parent.ParentAttendanceView.as_view(), name='parent_attendance'),
     path('parent/progress/', views_parent.ParentProgressView.as_view(), name='parent_progress'),
     path('parent/homework/', views_parent.ParentHomeworkView.as_view(), name='parent_homework'),
+    path('parent/worksheets/', views_parent.ParentWorksheetView.as_view(), name='parent_worksheets'),
     path('parent/add-child/', views_parent.ParentAddChildView.as_view(), name='parent_add_child'),
     path('parent/classes/', views_parent.ParentClassesView.as_view(), name='parent_classes'),
     path('parent/become-parent/', views_parent.BecomeParentView.as_view(), name='become_parent'),
@@ -288,6 +302,12 @@ urlpatterns = [
     path('department/workload/', views.HoDWorkloadView.as_view(), name='hod_workload'),
     path('department/reports/', views.HoDReportsView.as_view(), name='hod_reports'),
     path('reports/students/', views_reports.StudentReportView.as_view(), name='reports_students'),
+    path('reports/teachers/', views_reports.TeacherReportView.as_view(), name='reports_teachers'),
+    path('reports/revenue/', views_reports.RevenueReportView.as_view(), name='reports_revenue'),
+    path('reports/expenses/', views_reports.ExpenseReportView.as_view(), name='reports_expenses'),
+    path('expenses/add/', views_reports.ExpenseCreateView.as_view(), name='expense_add'),
+    path('expenses/<int:pk>/edit/', views_reports.ExpenseEditView.as_view(), name='expense_edit'),
+    path('expenses/<int:pk>/delete/', views_reports.ExpenseDeleteView.as_view(), name='expense_delete'),
     path('department/attendance/', views.HoDAttendanceReportView.as_view(), name='hod_attendance_report'),
     path('department/attendance/detail/', views.AttendanceDetailView.as_view(), name='attendance_detail'),
     path('department/subject-levels/', views.HoDSubjectLevelsView.as_view(), name='hod_subject_levels'),

@@ -2,7 +2,22 @@
 {% load classroom_extras %}
 {% block title %}{{ classroom.name }}{% endblock %}
 {% block content %}
-<div class="max-w-5xl mx-auto space-y-6">
+<div class="max-w-5xl mx-auto space-y-6"
+     x-data="{
+       showEditModal: false,
+       showResendModal: false,
+       feeEditing: {},
+       openEditModal(url) {
+         fetch(url, {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+           .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
+           .then(html => {
+             document.getElementById('class-edit-modal-content').innerHTML = html;
+             this.showEditModal = true;
+           })
+           .catch(err => alert('Could not load form: ' + err));
+       }
+     }"
+     @keydown.escape.window="showEditModal = false">
   <div class="flex items-start justify-between">
     <div>
       <h1 class="font-display text-3xl text-primary">{{ classroom.name }}</h1>
@@ -108,19 +123,29 @@
             <p class="text-xs text-gray-400">Class fee: {{ class_effective_fee|format_currency:effective_currency }}</p>
           {% endif %}
         </div>
-        <a href="{% url 'assign_students' class_id=classroom.id %}"
-           class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-primary-dark transition">
-          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z"/>
-          </svg>
-          Add Students
-        </a>
+        <div class="flex items-center gap-2">
+          {% if can_resend_welcome and students %}
+          <button type="button" @click="showResendModal = true"
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 transition">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"/>
+            </svg>
+            Resend Welcome
+          </button>
+          {% endif %}
+          <a href="{% url 'assign_students' class_id=classroom.id %}"
+             class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-primary-dark transition">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z"/>
+            </svg>
+            Add Students
+          </a>
+        </div>
       </div>
       {% if student_fee_data %}
       <ul class="space-y-2">
         {% for item in student_fee_data %}
-        <li class="flex items-center justify-between py-2 border-b border-gray-50 last:border-0"
-            x-data="{ editingFee: false }">
+        <li class="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
           <div class="flex items-center gap-2">
             <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-primary-light text-primary text-xs font-bold">
               {{ item.student.username|slice:":2"|upper }}
@@ -138,12 +163,17 @@
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <div x-show="!editingFee" class="flex items-center gap-2">
+            <div x-show="!feeEditing['{{ item.student.id }}']" class="flex items-center gap-2">
               {% if can_edit_fee %}
-                <button @click="editingFee = true" type="button"
+                <button @click="feeEditing['{{ item.student.id }}'] = true" type="button"
                         class="text-xs text-accent hover:text-accent-dark font-medium">Fee</button>
               {% endif %}
               <a href="{% url 'student_progress' student_id=item.student.id %}" class="text-xs text-primary hover:underline">Progress</a>
+              {% if classroom.school_id %}
+              <button type="button"
+                      @click="openEditModal('{% url 'admin_user_password_reset_modal' classroom.school_id item.student.id %}?next={% url 'class_detail' classroom.id %}')"
+                      class="text-xs text-amber-600 hover:text-amber-800 font-medium">Reset Password</button>
+              {% endif %}
               <form method="post" action="{% url 'class_student_remove' class_id=classroom.id student_id=item.student.id %}" class="inline"
                     onsubmit="return confirm('Remove {{ item.student.get_full_name|default:item.student.username }} from this class?')">
                 {% csrf_token %}
@@ -151,7 +181,7 @@
               </form>
             </div>
             {% if can_edit_fee %}
-            <form x-show="editingFee" x-cloak method="post"
+            <form x-show="feeEditing['{{ item.student.id }}']" x-cloak method="post"
                   action="{% url 'update_student_fee' class_id=classroom.id student_id=item.student.id %}"
                   class="flex items-center gap-1">
               {% csrf_token %}
@@ -160,7 +190,7 @@
                      placeholder="{% if class_effective_fee %}Inherit {{ class_effective_fee|format_currency:effective_currency }}{% else %}No fee{% endif %}"
                      class="w-20 px-2 py-1 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-accent/30">
               <button type="submit" class="text-xs bg-accent text-white px-2 py-1 rounded font-semibold">Save</button>
-              <button @click="editingFee = false" type="button" class="text-xs text-gray-400">✕</button>
+              <button @click="feeEditing['{{ item.student.id }}'] = false" type="button" class="text-xs text-gray-400">✕</button>
             </form>
             {% endif %}
           </div>
@@ -179,6 +209,11 @@
           </div>
           <div class="flex items-center gap-2">
             <a href="{% url 'student_progress' student_id=s.id %}" class="text-xs text-primary hover:underline">Progress</a>
+            {% if classroom.school_id %}
+            <button type="button"
+                    @click="openEditModal('{% url 'admin_user_password_reset_modal' classroom.school_id s.id %}?next={% url 'class_detail' classroom.id %}')"
+                    class="text-xs text-amber-600 hover:text-amber-800 font-medium">Reset Password</button>
+            {% endif %}
             <form method="post" action="{% url 'class_student_remove' class_id=classroom.id student_id=s.id %}" class="inline"
                   onsubmit="return confirm('Remove {{ s.get_full_name|default:s.username }} from this class?')">
               {% csrf_token %}
@@ -328,5 +363,92 @@
     </div>
     {% endif %}
   </div>
+
+  <!-- Password-reset modal overlay -->
+  <div x-show="showEditModal" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center">
+    <div class="fixed inset-0 bg-black/50 backdrop-blur-sm" @click="showEditModal = false"></div>
+    <div class="relative z-10 bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6"
+         id="class-edit-modal-content">
+    </div>
+  </div>
+
+  {% if can_resend_welcome and students %}
+  <!-- Bulk resend-welcome modal (CPP-300) -->
+  <div x-show="showResendModal" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center"
+       x-data="{
+         selectedCount() {
+           return this.$refs.resendForm.querySelectorAll('input[name=student_ids]:checked').length;
+         },
+         total() {
+           return this.$refs.resendForm.querySelectorAll('input[name=student_ids]').length;
+         },
+         count: 0,
+         refresh() { this.count = this.selectedCount(); },
+         setAll(val) {
+           this.$refs.resendForm
+             .querySelectorAll('input[name=student_ids]')
+             .forEach(cb => { cb.checked = val; });
+           this.refresh();
+         }
+       }"
+       x-init="$nextTick(() => refresh())">
+    <div class="fixed inset-0 bg-black/50 backdrop-blur-sm" @click="showResendModal = false"></div>
+    <div class="relative z-10 bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 p-6">
+      <h3 class="font-display text-xl text-primary mb-1">Resend Welcome Emails</h3>
+      <p class="text-sm text-gray-500 mb-4">
+        Selected students <strong>and their linked parents</strong> will receive a
+        fresh welcome email with new login details. This regenerates each
+        student's temporary password.
+      </p>
+
+      <form method="post" x-ref="resendForm"
+            action="{% url 'class_bulk_resend_welcome' class_id=classroom.id %}"
+            @submit="if (count === 0) { $event.preventDefault(); return; }
+                     if (!confirm('Resend welcome to ' + count + ' student(s) and their parents? This regenerates their passwords.')) { $event.preventDefault(); }">
+        {% csrf_token %}
+
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-3">
+            <button type="button" @click="setAll(true)"
+                    class="text-xs text-primary hover:underline font-medium">Select all</button>
+            <button type="button" @click="setAll(false)"
+                    class="text-xs text-gray-500 hover:underline font-medium">Unselect all</button>
+          </div>
+          <span class="text-xs text-gray-500">
+            Resend to <strong x-text="count"></strong> of <strong x-text="total()"></strong>
+          </span>
+        </div>
+
+        <div class="max-h-64 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
+          {% for s in students %}
+          <label class="flex items-center gap-2 px-3 py-2 text-sm {% if not s.email %}opacity-60{% endif %}">
+            <input type="checkbox" name="student_ids" value="{{ s.id }}"
+                   {% if s.email %}checked{% else %}disabled{% endif %}
+                   @change="refresh()"
+                   class="rounded border-gray-300 text-primary focus:ring-primary/30">
+            <span class="text-gray-700 font-medium">{{ s.get_full_name|default:s.username }}</span>
+            {% if not s.email %}
+              <span class="ml-auto text-[10px] uppercase tracking-wide bg-gray-100 text-gray-400 rounded px-1.5 py-0.5">no email</span>
+            {% endif %}
+          </label>
+          {% endfor %}
+        </div>
+
+        <div class="flex items-center justify-end gap-2 mt-5">
+          <button type="button" @click="showResendModal = false"
+                  class="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 font-medium">Cancel</button>
+          <button type="submit"
+                  :disabled="count === 0"
+                  :class="count === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-emerald-700'"
+                  class="px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-lg transition">
+            Send Welcome Emails
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

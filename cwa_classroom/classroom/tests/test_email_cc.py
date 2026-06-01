@@ -98,7 +98,7 @@ class ResolveCcEmailTests(TestCase):
 
 @override_settings(
     EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
-    DEFAULT_FROM_EMAIL='info@wizardslearninghub.co.nz',
+    DEFAULT_FROM_EMAIL='noreply@wizardslearninghub.co.nz',
     SITE_URL='http://localhost',
 )
 class SendTemplatedEmailCcTests(TestCase):
@@ -171,7 +171,7 @@ class SendTemplatedEmailCcTests(TestCase):
 
 @override_settings(
     EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
-    DEFAULT_FROM_EMAIL='info@wizardslearninghub.co.nz',
+    DEFAULT_FROM_EMAIL='noreply@wizardslearninghub.co.nz',
     SITE_URL='http://localhost',
 )
 class StaffWelcomeEmailCcTests(TestCase):

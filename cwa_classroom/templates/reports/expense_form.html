@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}{% if editing %}Edit Expense{% else %}Add Expense{% endif %}{% endblock %}
+{% block content %}
+<div class="max-w-2xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-6">
+    <a href="{% url 'reports_expenses' %}" class="text-sm text-accent hover:underline mb-2 inline-block">&larr; Back to Expense Report</a>
+    <h1 class="text-2xl font-display font-bold text-gray-900">{% if editing %}Edit Expense{% else %}Add Expense{% endif %}</h1>
+  </div>
+
+  <!-- Form -->
+  <form method="post" class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-5">
+    {% csrf_token %}
+
+    {% if form.errors %}
+    <div class="bg-rose-50 border border-rose-200 rounded-xl p-4 text-sm text-rose-700">
+      Please correct the errors below.
+    </div>
+    {% endif %}
+
+    <!-- Category -->
+    <div class="flex flex-col gap-1.5">
+      <label for="id_category" class="text-sm font-semibold text-gray-700">Category</label>
+      <select name="category" id="id_category"
+              class="rounded-lg border border-slate-300 text-sm px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-accent/40">
+        {% for value, label in form.fields.category.choices %}
+          <option value="{{ value }}" {% if form.category.value == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      {% if form.category.errors %}<p class="text-xs text-rose-600 mt-1">{{ form.category.errors.0 }}</p>{% endif %}
+    </div>
+
+    <!-- Description -->
+    <div class="flex flex-col gap-1.5">
+      <label for="id_description" class="text-sm font-semibold text-gray-700">Description</label>
+      <input type="text" name="description" id="id_description" value="{{ form.description.value|default:'' }}"
+             placeholder="e.g. Monthly rent payment"
+             class="rounded-lg border border-slate-300 text-sm px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-accent/40"
+             required maxlength="255">
+      {% if form.description.errors %}<p class="text-xs text-rose-600 mt-1">{{ form.description.errors.0 }}</p>{% endif %}
+    </div>
+
+    <!-- Amount + Date row -->
+    <div class="grid grid-cols-2 gap-4">
+      <div class="flex flex-col gap-1.5">
+        <label for="id_amount" class="text-sm font-semibold text-gray-700">Amount ($)</label>
+        <input type="number" name="amount" id="id_amount" value="{{ form.amount.value|default:'' }}"
+               step="0.01" min="0.01"
+               class="rounded-lg border border-slate-300 text-sm px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-accent/40"
+               required>
+        {% if form.amount.errors %}<p class="text-xs text-rose-600 mt-1">{{ form.amount.errors.0 }}</p>{% endif %}
+      </div>
+      <div class="flex flex-col gap-1.5">
+        <label for="id_date" class="text-sm font-semibold text-gray-700">Date</label>
+        <input type="date" name="date" id="id_date" value="{{ form.date.value|date:'Y-m-d' }}"
+               class="rounded-lg border border-slate-300 text-sm px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-accent/40"
+               required>
+        {% if form.date.errors %}<p class="text-xs text-rose-600 mt-1">{{ form.date.errors.0 }}</p>{% endif %}
+      </div>
+    </div>
+
+    <!-- Department -->
+    <div class="flex flex-col gap-1.5">
+      <label for="id_department" class="text-sm font-semibold text-gray-700">Department <span class="text-gray-400 font-normal">(optional)</span></label>
+      <select name="department" id="id_department"
+              class="rounded-lg border border-slate-300 text-sm px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-accent/40">
+        <option value="">No department</option>
+        {% for dept in form.department.field.queryset %}
+          <option value="{{ dept.id }}" {% if form.department.value|stringformat:"d" == dept.id|stringformat:"d" %}selected{% endif %}>{{ dept.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- Actions -->
+    <div class="flex items-center gap-3 pt-2">
+      <button type="submit"
+              class="px-5 py-2.5 bg-accent text-white rounded-xl text-sm font-semibold hover:bg-accent/90 transition shadow-sm">
+        {% if editing %}Save Changes{% else %}Add Expense{% endif %}
+      </button>
+      <a href="{% url 'reports_expenses' %}"
+         class="px-5 py-2.5 bg-slate-100 text-gray-700 rounded-xl text-sm font-medium hover:bg-slate-200 transition">
+        Cancel
+      </a>
+    </div>
+  </form>
+
+</div>
+{% endblock %}

@@ -143,6 +143,7 @@ class SchoolParentListView(RoleRequiredMixin, View):
                 'obj_type': 'parent_student',
                 'obj_id': first_link.id,
                 'parent_id': parent_user.id,
+                'welcome_email_sent': parent_user.welcome_email_sent,
             })
 
         # 2. Guardian contacts — skip any whose email matches an account row

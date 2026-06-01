@@ -1329,6 +1329,7 @@ def execute_import(preview_data, school, uploaded_by):
                             first_name=g_data['first_name'],
                             last_name=g_data['last_name'],
                             must_change_password=True,
+                            creation_method=CustomUser.CREATION_INSTITUTE,
                         )
                         parent_user.save()
                         UserRole.objects.create(user=parent_user, role=role_parent)
@@ -1369,6 +1370,12 @@ def execute_import(preview_data, school, uploaded_by):
                     # PBKDF2 for temporary password — must_change_password=True
                     # forces reset on first login. SHA1 is no longer supported in Django 5.2+.
                     # Performance impact is minimal for reasonable import sizes.
+                    # Imported students must be gated through the first-login
+                    # payment/discount flow (CompleteProfileView): force a password
+                    # change AND leave profile_completed=False so
+                    # ProfileCompletionMiddleware blocks dashboard access until they
+                    # pay or redeem a code. creation_method='institute' makes the
+                    # welcome/resend emails attach their temporary credentials.
                     user = CustomUser(
                         username=username,
                         email=email,
@@ -1376,6 +1383,8 @@ def execute_import(preview_data, school, uploaded_by):
                         first_name=sdata['first_name'],
                         last_name=sdata['last_name'],
                         must_change_password=True,
+                        profile_completed=False,
+                        creation_method=CustomUser.CREATION_INSTITUTE,
                     )
                     if sdata.get('date_of_birth'):
                         user.date_of_birth = sdata['date_of_birth']

@@ -15,10 +15,28 @@
     </a>
   </div>
 
-  <div class="flex gap-6">
+  <!-- Mobile tab toggle -->
+  <div class="flex md:hidden gap-2 bg-white rounded-xl border border-slate-200 p-1.5">
+    <button type="button" id="mobile-tab-browse"
+            class="flex-1 py-2 rounded-lg text-sm font-medium transition bg-primary text-white"
+            onclick="switchMobileTab('browse')">
+      Browse Questions
+    </button>
+    <button type="button" id="mobile-tab-selection"
+            class="flex-1 py-2 rounded-lg text-sm font-medium transition text-gray-500 hover:bg-slate-50 relative"
+            onclick="switchMobileTab('selection')">
+      My Selection
+      <span id="mobile-count-badge"
+            class="absolute -top-1 -right-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-primary text-white hidden">
+        0
+      </span>
+    </button>
+  </div>
+
+  <div class="flex flex-col md:flex-row gap-6">
 
     <!-- Filter Panel -->
-    <aside class="w-56 shrink-0 space-y-4">
+    <aside id="panel-browse-filter" class="w-full md:!block md:w-56 shrink-0 space-y-4">
       <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
         <h2 class="text-sm font-semibold text-gray-700">Filter Questions</h2>
 
@@ -74,16 +92,22 @@
     </aside>
 
     <!-- Question List -->
-    <div class="flex-1 min-w-0">
+    <div id="panel-browse-list" class="flex-1 min-w-0 md:!block">
 
-      <!-- HTMX loading indicator -->
+      <!-- HTMX loading skeleton -->
       <div id="question-list-indicator"
-           class="htmx-indicator flex items-center justify-center h-10 mb-2">
-        <svg class="animate-spin h-5 w-5 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
-        </svg>
-        <span class="ml-2 text-sm text-gray-400">Loading…</span>
+           class="htmx-indicator space-y-3 mb-2">
+        {% for _ in "123" %}
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 animate-pulse">
+          <div class="flex gap-1.5 mb-3">
+            <div class="h-5 w-20 bg-slate-200 rounded-full"></div>
+            <div class="h-5 w-14 bg-slate-200 rounded-full"></div>
+            <div class="h-5 w-16 bg-slate-200 rounded-full"></div>
+          </div>
+          <div class="h-4 bg-slate-200 rounded w-3/4 mb-2"></div>
+          <div class="h-4 bg-slate-100 rounded w-1/2"></div>
+        </div>
+        {% endfor %}
       </div>
 
       <div id="question-list"
@@ -91,14 +115,24 @@
            hx-trigger="load"
            hx-swap="innerHTML show:top"
            hx-indicator="#question-list-indicator">
-        <div class="flex items-center justify-center h-40 text-gray-400 text-sm">
-          Loading questions…
+        <!-- Initial loading skeleton -->
+        <div class="space-y-3">
+          {% for _ in "123" %}
+          <div class="bg-white rounded-2xl border border-slate-200 p-4 animate-pulse">
+            <div class="flex gap-1.5 mb-3">
+              <div class="h-5 w-20 bg-slate-200 rounded-full"></div>
+              <div class="h-5 w-14 bg-slate-200 rounded-full"></div>
+            </div>
+            <div class="h-4 bg-slate-200 rounded w-3/4 mb-2"></div>
+            <div class="h-4 bg-slate-100 rounded w-1/2"></div>
+          </div>
+          {% endfor %}
         </div>
       </div>
     </div>
 
     <!-- Selection Sidebar -->
-    <aside class="w-72 shrink-0">
+    <aside id="panel-selection" class="hidden md:!block w-full md:w-72 shrink-0">
       <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4 sticky top-6">
 
         <!-- Sidebar header with count badge -->
@@ -140,7 +174,9 @@
           <!-- Empty state -->
           <div id="sidebar-empty"
                class="flex flex-col items-center justify-center py-8 border-2 border-dashed border-slate-200 rounded-xl text-center">
-            <p class="text-xs text-gray-400 leading-relaxed">No questions yet.<br>Click <strong>+ Add</strong> on any question.</p>
+            <div class="text-3xl mb-2">📋</div>
+            <p class="text-sm text-gray-500 font-medium">No questions added yet</p>
+            <p class="text-xs text-gray-400 mt-1">Pick some from the list and click <strong>+ Add</strong></p>
           </div>
 
           <!-- Sortable list -->
@@ -182,10 +218,43 @@
   </div>
 </div>
 
+<!-- Preview modal overlay (CPP-285) -->
+<div id="preview-modal"
+     class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+     onclick="if(event.target===this)this.classList.add('hidden')">
+  <div id="preview-modal-content" class="w-full max-w-lg max-h-[85vh] overflow-y-auto mx-4">
+  </div>
+</div>
+
 <!-- SortableJS v1.15.2 -->
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 
 <script>
+// ─── Mobile tab switching (global — called from onclick) ────────────────
+function switchMobileTab(tab) {
+  var browseFilter = document.getElementById('panel-browse-filter');
+  var browseList   = document.getElementById('panel-browse-list');
+  var selection    = document.getElementById('panel-selection');
+  var tabBrowse    = document.getElementById('mobile-tab-browse');
+  var tabSelection = document.getElementById('mobile-tab-selection');
+
+  if (tab === 'browse') {
+    browseFilter.classList.remove('hidden');
+    browseList.classList.remove('hidden');
+    selection.classList.add('hidden');
+    selection.classList.remove('block');
+    tabBrowse.className    = 'flex-1 py-2 rounded-lg text-sm font-medium transition bg-primary text-white';
+    tabSelection.className = 'flex-1 py-2 rounded-lg text-sm font-medium transition text-gray-500 hover:bg-slate-50 relative';
+  } else {
+    browseFilter.classList.add('hidden');
+    browseList.classList.add('hidden');
+    selection.classList.remove('hidden');
+    selection.classList.add('block');
+    tabBrowse.className    = 'flex-1 py-2 rounded-lg text-sm font-medium transition text-gray-500 hover:bg-slate-50';
+    tabSelection.className = 'flex-1 py-2 rounded-lg text-sm font-medium transition bg-primary text-white relative';
+  }
+}
+
 (function () {
   'use strict';
 
@@ -303,15 +372,22 @@
   function renderSidebar() {
     sidebarList.innerHTML = '';
 
+    var mobileBadge = document.getElementById('mobile-count-badge');
+
     if (selectedQuestions.length === 0) {
       sidebarEmpty.classList.remove('hidden');
       countBadge.classList.add('hidden');
+      if (mobileBadge) { mobileBadge.classList.add('hidden'); }
       return;
     }
 
     sidebarEmpty.classList.add('hidden');
     countBadge.classList.remove('hidden');
     countBadge.textContent = selectedQuestions.length;
+    if (mobileBadge) {
+      mobileBadge.classList.remove('hidden');
+      mobileBadge.textContent = selectedQuestions.length;
+    }
 
     selectedQuestions.forEach(function (q, idx) {
       var li = document.createElement('li');
@@ -373,6 +449,77 @@
       saveBtn.className = 'w-full py-2.5 rounded-xl text-sm font-semibold transition bg-slate-100 text-slate-400 cursor-not-allowed disabled:opacity-60';
     }
   }
+
+  // ─── Preview modal (CPP-285) ───────────────────────────────────────────────
+  var PREVIEW_BASE = '{% url "worksheets:builder" %}' + 'preview/__SUBJECT__/__ID__/';
+
+  var previewLoading = false;
+  document.body.addEventListener('click', function (e) {
+    var card = e.target.closest('.question-card');
+    if (!card) return;
+    if (e.target.closest('.add-question-btn')) return;
+    if (previewLoading) return;
+
+    var contentId   = card.dataset.contentId;
+    var subjectSlug = card.dataset.subjectSlug || 'mathematics';
+    var url = PREVIEW_BASE.replace('__SUBJECT__', subjectSlug).replace('__ID__', contentId);
+
+    previewLoading = true;
+    htmx.ajax('GET', url, {
+      target: '#preview-modal-content',
+      swap: 'innerHTML',
+    }).then(function () {
+      previewLoading = false;
+      // Update Add button state based on whether question is already selected
+      var addBtn = document.querySelector('#preview-modal-content .preview-add-btn');
+      if (addBtn) {
+        var cid = parseInt(addBtn.dataset.contentId, 10);
+        var alreadyAdded = selectedQuestions.some(function (q) { return q.content_id === cid; });
+        if (alreadyAdded) {
+          addBtn.textContent = '✓ Already Added';
+          addBtn.disabled = true;
+          addBtn.className = 'preview-add-btn w-full py-2.5 rounded-xl text-sm font-semibold transition bg-slate-100 text-slate-400 cursor-not-allowed';
+        } else {
+          addBtn.className = 'preview-add-btn w-full py-2.5 rounded-xl text-sm font-semibold transition bg-primary text-white hover:opacity-90';
+        }
+      }
+      document.getElementById('preview-modal').classList.remove('hidden');
+    });
+  });
+
+  document.body.addEventListener('click', function (e) {
+    var btn = e.target.closest('.preview-add-btn');
+    if (!btn) return;
+
+    var contentId   = parseInt(btn.dataset.contentId, 10);
+    var subjectSlug = btn.dataset.subjectSlug || 'mathematics';
+
+    var card = document.querySelector('.question-card[data-content-id="' + contentId + '"]');
+    if (card && !selectedQuestions.some(function (q) { return q.content_id === contentId; })) {
+      selectedQuestions.push({
+        content_id:   contentId,
+        subject_slug: subjectSlug,
+        text:         card.dataset.questionText || '',
+        level:        card.dataset.level || '',
+        difficulty:   card.dataset.difficulty || ''
+      });
+      renderSidebar();
+      reapplySelectedState();
+      syncHiddenInput();
+      validateForm();
+    }
+
+    document.getElementById('preview-modal').classList.add('hidden');
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      var modal = document.getElementById('preview-modal');
+      if (!modal.classList.contains('hidden')) {
+        modal.classList.add('hidden');
+      }
+    }
+  });
 
   // ─── Re-apply state after HTMX question list swap ────────────────────────
   document.body.addEventListener('htmx:afterSwap', function (evt) {

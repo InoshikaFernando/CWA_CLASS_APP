@@ -834,6 +834,71 @@ class ParentHomeworkView(RoleRequiredMixin, View):
 
 
 # ---------------------------------------------------------------------------
+# Worksheets (CPP-293)
+# ---------------------------------------------------------------------------
+
+class ParentWorksheetView(RoleRequiredMixin, View):
+    required_roles = [Role.PARENT]
+
+    def get(self, request):
+        child, school, _ = _get_active_child(request)
+        if not child:
+            return render(request, 'parent/worksheets.html', {
+                'children': _get_parent_children(request.user),
+                'active_child': None,
+                'active_school': None,
+            })
+
+        from worksheets.models import WorksheetAssignment, WorksheetSubmission
+
+        class_ids = ClassStudent.objects.filter(
+            student=child, is_active=True,
+        ).values_list('classroom_id', flat=True)
+
+        assignments = (
+            WorksheetAssignment.objects
+            .filter(classroom_id__in=class_ids, is_active=True)
+            .select_related('worksheet', 'classroom')
+            .order_by('-assigned_at')
+        )
+
+        assignment_list = []
+        for assignment in assignments:
+            submission = (
+                WorksheetSubmission.objects
+                .filter(assignment=assignment, student=child)
+                .first()
+            )
+            if submission and submission.is_complete:
+                status = 'completed'
+            elif submission:
+                status = 'in_progress'
+            else:
+                status = 'not_started'
+
+            assignment_list.append({
+                'assignment': assignment,
+                'status': status,
+                'score': submission.score if submission and submission.is_complete else None,
+                'total_questions': submission.total_questions if submission and submission.is_complete else None,
+                'percentage': submission.percentage if submission and submission.is_complete else None,
+                'started_at': submission.started_at if submission else None,
+                'completed_at': submission.completed_at if submission else None,
+            })
+
+        _log_parent_view(request, 'parent_viewed_worksheets', child, school)
+
+        return render(request, 'parent/worksheets.html', {
+            'child': child,
+            'school': school,
+            'active_child': child,
+            'active_school': school,
+            'assignment_list': assignment_list,
+            'children': _get_parent_children(request.user),
+        })
+
+
+# ---------------------------------------------------------------------------
 # Add Child (logged-in parent links another student via Student ID)
 # ---------------------------------------------------------------------------
 
