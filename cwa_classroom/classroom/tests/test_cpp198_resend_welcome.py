@@ -108,7 +108,7 @@ class TestResendWelcomePermission(ResendWelcomeBase):
         resp = self.client.post(self._resend_url(self.teacher.id), follow=True)
         # RoleRequiredMixin redirects non-HoI users
         if resp.redirect_chain:
-            self.assertTrue(len(resp.redirect_chain) > 0)
+            pass  # Redirected away from the view — good
         else:
             self.assertNotEqual(resp.status_code, 200)
         # Verify we didn't end up on success (no success message)
