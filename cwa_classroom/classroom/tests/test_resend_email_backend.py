@@ -55,7 +55,7 @@ class TestResendBackendSendSimple:
         msg = EmailMessage(
             subject='Test Subject',
             body='Hello world',
-            from_email='info@wizardslearninghub.co.nz',
+            from_email='noreply@wizardslearninghub.co.nz',
             to=['parent@example.com'],
         )
         count = resend_backend.send_messages([msg])
@@ -63,7 +63,7 @@ class TestResendBackendSendSimple:
         assert count == 1
         mock_send.assert_called_once()
         call_params = mock_send.call_args[0][0]
-        assert call_params['from'] == 'info@wizardslearninghub.co.nz'
+        assert call_params['from'] == 'noreply@wizardslearninghub.co.nz'
         assert call_params['to'] == ['parent@example.com']
         assert call_params['subject'] == 'Test Subject'
         assert call_params['text'] == 'Hello world'
@@ -86,7 +86,7 @@ class TestResendBackendSendHtml:
         msg = EmailMultiAlternatives(
             subject='Invoice #001',
             body='Plain text fallback',
-            from_email='info@wizardslearninghub.co.nz',
+            from_email='noreply@wizardslearninghub.co.nz',
             to=['parent@example.com'],
         )
         msg.attach_alternative('<h1>Invoice</h1>', 'text/html')
@@ -108,7 +108,7 @@ class TestResendBackendCcBccReplyTo:
         msg = EmailMultiAlternatives(
             subject='Test',
             body='Body',
-            from_email='info@wizardslearninghub.co.nz',
+            from_email='noreply@wizardslearninghub.co.nz',
             to=['student@example.com'],
             cc=['school@example.com'],
         )
@@ -123,7 +123,7 @@ class TestResendBackendCcBccReplyTo:
         msg = EmailMessage(
             subject='Test',
             body='Body',
-            from_email='info@wizardslearninghub.co.nz',
+            from_email='noreply@wizardslearninghub.co.nz',
             to=['student@example.com'],
             bcc=['admin@example.com'],
         )
@@ -138,7 +138,7 @@ class TestResendBackendCcBccReplyTo:
         msg = EmailMessage(
             subject='Test',
             body='Body',
-            from_email='info@wizardslearninghub.co.nz',
+            from_email='noreply@wizardslearninghub.co.nz',
             to=['parent@example.com'],
             reply_to=['school@lincoln.co.nz'],
         )
@@ -153,7 +153,7 @@ class TestResendBackendCcBccReplyTo:
         msg = EmailMessage(
             subject='Test',
             body='Body',
-            from_email='info@wizardslearninghub.co.nz',
+            from_email='noreply@wizardslearninghub.co.nz',
             to=['user@example.com'],
         )
         resend_backend.send_messages([msg])
@@ -174,7 +174,7 @@ class TestResendBackendErrorHandling:
         msg = EmailMessage(
             subject='Test',
             body='Body',
-            from_email='info@wizardslearninghub.co.nz',
+            from_email='noreply@wizardslearninghub.co.nz',
             to=['user@example.com'],
         )
         with pytest.raises(Exception, match='422'):
@@ -187,7 +187,7 @@ class TestResendBackendErrorHandling:
         msg = EmailMessage(
             subject='Test',
             body='Body',
-            from_email='info@wizardslearninghub.co.nz',
+            from_email='noreply@wizardslearninghub.co.nz',
             to=['user@example.com'],
         )
         count = resend_backend_silent.send_messages([msg])
@@ -216,7 +216,7 @@ class TestResendBackendAttachments:
         msg = EmailMessage(
             subject='Invoice',
             body='See attached',
-            from_email='info@wizardslearninghub.co.nz',
+            from_email='noreply@wizardslearninghub.co.nz',
             to=['parent@example.com'],
         )
         msg.attach('invoice.pdf', b'%PDF-1.4 fake content', 'application/pdf')
@@ -232,7 +232,7 @@ class TestResendBackendAttachments:
         msg = EmailMessage(
             subject='Test',
             body='Body',
-            from_email='info@wizardslearninghub.co.nz',
+            from_email='noreply@wizardslearninghub.co.nz',
             to=['user@example.com'],
         )
         resend_backend.send_messages([msg])
@@ -250,7 +250,7 @@ class TestResendBackendMultipleRecipients:
         msg = EmailMessage(
             subject='Bulk',
             body='Body',
-            from_email='info@wizardslearninghub.co.nz',
+            from_email='noreply@wizardslearninghub.co.nz',
             to=['a@example.com', 'b@example.com', 'c@example.com'],
         )
         resend_backend.send_messages([msg])

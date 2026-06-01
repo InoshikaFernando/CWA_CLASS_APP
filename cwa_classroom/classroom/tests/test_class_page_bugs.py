@@ -154,3 +154,75 @@ class TestSetFeeToZero(_ClassPageTestBase):
         client.post(url, {'fee_override': ''})
         self.cs.refresh_from_db()
         self.assertIsNone(self.cs.fee_override)
+
+
+class TestFeeVisibilityByRole(_ClassPageTestBase):
+    """CPP-319: Only HoI and Accountant should see student fees on class detail."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.hoi = CustomUser.objects.create_user(
+            username='hoi_cpb', password='pass', email='hoi_cpb@test.com',
+        )
+        UserRole.objects.create(user=cls.hoi, role=_ensure_role(Role.HEAD_OF_INSTITUTE))
+        cls.school.admin = cls.hoi
+        cls.school.save()
+
+        cls.hod = CustomUser.objects.create_user(
+            username='hod_cpb', password='pass', email='hod_cpb@test.com',
+        )
+        UserRole.objects.create(user=cls.hod, role=_ensure_role(Role.HEAD_OF_DEPARTMENT))
+        cls.dept.head = cls.hod
+        cls.dept.save()
+
+        cls.accountant = CustomUser.objects.create_user(
+            username='acct_cpb', password='pass', email='acct_cpb@test.com',
+        )
+        UserRole.objects.create(user=cls.accountant, role=_ensure_role(Role.ACCOUNTANT))
+
+    def _get_class_detail(self, username):
+        client = Client()
+        client.login(username=username, password='pass')
+        return client.get(reverse('class_detail', kwargs={'class_id': self.classroom.id}))
+
+    def test_hoi_can_see_fees(self):
+        resp = self._get_class_detail('hoi_cpb')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.context['can_edit_fee'])
+
+    def test_teacher_cannot_see_fees(self):
+        resp = self._get_class_detail('teacher_cpb')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.context['can_edit_fee'])
+        for item in resp.context['student_fee_data']:
+            self.assertIsNone(item['effective_fee'])
+
+    def test_hod_cannot_see_fees(self):
+        resp = self._get_class_detail('hod_cpb')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.context['can_edit_fee'])
+        for item in resp.context['student_fee_data']:
+            self.assertIsNone(item['effective_fee'])
+
+    def test_hod_cannot_update_student_fee(self):
+        client = Client()
+        client.login(username='hod_cpb', password='pass')
+        url = reverse('update_student_fee', kwargs={
+            'class_id': self.classroom.id, 'student_id': self.student.id,
+        })
+        resp = client.post(url, {'fee_override': '100'})
+        self.assertIn(resp.status_code, [302, 403, 404])
+        self.cs.refresh_from_db()
+        self.assertIsNone(self.cs.fee_override)
+
+    def test_teacher_cannot_update_student_fee(self):
+        client = Client()
+        client.login(username='teacher_cpb', password='pass')
+        url = reverse('update_student_fee', kwargs={
+            'class_id': self.classroom.id, 'student_id': self.student.id,
+        })
+        resp = client.post(url, {'fee_override': '100'})
+        self.assertIn(resp.status_code, [302, 403, 404])
+        self.cs.refresh_from_db()
+        self.assertIsNone(self.cs.fee_override)

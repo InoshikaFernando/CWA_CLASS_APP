@@ -1,10 +1,12 @@
 """
-Worksheet Builder views — CPP-282 / CPP-284.
+Worksheet Builder views — CPP-282 / CPP-284 / CPP-285.
 
 CPP-282: Teachers browse the global question bank with filter panel
          (subject, topic, level, free-text search). Results via HTMX.
 CPP-284: WorksheetBuilderSaveView — POST to persist the selection as a
          Worksheet + WorksheetQuestion rows, then redirect to detail page.
+CPP-285: WorksheetBuilderPreviewView — HTMX endpoint returning a question
+         detail partial for display in a modal overlay.
 """
 
 import json
@@ -13,8 +15,8 @@ from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Q
-from django.http import HttpResponse, JsonResponse
-from django.shortcuts import render
+from django.http import Http404, HttpResponse, JsonResponse
+from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
 
 from accounts.models import Role
@@ -24,7 +26,7 @@ from classroom.views import RoleRequiredMixin
 from django.views import View
 
 from coding.models import CodingExercise, CodingLanguage, CodingTopic as CodingTopicModel
-from maths.models import Question
+from maths.models import Answer, Question
 from worksheets.models import Worksheet, WorksheetQuestion
 
 # Coding level choices (from coding.TopicLevel.level_choice)
@@ -426,3 +428,56 @@ class WorksheetBuilderSaveView(RoleRequiredMixin, View):
         response = HttpResponse(status=200)
         response['HX-Redirect'] = reverse('worksheets:detail', args=[worksheet.pk])
         return response
+
+
+class WorksheetBuilderPreviewView(RoleRequiredMixin, View):
+    """
+    GET /worksheets/builder/preview/<subject_slug>/<int:content_id>/
+
+    HTMX endpoint — returns _builder_question_preview.html partial
+    for display in the builder's modal overlay.
+    """
+    required_roles = BUILDER_ROLES
+
+    def get(self, request, subject_slug, content_id):
+        if subject_slug not in ('mathematics', 'coding'):
+            raise Http404
+
+        school = get_school_for_user(request.user)
+        if school is None:
+            raise Http404
+
+        if subject_slug == 'coding':
+            exercise = get_object_or_404(
+                CodingExercise.objects.select_related(
+                    'topic_level__topic__language',
+                ),
+                pk=content_id,
+                is_active=True,
+            )
+            if exercise.school_id is not None and exercise.school_id != school.pk:
+                raise Http404
+            return render(request, 'worksheets/partials/_builder_question_preview.html', {
+                'is_coding': True,
+                'exercise': exercise,
+                'subject_slug': 'coding',
+                'content_id': content_id,
+            })
+
+        question = get_object_or_404(
+            Question.objects.select_related('topic', 'level'),
+            pk=content_id,
+        )
+        if question.school_id is not None and question.school_id != school.pk:
+            raise Http404
+
+        answers = Answer.objects.filter(question=question).order_by('order', 'pk')
+        question.difficulty_label = DIFFICULTY_LABELS.get(question.difficulty, 'Unknown')
+
+        return render(request, 'worksheets/partials/_builder_question_preview.html', {
+            'is_coding': False,
+            'question': question,
+            'answers': answers,
+            'subject_slug': 'mathematics',
+            'content_id': content_id,
+        })

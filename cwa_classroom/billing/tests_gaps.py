@@ -312,15 +312,22 @@ class GapR_RegistrationRateLimitTest(TestCase):
 
     @override_settings(TESTING=False)
     def test_registration_rate_limited_after_10_attempts(self):
-        """Registration should return 429 after 10 attempts from same IP."""
+        """Registration should return 429 after 10 attempts from same IP.
+
+        Uses the individual-student registration endpoint. The school-student
+        self-registration route was removed in CPP-300 (imported students now
+        onboard via the first-login payment flow); the rate limiter
+        (_check_registration_rate_limit) is shared across all registration
+        views and fires before form validation.
+        """
         for i in range(10):
-            self.client.post('/accounts/register/school-student/', {
+            self.client.post('/accounts/register/individual-student/', {
                 'first_name': f'Test{i}', 'last_name': 'User',
                 'email': f'test{i}@unique.com', 'password': 'password123',
                 'confirm_password': 'password123',
             })
 
-        resp = self.client.post('/accounts/register/school-student/', {
+        resp = self.client.post('/accounts/register/individual-student/', {
             'first_name': 'Blocked', 'last_name': 'User',
             'email': 'blocked@test.com', 'password': 'password123',
             'confirm_password': 'password123',
