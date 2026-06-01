@@ -440,24 +440,30 @@ class BulkResendWelcomeView(RoleRequiredMixin, View):
         students_sent = 0
         parents_sent = 0
         skipped = 0
+
+        # Collect the unique parents to notify FIRST, so a parent shared by two
+        # selected siblings is emailed once (not password-reset twice, which
+        # would invalidate the first email's credentials).
+        parent_ids = set(
+            ParentStudent.objects.filter(
+                student__in=[cs.student_id for cs in eligible],
+                school=school, is_active=True,
+            ).values_list('parent_id', flat=True)
+        )
+
         for cs in eligible:
-            student = cs.student
-            outcome = _resend_welcome_to_user(student, school)
+            outcome = _resend_welcome_to_user(cs.student, school)
             if outcome['sent']:
                 students_sent += 1
             elif outcome['skipped']:
                 skipped += 1
 
-            # Fan out to each active linked parent at this school.
-            parent_links = ParentStudent.objects.filter(
-                student=student, school=school, is_active=True,
-            ).select_related('parent')
-            for link in parent_links:
-                p_outcome = _resend_welcome_to_user(link.parent, school)
-                if p_outcome['sent']:
-                    parents_sent += 1
-                elif p_outcome['skipped']:
-                    skipped += 1
+        for parent in CustomUser.objects.filter(id__in=parent_ids):
+            p_outcome = _resend_welcome_to_user(parent, school)
+            if p_outcome['sent']:
+                parents_sent += 1
+            elif p_outcome['skipped']:
+                skipped += 1
 
         log_event(
             user=request.user, school=school, category='communication',

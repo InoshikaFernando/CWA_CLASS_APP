@@ -114,6 +114,25 @@ class BulkResendWelcomeTests(BulkResendWelcomeBase):
         emailed = {c.args[0].id for c in mock_send.call_args_list}
         self.assertEqual(emailed, {self.student1.id, self.parent1.id})
 
+    def test_bulk_resend_shared_parent_emailed_once(self):
+        """A parent linked to two selected siblings is emailed exactly once."""
+        ParentStudent.objects.create(
+            parent=self.parent1, student=self.student2, school=self.school,
+            relationship='guardian', is_active=True,
+        )
+        self.client.force_login(self.hoi)
+        with patch(
+            'classroom.views_password_admin._send_resend_welcome_email',
+            return_value=True,
+        ) as mock_send:
+            self.client.post(
+                self.url, {'student_ids': [self.student1.id, self.student2.id]},
+            )
+        parent_calls = [
+            c for c in mock_send.call_args_list if c.args[0].id == self.parent1.id
+        ]
+        self.assertEqual(len(parent_calls), 1)
+
     def test_bulk_resend_only_affects_selected_students(self):
         self.client.force_login(self.hoi)
         with patch(
