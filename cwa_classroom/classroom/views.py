@@ -876,11 +876,10 @@ class ClassDetailView(RoleRequiredMixin, View):
         # Show "Start Session" when no session exists today, or if today's was cancelled
         can_start = todays_session is None or todays_session.status == 'cancelled'
 
-        # Fee data for student list — only HoD and above can view fees
+        # Fee data for student list — only HoI / Accountant and above can view fees
         from .fee_utils import get_effective_fee_for_student, get_fee_source_label, get_effective_fee_for_class
         can_view_fee = (
-            user.has_role(Role.HEAD_OF_DEPARTMENT)
-            or user.has_role(Role.HEAD_OF_INSTITUTE)
+            user.has_role(Role.HEAD_OF_INSTITUTE)
             or user.has_role(Role.INSTITUTE_OWNER)
             or user.has_role(Role.ADMIN)
             or user.has_role(Role.ACCOUNTANT)
@@ -998,11 +997,10 @@ class EditClassView(RoleRequiredMixin, View):
         if not current_subject_id and len(subject_groups) == 1:
             current_subject_id = subject_groups[0]['subject'].id
 
-        # Fee context — only HoD and above can view/edit fees
+        # Fee context — only HoI / Accountant and above can view/edit fees
         from .fee_utils import get_parent_fee_for_class
         can_view_fee = (
-            request.user.has_role(Role.HEAD_OF_DEPARTMENT)
-            or request.user.has_role(Role.HEAD_OF_INSTITUTE)
+            request.user.has_role(Role.HEAD_OF_INSTITUTE)
             or request.user.has_role(Role.INSTITUTE_OWNER)
             or request.user.has_role(Role.ADMIN)
             or request.user.has_role(Role.ACCOUNTANT)
@@ -1051,12 +1049,12 @@ class EditClassView(RoleRequiredMixin, View):
         classroom.end_time = end_time
         classroom.description = description
 
-        # Fee override (HoD+ only)
+        # Fee override (HoI / Accountant only)
         can_edit_fee = (
-            request.user.has_role(Role.HEAD_OF_DEPARTMENT)
-            or request.user.has_role(Role.HEAD_OF_INSTITUTE)
+            request.user.has_role(Role.HEAD_OF_INSTITUTE)
             or request.user.has_role(Role.INSTITUTE_OWNER)
             or request.user.has_role(Role.ADMIN)
+            or request.user.has_role(Role.ACCOUNTANT)
         )
         if can_edit_fee:
             fee_str = request.POST.get('fee_override', '').strip()
@@ -4346,29 +4344,21 @@ class HoDSubjectLevelRemoveView(RoleRequiredMixin, View):
 
 
 class UpdateStudentFeeView(RoleRequiredMixin, View):
-    """Inline update of per-student fee override. HoD+ only."""
+    """Inline update of per-student fee override. HoI / Accountant only."""
     required_roles = [
-        Role.HEAD_OF_DEPARTMENT,
         Role.HEAD_OF_INSTITUTE,
         Role.INSTITUTE_OWNER,
         Role.ADMIN,
+        Role.ACCOUNTANT,
     ]
 
     def post(self, request, class_id, student_id):
         user = request.user
-        # Permission: find the classroom and ensure access
-        from django.db.models import Q
-        if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
+        # Permission: find the classroom and ensure access (HoI/Accountant+ only)
+        if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER) or user.has_role(Role.ACCOUNTANT):
             classroom = get_object_or_404(ClassRoom, id=class_id, is_active=True)
-        elif user.has_role(Role.HEAD_OF_DEPARTMENT):
-            classroom = ClassRoom.objects.filter(
-                Q(department__head=user) | Q(teachers=user),
-                id=class_id, is_active=True,
-            ).distinct().first()
-            if not classroom:
-                raise Http404
         else:
-            classroom = get_object_or_404(ClassRoom, id=class_id, teachers=user, is_active=True)
+            raise Http404
 
         cs = get_object_or_404(ClassStudent, classroom=classroom, student_id=student_id)
         fee_str = request.POST.get('fee_override', '').strip()
