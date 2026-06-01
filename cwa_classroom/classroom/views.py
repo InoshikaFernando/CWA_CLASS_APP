@@ -1988,6 +1988,28 @@ class StudentCSVConfirmView(RoleRequiredMixin, View):
             request=request,
         )
 
+        # Auto-send welcome emails for ALREADY-PUBLISHED schools.
+        # send_school_publish_notifications only emails SchoolStudent /
+        # SchoolTeacher rows with notified_at IS NULL (the just-imported ones),
+        # includes their pending_password, then clears it and stamps
+        # notified_at + welcome_email_sent — so a later publish never re-sends.
+        # Unpublished schools send nothing now; emails go out at publish time.
+        emails_sent = 0
+        if school.is_published:
+            try:
+                from .email_service import send_school_publish_notifications
+                notify_result = send_school_publish_notifications(school)
+                emails_sent = notify_result.get('sent', 0)
+            except Exception:
+                logger.exception(
+                    'Auto welcome email send failed after import for school %s', school.id
+                )
+                messages.warning(
+                    request,
+                    'Students were imported, but welcome emails could not be sent '
+                    'automatically. Use "Resend Welcome" on the class page to retry.',
+                )
+
         # Store credentials for download (students + parents combined)
         request.session['csv_student_credentials'] = results['credentials']
         request.session['csv_parent_credentials'] = results.get('parent_credentials', [])
@@ -1995,11 +2017,19 @@ class StudentCSVConfirmView(RoleRequiredMixin, View):
         # Success message for dashboard
         c = results['counts']
         parents_created = c.get('parents_created', 0)
+        if school.is_published:
+            email_note = (
+                f" {emails_sent} welcome email(s) with login details sent."
+                if emails_sent else ""
+            )
+        else:
+            email_note = " Welcome emails will be sent when you publish the school."
         messages.success(
             request,
             f"Import complete: {c['students_created']} students created, "
             f"{c['classes_created']} classes, {c['students_enrolled']} enrollments"
-            + (f", {parents_created} parent accounts created" if parents_created else "") + "."
+            + (f", {parents_created} parent accounts created" if parents_created else "")
+            + "." + email_note
         )
 
         # Clear CSV data from session
@@ -2011,6 +2041,8 @@ class StudentCSVConfirmView(RoleRequiredMixin, View):
         return render(request, 'admin/csv_student_results.html', {
             'results': results,
             'school': school,
+            'emails_sent': emails_sent,
+            'school_published': school.is_published,
         })
 
 
