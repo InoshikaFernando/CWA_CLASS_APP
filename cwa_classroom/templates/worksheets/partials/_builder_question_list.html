@@ -10,7 +10,7 @@
   {% for question in page_obj %}
   {% if is_coding %}
   {# ── Coding exercise card ──────────────────────────────────────────── #}
-  <div class="question-card bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex items-start gap-4"
+  <div class="question-card bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex items-start gap-4 cursor-pointer hover:border-primary/40 transition"
        data-content-id="{{ question.pk }}"
        data-subject-slug="coding"
        data-question-text="{{ question.title|truncatechars:80 }}"
@@ -47,7 +47,7 @@
 
   {% else %}
   {# ── Maths question card ───────────────────────────────────────────── #}
-  <div class="question-card bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex items-start gap-4"
+  <div class="question-card bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex items-start gap-4 cursor-pointer hover:border-primary/40 transition"
        data-content-id="{{ question.pk }}"
        data-subject-slug="mathematics"
        data-question-text="{{ question.question_text|truncatechars:80 }}"

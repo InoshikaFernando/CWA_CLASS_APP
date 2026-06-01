@@ -7,7 +7,8 @@ from django.urls import reverse
 
 from accounts.models import CustomUser, Role
 from billing.models import (
-    InstitutePlan, InstituteDiscountCode, Package, SchoolSubscription, Subscription,
+    InstitutePlan, InstituteDiscountCode, DiscountCode, Package,
+    SchoolSubscription, Subscription,
 )
 
 
@@ -213,63 +214,6 @@ class UnlimitedPlanDisplayTest(TestCase):
         resp = self.client.get(reverse('institute_trial_expired'))
         self.assertContains(resp, 'Unlimited')
         self.assertNotContains(resp, '0 classes, 0 students')
-
-
-class SchoolStudentRegistrationTest(TestCase):
-    """Test SchoolStudentRegisterView — simple registration, no package."""
-
-    def setUp(self):
-        self.client = Client()
-        self.url = reverse('register_school_student')
-
-    def test_get_returns_200(self):
-        resp = self.client.get(self.url)
-        self.assertEqual(resp.status_code, 200)
-
-    def test_register_creates_user_with_student_role(self):
-        resp = self.client.post(self.url, {
-            'first_name': 'John',
-            'last_name': 'Doe',
-            'email': 'john@test.com',
-            'username': 'johndoe',
-            'password': 'securepass1',
-            'confirm_password': 'securepass1',
-            'accept_terms': 'on',
-        })
-        self.assertEqual(resp.status_code, 302)
-        user = CustomUser.objects.get(username='johndoe')
-        self.assertTrue(user.has_role(Role.STUDENT))
-
-    def test_register_missing_first_name(self):
-        resp = self.client.post(self.url, {
-            'last_name': 'Doe',
-            'email': 'john@test.com',
-            'username': 'johndoe',
-            'password': 'securepass1',
-            'confirm_password': 'securepass1',
-            'accept_terms': 'on',
-        })
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'First name')
-
-    def test_register_password_too_short(self):
-        resp = self.client.post(self.url, {
-            'first_name': 'John',
-            'last_name': 'Doe',
-            'email': 'john@test.com',
-            'username': 'johndoe',
-            'password': 'short',
-            'confirm_password': 'short',
-            'accept_terms': 'on',
-        })
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'at least 8')
-
-    def test_authenticated_user_redirected(self):
-        user = CustomUser.objects.create_user('existing', 'e@t.com', 'pass1234')
-        self.client.force_login(user)
-        resp = self.client.get(self.url)
-        self.assertEqual(resp.status_code, 302)
 
 
 class IndividualStudentRegistrationTest(TestCase):
@@ -668,44 +612,6 @@ class TermsAcceptanceInstituteTest(TestCase):
         self.assertContains(resp, 'privacy-scroll')
 
 
-class TermsAcceptanceSchoolStudentTest(TestCase):
-    """Test that school student registration requires T&C acceptance."""
-
-    def setUp(self):
-        self.client = Client()
-        self.url = reverse('register_school_student')
-
-    def _base_data(self, accept=False):
-        data = {
-            'first_name': 'Jane',
-            'last_name': 'Doe',
-            'email': 'jane@test.com',
-            'username': 'janedoe',
-            'password': 'securepass1',
-            'confirm_password': 'securepass1',
-        }
-        if accept:
-            data['accept_terms'] = 'on'
-        return data
-
-    def test_fails_without_accept_terms(self):
-        resp = self.client.post(self.url, self._base_data(accept=False))
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'Terms and Conditions')
-
-    def test_succeeds_with_accept_terms(self):
-        resp = self.client.post(self.url, self._base_data(accept=True))
-        self.assertEqual(resp.status_code, 302)
-        user = CustomUser.objects.get(username='janedoe')
-        self.assertIsNotNone(user.terms_accepted_at)
-
-    def test_get_shows_terms_acceptance_widget(self):
-        resp = self.client.get(self.url)
-        self.assertContains(resp, 'accept-terms')
-        self.assertContains(resp, 'terms-scroll')
-        self.assertContains(resp, 'privacy-scroll')
-
-
 class TermsAcceptanceIndividualStudentTest(TestCase):
     """Test that individual student registration requires T&C acceptance."""
 
@@ -759,11 +665,6 @@ class TermsFooterLinksTest(TestCase):
         resp = self.client.get(reverse('login'))
         self.assertContains(resp, 'Terms and Conditions')
         self.assertContains(resp, 'Privacy Policy')
-
-    def test_school_student_register_has_legal_links(self):
-        resp = self.client.get(reverse('register_school_student'))
-        self.assertContains(resp, '/terms/')
-        self.assertContains(resp, '/privacy/')
 
     def test_institute_register_has_legal_links(self):
         resp = self.client.get(reverse('register_teacher_center'))
@@ -986,6 +887,72 @@ class CPP300_CompleteProfileStripeEnforcementTest(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertIn('stripe.com', resp.url)
         # Restore for other tests
+        self.pkg_no_stripe.stripe_price_id = ''
+        self.pkg_no_stripe.save(update_fields=['stripe_price_id'])
+
+    def test_imported_student_redirected_to_complete_profile_on_first_login(self):
+        """A gated student (profile_completed=False) is bounced to complete-profile."""
+        resp = self.client.get(reverse('subjects_hub'))
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/accounts/complete-profile', resp.url)
+
+    def test_student_blocked_from_dashboard_until_paid_or_coded(self):
+        """ProfileCompletionMiddleware blocks app access while profile_completed=False."""
+        # The gate is active.
+        self.assertFalse(self.user.profile_completed)
+        resp = self.client.get(reverse('subjects_hub'))
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/accounts/complete-profile', resp.url)
+
+    def test_100pct_code_activates_without_stripe(self):
+        """A fully-free discount code activates the student with no Stripe redirect."""
+        self.pkg_no_stripe.stripe_price_id = 'price_test_student_cp'
+        self.pkg_no_stripe.save(update_fields=['stripe_price_id'])
+        DiscountCode.objects.create(code='FREELEARN', discount_percent=100, is_active=True)
+
+        resp = self.client.post(self.url, {
+            'new_password': 'newpass1234',
+            'confirm_password': 'newpass1234',
+            'first_name': 'Test',
+            'last_name': 'Student',
+            'discount_code': 'FREELEARN',
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertNotIn('stripe.com', resp.url)  # no payment needed
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.profile_completed)
+        sub = Subscription.objects.get(user=self.user)
+        self.assertEqual(sub.status, Subscription.STATUS_ACTIVE)
+
+        self.pkg_no_stripe.stripe_price_id = ''
+        self.pkg_no_stripe.save(update_fields=['stripe_price_id'])
+
+    @patch('billing.stripe_service.create_student_checkout_session')
+    def test_partial_code_redirects_to_stripe_with_coupon(self, mock_stripe):
+        """A partial (non-100%) code still goes to Stripe, passing the coupon."""
+        self.pkg_no_stripe.stripe_price_id = 'price_test_student_cp'
+        self.pkg_no_stripe.save(update_fields=['stripe_price_id'])
+        DiscountCode.objects.create(
+            code='HALFOFF', discount_percent=50, is_active=True,
+            stripe_coupon_id='coupon_half',
+        )
+        mock_session = MagicMock()
+        mock_session.url = 'https://checkout.stripe.com/test_half'
+        mock_stripe.return_value = mock_session
+
+        resp = self.client.post(self.url, {
+            'new_password': 'newpass1234',
+            'confirm_password': 'newpass1234',
+            'first_name': 'Test',
+            'last_name': 'Student',
+            'discount_code': 'HALFOFF',
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('stripe.com', resp.url)
+        # The coupon was forwarded to the checkout session.
+        _, kwargs = mock_stripe.call_args
+        self.assertEqual(kwargs.get('stripe_coupon_id'), 'coupon_half')
+
         self.pkg_no_stripe.stripe_price_id = ''
         self.pkg_no_stripe.save(update_fields=['stripe_price_id'])
 

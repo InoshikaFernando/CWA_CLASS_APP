@@ -21,7 +21,6 @@ class StaticViewSitemap(Sitemap):
         # ── Registration / sign-up ───────────────────────────────────────
         ("register_teacher_center",     {}, 0.9, "monthly"),
         ("register_individual_student", {}, 0.9, "monthly"),
-        ("register_school_student",     {}, 0.8, "monthly"),
         ("register_parent_join",        {}, 0.7, "monthly"),
 
         # ── Subject landing pages (coming-soon stubs) ────────────────────
