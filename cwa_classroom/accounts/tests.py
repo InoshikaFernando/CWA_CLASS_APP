@@ -7,7 +7,8 @@ from django.urls import reverse
 
 from accounts.models import CustomUser, Role
 from billing.models import (
-    InstitutePlan, InstituteDiscountCode, Package, SchoolSubscription, Subscription,
+    InstitutePlan, InstituteDiscountCode, DiscountCode, Package,
+    SchoolSubscription, Subscription,
 )
 
 
@@ -886,6 +887,72 @@ class CPP300_CompleteProfileStripeEnforcementTest(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertIn('stripe.com', resp.url)
         # Restore for other tests
+        self.pkg_no_stripe.stripe_price_id = ''
+        self.pkg_no_stripe.save(update_fields=['stripe_price_id'])
+
+    def test_imported_student_redirected_to_complete_profile_on_first_login(self):
+        """A gated student (profile_completed=False) is bounced to complete-profile."""
+        resp = self.client.get(reverse('subjects_hub'))
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/accounts/complete-profile', resp.url)
+
+    def test_student_blocked_from_dashboard_until_paid_or_coded(self):
+        """ProfileCompletionMiddleware blocks app access while profile_completed=False."""
+        # The gate is active.
+        self.assertFalse(self.user.profile_completed)
+        resp = self.client.get(reverse('subjects_hub'))
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/accounts/complete-profile', resp.url)
+
+    def test_100pct_code_activates_without_stripe(self):
+        """A fully-free discount code activates the student with no Stripe redirect."""
+        self.pkg_no_stripe.stripe_price_id = 'price_test_student_cp'
+        self.pkg_no_stripe.save(update_fields=['stripe_price_id'])
+        DiscountCode.objects.create(code='FREELEARN', discount_percent=100, is_active=True)
+
+        resp = self.client.post(self.url, {
+            'new_password': 'newpass1234',
+            'confirm_password': 'newpass1234',
+            'first_name': 'Test',
+            'last_name': 'Student',
+            'discount_code': 'FREELEARN',
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertNotIn('stripe.com', resp.url)  # no payment needed
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.profile_completed)
+        sub = Subscription.objects.get(user=self.user)
+        self.assertEqual(sub.status, Subscription.STATUS_ACTIVE)
+
+        self.pkg_no_stripe.stripe_price_id = ''
+        self.pkg_no_stripe.save(update_fields=['stripe_price_id'])
+
+    @patch('billing.stripe_service.create_student_checkout_session')
+    def test_partial_code_redirects_to_stripe_with_coupon(self, mock_stripe):
+        """A partial (non-100%) code still goes to Stripe, passing the coupon."""
+        self.pkg_no_stripe.stripe_price_id = 'price_test_student_cp'
+        self.pkg_no_stripe.save(update_fields=['stripe_price_id'])
+        DiscountCode.objects.create(
+            code='HALFOFF', discount_percent=50, is_active=True,
+            stripe_coupon_id='coupon_half',
+        )
+        mock_session = MagicMock()
+        mock_session.url = 'https://checkout.stripe.com/test_half'
+        mock_stripe.return_value = mock_session
+
+        resp = self.client.post(self.url, {
+            'new_password': 'newpass1234',
+            'confirm_password': 'newpass1234',
+            'first_name': 'Test',
+            'last_name': 'Student',
+            'discount_code': 'HALFOFF',
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('stripe.com', resp.url)
+        # The coupon was forwarded to the checkout session.
+        _, kwargs = mock_stripe.call_args
+        self.assertEqual(kwargs.get('stripe_coupon_id'), 'coupon_half')
+
         self.pkg_no_stripe.stripe_price_id = ''
         self.pkg_no_stripe.save(update_fields=['stripe_price_id'])
 
