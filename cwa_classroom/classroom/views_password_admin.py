@@ -277,6 +277,36 @@ def _send_resend_welcome_email(user, school, plain_password):
         return False
 
 
+def _resend_welcome_to_user(user, school):
+    """Resend the welcome email to a single user, regenerating credentials.
+
+    For institute-created accounts a fresh temporary password is generated,
+    stored on the account, and ``must_change_password`` is forced True so the
+    user is re-gated through the first-login flow. Self-registered accounts get
+    a password-free welcome resend (the existing single-user behaviour).
+
+    Users with no email are skipped. Never raises.
+
+    Returns a dict: ``{'sent': bool, 'password_reset': bool, 'skipped': bool}``.
+    """
+    if not user.email:
+        return {'sent': False, 'password_reset': False, 'skipped': True}
+
+    new_password = None
+    if user.creation_method == CustomUser.CREATION_INSTITUTE:
+        new_password = _generate_random_password()
+        user.set_password(new_password)
+        user.must_change_password = True
+        user.save(update_fields=['password', 'must_change_password'])
+
+    sent = _send_resend_welcome_email(user, school, new_password)
+    return {
+        'sent': sent,
+        'password_reset': new_password is not None,
+        'skipped': False,
+    }
+
+
 class ResendWelcomeModalView(RoleRequiredMixin, View):
     """Return the resend-welcome modal partial via HTMX."""
     required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
@@ -318,14 +348,9 @@ class ResendWelcomeEmailView(RoleRequiredMixin, View):
             messages.error(request, 'Superuser welcome emails cannot be resent from this screen.')
             return redirect(AdminPasswordResetView._return_url(school, role_label))
 
-        new_password = None
-        if target.creation_method == 'institute':
-            new_password = _generate_random_password()
-            target.set_password(new_password)
-            target.must_change_password = True
-            target.save(update_fields=['password', 'must_change_password'])
-
-        email_sent = _send_resend_welcome_email(target, school, new_password)
+        outcome = _resend_welcome_to_user(target, school)
+        email_sent = outcome['sent']
+        new_password = outcome['password_reset']
 
         log_event(
             user=request.user, school=school, category='communication',
@@ -336,7 +361,7 @@ class ResendWelcomeEmailView(RoleRequiredMixin, View):
                 'target_role': role_label,
                 'creation_method': target.creation_method,
                 'email_sent': email_sent,
-                'password_reset': new_password is not None,
+                'password_reset': outcome['password_reset'],
             },
             request=request,
         )
@@ -358,3 +383,106 @@ class ResendWelcomeEmailView(RoleRequiredMixin, View):
             )
 
         return redirect(AdminPasswordResetView._return_url(school, role_label))
+
+
+class BulkResendWelcomeView(RoleRequiredMixin, View):
+    """Bulk-resend welcome emails to selected students of a class (CPP-300).
+
+    Roles: Admin / HoI / Institute Owner (any class in their school), plus the
+    class's own teachers (only classes they teach). For each selected student
+    the welcome email is resent to the STUDENT *and* each active linked parent,
+    regenerating temporary credentials for institute accounts. Recipients with
+    no email are skipped and reported.
+
+    Tenant isolation: the class is resolved against the requesting user's
+    school / taught classes, so a cross-school class id 404s.
+    """
+    required_roles = _ALL_RESET_ROLES
+
+    def _get_classroom_or_404(self, request, class_id):
+        from django.db.models import Q
+        from .models import ClassRoom
+
+        user = request.user
+        if (user.is_superuser
+                or any(user.has_role(r) for r in _ADMIN_ROLES)):
+            return get_object_or_404(ClassRoom, id=class_id, school__admin=user)
+        # Teacher-level: must teach this class (HoD: or own its department).
+        classroom = ClassRoom.objects.filter(
+            Q(teachers=user) | Q(department__head=user),
+            id=class_id,
+        ).distinct().first()
+        if not classroom:
+            from django.http import Http404
+            raise Http404
+        return classroom
+
+    def post(self, request, class_id):
+        from .models import ClassStudent
+
+        classroom = self._get_classroom_or_404(request, class_id)
+        school = classroom.school
+        redirect_url = reverse('class_detail', args=[classroom.id])
+
+        selected_ids = request.POST.getlist('student_ids')
+        if not selected_ids:
+            messages.info(request, 'No students selected — nothing was sent.')
+            return redirect(redirect_url)
+
+        # Only students actually enrolled (active) in THIS class are eligible.
+        eligible = list(
+            ClassStudent.objects.filter(
+                classroom=classroom, is_active=True,
+                student_id__in=selected_ids,
+            ).select_related('student')
+        )
+
+        students_sent = 0
+        parents_sent = 0
+        skipped = 0
+
+        # Collect the unique parents to notify FIRST, so a parent shared by two
+        # selected siblings is emailed once (not password-reset twice, which
+        # would invalidate the first email's credentials).
+        parent_ids = set(
+            ParentStudent.objects.filter(
+                student__in=[cs.student_id for cs in eligible],
+                school=school, is_active=True,
+            ).values_list('parent_id', flat=True)
+        )
+
+        for cs in eligible:
+            outcome = _resend_welcome_to_user(cs.student, school)
+            if outcome['sent']:
+                students_sent += 1
+            elif outcome['skipped']:
+                skipped += 1
+
+        for parent in CustomUser.objects.filter(id__in=parent_ids):
+            p_outcome = _resend_welcome_to_user(parent, school)
+            if p_outcome['sent']:
+                parents_sent += 1
+            elif p_outcome['skipped']:
+                skipped += 1
+
+        log_event(
+            user=request.user, school=school, category='communication',
+            action='bulk_welcome_resent',
+            detail={
+                'class_id': classroom.id,
+                'selected': len(selected_ids),
+                'students_sent': students_sent,
+                'parents_sent': parents_sent,
+                'skipped': skipped,
+            },
+            request=request,
+        )
+
+        summary = (
+            f'Resent welcome to {students_sent} student(s) '
+            f'and {parents_sent} parent(s).'
+        )
+        if skipped:
+            summary += f' {skipped} recipient(s) skipped (no email address).'
+        messages.success(request, summary)
+        return redirect(redirect_url)

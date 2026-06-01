@@ -164,6 +164,11 @@ urlpatterns = [
          views_password_admin.ResendWelcomeEmailView.as_view(),
          name='admin_user_resend_welcome'),
 
+    # Per-class bulk resend welcome (CPP-300) — students + their parents
+    path('class/<int:class_id>/resend-welcome/',
+         views_password_admin.BulkResendWelcomeView.as_view(),
+         name='class_bulk_resend_welcome'),
+
     # Parent list & edit (school-level)
     path('admin-dashboard/schools/<int:school_id>/parents/', views_parent_admin.SchoolParentListView.as_view(), name='admin_school_parents'),
     path('admin-dashboard/schools/<int:school_id>/parents/add/', views_parent_admin.AddParentView.as_view(), name='admin_school_add_parent'),
