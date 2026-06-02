@@ -85,13 +85,21 @@ any → suspended (admin action)
 3. `SchoolSubscription` created with `status=trialing`, `trial_end=now+14days`
 4. After trial: must subscribe via Stripe Checkout or access is blocked
 
+### Trial Expiry Flow
+1. `TrialExpiryMiddleware` detects `trial_end < now` on every request
+2. Auto-sets `status=expired` if still `trialing`
+3. Redirects to `/billing/institute/trial-expired/` (allowed paths: `/billing/`, `/stripe/`, `/admin/`, `/accounts/logout/`)
+4. Trial-expired page shows plan summaries + "Choose a Plan" button
+5. Plans page shows all active plans with "Subscribe" buttons (expired subscriptions do NOT show "Active" — they show "Subscribe" to allow re-subscription)
+
 ### Stripe Checkout Flow
 1. User selects plan on `/billing/institute/plans/`
-2. `InstituteCheckoutView` creates Stripe Checkout Session
-3. User completes payment on Stripe-hosted page
-4. Stripe sends `checkout.session.completed` webhook
-5. `handle_checkout_completed()` activates subscription
-6. User redirected to success page
+2. `InstituteCheckoutView` validates `plan.stripe_price_id` is set (run `sync_stripe_prices --create-missing` if plans show "not yet available")
+3. Creates Stripe Checkout Session via `create_institute_checkout_session()`
+4. User completes payment on Stripe-hosted page
+5. Stripe sends `checkout.session.completed` webhook
+6. `handle_checkout_completed()` activates subscription
+7. User redirected to success page
 
 ---
 

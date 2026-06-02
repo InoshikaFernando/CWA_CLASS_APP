@@ -155,6 +155,41 @@ python manage.py reset_users_for_dev --skip-email
 
 ---
 
+## Billing & Stripe
+
+### `sync_stripe_prices`
+Sync Stripe Price IDs into `InstitutePlan`, `Package`, and `ModuleProduct` records by matching price amounts against active Stripe prices. Optionally creates missing Stripe Products and Prices for plans that have no match.
+
+```bash
+python manage.py sync_stripe_prices                       # sync existing prices
+python manage.py sync_stripe_prices --dry-run             # preview only
+python manage.py sync_stripe_prices --create-missing      # create Products/Prices in Stripe for unmatched plans
+python manage.py sync_stripe_prices --create-missing --dry-run
+```
+
+| Option             | Description                                                     |
+|--------------------|-----------------------------------------------------------------|
+| `--dry-run`        | Preview changes without saving to the database                  |
+| `--create-missing` | Create Stripe Products and recurring monthly Prices for plans that have no matching Stripe price |
+
+> **Required:** `STRIPE_SECRET_KEY` must be set in the environment. Run this after creating a new environment or adding new plans.
+
+### `send_trial_expiry_warnings`
+Send email warnings to institute owners whose trials are about to expire.
+
+```bash
+python manage.py send_trial_expiry_warnings
+```
+
+### `reset_invoice_counters`
+Reset yearly invoice counters for all school subscriptions. Typically run via cron at the start of each billing year.
+
+```bash
+python manage.py reset_invoice_counters
+```
+
+---
+
 ## Cleanup
 
 ### `clear_staff`

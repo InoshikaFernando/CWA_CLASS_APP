@@ -27,9 +27,15 @@ class Command(BaseCommand):
             action='store_true',
             help='Preview changes without saving to the database.',
         )
+        parser.add_argument(
+            '--create-missing',
+            action='store_true',
+            help='Create Stripe Products and Prices for plans that have no match.',
+        )
 
     def handle(self, *args, **options):
         dry_run = options['dry_run']
+        create_missing = options['create_missing']
         stripe.api_key = settings.STRIPE_SECRET_KEY
 
         if not stripe.api_key:
@@ -124,10 +130,30 @@ class Command(BaseCommand):
                     ))
                 updated_plans += 1
             else:
-                self.stdout.write(self.style.WARNING(
-                    f"  [MISS] {plan.name} (${plan.price}/mo) — "
-                    f"no matching Stripe recurring monthly price found"
-                ))
+                if create_missing:
+                    if dry_run:
+                        self.stdout.write(self.style.WARNING(
+                            f"  [DRY RUN] {plan.name} (${plan.price}/mo) — "
+                            f"would create Stripe Product + Price"
+                        ))
+                        updated_plans += 1
+                    else:
+                        price_id = self._create_stripe_product_and_price(
+                            plan.name, plan.price, plan.slug, 'institute_plan',
+                        )
+                        if price_id:
+                            plan.stripe_price_id = price_id
+                            plan.save(update_fields=['stripe_price_id'])
+                            self.stdout.write(self.style.SUCCESS(
+                                f"  [CREATED] {plan.name} (${plan.price}/mo) — "
+                                f"stripe_price_id={price_id}"
+                            ))
+                            updated_plans += 1
+                else:
+                    self.stdout.write(self.style.WARNING(
+                        f"  [MISS] {plan.name} (${plan.price}/mo) — "
+                        f"no matching Stripe recurring monthly price found"
+                    ))
 
         # Sync Package records (individual student packages)
         packages = Package.objects.filter(is_active=True)
@@ -260,3 +286,24 @@ class Command(BaseCommand):
 
         if dry_run:
             self.stdout.write(self.style.WARNING('\nDry run -- no changes saved. Run without --dry-run to apply.'))
+
+    def _create_stripe_product_and_price(self, name, price_amount, slug, product_type):
+        """Create a Stripe Product and recurring monthly Price. Returns the price ID."""
+        currency = getattr(settings, 'STRIPE_CURRENCY', 'usd')
+        try:
+            product = stripe.Product.create(
+                name=name,
+                metadata={'slug': slug, 'type': product_type},
+            )
+            price = stripe.Price.create(
+                product=product.id,
+                unit_amount=int(price_amount * 100),
+                currency=currency,
+                recurring={'interval': 'month'},
+            )
+            return price.id
+        except stripe.error.StripeError as e:
+            self.stderr.write(self.style.ERROR(
+                f"  [ERROR] Failed to create Stripe product for {name}: {e}"
+            ))
+            return None
