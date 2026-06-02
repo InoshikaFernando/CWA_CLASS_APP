@@ -708,6 +708,10 @@ class InstituteCheckoutView(LoginRequiredMixin, View):
         try:
             from billing.stripe_service import create_institute_checkout_session
             sub = get_school_subscription(school)
+            # Update plan on existing subscription so we don't create duplicates
+            if sub and sub.plan_id != plan.id:
+                sub.plan = plan
+                sub.save(update_fields=['plan'])
             # Only offer trial if the school hasn't used one before
             trial_days = plan.trial_days if (not sub or not sub.has_used_trial) else None
             session = create_institute_checkout_session(

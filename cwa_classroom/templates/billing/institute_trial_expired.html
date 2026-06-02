@@ -18,6 +18,7 @@
     {% csrf_token %}
     <input type="hidden" name="plan" value="{{ plan.slug }}">
     <button type="submit"
+            onclick="this.disabled=true;this.form.submit();"
             class="w-full text-left border rounded-xl p-4 transition hover:ring-2 hover:ring-primary cursor-pointer {% if plan.slug == 'silver' %}border-primary bg-primary-light{% else %}border-gray-200 hover:border-primary{% endif %}">
       <div class="flex justify-between items-center">
         <div>
