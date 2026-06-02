@@ -876,11 +876,10 @@ class ClassDetailView(RoleRequiredMixin, View):
         # Show "Start Session" when no session exists today, or if today's was cancelled
         can_start = todays_session is None or todays_session.status == 'cancelled'
 
-        # Fee data for student list — only HoD and above can view fees
+        # Fee data for student list — only HoI / Accountant and above can view fees
         from .fee_utils import get_effective_fee_for_student, get_fee_source_label, get_effective_fee_for_class
         can_view_fee = (
-            user.has_role(Role.HEAD_OF_DEPARTMENT)
-            or user.has_role(Role.HEAD_OF_INSTITUTE)
+            user.has_role(Role.HEAD_OF_INSTITUTE)
             or user.has_role(Role.INSTITUTE_OWNER)
             or user.has_role(Role.ADMIN)
             or user.has_role(Role.ACCOUNTANT)
@@ -901,9 +900,13 @@ class ClassDetailView(RoleRequiredMixin, View):
             classroom=classroom, is_active=True,
         ).values_list('student_id', flat=True)
 
+        # Bulk "Resend Welcome" is available to admin/HoI and the class's teachers.
+        can_resend_welcome = bool(classroom.school_id)
+
         return render(request, 'teacher/class_detail.html', {
             'classroom': classroom,
             'students': CustomUser.objects.filter(id__in=active_student_ids),
+            'can_resend_welcome': can_resend_welcome,
             'teachers': classroom.teachers.all(),
             'sessions': sessions,
             'todays_session': todays_session,
@@ -994,11 +997,10 @@ class EditClassView(RoleRequiredMixin, View):
         if not current_subject_id and len(subject_groups) == 1:
             current_subject_id = subject_groups[0]['subject'].id
 
-        # Fee context — only HoD and above can view/edit fees
+        # Fee context — only HoI / Accountant and above can view/edit fees
         from .fee_utils import get_parent_fee_for_class
         can_view_fee = (
-            request.user.has_role(Role.HEAD_OF_DEPARTMENT)
-            or request.user.has_role(Role.HEAD_OF_INSTITUTE)
+            request.user.has_role(Role.HEAD_OF_INSTITUTE)
             or request.user.has_role(Role.INSTITUTE_OWNER)
             or request.user.has_role(Role.ADMIN)
             or request.user.has_role(Role.ACCOUNTANT)
@@ -1047,12 +1049,12 @@ class EditClassView(RoleRequiredMixin, View):
         classroom.end_time = end_time
         classroom.description = description
 
-        # Fee override (HoD+ only)
+        # Fee override (HoI / Accountant only)
         can_edit_fee = (
-            request.user.has_role(Role.HEAD_OF_DEPARTMENT)
-            or request.user.has_role(Role.HEAD_OF_INSTITUTE)
+            request.user.has_role(Role.HEAD_OF_INSTITUTE)
             or request.user.has_role(Role.INSTITUTE_OWNER)
             or request.user.has_role(Role.ADMIN)
+            or request.user.has_role(Role.ACCOUNTANT)
         )
         if can_edit_fee:
             fee_str = request.POST.get('fee_override', '').strip()
@@ -1988,6 +1990,28 @@ class StudentCSVConfirmView(RoleRequiredMixin, View):
             request=request,
         )
 
+        # Auto-send welcome emails for ALREADY-PUBLISHED schools.
+        # send_school_publish_notifications only emails SchoolStudent /
+        # SchoolTeacher rows with notified_at IS NULL (the just-imported ones),
+        # includes their pending_password, then clears it and stamps
+        # notified_at + welcome_email_sent — so a later publish never re-sends.
+        # Unpublished schools send nothing now; emails go out at publish time.
+        emails_sent = 0
+        if school.is_published:
+            try:
+                from .email_service import send_school_publish_notifications
+                notify_result = send_school_publish_notifications(school)
+                emails_sent = notify_result.get('sent', 0)
+            except Exception:
+                logger.exception(
+                    'Auto welcome email send failed after import for school %s', school.id
+                )
+                messages.warning(
+                    request,
+                    'Students were imported, but welcome emails could not be sent '
+                    'automatically. Use "Resend Welcome" on the class page to retry.',
+                )
+
         # Store credentials for download (students + parents combined)
         request.session['csv_student_credentials'] = results['credentials']
         request.session['csv_parent_credentials'] = results.get('parent_credentials', [])
@@ -1995,11 +2019,19 @@ class StudentCSVConfirmView(RoleRequiredMixin, View):
         # Success message for dashboard
         c = results['counts']
         parents_created = c.get('parents_created', 0)
+        if school.is_published:
+            email_note = (
+                f" {emails_sent} welcome email(s) with login details sent."
+                if emails_sent else ""
+            )
+        else:
+            email_note = " Welcome emails will be sent when you publish the school."
         messages.success(
             request,
             f"Import complete: {c['students_created']} students created, "
             f"{c['classes_created']} classes, {c['students_enrolled']} enrollments"
-            + (f", {parents_created} parent accounts created" if parents_created else "") + "."
+            + (f", {parents_created} parent accounts created" if parents_created else "")
+            + "." + email_note
         )
 
         # Clear CSV data from session
@@ -2011,6 +2043,8 @@ class StudentCSVConfirmView(RoleRequiredMixin, View):
         return render(request, 'admin/csv_student_results.html', {
             'results': results,
             'school': school,
+            'emails_sent': emails_sent,
+            'school_published': school.is_published,
         })
 
 
@@ -4310,29 +4344,21 @@ class HoDSubjectLevelRemoveView(RoleRequiredMixin, View):
 
 
 class UpdateStudentFeeView(RoleRequiredMixin, View):
-    """Inline update of per-student fee override. HoD+ only."""
+    """Inline update of per-student fee override. HoI / Accountant only."""
     required_roles = [
-        Role.HEAD_OF_DEPARTMENT,
         Role.HEAD_OF_INSTITUTE,
         Role.INSTITUTE_OWNER,
         Role.ADMIN,
+        Role.ACCOUNTANT,
     ]
 
     def post(self, request, class_id, student_id):
         user = request.user
-        # Permission: find the classroom and ensure access
-        from django.db.models import Q
-        if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
+        # Permission: find the classroom and ensure access (HoI/Accountant+ only)
+        if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER) or user.has_role(Role.ACCOUNTANT):
             classroom = get_object_or_404(ClassRoom, id=class_id, is_active=True)
-        elif user.has_role(Role.HEAD_OF_DEPARTMENT):
-            classroom = ClassRoom.objects.filter(
-                Q(department__head=user) | Q(teachers=user),
-                id=class_id, is_active=True,
-            ).distinct().first()
-            if not classroom:
-                raise Http404
         else:
-            classroom = get_object_or_404(ClassRoom, id=class_id, teachers=user, is_active=True)
+            raise Http404
 
         cs = get_object_or_404(ClassStudent, classroom=classroom, student_id=student_id)
         fee_str = request.POST.get('fee_override', '').strip()

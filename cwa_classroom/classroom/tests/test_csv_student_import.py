@@ -319,6 +319,102 @@ class ExecuteImportTests(CSVImportTestBase):
 
 
 # ─────────────────────────────────────────────────────────────
+# 3b. CPP-300 — payment gating + auto-send welcome on import
+# ─────────────────────────────────────────────────────────────
+
+class ImportGatingTests(CSVImportTestBase):
+    """Imported students are gated into the first-login payment flow."""
+
+    def _run(self):
+        headers, rows = parse_csv_file(self.SIMPLE_CSV)
+        mapping = {h: i for i, h in enumerate(headers)}
+        preview = validate_and_preview(rows, mapping, self.school)
+        return execute_import(preview, self.school, self.hoi_user)
+
+    def test_imported_student_has_profile_completed_false(self):
+        self._run()
+        john = CustomUser.objects.get(email='john@school.nz')
+        self.assertFalse(john.profile_completed)
+
+    def test_imported_student_has_must_change_password_true(self):
+        self._run()
+        john = CustomUser.objects.get(email='john@school.nz')
+        self.assertTrue(john.must_change_password)
+
+    def test_imported_student_creation_method_is_institute(self):
+        self._run()
+        john = CustomUser.objects.get(email='john@school.nz')
+        self.assertEqual(john.creation_method, CustomUser.CREATION_INSTITUTE)
+
+    def test_import_creates_no_subscription_for_students(self):
+        from billing.models import Subscription
+        self._run()
+        john = CustomUser.objects.get(email='john@school.nz')
+        self.assertFalse(Subscription.objects.filter(user=john).exists())
+
+    def test_imported_parent_creation_method_is_institute(self):
+        headers, rows = parse_csv_file(self.GUARDIAN_CSV)
+        mapping = {h: i for i, h in enumerate(headers)}
+        preview = validate_and_preview(rows, mapping, self.school)
+        execute_import(preview, self.school, self.hoi_user)
+        mary = CustomUser.objects.get(email='mary@parent.com')
+        self.assertEqual(mary.creation_method, CustomUser.CREATION_INSTITUTE)
+
+
+class ImportAutoSendWelcomeTests(CSVImportTestBase):
+    """Published schools email credentials at import; unpublished hold until publish."""
+
+    def _import(self):
+        headers, rows = parse_csv_file(self.SIMPLE_CSV)
+        mapping = {h: i for i, h in enumerate(headers)}
+        preview = validate_and_preview(rows, mapping, self.school)
+        return execute_import(preview, self.school, self.hoi_user)
+
+    def test_import_unpublished_school_sends_no_emails(self):
+        """No email at import time when the school is unpublished."""
+        from django.core import mail
+        self.school.is_published = False
+        self.school.save(update_fields=['is_published'])
+        self._import()
+        # The importer itself never emails; the view only emails published schools.
+        ss = SchoolStudent.objects.get(student__email='john@school.nz', school=self.school)
+        self.assertIsNone(ss.notified_at)
+        self.assertNotEqual(ss.pending_password, '')
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_import_published_school_sends_welcome_emails(self):
+        from django.core import mail
+        from classroom.email_service import send_school_publish_notifications
+
+        self.school.is_published = True
+        self.school.save(update_fields=['is_published'])
+        self._import()
+
+        result = send_school_publish_notifications(self.school)
+        self.assertGreaterEqual(result['sent'], 2)
+
+        ss = SchoolStudent.objects.get(student__email='john@school.nz', school=self.school)
+        self.assertIsNotNone(ss.notified_at)
+        self.assertEqual(ss.pending_password, '')
+        recipients = [addr for m in mail.outbox for addr in m.to]
+        self.assertIn('john@school.nz', recipients)
+
+    def test_import_published_no_double_send_on_subsequent_publish(self):
+        """Credentials are emailed exactly once — a later publish re-send is a no-op."""
+        from classroom.email_service import send_school_publish_notifications
+
+        self.school.is_published = True
+        self.school.save(update_fields=['is_published'])
+        self._import()
+
+        first = send_school_publish_notifications(self.school)
+        self.assertGreaterEqual(first['sent'], 2)
+        # Second call (e.g. admin clicks Publish later) emails nobody new.
+        second = send_school_publish_notifications(self.school)
+        self.assertEqual(second['sent'], 0)
+
+
+# ─────────────────────────────────────────────────────────────
 # 4. View access tests
 # ─────────────────────────────────────────────────────────────
 

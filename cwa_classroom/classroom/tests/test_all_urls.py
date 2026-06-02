@@ -433,8 +433,10 @@ class AnonymousURLTest(_SharedFixture):
     def test_register_individual_student(self):
         self._check_200('/accounts/register/individual-student/')
 
-    def test_register_school_student(self):
-        self._check_200('/accounts/register/school-student/')
+    def test_register_school_student_removed(self):
+        """CPP-300: school student registration removed — URL returns 404."""
+        resp = self.client.get('/accounts/register/school-student/')
+        self.assertEqual(resp.status_code, 404)
 
     def test_register_parent_join(self):
         self._check_200('/accounts/register/parent-join/')
