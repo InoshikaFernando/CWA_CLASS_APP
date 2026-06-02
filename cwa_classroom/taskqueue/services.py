@@ -9,14 +9,21 @@ logger = logging.getLogger(__name__)
 
 
 def enqueue_task(*, school, user, task_type, func, args=None, kwargs=None,
-                 queue='default', description=''):
+                 queue='default'):
     queue_instance = django_rq.get_queue(queue)
+    # Separate RQ meta-params from the task function's kwargs to prevent
+    # callers from accidentally overriding our tracking callbacks.
+    rq_params = {
+        'on_success': on_task_success,
+        'on_failure': on_task_failure,
+    }
+    func_kwargs = {k: v for k, v in (kwargs or {}).items()
+                   if k not in rq_params}
     job = queue_instance.enqueue(
         func,
         *(args or []),
-        **(kwargs or {}),
-        on_success=on_task_success,
-        on_failure=on_task_failure,
+        **func_kwargs,
+        **rq_params,
     )
     task = BackgroundTask.objects.create(
         school=school,
@@ -43,7 +50,8 @@ def on_task_failure(job, connection, exc_type, exc_value, traceback):
         task.retry_count += 1
         task.status = BackgroundTask.PENDING
         task.error_message = ''
-        task.save(update_fields=['retry_count', 'status', 'error_message'])
+        task.completed_at = None
+        task.save(update_fields=['retry_count', 'status', 'error_message', 'completed_at'])
         job.requeue()
         logger.info(
             'Retrying task=%s job=%s attempt=%s/%s',

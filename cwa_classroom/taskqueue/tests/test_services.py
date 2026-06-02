@@ -130,6 +130,7 @@ class CallbackTests(TestCase):
         # First failure triggers retry — status back to PENDING
         self.assertEqual(task.status, BackgroundTask.PENDING)
         self.assertEqual(task.retry_count, 1)
+        self.assertIsNone(task.completed_at)  # cleared for retry
         mock_job.requeue.assert_called_once()
 
     def test_failure_after_max_retries_stays_failed(self):
