@@ -14,29 +14,34 @@
 {% if plans %}
 <div class="space-y-3">
   {% for plan in plans %}
-  <div class="border rounded-xl p-4 {% if plan.slug == 'silver' %}border-primary bg-primary-light{% else %}border-gray-200{% endif %}">
-    <div class="flex justify-between items-center">
-      <div>
-        <h3 class="font-bold text-gray-800">{{ plan.name }}</h3>
-        <p class="text-xs text-gray-500">
-          {% if plan.class_limit == 0 %}Unlimited{% else %}{{ plan.class_limit }}{% endif %} classes,
-          {% if plan.student_limit == 0 %}Unlimited{% else %}{{ plan.student_limit }}{% endif %} students,
-          {% if plan.invoice_limit_yearly == 0 %}Unlimited{% else %}{{ plan.invoice_limit_yearly }}{% endif %} invoices/yr
-        </p>
+  <form method="post" action="{% url 'institute_checkout' %}">
+    {% csrf_token %}
+    <input type="hidden" name="plan" value="{{ plan.slug }}">
+    <button type="submit"
+            class="w-full text-left border rounded-xl p-4 transition hover:ring-2 hover:ring-primary cursor-pointer {% if plan.slug == 'silver' %}border-primary bg-primary-light{% else %}border-gray-200 hover:border-primary{% endif %}">
+      <div class="flex justify-between items-center">
+        <div>
+          <h3 class="font-bold text-gray-800">{{ plan.name }}</h3>
+          <p class="text-xs text-gray-500">
+            {% if plan.class_limit == 0 %}Unlimited{% else %}{{ plan.class_limit }}{% endif %} classes,
+            {% if plan.student_limit == 0 %}Unlimited{% else %}{{ plan.student_limit }}{% endif %} students,
+            {% if plan.invoice_limit_yearly == 0 %}Unlimited{% else %}{{ plan.invoice_limit_yearly }}{% endif %} invoices/yr
+          </p>
+        </div>
+        <div class="text-right">
+          <span class="text-lg font-bold text-gray-800">${{ plan.price }}</span>
+          <span class="text-xs text-gray-500">/mo</span>
+        </div>
       </div>
-      <div class="text-right">
-        <span class="text-lg font-bold text-gray-800">${{ plan.price }}</span>
-        <span class="text-xs text-gray-500">/mo</span>
-      </div>
-    </div>
-  </div>
+    </button>
+  </form>
   {% endfor %}
 </div>
 
 <div class="mt-6 text-center">
   <a href="{% url 'institute_plan_select' %}"
-     class="inline-block bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition">
-    Choose a Plan
+     class="text-sm text-gray-500 hover:text-primary transition">
+    Compare all plans in detail
   </a>
 </div>
 {% endif %}

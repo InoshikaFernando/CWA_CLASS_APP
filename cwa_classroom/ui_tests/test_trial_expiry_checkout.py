@@ -100,14 +100,29 @@ def test_expired_trial_redirects_to_trial_expired_page(
 
 
 @pytest.mark.django_db(transaction=True)
-def test_choose_plan_navigates_to_plans_page(
+def test_clicking_plan_card_submits_to_checkout(
     page: Page, live_server, expired_institute,
 ):
-    """Clicking 'Choose a Plan' navigates to the plan selection page."""
+    """Clicking a plan card on the trial-expired page submits directly to checkout."""
     do_login(page, str(live_server), expired_institute["owner"])
     expect(page).to_have_url(re.compile(r"trial-expired"), timeout=10_000)
 
-    page.locator("a:has-text('Choose a Plan')").click()
+    page.locator("button[type='submit']").first.click()
+    page.wait_for_load_state("domcontentloaded")
+
+    unavailable_msg = page.locator("text=not yet available for online checkout")
+    expect(unavailable_msg).to_have_count(0)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_compare_plans_link_navigates_to_plans_page(
+    page: Page, live_server, expired_institute,
+):
+    """The 'Compare all plans' link navigates to the plan selection page."""
+    do_login(page, str(live_server), expired_institute["owner"])
+    expect(page).to_have_url(re.compile(r"trial-expired"), timeout=10_000)
+
+    page.locator("a:has-text('Compare all plans')").click()
     page.wait_for_load_state("domcontentloaded")
 
     expect(page).to_have_url(re.compile(r"/billing/institute/plans/"), timeout=10_000)
