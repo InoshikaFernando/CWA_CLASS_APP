@@ -219,14 +219,14 @@ class AdminPasswordResetView(RoleRequiredMixin, View):
         else:
             new_password = _generate_random_password()
 
-        target.set_password(new_password)
-        # Suggest, don't force, a change on next login.
-        target.must_change_password = False
-        target.save(update_fields=['password', 'must_change_password'])
-
         email_sent = _send_password_reset_email(
             user=target, school=school, plain_password=new_password, actor=request.user,
         )
+
+        if email_sent:
+            target.set_password(new_password)
+            target.must_change_password = False
+            target.save(update_fields=['password', 'must_change_password'])
 
         log_event(
             user=request.user, school=school, category='auth',
@@ -250,8 +250,8 @@ class AdminPasswordResetView(RoleRequiredMixin, View):
         else:
             messages.warning(
                 request,
-                f'Password reset for {target.get_full_name() or target.username}, '
-                f'but the email could not be sent. Share the new password manually: {new_password}',
+                f'Password could not be reset for {target.get_full_name() or target.username} '
+                f'— email delivery failed. Password was NOT changed. Try again or check email settings.',
             )
 
         return redirect(safe_next or self._return_url(school, role_label))
