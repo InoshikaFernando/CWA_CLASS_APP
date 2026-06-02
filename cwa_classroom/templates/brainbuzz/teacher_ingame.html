@@ -462,9 +462,7 @@ function bbTeacher(joinCode, initialVersion, initialIndex, totalQuestions) {
           this.correctShortAnswer  = q.correct_short_answer  || '';
           this.questionHtml        = q.question_html          || '';
           this.deadlineUtc  = q.question_deadline ? new Date(q.question_deadline) : null;
-          this.timeLimitSec = this.deadlineUtc
-            ? Math.round((this.deadlineUtc - Date.now()) / 1000)
-            : 20;
+          this.timeLimitSec = q.time_limit_sec || 20;
           this.startCountdown();
           setTimeout(() => this._highlightCode(), 0);
         }

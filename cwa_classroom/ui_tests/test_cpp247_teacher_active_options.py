@@ -179,7 +179,7 @@ class TestMcqTilesVisibleDuringActive:
         session = _make_active_session(self.teacher, self.subject, 'C247A1')
         _make_mcq_question(session, correct_label='B')
 
-        do_login(self.page, self.url, self.teacher.username, TEST_PASSWORD)
+        do_login(self.page, self.url, self.teacher)
         self.page.goto(_ingame_url(self.url, 'C247A1'))
         self.page.wait_for_load_state('domcontentloaded')
 
@@ -206,22 +206,21 @@ class TestCorrectOptionEmeraldBorder:
         session = _make_active_session(self.teacher, self.subject, 'C247B1')
         _make_mcq_question(session, correct_label='B')  # B = Paris is correct
 
-        do_login(self.page, self.url, self.teacher.username, TEST_PASSWORD)
+        do_login(self.page, self.url, self.teacher)
         self.page.goto(_ingame_url(self.url, 'C247B1'))
         self.page.wait_for_load_state('domcontentloaded')
         self.page.wait_for_timeout(1_500)  # let Alpine render
 
-        # The tile row containing "Paris" should have the emerald border class
-        paris_tile = self.page.locator('div', has_text='Paris').filter(
-            has=self.page.locator('span', has_text='B')
-        ).first
-        expect(paris_tile).to_have_class(re.compile(r'border-emerald-400'), timeout=5_000)
+        # Find an element that already has the emerald border class AND contains "Paris".
+        # Alpine sets border-emerald-400/70 on the correct tile via :class binding.
+        paris_tile = self.page.locator('[class*="border-emerald-400"]').filter(has_text='Paris')
+        expect(paris_tile).to_be_visible(timeout=5_000)
 
     def test_incorrect_options_do_not_have_emerald_border(self):
         session = _make_active_session(self.teacher, self.subject, 'C247B2')
         _make_mcq_question(session, correct_label='B')  # B is correct; A/C/D are wrong
 
-        do_login(self.page, self.url, self.teacher.username, TEST_PASSWORD)
+        do_login(self.page, self.url, self.teacher)
         self.page.goto(_ingame_url(self.url, 'C247B2'))
         self.page.wait_for_load_state('domcontentloaded')
         self.page.wait_for_timeout(1_500)
@@ -252,7 +251,7 @@ class TestTilesReadOnly:
         session = _make_active_session(self.teacher, self.subject, 'C247C1')
         _make_mcq_question(session, correct_label='A')
 
-        do_login(self.page, self.url, self.teacher.username, TEST_PASSWORD)
+        do_login(self.page, self.url, self.teacher)
         self.page.goto(_ingame_url(self.url, 'C247C1'))
         self.page.wait_for_load_state('domcontentloaded')
         self.page.wait_for_timeout(1_500)
@@ -279,7 +278,7 @@ class TestSaExpectedAnswerVisible:
         session = _make_active_session(self.teacher, self.subject, 'C247D1')
         _make_sa_question(session, correct_answer='photosynthesis')
 
-        do_login(self.page, self.url, self.teacher.username, TEST_PASSWORD)
+        do_login(self.page, self.url, self.teacher)
         self.page.goto(_ingame_url(self.url, 'C247D1'))
         self.page.wait_for_load_state('domcontentloaded')
         self.page.wait_for_timeout(1_500)
@@ -292,7 +291,7 @@ class TestSaExpectedAnswerVisible:
         session = _make_active_session(self.teacher, self.subject, 'C247D2')
         _make_mcq_question(session, correct_label='C')
 
-        do_login(self.page, self.url, self.teacher.username, TEST_PASSWORD)
+        do_login(self.page, self.url, self.teacher)
         self.page.goto(_ingame_url(self.url, 'C247D2'))
         self.page.wait_for_load_state('domcontentloaded')
         self.page.wait_for_timeout(1_500)
@@ -315,24 +314,26 @@ class TestReadWindowHidesTiles:
 
     def test_read_window_hides_tiles(self):
         """During read window, option tiles must not be visible."""
-        # time_per_question_sec=5; deadline = now + 10s → readWindowEnds = now+5s (still future)
-        session = _make_read_window_session(self.teacher, self.subject, 'C247E1', time_per_question_sec=5)
+        # Login FIRST — session created after so its deadline is fresh when page loads.
+        do_login(self.page, self.url, self.teacher)
+
+        # time_per_question_sec=15 → readWindowEnds = now+15s, plenty of buffer
+        session = _make_read_window_session(self.teacher, self.subject, 'C247E1', time_per_question_sec=15)
         _make_mcq_question(session, correct_label='A')
 
-        do_login(self.page, self.url, self.teacher.username, TEST_PASSWORD)
         self.page.goto(_ingame_url(self.url, 'C247E1'))
         self.page.wait_for_load_state('domcontentloaded')
-        self.page.wait_for_timeout(800)
 
-        # Read window placeholder must be visible
-        expect(self.page.get_by_text('Read window', exact=False)).to_be_visible(timeout=4_000)
+        # Read window placeholder must be visible — wait up to 6s for state poll to update Alpine
+        expect(self.page.get_by_text('Read window', exact=False)).to_be_visible(timeout=6_000)
         # Option tiles must NOT be visible
         expect(self.page.get_by_text('Berlin', exact=False)).not_to_be_visible(timeout=3_000)
 
     def test_tiles_appear_after_read_window(self):
         """Tiles become visible once the read window countdown reaches zero."""
-        # time_per_question_sec=3; deadline = now + 3s → readWindowEnds = now (no read window)
-        # Use a very short timer so tiles appear quickly
+        # Login FIRST — session created after so its deadline is fresh when page loads.
+        do_login(self.page, self.url, self.teacher)
+
         from django.utils import timezone
         from brainbuzz.models import BrainBuzzSession
         session = BrainBuzzSession.objects.create(
@@ -342,21 +343,20 @@ class TestReadWindowHidesTiles:
             status=BrainBuzzSession.STATUS_ACTIVE,
             current_index=0,
             state_version=1,
-            time_per_question_sec=3,
-            # deadline = now+6s; readWindowEnds = now+3s → 3s read window then tiles
-            question_deadline=timezone.now() + timedelta(seconds=6),
+            time_per_question_sec=5,
+            # deadline = now+10s; readWindowEnds = now+5s → 5s read window then tiles appear
+            question_deadline=timezone.now() + timedelta(seconds=10),
         )
         _make_mcq_question(session, correct_label='A')
 
-        do_login(self.page, self.url, self.teacher.username, TEST_PASSWORD)
         self.page.goto(_ingame_url(self.url, 'C247E2'))
         self.page.wait_for_load_state('domcontentloaded')
 
         # Read window placeholder visible initially
         expect(self.page.get_by_text('Read window', exact=False)).to_be_visible(timeout=4_000)
 
-        # After ~4s the read window ends and tiles should appear
-        expect(self.page.get_by_text('Berlin', exact=False)).to_be_visible(timeout=10_000)
+        # After ~5s the read window ends and tiles should appear
+        expect(self.page.get_by_text('Berlin', exact=False)).to_be_visible(timeout=12_000)
 
 
 # ---------------------------------------------------------------------------
@@ -387,15 +387,16 @@ class TestRevealDistributionRegression:
             time_taken_ms=500,
         )
 
-        do_login(self.page, self.url, self.teacher.username, TEST_PASSWORD)
+        do_login(self.page, self.url, self.teacher)
         self.page.goto(_ingame_url(self.url, 'C247F1'))
         self.page.wait_for_load_state('domcontentloaded')
         self.page.wait_for_timeout(1_500)
 
         # Paris tile (correct) should be visible in distribution
         expect(self.page.get_by_text('Paris', exact=False)).to_be_visible(timeout=6_000)
-        # The checkmark for correct answer
-        expect(self.page.get_by_text('✓')).to_be_visible(timeout=4_000)
+        # The checkmark for correct answer — B is option index 1 (0=A, 1=B, 2=C, 3=D)
+        # All 4 tiles have a ✓ span but Alpine x-show hides the wrong ones; use nth to avoid strict mode
+        expect(self.page.get_by_text('✓').nth(1)).to_be_visible(timeout=4_000)
 
 
 # ---------------------------------------------------------------------------
