@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salary Slip {{ slip.slip_number }}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 12px; color: #1f2937; background: #fff; }
+    .page { max-width: 800px; margin: 0 auto; padding: 40px; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 32px; padding-bottom: 20px; border-bottom: 2px solid #e5e7eb; }
+    .school-name { font-size: 20px; font-weight: 700; color: #111827; }
+    .school-sub { font-size: 12px; color: #6b7280; margin-top: 2px; }
+    .slip-title { text-align: right; }
+    .slip-title h1 { font-size: 18px; font-weight: 700; color: #111827; }
+    .slip-title .slip-num { font-size: 13px; color: #6b7280; margin-top: 2px; font-family: monospace; }
+    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 28px; }
+    .meta-block label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #9ca3af; display: block; margin-bottom: 2px; }
+    .meta-block span { font-size: 13px; color: #1f2937; }
+    .status-badge { display: inline-block; padding: 2px 10px; border-radius: 9999px; font-size: 11px; font-weight: 600; }
+    .status-issued { background: #dbeafe; color: #1d4ed8; }
+    .status-partially_paid { background: #fef3c7; color: #92400e; }
+    .status-paid { background: #d1fae5; color: #065f46; }
+    .summary-row { display: flex; gap: 0; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; margin-bottom: 28px; }
+    .summary-cell { flex: 1; padding: 14px 18px; border-right: 1px solid #e5e7eb; }
+    .summary-cell:last-child { border-right: none; }
+    .summary-cell label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #9ca3af; display: block; margin-bottom: 4px; }
+    .summary-cell .amount { font-size: 20px; font-weight: 700; color: #1f2937; }
+    .summary-cell .amount.paid { color: #059669; }
+    .summary-cell .amount.due { color: #d97706; }
+    section { margin-bottom: 28px; }
+    section h2 { font-size: 13px; font-weight: 700; color: #374151; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid #e5e7eb; }
+    table { width: 100%; border-collapse: collapse; }
+    th { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; padding: 8px 10px; text-align: left; background: #f9fafb; border-bottom: 1px solid #e5e7eb; }
+    th.right, td.right { text-align: right; }
+    td { padding: 8px 10px; font-size: 12px; color: #374151; border-bottom: 1px solid #f3f4f6; }
+    tfoot td { font-weight: 700; background: #f9fafb; border-top: 1px solid #e5e7eb; border-bottom: none; color: #1f2937; }
+    .no-data { padding: 14px 10px; color: #9ca3af; font-style: italic; }
+    .notes-box { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px 14px; margin-bottom: 28px; }
+    .notes-box label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #9ca3af; display: block; margin-bottom: 4px; }
+    .notes-box p { font-size: 12px; color: #374151; }
+    .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; font-size: 10px; color: #9ca3af; }
+    .print-btn { display: block; margin: 0 auto 24px; padding: 10px 28px; background: #4f46e5; color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    @media print {
+      .print-btn { display: none; }
+      body { background: #fff; }
+      .page { padding: 24px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="page">
+  <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
+
+  <!-- Header -->
+  <div class="header">
+    <div>
+      <div class="school-name">{{ slip.school.name }}</div>
+      <div class="school-sub">Salary Slip</div>
+    </div>
+    <div class="slip-title">
+      <h1>Salary Slip</h1>
+      <div class="slip-num">{{ slip.slip_number }}</div>
+      <div style="margin-top:6px">
+        <span class="status-badge status-{{ slip.status }}">{{ slip.get_status_display }}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Meta -->
+  <div class="meta-grid">
+    <div class="meta-block">
+      <label>Teacher</label>
+      <span>{{ slip.teacher.get_full_name }}</span>
+    </div>
+    <div class="meta-block">
+      <label>Billing Period</label>
+      <span>{{ slip.billing_period_start|date:"M d, Y" }} &ndash; {{ slip.billing_period_end|date:"M d, Y" }}</span>
+    </div>
+    <div class="meta-block">
+      <label>Issue Date</label>
+      <span>{{ slip.issued_at|date:"M d, Y"|default:"&mdash;" }}</span>
+    </div>
+    <div class="meta-block">
+      <label>School</label>
+      <span>{{ slip.school.name }}</span>
+    </div>
+  </div>
+
+  <!-- Summary -->
+  <div class="summary-row">
+    <div class="summary-cell">
+      <label>Total Amount</label>
+      <div class="amount">${{ slip.amount }}</div>
+    </div>
+    <div class="summary-cell">
+      <label>Paid</label>
+      <div class="amount paid">${{ slip.amount_paid }}</div>
+    </div>
+    <div class="summary-cell">
+      <label>Remaining</label>
+      <div class="amount {% if slip.amount_due > 0 %}due{% endif %}">${{ slip.amount_due }}</div>
+    </div>
+  </div>
+
+  {% if slip.notes %}
+    <div class="notes-box">
+      <label>Notes</label>
+      <p>{{ slip.notes }}</p>
+    </div>
+  {% endif %}
+
+  <!-- Line Items -->
+  <section>
+    <h2>Breakdown by Class</h2>
+    {% if line_items %}
+      <table>
+        <thead>
+          <tr>
+            <th>Class</th>
+            <th>Department</th>
+            <th class="right">Rate/hr</th>
+            <th class="right">Sessions</th>
+            <th class="right">Hrs/Session</th>
+            <th class="right">Total Hrs</th>
+            <th class="right">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for line in line_items %}
+            <tr>
+              <td>{{ line.classroom.name }}</td>
+              <td>{{ line.department.name|default:"&mdash;" }}</td>
+              <td class="right">${{ line.hourly_rate }}</td>
+              <td class="right">{{ line.sessions_taught }}</td>
+              <td class="right">{{ line.hours_per_session }}</td>
+              <td class="right">{{ line.total_hours }}</td>
+              <td class="right">${{ line.line_amount }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="6" class="right">Total</td>
+            <td class="right">${{ slip.amount }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    {% else %}
+      <p class="no-data">No line items recorded.</p>
+    {% endif %}
+  </section>
+
+  <!-- Payment History -->
+  <section>
+    <h2>Payment History</h2>
+    {% if payments %}
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Method</th>
+            <th>Reference</th>
+            <th class="right">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for payment in payments %}
+            <tr>
+              <td>{{ payment.payment_date|date:"M d, Y" }}</td>
+              <td>{{ payment.get_payment_method_display }}</td>
+              <td>{{ payment.reference_name|default:"&mdash;" }}</td>
+              <td class="right">${{ payment.amount }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="no-data">No confirmed payments recorded.</p>
+    {% endif %}
+  </section>
+
+  <div class="footer">
+    <span>{{ slip.school.name }}</span>
+    <span>Generated {{ slip.billing_period_end|date:"M d, Y" }}</span>
+  </div>
+</div>
+
+</body>
+</html>

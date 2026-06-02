@@ -8,7 +8,7 @@ from decimal import Decimal, InvalidOperation
 from django.contrib import messages
 from django.db import models, transaction
 from django.core.paginator import Paginator
-from django.http import JsonResponse
+from django.http import HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views import View
@@ -634,3 +634,97 @@ class TeacherSearchAPIView(RoleRequiredMixin, View):
             for st in teachers
         ]
         return JsonResponse({'results': results})
+
+
+# ===========================================================================
+# Teacher Self-Service Salary Views (CPP-306)
+# ===========================================================================
+
+TEACHER_SALARY_ROLES = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
+
+TEACHER_VISIBLE_STATUSES = ('issued', 'partially_paid', 'paid')
+
+
+def _get_teacher_slip_or_error(request, slip_id):
+    """Return (slip, None) or (None, error_response) for teacher-owned slip access."""
+    slip = get_object_or_404(SalarySlip, id=slip_id)
+    if slip.teacher != request.user:
+        return None, HttpResponseForbidden()
+    if slip.status not in TEACHER_VISIBLE_STATUSES:
+        from django.http import Http404
+        raise Http404
+    return slip, None
+
+
+class TeacherSalarySlipListView(RoleRequiredMixin, View):
+    required_roles = TEACHER_SALARY_ROLES
+
+    def get(self, request):
+        from django.db.models import Sum, Q
+
+        slips = (
+            SalarySlip.objects
+            .filter(teacher=request.user, status__in=TEACHER_VISIBLE_STATUSES)
+            .select_related('school')
+            .order_by('-billing_period_start')
+        )
+
+        total_paid = slips.filter(status='paid').aggregate(
+            t=Sum('amount'))['t'] or 0
+
+        # Annotate confirmed_paid per slip so templates can compute amount_due
+        from decimal import Decimal as _Decimal
+        from django.db.models import OuterRef, Subquery, DecimalField, Value
+        from django.db.models.functions import Coalesce
+        confirmed_paid = (
+            SalaryPayment.objects
+            .filter(salary_slip=OuterRef('pk'), status='confirmed')
+            .values('salary_slip')
+            .annotate(s=Sum('amount'))
+            .values('s')
+        )
+        slips = slips.annotate(
+            confirmed_paid=Coalesce(
+                Subquery(confirmed_paid, output_field=DecimalField()),
+                Value(_Decimal('0'), output_field=DecimalField()))
+        )
+
+        paginator = Paginator(slips, 10)
+        page = paginator.get_page(request.GET.get('page'))
+
+        return render(request, 'salaries/teacher_salary_slip_list.html', {
+            'page': page,
+            'total_paid': total_paid,
+        })
+
+
+class TeacherSalarySlipDetailView(RoleRequiredMixin, View):
+    required_roles = TEACHER_SALARY_ROLES
+
+    def get(self, request, slip_id):
+        slip, err = _get_teacher_slip_or_error(request, slip_id)
+        if err:
+            return err
+        line_items = slip.line_items.select_related('classroom', 'department')
+        payments = slip.payments.filter(status='confirmed').order_by('-payment_date')
+        return render(request, 'salaries/teacher_salary_slip_detail.html', {
+            'slip': slip,
+            'line_items': line_items,
+            'payments': payments,
+        })
+
+
+class TeacherSalarySlipPrintView(RoleRequiredMixin, View):
+    required_roles = TEACHER_SALARY_ROLES
+
+    def get(self, request, slip_id):
+        slip, err = _get_teacher_slip_or_error(request, slip_id)
+        if err:
+            return err
+        line_items = slip.line_items.select_related('classroom', 'department')
+        payments = slip.payments.filter(status='confirmed').order_by('-payment_date')
+        return render(request, 'salaries/teacher_salary_slip_print.html', {
+            'slip': slip,
+            'line_items': line_items,
+            'payments': payments,
+        })
