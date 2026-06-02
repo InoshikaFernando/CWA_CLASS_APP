@@ -726,15 +726,53 @@ class InstituteCheckoutView(LoginRequiredMixin, View):
 
 
 class InstituteCheckoutSuccessView(LoginRequiredMixin, View):
-    """Success page after Stripe Checkout for institute subscription."""
+    """Success page after Stripe Checkout for institute subscription.
+
+    Stripe redirects here with ?session_id=... after payment. We verify
+    the session with Stripe and activate the subscription immediately,
+    so the user doesn't depend on the webhook arriving first.
+    """
 
     def get(self, request):
         school = get_school_for_user(request.user)
         sub = get_school_subscription(school) if school else None
+
+        session_id = request.GET.get('session_id', '')
+        if session_id and sub and sub.status != SchoolSubscription.STATUS_ACTIVE:
+            self._activate_from_session(session_id, sub)
+            sub.refresh_from_db()
+
         return render(request, 'billing/institute_checkout_success.html', {
             'school': school,
             'subscription': sub,
         })
+
+    @staticmethod
+    def _activate_from_session(session_id, sub):
+        """Verify checkout session with Stripe and activate if paid."""
+        try:
+            stripe.api_key = settings.STRIPE_SECRET_KEY
+            session = stripe.checkout.Session.retrieve(session_id)
+            if session.payment_status in ('paid', 'no_payment_required'):
+                sub.status = SchoolSubscription.STATUS_ACTIVE
+                sub.stripe_subscription_id = session.subscription or sub.stripe_subscription_id
+                sub.trial_end = None
+                sub.current_period_start = timezone.now()
+                if session.metadata.get('plan_id'):
+                    from billing.models import InstitutePlan
+                    plan = InstitutePlan.objects.filter(
+                        id=session.metadata['plan_id'],
+                    ).first()
+                    if plan:
+                        sub.plan = plan
+                sub.save()
+                log_event(
+                    user=None, school=sub.school, category='billing',
+                    action='subscription_activated_from_success_page',
+                    detail={'session_id': session_id, 'plan_id': sub.plan_id},
+                )
+        except stripe.error.StripeError:
+            pass
 
 
 class InstituteChangePlanView(LoginRequiredMixin, View):
