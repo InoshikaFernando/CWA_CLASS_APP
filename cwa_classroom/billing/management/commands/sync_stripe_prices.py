@@ -81,6 +81,8 @@ class Command(BaseCommand):
         recurring_prices = {}
         one_time_prices = {}
         for price in prices:
+            if price.unit_amount is None:
+                continue
             amount = Decimal(price.unit_amount) / 100  # cents -> dollars
             product_name = price.product.name if hasattr(price.product, 'name') else str(price.product)
 
