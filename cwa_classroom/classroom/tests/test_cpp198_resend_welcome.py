@@ -107,7 +107,10 @@ class TestResendWelcomePermission(ResendWelcomeBase):
 
         resp = self.client.post(self._resend_url(self.teacher.id), follow=True)
         # RoleRequiredMixin redirects non-HoI users
-        self.assertNotEqual(resp.status_code, 200) if not resp.redirect_chain else None
+        if resp.redirect_chain:
+            pass  # Redirected away from the view — good
+        else:
+            self.assertNotEqual(resp.status_code, 200)
         # Verify we didn't end up on success (no success message)
         msgs = [str(m) for m in get_messages(resp.wsgi_request)]
         self.assertFalse(any('resent' in m.lower() for m in msgs))
@@ -213,7 +216,7 @@ class TestResendWelcomeTimestampUpdate(ResendWelcomeBase):
 
 
 # ---------------------------------------------------------------------------
-# U5: Email failure → warning shown, password still reset (for institute)
+# U5: Email failure → warning shown, password NOT changed
 # ---------------------------------------------------------------------------
 
 class TestResendWelcomeEmailFailure(ResendWelcomeBase):
@@ -229,6 +232,23 @@ class TestResendWelcomeEmailFailure(ResendWelcomeBase):
         resp = self._post_resend(self.teacher.id)
         msgs = [str(m) for m in get_messages(resp.wsgi_request)]
         self.assertFalse(any('resent' in m.lower() for m in msgs))
+
+    @patch('notifications.services.resend_welcome_notification', return_value=False)
+    def test_institute_password_not_changed_on_email_failure(self, mock_send):
+        """If email fails, the institute user's password must remain unchanged."""
+        old_pw_hash = self.teacher.password
+        self._post_resend(self.teacher.id)
+        self.teacher.refresh_from_db()
+        self.assertEqual(self.teacher.password, old_pw_hash)
+
+    @patch('notifications.services.resend_welcome_notification', return_value=False)
+    def test_must_change_password_not_set_on_email_failure(self, mock_send):
+        """If email fails, must_change_password should not be set."""
+        self.teacher.must_change_password = False
+        self.teacher.save(update_fields=['must_change_password'])
+        self._post_resend(self.teacher.id)
+        self.teacher.refresh_from_db()
+        self.assertFalse(self.teacher.must_change_password)
 
 
 # ---------------------------------------------------------------------------
