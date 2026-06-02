@@ -215,6 +215,16 @@ class InstitutePlanSelectViewTest(TestCase):
         self.assertEqual(resp.context['school'], school)
         self.assertEqual(resp.context['current_plan'], plan)
 
+    def test_expired_sub_shows_no_current_plan(self):
+        user, school, plan, sub = _create_hoi_with_school(
+            username='expired_hoi', plan_status='expired',
+        )
+        self.client.login(username='expired_hoi', password='testpass123')
+        resp = self.client.get(reverse('institute_plan_select'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(resp.context['current_plan'])
+        self.assertIsNone(resp.context['subscription'])
+
 
 class InstitutePlanUpgradeViewTest(TestCase):
     def test_no_school_redirects(self):

@@ -553,11 +553,12 @@ class InstitutePlanSelectView(LoginRequiredMixin, View):
         current_classes = ClassRoom.objects.filter(school=school, is_active=True).count()
         current_students = SchoolStudent.objects.filter(school=school, is_active=True).count()
 
+        active_sub = sub if sub and sub.is_active_or_trialing else None
         return render(request, 'billing/institute_plans.html', {
             'plans': plans,
             'school': school,
-            'subscription': sub,
-            'current_plan': sub.plan if sub else None,
+            'subscription': active_sub,
+            'current_plan': active_sub.plan if active_sub else None,
             'current_classes': current_classes,
             'current_students': current_students,
         })
