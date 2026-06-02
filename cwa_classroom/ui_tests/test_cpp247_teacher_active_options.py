@@ -14,6 +14,7 @@ Coverage:
   - REVEAL distribution chart still renders (regression)
   - Student does NOT see correct-answer markers during ACTIVE (security)
 """
+import re
 from datetime import timedelta
 
 import pytest
@@ -152,11 +153,13 @@ def _set_participant_cookie(page, live_server_url, join_code, participant_id):
 
 
 def _ingame_url(live_server_url, code):
-    return f'{live_server_url}/brainbuzz/session/{code}/ingame/'
+    from django.urls import reverse
+    return f'{live_server_url}{reverse("brainbuzz:teacher_ingame", kwargs={"join_code": code})}'
 
 
 def _student_url(live_server_url, code):
-    return f'{live_server_url}/brainbuzz/play/{code}/'
+    from django.urls import reverse
+    return f'{live_server_url}{reverse("brainbuzz:student_play", kwargs={"join_code": code})}'
 
 
 # ---------------------------------------------------------------------------
@@ -190,7 +193,7 @@ class TestMcqTilesVisibleDuringActive:
 # UI2: Correct option has emerald border; wrong options do not
 # ---------------------------------------------------------------------------
 
-class TestCorrectOptionEmberaldBorder:
+class TestCorrectOptionEmeraldBorder:
 
     @pytest.fixture(autouse=True)
     def _setup(self, db, live_server, page):
@@ -212,7 +215,7 @@ class TestCorrectOptionEmberaldBorder:
         paris_tile = self.page.locator('div', has_text='Paris').filter(
             has=self.page.locator('span', has_text='B')
         ).first
-        expect(paris_tile).to_have_class(lambda c: 'border-emerald-400' in c, timeout=5_000)
+        expect(paris_tile).to_have_class(re.compile(r'border-emerald-400'), timeout=5_000)
 
     def test_incorrect_options_do_not_have_emerald_border(self):
         session = _make_active_session(self.teacher, self.subject, 'C247B2')
@@ -421,19 +424,21 @@ class TestStudentNoCorrectMarkerDuringActive:
 
         # Student tiles should render but none should have emerald border
         tile_divs = self.page.locator('[class*="border-emerald-400"]')
-        assert tile_divs.count() == 0, "Student must not see emerald correct-answer border during ACTIVE"
+        expect(tile_divs).to_have_count(0, timeout=5_000)
 
     def test_student_state_api_omits_is_correct_during_active(self):
         """The /state/ API must strip is_correct from options for non-host clients."""
         import json as _json
         from django.test import Client as DjangoClient
+        from django.urls import reverse
 
         session = _make_active_session(self.teacher, self.subject, 'C247G2')
         _make_mcq_question(session, correct_label='C')
 
         # Unauthenticated (student-perspective) request
         client = DjangoClient()
-        resp = client.get(f'/brainbuzz/api/session/C247G2/state/')
+        url = reverse('brainbuzz:api_session_state', kwargs={'join_code': 'C247G2'})
+        resp = client.get(url)
         data = _json.loads(resp.content)
         for opt in data.get('question', {}).get('options', []):
             assert 'is_correct' not in opt, f"is_correct must not be exposed to students: {opt}"

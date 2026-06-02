@@ -11,6 +11,7 @@ Tests for CPP-235 teacher in-session screens:
   - repeat_session: creates new session from config_json
 """
 import json
+import re
 from unittest import mock
 
 from django.contrib.auth import get_user_model
@@ -855,10 +856,11 @@ class TestTeacherIngameJsBindings(TestCase):
         self.ingame_url = reverse('brainbuzz:teacher_ingame', kwargs={'join_code': self.session.code})
 
     def _html(self):
-        return self.client.get(self.ingame_url).content.decode()
+        if not hasattr(self, '_cached_html'):
+            self._cached_html = self.client.get(self.ingame_url).content.decode()
+        return self._cached_html
 
     def _initial_state(self, resp):
-        import re
         m = re.search(r'id="bb-initial-state"[^>]*>(.*?)</script>', resp.content.decode(), re.DOTALL)
         self.assertIsNotNone(m, "bb-initial-state script tag not found")
         return json.loads(m.group(1))
@@ -895,8 +897,10 @@ class TestTeacherIngameJsBindings(TestCase):
     def test_initial_state_sa_has_correct_short_answer(self, _mock):
         self.session.current_index = 1
         self.session.save()
-        resp = self.client.get(self.ingame_url)
-        state = self._initial_state(resp)
-        self.session.current_index = 0
-        self.session.save()
-        self.assertEqual(state['question']['correct_short_answer'], 'photosynthesis')
+        try:
+            resp = self.client.get(self.ingame_url)
+            state = self._initial_state(resp)
+            self.assertEqual(state['question']['correct_short_answer'], 'photosynthesis')
+        finally:
+            self.session.current_index = 0
+            self.session.save()
