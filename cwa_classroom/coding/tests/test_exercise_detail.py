@@ -713,3 +713,115 @@ class TestApiSubmitProblemWarningLogs(TestCase):
         self.assertIn('error', data)
         self.assertFalse(data['passed_all'])
         self.assertEqual(data['attempt_points'], 0.0)
+
+
+# ===========================================================================
+# 12. Code-snippet rendering — CPP-248
+# ===========================================================================
+
+_CODE_DESC = (
+    "What is the output of:\n"
+    "```python\n"
+    "for i in range(3):\n"
+    "    if i == 1:\n"
+    "        break\n"
+    "    print(i)\n"
+    "```"
+)
+_PROSE_DESC = "Which keyword exits a for loop in Python?"
+
+
+class TestExerciseCodeSnippetRendering(TestCase):
+    """Fenced code blocks in exercise.description must render as
+    <pre class="bb-code"> via the render_code_question template filter.
+
+    Covers write-code mode and text-input quiz (is_quiz) mode.
+    AC CPP-248: prose-only → no bb-code block; snippet → pre with preserved
+    whitespace and language class.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.student = User.objects.create_user(
+            'snip_ex_student', password='pass', email='snip_ex@test.com'
+        )
+        lang = _lang('python', 'Python')
+        topic = _topic(lang, 'Snippets Topic', 'py-snippets-cpp248')
+        topic_level, _ = TopicLevel.get_or_create_for(topic, CodingExercise.BEGINNER)
+
+        cls.ex_write = CodingExercise.objects.create(
+            topic_level=topic_level,
+            title='Loop Output Write',
+            description=_CODE_DESC,
+            starter_code='# write here',
+            question_type=CodingExercise.WRITE_CODE,
+            is_active=True,
+            order=10,
+        )
+        cls.ex_quiz = CodingExercise.objects.create(
+            topic_level=topic_level,
+            title='Loop Output Quiz',
+            description=_CODE_DESC,
+            question_type=CodingExercise.SHORT_ANSWER,
+            correct_short_answer='0',
+            is_active=True,
+            order=11,
+        )
+        cls.ex_prose = CodingExercise.objects.create(
+            topic_level=topic_level,
+            title='Prose Quiz',
+            description=_PROSE_DESC,
+            question_type=CodingExercise.SHORT_ANSWER,
+            correct_short_answer='break',
+            is_active=True,
+            order=12,
+        )
+
+    def setUp(self):
+        self.client.force_login(self.student)
+
+    def _get(self, exercise):
+        return self.client.get(_detail_url('python', exercise.id))
+
+    # --- write-code mode ---
+
+    def test_write_code_renders_bb_code_pre(self):
+        self.assertContains(self._get(self.ex_write), 'class="bb-code"')
+
+    def test_write_code_preserves_indentation(self):
+        self.assertContains(self._get(self.ex_write), '    if i == 1:')
+
+    def test_write_code_has_language_class(self):
+        self.assertContains(self._get(self.ex_write), 'language-python')
+
+    def test_write_code_prose_part_rendered(self):
+        self.assertContains(self._get(self.ex_write), 'What is the output of:')
+
+    # --- quiz (is_quiz) mode ---
+
+    def test_quiz_mode_renders_bb_code_pre(self):
+        self.assertContains(self._get(self.ex_quiz), 'class="bb-code"')
+
+    def test_quiz_mode_preserves_indentation(self):
+        self.assertContains(self._get(self.ex_quiz), '    if i == 1:')
+
+    def test_quiz_mode_has_language_class(self):
+        self.assertContains(self._get(self.ex_quiz), 'language-python')
+
+    def test_quiz_mode_prose_part_rendered(self):
+        self.assertContains(self._get(self.ex_quiz), 'What is the output of:')
+
+    # --- prose-only: must not produce a code block ---
+
+    def test_prose_only_no_bb_code_class(self):
+        self.assertNotContains(self._get(self.ex_prose), 'class="bb-code"')
+
+    # --- page furniture ---
+
+    def test_bb_code_css_present_in_page(self):
+        self.assertContains(self._get(self.ex_write), '.bb-code')
+
+    def test_hljs_called_on_bb_code_elements(self):
+        content = self._get(self.ex_write).content.decode()
+        self.assertIn('hljs', content)
+        self.assertIn('.bb-code code', content)
