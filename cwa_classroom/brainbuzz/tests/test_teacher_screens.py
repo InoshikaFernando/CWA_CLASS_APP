@@ -815,3 +815,88 @@ class TestTeacherIngameActiveOptions(TestCase):
         # Distribution block keyed on status === 'reveal' && distribution.length > 0
         self.assertIn("status === 'reveal'", html)
         self.assertIn('distribution', html)
+
+
+# ---------------------------------------------------------------------------
+# CPP-247: JS data-binding — questionType / correctShortAnswer / questionHtml
+# ---------------------------------------------------------------------------
+
+@_patch_teacher
+class TestTeacherIngameJsBindings(TestCase):
+    """Verify the bbTeacher Alpine component declares and assigns the three
+    properties added for CPP-247 so the template can gate on them."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.host = _make_teacher('t_jsbind')
+        cls.subject = _make_subject()
+        cls.session = _make_session(
+            cls.host, cls.subject,
+            status=BrainBuzzSession.STATUS_ACTIVE,
+            current_index=0,
+            code='JSBND1',
+        )
+        cls.q_mcq = _add_question(
+            cls.session, 0, QUESTION_TYPE_MCQ,
+            options=[
+                {'label': 'A', 'text': 'Paris',  'is_correct': True},
+                {'label': 'B', 'text': 'Berlin', 'is_correct': False},
+            ],
+        )
+        cls.q_sa = _add_question(
+            cls.session, 1, QUESTION_TYPE_SHORT_ANSWER,
+            options=[],
+            correct_short_answer='photosynthesis',
+        )
+
+    def setUp(self):
+        self.client = Client()
+        self.client.force_login(self.host)
+        self.ingame_url = reverse('brainbuzz:teacher_ingame', kwargs={'join_code': self.session.code})
+
+    def _html(self):
+        return self.client.get(self.ingame_url).content.decode()
+
+    def _initial_state(self, resp):
+        import re
+        m = re.search(r'id="bb-initial-state"[^>]*>(.*?)</script>', resp.content.decode(), re.DOTALL)
+        self.assertIsNotNone(m, "bb-initial-state script tag not found")
+        return json.loads(m.group(1))
+
+    def test_js_init_declares_questionType(self, _mock):
+        self.assertIn("questionType: ''", self._html())
+
+    def test_js_init_declares_correctShortAnswer(self, _mock):
+        self.assertIn("correctShortAnswer: ''", self._html())
+
+    def test_js_init_declares_questionHtml(self, _mock):
+        self.assertIn("questionHtml: ''", self._html())
+
+    def test_applyState_assigns_questionType(self, _mock):
+        self.assertIn('this.questionType', self._html())
+
+    def test_applyState_assigns_correctShortAnswer(self, _mock):
+        self.assertIn('this.correctShortAnswer', self._html())
+
+    def test_applyState_assigns_questionHtml(self, _mock):
+        self.assertIn('this.questionHtml', self._html())
+
+    def test_sa_block_condition_gates_on_questionType(self, _mock):
+        html = self._html()
+        self.assertIn("questionType !== 'mcq'", html)
+        self.assertIn("questionType !== 'tf'", html)
+
+    def test_initial_state_includes_question_type_for_mcq(self, _mock):
+        resp = self.client.get(self.ingame_url)
+        state = self._initial_state(resp)
+        self.assertIn('question_type', state['question'])
+        self.assertEqual(state['question']['question_type'], 'mcq')
+
+    def test_initial_state_sa_has_correct_short_answer(self, _mock):
+        self.session.current_index = 1
+        self.session.save()
+        resp = self.client.get(self.ingame_url)
+        state = self._initial_state(resp)
+        self.session.current_index = 0
+        self.session.save()
+        self.assertEqual(state['question']['correct_short_answer'], 'photosynthesis')
