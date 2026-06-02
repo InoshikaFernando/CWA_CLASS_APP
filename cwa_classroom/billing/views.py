@@ -393,13 +393,48 @@ class CheckoutSuccessView(View):
     """
     Handles Stripe's redirect after a successful checkout session.
     For pending registrations (no account yet), creates the account here.
-    For existing users, simply shows the success page.
+    For existing users, verifies the session with Stripe and activates
+    the subscription immediately (safety net if webhook is delayed).
     """
     def get(self, request):
         session_id = request.GET.get('session_id', '')
         if session_id and not request.user.is_authenticated:
             self._complete_pending_registration(request, session_id)
+        elif session_id and request.user.is_authenticated:
+            self._activate_from_session(request.user, session_id)
         return render(request, 'billing/success.html')
+
+    @staticmethod
+    def _activate_from_session(user, session_id):
+        """Verify checkout session with Stripe and activate if paid."""
+        try:
+            sub = user.subscription
+        except Subscription.DoesNotExist:
+            return
+        if sub.status == Subscription.STATUS_ACTIVE:
+            return
+        try:
+            stripe.api_key = settings.STRIPE_SECRET_KEY
+            session = stripe.checkout.Session.retrieve(session_id)
+            if session.payment_status in ('paid', 'no_payment_required'):
+                sub.status = Subscription.STATUS_ACTIVE
+                sub.stripe_subscription_id = session.subscription or sub.stripe_subscription_id
+                sub.trial_end = None
+                sub.current_period_start = timezone.now()
+                if session.metadata.get('package_id'):
+                    pkg = Package.objects.filter(id=session.metadata['package_id']).first()
+                    if pkg:
+                        sub.package = pkg
+                        user.package = pkg
+                        user.save(update_fields=['package'])
+                sub.save()
+                log_event(
+                    user=user, category='billing',
+                    action='subscription_activated_from_success_page',
+                    detail={'session_id': session_id},
+                )
+        except stripe.error.StripeError:
+            pass
 
     @staticmethod
     def _complete_pending_registration(request, stripe_session_id):
