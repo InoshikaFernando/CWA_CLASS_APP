@@ -33,7 +33,7 @@ def enqueue_task(*, school, user, task_type, func, args=None, kwargs=None,
     )
     logger.info(
         'Enqueued %s job=%s task=%s school=%s user=%s',
-        task_type, job.id, task.pk, school.pk, user.pk,
+        task_type, job.id, task.pk, school.pk if school else None, user.pk,
     )
     return task, job
 

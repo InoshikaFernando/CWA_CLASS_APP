@@ -667,22 +667,28 @@ def _check_student_enrolled(request, classroom):
         raise Http404
 
 
+# Above this many pending AI answers, grading is pushed to a background worker
+# so the student isn't blocked while several Claude calls run. Small batches
+# (mostly cache hits) stay synchronous for an instant result.
+AI_GRADE_ASYNC_THRESHOLD = 3
+
+
 def _trigger_ai_grading_for_submission(submission, request=None):
     """
     After a submission is saved, grade any answers with review_status='pending_ai'
     using the AI grading service (with caching).
-    """
-    from worksheets.grading_service import grade_extended_answer
-    from billing.entitlements import get_school_for_user
-    from django.utils import timezone
 
-    pending = list(
+    Small batches grade inline; larger batches are enqueued on the 'high' queue
+    so the student's request returns immediately (CPP-307d).
+    """
+    from billing.entitlements import get_school_for_user
+
+    pending_count = (
         submission.answers
         .filter(review_status=HomeworkStudentAnswer.REVIEW_PENDING_AI)
-        .select_related('question')
+        .count()
     )
-
-    if not pending:
+    if not pending_count:
         return
 
     school = None
@@ -691,6 +697,35 @@ def _trigger_ai_grading_for_submission(submission, request=None):
             school = get_school_for_user(request.user)
     except Exception:
         pass
+
+    if pending_count > AI_GRADE_ASYNC_THRESHOLD:
+        from taskqueue.services import enqueue_task
+        from .tasks import grade_submission_answers
+        enqueue_task(
+            school=school,
+            user=submission.student,
+            task_type='ai_grade',
+            func=grade_submission_answers,
+            args=[submission.pk, school.pk if school else None],
+            queue='high',
+        )
+        return
+
+    grade_pending_answers(submission, school)
+
+
+def grade_pending_answers(submission, school):
+    """Grade all pending-AI answers on a submission inline (shared by sync + worker)."""
+    from worksheets.grading_service import grade_extended_answer
+    from django.utils import timezone
+
+    pending = list(
+        submission.answers
+        .filter(review_status=HomeworkStudentAnswer.REVIEW_PENDING_AI)
+        .select_related('question')
+    )
+    if not pending:
+        return
 
     for answer in pending:
         try:

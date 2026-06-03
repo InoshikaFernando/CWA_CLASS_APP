@@ -55,3 +55,26 @@ def process_homework_pdf(session_id, existing_topics, existing_levels):
             error_message=str(exc),
         )
         raise
+
+
+def grade_submission_answers(submission_id, school_id=None):
+    """Grade all pending-AI answers for a submission in a background worker (CPP-307d).
+
+    Used when a submission has more pending AI answers than the inline threshold,
+    so the student's request isn't blocked on several Claude calls.
+    """
+    from classroom.models import School
+
+    from .models import HomeworkStudentAnswer, HomeworkSubmission
+    from .views import grade_pending_answers
+
+    submission = HomeworkSubmission.objects.get(pk=submission_id)
+    school = School.objects.filter(pk=school_id).first() if school_id else None
+
+    grade_pending_answers(submission, school)
+
+    graded = submission.answers.filter(
+        review_status=HomeworkStudentAnswer.REVIEW_AI_DONE,
+    ).count()
+    logger.info('Graded submission=%s (%s answers)', submission_id, graded)
+    return {'submission_id': submission_id, 'graded': graded}
