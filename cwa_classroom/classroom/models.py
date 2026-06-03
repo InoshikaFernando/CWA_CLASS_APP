@@ -2401,3 +2401,27 @@ class Expense(models.Model):
 
     def __str__(self):
         return f'{self.get_category_display()} — ${self.amount} ({self.date})'
+
+
+class StudentCard(models.Model):
+    """Pre-issued school access card. Student claims it on first login to activate their account."""
+    school = models.ForeignKey('School', on_delete=models.CASCADE, related_name='student_cards')
+    card_number = models.CharField(max_length=50, unique=True)
+    student = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='student_card',
+    )
+    is_claimed = models.BooleanField(default=False)
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['school', 'card_number']
+        indexes = [
+            models.Index(fields=['card_number']),
+            models.Index(fields=['school', 'is_claimed']),
+        ]
+
+    def __str__(self):
+        status = 'claimed' if self.is_claimed else 'unclaimed'
+        return f'{self.card_number} ({self.school.name}, {status})'

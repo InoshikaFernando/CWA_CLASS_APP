@@ -20,7 +20,7 @@ from .models import (
     Enrollment, StudentAttendance, TeacherAttendance, Notification,
     ClassStudent, Department, SchoolStudent,
     ProgressCriteria, ProgressRecord, ParentLinkRequest, ParentStudent,
-    SchoolHoliday, PublicHoliday,
+    SchoolHoliday, PublicHoliday, StudentCard,
 )
 from .views_progress import _build_hierarchical_criteria
 
@@ -1607,3 +1607,196 @@ class ParentLinkRejectView(RoleRequiredMixin, View):
             f'Request from {link_request.parent.get_full_name() or link_request.parent.username} has been rejected.',
         )
         return redirect('parent_link_requests')
+
+
+# ---------------------------------------------------------------------------
+# CPP-317: Teacher add new student to class
+# ---------------------------------------------------------------------------
+
+TEACHER_ADD_STUDENT_ROLES = [
+    Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+    Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE, Role.INSTITUTE_OWNER,
+]
+
+
+class TeacherAddStudentToClassView(RoleRequiredMixin, View):
+    """
+    Let a teacher create a brand-new student account and enrol them into a
+    specific class in one step.  Optionally pre-assign a StudentCard so the
+    student can activate their account on first login without paying.
+    """
+
+    required_roles = TEACHER_ADD_STUDENT_ROLES
+
+    def _get_classroom(self, request, class_id):
+        from django.db.models import Q as _Q
+        user = request.user
+        if user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
+            return get_object_or_404(ClassRoom, id=class_id, school__admin=user)
+        if user.has_role(Role.HEAD_OF_DEPARTMENT):
+            classroom = ClassRoom.objects.filter(
+                _Q(department__head=user) | _Q(teachers=user),
+                id=class_id,
+            ).distinct().first()
+            if not classroom:
+                from django.http import Http404
+                raise Http404
+            return classroom
+        return get_object_or_404(ClassRoom, id=class_id, teachers=request.user)
+
+    def get(self, request, class_id):
+        classroom = self._get_classroom(request, class_id)
+        return render(request, 'teacher/add_student.html', {
+            'classroom': classroom,
+        })
+
+    def post(self, request, class_id):
+        from django.db import transaction
+        from accounts.models import CustomUser, UserRole
+        from accounts.views import _validate_username, _generate_username_suggestion
+        from billing.entitlements import check_student_limit
+
+        classroom = self._get_classroom(request, class_id)
+        school = classroom.school
+
+        if not school:
+            messages.error(request, 'This class is not linked to a school.')
+            return redirect('class_detail', class_id=class_id)
+
+        # Billing gate
+        allowed, current, limit = check_student_limit(school)
+        if not allowed:
+            messages.error(
+                request,
+                f'Your plan allows {limit} students. You currently have {current}. '
+                f'Please upgrade your plan.',
+            )
+            return redirect('teacher_add_student_to_class', class_id=class_id)
+
+        first_name = request.POST.get('first_name', '').strip()
+        last_name = request.POST.get('last_name', '').strip()
+        email = request.POST.get('email', '').strip()
+        password = request.POST.get('password', '').strip()
+        username = request.POST.get('username', '').strip()
+        card_number = request.POST.get('card_number', '').strip()
+
+        errors = []
+        if not first_name:
+            errors.append('First name is required.')
+        if not last_name:
+            errors.append('Last name is required.')
+        if not email or '@' not in email:
+            errors.append('A valid email address is required.')
+        elif CustomUser.objects.filter(email=email).exists():
+            errors.append('A user with this email already exists.')
+        if len(password) < 8:
+            errors.append('Password must be at least 8 characters.')
+
+        if username:
+            errors.extend(_validate_username(username))
+        elif email and '@' in email:
+            username = _generate_username_suggestion(email)
+
+        # Validate card number if provided
+        card_obj = None
+        if card_number:
+            card_obj = StudentCard.objects.filter(
+                card_number=card_number, school=school,
+            ).first()
+            if not card_obj:
+                errors.append('Card number not found for this school.')
+            elif card_obj.is_claimed and card_obj.student is not None:
+                errors.append('This card number has already been claimed by another student.')
+
+        if errors:
+            for err in errors:
+                messages.error(request, err)
+            return render(request, 'teacher/add_student.html', {
+                'classroom': classroom,
+                'form_data': {
+                    'first_name': first_name,
+                    'last_name': last_name,
+                    'email': email,
+                    'username': username,
+                    'card_number': card_number,
+                },
+            })
+
+        from django.utils import timezone as _tz
+
+        try:
+            with transaction.atomic():
+                user = CustomUser.objects.create_user(
+                    username=username, email=email, password=password,
+                    first_name=first_name, last_name=last_name,
+                )
+                user.must_change_password = True
+                user.profile_completed = False
+                user.save(update_fields=['must_change_password', 'profile_completed'])
+
+                student_role, _ = Role.objects.get_or_create(
+                    name=Role.STUDENT, defaults={'display_name': 'Student'}
+                )
+                UserRole.objects.create(user=user, role=student_role, assigned_by=request.user)
+                SchoolStudent.objects.create(school=school, student=user)
+
+                cs, _ = ClassStudent.objects.get_or_create(
+                    classroom=classroom, student=user,
+                )
+                if not cs.is_active:
+                    cs.is_active = True
+                    cs.save(update_fields=['is_active'])
+
+                # Pre-claim card if provided
+                if card_obj is not None:
+                    card_obj.student = user
+                    card_obj.is_claimed = True
+                    card_obj.claimed_at = _tz.now()
+                    card_obj.save(update_fields=['student', 'is_claimed', 'claimed_at'])
+
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                'TeacherAddStudentToClassView: failed to create student'
+            )
+            messages.error(request, 'An unexpected error occurred. Please try again.')
+            return render(request, 'teacher/add_student.html', {
+                'classroom': classroom,
+                'form_data': {
+                    'first_name': first_name, 'last_name': last_name,
+                    'email': email, 'username': username, 'card_number': card_number,
+                },
+            })
+
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='student_added_by_teacher',
+            detail={
+                'student_username': username,
+                'student_name': f'{first_name} {last_name}',
+                'class_id': class_id,
+                'card_number': card_number or None,
+            },
+            request=request,
+        )
+
+        from classroom.email_utils import send_staff_welcome_email
+        try:
+            send_staff_welcome_email(
+                user=user,
+                plain_password=password,
+                role_display='Student',
+                school=school,
+            )
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                'Failed to send welcome email for new student %s', user.pk
+            )
+
+        messages.success(
+            request,
+            f'Student {first_name} {last_name} added to {classroom.name}.'
+            + (' Card pre-assigned.' if card_obj else ''),
+        )
+        return redirect('class_detail', class_id=class_id)

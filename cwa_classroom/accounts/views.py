@@ -838,8 +838,14 @@ class CompleteProfileView(LoginRequiredMixin, View):
     def get(self, request):
         if not request.user.must_change_password and request.user.profile_completed:
             return redirect('subjects_hub')
+        user = request.user
+        pre_claimed_card = None
+        if user.is_student:
+            from classroom.models import StudentCard
+            pre_claimed_card = StudentCard.objects.filter(student=user, is_claimed=True).first()
         return render(request, 'accounts/complete_profile.html', {
-            'student_package': self._get_student_package() if request.user.is_student else None,
+            'student_package': self._get_student_package() if user.is_student else None,
+            'pre_claimed_card': pre_claimed_card,
         })
 
     def post(self, request):
@@ -866,8 +872,9 @@ class CompleteProfileView(LoginRequiredMixin, View):
         city = request.POST.get('city', '').strip()
         postal_code = request.POST.get('postal_code', '').strip()
 
-        # Discount code for school students
+        # Discount code or card number for school students
         discount_code_str = request.POST.get('discount_code', '').strip().upper()
+        card_number_str = request.POST.get('card_number', '').strip()
 
         if not first_name:
             errors.append('First name is required.')
@@ -884,11 +891,29 @@ class CompleteProfileView(LoginRequiredMixin, View):
             elif not discount_obj.is_valid():
                 errors.append('This discount code has expired or reached its usage limit.')
 
+        # Validate card number if provided (StudentCard must belong to this student's school)
+        from classroom.models import StudentCard, SchoolStudent
+        card_obj = None
+        if card_number_str and user.is_student:
+            school_student = SchoolStudent.objects.filter(student=user, is_active=True).first()
+            if school_student:
+                card_obj = StudentCard.objects.filter(
+                    card_number=card_number_str,
+                    school=school_student.school,
+                ).first()
+                if not card_obj:
+                    errors.append('Card number not found for your school.')
+                elif card_obj.is_claimed and card_obj.student != user:
+                    errors.append('This card number has already been claimed by another student.')
+            else:
+                errors.append('Card number can only be used by school students.')
+
         if errors:
             for err in errors:
                 messages.error(request, err)
             return render(request, 'accounts/complete_profile.html', {
                 'student_package': self._get_student_package() if user.is_student else None,
+                'card_number': card_number_str,
             })
 
         # Save profile fields and password — but do NOT mark profile_completed yet for students
@@ -933,9 +958,21 @@ class CompleteProfileView(LoginRequiredMixin, View):
             request=request,
         )
 
-        # School students need payment or a fully-free code to activate
+        # School students need payment, a fully-free code, or a valid card number to activate
         if user.is_student:
             from billing.models import Package, Subscription
+            from django.utils import timezone as _tz
+
+            # Card number path — claim card and activate without payment
+            if card_obj is not None:
+                card_obj.student = user
+                card_obj.is_claimed = True
+                card_obj.claimed_at = _tz.now()
+                card_obj.save(update_fields=['student', 'is_claimed', 'claimed_at'])
+                user.profile_completed = True
+                user.save(update_fields=['profile_completed'])
+                messages.success(request, 'Profile completed! Card activated — welcome!')
+                return redirect('subjects_hub')
 
             package = self._get_student_package()
             if package:

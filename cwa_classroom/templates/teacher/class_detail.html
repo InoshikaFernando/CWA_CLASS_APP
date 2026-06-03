@@ -140,6 +140,15 @@
             </svg>
             Add Students
           </a>
+          {% if classroom.school %}
+          <a href="{% url 'teacher_add_student_to_class' class_id=classroom.id %}"
+             class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 transition">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+            </svg>
+            New Student
+          </a>
+          {% endif %}
         </div>
       </div>
       {% if student_fee_data %}

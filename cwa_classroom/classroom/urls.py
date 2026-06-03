@@ -31,6 +31,7 @@ urlpatterns = [
     path('class/<int:class_id>/edit/', views.EditClassView.as_view(), name='edit_class'),
     path('class/<int:class_id>/confirm-reschedule/', views.ConfirmRescheduleView.as_view(), name='confirm_reschedule'),
     path('class/<int:class_id>/assign-students/', views.AssignStudentsView.as_view(), name='assign_students'),
+    path('class/<int:class_id>/add-student/', views_teacher.TeacherAddStudentToClassView.as_view(), name='teacher_add_student_to_class'),
     path('class/<int:class_id>/assign-teachers/', views.AssignTeachersView.as_view(), name='assign_teachers'),
     path('class/<int:class_id>/attendance/', views.ClassAttendanceView.as_view(), name='class_attendance'),
     path('class/<int:class_id>/settings/', views_department.ClassSettingsView.as_view(), name='class_settings'),
