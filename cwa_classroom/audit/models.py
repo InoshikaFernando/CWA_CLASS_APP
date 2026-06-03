@@ -54,6 +54,14 @@ class AuditLog(models.Model):
     user_agent = models.TextField(blank=True)
     endpoint = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    is_revertible = models.BooleanField(default=False)
+    reverted_at = models.DateTimeField(null=True, blank=True)
+    reverted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='reverted_audit_logs',
+    )
 
     class Meta:
         ordering = ['-created_at', '-pk']
