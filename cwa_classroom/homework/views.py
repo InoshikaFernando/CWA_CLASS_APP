@@ -746,7 +746,6 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
         return render(request, self.template_name, {'classrooms': classrooms})
 
     def post(self, request):
-        import threading
         from billing.entitlements import get_school_for_user
         from classroom.models import Topic, Level
 
@@ -811,33 +810,18 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
             request=request,
         )
 
-        # Run AI extraction in a background thread so the HTTP response returns immediately
-        def _process(session_id, pdf_bytes, existing_topics, existing_levels):
-            import django.db
-            from worksheets.services import extract_and_classify_worksheet
-            from io import BytesIO
-            try:
-                pdf_io = BytesIO(pdf_bytes)
-                pdf_io.name = session.pdf_filename
-                output = extract_and_classify_worksheet(pdf_io, existing_topics, existing_levels)
-                result = output['result']
-                HomeworkUploadSession.objects.filter(pk=session_id).update(
-                    extracted_data=result,
-                    extracted_images=output['extracted_images'],
-                    page_count=output['page_count'],
-                    tokens_used=result.get('usage', {}).get('total_tokens', 0),
-                    status=HomeworkUploadSession.STATUS_DONE,
-                )
-            except Exception as e:
-                HomeworkUploadSession.objects.filter(pk=session_id).update(
-                    status=HomeworkUploadSession.STATUS_ERROR,
-                    error_message=str(e),
-                )
-            finally:
-                django.db.connections.close_all()
-
-        t = threading.Thread(target=_process, args=(session.pk, pdf_bytes, existing_topics, existing_levels), daemon=True)
-        t.start()
+        # Enqueue AI extraction on the RQ queue so the response returns immediately
+        # and the job survives gunicorn worker restarts (CPP-307c).
+        from taskqueue.services import enqueue_task
+        from .tasks import process_homework_pdf
+        enqueue_task(
+            school=school,
+            user=request.user,
+            task_type='homework_pdf',
+            func=process_homework_pdf,
+            args=[session.pk, existing_topics, existing_levels],
+            queue='default',
+        )
 
         return redirect('homework:pdf_processing', session_id=session.pk)
 
