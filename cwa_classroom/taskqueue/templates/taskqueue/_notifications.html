@@ -1,0 +1,43 @@
+{% load static %}
+{# Out-of-band swap: toggle the bell's active dot without replacing the button #}
+<span id="notif-dot" hx-swap-oob="true"
+      class="{% if has_active %}block{% else %}hidden{% endif %} absolute top-0 right-0 h-2 w-2 rounded-full bg-blue-500 ring-2 ring-white"></span>
+<p class="text-sm font-semibold text-gray-700 mb-2">Background tasks</p>
+{% if items %}
+  <ul class="divide-y divide-gray-100 max-h-80 overflow-y-auto -mx-1">
+    {% for item in items %}
+    <li class="px-1 py-2">
+      <div class="flex items-start gap-2">
+        <span class="mt-1 flex-shrink-0">
+          {% if item.status == 'pending' or item.status == 'running' %}
+            <svg class="animate-spin h-4 w-4 text-accent" viewBox="0 0 24 24" fill="none">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+          {% elif item.status == 'done' %}
+            <svg class="h-4 w-4 text-emerald-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd"/></svg>
+          {% else %}
+            <svg class="h-4 w-4 text-red-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clip-rule="evenodd"/></svg>
+          {% endif %}
+        </span>
+        <div class="min-w-0 flex-1">
+          {% if item.link %}
+            <a href="{{ item.link }}" class="text-sm font-medium text-gray-800 hover:text-accent transition">{{ item.label }}</a>
+          {% else %}
+            <p class="text-sm font-medium text-gray-800">{{ item.label }}</p>
+          {% endif %}
+          <p class="text-xs text-gray-400">
+            {% if item.status == 'pending' or item.status == 'running' %}Processing…
+            {% elif item.status == 'done' %}Completed{% if item.link %} — view results{% endif %}
+            {% else %}Failed{% if item.error_message %} — {{ item.error_message|truncatechars:60 }}{% endif %}
+            {% endif %}
+            <span class="mx-1">·</span>{{ item.created_at|timesince }} ago
+          </p>
+        </div>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <p class="text-sm text-gray-400">No background tasks yet.</p>
+{% endif %}

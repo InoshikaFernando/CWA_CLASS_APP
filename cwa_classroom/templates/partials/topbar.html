@@ -116,21 +116,23 @@
       </div>
       {% endif %}
 
-      <!-- Notifications bell -->
-      <div class="relative" x-data="{ open: false }">
+      <!-- Notifications bell — polls background task status (CPP-307b) -->
+      <div class="relative">
         <button type="button" class="relative text-gray-500 hover:text-primary transition p-1"
                 onclick="this.nextElementSibling.classList.toggle('hidden')">
           <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round"
                   d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/>
           </svg>
-          <!-- Unread dot (show if there are notifications) -->
-          <span class="absolute top-0 right-0 block h-2 w-2 rounded-full bg-blue-500 ring-2 ring-white"></span>
+          <!-- Unread/active dot — toggled by the polled partial via out-of-band swap -->
+          <span id="notif-dot" class="hidden absolute top-0 right-0 h-2 w-2 rounded-full bg-blue-500 ring-2 ring-white"></span>
         </button>
-        <!-- Notifications dropdown -->
-        <div class="hidden absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-xl border border-slate-200 z-50 p-4">
-          <p class="text-sm font-semibold text-gray-700 mb-2">Notifications</p>
-          <p class="text-sm text-gray-400">No new notifications.</p>
+        <!-- Notifications dropdown — content polled every 15s -->
+        <div class="hidden absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-xl border border-slate-200 z-50 p-4"
+             hx-get="{% url 'taskqueue:notifications' %}"
+             hx-trigger="load, every 15s"
+             hx-swap="innerHTML">
+          <p class="text-sm text-gray-400">Loading…</p>
         </div>
       </div>
 

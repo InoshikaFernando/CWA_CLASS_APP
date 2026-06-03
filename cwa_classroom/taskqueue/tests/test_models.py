@@ -45,10 +45,10 @@ class BackgroundTaskModelTests(TestCase):
         task = self._make_task()
         self.assertIsNone(task.completed_at)
 
-    def test_school_fk_enforced(self):
-        # SQLite defers FK checks; verify the FK relationship exists
+    def test_school_fk_points_to_school(self):
+        # school is nullable (CPP-307b: superuser uploads may have no school)
         field = BackgroundTask._meta.get_field('school')
-        self.assertFalse(field.null)
+        self.assertTrue(field.null)
         self.assertEqual(field.related_model.__name__, 'School')
 
     def test_rq_job_id_unique(self):

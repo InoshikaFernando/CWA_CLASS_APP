@@ -21,6 +21,7 @@ class BackgroundTask(models.Model):
         on_delete=models.CASCADE,
         related_name='background_tasks',
         db_index=True,
+        null=True, blank=True,
     )
     task_type = models.CharField(max_length=50, db_index=True)
     status = models.CharField(
