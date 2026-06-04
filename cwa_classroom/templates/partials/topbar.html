@@ -116,7 +116,10 @@
       </div>
       {% endif %}
 
-      <!-- Notifications bell — polls background task status (CPP-307b) -->
+      <!-- Notifications bell — polls background task status (CPP-307b).
+           Only staff roles initiate background tasks, so students/parents
+           don't get the dropdown (or its polling load). -->
+      {% if not is_student and not is_individual_student and not is_parent %}
       <div class="relative">
         <button type="button" class="relative text-gray-500 hover:text-primary transition p-1"
                 onclick="this.nextElementSibling.classList.toggle('hidden')">
@@ -127,14 +130,15 @@
           <!-- Unread/active dot — toggled by the polled partial via out-of-band swap -->
           <span id="notif-dot" class="hidden absolute top-0 right-0 h-2 w-2 rounded-full bg-blue-500 ring-2 ring-white"></span>
         </button>
-        <!-- Notifications dropdown — content polled every 15s -->
+        <!-- Notifications dropdown — content polled every 30s -->
         <div class="hidden absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-xl border border-slate-200 z-50 p-4"
              hx-get="{% url 'taskqueue:notifications' %}"
-             hx-trigger="load, every 15s"
+             hx-trigger="load, every 30s"
              hx-swap="innerHTML">
           <p class="text-sm text-gray-400">Loading…</p>
         </div>
       </div>
+      {% endif %}
 
       <!-- User menu -->
       <div class="relative">
