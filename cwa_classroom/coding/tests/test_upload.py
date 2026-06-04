@@ -315,6 +315,63 @@ class CodingExerciseParserTests(TestCase):
         result = self._run_parser(_coding_payload())
         self.assertEqual(result['detail']['patterns_count'], 0)
 
+    # ── Exercise detail list (CPP-302) ──────────────────────────────
+
+    def test_result_contains_exercise_detail_list(self):
+        payload = _coding_payload(exercises=[
+            {
+                'title': 'Ex A',
+                'instructions': 'Do A.',
+                'expected_output': 'A',
+                'required_code_patterns': ['for', 'range('],
+            },
+            {
+                'title': 'Ex B',
+                'instructions': 'Do B.',
+                'expected_output': 'B',
+            },
+        ])
+        result = self._run_parser(payload)
+        exercises = result['detail']['exercises']
+        self.assertEqual(len(exercises), 2)
+        self.assertEqual(exercises[0]['title'], 'Ex A')
+        self.assertEqual(exercises[0]['status'], 'new')
+        self.assertEqual(exercises[0]['patterns'], ['for', 'range('])
+        self.assertEqual(exercises[1]['title'], 'Ex B')
+        self.assertEqual(exercises[1]['patterns'], [])
+
+    def test_exercise_detail_status_updated_on_second_upload(self):
+        self._run_parser(_coding_payload(exercises=[{
+            'title': 'Dup Ex',
+            'instructions': 'Do it.',
+            'expected_output': 'ok',
+        }]))
+        result = self._run_parser(_coding_payload(exercises=[{
+            'title': 'Dup Ex',
+            'instructions': 'Do it again.',
+            'expected_output': 'ok',
+        }]))
+        self.assertEqual(result['detail']['exercises'][0]['status'], 'updated')
+
+    def test_exercise_detail_preserves_order(self):
+        exercises = [
+            {'title': f'Order {i}', 'instructions': f'Do {i}.', 'expected_output': str(i)}
+            for i in range(1, 5)
+        ]
+        result = self._run_parser(_coding_payload(exercises=exercises))
+        titles = [ex['title'] for ex in result['detail']['exercises']]
+        self.assertEqual(titles, ['Order 1', 'Order 2', 'Order 3', 'Order 4'])
+
+    def test_exercise_detail_empty_patterns_is_empty_list(self):
+        payload = _coding_payload(exercises=[{
+            'title': 'No Patterns',
+            'instructions': 'Nothing.',
+            'expected_output': 'ok',
+            'required_code_patterns': [],
+        }])
+        result = self._run_parser(payload)
+        self.assertEqual(result['detail']['exercises'][0]['patterns'], [])
+
     def test_all_three_levels_accepted(self):
         for level in ('beginner', 'intermediate', 'advanced'):
             payload = _coding_payload(
@@ -509,6 +566,73 @@ class CodingUploadViewTests(TestCase):
             {'subject': 'mathematics'},
         )
         self.assertEqual(resp.status_code, 200)
+
+    # ── Exercise detail rendering (CPP-302) ────────────────────────
+
+    def test_coding_upload_renders_exercise_detail_table(self):
+        payload = _coding_payload(exercises=[
+            {
+                'title': 'Pattern Ex',
+                'instructions': 'Do pattern.',
+                'expected_output': 'ok',
+                'required_code_patterns': ['for', r'print\('],
+            },
+            {
+                'title': 'Plain Ex',
+                'instructions': 'Do plain.',
+                'expected_output': 'ok',
+            },
+        ])
+        resp = self._post_coding(payload)
+        self.assertEqual(resp.status_code, 200)
+        content = resp.content.decode()
+        self.assertIn('Pattern Ex', content)
+        self.assertIn('Plain Ex', content)
+        self.assertIn('for', content)
+        self.assertIn(r'print\(', content)
+
+    def test_coding_upload_exercise_status_badges_rendered(self):
+        payload = _coding_payload(exercises=[{
+            'title': 'New Badge Ex',
+            'instructions': 'Test.',
+            'expected_output': 'ok',
+        }])
+        resp = self._post_coding(payload)
+        content = resp.content.decode()
+        self.assertIn('new', content)
+
+    def test_maths_upload_no_exercise_detail_section(self):
+        from classroom.models import Level as ClassroomLevel, Subject
+        Subject.objects.get_or_create(
+            slug='mathematics', school=None,
+            defaults={'name': 'Mathematics', 'is_active': True},
+        )
+        ClassroomLevel.objects.get_or_create(
+            level_number=4, defaults={'display_name': 'Year 4'},
+        )
+        payload = json.dumps({
+            'topic': 'Fractions',
+            'year_level': 4,
+            'questions': [{
+                'question_text': 'What is 1/2 + 1/4?',
+                'question_type': 'multiple_choice',
+                'difficulty': 1,
+                'points': 1,
+                'answers': [
+                    {'text': '3/4', 'is_correct': True, 'order': 1},
+                    {'text': '1/2', 'is_correct': False, 'order': 2},
+                ],
+            }],
+        }).encode()
+        f = io.BytesIO(payload)
+        f.name = 'questions.json'
+        resp = self.client.post(
+            reverse('upload_questions'),
+            {'subject': 'mathematics', 'upload_file': f},
+        )
+        self.assertEqual(resp.status_code, 200)
+        content = resp.content.decode()
+        self.assertNotIn('exercise details', content.lower())
 
     # ── Regression: maths still works ─────────────────────────────────
 
