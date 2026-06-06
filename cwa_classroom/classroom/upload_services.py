@@ -479,12 +479,17 @@ class CodingExerciseParser(BaseQuestionParser):
         exercise_details = []
         for i, ex in enumerate(exercises, 1):
             title = ex['title'].strip()
-            normalized = self._normalize_required_patterns(
-                ex.get('required_code_patterns')
-            )
-            patterns_list = normalized.split('\n') if normalized else []
+            # Default to a failed record so any exception below (including an
+            # invalid required_code_patterns type) is reported per-exercise
+            # rather than crashing the whole upload.
+            status = 'failed'
+            patterns_list = []
             try:
                 with transaction.atomic():
+                    normalized = self._normalize_required_patterns(
+                        ex.get('required_code_patterns')
+                    )
+                    patterns_list = normalized.split('\n') if normalized else []
                     existing = CodingExercise.objects.filter(
                         topic_level=topic_level,
                         title=title,

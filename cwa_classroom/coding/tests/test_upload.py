@@ -372,6 +372,22 @@ class CodingExerciseParserTests(TestCase):
         result = self._run_parser(payload)
         self.assertEqual(result['detail']['exercises'][0]['patterns'], [])
 
+    def test_invalid_patterns_type_recorded_as_failed_not_crash(self):
+        """An invalid required_code_patterns type must be reported per-exercise,
+        not raise out of process()."""
+        payload = _coding_payload(exercises=[{
+            'title': 'Bad Patterns Type',
+            'instructions': 'Do a thing.',
+            'expected_output': 'ok',
+            'required_code_patterns': 42,  # invalid: not list/str/None
+        }])
+        result = self._run_parser(payload)  # must not raise
+        self.assertEqual(result['failed'], 1)
+        self.assertTrue(len(result['errors']) > 0)
+        ex = result['detail']['exercises'][0]
+        self.assertEqual(ex['status'], 'failed')
+        self.assertEqual(ex['patterns'], [])
+
     def test_all_three_levels_accepted(self):
         for level in ('beginner', 'intermediate', 'advanced'):
             payload = _coding_payload(
