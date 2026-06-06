@@ -19,6 +19,49 @@ logger = logging.getLogger(__name__)
 _SUMMARY_ROLES = [Role.TEACHER, Role.PARENT, Role.STUDENT]
 
 
+# ---- Action-history access control ----
+# Any staff member can see their own action history.
+STAFF_ROLES = [
+    Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+    Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER, Role.TEACHER,
+]
+_ELEVATED = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+_MANAGER = _ELEVATED + [Role.HEAD_OF_DEPARTMENT]
+
+# Reverting a privileged action requires the user to STILL hold an appropriate
+# role at revert time — not merely to have performed it once. Actions absent
+# from this map fall back to STAFF_ROLES (any staff may revert their own).
+ACTION_REQUIRED_ROLES = {
+    'school_toggled_active': _ELEVATED,
+    'user_blocked': _ELEVATED,
+    'user_unblocked': _ELEVATED,
+    'parent_student_unlinked': _ELEVATED,
+    'student_fee_updated': _ELEVATED,
+    'student_removed': _ELEVATED,
+    'student_restored': _ELEVATED,
+    'teacher_removed': _ELEVATED,
+    'teacher_restored': _ELEVATED,
+    'billing_plan_toggled': [Role.ADMIN],
+    'discount_code_toggled': [Role.ADMIN],
+    'subject_archived': _MANAGER,
+    'subject_restored': _MANAGER,
+    'department_toggled_active': _MANAGER,
+    'hod_class_deleted': _MANAGER,
+    'hod_class_restored': _MANAGER,
+}
+
+
+def _user_role_names(user):
+    """Set of the user's current role names (single query)."""
+    return set(user.user_roles.values_list('role__name', flat=True))
+
+
+def _can_revert_action(role_names, action):
+    """True if the user's current roles satisfy the action's revert requirement."""
+    required = ACTION_REQUIRED_ROLES.get(action, STAFF_ROLES)
+    return not role_names.isdisjoint(required)
+
+
 def _get_role_activity_summary(school_ids=None, days=7):
     """
     Return a list of dicts: [{role_name, display_name, count}, ...] for the
@@ -188,26 +231,21 @@ class EventsView(RoleRequiredMixin, View):
 class ActionHistoryView(LoginRequiredMixin, View):
     """My Action History -- shows the logged-in staff member's recent actions."""
 
-    STAFF_ROLES = [
-        Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
-        Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER, Role.TEACHER,
-    ]
     PAGE_SIZE = 50
 
     def get(self, request):
         from .models import AuditLog
         from .reverters import ACTION_LABELS, REVERTIBLE_ACTIONS
 
-        if not request.user.user_roles.filter(
-            role__name__in=self.STAFF_ROLES,
-        ).exists():
+        role_names = _user_role_names(request.user)
+        if role_names.isdisjoint(STAFF_ROLES):
             messages.warning(request, 'Action history is only available to staff.')
             return redirect('home')
 
         qs = (
             AuditLog.objects
             .filter(user=request.user, category__in=['data_change', 'admin_action'])
-            .select_related('school', 'reverted_by')
+            .select_related('school')
             .order_by('-created_at')
         )
 
@@ -226,6 +264,7 @@ class ActionHistoryView(LoginRequiredMixin, View):
                 entry.is_revertible
                 and entry.reverted_at is None
                 and entry.action in REVERTIBLE_ACTIONS
+                and _can_revert_action(role_names, entry.action)
             )
             if entry.can_revert:
                 _, entry.revert_label = REVERTIBLE_ACTIONS[entry.action]
@@ -238,19 +277,13 @@ class ActionHistoryView(LoginRequiredMixin, View):
 class RevertActionView(LoginRequiredMixin, View):
     """POST-only endpoint to revert a single audit log entry."""
 
-    STAFF_ROLES = [
-        Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
-        Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER, Role.TEACHER,
-    ]
-
     def post(self, request, log_id):
         from .models import AuditLog
         from .reverters import REVERTIBLE_ACTIONS
         from .services import log_event
 
-        if not request.user.user_roles.filter(
-            role__name__in=self.STAFF_ROLES,
-        ).exists():
+        role_names = _user_role_names(request.user)
+        if role_names.isdisjoint(STAFF_ROLES):
             messages.error(request, 'Permission denied.')
             return redirect('action_history')
 
@@ -262,6 +295,11 @@ class RevertActionView(LoginRequiredMixin, View):
 
         if entry.action not in REVERTIBLE_ACTIONS:
             messages.error(request, 'This action cannot be reverted.')
+            return redirect('action_history')
+
+        # Re-validate privilege at revert time, not just at action time.
+        if not _can_revert_action(role_names, entry.action):
+            messages.error(request, 'You no longer have permission to revert this action.')
             return redirect('action_history')
 
         reverter_fn, label = REVERTIBLE_ACTIONS[entry.action]

@@ -95,17 +95,6 @@ def _revert_enrollment_rejected(entry):
     Enrollment.objects.filter(id=enrollment_id).update(status='pending')
 
 
-def _revert_student_enrolled(entry):
-    from classroom.models import ClassStudent, Enrollment
-    student_id = entry.detail.get('student_id')
-    class_id = entry.detail.get('class_id')
-    if not student_id or not class_id:
-        raise ValueError('Missing student_id or class_id')
-    with transaction.atomic():
-        ClassStudent.objects.filter(classroom_id=class_id, student_id=student_id).update(is_active=False)
-        Enrollment.objects.filter(classroom_id=class_id, student_id=student_id).update(status='removed')
-
-
 def _revert_hod_class_deleted(entry):
     from classroom.models import ClassRoom
     class_id = entry.detail.get('class_id')
@@ -139,13 +128,12 @@ def _revert_student_fee_updated(entry):
 
 
 def _revert_parent_student_unlinked(entry):
-    from classroom.models import StudentGuardian
-    guardian_id = entry.detail.get('guardian_id')
-    student_id = entry.detail.get('student_id')
-    if not guardian_id or not student_id:
-        raise ValueError('Missing guardian_id or student_id')
-    if not StudentGuardian.objects.filter(guardian_id=guardian_id, student_id=student_id).exists():
-        StudentGuardian.objects.create(guardian_id=guardian_id, student_id=student_id, relationship=entry.detail.get('relationship', 'parent'))
+    # Unlinking is a soft-delete (ParentStudent.is_active=False); revert reactivates the link.
+    from classroom.models import ParentStudent
+    link_id = entry.detail.get('link_id')
+    if not link_id:
+        raise ValueError('Missing link_id')
+    ParentStudent.objects.filter(id=link_id).update(is_active=True)
 
 
 def _revert_subject_archived(entry):
@@ -165,19 +153,21 @@ def _revert_subject_restored(entry):
 
 
 def _revert_user_blocked(entry):
+    # Blocking sets is_blocked=True; revert unblocks.
     from django.contrib.auth import get_user_model
     user_id = entry.detail.get('user_id')
     if not user_id:
         raise ValueError('Missing user_id')
-    get_user_model().objects.filter(id=user_id).update(is_active=True)
+    get_user_model().objects.filter(id=user_id).update(is_blocked=False, block_type='')
 
 
 def _revert_user_unblocked(entry):
+    # Unblocking sets is_blocked=False; revert re-blocks.
     from django.contrib.auth import get_user_model
     user_id = entry.detail.get('user_id')
     if not user_id:
         raise ValueError('Missing user_id')
-    get_user_model().objects.filter(id=user_id).update(is_active=False)
+    get_user_model().objects.filter(id=user_id).update(is_blocked=True)
 
 
 def _revert_department_toggled_active(entry):
@@ -209,10 +199,10 @@ def _revert_billing_plan_toggled(entry):
 
 def _revert_discount_code_toggled(entry):
     from billing.models import DiscountCode
-    code_id = entry.detail.get('discount_code_id')
+    code_id = entry.detail.get('discount_id')
     new_state = entry.detail.get('is_active')
     if code_id is None:
-        raise ValueError('Missing discount_code_id')
+        raise ValueError('Missing discount_id')
     DiscountCode.objects.filter(id=code_id).update(is_active=not new_state)
 
 
@@ -225,7 +215,6 @@ REVERTIBLE_ACTIONS = {
     'class_teacher_removed': (_revert_class_teacher_removed, 'Re-add teacher to class'),
     'enrollment_approved': (_revert_enrollment_approved, 'Undo enrollment approval'),
     'enrollment_rejected': (_revert_enrollment_rejected, 'Undo enrollment rejection'),
-    'student_enrolled': (_revert_student_enrolled, 'Remove enrolled student'),
     'hod_class_deleted': (_revert_hod_class_deleted, 'Restore deleted class'),
     'hod_class_restored': (_revert_hod_class_restored, 'Re-delete restored class'),
     'student_fee_updated': (_revert_student_fee_updated, 'Restore previous fee'),

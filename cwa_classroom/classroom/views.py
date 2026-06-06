@@ -4361,6 +4361,7 @@ class UpdateStudentFeeView(RoleRequiredMixin, View):
             raise Http404
 
         cs = get_object_or_404(ClassStudent, classroom=classroom, student_id=student_id)
+        old_fee = cs.fee_override  # captured for action-history revert
         fee_str = request.POST.get('fee_override', '').strip()
         if fee_str:
             from decimal import Decimal, InvalidOperation
@@ -4379,7 +4380,10 @@ class UpdateStudentFeeView(RoleRequiredMixin, View):
         log_event(
             user=request.user, school=classroom.school, category='data_change',
             action='student_fee_updated',
-            detail={'class_id': classroom.id, 'student_id': student_id, 'fee_override': str(cs.fee_override)},
+            detail={'class_id': classroom.id, 'student_id': student_id,
+                    'class_student_id': cs.id,
+                    'old_fee': None if old_fee is None else str(old_fee),
+                    'fee_override': str(cs.fee_override)},
             request=request,
         )
         messages.success(request, 'Student fee updated.')

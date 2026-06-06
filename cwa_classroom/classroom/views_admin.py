@@ -317,7 +317,7 @@ class SchoolToggleActiveView(RoleRequiredMixin, View):
         status = 'activated' if school.is_active else 'deactivated'
         log_event(
             user=request.user, school=school, category='data_change',
-            action='school_toggled_active', detail={'school_name': school.name, 'is_active': school.is_active},
+            action='school_toggled_active', detail={'school_id': school.id, 'school_name': school.name, 'is_active': school.is_active},
             request=request,
         )
         messages.success(request, f'School "{school.name}" has been {status}.')
@@ -2706,7 +2706,7 @@ class BlockUserView(RoleRequiredMixin, View):
 
         log_event(
             user=request.user, category='admin_action', action='user_blocked',
-            detail={'target_user': user.username, 'reason': reason, 'block_type': block_type},
+            detail={'user_id': user.id, 'target_user': user.username, 'reason': reason, 'block_type': block_type},
             request=request,
         )
 
@@ -2728,7 +2728,7 @@ class UnblockUserView(RoleRequiredMixin, View):
 
         log_event(
             user=request.user, category='admin_action',
-            action='user_unblocked', detail={'target_user': user.username},
+            action='user_unblocked', detail={'user_id': user.id, 'target_user': user.username},
             request=request,
         )
         messages.success(request, f'Account "{user.username}" has been unblocked.')

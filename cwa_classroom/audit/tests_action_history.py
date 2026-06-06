@@ -89,3 +89,49 @@ class ActionHistoryRevertTests(TestCase):
         for action, (fn, label) in REVERTIBLE_ACTIONS.items():
             self.assertTrue(callable(fn))
             self.assertIsInstance(label, str)
+
+    def test_student_enrolled_not_revertible(self):
+        # Bulk enrol logs only a count, so it must not be revertible.
+        self.assertNotIn('student_enrolled', REVERTIBLE_ACTIONS)
+
+    def test_teacher_cannot_revert_elevated_action(self):
+        # A plain teacher (NOT a school admin) owns a school_toggled_active log
+        # but lacks an elevated role, so the revert is denied at revert time.
+        teacher = User.objects.create_user(
+            username='plainteacher', password='password1!', email='pt@test.com')
+        UserRole.objects.create(user=teacher, role=self.teacher_role)
+        log_event(user=teacher, school=self.school, category='data_change',
+                  action='school_toggled_active',
+                  detail={'school_id': self.school.id, 'is_active': False})
+        entry = AuditLog.objects.get(action='school_toggled_active')
+        self.client.login(username='plainteacher', password='password1!')
+        resp = self.client.post(reverse('revert_action', args=[entry.id]))
+        self.assertEqual(resp.status_code, 302)
+        entry.refresh_from_db()
+        self.assertIsNone(entry.reverted_at)  # not reverted — privilege denied
+
+    def test_hoi_can_revert_school_toggle(self):
+        # self.staff is the school's admin, which grants the HoI role -> allowed.
+        hoi_role, _ = Role.objects.get_or_create(
+            name=Role.HEAD_OF_INSTITUTE, defaults={'display_name': 'Head of Institute'})
+        UserRole.objects.get_or_create(user=self.staff, role=hoi_role)
+        self.school.is_active = False
+        self.school.save(update_fields=['is_active'])
+        log_event(user=self.staff, school=self.school, category='data_change',
+                  action='school_toggled_active',
+                  detail={'school_id': self.school.id, 'is_active': False})
+        entry = AuditLog.objects.get(action='school_toggled_active')
+        self.client.login(username='staff1', password='password1!')
+        resp = self.client.post(reverse('revert_action', args=[entry.id]))
+        self.assertEqual(resp.status_code, 302)
+        self.school.refresh_from_db()
+        self.assertTrue(self.school.is_active)  # reverted back to active
+
+    def test_discount_code_toggle_reverter_uses_correct_key(self):
+        # Reverter must read 'discount_id' (the key the logging site writes).
+        from audit.reverters import REVERTIBLE_ACTIONS as RA
+        fn, _ = RA['discount_code_toggled']
+        entry = AuditLog(action='discount_code_toggled', detail={'plan_id': 1})
+        with self.assertRaises(ValueError) as ctx:
+            fn(entry)
+        self.assertIn('discount_id', str(ctx.exception))
