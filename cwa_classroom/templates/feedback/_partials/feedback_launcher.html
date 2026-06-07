@@ -1,0 +1,68 @@
+{% comment %}
+Global "Send Feedback" entry point (CPP-322). Included from base.html for
+every authenticated role. Clicking the button opens an Alpine modal and lazily
+loads the capture form (an HTMX partial) into the modal body.
+{% endcomment %}
+{% if request.user.is_authenticated %}
+<div x-data="{ open: false }"
+     @keydown.escape.window="open = false"
+     @feedback-submitted.window="setTimeout(() => open = false, 1500)">
+
+  <!-- Launcher button -->
+  <button type="button"
+          id="send-feedback-btn"
+          @click="open = true"
+          hx-get="{% url 'feedback:submit' %}"
+          hx-target="#feedback-modal-body"
+          hx-trigger="click"
+          class="fixed bottom-20 left-4 md:bottom-6 md:left-6 z-40
+                 inline-flex items-center gap-2 rounded-full bg-primary text-white
+                 px-4 py-2.5 shadow-lg hover:bg-primary-dark transition
+                 focus:outline-none focus:ring-2 focus:ring-accent/50 text-sm font-medium"
+          title="Send feedback"
+          aria-label="Send feedback">
+    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round"
+            d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.502 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z"/>
+    </svg>
+    <span>Send Feedback</span>
+  </button>
+
+  <!-- Backdrop -->
+  <div x-show="open"
+       x-transition.opacity
+       x-cloak
+       @click="open = false"
+       class="fixed inset-0 bg-black/40 z-50"></div>
+
+  <!-- Modal -->
+  <div x-show="open"
+       x-cloak
+       class="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4 pointer-events-none">
+    <div x-show="open"
+         x-transition
+         @click.outside="open = false"
+         class="pointer-events-auto w-full md:max-w-lg bg-white rounded-t-2xl md:rounded-2xl shadow-2xl
+                max-h-[90vh] overflow-y-auto"
+         role="dialog" aria-modal="true" aria-label="Send feedback">
+
+      <!-- Header -->
+      <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+        <h2 class="font-semibold text-gray-900 text-base">Send Feedback</h2>
+        <button type="button" @click="open = false"
+                class="text-gray-400 hover:text-gray-600 transition"
+                aria-label="Close">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Body — HTMX loads the form / success partial here -->
+      <div id="feedback-modal-body" class="px-5 py-5">
+        <div class="text-center text-sm text-gray-400 py-8">Loading…</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}

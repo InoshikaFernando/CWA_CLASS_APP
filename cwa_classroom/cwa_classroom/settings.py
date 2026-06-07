@@ -93,7 +93,17 @@ INSTALLED_APPS = [
 
     # Lifecycle email notifications
     'notifications',
+
+    # User feedback & feature requests (CPP-321)
+    'feedback',
 ]
+
+# ---------------------------------------------------------------------------
+# User feedback (CPP-321)
+# ---------------------------------------------------------------------------
+# Email of the product owner who owns the feedback triage queue. New feedback
+# is assigned to this user. Falls back to the first superuser when unset.
+FEEDBACK_OWNER_EMAIL = os.environ.get('FEEDBACK_OWNER_EMAIL', '')
 
 # ---------------------------------------------------------------------------
 # AI / Anthropic
