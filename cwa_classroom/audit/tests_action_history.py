@@ -135,3 +135,60 @@ class ActionHistoryRevertTests(TestCase):
         with self.assertRaises(ValueError) as ctx:
             fn(entry)
         self.assertIn('discount_id', str(ctx.exception))
+
+    def test_student_removed_records_class_student_ids(self):
+        # The removal must record exactly which class links it deactivated.
+        from classroom.models import SchoolStudent, ClassStudent
+        SchoolStudent.objects.create(
+            school=self.school, student=self.student, is_active=True)
+        cs = ClassStudent.objects.create(
+            classroom=self.classroom, student=self.student, is_active=True)
+        self.client.login(username='staff1', password='password1!')
+        resp = self.client.post(
+            reverse('admin_school_student_remove', args=[self.school.id, self.student.id]))
+        self.assertEqual(resp.status_code, 302)
+        entry = AuditLog.objects.filter(action='student_removed').latest('created_at')
+        self.assertEqual(entry.detail.get('class_student_ids'), [cs.id])
+        cs.refresh_from_db()
+        self.assertFalse(cs.is_active)
+
+    def test_revert_student_removed_precise_and_invoice_safe(self):
+        # Revert restores the school link + only the recorded class links,
+        # never re-adds classes the student had already left, and never
+        # touches invoices.
+        from datetime import date
+        from decimal import Decimal
+        from classroom.models import SchoolStudent, ClassStudent, ClassRoom, Invoice
+
+        ss = SchoolStudent.objects.create(
+            school=self.school, student=self.student, is_active=False)
+        cs_a = ClassStudent.objects.create(
+            classroom=self.classroom, student=self.student, is_active=False)
+        class_c = ClassRoom.objects.create(
+            name='Y6 Maths', school=self.school, code='ZZZZ9999')
+        cs_c = ClassStudent.objects.create(  # class the student had already left
+            classroom=class_c, student=self.student, is_active=False)
+        inv = Invoice.objects.create(
+            invoice_number='INV-TEST-1', school=self.school, student=self.student,
+            billing_period_start=date(2026, 1, 1), billing_period_end=date(2026, 1, 31),
+            attendance_mode='all_class_days',
+            calculated_amount=Decimal('100'), amount=Decimal('100'),
+        )
+        log_event(user=self.staff, school=self.school, category='data_change',
+                  action='student_removed',
+                  detail={'student_id': self.student.id, 'student_name': 'Test Student',
+                          'class_student_ids': [cs_a.id]})
+        entry = AuditLog.objects.get(action='student_removed')
+        invoices_before = Invoice.objects.count()
+
+        self.client.login(username='staff1', password='password1!')
+        resp = self.client.post(reverse('revert_action', args=[entry.id]))
+        self.assertEqual(resp.status_code, 302)
+
+        ss.refresh_from_db(); cs_a.refresh_from_db(); cs_c.refresh_from_db(); inv.refresh_from_db()
+        self.assertTrue(ss.is_active)                       # back in school
+        self.assertTrue(cs_a.is_active)                     # recorded class restored
+        self.assertFalse(cs_c.is_active)                    # left-class NOT restored
+        self.assertEqual(Invoice.objects.count(), invoices_before)  # none created/deleted
+        self.assertEqual(inv.amount, Decimal('100'))        # invoice untouched
+        self.assertEqual(inv.status, 'draft')

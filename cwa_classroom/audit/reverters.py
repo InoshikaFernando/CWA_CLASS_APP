@@ -25,14 +25,31 @@ def _revert_class_student_removed(entry):
 
 
 def _revert_student_removed(entry):
+    # Restore a school-level removal: reactivate the SchoolStudent link and the
+    # EXACT ClassStudent links this removal deactivated (recorded in detail).
+    #
+    # Invoices are intentionally untouched: this only flips is_active flags.
+    # Existing invoices are left as-is and none are generated (invoicing is a
+    # separate, explicit step). Restoring only the recorded class links also
+    # prevents re-adding the student to classes they had already left, which
+    # would otherwise cause them to be billed again on the next invoice run.
     from classroom.models import SchoolStudent, ClassStudent
     student_id = entry.detail.get('student_id')
     school_id = entry.school_id
     if not student_id or not school_id:
         raise ValueError('Missing student_id or school_id')
+    class_student_ids = entry.detail.get('class_student_ids')
     with transaction.atomic():
-        SchoolStudent.objects.filter(school_id=school_id, student_id=student_id).update(is_active=True)
-        ClassStudent.objects.filter(classroom__school_id=school_id, student_id=student_id).update(is_active=True)
+        SchoolStudent.objects.filter(
+            school_id=school_id, student_id=student_id,
+        ).update(is_active=True)
+        if class_student_ids:
+            ClassStudent.objects.filter(id__in=class_student_ids).update(is_active=True)
+        else:
+            # Legacy logs (pre-id-capture): best-effort restore of inactive links.
+            ClassStudent.objects.filter(
+                classroom__school_id=school_id, student_id=student_id, is_active=False,
+            ).update(is_active=True)
 
 
 def _revert_student_restored(entry):

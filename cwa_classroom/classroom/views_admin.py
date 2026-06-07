@@ -2364,14 +2364,22 @@ class SchoolStudentRemoveView(RoleRequiredMixin, View):
                 # Deactivate the SchoolStudent link
                 school_student.is_active = False
                 school_student.save(update_fields=['is_active'])
-                # Cascade: deactivate all ClassStudent entries at this school
+                # Cascade: deactivate all ClassStudent entries at this school.
+                # Capture the exact ids so a revert restores precisely these
+                # links (not classes the student had already left).
+                deactivated_class_student_ids = list(
+                    ClassStudent.objects.filter(
+                        classroom__school=school, student=student_user, is_active=True
+                    ).values_list('id', flat=True)
+                )
                 ClassStudent.objects.filter(
-                    classroom__school=school, student=student_user, is_active=True
+                    id__in=deactivated_class_student_ids
                 ).update(is_active=False)
             log_event(
                 user=request.user, school=school, category='data_change',
                 action='student_removed', detail={
                     'student_id': student_id, 'student_name': name,
+                    'class_student_ids': deactivated_class_student_ids,
                 },
                 request=request,
             )
