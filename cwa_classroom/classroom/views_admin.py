@@ -317,7 +317,7 @@ class SchoolToggleActiveView(RoleRequiredMixin, View):
         status = 'activated' if school.is_active else 'deactivated'
         log_event(
             user=request.user, school=school, category='data_change',
-            action='school_toggled_active', detail={'school_name': school.name, 'is_active': school.is_active},
+            action='school_toggled_active', detail={'school_id': school.id, 'school_name': school.name, 'is_active': school.is_active},
             request=request,
         )
         messages.success(request, f'School "{school.name}" has been {status}.')
@@ -2364,14 +2364,22 @@ class SchoolStudentRemoveView(RoleRequiredMixin, View):
                 # Deactivate the SchoolStudent link
                 school_student.is_active = False
                 school_student.save(update_fields=['is_active'])
-                # Cascade: deactivate all ClassStudent entries at this school
+                # Cascade: deactivate all ClassStudent entries at this school.
+                # Capture the exact ids so a revert restores precisely these
+                # links (not classes the student had already left).
+                deactivated_class_student_ids = list(
+                    ClassStudent.objects.filter(
+                        classroom__school=school, student=student_user, is_active=True
+                    ).values_list('id', flat=True)
+                )
                 ClassStudent.objects.filter(
-                    classroom__school=school, student=student_user, is_active=True
+                    id__in=deactivated_class_student_ids
                 ).update(is_active=False)
             log_event(
                 user=request.user, school=school, category='data_change',
                 action='student_removed', detail={
                     'student_id': student_id, 'student_name': name,
+                    'class_student_ids': deactivated_class_student_ids,
                 },
                 request=request,
             )
@@ -2706,7 +2714,7 @@ class BlockUserView(RoleRequiredMixin, View):
 
         log_event(
             user=request.user, category='admin_action', action='user_blocked',
-            detail={'target_user': user.username, 'reason': reason, 'block_type': block_type},
+            detail={'user_id': user.id, 'target_user': user.username, 'reason': reason, 'block_type': block_type},
             request=request,
         )
 
@@ -2728,7 +2736,7 @@ class UnblockUserView(RoleRequiredMixin, View):
 
         log_event(
             user=request.user, category='admin_action',
-            action='user_unblocked', detail={'target_user': user.username},
+            action='user_unblocked', detail={'user_id': user.id, 'target_user': user.username},
             request=request,
         )
         messages.success(request, f'Account "{user.username}" has been unblocked.')
