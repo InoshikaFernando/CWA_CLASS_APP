@@ -95,6 +95,7 @@ urlpatterns = [
     path('maths/', include('quiz.urls')),          # basic-facts, times-tables (maths-specific)
     path('maths/', include('quiz.level_urls')),    # level/<n>/... quiz routes under maths/
     path('coding/', include('coding.urls', namespace='coding')),
+    path('languages/', include('languages.urls', namespace='languages')),
     path('music/', include('music.urls', namespace='music')),
     path('science/', include('science.urls', namespace='science')),
 
