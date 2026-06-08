@@ -56,6 +56,14 @@ class HomeworkTestBase(TestCase):
         ClassTeacher.objects.create(classroom=cls.classroom, teacher=cls.teacher)
         ClassStudent.objects.create(classroom=cls.classroom, student=cls.student, is_active=True)
         ClassStudent.objects.create(classroom=cls.classroom, student=cls.student2, is_active=True)
+        # ``joined_at`` is auto_now_add (= now), which would land *after* the
+        # past-due homework's due date and make every student look like a late
+        # joiner. Backdate it so these students count as enrolled-before-due,
+        # which is what the bulk of the tests assume. Late-joiner behaviour is
+        # covered explicitly in LateJoinerOverdueTest.
+        ClassStudent.objects.filter(classroom=cls.classroom).update(
+            joined_at=timezone.now() - timedelta(days=30)
+        )
 
         # Subject / topic / level / questions
         subject, _ = Subject.objects.get_or_create(slug='maths-hw-test', defaults={'name': 'Maths HW Test'})
@@ -324,7 +332,7 @@ class TeacherHomeworkDetailTest(HomeworkTestBase):
         resp = self.client.get(url)
         self.assertContains(resp, 'On Time')
 
-    def test_late_submission_shows_late_status(self):
+    def test_late_submission_shows_overdue_submission_status(self):
         sub = HomeworkSubmission.objects.create(
             homework=self.past_homework, student=self.student,
             attempt_number=1, score=3, total_questions=5, points=60.0,
@@ -334,7 +342,7 @@ class TeacherHomeworkDetailTest(HomeworkTestBase):
         )
         url = reverse('homework:teacher_detail', kwargs={'homework_id': self.past_homework.id})
         resp = self.client.get(url)
-        self.assertContains(resp, 'Late')
+        self.assertContains(resp, 'Overdue Submission')
 
     def test_overdue_student_shows_overdue_status(self):
         url = reverse('homework:teacher_detail', kwargs={'homework_id': self.past_homework.id})
@@ -408,10 +416,13 @@ class StudentHomeworkTakeTest(HomeworkTestBase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'HW Question 1')
 
-    def test_take_blocked_when_past_due(self):
+    def test_take_allowed_when_past_due(self):
+        # Overdue homework is intentionally still attemptable — the past-due
+        # block was removed so students can complete late work.
         url = reverse('homework:student_take', kwargs={'homework_id': self.past_homework.id})
         resp = self.client.get(url)
-        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'HW Question 1')
 
     def test_take_blocked_when_attempts_exhausted(self):
         HomeworkSubmission.objects.create(
@@ -775,12 +786,15 @@ class StudentListUITest(HomeworkTestBase):
         resp = self.client.get(reverse('homework:student_list'))
         self.assertContains(resp, 'Retry')
 
-    def test_no_action_button_when_past_due(self):
+    def test_overdue_homework_still_attemptable(self):
         resp = self.client.get(reverse('homework:student_list'))
-        # past_homework is closed — no Start/Retry button for it
-        # The "Overdue" badge should appear instead
+        # Overdue homework now shows the "Overdue" badge AND keeps an action
+        # button so the student can still complete the late work.
         self.assertContains(resp, 'Overdue')
-        self.assertNotContains(resp, 'href="/homework/%d/take/' % self.past_homework.id)
+        self.assertContains(
+            resp,
+            reverse('homework:student_take', kwargs={'homework_id': self.past_homework.id}),
+        )
 
     def test_due_date_shown_in_red_for_overdue(self):
         resp = self.client.get(reverse('homework:student_list'))
@@ -1649,3 +1663,109 @@ class HomeworkAuditLoggingTest(HomeworkTestBase):
             ).exists(),
             'Submission not created when log_event failed',
         )
+
+
+# ---------------------------------------------------------------------------
+# Per-student overdue / late-joiner logic
+# ---------------------------------------------------------------------------
+
+class HomeworkOverdueModelTest(HomeworkTestBase):
+    """Model-level per-student overdue and lateness helpers."""
+
+    def setUp(self):
+        # Enrolled before the past homework's due date.
+        self.early_join = self.past_homework.due_date - timedelta(days=5)
+        # Joined the class after the past homework's due date (late joiner).
+        self.late_join = self.past_homework.due_date + timedelta(hours=1)
+
+    def _late_submission(self):
+        sub = HomeworkSubmission(
+            homework=self.past_homework, student=self.student,
+            attempt_number=1, score=3, total_questions=5,
+        )
+        sub.save()
+        HomeworkSubmission.objects.filter(pk=sub.pk).update(
+            submitted_at=self.past_homework.due_date + timedelta(hours=2)
+        )
+        sub.refresh_from_db()
+        return sub
+
+    def test_is_overdue_for_true_when_past_due_and_joined_before(self):
+        self.assertTrue(self.past_homework.is_overdue_for(self.early_join))
+
+    def test_is_overdue_for_false_when_joined_after_due(self):
+        self.assertFalse(self.past_homework.is_overdue_for(self.late_join))
+
+    def test_is_overdue_for_false_for_future_homework(self):
+        self.assertFalse(self.homework.is_overdue_for(self.early_join))
+
+    def test_is_overdue_for_none_join_falls_back_to_clock(self):
+        # Defensive: a missing join date is treated as "always enrolled".
+        self.assertTrue(self.past_homework.is_overdue_for(None))
+
+    def test_submission_status_for_late_when_enrolled_before_due(self):
+        sub = self._late_submission()
+        self.assertEqual(
+            sub.submission_status_for(self.early_join),
+            HomeworkSubmission.STATUS_LATE,
+        )
+
+    def test_submission_status_for_on_time_when_joined_after_due(self):
+        sub = self._late_submission()
+        self.assertEqual(
+            sub.submission_status_for(self.late_join),
+            HomeworkSubmission.STATUS_ON_TIME,
+        )
+
+
+class LateJoinerOverdueTest(HomeworkTestBase):
+    """A student who joins after the due date never sees the work as overdue,
+    but can still attempt it; an on-time enrollee still sees overdue."""
+
+    def setUp(self):
+        self.client = Client()
+        # student2 joins AFTER the past homework's due date.
+        ClassStudent.objects.filter(
+            classroom=self.classroom, student=self.student2,
+        ).update(joined_at=self.past_homework.due_date + timedelta(hours=1))
+
+    def test_late_joiner_list_status_pending_not_overdue(self):
+        self.client.login(username='student2', password='pass1234')
+        resp = self.client.get(reverse('homework:student_list'))
+        row = next(r for r in resp.context['rows']
+                   if r['homework'].id == self.past_homework.id)
+        self.assertFalse(row['is_overdue'])
+        self.assertEqual(row['status'], 'pending')
+        self.assertTrue(row['can_attempt'])
+
+    def test_late_joiner_can_take_overdue_homework(self):
+        self.client.login(username='student2', password='pass1234')
+        url = reverse('homework:student_take', kwargs={'homework_id': self.past_homework.id})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+
+    def test_enrolled_on_time_student_sees_overdue(self):
+        # student1 is backdated to 30 days ago → enrolled before the due date.
+        self.client.login(username='student1', password='pass1234')
+        resp = self.client.get(reverse('homework:student_list'))
+        row = next(r for r in resp.context['rows']
+                   if r['homework'].id == self.past_homework.id)
+        self.assertTrue(row['is_overdue'])
+        self.assertEqual(row['status'], HomeworkSubmission.STATUS_NOT_SUBMITTED)
+        self.assertTrue(row['can_attempt'])
+
+    def test_teacher_sees_late_joiner_as_pending(self):
+        self.client.login(username='teacher1', password='pass1234')
+        url = reverse('homework:teacher_detail', kwargs={'homework_id': self.past_homework.id})
+        resp = self.client.get(url)
+        row = next(r for r in resp.context['student_rows']
+                   if r['student'].id == self.student2.id)
+        self.assertEqual(row['status'], 'pending')
+
+    def test_teacher_sees_on_time_enrollee_as_overdue(self):
+        self.client.login(username='teacher1', password='pass1234')
+        url = reverse('homework:teacher_detail', kwargs={'homework_id': self.past_homework.id})
+        resp = self.client.get(url)
+        row = next(r for r in resp.context['student_rows']
+                   if r['student'].id == self.student.id)
+        self.assertEqual(row['status'], HomeworkSubmission.STATUS_NOT_SUBMITTED)
