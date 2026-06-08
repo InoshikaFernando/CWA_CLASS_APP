@@ -476,10 +476,20 @@ class CodingExerciseParser(BaseQuestionParser):
         topic_level, _ = TopicLevel.get_or_create_for(topic, level)
 
         # ── Save exercises ────────────────────────────────────────────
+        exercise_details = []
         for i, ex in enumerate(exercises, 1):
             title = ex['title'].strip()
+            # Default to a failed record so any exception below (including an
+            # invalid required_code_patterns type) is reported per-exercise
+            # rather than crashing the whole upload.
+            status = 'failed'
+            patterns_list = []
             try:
                 with transaction.atomic():
+                    normalized = self._normalize_required_patterns(
+                        ex.get('required_code_patterns')
+                    )
+                    patterns_list = normalized.split('\n') if normalized else []
                     existing = CodingExercise.objects.filter(
                         topic_level=topic_level,
                         title=title,
@@ -488,9 +498,7 @@ class CodingExerciseParser(BaseQuestionParser):
                         'description': ex.get('instructions', '').strip(),
                         'starter_code': ex.get('starter_code', ''),
                         'expected_output': ex.get('expected_output', '').strip(),
-                        'required_code_patterns': self._normalize_required_patterns(
-                            ex.get('required_code_patterns')
-                        ),
+                        'required_code_patterns': normalized,
                         'hints': ex.get('hints', ''),
                         'order': int(ex.get('display_order', i)),
                         'is_active': True,
@@ -500,6 +508,7 @@ class CodingExerciseParser(BaseQuestionParser):
                             setattr(existing, k, v)
                         existing.save()
                         result.updated += 1
+                        status = 'updated'
                     else:
                         CodingExercise.objects.create(
                             topic_level=topic_level,
@@ -507,19 +516,24 @@ class CodingExerciseParser(BaseQuestionParser):
                             **fields,
                         )
                         result.inserted += 1
+                        status = 'new'
             except Exception as exc:
                 result.errors.append(f'Exercise {i} ({title!r}): {exc}')
                 result.failed += 1
+                status = 'failed'
+            exercise_details.append({
+                'title': title,
+                'status': status,
+                'patterns': patterns_list,
+            })
 
-        patterns_count = sum(
-            1 for ex in exercises
-            if self._normalize_required_patterns(ex.get('required_code_patterns'))
-        )
+        patterns_count = sum(1 for ed in exercise_details if ed['patterns'])
         result.detail = {
             'language': language.name,
             'topic': topic.name,
             'level': level,
             'patterns_count': patterns_count,
+            'exercises': exercise_details,
         }
         return result.to_dict()
 
