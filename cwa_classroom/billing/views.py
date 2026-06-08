@@ -882,6 +882,54 @@ class InstituteCancelSubscriptionView(LoginRequiredMixin, View):
         return redirect('institute_subscription_dashboard')
 
 
+class IndividualCancelSubscriptionView(LoginRequiredMixin, View):
+    """Cancel an individual/student subscription at end of current period.
+
+    Mirrors InstituteCancelSubscriptionView but operates on the requesting
+    user's own one-to-one Subscription, so there is no cross-account vector.
+    """
+
+    def post(self, request):
+        try:
+            sub = request.user.subscription
+        except Subscription.DoesNotExist:
+            sub = None
+
+        if not sub or not sub.stripe_subscription_id:
+            messages.error(request, 'No active subscription to cancel.')
+            return redirect('parent_billing')
+
+        if sub.cancel_at_period_end:
+            messages.info(
+                request,
+                'Your subscription is already set to cancel at the end of the billing period.',
+            )
+            return redirect('parent_billing')
+
+        try:
+            from billing.stripe_service import cancel_subscription
+            cancel_subscription(sub.stripe_subscription_id, at_period_end=True)
+            # Safety net: reflect the change locally in case the
+            # customer.subscription.updated webhook is delayed.
+            sub.cancel_at_period_end = True
+            sub.cancelled_at = timezone.now()
+            sub.save(update_fields=['cancel_at_period_end', 'cancelled_at', 'updated_at'])
+            log_event(
+                user=request.user, school=None, category='billing',
+                action='subscription_cancelled',
+                detail={'subscription_id': sub.id, 'stripe_subscription_id': sub.stripe_subscription_id},
+                request=request,
+            )
+            messages.success(
+                request,
+                'Your subscription will be cancelled at the end of the current billing period.',
+            )
+        except stripe.error.StripeError as e:
+            messages.error(request, f'Could not cancel: {e}')
+
+        return redirect('parent_billing')
+
+
 class StripeBillingPortalView(LoginRequiredMixin, View):
     """Redirect to Stripe Customer Portal for payment method management."""
 
