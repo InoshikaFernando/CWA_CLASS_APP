@@ -143,7 +143,17 @@
     });
   });
 
+  function _stageUnlockedToast() {
+    var t = document.createElement('div');
+    t.style.cssText = 'position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:#059669;color:#fff;padding:14px 28px;border-radius:14px;font-size:14px;font-weight:700;box-shadow:0 6px 24px rgba(0,0,0,.18);z-index:9999;transition:opacity .5s';
+    t.textContent = '🎉 Stage Unlocked! The next level is now available.';
+    document.body.appendChild(t);
+    setTimeout(function () { t.style.opacity = '0'; }, 3500);
+    setTimeout(function () { t.remove(); }, 4000);
+  }
+
   function _showFeedback(data, selectedBtn, selectedId) {
+    if (data.stage_unlocked) setTimeout(_stageUnlockedToast, 800);
     var correctId = String(data.correct_answer_id);
     answerBtns.forEach(function (b) {
       var bid = String(b.dataset.answerId);

@@ -80,6 +80,10 @@ class Homework(models.Model):
     coding_topics = models.ManyToManyField(
         'coding.CodingTopic', related_name='homework_assignments', blank=True,
     )
+    # CPP-316: languages homework uses LanguageTopicLevel as the leaf node.
+    language_topic_levels = models.ManyToManyField(
+        'languages.LanguageTopicLevel', related_name='homeworks', blank=True,
+    )
     num_questions = models.PositiveIntegerField(default=10)
     due_date = models.DateTimeField()
     max_attempts = models.PositiveIntegerField(

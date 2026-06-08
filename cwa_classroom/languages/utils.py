@@ -21,7 +21,7 @@ FONT_MAP = {
 
 # Language code → BCP-47 tag for Web Speech API SpeechSynthesis
 TTS_LANG_MAP = {
-    'en': 'en-US',
+    'en': 'en-NZ',
     'si': 'si-LK',
     'ta': 'ta-IN',
     'hi': 'hi-IN',

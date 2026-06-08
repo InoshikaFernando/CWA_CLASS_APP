@@ -11,11 +11,11 @@ OOB: #filter-topic-wrapper (step=subject), #filter-subtopic-wrapper (step=subjec
 {% if step == 'subject' %}
 <div id="filter-topic-wrapper" hx-swap-oob="innerHTML">
   <label class="block text-xs font-medium text-gray-500 mb-1">
-    {% if subject_slug == 'coding' %}Language{% else %}Topic{% endif %}
+    {% if subject_slug == 'coding' or subject_slug == 'languages' %}Language{% else %}Topic{% endif %}
   </label>
   <select id="filter-topic"
           class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition">
-    <option value="">All {% if subject_slug == 'coding' %}Languages{% else %}Topics{% endif %}</option>
+    <option value="">All {% if subject_slug == 'coding' or subject_slug == 'languages' %}Languages{% else %}Topics{% endif %}</option>
     {% for item in parent_items %}
     <option value="{{ item.pk }}">{{ item.name }}</option>
     {% endfor %}
@@ -29,7 +29,7 @@ OOB: #filter-topic-wrapper (step=subject), #filter-subtopic-wrapper (step=subjec
   {% if subtopic_items %}
   <div>
     <label class="block text-xs font-medium text-gray-500 mb-1">
-      {% if subject_slug == 'coding' %}Concept{% else %}Sub-topic{% endif %}
+      {% if subject_slug == 'coding' or subject_slug == 'languages' %}Topic{% else %}Sub-topic{% endif %}
     </label>
     <select id="filter-subtopic"
             class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition">
@@ -47,7 +47,7 @@ OOB: #filter-topic-wrapper (step=subject), #filter-subtopic-wrapper (step=subjec
 {% if step == 'subject' %}
 <div id="filter-level-wrapper" hx-swap-oob="innerHTML">
   <label class="block text-xs font-medium text-gray-500 mb-1">
-    {% if subject_slug == 'coding' %}Difficulty{% else %}Year Level{% endif %}
+    {% if subject_slug == 'coding' or subject_slug == 'languages' %}Difficulty{% else %}Year Level{% endif %}
   </label>
   <select id="filter-level"
           class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition">

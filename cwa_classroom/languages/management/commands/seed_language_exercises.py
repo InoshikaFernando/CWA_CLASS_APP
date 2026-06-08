@@ -83,6 +83,77 @@ SEED = {
                 },
             },
             {
+                'name': 'Grammar Basics',
+                'order': 3,
+                'level': 'intermediate',
+                'letter_writing': [],
+                'phonics_mcq': [],
+                'grammar_fill_blank': [
+                    # (sentence_with_blank, correct_answer, [wrong1, wrong2, wrong3], explanation, blank_position)
+                    (
+                        'The dog ___ loudly at night.',
+                        'barks',
+                        ['bark', 'barked', 'barking'],
+                        'With a singular subject (the dog), use the third-person singular: "barks".',
+                        2,
+                    ),
+                    (
+                        'She ___ to school every day.',
+                        'walks',
+                        ['walk', 'walked', 'walking'],
+                        '"She" is a singular subject, so the verb needs the -s ending: "walks".',
+                        1,
+                    ),
+                    (
+                        'They ___ football on Saturdays.',
+                        'play',
+                        ['plays', 'played', 'playing'],
+                        'With a plural subject (they), use the base form without -s: "play".',
+                        1,
+                    ),
+                    (
+                        'The cat is ___ on the sofa.',
+                        'sitting',
+                        ['sit', 'sits', 'sat'],
+                        'The present progressive (is + verb-ing) describes an ongoing action.',
+                        3,
+                    ),
+                    (
+                        'I ___ my homework yesterday.',
+                        'finished',
+                        ['finish', 'finishes', 'finishing'],
+                        '"Yesterday" signals past tense — use the past simple form.',
+                        1,
+                    ),
+                    (
+                        'There ___ three apples on the table.',
+                        'are',
+                        ['is', 'was', 'were'],
+                        '"Three apples" is plural, so the present-tense verb is "are".',
+                        1,
+                    ),
+                ],
+                'sentence_order': [
+                    # (correct_sentence, word_order_list)
+                    (
+                        'The cat sat on the mat.',
+                        ['The', 'cat', 'sat', 'on', 'the', 'mat.'],
+                    ),
+                    (
+                        'She likes to read books.',
+                        ['She', 'likes', 'to', 'read', 'books.'],
+                    ),
+                    (
+                        'We went to the park yesterday.',
+                        ['We', 'went', 'to', 'the', 'park', 'yesterday.'],
+                    ),
+                    (
+                        'The children are playing outside.',
+                        ['The', 'children', 'are', 'playing', 'outside.'],
+                    ),
+                ],
+            },
+            {
                 'name': 'Vowels',
                 'order': 1,
                 'level': 'beginner',
@@ -341,7 +412,7 @@ class Command(BaseCommand):
             ).delete()
             self.stdout.write(self.style.WARNING(f'Cleared {count} existing exercises.'))
 
-        total_lw = total_ph = total_sp = total_cw = 0
+        total_lw = total_ph = total_sp = total_cw = total_gfb = total_so = 0
 
         for code, data in langs_to_seed.items():
             self.stdout.write(f'\nSeeding {data["name"]} ({code})...')
@@ -450,11 +521,58 @@ class Command(BaseCommand):
                     if created:
                         total_cw += 1
 
+                # --- Grammar Fill-in-the-Blank ---
+                for i, item in enumerate(topic_data.get('grammar_fill_blank', [])):
+                    sentence, correct, wrongs, explanation, blank_pos = item
+                    ex, created = LanguageExercise.objects.get_or_create(
+                        topic_level=level,
+                        exercise_type=LanguageExercise.GRAMMAR_FILL_BLANK,
+                        prompt=sentence,
+                        defaults={
+                            'puzzle_data': {
+                                'blank_position': blank_pos,
+                                'grammar_explanation': explanation,
+                            },
+                            'points': 5,
+                            'order': i,
+                            'is_active': True,
+                        },
+                    )
+                    if created:
+                        total_gfb += 1
+                        answers = [(correct, True)] + [(w, False) for w in wrongs]
+                        random.shuffle(answers)
+                        for display_order, (text, is_correct) in enumerate(answers):
+                            LanguageAnswer.objects.create(
+                                exercise=ex,
+                                answer_text=text,
+                                is_correct=is_correct,
+                                display_order=display_order,
+                            )
+
+                # --- Sentence Order ---
+                for i, item in enumerate(topic_data.get('sentence_order', [])):
+                    sentence, word_order = item
+                    ex, created = LanguageExercise.objects.get_or_create(
+                        topic_level=level,
+                        exercise_type=LanguageExercise.SENTENCE_ORDER,
+                        prompt=sentence,
+                        defaults={
+                            'puzzle_data': {'word_order': word_order},
+                            'points': 5,
+                            'order': i,
+                            'is_active': True,
+                        },
+                    )
+                    if created:
+                        total_so += 1
+
             self.stdout.write(self.style.SUCCESS(
                 f'  {data["name"]}: done'
             ))
 
         self.stdout.write(self.style.SUCCESS(
             f'\nDone. Created {total_lw} letter-writing + {total_ph} phonics-MCQ'
-            f' + {total_sp} spelling + {total_cw} crossword exercises.'
+            f' + {total_sp} spelling + {total_cw} crossword'
+            f' + {total_gfb} grammar fill-blank + {total_so} sentence-order exercises.'
         ))

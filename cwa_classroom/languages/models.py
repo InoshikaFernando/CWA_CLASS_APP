@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class Language(models.Model):
@@ -61,6 +62,10 @@ class LanguageTopicLevel(models.Model):
     class Meta:
         unique_together = ('topic', 'level_choice')
         ordering = ['topic', 'level_choice']
+
+    @property
+    def name(self):
+        return f'{self.topic.name} — {self.get_level_choice_display()}'
 
     def __str__(self):
         return f'{self.topic} [{self.get_level_choice_display()}]'
@@ -144,3 +149,27 @@ class LanguageStudentAnswer(models.Model):
 
     def __str__(self):
         return f'{self.student.username} → {self.exercise} ({"✓" if self.is_correct else "✗"})'
+
+
+class LanguageProgress(models.Model):
+    """Per-student, per-level progress row. Created lazily on first answer."""
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='language_progress',
+    )
+    topic_level = models.ForeignKey(
+        LanguageTopicLevel, on_delete=models.CASCADE,
+        related_name='student_progress',
+    )
+    exercises_completed = models.PositiveIntegerField(default=0)  # count with score >= 80
+    exercises_total = models.PositiveIntegerField(default=0)
+    best_score_avg = models.FloatField(default=0.0)
+    is_unlocked = models.BooleanField(default=False)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ('student', 'topic_level')
+
+    def __str__(self):
+        status = 'done' if self.completed_at else ('unlocked' if self.is_unlocked else 'locked')
+        return f'{self.student.username} | {self.topic_level} [{status}]'

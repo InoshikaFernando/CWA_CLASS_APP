@@ -4,6 +4,7 @@ from .models import (
     Language,
     LanguageAnswer,
     LanguageExercise,
+    LanguageProgress,
     LanguageStudentAnswer,
     LanguageTopic,
     LanguageTopicLevel,
@@ -70,3 +71,12 @@ class LanguageStudentAnswerAdmin(admin.ModelAdmin):
     @admin.display(boolean=True, description='Has drawing')
     def has_stroke(self, obj):
         return bool(obj.stroke_data and obj.stroke_data.get('objects'))
+
+
+@admin.register(LanguageProgress)
+class LanguageProgressAdmin(admin.ModelAdmin):
+    list_display = ('student', 'topic_level', 'exercises_completed', 'exercises_total', 'best_score_avg', 'is_unlocked', 'completed_at')
+    list_filter = ('is_unlocked', 'topic_level__level_choice', 'topic_level__topic__language')
+    search_fields = ('student__username', 'student__email')
+    readonly_fields = ('completed_at',)
+    raw_id_fields = ('student', 'topic_level')

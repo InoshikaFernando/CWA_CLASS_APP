@@ -173,6 +173,18 @@
       </svg>
       Crossword
     </span>
+    <span class="inline-flex items-center gap-1.5 font-medium text-orange-700 bg-orange-50 border border-orange-100 px-2.5 py-1 rounded-full">
+      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/>
+      </svg>
+      Grammar Fill-blank
+    </span>
+    <span class="inline-flex items-center gap-1.5 font-medium text-purple-700 bg-purple-50 border border-purple-100 px-2.5 py-1 rounded-full">
+      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5"/>
+      </svg>
+      Sentence Order
+    </span>
     <span class="flex items-center gap-1.5 ml-1">
       <span class="w-3.5 h-3.5 rounded border-2 border-emerald-300 bg-emerald-50 inline-block"></span>Correct
     </span>
@@ -198,11 +210,13 @@
         <div class="flex items-center gap-2.5 flex-wrap">
           <span class="text-base font-bold text-gray-800">{{ topic.name }}</span>
           {% for level in topic.levels.all %}
-          <span class="text-xs px-2.5 py-0.5 rounded-full font-semibold
-            {% if level.level_choice == 'beginner' %}bg-emerald-100 text-emerald-700
+          <span class="text-xs px-2.5 py-0.5 rounded-full font-semibold inline-flex items-center gap-0.5
+            {% if level.ui_locked %}bg-gray-100 text-gray-400
+            {% elif level.ui_completed %}bg-emerald-100 text-emerald-700
+            {% elif level.level_choice == 'beginner' %}bg-emerald-100 text-emerald-700
             {% elif level.level_choice == 'intermediate' %}bg-amber-100 text-amber-700
             {% else %}bg-rose-100 text-rose-700{% endif %}">
-            {{ level.get_level_choice_display }}
+            {% if level.ui_locked %}🔒 {% elif level.ui_completed %}✓ {% endif %}{{ level.get_level_choice_display }}{% if not level.ui_locked and level.ui_stage_pct > 0 %} {{ level.ui_stage_pct }}%{% endif %}
           </span>
           {% endfor %}
         </div>
@@ -215,6 +229,30 @@
       <div class="topic-body {% if forloop.first %}block{% else %}hidden{% endif %} border-t border-gray-100">
         <div class="p-4 space-y-5">
           {% for level in topic.levels.all %}
+
+          {% if level.ui_locked %}
+          <div class="rounded-2xl border-2 border-dashed border-gray-200 overflow-hidden bg-gray-50/60">
+            <div class="flex items-center justify-between px-5 py-4">
+              <div class="flex items-center gap-3">
+                <span class="text-2xl">🔒</span>
+                <div>
+                  <p class="text-sm font-bold text-gray-500">{{ level.get_level_choice_display }} — Locked</p>
+                  <p class="text-xs text-gray-400 mt-0.5">
+                    Complete {% if level.level_choice == 'intermediate' %}Beginner{% else %}Intermediate{% endif %} to unlock
+                  </p>
+                </div>
+              </div>
+              {% if level.ui_stage_pct > 0 %}
+              <div class="text-right flex-shrink-0">
+                <p class="text-xs text-gray-400 mb-1">{{ level.ui_stage_pct }}% mastery</p>
+                <div class="w-24 bg-gray-200 rounded-full h-1.5">
+                  <div class="bg-emerald-400 rounded-full h-1.5" style="width:{{ level.ui_stage_pct }}%"></div>
+                </div>
+              </div>
+              {% endif %}
+            </div>
+          </div>
+          {% else %}
 
           {% if level.lw_exercises %}
           <div class="rounded-2xl border border-emerald-200 overflow-hidden">
@@ -388,6 +426,88 @@
           </div>
           {% endif %}
 
+          {% if level.gfb_exercises %}
+          <div class="rounded-2xl border border-orange-200 overflow-hidden">
+            <div class="flex items-center justify-between px-4 py-3 bg-orange-50 border-b border-orange-200/60">
+              <div class="flex items-center gap-2">
+                <svg class="w-4 h-4 text-orange-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/>
+                </svg>
+                <span class="text-xs font-bold text-orange-700">Grammar Fill-in-the-Blank</span>
+                <span class="text-[11px] font-semibold text-orange-600 bg-orange-100 px-2 py-0.5 rounded-full">
+                  {{ level.gfb_exercises|length }} sentence{{ level.gfb_exercises|length|pluralize }}
+                </span>
+              </div>
+              <span class="text-[11px] text-gray-400 hidden sm:block">Pick the word that fits the gap</span>
+            </div>
+            <div class="p-3 bg-white">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {% for ex in level.gfb_exercises %}
+                <a href="{% url 'languages:exercise_detail' exercise_id=ex.id %}"
+                   class="flex items-center gap-3 px-4 py-3 rounded-xl border-2 select-none transition-all duration-150
+                          {% if ex.id in correct_ids %}border-emerald-300 bg-emerald-50 text-emerald-700
+                          {% elif ex.id in attempted_ids %}border-orange-300 bg-orange-50 text-orange-800
+                          {% else %}border-orange-200 bg-orange-50/30 text-gray-700 hover:border-orange-400 hover:bg-orange-50 hover:shadow-md hover:-translate-y-0.5{% endif %}">
+                  <div class="flex-1 min-w-0">
+                    <p class="text-xs font-semibold leading-snug truncate">{{ ex.prompt|truncatechars:40 }}</p>
+                    {% if ex.id in correct_ids %}<p class="text-[10px] text-emerald-500 font-semibold mt-0.5">✓ correct</p>
+                    {% elif ex.id in attempted_ids %}<p class="text-[10px] text-orange-500 font-semibold mt-0.5">try again</p>{% endif %}
+                  </div>
+                  <svg class="w-4 h-4 text-gray-300 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
+                  </svg>
+                </a>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+          {% endif %}
+
+          {% if level.so_exercises %}
+          <div class="rounded-2xl border border-purple-200 overflow-hidden">
+            <div class="flex items-center justify-between px-4 py-3 bg-purple-50 border-b border-purple-200/60">
+              <div class="flex items-center gap-2">
+                <svg class="w-4 h-4 text-purple-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5"/>
+                </svg>
+                <span class="text-xs font-bold text-purple-700">Sentence Order</span>
+                <span class="text-[11px] font-semibold text-purple-600 bg-purple-100 px-2 py-0.5 rounded-full">
+                  {{ level.so_exercises|length }} puzzle{{ level.so_exercises|length|pluralize }}
+                </span>
+              </div>
+              <span class="text-[11px] text-gray-400 hidden sm:block">Drag words into the right order</span>
+            </div>
+            <div class="p-3 bg-white">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {% for ex in level.so_exercises %}
+                <a href="{% url 'languages:exercise_detail' exercise_id=ex.id %}"
+                   class="flex items-center gap-3 px-4 py-3 rounded-xl border-2 select-none transition-all duration-150
+                          {% if ex.id in correct_ids %}border-emerald-300 bg-emerald-50 text-emerald-700
+                          {% elif ex.id in attempted_ids %}border-purple-300 bg-purple-50 text-purple-800
+                          {% else %}border-purple-200 bg-purple-50/30 text-gray-700 hover:border-purple-400 hover:bg-purple-50 hover:shadow-md hover:-translate-y-0.5{% endif %}">
+                  <div class="flex-1 min-w-0">
+                    <p class="text-xs font-semibold leading-snug truncate">{{ ex.prompt|truncatechars:40 }}</p>
+                    {% if ex.id in correct_ids %}<p class="text-[10px] text-emerald-500 font-semibold mt-0.5">✓ correct</p>
+                    {% elif ex.id in attempted_ids %}<p class="text-[10px] text-purple-500 font-semibold mt-0.5">try again</p>{% endif %}
+                  </div>
+                  <svg class="w-4 h-4 text-gray-300 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
+                  </svg>
+                </a>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+          {% endif %}
+
+          {% if not level.lw_exercises and not level.ph_exercises and not level.sp_mcq_exercises and not level.sp_type_exercises and not level.cw_exercises and not level.gfb_exercises and not level.so_exercises %}
+          <div class="flex flex-col items-center justify-center py-10 text-center rounded-2xl border-2 border-dashed border-gray-200 bg-gray-50/60">
+            <span class="text-4xl mb-3">📭</span>
+            <p class="text-sm font-semibold text-gray-500">No exercises yet for this level</p>
+            <p class="text-xs text-gray-400 mt-1">Check back soon!</p>
+          </div>
+          {% endif %}
+          {% endif %}{# end ui_locked else #}
           {% endfor %}
         </div>
       </div>
