@@ -61,7 +61,7 @@ def _make_fill_blank(suffix=''):
         defaults={'order': 0, 'is_active': True},
     )
     level, _ = LanguageTopicLevel.objects.get_or_create(
-        topic=topic, level_choice='intermediate',
+        topic=topic, level_choice=LanguageTopicLevel.BEGINNER,
     )
     ex = LanguageExercise.objects.create(
         topic_level=level,
@@ -92,7 +92,7 @@ def _make_sentence_order(suffix=''):
         defaults={'order': 0, 'is_active': True},
     )
     level, _ = LanguageTopicLevel.objects.get_or_create(
-        topic=topic, level_choice='intermediate',
+        topic=topic, level_choice=LanguageTopicLevel.BEGINNER,
     )
     words = ['The', 'cat', 'sat', 'on', 'mat.']
     ex = LanguageExercise.objects.create(

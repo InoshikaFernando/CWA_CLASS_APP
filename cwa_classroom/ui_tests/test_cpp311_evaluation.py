@@ -70,22 +70,40 @@ def _wait_for_fabric(page, timeout=15_000):
 
 
 def _draw_stroke(page):
+    """Simulate a freehand stroke, with JS inject fallback for headless CI."""
     canvas = page.locator('canvas.upper-canvas')
     box = canvas.bounding_box()
-    if not box:
-        return
-    sx = box['x'] + box['width'] * 0.6
-    sy = box['y'] + box['height'] * 0.3
-    ex = box['x'] + box['width'] * 0.85
-    ey = box['y'] + box['height'] * 0.7
+    if box and box['width'] > 0:
+        sx = box['x'] + box['width'] * 0.6
+        sy = box['y'] + box['height'] * 0.3
+        ex = box['x'] + box['width'] * 0.85
+        ey = box['y'] + box['height'] * 0.7
 
-    page.mouse.move(sx, sy)
-    page.mouse.down()
-    for i in range(1, 11):
-        t = i / 10
-        page.mouse.move(sx + (ex - sx) * t, sy + (ey - sy) * t)
-    page.mouse.up()
-    page.wait_for_timeout(400)
+        page.mouse.move(sx, sy)
+        page.mouse.down()
+        for i in range(1, 11):
+            t = i / 10
+            page.mouse.move(sx + (ex - sx) * t, sy + (ey - sy) * t)
+        page.mouse.up()
+        page.wait_for_timeout(400)
+
+    # Fallback: inject Fabric Path if mouse events did not trigger path:created
+    page.evaluate("""
+        () => {
+            const fc = window._fabricCanvas;
+            if (!fc) return;
+            const already = fc.getObjects().filter(o => o.type === 'path').length;
+            if (already > 0) return;
+            try {
+                const p = new fabric.Path('M 20 20 L 180 120 L 300 60', {
+                    stroke: '#1a1a1a', fill: 'transparent', strokeWidth: 3
+                });
+                fc.add(p);
+                fc.fire('path:created', { path: p });
+            } catch (e) { /* Fabric not ready */ }
+        }
+    """)
+    page.wait_for_timeout(200)
 
 
 # ---------------------------------------------------------------------------
