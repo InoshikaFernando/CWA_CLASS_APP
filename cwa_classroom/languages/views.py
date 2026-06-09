@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
+from django.db.models import Case, IntegerField, Prefetch, When
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
@@ -156,11 +157,24 @@ def _locked_exercise_response(request, exercise, language):
 # Views
 # ---------------------------------------------------------------------------
 
+_LEVEL_SORT = Case(
+    When(level_choice=LanguageTopicLevel.BEGINNER, then=0),
+    When(level_choice=LanguageTopicLevel.INTERMEDIATE, then=1),
+    When(level_choice=LanguageTopicLevel.ADVANCED, then=2),
+    default=3,
+    output_field=IntegerField(),
+)
+
+
 @login_required
 def languages_index(request):
+    levels_qs = LanguageTopicLevel.objects.annotate(
+        _sort=_LEVEL_SORT
+    ).order_by('_sort').prefetch_related('exercises')
+
     languages = Language.objects.filter(is_active=True).prefetch_related(
-        'topics__levels__exercises'
-    )
+        Prefetch('topics__levels', queryset=levels_qs),
+    ).order_by('order', 'name')
 
     answered = LanguageStudentAnswer.objects.filter(
         student=request.user
@@ -183,7 +197,7 @@ def languages_index(request):
         for topic in lang.topics.all():
             if not topic.is_active:
                 continue
-            for level in sorted(topic.levels.all(), key=lambda l: _LEVEL_ORDER.index(l.level_choice) if l.level_choice in _LEVEL_ORDER else 99):
+            for level in topic.levels.all():
                 lw, ph, sp_mcq, sp_type, cw, gfb, so = [], [], [], [], [], [], []
                 for ex in level.exercises.all():
                     if not ex.is_active:
