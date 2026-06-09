@@ -287,6 +287,8 @@ def _letter_writing(request, exercise, language):
 
     if request.method == 'POST':
         raw = request.POST.get('stroke_data', '{}')
+        if len(raw) > 500_000:
+            raw = '{}'
         try:
             stroke_data = json.loads(raw)
         except (ValueError, TypeError):
@@ -348,135 +350,77 @@ def _letter_writing(request, exercise, language):
 
 
 # ---------------------------------------------------------------------------
-# Phonics MCQ
+# MCQ handler — shared by phonics and spelling MCQ exercise types
 # ---------------------------------------------------------------------------
+
+def _mcq_handler(request, exercise, language, template_name):
+    font_query, font_family = get_font_info(language.script_type)
+    tts_lang = get_tts_lang_code(language.code)
+
+    if request.method == 'POST':
+        answer_id = request.POST.get('selected_answer_id', '').strip()
+        selected = None
+        is_correct = False
+
+        if answer_id:
+            try:
+                selected = LanguageAnswer.objects.get(pk=int(answer_id), exercise=exercise)
+                is_correct = selected.is_correct
+            except (LanguageAnswer.DoesNotExist, ValueError, TypeError):
+                pass
+
+        correct_answer = exercise.answers.filter(is_correct=True).first()
+        score = 100.0 if is_correct else 0.0
+
+        obj, created = LanguageStudentAnswer.objects.get_or_create(
+            student=request.user,
+            exercise=exercise,
+            defaults={
+                'selected_answer': selected,
+                'is_correct': is_correct,
+                'score': score,
+                'points_earned': exercise.points if is_correct else 0,
+            },
+        )
+        if not created:
+            obj.selected_answer = selected
+            obj.is_correct = is_correct
+            obj.score = score
+            obj.points_earned = exercise.points if is_correct else 0
+            obj.save(update_fields=['selected_answer', 'is_correct', 'score', 'points_earned'])
+
+        stage_unlocked = _recalculate_progress(request.user, exercise.topic_level)
+
+        return JsonResponse({
+            'success': True,
+            'is_correct': is_correct,
+            'correct_answer_id': correct_answer.pk if correct_answer else None,
+            'correct_answer_text': correct_answer.answer_text if correct_answer else '',
+            'points_earned': str(obj.points_earned),
+            'stage_unlocked': stage_unlocked,
+        })
+
+    answers = list(exercise.answers.order_by('display_order', 'pk'))
+    audio_file_url = exercise.audio_file.url if exercise.audio_file else ''
+
+    ctx = {
+        'exercise': exercise,
+        'language': language,
+        'answers': answers,
+        'tts_lang': tts_lang,
+        'font_query': font_query,
+        'font_family': font_family,
+        'audio_file_url': audio_file_url,
+    }
+    return render(request, template_name, ctx)
+
 
 def _phonics_mcq(request, exercise, language):
-    font_query, font_family = get_font_info(language.script_type)
-    tts_lang = get_tts_lang_code(language.code)
+    return _mcq_handler(request, exercise, language, 'languages/exercises/phonics_mcq.html')
 
-    if request.method == 'POST':
-        answer_id = request.POST.get('selected_answer_id', '').strip()
-        selected = None
-        is_correct = False
-
-        if answer_id:
-            try:
-                selected = LanguageAnswer.objects.get(pk=int(answer_id), exercise=exercise)
-                is_correct = selected.is_correct
-            except (LanguageAnswer.DoesNotExist, ValueError, TypeError):
-                pass
-
-        correct_answer = exercise.answers.filter(is_correct=True).first()
-        score = 100.0 if is_correct else 0.0
-
-        obj, created = LanguageStudentAnswer.objects.get_or_create(
-            student=request.user,
-            exercise=exercise,
-            defaults={
-                'selected_answer': selected,
-                'is_correct': is_correct,
-                'score': score,
-                'points_earned': exercise.points if is_correct else 0,
-            },
-        )
-        if not created:
-            obj.selected_answer = selected
-            obj.is_correct = is_correct
-            obj.score = score
-            obj.points_earned = exercise.points if is_correct else 0
-            obj.save(update_fields=['selected_answer', 'is_correct', 'score', 'points_earned'])
-
-        stage_unlocked = _recalculate_progress(request.user, exercise.topic_level)
-
-        return JsonResponse({
-            'success': True,
-            'is_correct': is_correct,
-            'correct_answer_id': correct_answer.pk if correct_answer else None,
-            'correct_answer_text': correct_answer.answer_text if correct_answer else '',
-            'points_earned': str(obj.points_earned),
-            'stage_unlocked': stage_unlocked,
-        })
-
-    answers = list(exercise.answers.order_by('display_order', 'pk'))
-    audio_file_url = exercise.audio_file.url if exercise.audio_file else ''
-
-    ctx = {
-        'exercise': exercise,
-        'language': language,
-        'answers': answers,
-        'tts_lang': tts_lang,
-        'font_query': font_query,
-        'font_family': font_family,
-        'audio_file_url': audio_file_url,
-    }
-    return render(request, 'languages/exercises/phonics_mcq.html', ctx)
-
-
-# ---------------------------------------------------------------------------
-# Spelling MCQ
-# ---------------------------------------------------------------------------
 
 def _spelling_mcq(request, exercise, language):
-    font_query, font_family = get_font_info(language.script_type)
-    tts_lang = get_tts_lang_code(language.code)
-
-    if request.method == 'POST':
-        answer_id = request.POST.get('selected_answer_id', '').strip()
-        selected = None
-        is_correct = False
-
-        if answer_id:
-            try:
-                selected = LanguageAnswer.objects.get(pk=int(answer_id), exercise=exercise)
-                is_correct = selected.is_correct
-            except (LanguageAnswer.DoesNotExist, ValueError, TypeError):
-                pass
-
-        correct_answer = exercise.answers.filter(is_correct=True).first()
-        score = 100.0 if is_correct else 0.0
-
-        obj, created = LanguageStudentAnswer.objects.get_or_create(
-            student=request.user,
-            exercise=exercise,
-            defaults={
-                'selected_answer': selected,
-                'is_correct': is_correct,
-                'score': score,
-                'points_earned': exercise.points if is_correct else 0,
-            },
-        )
-        if not created:
-            obj.selected_answer = selected
-            obj.is_correct = is_correct
-            obj.score = score
-            obj.points_earned = exercise.points if is_correct else 0
-            obj.save(update_fields=['selected_answer', 'is_correct', 'score', 'points_earned'])
-
-        stage_unlocked = _recalculate_progress(request.user, exercise.topic_level)
-
-        return JsonResponse({
-            'success': True,
-            'is_correct': is_correct,
-            'correct_answer_id': correct_answer.pk if correct_answer else None,
-            'correct_answer_text': correct_answer.answer_text if correct_answer else '',
-            'points_earned': str(obj.points_earned),
-            'stage_unlocked': stage_unlocked,
-        })
-
-    answers = list(exercise.answers.order_by('display_order', 'pk'))
-    audio_file_url = exercise.audio_file.url if exercise.audio_file else ''
-
-    ctx = {
-        'exercise': exercise,
-        'language': language,
-        'answers': answers,
-        'tts_lang': tts_lang,
-        'font_query': font_query,
-        'font_family': font_family,
-        'audio_file_url': audio_file_url,
-    }
-    return render(request, 'languages/exercises/spelling_mcq.html', ctx)
+    return _mcq_handler(request, exercise, language, 'languages/exercises/spelling_mcq.html')
 
 
 # ---------------------------------------------------------------------------
@@ -706,7 +650,6 @@ def _grammar_fill_blank(request, exercise, language):
     parts = exercise.prompt.split('___')
     sentence_before = parts[0] if len(parts) > 0 else exercise.prompt
     sentence_after  = parts[1] if len(parts) > 1 else ''
-    blank_position  = exercise.puzzle_data.get('blank_position', None)
     grammar_explanation = exercise.puzzle_data.get('grammar_explanation', '')
 
     answers = list(exercise.answers.order_by('display_order', 'pk'))
@@ -720,7 +663,6 @@ def _grammar_fill_blank(request, exercise, language):
         'font_family':         font_family,
         'sentence_before':     sentence_before,
         'sentence_after':      sentence_after,
-        'blank_position':      blank_position,
         'grammar_explanation': grammar_explanation,
     }
     return render(request, 'languages/exercises/grammar_fill_blank.html', ctx)

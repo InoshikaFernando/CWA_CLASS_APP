@@ -142,6 +142,7 @@ class LanguageStudentAnswer(models.Model):
     is_correct = models.BooleanField(default=False)
     points_earned = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     answered_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         unique_together = ('student', 'exercise')

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 import unicodedata
 from decimal import Decimal
 
@@ -92,10 +93,10 @@ class LanguagesPlugin(SubjectPlugin):
         pks = list(
             LanguageExercise.objects
             .filter(topic_level__in=selected_topic_ids, is_active=True)
-            .order_by('?')
-            .values_list('pk', flat=True)[:n]
+            .values_list('pk', flat=True)
         )
-        return pks
+        random.shuffle(pks)
+        return pks[:n]
 
     # ------------------------------------------------------------------
     # Homework — student take / result
