@@ -3,7 +3,8 @@ import unicodedata
 from decimal import Decimal
 
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
+from django.db import transaction
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
@@ -45,25 +46,27 @@ def _recalculate_progress(student, topic_level):
     exercises_completed = sum(1 for s in scores if s >= 80.0)
 
     is_beginner = topic_level.level_choice == LanguageTopicLevel.BEGINNER
-    progress, _ = LanguageProgress.objects.get_or_create(
-        student=student,
-        topic_level=topic_level,
-        defaults={'is_unlocked': is_beginner},
-    )
-
-    progress.exercises_total = total
-    progress.exercises_completed = exercises_completed
-    progress.best_score_avg = best_score_avg
-
     mastery = best_score_avg >= 80.0 and (exercises_completed / total) >= 0.8
-    if mastery and not progress.completed_at:
-        progress.completed_at = timezone.now()
-        progress.save()
-        _unlock_next_level(student, topic_level)
-        return True
-    else:
-        progress.save(update_fields=['exercises_total', 'exercises_completed', 'best_score_avg'])
-        return False
+
+    with transaction.atomic():
+        progress, _ = LanguageProgress.objects.select_for_update().get_or_create(
+            student=student,
+            topic_level=topic_level,
+            defaults={'is_unlocked': is_beginner},
+        )
+
+        progress.exercises_total = total
+        progress.exercises_completed = exercises_completed
+        progress.best_score_avg = best_score_avg
+
+        if mastery and not progress.completed_at:
+            progress.completed_at = timezone.now()
+            progress.save()
+            _unlock_next_level(student, topic_level)
+            return True
+        else:
+            progress.save(update_fields=['exercises_total', 'exercises_completed', 'best_score_avg'])
+            return False
 
 
 def _unlock_next_level(student, topic_level):
@@ -180,7 +183,7 @@ def languages_index(request):
         for topic in lang.topics.all():
             if not topic.is_active:
                 continue
-            for level in topic.levels.all():
+            for level in sorted(topic.levels.all(), key=lambda l: _LEVEL_ORDER.index(l.level_choice) if l.level_choice in _LEVEL_ORDER else 99):
                 lw, ph, sp_mcq, sp_type, cw, gfb, so = [], [], [], [], [], [], []
                 for ex in level.exercises.all():
                     if not ex.is_active:
@@ -271,7 +274,6 @@ def exercise_detail(request, exercise_id):
     if exercise.exercise_type == LanguageExercise.SENTENCE_ORDER:
         return _sentence_order(request, exercise, language)
 
-    from django.http import Http404
     raise Http404('Exercise type not yet implemented')
 
 

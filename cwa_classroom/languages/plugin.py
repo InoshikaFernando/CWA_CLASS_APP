@@ -63,10 +63,11 @@ class LanguagesPlugin(SubjectPlugin):
         for lang in languages:
             mid_items = []
             for topic in lang.topics.filter(is_active=True).order_by('order', 'name'):
-                leaves = [
-                    lvl for lvl in topic.levels.all()
-                    if any(ex.is_active for ex in lvl.exercises.all())
-                ]
+                level_order = ['beginner', 'intermediate', 'advanced']
+                leaves = sorted(
+                    [lvl for lvl in topic.levels.all() if any(ex.is_active for ex in lvl.exercises.all())],
+                    key=lambda l: level_order.index(l.level_choice) if l.level_choice in level_order else 99,
+                )
                 if leaves:
                     mid_items.append((topic, leaves))
             if mid_items:
