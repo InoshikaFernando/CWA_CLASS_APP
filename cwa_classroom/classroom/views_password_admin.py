@@ -219,14 +219,14 @@ class AdminPasswordResetView(RoleRequiredMixin, View):
         else:
             new_password = _generate_random_password()
 
-        target.set_password(new_password)
-        # Suggest, don't force, a change on next login.
-        target.must_change_password = False
-        target.save(update_fields=['password', 'must_change_password'])
-
         email_sent = _send_password_reset_email(
             user=target, school=school, plain_password=new_password, actor=request.user,
         )
+
+        if email_sent:
+            target.set_password(new_password)
+            target.must_change_password = False
+            target.save(update_fields=['password', 'must_change_password'])
 
         log_event(
             user=request.user, school=school, category='auth',
@@ -250,8 +250,8 @@ class AdminPasswordResetView(RoleRequiredMixin, View):
         else:
             messages.warning(
                 request,
-                f'Password reset for {target.get_full_name() or target.username}, '
-                f'but the email could not be sent. Share the new password manually: {new_password}',
+                f'Password could not be reset for {target.get_full_name() or target.username} '
+                f'— email delivery failed. Password was NOT changed. Try again or check email settings.',
             )
 
         return redirect(safe_next or self._return_url(school, role_label))
@@ -280,11 +280,12 @@ def _send_resend_welcome_email(user, school, plain_password):
 def _resend_welcome_to_user(user, school):
     """Resend the welcome email to a single user, regenerating credentials.
 
-    For institute-created accounts a fresh temporary password is generated,
-    stored on the account, and ``must_change_password`` is forced True so the
-    user is re-gated through the first-login flow. Self-registered accounts get
-    a password-free welcome resend (the existing single-user behaviour).
+    For institute-created accounts a fresh temporary password is generated
+    and included in the email. The password is only persisted on the account
+    **after** the email is confirmed sent — this avoids locking the user out
+    with an unknown password if the email fails.
 
+    Self-registered accounts get a password-free welcome resend.
     Users with no email are skipped. Never raises.
 
     Returns a dict: ``{'sent': bool, 'password_reset': bool, 'skipped': bool}``.
@@ -292,17 +293,22 @@ def _resend_welcome_to_user(user, school):
     if not user.email:
         return {'sent': False, 'password_reset': False, 'skipped': True}
 
+    # Generate a candidate password but don't save it yet.
     new_password = None
     if user.creation_method == CustomUser.CREATION_INSTITUTE:
         new_password = _generate_random_password()
+
+    sent = _send_resend_welcome_email(user, school, new_password)
+
+    # Only persist the new password if the email was actually delivered.
+    if sent and new_password:
         user.set_password(new_password)
         user.must_change_password = True
         user.save(update_fields=['password', 'must_change_password'])
 
-    sent = _send_resend_welcome_email(user, school, new_password)
     return {
         'sent': sent,
-        'password_reset': new_password is not None,
+        'password_reset': sent and new_password is not None,
         'skipped': False,
     }
 

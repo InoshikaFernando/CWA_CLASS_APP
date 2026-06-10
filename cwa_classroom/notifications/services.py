@@ -177,6 +177,60 @@ def _send(
 # Public API
 # ---------------------------------------------------------------------------
 
+def _send_welcome_core(user, plain_password, school, notification_type):
+    """
+    Shared logic for sending welcome emails (first-send and resend).
+
+    Builds the template context, sends the email, and updates
+    ``welcome_email_sent`` on success. Returns True/False.
+    """
+    if not user.email:
+        logger.warning('Cannot send welcome to user %s: no email address.', user.pk)
+        return False
+
+    resolved_school = _resolve_school(user, school)
+    creation = user.creation_method or 'self_registered'
+    bucket = _role_bucket(user)
+    template = _WELCOME_TEMPLATES.get(
+        (bucket, creation), _WELCOME_TEMPLATES[('teacher', 'self_registered')]
+    )
+
+    ctx = _build_base_context(user, resolved_school)
+    ctx['is_institute_created'] = (creation == 'institute')
+    ctx['role_display'] = {
+        'parent':  'Parent',
+        'student': 'Student',
+        'teacher': 'Staff Member',
+    }.get(bucket, 'Member')
+
+    if plain_password and creation == 'institute':
+        ctx['temp_password'] = plain_password
+        ctx['username'] = user.username
+
+    school_label = resolved_school.name if resolved_school else 'Wizards Learning Hub'
+    subject = f'Welcome to {school_label} — Your Account is Ready'
+
+    label = 'resend' if notification_type == NOTIF_WELCOME_RESEND else 'email'
+    success = _send(
+        recipient_email=user.email,
+        subject=subject,
+        template=template,
+        context=ctx,
+        user=user,
+        school=resolved_school,
+        notification_type=notification_type,
+    )
+
+    if success:
+        user.welcome_email_sent = timezone.now()
+        user.save(update_fields=['welcome_email_sent'])
+        logger.info('Welcome %s sent to user %s (%s).', label, user.pk, user.email)
+    else:
+        logger.warning('Welcome %s FAILED for user %s (%s).', label, user.pk, user.email)
+
+    return success
+
+
 def send_welcome_notification(user, plain_password=None, school=None):
     """
     Send a role-appropriate welcome email to ``user``.
@@ -194,12 +248,6 @@ def send_welcome_notification(user, plain_password=None, school=None):
     school : School | None
         The institute the user belongs to. If None, auto-resolved from DB.
     """
-    if not user.email:
-        logger.warning(
-            'Cannot send welcome email to user %s: no email address.', user.pk
-        )
-        return False
-
     if user.welcome_email_sent:
         logger.debug(
             'Welcome email already sent to user %s on %s — skipping.',
@@ -207,44 +255,7 @@ def send_welcome_notification(user, plain_password=None, school=None):
         )
         return False
 
-    resolved_school = _resolve_school(user, school)
-    creation = user.creation_method or 'self_registered'
-    bucket = _role_bucket(user)
-    template = _WELCOME_TEMPLATES.get((bucket, creation), _WELCOME_TEMPLATES[('teacher', 'self_registered')])
-
-    ctx = _build_base_context(user, resolved_school)
-    ctx['is_institute_created'] = (creation == 'institute')
-    ctx['role_display'] = {
-        'parent':  'Parent',
-        'student': 'Student',
-        'teacher': 'Staff Member',
-    }.get(bucket, 'Member')
-
-    if plain_password and creation == 'institute':
-        ctx['temp_password'] = plain_password
-        ctx['username'] = user.username
-
-    school_label = resolved_school.name if resolved_school else 'Wizards Learning Hub'
-    subject = f'Welcome to {school_label} — Your Account is Ready'
-
-    success = _send(
-        recipient_email=user.email,
-        subject=subject,
-        template=template,
-        context=ctx,
-        user=user,
-        school=resolved_school,
-        notification_type=NOTIF_WELCOME,
-    )
-
-    if success:
-        user.welcome_email_sent = timezone.now()
-        user.save(update_fields=['welcome_email_sent'])
-        logger.info('Welcome email sent to user %s (%s).', user.pk, user.email)
-    else:
-        logger.warning('Welcome email FAILED for user %s (%s).', user.pk, user.email)
-
-    return success
+    return _send_welcome_core(user, plain_password, school, NOTIF_WELCOME)
 
 
 def resend_welcome_notification(user, plain_password=None, school=None):
@@ -255,50 +266,7 @@ def resend_welcome_notification(user, plain_password=None, school=None):
     confirmed intent and optionally reset the user's password for institute
     accounts. Updates ``welcome_email_sent`` to now on success.
     """
-    if not user.email:
-        logger.warning('Cannot resend welcome to user %s: no email address.', user.pk)
-        return False
-
-    resolved_school = _resolve_school(user, school)
-    creation = user.creation_method or 'self_registered'
-    bucket = _role_bucket(user)
-    template = _WELCOME_TEMPLATES.get(
-        (bucket, creation), _WELCOME_TEMPLATES[('teacher', 'self_registered')]
-    )
-
-    ctx = _build_base_context(user, resolved_school)
-    ctx['is_institute_created'] = (creation == 'institute')
-    ctx['role_display'] = {
-        'parent': 'Parent',
-        'student': 'Student',
-        'teacher': 'Staff Member',
-    }.get(bucket, 'Member')
-
-    if plain_password and creation == 'institute':
-        ctx['temp_password'] = plain_password
-        ctx['username'] = user.username
-
-    school_label = resolved_school.name if resolved_school else 'Wizards Learning Hub'
-    subject = f'Welcome to {school_label} — Your Account is Ready'
-
-    success = _send(
-        recipient_email=user.email,
-        subject=subject,
-        template=template,
-        context=ctx,
-        user=user,
-        school=resolved_school,
-        notification_type=NOTIF_WELCOME_RESEND,
-    )
-
-    if success:
-        user.welcome_email_sent = timezone.now()
-        user.save(update_fields=['welcome_email_sent'])
-        logger.info('Welcome resend sent to user %s (%s).', user.pk, user.email)
-    else:
-        logger.warning('Welcome resend FAILED for user %s (%s).', user.pk, user.email)
-
-    return success
+    return _send_welcome_core(user, plain_password, school, NOTIF_WELCOME_RESEND)
 
 
 def send_email_changed_notification(user, new_email, school=None):

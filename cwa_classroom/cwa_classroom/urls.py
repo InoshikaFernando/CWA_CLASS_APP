@@ -77,6 +77,9 @@ urlpatterns = [
     # --- Help & Documentation ---
     path('help/', include('help.urls', namespace='help')),
 
+    # --- User feedback & feature requests (CPP-321) ---
+    path('feedback/', include('feedback.urls', namespace='feedback')),
+
     # --- Core apps ---
     path('', include('classroom.urls')),
     path('maths/', include('number_puzzles.urls')),

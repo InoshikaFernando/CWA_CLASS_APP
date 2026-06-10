@@ -25,8 +25,8 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # ---------------------------------------------------------------------------
 # App Version  (SemVer — bump manually on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.5.1'          # MAJOR.MINOR.PATCH
-APP_VERSION_DATE  = '2026-06-02'     # ISO date of this release
+APP_VERSION       = '1.5.3'          # MAJOR.MINOR.PATCH
+APP_VERSION_DATE  = '2026-06-06'     # ISO date of this release
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
@@ -97,7 +97,17 @@ INSTALLED_APPS = [
 
     # Background task queue
     'taskqueue',
+
+    # User feedback & feature requests (CPP-321)
+    'feedback',
 ]
+
+# ---------------------------------------------------------------------------
+# User feedback (CPP-321)
+# ---------------------------------------------------------------------------
+# Email of the product owner who owns the feedback triage queue. New feedback
+# is assigned to this user. Falls back to the first superuser when unset.
+FEEDBACK_OWNER_EMAIL = os.environ.get('FEEDBACK_OWNER_EMAIL', '')
 
 # ---------------------------------------------------------------------------
 # AI / Anthropic

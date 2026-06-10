@@ -138,12 +138,43 @@ def institute_student(db, roles, resend_school):
     return user
 
 
+@pytest.fixture
+def institute_parent(db, roles, resend_school, institute_student):
+    """Institute-created parent linked to institute_student at the school."""
+    from accounts.models import CustomUser, Role, UserRole
+    from classroom.models import ParentStudent
+
+    user = CustomUser.objects.create_user(
+        username=f"inst_par_{_RUN_ID}",
+        password=TEST_PASSWORD,
+        email=f"inst_par_{_RUN_ID}@test.local",
+        first_name="Institute",
+        last_name="Parent",
+        creation_method="institute",
+        welcome_email_sent=None,
+        profile_completed=True,
+        must_change_password=False,
+    )
+    role, _ = Role.objects.get_or_create(
+        name=Role.PARENT, defaults={"display_name": "Parent"}
+    )
+    UserRole.objects.create(user=user, role=role)
+    ParentStudent.objects.create(
+        school=resend_school, parent=user, student=institute_student, is_active=True,
+    )
+    return user
+
+
 def _teachers_url(live_server, school):
     return f"{live_server.url}/admin-dashboard/schools/{school.id}/teachers/"
 
 
 def _students_url(live_server, school):
     return f"{live_server.url}/admin-dashboard/schools/{school.id}/students/"
+
+
+def _parents_url(live_server, school):
+    return f"{live_server.url}/admin-dashboard/schools/{school.id}/parents/"
 
 
 # ---------------------------------------------------------------------------
@@ -310,3 +341,29 @@ class TestStudentDashboardResend:
         page.wait_for_timeout(300)
 
         expect(page.locator("button:has-text('Resend Welcome')").first).to_be_visible()
+
+
+# ---------------------------------------------------------------------------
+# UI8: Parent dashboard shows welcome status badge + resend button
+# ---------------------------------------------------------------------------
+
+class TestParentDashboardResend:
+
+    def test_parent_welcome_not_sent_badge_visible(
+        self, page: Page, live_server, hoi_admin, resend_school, institute_parent,
+    ):
+        do_login(page, live_server.url, hoi_admin)
+        page.goto(_parents_url(live_server, resend_school))
+        page.wait_for_load_state("networkidle")
+
+        expect(page.locator("text=Welcome not sent").first).to_be_visible()
+
+    def test_parent_resend_button_visible(
+        self, page: Page, live_server, hoi_admin, resend_school, institute_parent,
+    ):
+        do_login(page, live_server.url, hoi_admin)
+        page.goto(_parents_url(live_server, resend_school))
+        page.wait_for_load_state("networkidle")
+
+        # Parent rows show the resend button directly (no expand needed)
+        expect(page.locator("button[title='Resend welcome email']").first).to_be_visible()

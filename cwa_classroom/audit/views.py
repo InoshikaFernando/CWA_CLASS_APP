@@ -1,18 +1,65 @@
+import logging
 from datetime import timedelta
 
+from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
 from django.db.models import Count
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 from django.views import View
 
 from accounts.models import Role
 from classroom.views import RoleRequiredMixin
 
+logger = logging.getLogger(__name__)
+
 
 # ---- Roles shown in the activity summary (excludes internal/admin roles) ----
 _SUMMARY_ROLES = [Role.TEACHER, Role.PARENT, Role.STUDENT]
+
+
+# ---- Action-history access control ----
+# Any staff member can see their own action history.
+STAFF_ROLES = [
+    Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+    Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER, Role.TEACHER,
+]
+_ELEVATED = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+_MANAGER = _ELEVATED + [Role.HEAD_OF_DEPARTMENT]
+
+# Reverting a privileged action requires the user to STILL hold an appropriate
+# role at revert time — not merely to have performed it once. Actions absent
+# from this map fall back to STAFF_ROLES (any staff may revert their own).
+ACTION_REQUIRED_ROLES = {
+    'school_toggled_active': _ELEVATED,
+    'user_blocked': _ELEVATED,
+    'user_unblocked': _ELEVATED,
+    'parent_student_unlinked': _ELEVATED,
+    'student_fee_updated': _ELEVATED,
+    'student_removed': _ELEVATED,
+    'student_restored': _ELEVATED,
+    'teacher_removed': _ELEVATED,
+    'teacher_restored': _ELEVATED,
+    'billing_plan_toggled': [Role.ADMIN],
+    'discount_code_toggled': [Role.ADMIN],
+    'subject_archived': _MANAGER,
+    'subject_restored': _MANAGER,
+    'department_toggled_active': _MANAGER,
+    'hod_class_deleted': _MANAGER,
+    'hod_class_restored': _MANAGER,
+}
+
+
+def _user_role_names(user):
+    """Set of the user's current role names (single query)."""
+    return set(user.user_roles.values_list('role__name', flat=True))
+
+
+def _can_revert_action(role_names, action):
+    """True if the user's current roles satisfy the action's revert requirement."""
+    required = ACTION_REQUIRED_ROLES.get(action, STAFF_ROLES)
+    return not role_names.isdisjoint(required)
 
 
 def _get_role_activity_summary(school_ids=None, days=7):
@@ -179,3 +226,109 @@ class EventsView(RoleRequiredMixin, View):
             'role': role,
             'top_actions': top_actions,
         })
+
+
+class ActionHistoryView(LoginRequiredMixin, View):
+    """My Action History -- shows the logged-in staff member's recent actions."""
+
+    PAGE_SIZE = 50
+
+    def get(self, request):
+        from .models import AuditLog
+        from .reverters import ACTION_LABELS, REVERTIBLE_ACTIONS
+
+        role_names = _user_role_names(request.user)
+        if role_names.isdisjoint(STAFF_ROLES):
+            messages.warning(request, 'Action history is only available to staff.')
+            return redirect('home')
+
+        qs = (
+            AuditLog.objects
+            .filter(user=request.user, category__in=['data_change', 'admin_action'])
+            .select_related('school')
+            .order_by('-created_at')
+        )
+
+        paginator = Paginator(qs, self.PAGE_SIZE)
+        page_number = request.GET.get('page', 1)
+        try:
+            page = paginator.page(page_number)
+        except Exception:
+            page = paginator.page(1)
+
+        for entry in page.object_list:
+            entry.display_label = ACTION_LABELS.get(
+                entry.action, entry.action.replace('_', ' ').title(),
+            )
+            entry.can_revert = (
+                entry.is_revertible
+                and entry.reverted_at is None
+                and entry.action in REVERTIBLE_ACTIONS
+                and _can_revert_action(role_names, entry.action)
+            )
+            if entry.can_revert:
+                _, entry.revert_label = REVERTIBLE_ACTIONS[entry.action]
+
+        return render(request, 'audit/action_history.html', {
+            'page': page,
+        })
+
+
+class RevertActionView(LoginRequiredMixin, View):
+    """POST-only endpoint to revert a single audit log entry."""
+
+    def post(self, request, log_id):
+        from .models import AuditLog
+        from .reverters import REVERTIBLE_ACTIONS
+        from .services import log_event
+
+        role_names = _user_role_names(request.user)
+        if role_names.isdisjoint(STAFF_ROLES):
+            messages.error(request, 'Permission denied.')
+            return redirect('action_history')
+
+        entry = get_object_or_404(AuditLog, id=log_id, user=request.user)
+
+        if entry.reverted_at is not None:
+            messages.info(request, 'This action has already been reverted.')
+            return redirect('action_history')
+
+        if entry.action not in REVERTIBLE_ACTIONS:
+            messages.error(request, 'This action cannot be reverted.')
+            return redirect('action_history')
+
+        # Re-validate privilege at revert time, not just at action time.
+        if not _can_revert_action(role_names, entry.action):
+            messages.error(request, 'You no longer have permission to revert this action.')
+            return redirect('action_history')
+
+        reverter_fn, label = REVERTIBLE_ACTIONS[entry.action]
+        try:
+            reverter_fn(entry)
+        except Exception:
+            logger.exception('Failed to revert audit log %d', entry.id)
+            messages.error(
+                request,
+                'Failed to revert this action. The data may have changed since.',
+            )
+            return redirect('action_history')
+
+        entry.reverted_at = timezone.now()
+        entry.reverted_by = request.user
+        entry.save(update_fields=['reverted_at', 'reverted_by'])
+
+        log_event(
+            user=request.user,
+            school=entry.school,
+            category='admin_action',
+            action='action_reverted',
+            detail={
+                'reverted_log_id': entry.id,
+                'reverted_action': entry.action,
+                'original_detail': entry.detail,
+            },
+            request=request,
+        )
+
+        messages.success(request, 'Reverted: ' + label)
+        return redirect('action_history')
