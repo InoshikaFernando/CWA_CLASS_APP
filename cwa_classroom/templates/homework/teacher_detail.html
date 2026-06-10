@@ -29,7 +29,7 @@
       {% if not homework.is_past_due %}
       <span class="px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-semibold">Open</span>
       {% else %}
-      <span class="px-3 py-1 rounded-full bg-gray-100 text-gray-500 text-xs font-semibold">Closed</span>
+      <span class="px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">Past Due</span>
       {% endif %}
     </div>
   </div>
@@ -83,7 +83,7 @@
             {% if row.status == 'on_time' %}
               <span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">On Time</span>
             {% elif row.status == 'late' %}
-              <span class="px-2 py-0.5 rounded-full bg-red-100 text-red-600 text-xs font-medium">Late</span>
+              <span class="px-2 py-0.5 rounded-full bg-red-100 text-red-600 text-xs font-medium">Overdue Submission</span>
             {% elif row.status == 'not_submitted' %}
               <span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 text-xs font-medium">Overdue</span>
             {% else %}

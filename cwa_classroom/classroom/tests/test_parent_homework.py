@@ -56,6 +56,13 @@ class ParentHomeworkViewTest(ParentPortalTestBase):
         self.client.login(username='parent1', password='password1!')
         # Activate the child in session
         self.client.post(reverse('parent_switch_child', args=[self.student.id]))
+        # The child's ClassStudent.joined_at defaults to now, which would land
+        # after the past-due homeworks below and make the child a late joiner.
+        # Backdate it so the overdue/late assertions reflect a normally-enrolled
+        # child. Late-joiner behaviour is covered separately.
+        ClassStudent.objects.filter(
+            classroom=self.classroom, student=self.student,
+        ).update(joined_at=timezone.now() - timezone.timedelta(days=60))
 
     # --- Access control ---
 
@@ -114,14 +121,26 @@ class ParentHomeworkViewTest(ParentPortalTestBase):
         self.assertContains(resp, 'Done HW')
         self.assertContains(resp, 'Submitted')
 
-    def test_submitted_after_due_shows_late_badge(self):
-        hw = _make_homework(self.classroom, 'Late HW', due_offset_days=-3)
+    def test_submitted_after_due_shows_overdue_submission_badge(self):
+        hw = _make_homework(self.classroom, 'Catch-up HW', due_offset_days=-3)
         # submitted_at is *after* due_date
         submitted_time = timezone.now() - timezone.timedelta(days=1)
         _make_submission(hw, self.student, score=3, total=5, submitted_at=submitted_time)
         resp = self.client.get(reverse('parent_homework'))
-        self.assertContains(resp, 'Late HW')
-        self.assertContains(resp, 'Late')
+        self.assertContains(resp, 'Catch-up HW')
+        self.assertContains(resp, 'Overdue Submission')
+
+    def test_late_joiner_overdue_homework_shows_pending(self):
+        # Child joins the class AFTER the due date → never flagged overdue.
+        hw = _make_homework(self.classroom, 'Pre-join HW', due_offset_days=-5)
+        ClassStudent.objects.filter(
+            classroom=self.classroom, student=self.student,
+        ).update(joined_at=hw.due_date + timezone.timedelta(hours=1))
+        resp = self.client.get(reverse('parent_homework'))
+        self.assertContains(resp, 'Pre-join HW')
+        row = next(r for r in resp.context['homework_list']
+                   if r['homework'].id == hw.id)
+        self.assertEqual(row['status'], 'pending')
 
     # --- Score display ---
 
