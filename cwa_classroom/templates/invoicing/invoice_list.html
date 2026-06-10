@@ -269,3 +269,18 @@
 
 </div>
 {% endblock %}
+
+{% block extra_js %}
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    var params = new URLSearchParams(window.location.search);
+    ['period_start', 'period_end'].forEach(function (name) {
+      var val = params.get(name);
+      if (val) {
+        var el = document.querySelector('input[name="' + name + '"]');
+        if (el) el.value = val;
+      }
+    });
+  });
+</script>
+{% endblock %}

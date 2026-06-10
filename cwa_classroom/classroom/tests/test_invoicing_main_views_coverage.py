@@ -283,6 +283,92 @@ class InvoiceListViewTests(TestCase):
         self.assertContains(resp, 'INV-FILTER-A')
         self.assertContains(resp, 'INV-FILTER-B')
 
+    # ------------------------------------------------------------------ #
+    # Period date-range filter tests                                       #
+    # ------------------------------------------------------------------ #
+
+    def _setup_period_invoices(self):
+        """Two invoices with different billing periods."""
+        student_jun = _setup_student(self.school, username='stu_jun')
+        student_aug = _setup_student(self.school, username='stu_aug')
+        inv_jun = Invoice.objects.create(
+            invoice_number='INV-PERIOD-JUN',
+            school=self.school, student=student_jun,
+            billing_period_start=datetime.date(2026, 6, 1),
+            billing_period_end=datetime.date(2026, 6, 30),
+            attendance_mode='all_class_days',
+            calculated_amount=Decimal('100.00'),
+            amount=Decimal('100.00'),
+            status='issued',
+            created_by=self.owner,
+        )
+        inv_aug = Invoice.objects.create(
+            invoice_number='INV-PERIOD-AUG',
+            school=self.school, student=student_aug,
+            billing_period_start=datetime.date(2026, 8, 1),
+            billing_period_end=datetime.date(2026, 8, 31),
+            attendance_mode='all_class_days',
+            calculated_amount=Decimal('120.00'),
+            amount=Decimal('120.00'),
+            status='issued',
+            created_by=self.owner,
+        )
+        return inv_jun, inv_aug
+
+    def test_period_start_filter_excludes_earlier_invoices(self):
+        """period_start=2026-07-01 must exclude the June invoice."""
+        self._setup_period_invoices()
+        resp = self.client.get(reverse('invoice_list') + '?period_start=2026-07-01')
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, 'INV-PERIOD-JUN')
+        self.assertContains(resp, 'INV-PERIOD-AUG')
+
+    def test_period_end_filter_excludes_later_invoices(self):
+        """period_end=2026-06-30 must exclude the August invoice."""
+        self._setup_period_invoices()
+        resp = self.client.get(reverse('invoice_list') + '?period_end=2026-06-30')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'INV-PERIOD-JUN')
+        self.assertNotContains(resp, 'INV-PERIOD-AUG')
+
+    def test_period_both_filters_exact_match(self):
+        """period_start + period_end scoped to June returns only June invoice."""
+        self._setup_period_invoices()
+        resp = self.client.get(
+            reverse('invoice_list') + '?period_start=2026-06-01&period_end=2026-06-30'
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'INV-PERIOD-JUN')
+        self.assertNotContains(resp, 'INV-PERIOD-AUG')
+
+    def test_period_both_filters_wide_range_returns_all(self):
+        """A range covering both periods returns both invoices."""
+        self._setup_period_invoices()
+        resp = self.client.get(
+            reverse('invoice_list') + '?period_start=2026-01-01&period_end=2026-12-31'
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'INV-PERIOD-JUN')
+        self.assertContains(resp, 'INV-PERIOD-AUG')
+
+    def test_period_no_match_returns_empty_list(self):
+        """A date range with no invoices returns an empty table."""
+        self._setup_period_invoices()
+        resp = self.client.get(
+            reverse('invoice_list') + '?period_start=2020-01-01&period_end=2020-12-31'
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, 'INV-PERIOD-JUN')
+        self.assertNotContains(resp, 'INV-PERIOD-AUG')
+
+    def test_period_only_start_with_no_end(self):
+        """Only period_start set — returns all invoices ending on/after that date."""
+        self._setup_period_invoices()
+        resp = self.client.get(reverse('invoice_list') + '?period_start=2026-08-01')
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, 'INV-PERIOD-JUN')
+        self.assertContains(resp, 'INV-PERIOD-AUG')
+
 
 class InvoiceDetailViewTests(TestCase):
     def setUp(self):
