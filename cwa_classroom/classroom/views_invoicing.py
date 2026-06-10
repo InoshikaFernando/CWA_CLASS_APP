@@ -846,6 +846,13 @@ class InvoiceListView(RoleRequiredMixin, View):
                 line_items__classroom_id=classroom_filter,
             ).distinct()
 
+        period_start_filter = request.GET.get('period_start', '').strip()
+        period_end_filter = request.GET.get('period_end', '').strip()
+        if period_start_filter:
+            invoices = invoices.filter(billing_period_end__gte=_parse_date(period_start_filter))
+        if period_end_filter:
+            invoices = invoices.filter(billing_period_start__lte=_parse_date(period_end_filter))
+
         paginator = Paginator(invoices, 25)
         page = paginator.get_page(request.GET.get('page'))
 
@@ -869,6 +876,8 @@ class InvoiceListView(RoleRequiredMixin, View):
             'search': search,
             'dept_filter': dept_filter or '',
             'classroom_filter': classroom_filter or '',
+            'period_start_filter': period_start_filter,
+            'period_end_filter': period_end_filter,
             'draft_count': draft_count,
             'draft_ids': draft_ids,
         })
