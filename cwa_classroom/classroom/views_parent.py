@@ -785,9 +785,11 @@ class ParentHomeworkView(RoleRequiredMixin, View):
 
         from homework.models import Homework, HomeworkSubmission
 
-        class_ids = ClassStudent.objects.filter(
+        memberships = ClassStudent.objects.filter(
             student=child, is_active=True,
-        ).values_list('classroom_id', flat=True)
+        ).values_list('classroom_id', 'joined_at')
+        joined_at_by_class = {cid: joined for cid, joined in memberships}
+        class_ids = list(joined_at_by_class.keys())
 
         homeworks = (
             Homework.objects
@@ -796,22 +798,24 @@ class ParentHomeworkView(RoleRequiredMixin, View):
             .order_by('-created_at')
         )
 
-        # Attach submission status for each homework
+        # Attach submission status for each homework. Lateness/overdue is judged
+        # relative to when the child joined the class — a child who enrolled
+        # after the due date is never flagged late or overdue (mirrors the
+        # student and teacher homework views).
         homework_list = []
         for hw in homeworks:
+            joined_at = joined_at_by_class.get(hw.classroom_id)
             best = HomeworkSubmission.get_best_submission(hw, child)
             attempt_count = HomeworkSubmission.get_attempt_count(hw, child)
             if best:
-                if hw.due_date and best.submitted_at and best.submitted_at > hw.due_date:
+                if best.submission_status_for(joined_at) == HomeworkSubmission.STATUS_LATE:
                     status = 'late'
                 else:
                     status = 'submitted'
+            elif hw.is_overdue_for(joined_at):
+                status = 'not_submitted'
             else:
-                from django.utils import timezone
-                if hw.due_date and hw.due_date < timezone.now():
-                    status = 'not_submitted'
-                else:
-                    status = 'pending'
+                status = 'pending'
             homework_list.append({
                 'homework': hw,
                 'status': status,

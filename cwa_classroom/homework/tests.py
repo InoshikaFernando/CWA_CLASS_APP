@@ -564,6 +564,55 @@ class StudentHomeworkResultTest(HomeworkTestBase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 404)
 
+    def test_result_offers_retry_for_overdue_homework(self):
+        # A submission against past-due homework still offers "Try Again" when
+        # attempts remain — overdue work is attemptable.
+        overdue_hw = Homework.objects.create(
+            classroom=self.classroom, created_by=self.teacher,
+            title='Past Homework Retries', homework_type='topic',
+            num_questions=5, due_date=timezone.now() - timedelta(days=1),
+            max_attempts=3,
+        )
+        sub = HomeworkSubmission.objects.create(
+            homework=overdue_hw, student=self.student,
+            attempt_number=1, score=2, total_questions=5, points=40.0,
+        )
+        url = reverse('homework:student_result', kwargs={'submission_id': sub.id})
+        resp = self.client.get(url)
+        self.assertTrue(resp.context['can_retry'])
+        self.assertContains(resp, 'Try Again')
+
+    def test_result_no_retry_when_attempts_exhausted(self):
+        # past_homework has max_attempts=1 → after one attempt, no retry.
+        sub = HomeworkSubmission.objects.create(
+            homework=self.past_homework, student=self.student,
+            attempt_number=1, score=2, total_questions=5, points=40.0,
+        )
+        url = reverse('homework:student_result', kwargs={'submission_id': sub.id})
+        resp = self.client.get(url)
+        self.assertFalse(resp.context['can_retry'])
+        self.assertNotContains(resp, 'Try Again')
+
+    def test_result_status_on_time_for_late_joiner(self):
+        # student2 joins after the past homework's due date, then submits late.
+        ClassStudent.objects.filter(
+            classroom=self.classroom, student=self.student2,
+        ).update(joined_at=self.past_homework.due_date + timedelta(hours=1))
+        sub = HomeworkSubmission(
+            homework=self.past_homework, student=self.student2,
+            attempt_number=1, score=2, total_questions=5, points=40.0,
+        )
+        sub.save()
+        HomeworkSubmission.objects.filter(pk=sub.pk).update(
+            submitted_at=self.past_homework.due_date + timedelta(hours=2)
+        )
+        self.client.login(username='student2', password='pass1234')
+        url = reverse('homework:student_result', kwargs={'submission_id': sub.id})
+        resp = self.client.get(url)
+        self.assertEqual(resp.context['submission_status'],
+                         HomeworkSubmission.STATUS_ON_TIME)
+        self.assertContains(resp, 'Submitted On Time')
+
 
 # ---------------------------------------------------------------------------
 # UI / Template rendering tests
@@ -707,11 +756,11 @@ class HomeworkMonitorUITest(HomeworkTestBase):
         )
         self.assertContains(resp, 'Open')
 
-    def test_closed_badge_shown_for_past_homework(self):
+    def test_past_due_badge_shown_for_past_homework(self):
         resp = self.client.get(
             reverse('homework:teacher_monitor') + f'?classroom={self.classroom.id}'
         )
-        self.assertContains(resp, 'Closed')
+        self.assertContains(resp, 'Past Due')
 
     def test_due_date_displayed_on_card(self):
         resp = self.client.get(

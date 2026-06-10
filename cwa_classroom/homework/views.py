@@ -650,8 +650,23 @@ class StudentHomeworkResultView(LoginRequiredMixin, View):
                 'ctx': plugin.result_item_context(ans),
             })
 
+        # Lateness is judged relative to when this student joined the class, and
+        # retrying overdue homework is allowed (only the attempt cap gates it) —
+        # mirror StudentHomeworkListView so the result page stays consistent.
+        hw = submission.homework
+        joined_at = (
+            ClassStudent.objects
+            .filter(student=request.user, classroom=hw.classroom)
+            .values_list('joined_at', flat=True)
+            .first()
+        )
+        attempt_count = HomeworkSubmission.get_attempt_count(hw, request.user)
+        can_retry = hw.attempts_unlimited or attempt_count < hw.max_attempts
+
         return render(request, self.template_name, {
             'submission': submission,
+            'submission_status': submission.submission_status_for(joined_at),
+            'can_retry': can_retry,
             'review_items': review_items,
             # Legacy context var kept so any consumer that still iterates
             # `answers` keeps working.
