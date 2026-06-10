@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Worksheet Builder{% endblock %}
 {% block content %}
+<style>
+  /* Loading skeleton collapses to zero height when idle so it doesn't leave a
+     gap above the question list; it only reserves space while a request runs. */
+  #question-list-indicator { display: none; }
+  #question-list-indicator.htmx-request { display: block; }
+</style>
 <div class="max-w-7xl mx-auto space-y-6">
 
   <!-- Header -->
