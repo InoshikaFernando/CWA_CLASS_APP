@@ -57,6 +57,21 @@ class SubmitFeedbackViewTests(TestCase):
         self.assertEqual(feedback.assignee, self.owner)
         self.assertEqual(feedback.page_url, 'https://app.example.com/dashboard/')
 
+    def test_submit_strips_unsafe_page_url(self):
+        """javascript:/data: scheme URLs are dropped, not stored."""
+        self.client.force_login(self.student)
+        resp = self.client.post(
+            self.url,
+            {
+                'category': Feedback.CATEGORY_BUG,
+                'description': 'XSS attempt.',
+                'page_url': 'javascript:alert(document.cookie)',
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        feedback = Feedback.objects.get()
+        self.assertEqual(feedback.page_url, '')
+
     def test_submit_feedback_rejects_blank(self):
         self.client.force_login(self.student)
         resp = self.client.post(self.url, {'category': '', 'description': ''})

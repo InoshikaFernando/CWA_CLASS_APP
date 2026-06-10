@@ -12,6 +12,25 @@ from .models import Feedback
 from .owner import get_feedback_owner, is_feedback_owner
 
 
+def _safe_page_url(url):
+    """Sanitise a submitter-supplied page URL before storing it.
+
+    The value is rendered as a clickable link in the triage queue, so only
+    same-origin relative paths and http(s) absolute URLs are kept. This blocks
+    ``javascript:``/``data:`` scheme links (stored XSS when the owner clicks)
+    and protocol-relative ``//host`` URLs.
+    """
+    url = (url or '').strip()
+    if not url:
+        return ''
+    low = url.lower()
+    if low.startswith('http://') or low.startswith('https://'):
+        return url[:500]
+    if url.startswith('/') and not url.startswith('//'):
+        return url[:500]
+    return ''
+
+
 class SubmitFeedbackView(LoginRequiredMixin, View):
     """Capture surface (CPP-322).
 
@@ -42,10 +61,10 @@ class SubmitFeedbackView(LoginRequiredMixin, View):
         feedback.submitted_by = request.user
         feedback.role = request.user.primary_role or ''
         feedback.school = get_school_for_user(request.user)
-        feedback.page_url = (
-            request.POST.get('page_url', '').strip()
+        feedback.page_url = _safe_page_url(
+            request.POST.get('page_url', '')
             or request.META.get('HTTP_REFERER', '')
-        )[:500]
+        )
         feedback.status = Feedback.STATUS_NEW
         feedback.assignee = get_feedback_owner()
         feedback.save()
@@ -131,7 +150,12 @@ class UpdateFeedbackView(OwnerRequiredMixin, View):
     """
 
     def post(self, request, pk):
-        item = get_object_or_404(Feedback.objects.active(), pk=pk)
+        item = get_object_or_404(
+            Feedback.objects.active().select_related(
+                'submitted_by', 'school', 'assignee',
+            ),
+            pk=pk,
+        )
 
         valid_statuses = {s for s, _ in Feedback.STATUS_CHOICES}
         valid_priorities = {p for p, _ in Feedback.PRIORITY_CHOICES}

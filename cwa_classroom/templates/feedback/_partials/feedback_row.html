@@ -26,6 +26,7 @@ row with the refreshed partial.
   <td class="px-4 py-3">
     <select name="priority"
             hx-post="{% url 'feedback:update' item.pk %}"
+            hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
             hx-target="#feedback-row-{{ item.pk }}"
             hx-swap="outerHTML"
             aria-label="Priority for feedback {{ item.pk }}"
@@ -39,6 +40,7 @@ row with the refreshed partial.
   <td class="px-4 py-3">
     <select name="status"
             hx-post="{% url 'feedback:update' item.pk %}"
+            hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
             hx-target="#feedback-row-{{ item.pk }}"
             hx-swap="outerHTML"
             aria-label="Status for feedback {{ item.pk }}"
