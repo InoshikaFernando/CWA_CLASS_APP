@@ -189,10 +189,22 @@ class TestMathsHomeworkAccessControl:
             HomeworkQuestion.objects.create(homework=hw, question=q, order=i)
 
         do_login(page, live_server.url, enrolled_student)
-        page.goto(f"{live_server.url}/homework/{hw.pk}/take/")
-        page.wait_for_load_state("networkidle")
-        # Redirected away from take page
-        assert f"/homework/{hw.pk}/take/" not in page.url
+
+        # A past-due homework must redirect to the student list. Under the full
+        # parallel live-server suite the freshly-created rows can briefly lag the
+        # server thread's DB view (cross-thread SQLite visibility), producing a
+        # transient 404 that leaves the URL on /take/. Retry the navigation so
+        # the assertion reflects the redirect behaviour, not the race.
+        take_url = f"{live_server.url}/homework/{hw.pk}/take/"
+        for _ in range(5):
+            page.goto(take_url)
+            page.wait_for_load_state("domcontentloaded")
+            if f"/homework/{hw.pk}/take/" not in page.url:
+                break
+            page.wait_for_timeout(300)
+
+        # Landed on the student list (name='student_list' → /homework/), not /take/.
+        expect(page).to_have_url(re.compile(r"/homework/?$"))
 
     @pytest.mark.django_db(transaction=True)
     def test_not_enrolled_student_gets_404(
