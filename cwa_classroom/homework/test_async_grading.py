@@ -79,6 +79,14 @@ class TriggerThresholdTests(GradingTestBase):
         mock_grade.assert_not_called()
         mock_enqueue.assert_not_called()
 
+    @patch('homework.views.grade_pending_answers')
+    @patch('taskqueue.services.django_rq.get_queue', side_effect=ConnectionError('redis down'))
+    def test_enqueue_failure_falls_back_to_inline(self, _mock_queue, mock_grade):
+        # Queue unavailable on a large batch → grade inline, don't raise.
+        submission = self._submission_with_pending(AI_GRADE_ASYNC_THRESHOLD + 1)
+        _trigger_ai_grading_for_submission(submission, request=None)
+        mock_grade.assert_called_once()
+
 
 class GradeSubmissionTaskTests(GradingTestBase):
     @patch('homework.views.grade_pending_answers')

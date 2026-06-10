@@ -701,15 +701,24 @@ def _trigger_ai_grading_for_submission(submission, request=None):
     if pending_count > AI_GRADE_ASYNC_THRESHOLD:
         from taskqueue.services import enqueue_task
         from .tasks import grade_submission_answers
-        enqueue_task(
-            school=school,
-            user=submission.student,
-            task_type='ai_grade',
-            func=grade_submission_answers,
-            args=[submission.pk, school.pk if school else None],
-            queue='high',
-        )
-        return
+        try:
+            enqueue_task(
+                school=school,
+                user=submission.student,
+                task_type='ai_grade',
+                func=grade_submission_answers,
+                args=[submission.pk, school.pk if school else None],
+                queue='high',
+            )
+            return
+        except Exception:
+            # Queue unavailable — fall back to inline grading rather than
+            # 500-ing the student's submission or losing the pending answers.
+            import logging
+            logging.getLogger(__name__).exception(
+                'Failed to enqueue AI grading for submission %s; grading inline',
+                submission.pk,
+            )
 
     grade_pending_answers(submission, school)
 
@@ -846,17 +855,31 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
         )
 
         # Enqueue AI extraction on the RQ queue so the response returns immediately
-        # and the job survives gunicorn worker restarts (CPP-307c).
+        # and the job survives gunicorn worker restarts (CPP-307c). If the queue
+        # is unavailable, surface the error instead of leaving a stuck session.
         from taskqueue.services import enqueue_task
         from .tasks import process_homework_pdf
-        enqueue_task(
-            school=school,
-            user=request.user,
-            task_type='homework_pdf',
-            func=process_homework_pdf,
-            args=[session.pk, existing_topics, existing_levels],
-            queue='default',
-        )
+        try:
+            enqueue_task(
+                school=school,
+                user=request.user,
+                task_type='homework_pdf',
+                func=process_homework_pdf,
+                args=[session.pk, existing_topics, existing_levels],
+                queue='default',
+            )
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                'Failed to enqueue homework PDF for session %s', session.pk,
+            )
+            session.delete()
+            messages.error(
+                request,
+                'The background processing service is temporarily unavailable. '
+                'Please try again in a few minutes.',
+            )
+            return redirect('homework:pdf_upload')
 
         return redirect('homework:pdf_processing', session_id=session.pk)
 

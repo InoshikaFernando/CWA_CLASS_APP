@@ -195,17 +195,31 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
                 status=AIImportSession.STATUS_PROCESSING,
             )
 
-            # Step 3: Enqueue background classification (default queue).
+            # Step 3: Enqueue background classification (default queue). If the
+            # queue is unavailable, don't leave an orphaned PROCESSING session.
             from taskqueue.services import enqueue_task
             from .tasks import process_pdf_import
-            enqueue_task(
-                school=school,
-                user=request.user,
-                task_type='ai_import_pdf',
-                func=process_pdf_import,
-                args=[session.pk],
-                queue='default',
-            )
+            try:
+                enqueue_task(
+                    school=school,
+                    user=request.user,
+                    task_type='ai_import_pdf',
+                    func=process_pdf_import,
+                    args=[session.pk],
+                    queue='default',
+                )
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception(
+                    'Failed to enqueue AI import for session %s', session.pk,
+                )
+                session.delete()
+                messages.error(
+                    request,
+                    'The background processing service is temporarily unavailable. '
+                    'Please try again in a few minutes.',
+                )
+                return redirect('ai_import:upload')
 
             return redirect('ai_import:processing', session_id=session.pk)
 
