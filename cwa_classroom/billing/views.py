@@ -887,7 +887,15 @@ class IndividualCancelSubscriptionView(LoginRequiredMixin, View):
 
     Mirrors InstituteCancelSubscriptionView but operates on the requesting
     user's own one-to-one Subscription, so there is no cross-account vector.
+    Used from the individual student billing page (billing_history) and the
+    parent billing page.
     """
+
+    def _billing_page(self, request):
+        from accounts.models import Role
+        if request.user.has_role(Role.PARENT):
+            return 'parent_billing'
+        return 'billing_history'
 
     def post(self, request):
         try:
@@ -897,14 +905,14 @@ class IndividualCancelSubscriptionView(LoginRequiredMixin, View):
 
         if not sub or not sub.stripe_subscription_id:
             messages.error(request, 'No active subscription to cancel.')
-            return redirect('parent_billing')
+            return redirect(self._billing_page(request))
 
         if sub.cancel_at_period_end:
             messages.info(
                 request,
                 'Your subscription is already set to cancel at the end of the billing period.',
             )
-            return redirect('parent_billing')
+            return redirect(self._billing_page(request))
 
         try:
             from billing.stripe_service import cancel_subscription
@@ -927,7 +935,7 @@ class IndividualCancelSubscriptionView(LoginRequiredMixin, View):
         except stripe.error.StripeError as e:
             messages.error(request, f'Could not cancel: {e}')
 
-        return redirect('parent_billing')
+        return redirect(self._billing_page(request))
 
 
 class StripeBillingPortalView(LoginRequiredMixin, View):

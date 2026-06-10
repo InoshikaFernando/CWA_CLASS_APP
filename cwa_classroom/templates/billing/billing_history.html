@@ -54,7 +54,14 @@
           <td class="py-1 font-medium text-gray-600">Status</td>
           <td>{{ individual_sub.get_status_display }}</td>
         </tr>
+        {% if individual_sub.current_period_end %}
+        <tr>
+          <td class="py-1 font-medium text-gray-600">Current Period Ends</td>
+          <td>{{ individual_sub.current_period_end|date:"M d, Y" }}</td>
+        </tr>
+        {% endif %}
       </table>
+      {% include "billing/_partials/cancel_subscription.html" with sub=individual_sub %}
     </div>
   </div>
   {% endif %}

@@ -12,7 +12,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from accounts.models import CustomUser
+from accounts.models import CustomUser, Role, UserRole
 from audit.models import AuditLog
 from billing.models import Package, Subscription
 
@@ -25,10 +25,15 @@ def _create_package(name='Pro', price=Decimal('19.90')):
 
 def _create_user_with_subscription(username, stripe_sub_id='sub_stripe_123',
                                     status=Subscription.STATUS_ACTIVE,
-                                    cancel_at_period_end=False):
+                                    cancel_at_period_end=False, role=None):
     user = CustomUser.objects.create_user(
         username=username, password='testpass123', email=f'{username}@test.com',
     )
+    if role:
+        role_obj, _ = Role.objects.get_or_create(
+            name=role, defaults={'display_name': role.replace('_', ' ').title()},
+        )
+        UserRole.objects.create(user=user, role=role_obj)
     sub = Subscription.objects.create(
         user=user,
         package=_create_package(name=f'Pkg-{username}'),
@@ -44,16 +49,32 @@ def _create_user_with_subscription(username, stripe_sub_id='sub_stripe_123',
 class IndividualCancelSubscriptionViewTest(TestCase):
     @patch('billing.stripe_service.cancel_subscription')
     def test_individual_cancel_sets_cancel_at_period_end(self, mock_cancel):
-        user, sub = _create_user_with_subscription('cancel_ok')
+        user, sub = _create_user_with_subscription(
+            'cancel_ok', role=Role.INDIVIDUAL_STUDENT,
+        )
         self.client.login(username='cancel_ok', password='testpass123')
 
         resp = self.client.post(reverse('cancel_subscription'))
 
-        self.assertEqual(resp.status_code, 302)
+        self.assertRedirects(resp, reverse('billing_history'))
         mock_cancel.assert_called_once_with('sub_stripe_123', at_period_end=True)
         sub.refresh_from_db()
         self.assertTrue(sub.cancel_at_period_end)
         self.assertIsNotNone(sub.cancelled_at)
+
+    @patch('billing.stripe_service.cancel_subscription')
+    def test_parent_cancel_redirects_to_parent_billing(self, mock_cancel):
+        user, sub = _create_user_with_subscription(
+            'cancel_parent', role=Role.PARENT,
+        )
+        self.client.login(username='cancel_parent', password='testpass123')
+
+        resp = self.client.post(reverse('cancel_subscription'))
+
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse('parent_billing'))
+        sub.refresh_from_db()
+        self.assertTrue(sub.cancel_at_period_end)
 
     @patch('billing.stripe_service.cancel_subscription')
     def test_individual_cancel_logs_audit_event(self, mock_cancel):
