@@ -402,7 +402,8 @@
       "Bash(DB_ENGINE=sqlite python -m pytest ui_tests/test_quiz_e2e.py --tb=short)",
       "Bash(git add *)",
       "mcp__Atlassian__getJiraIssue",
-      "mcp__Atlassian__searchJiraIssuesUsingJql"
+      "mcp__Atlassian__searchJiraIssuesUsingJql",
+      "mcp__Atlassian__transitionJiraIssue"
     ]
   }
 }
