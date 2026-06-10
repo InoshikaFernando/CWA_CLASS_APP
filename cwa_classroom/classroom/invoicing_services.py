@@ -65,6 +65,8 @@ def validate_attendance_complete(school, billing_period_start, billing_period_en
     Checks that all completed sessions have attendance for every enrolled student.
     Returns list of dicts: {session, classroom, missing_students}
     Empty list means all attendance is marked.
+
+    Scoping priority: classroom > department > school-wide.
     """
     sessions_qs = ClassSession.objects.filter(
         classroom__school=school,

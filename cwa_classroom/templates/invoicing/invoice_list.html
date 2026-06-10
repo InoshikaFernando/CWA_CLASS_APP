@@ -236,11 +236,11 @@
           </p>
           <div class="flex gap-1">
             {% if page.has_previous %}
-              <a href="?page={{ page.previous_page_number }}{% if search %}&q={{ search }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if dept_filter %}&department={{ dept_filter }}{% endif %}"
+              <a href="?page={{ page.previous_page_number }}{% if search %}&q={{ search }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if dept_filter %}&department={{ dept_filter }}{% endif %}{% if classroom_filter %}&classroom={{ classroom_filter }}{% endif %}{% if period_start_filter %}&period_start={{ period_start_filter }}{% endif %}{% if period_end_filter %}&period_end={{ period_end_filter }}{% endif %}"
                  class="px-3 py-1 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 transition">Prev</a>
             {% endif %}
             {% if page.has_next %}
-              <a href="?page={{ page.next_page_number }}{% if search %}&q={{ search }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if dept_filter %}&department={{ dept_filter }}{% endif %}"
+              <a href="?page={{ page.next_page_number }}{% if search %}&q={{ search }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if dept_filter %}&department={{ dept_filter }}{% endif %}{% if classroom_filter %}&classroom={{ classroom_filter }}{% endif %}{% if period_start_filter %}&period_start={{ period_start_filter }}{% endif %}{% if period_end_filter %}&period_end={{ period_end_filter }}{% endif %}"
                  class="px-3 py-1 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 transition">Next</a>
             {% endif %}
           </div>

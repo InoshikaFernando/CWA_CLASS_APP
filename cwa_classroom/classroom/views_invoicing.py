@@ -848,10 +848,12 @@ class InvoiceListView(RoleRequiredMixin, View):
 
         period_start_filter = request.GET.get('period_start', '').strip()
         period_end_filter = request.GET.get('period_end', '').strip()
-        if period_start_filter:
-            invoices = invoices.filter(billing_period_end__gte=_parse_date(period_start_filter))
-        if period_end_filter:
-            invoices = invoices.filter(billing_period_start__lte=_parse_date(period_end_filter))
+        parsed_period_start = _parse_date(period_start_filter)
+        parsed_period_end = _parse_date(period_end_filter)
+        if parsed_period_start:
+            invoices = invoices.filter(billing_period_end__gte=parsed_period_start)
+        if parsed_period_end:
+            invoices = invoices.filter(billing_period_start__lte=parsed_period_end)
 
         paginator = Paginator(invoices, 25)
         page = paginator.get_page(request.GET.get('page'))

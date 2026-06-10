@@ -8,8 +8,11 @@ StudentSearchAPIView, plus HoD, Accounting, CreateClass, EditClass,
 and ClassDetail views in views.py.
 """
 import datetime
+import datetime as _dt
 from decimal import Decimal
 from unittest.mock import patch
+
+from classroom import invoicing_services as _svc
 
 from django.test import TestCase, Client
 from django.urls import reverse
@@ -1205,9 +1208,6 @@ class RoleAccessControlTests(TestCase):
 # Attendance Scope Tests (CPP fix: scope check to selected classroom only)
 # ============================================================================
 
-import datetime as _dt
-from classroom import invoicing_services as _svc
-
 
 def _make_session(classroom, session_date, status='completed'):
     """Create a ClassSession for a classroom."""
@@ -1338,8 +1338,8 @@ class AttendanceScopeViewTests(TestCase):
         cs06 = ClassStudent.objects.create(classroom=self.scratch06, student=self.student2)
         ClassStudent.objects.filter(pk=cs06.pk).update(joined_at=_early)
 
-        # Scratch 01: unmarked session in May 2025
-        session01 = _make_session(self.scratch01, _dt.date(2025, 5, 6))  # noqa: unused var — intentional no attendance
+        # Scratch 01: completed session, intentionally no attendance recorded
+        _make_session(self.scratch01, _dt.date(2025, 5, 6))
 
         # Scratch 06: marked session in May 2025
         session06 = _make_session(self.scratch06, _dt.date(2025, 5, 6))
