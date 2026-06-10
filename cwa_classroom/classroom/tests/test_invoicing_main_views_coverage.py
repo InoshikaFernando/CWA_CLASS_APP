@@ -1199,3 +1199,184 @@ class RoleAccessControlTests(TestCase):
     def test_student_cannot_access_accounting(self):
         resp = self.client.get(reverse('accounting_dashboard'))
         self.assertEqual(resp.status_code, 302)
+
+
+# ============================================================================
+# Attendance Scope Tests (CPP fix: scope check to selected classroom only)
+# ============================================================================
+
+import datetime as _dt
+from classroom import invoicing_services as _svc
+
+
+def _make_session(classroom, session_date, status='completed'):
+    """Create a ClassSession for a classroom."""
+    return ClassSession.objects.create(
+        classroom=classroom,
+        date=session_date,
+        status=status,
+        start_time='18:00',
+        end_time='19:00',
+    )
+
+
+def _mark_attendance(session, student):
+    """Create a StudentAttendance record (marks student as present)."""
+    return StudentAttendance.objects.create(
+        session=session,
+        student=student,
+        status='present',
+    )
+
+
+class AttendanceScopeServiceTests(TestCase):
+    """
+    Direct unit tests for validate_attendance_complete().
+    Scenario: school has two classes — Scratch 01 (unmarked) and Scratch 06 (marked).
+    """
+
+    def setUp(self):
+        self.owner, self.school = _setup_school()
+        self.dept, self.subj = _setup_department(self.school, head=self.owner)
+
+        self.scratch01 = ClassRoom.objects.create(
+            name='Scratch 01', school=self.school, department=self.dept,
+        )
+        self.scratch06 = ClassRoom.objects.create(
+            name='Scratch 06', school=self.school, department=self.dept,
+        )
+
+        self.student1 = _setup_student(self.school, username='s1_scope')
+        self.student2 = _setup_student(self.school, username='s2_scope')
+
+        self.period_start = _dt.date(2025, 5, 1)
+        self.period_end = _dt.date(2025, 5, 31)
+        self.session_date = _dt.date(2025, 5, 6)
+        _early = _dt.datetime(2025, 1, 1, tzinfo=_dt.timezone.utc)
+
+        cs01 = ClassStudent.objects.create(classroom=self.scratch01, student=self.student1)
+        ClassStudent.objects.filter(pk=cs01.pk).update(joined_at=_early)
+        cs06 = ClassStudent.objects.create(classroom=self.scratch06, student=self.student2)
+        ClassStudent.objects.filter(pk=cs06.pk).update(joined_at=_early)
+
+        # Scratch 01: completed session, NO attendance marked → unmarked
+        self.session01 = _make_session(self.scratch01, self.session_date)
+
+        # Scratch 06: completed session, attendance marked → clean
+        self.session06 = _make_session(self.scratch06, self.session_date)
+        _mark_attendance(self.session06, self.student2)
+
+    def test_no_filter_returns_scratch01_unmarked(self):
+        """No classroom/dept filter → Scratch 01's session appears in unmarked list."""
+        result = _svc.validate_attendance_complete(
+            self.school, self.period_start, self.period_end,
+        )
+        unmarked_sessions = [r['session'] for r in result]
+        self.assertIn(self.session01, unmarked_sessions)
+
+    def test_scratch06_filter_returns_empty(self):
+        """Selecting Scratch 06 → no unmarked; Scratch 01's state is irrelevant."""
+        result = _svc.validate_attendance_complete(
+            self.school, self.period_start, self.period_end,
+            classroom=self.scratch06,
+        )
+        self.assertEqual(result, [])
+
+    def test_scratch01_filter_returns_unmarked(self):
+        """Selecting Scratch 01 → its own unmarked session is reported."""
+        result = _svc.validate_attendance_complete(
+            self.school, self.period_start, self.period_end,
+            classroom=self.scratch01,
+        )
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]['session'], self.session01)
+
+    def test_dept_filter_returns_both(self):
+        """Dept filter with no classroom → catches all unmarked in that dept."""
+        result = _svc.validate_attendance_complete(
+            self.school, self.period_start, self.period_end,
+            department=self.dept,
+        )
+        unmarked_sessions = [r['session'] for r in result]
+        self.assertIn(self.session01, unmarked_sessions)
+        # Scratch 06 is marked → not in result
+        self.assertNotIn(self.session06, unmarked_sessions)
+
+    def test_all_marked_returns_empty(self):
+        """After marking Scratch 01 attendance → no-filter check returns empty."""
+        _mark_attendance(self.session01, self.student1)
+        result = _svc.validate_attendance_complete(
+            self.school, self.period_start, self.period_end,
+        )
+        self.assertEqual(result, [])
+
+
+class AttendanceScopeViewTests(TestCase):
+    """
+    End-to-end view tests for GenerateInvoicesView POST.
+    Uses billing_type='post_term' and attendance_mode='attended_only' to
+    trigger the attendance gate, then varies classroom_id.
+    """
+
+    def setUp(self):
+        self.owner, self.school = _setup_school()
+        self.dept, self.subj = _setup_department(self.school, head=self.owner)
+
+        self.scratch01 = ClassRoom.objects.create(
+            name='Scratch 01', school=self.school, department=self.dept,
+        )
+        self.scratch06 = ClassRoom.objects.create(
+            name='Scratch 06', school=self.school, department=self.dept,
+        )
+
+        self.student1 = _setup_student(self.school, username='sv1_scope')
+        self.student2 = _setup_student(self.school, username='sv2_scope')
+
+        _early = _dt.datetime(2025, 1, 1, tzinfo=_dt.timezone.utc)
+        cs01 = ClassStudent.objects.create(classroom=self.scratch01, student=self.student1)
+        ClassStudent.objects.filter(pk=cs01.pk).update(joined_at=_early)
+        cs06 = ClassStudent.objects.create(classroom=self.scratch06, student=self.student2)
+        ClassStudent.objects.filter(pk=cs06.pk).update(joined_at=_early)
+
+        # Scratch 01: unmarked session in May 2025
+        session01 = _make_session(self.scratch01, _dt.date(2025, 5, 6))  # noqa: unused var — intentional no attendance
+
+        # Scratch 06: marked session in May 2025
+        session06 = _make_session(self.scratch06, _dt.date(2025, 5, 6))
+        _mark_attendance(session06, self.student2)
+
+        self.client = Client()
+        self.client.login(username='testowner', password='password1!')
+
+        self.post_data = {
+            'billing_period_start': '2025-05-01',
+            'billing_period_end': '2025-05-31',
+            'billing_type': 'post_term',
+            'attendance_mode': 'attended_only',
+        }
+
+    def test_no_classroom_selected_blocks_due_to_scratch01(self):
+        """No classroom_id → attendance check spans whole school → Scratch 01 blocks."""
+        resp = self.client.post(reverse('generate_invoices'), self.post_data)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('unmarked_sessions', resp.context)
+        session_list = [r['session'].classroom.name for r in resp.context['unmarked_sessions']]
+        self.assertIn('Scratch 01', session_list)
+
+    def test_scratch06_selected_not_blocked_by_scratch01(self):
+        """classroom_id=Scratch 06 → Scratch 01's unmarked attendance is ignored."""
+        data = {**self.post_data, 'classroom_id': str(self.scratch06.id)}
+        resp = self.client.post(reverse('generate_invoices'), data)
+        # Should redirect (proceed to generation), NOT render error page
+        self.assertEqual(resp.status_code, 302)
+
+    def test_scratch01_selected_blocks_on_its_own_unmarked(self):
+        """classroom_id=Scratch 01 → its own unmarked session triggers the error."""
+        data = {**self.post_data, 'classroom_id': str(self.scratch01.id)}
+        resp = self.client.post(reverse('generate_invoices'), data)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('unmarked_sessions', resp.context)
+        self.assertEqual(
+            resp.context['unmarked_sessions'][0]['classroom'],
+            self.scratch01,
+        )
