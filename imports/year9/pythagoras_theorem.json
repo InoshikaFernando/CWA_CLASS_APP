@@ -380,6 +380,336 @@
           "order": 4
         }
       ]
+    },
+    {
+      "question_text": "Find the length x in the right-angled triangle shown, to the nearest tenth.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "x is the hypotenuse: x = √(2.3² + 5²) = √30.29 ≈ 5.5 in.",
+      "answers": [
+        {
+          "text": "4.4 in",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2.7 in",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "5.5 in",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "7.3 in",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "pyth_packet_q1.png"
+    },
+    {
+      "question_text": "Find the length x in the right-angled triangle shown, to the nearest tenth.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "x is the hypotenuse: x = √(12² + 5²) = √169 = 13 in.",
+      "answers": [
+        {
+          "text": "10.9 in",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "7.0 in",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "13.0 in",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "17.0 in",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "pyth_packet_q2.png"
+    },
+    {
+      "question_text": "Find the length x in the right-angled triangle shown, to the nearest tenth.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "x is the hypotenuse: x = √(14.5² + 7.5²) = √266.5 ≈ 16.3 ft.",
+      "answers": [
+        {
+          "text": "12.4 ft",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "10.5 ft",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "16.3 ft",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "22.0 ft",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "pyth_packet_q3.png"
+    },
+    {
+      "question_text": "Find the length x in the right-angled triangle shown, to the nearest tenth.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "17 cm is the hypotenuse, so x is a leg: x = √(17² - 11.9²) = √147.39 ≈ 12.1 cm.",
+      "answers": [
+        {
+          "text": "20.8 cm",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "14.6 cm",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "12.1 cm",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "5.1 cm",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "pyth_packet_q4.png"
+    },
+    {
+      "question_text": "Find the length x in the right-angled triangle shown, to the nearest tenth.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "136.5 yd is the hypotenuse, so x is a leg: x = √(136.5² - 126²) = √2756.25 = 52.5 yd.",
+      "answers": [
+        {
+          "text": "185.8 yd",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "45.0 yd",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "52.5 yd",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "60.0 yd",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "pyth_packet_q5.png"
+    },
+    {
+      "question_text": "Find the length x in the right-angled triangle shown, to the nearest tenth.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "x is the hypotenuse: x = √(28.5² + 38²) = √2256.25 = 47.5 in.",
+      "answers": [
+        {
+          "text": "25.1 in",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "33.0 in",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "47.5 in",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "66.5 in",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "pyth_packet_q6.png"
+    },
+    {
+      "question_text": "Find the length x in the right-angled triangle shown, to the nearest tenth.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "103.1 ft is the hypotenuse, so x is a leg: x = √(103.1² - 40²) = √9029.61 ≈ 95.0 ft.",
+      "answers": [
+        {
+          "text": "110.6 ft",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "143.1 ft",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "95.0 ft",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "63.1 ft",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "pyth_packet_q7.png"
+    },
+    {
+      "question_text": "Find the length x in the right-angled triangle shown, to the nearest tenth.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "32.5 mm is the hypotenuse, so x is a leg: x = √(32.5² - 30²) = √156.25 = 12.5 mm.",
+      "answers": [
+        {
+          "text": "44.2 mm",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "21.0 mm",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "12.5 mm",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "2.5 mm",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "pyth_packet_q8.png"
+    },
+    {
+      "question_text": "In the isosceles triangle shown, the base is 10 cm and each equal side is 13 cm. Find the height x, to the nearest tenth.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "The height bisects the base, giving a right triangle with hypotenuse 13 and base 5: x = √(13² - 5²) = 12 cm.",
+      "answers": [
+        {
+          "text": "12.0 cm",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "13.9 cm",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "18.0 cm",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "8.3 cm",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "pyth_packet_q9.png"
+    },
+    {
+      "question_text": "Find the length x in the right-angled triangle shown, to the nearest tenth.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "12 ft is the hypotenuse, so x is a leg: x = √(12² - 6²) = √108 ≈ 10.4 ft.",
+      "answers": [
+        {
+          "text": "13.4 ft",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "9.0 ft",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "10.4 ft",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "6.0 ft",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "pyth_packet_q10.png"
+    },
+    {
+      "question_text": "Find the length y (the diagonal) of the rectangle shown, to the nearest tenth.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "The diagonal is the hypotenuse of a 24 by 33 right triangle: y = √(24² + 33²) = √1665 ≈ 40.8 in.",
+      "answers": [
+        {
+          "text": "57.0 in",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "22.6 in",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "40.8 in",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "28.5 in",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "pyth_packet_q11.png"
     }
   ]
 }
