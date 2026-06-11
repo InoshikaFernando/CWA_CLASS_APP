@@ -1,0 +1,472 @@
+{
+  "subject": "maths",
+  "strand": "Number",
+  "topic": "Fractions & Percentages",
+  "year_level": 9,
+  "questions": [
+    {
+      "question_text": "A birthday cake costs $26.40 at the checkout (price includes 10% GST). How much GST is paid for the cake?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "When GST is included, the GST is one eleventh of the price: $26.40 ÷ 11 = $2.40.",
+      "answers": [
+        {
+          "text": "$2.40",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "$24.00",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$2.64",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "$2.20",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Alan bought a radio for $900 and sold it to Brian at a loss of 20%. At what price must Brian sell the radio to make a profit of 5%?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Brian paid $900 × 0.80 = $720; selling at 5% profit gives $720 × 1.05 = $756.",
+      "answers": [
+        {
+          "text": "$720",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$756",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "$765",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "$945",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Increase 4200 by 38%.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "4200 × 1.38 = 5796.",
+      "answers": [
+        {
+          "text": "4238",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "5796",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "6804",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "1596",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "15% of a number is 12. What is the number?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "12 ÷ 0.15 = 80.",
+      "answers": [
+        {
+          "text": "80",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "18",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "0.8",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "1.8",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "A DVD player that normally sells for $90 was sold for $72. What was the percentage discount?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "The discount is $18, and 18/90 = 20%.",
+      "answers": [
+        {
+          "text": "25%",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "20%",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "80%",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "18%",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Express 36% as a simplified fraction.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "36/100 = 9/25 after dividing top and bottom by 4.",
+      "answers": [
+        {
+          "text": "9/25",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "9/20",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "6/25",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "1/36",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Express 60 cents as a percentage of $2.40.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "0.60/2.40 = 1/4 = 25%.",
+      "answers": [
+        {
+          "text": "2.5%",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "40%",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "4%",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "25%",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Express 400 metres as a percentage of 2 kilometres.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "400/2000 = 1/5 = 20%.",
+      "answers": [
+        {
+          "text": "5%",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "200%",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "20%",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "2%",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Find 15% of $45.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "0.15 × 45 = 6.75.",
+      "answers": [
+        {
+          "text": "$6.25",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$3.00",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$67.50",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "$6.75",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "9% of an amount is $72. What is the original amount?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "72 ÷ 0.09 = 800.",
+      "answers": [
+        {
+          "text": "$800",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "$648",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$6.48",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "$8000",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "2½% of an amount is $400. Find 15% of the amount.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "The amount is 400 ÷ 0.025 = $16 000, and 15% of that is $2400 (or: 15% is 6 times 2½%, and 6 × $400 = $2400).",
+      "answers": [
+        {
+          "text": "$60",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$16 000",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$2400",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "$1500",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Use a calculator to find 3.45% of $1200.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "0.0345 × 1200 = 41.40.",
+      "answers": [
+        {
+          "text": "$41.40",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "$4.14",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$414.00",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "$34.78",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Use a calculator to find 6¼% of $9900.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "0.0625 × 9900 = 618.75.",
+      "answers": [
+        {
+          "text": "$633.60",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$61.88",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$158.40",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "$618.75",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "A store-bought apple pie has a mass of 600 g. It lists 3.6 g of sugar per serving and there are 8 servings in the pie. What percentage of the mass of the pie is sugar?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Total sugar is 3.6 × 8 = 28.8 g, and 28.8/600 = 4.8%.",
+      "answers": [
+        {
+          "text": "0.6%",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "6%",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "48%",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "4.8%",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Write 0.62 as a simplified fraction.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "0.62 = 62/100 = 31/50.",
+      "answers": [
+        {
+          "text": "3/5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "16/25",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "31/50",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "31/500",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "List all the integer values of x for which 4 < x/5 < 5.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Multiply through by 5: 20 < x < 25, so x can be 21, 22, 23 or 24.",
+      "answers": [
+        {
+          "text": "21, 22, 23 and 24",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "21, 22 and 23",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "20 and 25",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "20, 21, 22, 23, 24 and 25",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    }
+  ]
+}

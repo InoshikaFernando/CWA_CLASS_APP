@@ -1,0 +1,530 @@
+{
+  "subject": "maths",
+  "strand": "Measurement & Geometry",
+  "topic": "Trigonometry",
+  "year_level": 9,
+  "questions": [
+    {
+      "question_text": "Write 75.7083° in degrees and minutes, to the nearest minute.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "0.7083 × 60 = 42.5 ≈ 42 minutes (42.498 rounds to 42).",
+      "answers": [
+        {
+          "text": "75°71'",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "76°42'",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "75°42'",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "75°7'",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "In triangle MNO, angle N is a right angle, MN = 23.1 cm and NO = 31.6 cm. Find angle MON, to the nearest minute.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "tan(MON) = 23.1/31.6, so MON = tan⁻¹(0.7310) ≈ 36.17° = 36°10'.",
+      "answers": [
+        {
+          "text": "36°10'",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "46°50'",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "53°50'",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "36°50'",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Find the exact value of sin 45° × tan 60°.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "(√2/2) × √3 = √6/2.",
+      "answers": [
+        {
+          "text": "√6/2",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "√2/2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "√3/2",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "√6",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Given cos θ = √3/2 and θ is acute, find tan θ.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "θ = 30°, and tan 30° = 1/√3.",
+      "answers": [
+        {
+          "text": "√3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "1/2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "1/√3",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "2/√3",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Use your calculator to find cos 32°, correct to three decimal places.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "cos 32° = 0.84804… ≈ 0.848.",
+      "answers": [
+        {
+          "text": "0.625",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "0.848",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "0.530",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "0.999",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Given tan θ = 1.804, find θ to the nearest degree.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "θ = tan⁻¹(1.804) ≈ 61°.",
+      "answers": [
+        {
+          "text": "61°",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "67°",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "29°",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "56°",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Evaluate tan 57°, rounded to 4 decimal places.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "tan 57° = 1.5399.",
+      "answers": [
+        {
+          "text": "0.8387",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "1.5399",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "0.6494",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "0.5446",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Evaluate cos 123°, rounded to 4 decimal places.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "123° is obtuse, so its cosine is negative: cos 123° = -0.5446.",
+      "answers": [
+        {
+          "text": "0.8387",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "0.5446",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "-0.5446",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "-0.8387",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Evaluate sin 360°.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "A full revolution returns to the start: sin 360° = 0.",
+      "answers": [
+        {
+          "text": "1",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "-1",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "Undefined",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "0",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Evaluate tan 270°.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "cos 270° = 0, so tan 270° = sin/cos is undefined.",
+      "answers": [
+        {
+          "text": "1",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "-1",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "Undefined",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "0",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Find sin⁻¹(0.8660), to the nearest degree.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "sin 60° ≈ 0.8660.",
+      "answers": [
+        {
+          "text": "41°",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "60°",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "30°",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "87°",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Find tan⁻¹(0.2354), to one decimal place.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "tan⁻¹(0.2354) ≈ 13.2°.",
+      "answers": [
+        {
+          "text": "13.2°",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "0.2°",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "76.8°",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "23.5°",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "The area of a right triangle is 50 square units and one of its angles is 45°. Find the length of each of the two equal legs.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "The triangle is isosceles, so ½ × L² = 50 gives L = 10.",
+      "answers": [
+        {
+          "text": "5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "10√2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "25",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "10",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "From the top of a 200 m building, the angle of depression to the base of a second building is 20°. From the base of the first building, the angle of elevation to the top of the second building is 10°. Find the height of the second building, to one decimal place.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Distance between buildings = 200/tan 20° ≈ 549.5 m; height = 549.5 × tan 10° ≈ 96.9 m.",
+      "answers": [
+        {
+          "text": "35.3 m",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "96.9 m",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "549.5 m",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "200.0 m",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "After flying 300 km, a jet is 48 km west of its planned flight path. By how many degrees is it off course, to one decimal place?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "The 300 km flown is the hypotenuse: sin⁻¹(48/300) ≈ 9.2°.",
+      "answers": [
+        {
+          "text": "9.2°",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "18.4°",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "80.8°",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "4.6°",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Two boats leave the same spot; one travels 320 km due north, the other 450 km due east. Through what angle north of east must the eastbound boat turn to head toward the other boat, to one decimal place?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "tan⁻¹(320/450) ≈ 35.4°.",
+      "answers": [
+        {
+          "text": "44.4°",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "25.4°",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "54.6°",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "35.4°",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Butch is 1.6 m tall and stands 7.2 m from a tree. The angle of inclination from the top of his head to the tip of the tree is 48°. How tall is the tree, to one decimal place?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Height above his head = 7.2 × tan 48° ≈ 8.0 m; total = 8.0 + 1.6 = 9.6 m.",
+      "answers": [
+        {
+          "text": "6.9 m",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "12.3 m",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "8.0 m",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "9.6 m",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "A train passenger travelling due north sees a light due east at 9:00 pm. By 9:45 pm the train has travelled 120 km and the light is on a bearing of 150°T from the passenger. How far is the light from the passenger at 9:45 pm (exact value)?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "The bearing makes a 30° angle with due south, so the distance is 120/cos 30° = 80√3 km.",
+      "answers": [
+        {
+          "text": "80√3 km",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "60√2 km",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "120 km",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "40√3 km",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    }
+  ]
+}

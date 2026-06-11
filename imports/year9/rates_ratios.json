@@ -1,0 +1,617 @@
+{
+  "subject": "maths",
+  "strand": "Number",
+  "topic": "Rates & Ratios",
+  "year_level": 9,
+  "questions": [
+    {
+      "question_text": "$880 is divided in the ratio 2 : 3. What is the value of the larger portion?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "The larger share is 3 of 5 parts: 880 × 3/5 = $528.",
+      "answers": [
+        {
+          "text": "$528",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "$660",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$440",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "$352",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify the ratio 0.6 : 0.18.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Multiply both by 100 (60 : 18), then divide by 6: 10 : 3.",
+      "answers": [
+        {
+          "text": "1 : 3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "3 : 10",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "10 : 3",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "5 : 2",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify the ratio 0.05 : 0.2.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Multiply both by 100 (5 : 20), then divide by 5: 1 : 4.",
+      "answers": [
+        {
+          "text": "4 : 1",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "1 : 4",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "1 : 5",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "5 : 2",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Write 160 km in 4 hours as a rate in simplest form.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "160 ÷ 4 = 40 km/h.",
+      "answers": [
+        {
+          "text": "32 km/h",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "640 km/h",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "40 km/h",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "4 km/h",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Write 7980 revolutions in 5¼ minutes as a rate in simplest form.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "7980 ÷ 5.25 = 1520 revolutions per minute.",
+      "answers": [
+        {
+          "text": "152 revs/min",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "1450 revs/min",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "1596 revs/min",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "1520 revs/min",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Which is the better value: 8 kg of rice for $5.60, or 5 kg of rice for $3.60?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "8 kg for $5.60 is $0.70/kg; 5 kg for $3.60 is $0.72/kg.",
+      "answers": [
+        {
+          "text": "5 kg for $3.60",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "It cannot be determined",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "They are the same value",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "8 kg for $5.60",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "500 mL of brand A conditioner costs $7.20, and 350 mL of brand B costs $5.00. Comparing the cost per 100 mL, which is the better buy?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "A costs 7.20/5 = $1.44 per 100 mL; B costs 5.00/3.5 ≈ $1.43 per 100 mL, so B is slightly cheaper.",
+      "answers": [
+        {
+          "text": "Brand B (about $1.43 per 100 mL)",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "They cost the same per 100 mL",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "Brand A (about $1.44 per 100 mL)",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "It cannot be determined",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "The Jonson family's car uses a 62 L tank of petrol to drive 756 km. The Mikhl family's car uses a 125 L tank to drive 1480 km. Using litres per 100 km, which car is more economical?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Jonson: 62/7.56 ≈ 8.2 L/100 km. Mikhl: 125/14.8 ≈ 8.4 L/100 km. Lower is better.",
+      "answers": [
+        {
+          "text": "The Jonson car (about 8.2 L/100 km)",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "The Mikhl car (about 8.4 L/100 km)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "Both are equally economical",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "It cannot be determined",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Ten packs of 100 CDs cost $310 in total. How much did each CD cost?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "There are 1000 CDs, so each costs $310 ÷ 1000 = $0.31 = 31c.",
+      "answers": [
+        {
+          "text": "$3.10",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "31c",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "$310",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "3.1c",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "The area of Australia is approximately 7 670 000 km² and the area of England is approximately 130 000 km². What is the simple ratio of England's area to Australia's area?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "130 000 : 7 670 000 = 13 : 767 = 1 : 59.",
+      "answers": [
+        {
+          "text": "1 : 590",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "1 : 59",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "1 : 6",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "59 : 1",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Convert 3 m/s into metres per minute.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "3 × 60 = 180 metres per minute.",
+      "answers": [
+        {
+          "text": "1080 m/min",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "18 m/min",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "0.05 m/min",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "180 m/min",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Brand P cooking oil costs $5 for 750 mL. Brand Q cooking oil costs $4 for 500 mL. How much more does 1500 mL of Brand Q cost than 1500 mL of Brand P?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "1500 mL of P costs 2 × $5 = $10; 1500 mL of Q costs 3 × $4 = $12; the difference is $2.",
+      "answers": [
+        {
+          "text": "$3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$4",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$1",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "$2",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "The heart pumps 5 L of blood every minute. If George's heart beats at 75 beats per minute, how much blood is pumped with each beat, to the nearest millilitre?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "5000 mL ÷ 75 beats ≈ 66.7 mL ≈ 67 mL per beat.",
+      "answers": [
+        {
+          "text": "15 mL",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "67 mL",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "375 mL",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "7 mL",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "A model car was created at a scale of 1 : 90. If the model is 4 cm long, how long is the real car in metres?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "4 cm × 90 = 360 cm = 3.6 m.",
+      "answers": [
+        {
+          "text": "3.6 m",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "22.5 m",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "0.36 m",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "36 m",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "A photographic negative measures 3 cm by 2.5 cm. It is enlarged so that the longer side of the print is 32 cm. How wide is the print?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "The scale factor is 32/3, so the width is 2.5 × 32/3 = 80/3 = 26⅔ cm.",
+      "answers": [
+        {
+          "text": "38.4 cm",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "16 cm",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "26⅔ cm",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "24 cm",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "A train travels due north in a straight line at 160 km/h. How far does it travel between 9:00 pm and 9:45 pm?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "45 minutes is 0.75 h, and 160 × 0.75 = 120 km.",
+      "answers": [
+        {
+          "text": "160 km",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "120 km",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "213 km",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "72 km",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Stella takes 4 hours to paint a room and Jose takes 3 hours to paint the same room. How long will the job take if they work together?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Their combined rate is 1/4 + 1/3 = 7/12 rooms per hour, so the time is 12/7 hours.",
+      "answers": [
+        {
+          "text": "7 hours",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "3½ hours",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "2 hours 20 min",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "12/7 hours (about 1 h 43 min)",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Evan shovels snow twice as fast as JJ. Together they clear the driveway in 13 minutes 20 seconds. How long would it take JJ working alone?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Together they work 3 times as fast as JJ alone, so JJ alone takes 3 × 13⅓ = 40 minutes.",
+      "answers": [
+        {
+          "text": "40 minutes",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "26 minutes 40 seconds",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "30 minutes",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "20 minutes",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "A speedboat travels 108 km downstream in the same time it takes to travel 78 km upstream. If the river current is 10 km/h, what is the speed of the boat in still water?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "108/(s + 10) = 78/(s - 10) gives 108s - 1080 = 78s + 780, so 30s = 1860 and s = 62 km/h.",
+      "answers": [
+        {
+          "text": "31 km/h",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "62 km/h",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "72 km/h",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "52 km/h",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "In 2012, tourists in the USA spent $1.262 × 10¹¹ in total, and 6.70 × 10⁷ tourists visited the USA. 21% of the money was spent by Canadians, and 34% of the tourists were Canadians. What was the average amount spent by each Canadian tourist, to the nearest dollar?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "(0.21 × 1.262 × 10¹¹) ÷ (0.34 × 6.70 × 10⁷) = 2.6502 × 10¹⁰ ÷ 2.278 × 10⁷ ≈ $1163.",
+      "answers": [
+        {
+          "text": "$1163",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "$640",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$1884",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "$396",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "A professor finishes work 3 hours early and walks home at 6 km/h. Her husband leaves home just in time to pick her up at the usual finish time, but meets her on the way, picks her up 9 km from home and they arrive home 2 hours earlier than usual. What is the average speed of the car?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Arriving 2 h early means the car saved a 1 h trip each way, so it met her 1 driving-hour from the university. She walked for 2 h (12 km), so the car covers 12 km in 1 h: 12 km/h.",
+      "answers": [
+        {
+          "text": "6 km/h",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "12 km/h",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "18 km/h",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "9 km/h",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    }
+  ]
+}

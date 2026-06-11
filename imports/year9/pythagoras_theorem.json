@@ -1,0 +1,385 @@
+{
+  "subject": "maths",
+  "strand": "Measurement & Geometry",
+  "topic": "Pythagoras' Theorem",
+  "year_level": 9,
+  "questions": [
+    {
+      "question_text": "Which of these sets of side lengths forms a right-angled triangle?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "9² + 40² = 81 + 1600 = 1681 = 41², so 9, 40, 41 is a Pythagorean triad.",
+      "answers": [
+        {
+          "text": "8, 12, 13",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "9, 40, 41",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "8, 13, 17",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "4, 6, 10",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Which of these sets of side lengths is a Pythagorean triad?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "15² + 36² = 225 + 1296 = 1521 = 39². (It is the 5-12-13 triad scaled by 3.)",
+      "answers": [
+        {
+          "text": "2, 4, 6",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "5, 5, 10",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "8, 10, 12",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "15, 36, 39",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "A right triangle has legs a = 5 and b = 7. Find the hypotenuse c, to the nearest tenth.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "c = √(5² + 7²) = √74 ≈ 8.6.",
+      "answers": [
+        {
+          "text": "4.9",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "74",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "8.6",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "12.0",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "A right triangle has leg b = 8 and hypotenuse c = 10. Find the other leg a.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "a = √(10² - 8²) = √36 = 6.",
+      "answers": [
+        {
+          "text": "12.8",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "36",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "6",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "2",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "A right triangle has leg a = 9 and hypotenuse c = 15. Find the other leg b.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "b = √(15² - 9²) = √144 = 12.",
+      "answers": [
+        {
+          "text": "6",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "144",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "17.5",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "12",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Maria walks 6 blocks north, then 8 blocks east to Sally's house. What is the straight-line distance between the two houses?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "√(6² + 8²) = √100 = 10 blocks.",
+      "answers": [
+        {
+          "text": "10 blocks",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "7 blocks",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "48 blocks",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "14 blocks",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Adrian stands 12 ft from the base of a 5 ft tall tree. What is the distance from Adrian's position on the ground to the top of the tree?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "√(12² + 5²) = √169 = 13 ft.",
+      "answers": [
+        {
+          "text": "17 ft",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "7 ft",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "13 ft",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "10.9 ft",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Sofi stands 4 ft from the base of a 5 ft tall tree. What is the distance from her position to the top of the tree, to the nearest tenth?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "√(4² + 5²) = √41 ≈ 6.4 ft.",
+      "answers": [
+        {
+          "text": "6.4 ft",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "3.0 ft",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "41 ft",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "9.0 ft",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "The diagonal of a square is 10 cm. Find the perimeter of the square, to the nearest tenth.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Each side is 10/√2 ≈ 7.07 cm, so the perimeter is 4 × 7.07 ≈ 28.3 cm.",
+      "answers": [
+        {
+          "text": "20.0 cm",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "14.1 cm",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "40.0 cm",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "28.3 cm",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "A baseball diamond is a square with 90-foot sides. What is the shortest distance between home plate and second base (the opposite corner), to the nearest tenth?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "The diagonal is 90√2 ≈ 127.3 ft.",
+      "answers": [
+        {
+          "text": "63.6 ft",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "180.0 ft",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "8100 ft",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "127.3 ft",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "A bird feeder stands vertically, and its shadow is half its height. The distance from the top of the feeder to the tip of the shadow is 19 ft. How tall is the feeder, to the nearest tenth?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "h² + (h/2)² = 19² gives 5h²/4 = 361, so h = 38/√5 ≈ 17.0 ft.",
+      "answers": [
+        {
+          "text": "8.5 ft",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "17.0 ft",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "38.0 ft",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "9.5 ft",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "On a coordinate plane, what is the distance between E(7, 2) and F(1, 9), to the nearest tenth?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "√((7-1)² + (2-9)²) = √(36 + 49) = √85 ≈ 9.2.",
+      "answers": [
+        {
+          "text": "9.2",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "85",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "13.0",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "3.6",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "A straight bike path will cut diagonally across a park that is 880 ft by 2112 ft, at a cost of $2.20 per foot. What will the path cost?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "The diagonal is √(880² + 2112²) = 2288 ft, costing 2288 × $2.20 = $5033.60.",
+      "answers": [
+        {
+          "text": "$5033.60",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "$6582.40",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$2288.00",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "$5050.00",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    }
+  ]
+}

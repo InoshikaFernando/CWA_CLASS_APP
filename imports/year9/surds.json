@@ -1,0 +1,675 @@
+{
+  "subject": "maths",
+  "strand": "Number",
+  "topic": "Surds",
+  "year_level": 9,
+  "questions": [
+    {
+      "question_text": "Which of the following is a pair of like surds?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Like surds have the same number under the root sign: -√6 and 4√6 are both multiples of √6.",
+      "answers": [
+        {
+          "text": "3√2 and 3√6",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "-√6 and 4√6",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "√2 and √7",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "11 and √11",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify 2√3 + 3√3.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Collect like surds: (2 + 3)√3 = 5√3.",
+      "answers": [
+        {
+          "text": "5√6",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "6√3",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "√15",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "5√3",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify 8√10 - 3√10 - 2√10.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Collect like surds: (8 - 3 - 2)√10 = 3√10.",
+      "answers": [
+        {
+          "text": "13√10",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "3√30",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "3√10",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "2√10",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify 2√3 + 3√7 - 5√3 + √7.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Collect the √3 terms (2 - 5 = -3) and the √7 terms (3 + 1 = 4): -3√3 + 4√7.",
+      "answers": [
+        {
+          "text": "4√7 + 3√3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "-3√3 - 4√7",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "4√7 - 3√3",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "√21",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify √147.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "147 = 49 × 3, so √147 = √49 × √3 = 7√3.",
+      "answers": [
+        {
+          "text": "49√3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "3√7",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "7√21",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "7√3",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify √150.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "150 = 25 × 6, so √150 = √25 × √6 = 5√6.",
+      "answers": [
+        {
+          "text": "5√6",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "25√6",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "6√5",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "15√10",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify √12.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "12 = 4 × 3, so √12 = 2√3.",
+      "answers": [
+        {
+          "text": "6",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2√3",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "4√3",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "3√2",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify √27 + 4√3.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "√27 = 3√3, so 3√3 + 4√3 = 7√3.",
+      "answers": [
+        {
+          "text": "12√3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "5√3",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "7√3",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "7√6",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify √50 - 4√2.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "√50 = 5√2, so 5√2 - 4√2 = √2.",
+      "answers": [
+        {
+          "text": "9√2",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "√2",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "-√2",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify 2√5 - 2√20 + √125.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "√20 = 2√5 and √125 = 5√5, so 2√5 - 4√5 + 5√5 = 3√5.",
+      "answers": [
+        {
+          "text": "5√3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "7√5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "-√5",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "3√5",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Express √18 + √32 as a single surd of the form √Δ.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "√18 + √32 = 3√2 + 4√2 = 7√2 = √(49 × 2) = √98.",
+      "answers": [
+        {
+          "text": "√48",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "√196",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "√98",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "√50",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify √3 × √7.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "√3 × √7 = √(3 × 7) = √21.",
+      "answers": [
+        {
+          "text": "√21",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "√10",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "3√7",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "21",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify √200 + √150 - √96.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "√200 = 10√2, √150 = 5√6, √96 = 4√6, so 10√2 + 5√6 - 4√6 = 10√2 + √6.",
+      "answers": [
+        {
+          "text": "10√2 + 9√6",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "14√2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "10√2 - √6",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "10√2 + √6",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify √64 - √108 + √25 - 2√3.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "√64 = 8, √108 = 6√3, √25 = 5, so 8 - 6√3 + 5 - 2√3 = 13 - 8√3.",
+      "answers": [
+        {
+          "text": "13 + 8√3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "13 - 8√3",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "13 - 4√3",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "3 - 8√3",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Expand and simplify 2√3(√5 + 3).",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "2√3 × √5 = 2√15 and 2√3 × 3 = 6√3.",
+      "answers": [
+        {
+          "text": "2√8 + 6√3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "6√15",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "2√15 + 6",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "2√15 + 6√3",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Expand and simplify 2√3(2√15 - 5√3).",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "2√3 × 2√15 = 4√45 = 12√5 and 2√3 × 5√3 = 10 × 3 = 30.",
+      "answers": [
+        {
+          "text": "30 - 12√5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "12√5 - 15",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "12√5 - 30",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "4√15 - 30",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify √7(√7 + √3) - √21.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "√7 × √7 = 7 and √7 × √3 = √21, so 7 + √21 - √21 = 7.",
+      "answers": [
+        {
+          "text": "7",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "49",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "7 + 2√21",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "7√3",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Expand and simplify (4 - √5)².",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "(4 - √5)² = 16 - 8√5 + 5 = 21 - 8√5.",
+      "answers": [
+        {
+          "text": "21 - 8√5",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "21 + 8√5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "16 - 8√5",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "11",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Expand and simplify (√2 + √5 + √7)(√2 + √5 - √7).",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Difference of squares: (√2 + √5)² - (√7)² = (7 + 2√10) - 7 = 2√10.",
+      "answers": [
+        {
+          "text": "14",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "√10",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "2√35",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "2√10",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify (√32 + √18)/(3 + √2), giving the answer in the form b + c√2 with integers b and c.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "√32 + √18 = 7√2. Multiply by (3 - √2)/(3 - √2): 7√2(3 - √2)/7 = 3√2 - 2.",
+      "answers": [
+        {
+          "text": "2 - 3√2",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "7√2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "3√2 + 2",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "3√2 - 2",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Express 2/(2 + √2) in the form p + q√2 where p and q are rational.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Multiply by (2 - √2)/(2 - √2): 2(2 - √2)/(4 - 2) = 2 - √2.",
+      "answers": [
+        {
+          "text": "2 - √2",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "1 + √2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "2 + √2",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "1 - √2",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Express 2/√7 with a rational denominator.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Multiply top and bottom by √7: 2√7/7.",
+      "answers": [
+        {
+          "text": "2/7",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "√7/2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "√14/7",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "2√7/7",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Factorise √2 + √10 by taking out a common factor.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "√10 = √2 × √5, so √2 + √10 = √2(1 + √5).",
+      "answers": [
+        {
+          "text": "√2(1 + √5)",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "√5(1 + √2)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "√2(1 + √10)",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "2(1 + √5)",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    }
+  ]
+}

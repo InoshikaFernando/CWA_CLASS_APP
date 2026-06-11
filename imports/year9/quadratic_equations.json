@@ -1,0 +1,182 @@
+{
+  "subject": "maths",
+  "strand": "Algebra",
+  "topic": "Quadratic Equations",
+  "year_level": 9,
+  "questions": [
+    {
+      "question_text": "Solve (x - 2)(x + 7) = 0.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Each factor can be zero: x = 2 or x = -7.",
+      "answers": [
+        {
+          "text": "x = -2 or x = 7",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x = 2 or x = 7",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x = 2 or x = -7",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "x = -2 or x = -7",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Use completing the square to solve x² - 4x - 4 = 0.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "(x - 2)² = 8, so x - 2 = ±2√2 and x = 2 ± 2√2.",
+      "answers": [
+        {
+          "text": "x = 2 ± 2√2",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "x = 4 ± √2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x = 2 ± 2√3",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "x = -2 ± 2√2",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Solve x - 3 = 16/(x - 3).",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "(x - 3)² = 16, so x - 3 = ±4, giving x = 7 or x = -1.",
+      "answers": [
+        {
+          "text": "x = 1 or x = -7",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x = 7 or x = -1",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "x = 5 or x = -3",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "x = 7 only",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Solve x/20 = 3/(x - 4).",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "x(x - 4) = 60, so x² - 4x - 60 = 0 = (x - 10)(x + 6).",
+      "answers": [
+        {
+          "text": "x = 10 only",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x = 12 or x = -5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x = -10 or x = 6",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "x = 10 or x = -6",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Solve x/(x - 2) - (x + 1)/(x + 4) = 1.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "x(x + 4) - (x + 1)(x - 2) = (x - 2)(x + 4) leads to x² - 3x - 10 = 0 = (x - 5)(x + 2); neither value is excluded.",
+      "answers": [
+        {
+          "text": "x = -5 or x = 2",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "No solution",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x = 5 or x = -2",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "x = 5 only",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "The combined area of a square of side 6 m and an attached rectangle gives the equation x² + 6x - 187 = 0. Find the positive value of x.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "x = (-6 + √(36 + 748))/2 = (-6 + 28)/2 = 11.",
+      "answers": [
+        {
+          "text": "13",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "22",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "11",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "17",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    }
+  ]
+}

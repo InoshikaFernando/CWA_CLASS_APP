@@ -1,0 +1,530 @@
+{
+  "subject": "maths",
+  "strand": "Number",
+  "topic": "Indices & Scientific Notation",
+  "year_level": 9,
+  "questions": [
+    {
+      "question_text": "Simplify a¹¹ ÷ a⁷.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "When dividing powers with the same base, subtract the indices: 11 - 7 = 4.",
+      "answers": [
+        {
+          "text": "a¹⁸",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "a⁴",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "a⁷⁷",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "a^(11/7)",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify (a³)⁵.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "When raising a power to a power, multiply the indices: 3 × 5 = 15.",
+      "answers": [
+        {
+          "text": "5a³",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "a¹⁵",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "a²⁴³",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "a⁸",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify 2ᵃ × 5ᵃ.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Same index, different bases: 2ᵃ × 5ᵃ = (2 × 5)ᵃ = 10ᵃ.",
+      "answers": [
+        {
+          "text": "10^(a²)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "10^(2a)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "10ᵃ",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "7ᵃ",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify 3ᵃ + 3ᵃ + 3ᵃ.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Three lots of 3ᵃ is 3 × 3ᵃ = 3^(a+1).",
+      "answers": [
+        {
+          "text": "27ᵃ",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "9ᵃ",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "3^(3a)",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "3^(a+1)",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Find a if a³ = 125.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "5³ = 125, so a = 5.",
+      "answers": [
+        {
+          "text": "5",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "25",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "-5",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "3",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Find c and d if 400 = 2ᶜ × 5ᵈ.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "400 = 16 × 25 = 2⁴ × 5².",
+      "answers": [
+        {
+          "text": "c = 4 and d = 3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "c = 3 and d = 2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "c = 2 and d = 4",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "c = 4 and d = 2",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "If 2ᵃ = 5, evaluate 2^(a+2).",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "2^(a+2) = 2ᵃ × 2² = 5 × 4 = 20.",
+      "answers": [
+        {
+          "text": "20",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "9",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "25",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "If 2ᵃ = 5, evaluate 4ᵃ.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "4ᵃ = (2²)ᵃ = (2ᵃ)² = 5² = 25.",
+      "answers": [
+        {
+          "text": "10",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "25",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "625",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "20",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "If 2ᵃ = 5, evaluate 2⁻ᵃ.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "2⁻ᵃ = 1/2ᵃ = 1/5.",
+      "answers": [
+        {
+          "text": "1/5",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "1/25",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "-5",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "-1/5",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "What is half of 2²ⁿ?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Half of 2²ⁿ is 2²ⁿ ÷ 2 = 2^(2n-1). (Halving the index or the base is incorrect.)",
+      "answers": [
+        {
+          "text": "2ⁿ",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2^(2n-1)",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "1²ⁿ",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "2^(n-1)",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "What is half of 1.3 × 10⁵⁷, written in scientific notation?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Half of 1.3 × 10⁵⁷ is 0.65 × 10⁵⁷ = 6.5 × 10⁵⁶.",
+      "answers": [
+        {
+          "text": "6.5 × 10²⁸",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "6.5 × 10⁵⁷",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "1.3 × 10²⁸",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "6.5 × 10⁵⁶",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Which number is larger: 2⁴⁵⁰ or 3³⁰⁰?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "2⁴⁵⁰ = (2³)¹⁵⁰ = 8¹⁵⁰ and 3³⁰⁰ = (3²)¹⁵⁰ = 9¹⁵⁰; since 9 > 8, 3³⁰⁰ is larger.",
+      "answers": [
+        {
+          "text": "It cannot be determined",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "3³⁰⁰",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "2⁴⁵⁰",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "They are equal",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Which number is larger: 300⁹⁰⁰ or 900³⁰⁰?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "300⁹⁰⁰ = (300³)³⁰⁰ = 27 000 000³⁰⁰, and 27 000 000³⁰⁰ > 900³⁰⁰.",
+      "answers": [
+        {
+          "text": "It cannot be determined",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "300⁹⁰⁰",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "900³⁰⁰",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "They are equal",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Express b⁻⁴ with a positive index.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "A negative index means the reciprocal: b⁻⁴ = 1/b⁴.",
+      "answers": [
+        {
+          "text": "1/b⁴",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "b⁴",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "-b⁴",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "-4b",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Evaluate 16^(1/4).",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "16^(1/4) is the fourth root of 16, which is 2 because 2⁴ = 16.",
+      "answers": [
+        {
+          "text": "1/4",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "64",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "2",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Write 2.15 × 10⁴ as a basic numeral.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Move the decimal point 4 places to the right: 21 500.",
+      "answers": [
+        {
+          "text": "21 500",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "215 000",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "0.000215",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "2 150",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Which of these numbers is written correctly in scientific (standard) form?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Scientific form is a × 10ⁿ with 1 ≤ a < 10 and n an integer; only 5 × 10⁻⁴ qualifies.",
+      "answers": [
+        {
+          "text": "5 × 10⁻⁴",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "50 × 10⁴",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "5 × 10^0.4",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "0.5 × 10⁴",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Find the positive value of n if n² = 841.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "29² = 841, so n = 29.",
+      "answers": [
+        {
+          "text": "27",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "21",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "29",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "31",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    }
+  ]
+}

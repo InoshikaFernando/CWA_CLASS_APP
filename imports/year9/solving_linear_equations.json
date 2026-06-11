@@ -1,0 +1,414 @@
+{
+  "subject": "maths",
+  "strand": "Algebra",
+  "topic": "Solving Linear Equations",
+  "year_level": 9,
+  "questions": [
+    {
+      "question_text": "From a 3.6 m piece of timber, 5 pieces of equal length are cut, leaving 28 cm. What length was each piece cut to?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "5x + 28 = 360, so x = (360 - 28)/5 = 66.4 cm.",
+      "answers": [
+        {
+          "text": "77.6 cm",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "72 cm",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "44 cm",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "66.4 cm",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 2x - 3 = x + 9.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Subtract x and add 3: x = 12.",
+      "answers": [
+        {
+          "text": "x = 6",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x = -12",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x = 4",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "x = 12",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Solve x + 3 = 2 + (x - 3)/5.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Multiply every term by 5: 5x + 15 = 10 + x - 3, so 4x = -8 and x = -2.",
+      "answers": [
+        {
+          "text": "x = 2",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x = -2",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "x = 1/2",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "x = -8",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 5 - 2x = 3(x - 7).",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "5 - 2x = 3x - 21, so 26 = 5x and x = 26/5 = 5.2.",
+      "answers": [
+        {
+          "text": "x = 3.2",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x = -5.2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x = 26",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "x = 5.2",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Solve the inequality 9 - 2x ≥ 6.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "-2x ≥ -3; dividing by -2 reverses the inequality: x ≤ 3/2.",
+      "answers": [
+        {
+          "text": "x ≥ -3/2",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x ≥ 3/2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x ≤ 3/2",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "x ≤ -3/2",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Solve the simultaneous equations x + 2y + 4 = 0 and 3x - y - 3 = 0.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "From the second equation y = 3x - 3; substituting: x + 6x - 6 + 4 = 0, so x = 2/7 and y = -15/7.",
+      "answers": [
+        {
+          "text": "x = 2/7, y = 15/7",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x = 2/7, y = -15/7",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "x = -2/7, y = -15/7",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "x = 2, y = -3",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Solve simultaneously: 3x - y = 6 and y = x + 2.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "3x - (x + 2) = 6 gives 2x = 8, so x = 4 and y = 6.",
+      "answers": [
+        {
+          "text": "x = -4, y = -2",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x = 4, y = 6",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "x = 6, y = 4",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "x = 2, y = 4",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Solve by elimination: 3x + 5y = 8 and x - 2y = -1.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Multiply the second equation by 3 and subtract: 11y = 11, so y = 1 and x = 1.",
+      "answers": [
+        {
+          "text": "x = 1, y = 1",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "x = 2, y = 1",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x = 1, y = -1",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "x = -1, y = 1",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "A hot chocolate costs $2 more than a bubble tea. Three hot chocolates and five bubble teas cost $70. What does each drink cost?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "3(b + 2) + 5b = 70 gives 8b = 64, so the bubble tea is $8 and the hot chocolate is $10.",
+      "answers": [
+        {
+          "text": "Hot chocolate $10, bubble tea $8",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "Hot chocolate $8, bubble tea $6",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "Hot chocolate $12, bubble tea $10",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "Hot chocolate $9, bubble tea $7",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "A rectangle has area 104 cm² and length 8 cm. Using A = lw, find its width.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "w = 104 ÷ 8 = 13 cm.",
+      "answers": [
+        {
+          "text": "13 cm",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "14 cm",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "18 cm",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "10 cm",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Four more than three times a number is 49. What is the number?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "3n + 4 = 49, so n = 45/3 = 15.",
+      "answers": [
+        {
+          "text": "45",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "12",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "18",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "15",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Road Runner Clothing pays $100 a day plus 5% of sales. Blue Jag Boutique pays $75 a day plus 10% of sales. For what daily sales amount do the two jobs pay the same?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "100 + 0.05s = 75 + 0.10s gives 25 = 0.05s, so s = $500.",
+      "answers": [
+        {
+          "text": "$250",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$500",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "$125",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "$1000",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "The sum of two consecutive integers is 503. What are the integers?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "n + (n + 1) = 503 gives n = 251.",
+      "answers": [
+        {
+          "text": "250 and 253",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "201 and 302",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "251 and 252",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "252 and 253",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "A table of values for a straight-line graph shows x = 0, 1, 2 and y = 3, 2, ?. What is the missing y value?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "The y values decrease by 1 each step, so the next value is 1.",
+      "answers": [
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "-1",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "0",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "1",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    }
+  ]
+}

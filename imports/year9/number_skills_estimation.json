@@ -1,0 +1,356 @@
+{
+  "subject": "maths",
+  "strand": "Number",
+  "topic": "Number Skills & Estimation",
+  "year_level": 9,
+  "questions": [
+    {
+      "question_text": "What number goes in the box to make this true?  3 + 4 × ☐ = 39",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "4 × ☐ must equal 36, so ☐ = 9.",
+      "answers": [
+        {
+          "text": "10",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "8",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "9",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "12",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Evaluate 9² - 3 × 4².",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Indices first: 81 - 3 × 16 = 81 - 48 = 33.",
+      "answers": [
+        {
+          "text": "33",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "1248",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "-63",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "144",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Evaluate -6 - (-2 × 9) + (-15).",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "-6 - (-18) + (-15) = -6 + 18 - 15 = -3.",
+      "answers": [
+        {
+          "text": "-39",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "-3",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "15",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "-33",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Evaluate -24 - [-8 × (-5)] - (-9).",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "-8 × (-5) = 40, so -24 - 40 + 9 = -55.",
+      "answers": [
+        {
+          "text": "-64",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "25",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "-73",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "-55",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Evaluate (-40 ÷ (-5) + (-7)) × 3.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "-40 ÷ (-5) = 8, then (8 - 7) × 3 = 3.",
+      "answers": [
+        {
+          "text": "-3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "3",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "45",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "-45",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Evaluate [-6 × 4 - (-6)] × (-3).",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "-24 + 6 = -18, then -18 × (-3) = 54.",
+      "answers": [
+        {
+          "text": "-90",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "90",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "54",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "-54",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Evaluate -12 + (-6 × 5) + (-10).",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "-12 - 30 - 10 = -52.",
+      "answers": [
+        {
+          "text": "-52",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "-28",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "-62",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "8",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "In a card game, a team stands to win 120 points (taking their score to 50) or to lose 120 points (taking their score to -190). What is their present score?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "50 - 120 = -70 (check: -70 - 120 = -190).",
+      "answers": [
+        {
+          "text": "70",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "-50",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "50",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "-70",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Round 0.07162 to two significant figures.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "The first two significant figures are 7 and 1; the next digit 6 rounds the 1 up: 0.072.",
+      "answers": [
+        {
+          "text": "0.0716",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "0.07",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "0.072",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "0.08",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Round 10.6951 to two decimal places.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "The third decimal (5) rounds 10.69 up to 10.70.",
+      "answers": [
+        {
+          "text": "10.69",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "10.6",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "10.695",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "10.70",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "By rounding each number to one significant figure, estimate 34 + 19 763.5 × 0.00761.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "30 + 20 000 × 0.008 = 30 + 160 = 190.",
+      "answers": [
+        {
+          "text": "190",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "150",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "1900",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "230",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "By rounding each number to one significant figure, estimate 9.983 × 1.5 ÷ 0.00461 + 203.6709.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "10 × 2 ÷ 0.005 + 200 = 4000 + 200 = 4200.",
+      "answers": [
+        {
+          "text": "2400",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "600",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "4200",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "420",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    }
+  ]
+}

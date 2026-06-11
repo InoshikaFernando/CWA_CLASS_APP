@@ -1,0 +1,124 @@
+{
+  "subject": "maths",
+  "strand": "Measurement & Geometry",
+  "topic": "Angles & Quadrilaterals",
+  "year_level": 9,
+  "questions": [
+    {
+      "question_text": "Which of the following statements is true?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "A trapezium needs at least one pair of parallel sides, which every parallelogram has. A kite has perpendicular diagonals but is not a rhombus.",
+      "answers": [
+        {
+          "text": "Every parallelogram is a trapezium (using the inclusive definition)",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "Every trapezium is a parallelogram",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "Every quadrilateral with perpendicular diagonals is a rhombus",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "Every rhombus is a square",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "What is the supplementary angle to 84°45'?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Supplementary angles sum to 180°: 180° - 84°45' = 95°15'.",
+      "answers": [
+        {
+          "text": "5°15'",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "95°55'",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "95°15'",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "96°15'",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Using the inclusive definition of a trapezium, which of these quadrilaterals is NOT necessarily a trapezium?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Rectangles, squares and parallelograms all have a pair of parallel sides; a kite need not.",
+      "answers": [
+        {
+          "text": "A square",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "A kite",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "A rectangle",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "A parallelogram",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "A quadrilateral has perpendicular diagonals but is not a rhombus. Which of these could it be?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "A (non-rhombic) kite has perpendicular diagonals; a rectangle's or general parallelogram's diagonals are not perpendicular, and a square is a rhombus.",
+      "answers": [
+        {
+          "text": "A rectangle",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "A square",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "A kite",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "A parallelogram that is not a rhombus",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    }
+  ]
+}

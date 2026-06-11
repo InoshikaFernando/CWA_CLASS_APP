@@ -1,0 +1,269 @@
+{
+  "subject": "maths",
+  "strand": "Measurement & Geometry",
+  "topic": "Measurement",
+  "year_level": 9,
+  "questions": [
+    {
+      "question_text": "Which of these areas is equivalent to 4 cm²?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "1 cm² = 100 mm², so 4 cm² = 400 mm².",
+      "answers": [
+        {
+          "text": "40 mm²",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "0.04 mm²",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "400 mm²",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "0.4 mm²",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "A cylinder has height 9 cm and radius 3 cm. A slice with a 20° angle at the centre is cut out and removed. What is the exact volume of the remaining shape?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "The full cylinder is 81π cm³; the remaining fraction is 340/360 = 17/18, giving 81π × 17/18 = 153π/2 cm³.",
+      "answers": [
+        {
+          "text": "153π/2 cm³",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "9π/2 cm³",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "81π cm³",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "153π cm³",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "An area of 3 m² is to be paved with parallelogram-shaped tiles, each with base 20 cm and perpendicular height 10 cm. How many tiles are needed?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Each tile is 200 cm²; 30 000 cm² ÷ 200 cm² = 150 tiles.",
+      "answers": [
+        {
+          "text": "15",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "1500",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "150",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "75",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Bicycle wheels have a diameter of 50 cm. How far does the bike travel if the wheels turn 400 times? (Answer to the nearest metre.)",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "One turn covers π × 0.5 m ≈ 1.571 m; 400 turns cover ≈ 628 m.",
+      "answers": [
+        {
+          "text": "314 m",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "200 m",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "1257 m",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "628 m",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "The mass of a pet cat would most likely be about:",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "A typical adult cat weighs around 4 kilograms.",
+      "answers": [
+        {
+          "text": "4 t",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "4 kg",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "400 g",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "4 g",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "A paper doily has rotational symmetry of order 9. If one full sector is cut out, what is the angle of the sector at the centre?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "360° ÷ 9 = 40°.",
+      "answers": [
+        {
+          "text": "40°",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "9°",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "45°",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "36°",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Express 2 pm in 24-hour time.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Afternoon times add 12 hours: 2 + 12 = 14:00.",
+      "answers": [
+        {
+          "text": "20:00",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "12:00",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "02:00",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "14:00",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "What is the angle between the hour hand and the minute hand of an analogue clock at exactly 2:00?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "The hour hand is 2/12 of the way around: 2/12 × 360° = 60°.",
+      "answers": [
+        {
+          "text": "60°",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "75°",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "90°",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "30°",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "At 2:00 the hands of a clock are 60° apart. What is the least time until the angle between the hands is again 60°?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "The minute hand gains 5.5° per minute and must gain 120°: 120/5.5 = 21 9/11 minutes.",
+      "answers": [
+        {
+          "text": "24 minutes",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "10 10/11 minutes",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "20 minutes",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "21 9/11 minutes (about 21 min 49 s)",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    }
+  ]
+}
