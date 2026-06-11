@@ -33,7 +33,7 @@ def _check_migrations():
         targets = executor.loader.graph.leaf_nodes()
         pending = executor.migration_plan(targets)
         if pending:
-            names = [f"{app}.{name}" for app, name in (m.key for m, _ in pending)]
+            names = [f"{m.app_label}.{m.name}" for m, _backwards in pending]
             return False, f"{len(names)} unapplied: {', '.join(names[:10])}"
         return True, None
     except Exception as exc:

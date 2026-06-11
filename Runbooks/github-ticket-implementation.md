@@ -211,13 +211,16 @@ merge your own PR with red or pending checks.
 
 After merge to `main`:
 
-1. The release reaches production via the deploy script on the Droplet — see
-   [`production-deployment.md`](production-deployment.md) § 2. (Confirm whether
-   deploy is automated or operator-run for this repo; do **not** SSH-hotfix the
-   server outside the sanctioned `scripts/deploy.sh` path.)
-2. Once deployed, verify the version bumped:
+1. The **Deploy to Production** workflow
+   ([`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)) runs
+   `scripts/deploy.sh` on the Droplet and then a public smoke gate. Watch that
+   run with `mcp__github__actions_list` / `get_job_logs`. If deploy secrets
+   aren't configured yet it no-ops — fall back to the manual deploy in
+   [`production-deployment.md`](production-deployment.md) § 2.0a. Either way, do
+   **not** SSH-hotfix the server outside the sanctioned `scripts/deploy.sh` path.
+2. Once deployed, verify the version bumped and the app is healthy:
    ```bash
-   curl -s https://wizardslearninghub.co.nz/api/health/   # version reflects the release
+   curl -s "https://wizardslearninghub.co.nz/api/health/?deep=1"   # version + DB/migrations/cache
    ```
 3. Prove the ticket's acceptance criteria on the deployed stack — drive Chrome
    MCP against the live (or `dev.`) URL for UI changes, or exercise the

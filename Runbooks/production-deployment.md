@@ -141,19 +141,46 @@ curl -s https://wizardslearninghub.co.nz/api/health/ | python3 -m json.tool
 # status: ok, version matches settings.APP_VERSION
 ```
 
-Then run the smoketest's scripted liveness check from your workstation:
+Then run the scripted liveness check from your workstation (prod-safe, no
+login required):
 
 ```bash
-python smoke_test.py https://wizardslearninghub.co.nz
+cd cwa_classroom && python smoke_test.py https://wizardslearninghub.co.nz --public-only
 ```
 
 ---
 
 ## 2. Shipping a release
 
-Releases ship by pushing to the deploy branch (`main`) and running the deploy
-script on the Droplet. **CI must be green on `main` first** — see
+Releases ship on merge to `main`: the **Deploy to Production** workflow
+([`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)) SSHes to the
+Droplet and runs `scripts/deploy.sh`, then gates on a public smoke test of the
+live site. **CI must be green on `main` first** — see
 `github-ticket-implementation.md`.
+
+### 2.0 Enabling the automated deploy (one-time)
+
+The workflow no-ops until these repository secrets are set (Settings → Secrets
+and variables → Actions):
+
+| Secret | Purpose | Default if unset |
+|--------|---------|------------------|
+| `DEPLOY_HOST` | Droplet IP/hostname | — (required; absent ⇒ deploy skipped) |
+| `DEPLOY_SSH_KEY` | private key for the deploy user | — (required) |
+| `DEPLOY_USER` | SSH user | `cwa` |
+| `DEPLOY_PATH` | repo path on the Droplet | `/home/cwa/CWA_CLASS_APP` |
+| `SMOKE_URL` | URL the post-deploy smoke hits | `https://wizardslearninghub.co.nz` |
+
+The deploy user already has the needed `systemctl` sudo rights from
+`setup-app-prod.sh`. Until the secrets exist, merges to `main` keep the
+workflow green (it prints a "not configured" notice) so you can adopt it
+without breaking CI.
+
+### 2.0a Manual deploy (fallback / before secrets are set)
+
+The script path still works by hand exactly as before — bump the version
+(§ 2.1) and run the script on the Droplet (§ 2.2). The automated workflow runs
+those same steps for you.
 
 ### 2.1 Bump the version (optional but recommended)
 

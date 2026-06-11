@@ -26,6 +26,32 @@ class HealthCheckTests(TestCase):
             self.assertIn(probe, body["checks"])
             self.assertTrue(body["checks"][probe]["ok"], body["checks"][probe])
 
+    def test_check_migrations_formats_pending(self):
+        # Regression: a pending migration must be reported by app.name, not
+        # crash on a missing attribute.
+        from unittest import mock
+
+        from cwa_classroom import views
+
+        class FakeMigration:
+            app_label = "billing"
+            name = "0007_add_thing"
+
+        class FakeExecutor:
+            def __init__(self, connection):
+                self.loader = mock.Mock()
+                self.loader.graph.leaf_nodes.return_value = []
+
+            def migration_plan(self, targets):
+                return [(FakeMigration(), False)]
+
+        with mock.patch.object(views, "MigrationExecutor", FakeExecutor):
+            ok, detail = views._check_migrations()
+
+        self.assertFalse(ok)
+        self.assertIn("billing.0007_add_thing", detail)
+        self.assertIn("1 unapplied", detail)
+
     def test_deep_health_degrades_to_503_on_failure(self):
         # A broken cache backend must surface as a 503 'degraded', not a
         # swallowed 200 — the whole point of the deep probe.

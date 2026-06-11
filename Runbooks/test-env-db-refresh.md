@@ -136,7 +136,7 @@ mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p"$DB_PASS" "$DST_DB" -e "
 Then smoke the test site:
 
 ```bash
-python smoke_test.py https://<test-host>     # logs in as user1@test.local / Password1!
+cd cwa_classroom && python smoke_test.py https://<test-host>   # logs in as user1@test.local / Password1!
 ```
 
 Any non-zero `unscrubbed_emails`, or a login that fails with `Password1!`, means

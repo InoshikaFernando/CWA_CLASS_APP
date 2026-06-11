@@ -422,15 +422,20 @@ login page, logs in as a sanitised user, and asserts that key pages
 (`/`, `/maths/`, `/coding/`, `/admin/`, static) return 2xx/3xx:
 
 ```bash
+cd cwa_classroom                      # smoke_test.py lives here, next to manage.py
 pip install playwright && playwright install chromium
 python smoke_test.py http://localhost:8000
 python smoke_test.py https://dev.wizardslearninghub.co.nz --headed --slow 300
+python smoke_test.py https://wizardslearninghub.co.nz --public-only   # no login (prod-safe)
 ```
 
-It expects a user `user1@test.local` with password `Password1!` (present after
-a sanitised DB refresh — see `test-env-db-refresh.md`). This is a **liveness**
-check, not a CRUD smoketest; a green `smoke_test.py` does not substitute for the
-phases above.
+The default (login) mode expects a user `user1@test.local` with password
+`Password1!` (present after a sanitised DB refresh — see
+`test-env-db-refresh.md`). `--public-only` skips the login step and only checks
+deep health + public pages, so it is safe against **production**, which has no
+sanitised users — this is the mode the deploy workflow runs. Either way it's a
+**liveness** check, not a CRUD smoketest; a green `smoke_test.py` does not
+substitute for the phases above.
 
 ---
 
