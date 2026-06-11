@@ -14,6 +14,24 @@ from django.utils import timezone
 # PDF Extraction (PyMuPDF / fitz)
 # ---------------------------------------------------------------------------
 
+def get_pdf_page_count(pdf_file):
+    """Cheaply count pages in a PDF without rendering screenshots.
+
+    Used for the quota check before enqueuing the (slow) classification job.
+    Resets the file pointer afterwards so the file can be re-read.
+    """
+    import fitz  # PyMuPDF
+
+    pos = pdf_file.tell() if hasattr(pdf_file, 'tell') else None
+    pdf_bytes = pdf_file.read()
+    if pos is not None and hasattr(pdf_file, 'seek'):
+        pdf_file.seek(pos)
+    doc = fitz.open(stream=pdf_bytes, filetype='pdf')
+    count = doc.page_count
+    doc.close()
+    return count
+
+
 def extract_pdf_content(pdf_file):
     """
     Extract text and images from a PDF file using PyMuPDF.

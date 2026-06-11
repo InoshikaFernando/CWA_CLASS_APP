@@ -59,6 +59,7 @@ INSTALLED_APPS = [
 
     # Third party
     'django_htmx',
+    'django_rq',
     'storages',
 
     # Project apps
@@ -94,6 +95,9 @@ INSTALLED_APPS = [
     # Lifecycle email notifications
     'notifications',
 
+    # Background task queue
+    'taskqueue',
+
     # User feedback & feature requests (CPP-321)
     'feedback',
 ]
@@ -109,6 +113,16 @@ FEEDBACK_OWNER_EMAIL = os.environ.get('FEEDBACK_OWNER_EMAIL', '')
 # AI / Anthropic
 # ---------------------------------------------------------------------------
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
+
+# ---------------------------------------------------------------------------
+# Redis / RQ  (background task processing)
+# ---------------------------------------------------------------------------
+REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+RQ_QUEUES = {
+    'high':    {'URL': REDIS_URL},
+    'default': {'URL': REDIS_URL},
+    'low':     {'URL': REDIS_URL},
+}
 
 # ---------------------------------------------------------------------------
 # Coding — Piston sandboxed code execution

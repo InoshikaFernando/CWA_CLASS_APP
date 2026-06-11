@@ -68,6 +68,9 @@ urlpatterns = [
     # --- AI tools (before core apps — core apps use root prefix) ---
     path('ai-import/', include('ai_import.urls', namespace='ai_import')),
 
+    # --- Background task queue (notifications dropdown) ---
+    path('tasks/', include('taskqueue.urls', namespace='taskqueue')),
+
     # --- Worksheets ---
     path('worksheets/', include('worksheets.urls', namespace='worksheets')),
 
