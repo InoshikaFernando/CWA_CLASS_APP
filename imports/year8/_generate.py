@@ -1888,6 +1888,187 @@ _add("problem_solving", [
        difficulty=3, image="quant_q07_08_parking.png"),
 ])
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Batch 4 — June 2026: G8 Applications of Pythagoras pack.
+#
+# The pack is a scan with the worked solutions handwritten over the figures, so
+# every figure here was REDRAWN cleanly with matplotlib (imports/year8/images/
+# pyth_*.png) — no answer leakage. Every answer was computed independently and
+# cross-checked against the pack's printed answer key (the keys all match).
+# ═══════════════════════════════════════════════════════════════════════════
+_add("pythagoras_theorem", [
+    # ---- 3-D (Exercise 1D) ----
+    mc("Calculate the length of the space diagonal AG of this cube. "
+       "Each edge is 10 cm. (1 decimal place)",
+       ["17.3 cm", "14.1 cm", "30 cm", "20 cm"], 0,
+       "Base diagonal EG = √(10² + 10²) = √200. Then AG = √(EG² + 10²) = "
+       "√(200 + 100) = √300 = 17.3 cm.",
+       difficulty=2, image="pyth_cube_ag.png"),
+    mc("Calculate the length of the space diagonal AG of this box "
+       "(5 cm by 5 cm by 10 cm). (2 decimal places)",
+       ["12.25 cm", "11.18 cm", "15 cm", "20 cm"], 0,
+       "AG = √(5² + 5² + 10²) = √(25 + 25 + 100) = √150 = 12.25 cm.",
+       difficulty=2, image="pyth_cuboid_ag.png"),
+    mc("In this wedge, calculate the length of CE, the diagonal of the "
+       "rectangular base (DC = 10, CF = 7). (1 decimal place)",
+       ["12.2 cm", "7 cm", "10 cm", "17 cm"], 0,
+       "CE is the diagonal of the base: CE = √(10² + 7²) = √149 = 12.2 cm.",
+       difficulty=2, image="pyth_wedge.png"),
+    mc("In the same wedge, calculate the length of AC, where A is 4 cm "
+       "directly above E. (2 decimal places)",
+       ["12.85 cm", "12.20 cm", "14.00 cm", "13.00 cm"], 0,
+       "AC = √(AE² + CE²) = √(4² + 149) = √165 = 12.85 cm (CE² = 149).",
+       difficulty=3, image="pyth_wedge.png"),
+    mc("This square-based pyramid has base edges of 8 cm and sloping edges "
+       "of 8 cm. Calculate the length of the base diagonal BD. (2 dp)",
+       ["11.31 cm", "16 cm", "8 cm", "12.80 cm"], 0,
+       "BD is the diagonal of the square base: BD = √(8² + 8²) = √128 = 11.31 cm.",
+       difficulty=2, image="pyth_pyramid_bd.png"),
+    mc("Find the perpendicular height of the same pyramid (base edge 8 cm, "
+       "sloping edge 8 cm). (2 decimal places)",
+       ["5.66 cm", "8 cm", "6.93 cm", "4 cm"], 0,
+       "Half the diagonal is 11.31 ÷ 2 = 5.66. Height = √(8² − 5.66²) = "
+       "√(64 − 32) = √32 = 5.66 cm.",
+       difficulty=3, image="pyth_pyramid_bd.png"),
+    mc("A square-based pyramid is 20 cm high and each sloping edge is 30 cm. "
+       "Calculate the length of the sides of the base. (1 decimal place)",
+       ["31.6 cm", "22.4 cm", "44.7 cm", "36.1 cm"], 0,
+       "Half-diagonal = √(30² − 20²) = √500 = 22.36. Full diagonal = 44.72, "
+       "so side = 44.72 ÷ √2 = 31.6 cm.",
+       difficulty=3, image="pyth_pyramid_base.png"),
+    mc("The slant height of a cone is 10 cm and its height is 8 cm. What is "
+       "the radius of the base?",
+       ["6 cm", "12.8 cm", "2 cm", "36 cm"], 0,
+       "r = √(10² − 8²) = √(100 − 64) = √36 = 6 cm.",
+       difficulty=2, image="pyth_cone_r6.png"),
+    mc("A cone has a slant height of 22 cm and a height of 18 cm. Find the "
+       "radius of the base. (1 decimal place)",
+       ["12.6 cm", "28.5 cm", "11.7 cm", "4 cm"], 0,
+       "r = √(22² − 18²) = √(484 − 324) = √160 = 12.6 cm.",
+       difficulty=2, image="pyth_cone_r126.png"),
+    mc("A suitcase measures 90 cm by 65 cm by 30 cm. Will a carved walking "
+       "stick 1.2 m long fit inside it?",
+       ["No — the longest space inside is only 115 cm",
+        "Yes — the longest space inside is 115 cm",
+        "No — the longest space inside is only 95 cm",
+        "Yes — the stick fits exactly"], 0,
+       "Longest space diagonal = √(90² + 65² + 30²) = √13225 = 115 cm. "
+       "The stick is 120 cm, which is longer than 115 cm, so it will not fit.",
+       difficulty=3, image="pyth_suitcase.png"),
+    # ---- 2-D figures ----
+    mc("Find the value of d in this right-angled triangle. (1 decimal place)",
+       ["16.5", "20.5", "27.2", "10"], 0,
+       "d = √(18.6² − 8.6²) = √(345.96 − 73.96) = √272 = 16.5 (18.6 is the "
+       "hypotenuse).",
+       difficulty=2, image="pyth_tri_d.png"),
+    mc("Find the value of a in this shape. (1 decimal place)",
+       ["10.6", "20", "13.2", "2"], 0,
+       "The sloping side 16 spans 24 − 12 = 12 across and a down, so "
+       "a = √(16² − 12²) = √(256 − 144) = √112 = 10.6.",
+       difficulty=3, image="pyth_trapezoid_a.png"),
+    mc("Find the length of BC in this triangle.",
+       ["16 cm", "45.3 cm", "8 cm", "22 cm"], 0,
+       "BC = √(34² − 30²) = √(1156 − 900) = √256 = 16 cm (34 is the hypotenuse).",
+       difficulty=2, image="pyth_tri_bc.png"),
+    mc("Find the length of PQ in this triangle. (2 decimal places)",
+       ["18.60 m", "10.20 m", "26.00 m", "13.00 m"], 0,
+       "The right angle is at the top, so PQ = √(11² + 15²) = √346 = 18.60 m.",
+       difficulty=2, image="pyth_tri_pq.png"),
+    mc("In right-angled triangle RST the right angle is at R. Name the "
+       "hypotenuse.",
+       ["ST", "RS", "RT", "R"], 0,
+       "The hypotenuse is the side opposite the right angle. The right angle "
+       "is at R, so the hypotenuse is ST.",
+       difficulty=1, image="pyth_name_hyp.png"),
+    mc("Find the area of this triangle, which has all three sides equal to "
+       "4 cm. (2 decimal places)",
+       ["6.93 cm²", "8 cm²", "13.86 cm²", "3.46 cm²"], 0,
+       "Height = √(4² − 2²) = √12 = 3.46 cm. Area = ½ × 4 × 3.46 = 6.93 cm².",
+       difficulty=3, image="pyth_equilateral.png"),
+    mc("Find the perimeter of this trapezium. (1 decimal place)",
+       ["25.8 cm", "20.0 cm", "25.0 cm", "31.8 cm"], 0,
+       "The slanting side d = √(3² + 5²) = √34 = 5.83 cm. "
+       "Perimeter = 6 + 9 + 5 + 5.83 = 25.8 cm.",
+       difficulty=3, image="pyth_trapezium.png"),
+    mc("Find the height of this isosceles triangle (equal sides 25 cm, base "
+       "22 cm). (1 decimal place)",
+       ["22.4 cm", "12.0 cm", "33.5 cm", "19.0 cm"], 0,
+       "The height splits the base in two, so h = √(25² − 11²) = √(625 − 121) "
+       "= √504 = 22.4 cm.",
+       difficulty=2, image="pyth_isosceles.png"),
+    mc("A ladder 25 m long leans against a wall with its base 7 m from the "
+       "wall. How high up the wall does the ladder reach?",
+       ["24 m", "26 m", "18 m", "23 m"], 0,
+       "height = √(25² − 7²) = √(625 − 49) = √576 = 24 m.",
+       difficulty=2, image="pyth_ladder.png"),
+    mc("Find the length of y in exact form. The diagonal x = √5 cm.",
+       ["√6 cm", "√5 cm", "3 cm", "√7 cm"], 0,
+       "y is the hypotenuse of a triangle with legs 1 and x = √5, so "
+       "y = √(1² + (√5)²) = √(1 + 5) = √6 cm.",
+       difficulty=3, image="pyth_findy.png"),
+    mc("Find the length of the diagonal x in this rectangle. (1 decimal place)",
+       ["10.8", "15.2", "6.7", "13.2"], 0,
+       "x spans 14 − 5 = 9 across and 6 down: x = √(9² + 6²) = √117 = 10.8.",
+       difficulty=2, image="pyth_rect_x.png"),
+    mc("A square has a diagonal of 72 cm. Find the side length. "
+       "(1 decimal place)",
+       ["50.9 cm", "36.0 cm", "101.8 cm", "60.0 cm"], 0,
+       "If the side is x then x² + x² = 72², so 2x² = 5184, x² = 2592 and "
+       "x = √2592 = 50.9 cm.",
+       difficulty=2, image="pyth_square.png"),
+    mc("In this right-angled triangle the hypotenuse is 7 and one leg is 5. "
+       "Find x. (1 decimal place)",
+       ["4.9", "8.6", "6.0", "2.0"], 0,
+       "x = √(7² − 5²) = √(49 − 25) = √24 = 4.9 (a common slip is 7² − 5² = "
+       "14 − 10 = 4, but 7² = 49 and 5² = 25).",
+       difficulty=2, image="pyth_constance.png"),
+    mc("Sarah jogs to Charlie either along the path (1 km, then 2 km) or "
+       "directly across. The direct route is shorter by how much? "
+       "(2 decimal places)",
+       ["0.76 km", "1.00 km", "2.24 km", "0.24 km"], 0,
+       "Direct distance = √(1² + 2²) = √5 = 2.24 km. The path is 1 + 2 = 3 km, "
+       "so the direct route is 3 − 2.24 = 0.76 km shorter.",
+       difficulty=3, image="pyth_path.png"),
+    # ---- word problems (no figure needed) ----
+    mc("Christiana walks diagonally from corner to corner across a "
+       "rectangular field 56 m wide and 212 m long. How far does she walk? "
+       "(1 decimal place)",
+       ["219.3 m", "268.0 m", "205.4 m", "156.0 m"], 0,
+       "diagonal = √(56² + 212²) = √(3136 + 44944) = √48080 = 219.3 m.",
+       difficulty=2),
+    mc("A support wire 9 m long is anchored to the ground 2.2 m from the base "
+       "of a flagpole. How tall is the flagpole? (1 decimal place)",
+       ["8.7 m", "9.3 m", "6.8 m", "11.2 m"], 0,
+       "height = √(9² − 2.2²) = √(81 − 4.84) = √76.16 = 8.7 m.",
+       difficulty=2),
+    mc("Two joggers run 8 km north and then 5 km west. To the nearest tenth "
+       "of a kilometre, how far must they travel in a straight line to return "
+       "to their starting point?",
+       ["9.4 km", "13.0 km", "6.2 km", "3.0 km"], 0,
+       "straight-line distance = √(8² + 5²) = √(64 + 25) = √89 = 9.4 km.",
+       difficulty=2),
+    mc("A yacht sails 8.1 km north, then turns and sails west until it is "
+       "12.2 km in a straight line from its starting point. How far west did "
+       "it sail? (1 decimal place)",
+       ["9.1 km", "14.6 km", "4.1 km", "20.3 km"], 0,
+       "west = √(12.2² − 8.1²) = √(148.84 − 65.61) = √83.23 = 9.1 km.",
+       difficulty=3),
+    mc("A triangle has sides 7, 24 and 25. Is it right-angled?",
+       ["Yes, because 7² + 24² = 25²", "No, because 7 + 24 ≠ 25",
+        "Yes, because 7 + 24 − 25 = 6", "No, because the sides are all different"],
+       0,
+       "7² + 24² = 49 + 576 = 625 = 25², so by the converse of Pythagoras' "
+       "theorem the triangle is right-angled.",
+       difficulty=2),
+    mc("Do the numbers 8, 13 and 17 form a Pythagorean triad?",
+       ["No, because 8² + 13² ≠ 17²", "Yes, because 8² + 13² = 17²",
+        "Yes, because 8 + 13 + 17 is even", "No, because 17 is a prime number"],
+       0,
+       "8² + 13² = 64 + 169 = 233, but 17² = 289. Since 233 ≠ 289 they do not "
+       "form a Pythagorean triad.",
+       difficulty=2),
+])
+
 # ── batch-2 data end ──
 
 
