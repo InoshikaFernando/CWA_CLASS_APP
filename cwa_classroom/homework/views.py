@@ -260,9 +260,12 @@ class HomeworkDetailView(RoleRequiredMixin, View):
             best = HomeworkSubmission.get_best_submission(homework, student)
             attempt_count = HomeworkSubmission.get_attempt_count(homework, student)
 
+            # Judge lateness/overdue relative to when this student joined the
+            # class. A student who enrolled after the due date is never flagged
+            # as late or overdue — the deadline passed before they were a member.
             if best:
-                status = best.submission_status
-            elif homework.is_past_due:
+                status = best.submission_status_for(cs.joined_at)
+            elif homework.is_overdue_for(cs.joined_at):
                 status = HomeworkSubmission.STATUS_NOT_SUBMITTED
             else:
                 status = 'pending'
@@ -391,10 +394,14 @@ class StudentHomeworkListView(LoginRequiredMixin, View):
     template_name = 'homework/student_list.html'
 
     def get(self, request):
-        # Find classrooms the student belongs to
-        class_ids = ClassStudent.objects.filter(
+        # Find classrooms the student belongs to, keeping the join date per
+        # classroom so "overdue" can be judged relative to when this student
+        # actually enrolled (a late joiner never sees pre-join work as overdue).
+        memberships = ClassStudent.objects.filter(
             student=request.user, is_active=True
-        ).values_list('classroom_id', flat=True)
+        ).values_list('classroom_id', 'joined_at')
+        joined_at_by_class = {cid: joined for cid, joined in memberships}
+        class_ids = list(joined_at_by_class.keys())
 
         homework_qs = (
             Homework.objects
@@ -407,16 +414,18 @@ class StudentHomeworkListView(LoginRequiredMixin, View):
 
         rows = []
         for hw in homework_qs:
+            joined_at = joined_at_by_class.get(hw.classroom_id)
             best = HomeworkSubmission.get_best_submission(hw, request.user)
             attempt_count = HomeworkSubmission.get_attempt_count(hw, request.user)
+            # Overdue no longer blocks attempts — only the attempt cap does.
             can_attempt = (
-                not hw.is_past_due and
-                (hw.attempts_unlimited or attempt_count < hw.max_attempts)
+                hw.attempts_unlimited or attempt_count < hw.max_attempts
             )
+            is_overdue = hw.is_overdue_for(joined_at)
 
             if best:
-                status = best.submission_status
-            elif hw.is_past_due:
+                status = best.submission_status_for(joined_at)
+            elif is_overdue:
                 status = HomeworkSubmission.STATUS_NOT_SUBMITTED
             else:
                 status = 'pending'
@@ -426,6 +435,7 @@ class StudentHomeworkListView(LoginRequiredMixin, View):
                 'best_submission': best,
                 'attempt_count': attempt_count,
                 'can_attempt': can_attempt,
+                'is_overdue': is_overdue,
                 'status': status,
             })
 
@@ -443,9 +453,9 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
         if not homework.attempts_unlimited and attempt_count >= homework.max_attempts:
             messages.error(request, 'You have used all your attempts for this homework.')
             return redirect('homework:student_list')
-        if homework.is_past_due:
-            messages.error(request, 'This homework is past its due date.')
-            return redirect('homework:student_list')
+        # Past-due homework is intentionally still attemptable — students can
+        # complete overdue work; lateness is reflected in the submission status,
+        # not enforced as a hard block. Only the attempt cap gates access.
 
         hw_questions = list(homework.homework_questions.order_by('order'))
 
@@ -640,8 +650,23 @@ class StudentHomeworkResultView(LoginRequiredMixin, View):
                 'ctx': plugin.result_item_context(ans),
             })
 
+        # Lateness is judged relative to when this student joined the class, and
+        # retrying overdue homework is allowed (only the attempt cap gates it) —
+        # mirror StudentHomeworkListView so the result page stays consistent.
+        hw = submission.homework
+        joined_at = (
+            ClassStudent.objects
+            .filter(student=request.user, classroom=hw.classroom)
+            .values_list('joined_at', flat=True)
+            .first()
+        )
+        attempt_count = HomeworkSubmission.get_attempt_count(hw, request.user)
+        can_retry = hw.attempts_unlimited or attempt_count < hw.max_attempts
+
         return render(request, self.template_name, {
             'submission': submission,
+            'submission_status': submission.submission_status_for(joined_at),
+            'can_retry': can_retry,
             'review_items': review_items,
             # Legacy context var kept so any consumer that still iterates
             # `answers` keeps working.

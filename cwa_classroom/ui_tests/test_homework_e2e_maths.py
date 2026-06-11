@@ -169,10 +169,12 @@ class TestMathsHomeworkTakeAndResult:
 class TestMathsHomeworkAccessControl:
 
     @pytest.mark.django_db(transaction=True)
-    def test_past_due_blocks_take(
+    def test_past_due_homework_still_attemptable(
         self, page: Page, live_server, enrolled_student, classroom, teacher_user, topic, questions
     ):
-        """Taking a past-due homework redirects back to the student list with an error."""
+        """Past-due homework opens normally — the hard block was removed in the
+        per-student overdue change (SPEC_OVERDUE_HOMEWORK); only the attempt
+        cap gates access."""
         from homework.models import Homework, HomeworkQuestion
 
         hw = Homework.objects.create(
@@ -189,22 +191,10 @@ class TestMathsHomeworkAccessControl:
             HomeworkQuestion.objects.create(homework=hw, question=q, order=i)
 
         do_login(page, live_server.url, enrolled_student)
-
-        # A past-due homework must redirect to the student list. Under the full
-        # parallel live-server suite the freshly-created rows can briefly lag the
-        # server thread's DB view (cross-thread SQLite visibility), producing a
-        # transient 404 that leaves the URL on /take/. Retry the navigation so
-        # the assertion reflects the redirect behaviour, not the race.
-        take_url = f"{live_server.url}/homework/{hw.pk}/take/"
-        for _ in range(5):
-            page.goto(take_url)
-            page.wait_for_load_state("domcontentloaded")
-            if f"/homework/{hw.pk}/take/" not in page.url:
-                break
-            page.wait_for_timeout(300)
-
-        # Landed on the student list (name='student_list' → /homework/), not /take/.
-        expect(page).to_have_url(re.compile(r"/homework/?$"))
+        page.goto(f"{live_server.url}/homework/{hw.pk}/take/")
+        page.wait_for_load_state("networkidle")
+        # Stays on the take page instead of being redirected away
+        assert f"/homework/{hw.pk}/take/" in page.url
 
     @pytest.mark.django_db(transaction=True)
     def test_not_enrolled_student_gets_404(
