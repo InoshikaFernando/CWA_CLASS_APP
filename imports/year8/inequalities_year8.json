@@ -1,0 +1,66 @@
+{
+  "subject": "maths",
+  "strand": "Algebra",
+  "topic": "Inequalities",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "If A = {x : x > 2} and B = {x : −1 < x < 3}, what is A ∩ B?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "The overlap of x > 2 and −1 < x < 3 is 2 < x < 3.",
+      "answers": [
+        {
+          "text": "{x : 2 < x < 3}",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "{x : 2 > x ≤ 3}",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "{x : −1 < x < 3}",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "{x : 3 < x < 2}",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve (3β + 4)/6 > (2β − 4)/5.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Multiply both sides by 30: 5(3β + 4) > 6(2β − 4), so 15β + 20 > 12β − 24, 3β > −44 and β > −44/3.",
+      "answers": [
+        {
+          "text": "β > −44/3",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "β > −4/3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "β < −4/3",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "β < −44/3",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,472 @@
+{
+  "subject": "maths",
+  "strand": "Algebra",
+  "topic": "Algebraic Fractions",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "Fully simplify 3s/6 + 5s/6.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Same denominator: (3s + 5s)/6 = 8s/6 = 4s/3.",
+      "answers": [
+        {
+          "text": "4s/3",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "2s/3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "8s/3",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "s/3",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Fully simplify w/3 − 2w/7.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Common denominator 21: 7w/21 − 6w/21 = w/21.",
+      "answers": [
+        {
+          "text": "w/21",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "−w/21",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "w/4",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "5w/21",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify 2m/3 − m/4.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Common denominator 12: 8m/12 − 3m/12 = 5m/12.",
+      "answers": [
+        {
+          "text": "5m/12",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "m/12",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "11m/12",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "5m/7",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Which expression does 2m/5 + m/3 simplify to?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Common denominator 15: 6m/15 + 5m/15 = 11m/15.",
+      "answers": [
+        {
+          "text": "11m/15",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "3m/8",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2m/15",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "11m/8",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Fully simplify 40a/77b ÷ 36a²/35b².",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Flip and multiply: 40a/77b × 35b²/36a² = (40 × 35)/(77 × 36) × b/a = 50b/(99a).",
+      "answers": [
+        {
+          "text": "50b/(99a)",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "50a/(99b)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "99b/(50a)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "50ab/99",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Fully simplify ab/12c × 6a/b.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "The b cancels and 6/12 = 1/2, leaving a²/(2c).",
+      "answers": [
+        {
+          "text": "a²/(2c)",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "2a²/c",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "ab/(2c)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "a/(2c)",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Fully simplify vw/21 ÷ tv/49.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Flip and multiply: vw/21 × 49/tv. The v cancels and 49/21 = 7/3, giving 7w/(3t).",
+      "answers": [
+        {
+          "text": "7w/(3t)",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "3w/(7t)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "7v/(3t)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "7w/3",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify x/y − 2x/3a.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Common denominator 3ay: 3ax/3ay − 2xy/3ay = (3ax − 2xy)/(3ay).",
+      "answers": [
+        {
+          "text": "(3ax − 2xy)/(3ay)",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "(3ax + 2xy)/(3ay)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "(2xy − 3ax)/(3ay)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x/(3ay)",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify (3x + 7)/4 − (x − 1)/3.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "(3(3x + 7) − 4(x − 1))/12 = (9x + 21 − 4x + 4)/12 = (5x + 25)/12. Watch the sign: −4 × (−1) = +4.",
+      "answers": [
+        {
+          "text": "(5x + 25)/12",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "(5x + 17)/12",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "(13x + 25)/12",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "(5x − 25)/12",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify 2t/7 − t/6.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Common denominator 42: 12t/42 − 7t/42 = 5t/42.",
+      "answers": [
+        {
+          "text": "5t/42",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "t/42",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "19t/42",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "5t/13",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify x/3 ÷ 5x²/6.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Flip and multiply: x/3 × 6/5x² = 6x/15x² = 2/(5x).",
+      "answers": [
+        {
+          "text": "2/(5x)",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "5x/2",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2x/5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "5/(2x)",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify (x + 1)/6 + (2 − x)/5.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "(5(x + 1) + 6(2 − x))/30 = (5x + 5 + 12 − 6x)/30 = (17 − x)/30.",
+      "answers": [
+        {
+          "text": "(17 − x)/30",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "(x + 17)/30",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "(7 − x)/30",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "(17 − x)/11",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Fully simplify b³/22 × 108/ab⁴ ÷ 27a/55b.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Flip the last fraction: b³/22 × 108/ab⁴ × 55b/27a. Numbers: 108/27 = 4, 55/22 = 5/2, and 4 × 5/2 = 10. Letters: b³ × b/b⁴ = 1 and 1/(a × a) = 1/a². Result: 10/a².",
+      "answers": [
+        {
+          "text": "10/a²",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "10b/a²",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "10/a",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "a²/10",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Fully simplify 1 − a/(a − b) − (a − b)/(a + b).",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "1 − a/(a − b) = −b/(a − b). Then −b/(a − b) − (a − b)/(a + b) = (−b(a + b) − (a − b)²)/(a² − b²) = (ab − a² − 2b²)/(a² − b²).",
+      "answers": [
+        {
+          "text": "(ab − a² − 2b²)/(a² − b²)",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "(a² − ab + 2b²)/(a² − b²)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "(ab − a² + 2b²)/(a² − b²)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "−b/(a − b)",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify (1/x) / (2 + 3/x).",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Multiply top and bottom by x: top becomes 1, bottom becomes 2x + 3.",
+      "answers": [
+        {
+          "text": "1/(2x + 3)",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "x/(2x + 3)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "1/(3x + 2)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "(2x + 3)/x",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify (3x + 2)/5 + (x − 1)/2.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "(2(3x + 2) + 5(x − 1))/10 = (6x + 4 + 5x − 5)/10 = (11x − 1)/10.",
+      "answers": [
+        {
+          "text": "(11x − 1)/10",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "(11x − 9)/10",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "(11x + 9)/10",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "(11x + 1)/10",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

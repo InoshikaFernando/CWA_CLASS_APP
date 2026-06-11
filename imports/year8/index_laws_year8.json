@@ -1,0 +1,298 @@
+{
+  "subject": "maths",
+  "strand": "Algebra",
+  "topic": "Index Laws",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "Simplify (m⁶)³.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Power of a power: multiply the indices, 6 × 3 = 18.",
+      "answers": [
+        {
+          "text": "m¹⁸",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "m⁹",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "m³",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "m⁶",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify (2p⁷)⁴.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "2⁴ = 16 and (p⁷)⁴ = p²⁸.",
+      "answers": [
+        {
+          "text": "16p²⁸",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "8p²⁸",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "16p¹¹",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "2p²⁸",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify 4a × 3a².",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "4 × 3 = 12 and a × a² = a³.",
+      "answers": [
+        {
+          "text": "12a³",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "12a²",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "7a³",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "7a²",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify (m⁴)⁵.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Multiply the indices: 4 × 5 = 20.",
+      "answers": [
+        {
+          "text": "m²⁰",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "m⁹",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "m⁵",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "m¹²",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify a³ × a⁴.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "When multiplying, add the indices: 3 + 4 = 7.",
+      "answers": [
+        {
+          "text": "a⁷",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "a¹²",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "a⁸",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "a⁶",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify −4y³ ÷ 12y.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "−4/12 = −1/3 and y³ ÷ y = y², so −y²/3.",
+      "answers": [
+        {
+          "text": "−y²/3",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "−y³/3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "−3y²",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "y²/3",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify (3x²)³.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "3³ = 27 and (x²)³ = x⁶.",
+      "answers": [
+        {
+          "text": "27x⁶",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "9x⁶",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "27x⁵",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "3x⁶",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Expand and simplify (3x²)²/12x⁴.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "(3x²)² = 9x⁴, and 9x⁴/12x⁴ = 9/12 = 3/4.",
+      "answers": [
+        {
+          "text": "3/4",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "1/4",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "3/(4x²)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "1/256",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify (s⁵ − s⁴)/s¹¹.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Factorise the top: s⁴(s − 1). Then s⁴/s¹¹ = 1/s⁷, giving (s − 1)/s⁷.",
+      "answers": [
+        {
+          "text": "(s − 1)/s⁷",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "(s − 1)/s¹¹",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "1/s²",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "s − 1",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve (3³)³ ÷ (3²)².",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "(3³)³ = 3⁹ and (3²)² = 3⁴. Dividing: 3⁹⁻⁴ = 3⁵.",
+      "answers": [
+        {
+          "text": "3⁵",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "3²",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "3¹³",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "3¹⁰",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,124 @@
+{
+  "subject": "maths",
+  "strand": "Statistics and Probability",
+  "topic": "Data and Statistics",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "A child's scores for her spelling tests were 7, 1, 2, 5, 2, 3 and 9. What is the median of these numbers?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Ordered: 1, 2, 2, 3, 5, 7, 9. The middle (4th) value is 3. (4.14 is the mean, not the median.)",
+      "answers": [
+        {
+          "text": "3",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "2",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "4.14",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "5",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "A study recorded the performance of premiers in the last four matches of each regular season: 56 wins, 15 losses and 1 draw in total. How many past seasons of competition are included?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Total matches = 56 + 15 + 1 = 72. Each season contributes 4 matches: 72 ÷ 4 = 18 seasons.",
+      "answers": [
+        {
+          "text": "18",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "14",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "16",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "17",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "In a golf competition, five golfers scored 76, 74, 85, 72 and 73 at Course X and 69, 72, 76, 74 and 74 at Course Y. The organisers want to adjust each golfer's Course Y score so the five adjusted scores have the same mean as the Course X scores. Which change is needed?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Course X mean = 380/5 = 76. Course Y mean = 365/5 = 73. Each Y score must increase by 3.",
+      "answers": [
+        {
+          "text": "Increase each golfer's result for Course Y by 3",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "Decrease each golfer's result for Course Y by 2",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "Increase each golfer's result for Course Y by 2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "Decrease each golfer's result for Course Y by 3",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "At a school, Year 11 students had these Unit 3 and 4 enrolments: 77 in Biology, 61 in General Mathematics and 29 in other subjects (167 enrolments in total). Students who chose two subjects studied both Biology and General Mathematics, no one studied more than two, and 16 students studied both. How many Year 11 students studied at least one Unit 3 and 4 subject?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "167 enrolments count the 16 double-subject students twice: 167 − 16 = 151 students.",
+      "answers": [
+        {
+          "text": "151",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "122",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "138",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "167",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

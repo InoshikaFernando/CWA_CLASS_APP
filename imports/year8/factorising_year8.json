@@ -1,0 +1,385 @@
+{
+  "subject": "maths",
+  "strand": "Algebra",
+  "topic": "Factorising",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "Fully factorise 3g + 12.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "HCF is 3: 3g + 12 = 3(g + 4).",
+      "answers": [
+        {
+          "text": "3(g + 4)",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "3(g + 12)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "4(g + 3)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "3(g − 4)",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Factorise fully 4x + 8.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "HCF is 4: 4x + 8 = 4(x + 2).",
+      "answers": [
+        {
+          "text": "4(x + 2)",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "4(x + 8)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2(x + 4)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "4(x − 2)",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Factorise 3m + 18.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "HCF is 3: 3m + 18 = 3(m + 6).",
+      "answers": [
+        {
+          "text": "3(m + 6)",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "3(m + 18)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "6(m + 3)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "3(m − 6)",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Factorise 15p + 40.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "HCF of 15 and 40 is 5: 15p + 40 = 5(3p + 8).",
+      "answers": [
+        {
+          "text": "5(3p + 8)",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "3(5p + 8)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "5(3p + 40)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "5(p + 8)",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Fully factorise 12x²y − 18xy.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "HCF is 6xy: 12x²y − 18xy = 6xy(2x − 3).",
+      "answers": [
+        {
+          "text": "6xy(2x − 3)",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "6xy(2x + 3)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "6xy(3 − 2x)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "6x²y(2x − 3)",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "What is the fully factorised form of 14bm² − 7b²m?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "HCF is 7bm: 14bm² − 7b²m = 7bm(2m − b).",
+      "answers": [
+        {
+          "text": "7bm(2m − b)",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "7bm(2b − m)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "7bm(2m + b)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "7bm(m − 2b)",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Factorise fully 9xy² − 12x²y.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "HCF is 3xy: 9xy² − 12x²y = 3xy(3y − 4x).",
+      "answers": [
+        {
+          "text": "3xy(3y − 4x)",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "3xy(4x − 3y)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "3xy(3y + 4x)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "3xy(3x − 4y)",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Factorise 2a²b − 4ab.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "HCF is 2ab: 2a²b − 4ab = 2ab(a − 2).",
+      "answers": [
+        {
+          "text": "2ab(a − 2)",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "2ab(a + 2)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2ab(b − 2)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "2ab(2 − a)",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Fully factorise re²/11 − r²e³/11.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Common factor re²/11: re²/11 − r²e³/11 = re²(1 − re)/11.",
+      "answers": [
+        {
+          "text": "re²(1 − re)/11",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "re²(1 + re)/11",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "re(1 − re²)/11",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "re²(re − 1)/11",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Factorise fully 6x²y² − 8xy³.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "HCF is 2xy²: 6x²y² − 8xy³ = 2xy²(3x − 4y).",
+      "answers": [
+        {
+          "text": "2xy²(3x − 4y)",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "2xy²(3x + 4y)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2x²y(3x − 4y)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "2xy²(4y − 3x)",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Factorise x² − 14x + 49.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "−7 × −7 = +49 and −7 + −7 = −14, so it is the perfect square (x − 7)².",
+      "answers": [
+        {
+          "text": "(x − 7)²",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "(x + 7)²",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "(x − 7)(x + 7)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "(x − 1)(x − 49)",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Factorise completely 3x² + 9x − 12.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Take out 3 first: 3(x² + 3x − 4) = 3(x + 4)(x − 1).",
+      "answers": [
+        {
+          "text": "3(x + 4)(x − 1)",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "3(x − 4)(x + 1)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "(x − 4)(3x + 3)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "3(x + 2)(x − 2)",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "The solutions to the equation x² + 11x − 12 = 0 are:",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Factorise: (x + 12)(x − 1) = 0, so x = −12 or x = 1.",
+      "answers": [
+        {
+          "text": "x = 1 or −12",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "x = 12 or −1",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x = −2 or 6",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x = −6 or 2",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

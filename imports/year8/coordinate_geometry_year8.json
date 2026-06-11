@@ -1,0 +1,95 @@
+{
+  "subject": "maths",
+  "strand": "Algebra",
+  "topic": "Coordinate Geometry",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "A line is drawn on the Cartesian plane. What is its slope when the y-intercept is (0, 6) and the x-intercept is (4, 0)?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Gradient = (0 − 6)/(4 − 0) = −6/4 = −3/2.",
+      "answers": [
+        {
+          "text": "−3/2",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "−2/3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "3/2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "2/3",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Which one of the following are the correct points of intersection for two graphs with the equations y = x² + 3 and y = −4x?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Set x² + 3 = −4x: x² + 4x + 3 = 0, so (x + 1)(x + 3) = 0 and x = −1 or −3. Then y = −4x gives (−1, 4) and (−3, 12).",
+      "answers": [
+        {
+          "text": "(−1, 4) and (−3, 12)",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "(1, −4) and (3, −12)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "(1, −4) and (−3, 12)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "(−2, 4) and (3, −12)",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "The equation of a parabola is y = x². Which of these points will not touch the parabola?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "(−3)² = 9, not 6, so (−3, 6) is not on the parabola. The other points all satisfy y = x².",
+      "answers": [
+        {
+          "text": "(−3, 6)",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "(2, 4)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "(−1, 1)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "(1/2, 1/4)",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

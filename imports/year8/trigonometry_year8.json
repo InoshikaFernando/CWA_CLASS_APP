@@ -1,0 +1,66 @@
+{
+  "subject": "maths",
+  "strand": "Geometry",
+  "topic": "Trigonometry",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "From a hot air balloon, the marked landing site is measured at 10° down from the horizontal (angle of depression). If the hot air balloon's basket is 96 m above the ground, how far horizontally (x) does the balloon need to travel to reach the landing site?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "tan 10° = opposite/adjacent = 96/x, so x = 96/tan 10°.",
+      "answers": [
+        {
+          "text": "x = 96/tan 10°",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "x = 96 tan 10°",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x = 96/cos 10°",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x = 96/sin 10°",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "A right-angled triangle has legs of 5 and 12 and a hypotenuse of 13. The angle θ is between the side of length 5 and the hypotenuse. cos θ =",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "cos θ = adjacent/hypotenuse = 5/13.",
+      "answers": [
+        {
+          "text": "5/13",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "13/5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "12/5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "12/13",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

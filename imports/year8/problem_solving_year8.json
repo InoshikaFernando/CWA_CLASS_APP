@@ -1,0 +1,530 @@
+{
+  "subject": "maths",
+  "strand": "Number",
+  "topic": "Problem Solving",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "Thirty-seven of my sister's friends were asked what type of jewellery they liked. Fourteen said that they only liked gold whilst twelve said that they only wore silver. The others replied that they didn't care what they wore. How many wore some silver?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Everyone except the 14 gold-only friends might wear silver: 37 − 14 = 23 (the 12 silver-only plus the 11 who don't care).",
+      "answers": [
+        {
+          "text": "23",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "24",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "25",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "26",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Red lollies cost 8 cents each and green lollies cost 9 cents each. A bowl contains 25 lollies with both types in it, and the total cost of the lollies is $2.09. How many red and how many green lollies are there?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "If all 25 were green: 25 × 9 = 225c. The total is 209c, which is 16c less; each red lolly saves 1c, so there are 16 red and 9 green.",
+      "answers": [
+        {
+          "text": "red 16, green 9",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "red 9, green 16",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "red 10, green 15",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "red 15, green 10",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "A dam, full of water, holds 60 GL. Reservoir A holds 20 GL and Reservoir B holds 16 GL of water. If the reservoirs are 1/4 full and the dam filled them up, how much water would be left in the dam?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "A needs 3/4 × 20 = 15 GL and B needs 3/4 × 16 = 12 GL. 60 − 15 − 12 = 33 GL.",
+      "answers": [
+        {
+          "text": "33 GL",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "27 GL",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "36 GL",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "24 GL",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "A table of cars shows: Land Rover $40 000 with 4 or 5 seats (including a fitted baby seat); Pajero $38 000 with 6 or 7 seats (including a fitted baby seat); Odyssey $38 000 with 5 seats (no allowance for a baby seat); X-Trail $30 000 with 5 seats (including a fitted baby seat); Sportage $27 000 with 5 seats (no allowance for a baby seat). Which car would be the most economical to buy for a family of five including one baby?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "The family needs 5 seats including a baby seat. The cheapest car that provides that is the X-Trail at $30 000.",
+      "answers": [
+        {
+          "text": "X-Trail",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "Pajero",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "Odyssey",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "Land Rover",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Using the same car table (Land Rover $40 000, up to 5 seats; Pajero $38 000, up to 7 seats; Odyssey $38 000, 5 seats; X-Trail $30 000, 5 seats; Sportage $27 000, 5 seats), which car would be the most expensive car per seat?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Cost per seat: Land Rover 40000/5 = $8 000, Odyssey 38000/5 = $7 600, X-Trail $6 000, Sportage $5 400, Pajero 38000/7 ≈ $5 429. The Land Rover is the most expensive per seat.",
+      "answers": [
+        {
+          "text": "Land Rover",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "Sportage",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "Odyssey",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "Pajero",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Eddie and three friends are going to a café. Eddie leaves home and drives 4 km east and 4 km south to Chris's house. They then drive 6 km north and 2 km west to pick up Sophie and James from work. They all then drive 4 km south to the café. Who was closest to the café?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Taking Eddie's home as (0, 0): Chris is at (4, −4), the workplace at (2, 2) and the café at (2, −2). Eddie's home and Chris's house are both √8 ≈ 2.8 km from the café; the workplace is 4 km away. Eddie and Chris tie.",
+      "answers": [
+        {
+          "text": "Eddie and Chris",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "Sophie and James",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "Eddie",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "Chris",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Frank was mowing a lawn. In one hour he finished 20%. In the hours following, he completed 50% of the remaining lawn per hour. For how many hours was Frank mowing until he got to the last 10% of the lawn?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "After hour 1: 80% left. Hour 2: 40% left. Hour 3: 20% left. Hour 4: 10% left. So 4 hours.",
+      "answers": [
+        {
+          "text": "4 hours",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "1 hour",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2 hours",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "3 hours",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Remi plans a holiday with these expenses: flights and insurance $800; accommodation $40 per night; food $450; activities $1 500; spending money $180. She arrives in the afternoon on Saturday 3 August and leaves at midday on Sunday 18 August (15 nights). What is the total cost of the holiday?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Accommodation = 15 × 40 = $600. Total = 800 + 600 + 450 + 1500 + 180 = $3 530.",
+      "answers": [
+        {
+          "text": "$3 530",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$2 970",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$9 340",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$9 830",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "At the time of Remi's planning, 1 Australian dollar = 9 936 Indonesian rupiah (IDR). How much is Remi's $180 spending money worth in IDR?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "180 × 9 936 = 1 788 480 IDR.",
+      "answers": [
+        {
+          "text": "1 788 480 IDR",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "10 143 IDR",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "993 600 IDR",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "4 471 200 IDR",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "A hair salon books 'cut only' appointments of 30 min (short hair), 45 min (medium) and 1 h (long). In one day the salon booked 8 clients with short hair, 12 with medium hair and 4 with long hair, and one-quarter of the clients within each group had a 'cut only' booking. What was the total time booked for 'cut only' appointments?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Cut-only clients: 2 short, 3 medium, 1 long. 2 × 30 + 3 × 45 + 1 × 60 = 60 + 135 + 60 = 255 min = 4 h 15 min.",
+      "answers": [
+        {
+          "text": "4 h 15 min",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "6 h",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "11 h 30 min",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "12 h 45 min",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "At the same salon, 'cut and colour' appointments take 1 h 30 min (short hair), 2 h (medium) or 2 h 30 min (long). A hairdresser works a 12-hour shift with 2 hours of breaks and no overlapping appointments. What is the maximum number of 'cut and colour' appointments the hairdresser can fit into the shift?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Working time = 10 h. The shortest appointment is 1.5 h: 10 ÷ 1.5 = 6.7, so at most 6 appointments.",
+      "answers": [
+        {
+          "text": "6",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "8",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "In Mölkky, skittles are numbered 1 to 12. If exactly one skittle is knocked over, the points scored equal the number on the skittle; if two or more are knocked over, the points equal the number of skittles knocked over. A player throws three times: first knocking over skittles 1, 3 and 7; then the skittle numbered 12; then skittles 4 and 5. What is the player's total score?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Throw 1: three skittles = 3 points. Throw 2: one skittle = 12 points. Throw 3: two skittles = 2 points. Total = 3 + 12 + 2 = 17.",
+      "answers": [
+        {
+          "text": "17",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "6",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "24",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "32",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "In Mölkky (max 12 points per throw), a player wins by reaching exactly 50 points; going over 50 drops them back to 25. Consider these statements — Statement 1: a player with 38 points cannot reach exactly 50 on their next throw. Statement 2: a player with 49 points must exceed 50 on their next throw. Statement 3: it is impossible to win with exactly four throws. Which statements are always true?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "1 is false (knocking over only skittle 12 gives 38 + 12 = 50). 2 is false (knocking over only skittle 1 gives exactly 50). 3 is true: the maximum per throw is 12, and 4 × 12 = 48 < 50.",
+      "answers": [
+        {
+          "text": "Statement 3 only",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "Statements 1 and 2",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "Statements 1 and 3",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "Statement 2 only",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "PV Power pays a solar feed-in tariff of 12c/kWh for the first 14 kWh per day and 4.9c/kWh thereafter. On one day a household feeds 21 kWh back into the grid. What is the total amount PV Power credits the household for this day?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "14 × 12c = 168c, plus 7 × 4.9c = 34.3c. Total ≈ $2.02.",
+      "answers": [
+        {
+          "text": "$2.02",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$1.68",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$2.52",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$5.11",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Four solar feed-in tariffs are offered: PV Power 12c/kWh for the first 14 kWh per day then 4.9c/kWh; Saber Solar 15c/kWh for the first 15 kWh per day then 5.4c/kWh, up to a maximum of $650 per year; Greenewable Plus 7c/kWh up to a maximum of $800 per year; Panel Plus Solar 5.4c/kWh with no conditions. A household feeds in 17 kWh per day. Which company would provide the greatest credit for one year?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Per day: PV Power 14×12 + 3×4.9 = 182.7c → $666.86/yr. Saber 15×15 + 2×5.4 = 235.8c → $860.67 but capped at $650. Greenewable 17×7 = 119c → $434.35. Panel Plus 17×5.4 = 91.8c → $335.07. PV Power pays the most.",
+      "answers": [
+        {
+          "text": "PV Power",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "Saber Solar",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "Greenewable Plus",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "Panel Plus Solar",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "People donate $1 each to play a charity game. For each winner, $3 is given to a wildlife shelter, and whatever money is left over goes to the school breakfast club. At a fair, 100 people play and 20 of them win. How much money was given to the school breakfast club?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Collected $100; the shelter receives 20 × $3 = $60; the club gets the remaining $40.",
+      "answers": [
+        {
+          "text": "$40",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$20",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$60",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$100",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "A meeting must start between 5 am and 10 pm in each participant's local time. When it is 8 am on 27 June in Melbourne, it is 4 pm on 26 June in Mexico City and 11 pm on 26 June in London. Possible start times are: I — 7 am Melbourne time; II — 3 pm Melbourne time; III — 9 pm Melbourne time. Which of the times meet the criteria?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Mexico City is 16 h behind Melbourne and London is 9 h behind. I: 7 am Mel = 3 pm Mexico, 10 pm London — all OK. II: 3 pm Mel = 11 pm Mexico — too late. III: 9 pm Mel = 5 am Mexico, 12 pm London — all OK.",
+      "answers": [
+        {
+          "text": "I and III only",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "I only",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "II only",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "I and II only",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "At a school, Unit 3 and 4 Biology has 115 students enrolled and Unit 3 and 4 General Mathematics has 135. The maximum class size is 25, and both subjects were timetabled with the minimum allowable number of classes. What was the total number of classes run for the two subjects?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Biology: 115 ÷ 25 = 4.6 → 5 classes. General Maths: 135 ÷ 25 = 5.4 → 6 classes. Total = 11.",
+      "answers": [
+        {
+          "text": "11",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "10",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

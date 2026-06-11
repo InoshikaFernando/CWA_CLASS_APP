@@ -380,6 +380,2355 @@
           "order": 3
         }
       ]
+    },
+    {
+      "question_text": "Solve 3n + 4 = 19.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Subtract 4: 3n = 15, so n = 15 ÷ 3 = 5.",
+      "answers": [
+        {
+          "text": "5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "6",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 4n + 5 = 13.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Subtract 5: 4n = 8, so n = 8 ÷ 4 = 2.",
+      "answers": [
+        {
+          "text": "2",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "1",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 4n − 3 = 25.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Add 3: 4n = 28, so n = 28 ÷ 4 = 7.",
+      "answers": [
+        {
+          "text": "7",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "8",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "6",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "9",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 2n + 6 = 18.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Subtract 6: 2n = 12, so n = 12 ÷ 2 = 6.",
+      "answers": [
+        {
+          "text": "6",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "8",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 3n − 2 = 16.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Add 2: 3n = 18, so n = 18 ÷ 3 = 6.",
+      "answers": [
+        {
+          "text": "6",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "8",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 5n + 4 = 34.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Subtract 4: 5n = 30, so n = 30 ÷ 5 = 6.",
+      "answers": [
+        {
+          "text": "6",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "8",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 3n + 7 = 19.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Subtract 7: 3n = 12, so n = 12 ÷ 3 = 4.",
+      "answers": [
+        {
+          "text": "4",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "3",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "6",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 5n − 6 = 14.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Add 6: 5n = 20, so n = 20 ÷ 5 = 4.",
+      "answers": [
+        {
+          "text": "4",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "3",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "6",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 3n − 3 = 21.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Add 3: 3n = 24, so n = 24 ÷ 3 = 8.",
+      "answers": [
+        {
+          "text": "8",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "9",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "10",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 3n + 2 = 17.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Subtract 2: 3n = 15, so n = 15 ÷ 3 = 5.",
+      "answers": [
+        {
+          "text": "5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "6",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 4n + 6 = 14.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Subtract 6: 4n = 8, so n = 8 ÷ 4 = 2.",
+      "answers": [
+        {
+          "text": "2",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "1",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 6n + 5 = 41.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Subtract 5: 6n = 36, so n = 36 ÷ 6 = 6.",
+      "answers": [
+        {
+          "text": "6",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "8",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 5n − 3 = 7.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Add 3: 5n = 10, so n = 10 ÷ 5 = 2.",
+      "answers": [
+        {
+          "text": "2",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "1",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 3n − 4 = 11.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Add 4: 3n = 15, so n = 15 ÷ 3 = 5.",
+      "answers": [
+        {
+          "text": "5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "6",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 7n + 3 = 24.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Subtract 3: 7n = 21, so n = 21 ÷ 7 = 3.",
+      "answers": [
+        {
+          "text": "3",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "5",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 2x − 3 = 2.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Add 3: 2x = 5, so x = 5/2 = 2.5.",
+      "answers": [
+        {
+          "text": "2.5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "3.5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "1.5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "4.5",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 15 = 4x + 3.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Subtract 3: 12 = 4x, so x = 12 ÷ 4 = 3.",
+      "answers": [
+        {
+          "text": "3",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "5",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 2x = 15.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Divide by 2: x = 15/2 = 7.5.",
+      "answers": [
+        {
+          "text": "7.5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "8.5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "6.5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "9.5",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 15 = 6 + x.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Subtract 6: x = 15 − 6 = 9.",
+      "answers": [
+        {
+          "text": "9",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "10",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "8",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "11",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 4x − 7 = 13.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Add 7: 4x = 20, so x = 20 ÷ 4 = 5.",
+      "answers": [
+        {
+          "text": "5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "6",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve x/5 = 12.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Multiply both sides by 5: x = 12 × 5 = 60.",
+      "answers": [
+        {
+          "text": "60",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "61",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "59",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "62",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 2x + 7 = 19.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Subtract 7: 2x = 12, so x = 12 ÷ 2 = 6.",
+      "answers": [
+        {
+          "text": "6",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "8",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 2 = p − 8.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Add 8 to both sides: p = 2 + 8 = 10.",
+      "answers": [
+        {
+          "text": "10",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "11",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "9",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "12",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 20y + 1 = 11.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Subtract 1: 20y = 10, so y = 10/20 = 0.5.",
+      "answers": [
+        {
+          "text": "0.5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "1.5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "-0.5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "2.5",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 9 = x − 6.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Add 6 to both sides: x = 9 + 6 = 15.",
+      "answers": [
+        {
+          "text": "15",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "16",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "14",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "17",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 4x = 20.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Divide by 4: x = 20 ÷ 4 = 5.",
+      "answers": [
+        {
+          "text": "5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "6",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 2x − 7 = 8.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Add 7: 2x = 15, so x = 15/2 = 7.5.",
+      "answers": [
+        {
+          "text": "7.5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "8.5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "6.5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "9.5",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 11 = x + 3.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Subtract 3: x = 11 − 3 = 8.",
+      "answers": [
+        {
+          "text": "8",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "9",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "10",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 5x = 60.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Divide by 5: x = 60 ÷ 5 = 12.",
+      "answers": [
+        {
+          "text": "12",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "13",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "11",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "14",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 7n + 3 = 3n + 27.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract 3n: 4n + 3 = 27, so 4n = 24 and n = 6.",
+      "answers": [
+        {
+          "text": "6",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "8",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 7n + 5 = 5n + 25.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract 5n: 2n + 5 = 25, so 2n = 20 and n = 10.",
+      "answers": [
+        {
+          "text": "10",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "11",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "9",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "12",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 10n + 2 = 7n + 14.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract 7n: 3n + 2 = 14, so 3n = 12 and n = 4.",
+      "answers": [
+        {
+          "text": "4",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "3",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "6",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 5n + 4 = 2n + 22.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract 2n: 3n + 4 = 22, so 3n = 18 and n = 6.",
+      "answers": [
+        {
+          "text": "6",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "8",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 6n + 8 = 2n + 36.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract 2n: 4n + 8 = 36, so 4n = 28 and n = 7.",
+      "answers": [
+        {
+          "text": "7",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "8",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "6",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "9",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 7n − 3 = 4n + 12.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract 4n: 3n − 3 = 12, so 3n = 15 and n = 5.",
+      "answers": [
+        {
+          "text": "5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "6",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 5n − 2 = n + 10.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract n: 4n − 2 = 10, so 4n = 12 and n = 3.",
+      "answers": [
+        {
+          "text": "3",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "5",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 9n − 7 = 5n + 13.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract 5n: 4n − 7 = 13, so 4n = 20 and n = 5.",
+      "answers": [
+        {
+          "text": "5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "6",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 11n − 9 = 5n + 27.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract 5n: 6n − 9 = 27, so 6n = 36 and n = 6.",
+      "answers": [
+        {
+          "text": "6",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "8",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 5n − 10 = 3n + 50.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract 3n: 2n − 10 = 50, so 2n = 60 and n = 30.",
+      "answers": [
+        {
+          "text": "30",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "31",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "29",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "32",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 8n − 3 = 2n + 39.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract 2n: 6n − 3 = 39, so 6n = 42 and n = 7.",
+      "answers": [
+        {
+          "text": "7",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "8",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "6",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "9",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 9n + 14 = 6n + 29.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract 6n: 3n + 14 = 29, so 3n = 15 and n = 5.",
+      "answers": [
+        {
+          "text": "5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "6",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 10n + 17 = 3n + 52.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract 3n: 7n + 17 = 52, so 7n = 35 and n = 5.",
+      "answers": [
+        {
+          "text": "5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "6",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 5n − 16 = n + 20.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract n: 4n − 16 = 20, so 4n = 36 and n = 9.",
+      "answers": [
+        {
+          "text": "9",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "10",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "8",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "11",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 3n + 3 = 2n + 8.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract 2n: n + 3 = 8, so n = 5.",
+      "answers": [
+        {
+          "text": "5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "6",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 8k − 1 = 17.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Add 1: 8k = 18, so k = 18/8 = 2.25.",
+      "answers": [
+        {
+          "text": "2.25",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "3.25",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "1.25",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "4.25",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 2m + 5 = 10.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Subtract 5: 2m = 5, so m = 5/2 = 2.5.",
+      "answers": [
+        {
+          "text": "2.5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "3.5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "1.5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "4.5",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 3t + 4 = t + 13.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract t: 2t + 4 = 13, so 2t = 9 and t = 4.5.",
+      "answers": [
+        {
+          "text": "4.5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "5.5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "3.5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "6.5",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 2y + 11 = 17.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Subtract 11: 2y = 6, so y = 3.",
+      "answers": [
+        {
+          "text": "3",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "5",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 9y + 3 = 5y + 13.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract 5y: 4y + 3 = 13, so 4y = 10 and y = 2.5.",
+      "answers": [
+        {
+          "text": "2.5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "3.5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "1.5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "4.5",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 7 + 5k = 8k + 1.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract 5k: 7 = 3k + 1, so 3k = 6 and k = 2.",
+      "answers": [
+        {
+          "text": "2",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "1",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 10y + 23 = 4y + 26.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract 4y: 6y + 23 = 26, so 6y = 3 and y = 0.5.",
+      "answers": [
+        {
+          "text": "0.5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "1.5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "-0.5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "2.5",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 4y = 2y + 13.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract 2y: 2y = 13, so y = 13/2 = 6.5.",
+      "answers": [
+        {
+          "text": "6.5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "7.5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "5.5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "8.5",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 3y + 10 = 2y + 7.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract 2y: y + 10 = 7, so y = 7 − 10 = −3.",
+      "answers": [
+        {
+          "text": "-3",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "-2",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "-4",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "-1",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 4y − 3 = 2y + 27.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract 2y: 2y − 3 = 27, so 2y = 30 and y = 15.",
+      "answers": [
+        {
+          "text": "15",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "16",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "14",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "17",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 3x − 4 = x + 5.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract x: 2x − 4 = 5, so 2x = 9 and x = 4.5.",
+      "answers": [
+        {
+          "text": "4.5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "5.5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "3.5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "6.5",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve x/5 = 15.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Multiply both sides by 5: x = 15 × 5 = 75.",
+      "answers": [
+        {
+          "text": "75",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "76",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "74",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "77",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 3x + 13 = 2(x + 9).",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Expand: 3x + 13 = 2x + 18. Subtract 2x: x + 13 = 18, so x = 5.",
+      "answers": [
+        {
+          "text": "5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "6",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 5x − 2 = 3x + 12.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract 3x: 2x − 2 = 12, so 2x = 14 and x = 7.",
+      "answers": [
+        {
+          "text": "7",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "8",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "6",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "9",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 2(2x + 3) = x − 13.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Expand: 4x + 6 = x − 13. Subtract x: 3x + 6 = −13, so 3x = −19 and x = −19/3.",
+      "answers": [
+        {
+          "text": "-19/3",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "-16/3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "-22/3",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "-13/3",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve (10 + 2x)/3 = 4.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Multiply by 3: 10 + 2x = 12, so 2x = 2 and x = 1.",
+      "answers": [
+        {
+          "text": "1",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "2",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "0",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "3",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve (9x − 15)/4 = 3.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Multiply by 4: 9x − 15 = 12, so 9x = 27 and x = 3.",
+      "answers": [
+        {
+          "text": "3",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "5",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 3(2x − 5) = 2(x − 4).",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Expand: 6x − 15 = 2x − 8. Subtract 2x: 4x = 7, so x = 7/4.",
+      "answers": [
+        {
+          "text": "1.75",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "2.75",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "0.75",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "3.75",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve x/5 = 7.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Multiply both sides by 5: x = 7 × 5 = 35.",
+      "answers": [
+        {
+          "text": "35",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "36",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "34",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "37",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve (10 + 2x)/3 = 7.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Multiply by 3: 10 + 2x = 21, so 2x = 11 and x = 5.5.",
+      "answers": [
+        {
+          "text": "5.5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "6.5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "4.5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "7.5",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 3(2x + 4) = x − 13.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Expand: 6x + 12 = x − 13. Subtract x: 5x = −25, so x = −5.",
+      "answers": [
+        {
+          "text": "-5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "-4",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "-6",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "-3",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve (9x − 15)/4 = x.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Multiply by 4: 9x − 15 = 4x, so 5x = 15 and x = 3.",
+      "answers": [
+        {
+          "text": "3",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "5",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 3(2x − 1) − 2(x − 4) = 19.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Expand: 6x − 3 − 2x + 8 = 19, so 4x + 5 = 19, 4x = 14 and x = 3.5.",
+      "answers": [
+        {
+          "text": "3.5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "4.5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2.5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "5.5",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve (9x − 15)/4 = 2x + 3.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Multiply by 4: 9x − 15 = 8x + 12. Subtract 8x: x = 27.",
+      "answers": [
+        {
+          "text": "27",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "28",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "26",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "29",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 4(2x − 3) = 2(x − 4).",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Expand: 8x − 12 = 2x − 8. Subtract 2x: 6x = 4, so x = 2/3.",
+      "answers": [
+        {
+          "text": "2/3",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "5/3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "-1/3",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "8/3",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve e + e + e + e + e = 45.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "5e = 45, so e = 45 ÷ 5 = 9.",
+      "answers": [
+        {
+          "text": "9",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "10",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "8",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "11",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 18 − x = 13.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "x = 18 − 13 = 5.",
+      "answers": [
+        {
+          "text": "5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "6",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 2(y − 5) = 24.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Divide by 2: y − 5 = 12, so y = 17.",
+      "answers": [
+        {
+          "text": "17",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "18",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "16",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "19",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 5x = 45.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Divide by 5: x = 45 ÷ 5 = 9.",
+      "answers": [
+        {
+          "text": "9",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "10",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "8",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "11",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve w − 8 = 20.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Add 8: w = 20 + 8 = 28.",
+      "answers": [
+        {
+          "text": "28",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "29",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "27",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "30",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve t/7 = 5.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Multiply both sides by 7: t = 5 × 7 = 35.",
+      "answers": [
+        {
+          "text": "35",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "36",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "34",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "37",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 4x − 9 = 41.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Add 9: 4x = 50, so x = 50/4 = 12.5.",
+      "answers": [
+        {
+          "text": "12.5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "13.5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "11.5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "14.5",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 3(x − 2) = x + 7.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Expand: 3x − 6 = x + 7. Subtract x: 2x = 13, so x = 6.5.",
+      "answers": [
+        {
+          "text": "6.5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "7.5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "5.5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "8.5",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve x − 5 = 17.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Add 5: x = 17 + 5 = 22.",
+      "answers": [
+        {
+          "text": "22",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "23",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "21",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "24",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve m/3 = 6.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Multiply both sides by 3: m = 6 × 3 = 18.",
+      "answers": [
+        {
+          "text": "18",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "19",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "17",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "20",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve 5y + 7 = 24.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract 7: 5y = 17, so y = 17/5 = 3.4.",
+      "answers": [
+        {
+          "text": "3.4",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "4.4",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2.4",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "5.4",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Solve (2y − 4)/3 = (4 − 2y)/4.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Cross-multiply: 4(2y − 4) = 3(4 − 2y), so 8y − 16 = 12 − 6y, 14y = 28 and y = 2.",
+      "answers": [
+        {
+          "text": "2",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "-2/7",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "8",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "14",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
     }
   ]
 }

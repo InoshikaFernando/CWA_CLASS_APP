@@ -1,0 +1,124 @@
+{
+  "subject": "maths",
+  "strand": "Number",
+  "topic": "Surds",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "Name the smallest surd in this group: 7√3, 5√7, 4√8, 9√2.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Square each: 7√3 → 147, 5√7 → 175, 4√8 → 128, 9√2 → 162. The smallest is 4√8.",
+      "answers": [
+        {
+          "text": "4√8",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "7√3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "9√2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "5√7",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Rationalise 5√2/√3.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Multiply top and bottom by √3: 5√2 × √3/3 = 5√6/3.",
+      "answers": [
+        {
+          "text": "5√6/3",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "5√6/9",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "6√5/3",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "10/3",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify √((2√3)² + (2√15)²).",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "(2√3)² = 12 and (2√15)² = 60, so √(12 + 60) = √72 = 6√2.",
+      "answers": [
+        {
+          "text": "6√2",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "6√3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "12√2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "√60",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Which one of the following is a surd?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "√169 = 13, √2500 = 50 and ∛1000 = 10 are all whole numbers; √4000 is irrational, so it is a surd.",
+      "answers": [
+        {
+          "text": "√4000",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "√169",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "√2500",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "∛1000",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+{
+  "subject": "maths",
+  "strand": "Statistics and Probability",
+  "topic": "Probability",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "Two dice are thrown. What is the probability, in lowest terms, of the two numbers adding up to ten?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "The combinations are (4,6), (5,5) and (6,4): 3 out of 36 = 1/12.",
+      "answers": [
+        {
+          "text": "1/12",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "1/9",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "1/6",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "5/36",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Two traffic lights, A and B, are on a stretch of road. When light A is red, light B is green 90% of the time. When light A is green, light B is green 70% of the time. Light A is equally likely to be green or red. What is the chance of light B being green?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "0.5 × 90% + 0.5 × 70% = 45% + 35% = 80%.",
+      "answers": [
+        {
+          "text": "80%",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "50%",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "70%",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "90%",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "In a charity game, players roll a die and select a card from a deck. For every player who rolls an odd number (chance 1/2) and then selects a face card (chance 3/13), $3 is given to a wildlife shelter. 260 people play. What is the best estimate of the amount given to the wildlife shelter?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Expected winners = 260 × 1/2 × 3/13 = 30. Amount = 30 × $3 = $90.",
+      "answers": [
+        {
+          "text": "$90",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$130",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$180",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$210",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

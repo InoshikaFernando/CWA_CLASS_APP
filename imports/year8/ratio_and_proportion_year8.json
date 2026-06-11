@@ -61,6 +61,238 @@
           "order": 3
         }
       ]
+    },
+    {
+      "question_text": "The ratio of the population of three country towns A, B and C is 7 : 3 : 2 respectively. If the total population of the three towns is 84 000, find the population of town A.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Total parts = 12, so one part = 84 000 ÷ 12 = 7 000. Town A = 7 × 7 000 = 49 000.",
+      "answers": [
+        {
+          "text": "49 000",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "4 900",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "70 000",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "12 000",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "A fertiliser contains 15.05 g of nitrogen in every 100 mL. How many grams of nitrogen are present in a 2 L bottle of this fertiliser?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "2 L = 2 000 mL = 20 lots of 100 mL, so 20 × 15.05 g = 301.00 g.",
+      "answers": [
+        {
+          "text": "301.00 g",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "15.05 g",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "30.10 g",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "150.50 g",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "A fertiliser contains 1.15 g of phosphorus and 8.03 g of potassium in every 100 mL. A drum of the fertiliser contains 50 g of phosphorus. Which of the following is closest to the mass of potassium in the drum?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Volume = 50 ÷ 1.15 × 100 ≈ 4 348 mL. Potassium = 43.48 × 8.03 ≈ 349 g.",
+      "answers": [
+        {
+          "text": "349 g",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "402 g",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "462 g",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "623 g",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "A smartphone screen has an aspect ratio (width : height) of 6 : 13. The width of the screen is 2340 pixels. What is the height of the screen in pixels?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Height = 2340 × 13/6 = 390 × 13 = 5070 pixels.",
+      "answers": [
+        {
+          "text": "5070",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "1620",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "1080",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "5200",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "A screen with a resolution of 2160 × 1440 (width × height) and another screen with a resolution of 5120 × 1440 are both 28.62 cm high, with square pixels of the same size. What is the difference in the width of the two screens?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Each pixel is 28.62 ÷ 1440 = 0.019875 cm. Width difference = (5120 − 2160) × 0.019875 = 2960 × 0.019875 = 58.83 cm.",
+      "answers": [
+        {
+          "text": "58.83 cm",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "27.81 cm",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "42.93 cm",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "101.76 cm",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "A concrete pre-mix contains only cement, sand and stone in a ratio of 1 : 1 : 2. For every 1 scoop of cement in the pre-mix, 0.45 L of water is needed. What is the approximate volume of water needed to make 5 scoops of pre-mix into concrete?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Cement is 1/4 of the mix: 5 × 1/4 = 1.25 scoops. Water = 1.25 × 0.45 = 0.5625 ≈ 0.56 L.",
+      "answers": [
+        {
+          "text": "0.56 L",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "0.75 L",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2.78 L",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "3.70 L",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "A pet medicine comes in 15 mL bottles and contains 0.5 mg of active ingredient per millilitre. Each dose needs 0.1 mg of active ingredient per kilogram of the pet's mass. A dog is given 12 equal doses that use up exactly two entire bottles. What is the mass of the dog?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Two bottles = 30 mL = 15 mg of active ingredient. Each dose = 15 ÷ 12 = 1.25 mg. Mass = 1.25 ÷ 0.1 = 12.5 kg.",
+      "answers": [
+        {
+          "text": "12.5 kg",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "6.25 kg",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "12.0 kg",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "50.0 kg",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "A pet medicine contains 0.5 mg of active ingredient per millilitre. Each dose needs 0.1 mg of active ingredient per kilogram of the pet's mass. How much medicine does a 2.5 kg cat need in each dose?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Active ingredient needed = 2.5 × 0.1 = 0.25 mg. Volume = 0.25 ÷ 0.5 = 0.5 mL.",
+      "answers": [
+        {
+          "text": "0.5 mL",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "0.2 mL",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "0.25 mL",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "1 mL",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
     }
   ]
 }

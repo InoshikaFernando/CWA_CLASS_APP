@@ -1,0 +1,124 @@
+{
+  "subject": "maths",
+  "strand": "Algebra",
+  "topic": "Substitution",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "When x = 5, work out the value of 2x + 13.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "2 × 5 + 13 = 10 + 13 = 23.",
+      "answers": [
+        {
+          "text": "23",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "33",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "18",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "38",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "When x = 5, work out the value of 5x − 5.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "5 × 5 − 5 = 25 − 5 = 20.",
+      "answers": [
+        {
+          "text": "20",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "25",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "0",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "45",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "When x = 5, work out the value of 3 + 6x.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "3 + 6 × 5 = 3 + 30 = 33.",
+      "answers": [
+        {
+          "text": "33",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "45",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "27",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "30",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "If a = 5, b = 6 and c = 10, which one of the equations below is incorrect?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "(a + b)² − 12c = 121 − 120 = 1, but a − b = 5 − 6 = −1, so it is incorrect. The others check out: 30 + 30 = 60, √225 = 15 = 3 × 5, and (−1)² = 1 = 10/10.",
+      "answers": [
+        {
+          "text": "(a + b)² − 12c = a − b",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "6a + 5b = 6c",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "√(15(a + c)) = 3(b − 1)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "(a − b)² = c/10",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

@@ -133,6 +133,35 @@
           "order": 2
         }
       ]
+    },
+    {
+      "question_text": "Calculate 27.003 − 13.105.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "27.003 − 13.105 = 13.898 (borrow through the zeros: 27.003 − 13 = 14.003, then subtract 0.105).",
+      "answers": [
+        {
+          "text": "13.898",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "13.989",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "13.889",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "13.988",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
     }
   ]
 }

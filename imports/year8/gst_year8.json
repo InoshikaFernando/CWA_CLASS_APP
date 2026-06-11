@@ -1,0 +1,530 @@
+{
+  "subject": "maths",
+  "strand": "Number",
+  "topic": "GST",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "Noah bought a pair of shoes for $418, which included a 10% GST. What was the cost of the shoes before GST?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "The price including GST is 110% of the pre-GST price: 418 ÷ 1.1 = $380.",
+      "answers": [
+        {
+          "text": "$380",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$376.20",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$38",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$399",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Stella purchased a new smartwatch for $627, including a 10% GST. What was the price of the smartwatch before GST?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "627 ÷ 1.1 = $570. (Subtracting 10% of $627 gives the wrong answer.)",
+      "answers": [
+        {
+          "text": "$570",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$564.30",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$57",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$598.50",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Chase bought a set of headphones for $533.50, including a 10% GST. What was the pre-GST price of the headphones?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "533.50 ÷ 1.1 = $485.",
+      "answers": [
+        {
+          "text": "$485",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$480.15",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$48.50",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$509.25",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Kaan purchased a tablet for $1080.75, which included a 10% GST. What was the tablet's price before GST?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "1080.75 ÷ 1.1 = $982.50.",
+      "answers": [
+        {
+          "text": "$982.50",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$972.68",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$98.25",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$1031.63",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Luke bought a digital camera for $1414.60, and the price included a 10% GST. What was the original price of the camera before GST?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "1414.60 ÷ 1.1 = $1286.",
+      "answers": [
+        {
+          "text": "$1286",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$1273.14",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$128.60",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$1350.30",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Phillip bought a new laptop priced at $2457.40, which includes a 10% GST. How much did Phillip pay in GST?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "For a 10% GST, the GST is 1/11 of the total: 2457.40 ÷ 11 = $223.40. (10% of the total, $245.74, is the classic wrong answer.)",
+      "answers": [
+        {
+          "text": "$223.40",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$245.74",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$111.70",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$335.10",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Sophie purchased a gaming console for $550, and this amount includes a 10% GST. What was the GST amount Sophie paid?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "GST = 550 ÷ 11 = $50.",
+      "answers": [
+        {
+          "text": "$50",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$55",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$25",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$75",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Oliver bought a bicycle for $719.81, with the total cost including a 10% GST. How much of that was GST?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "GST = 719.81 ÷ 11 = $65.4373… ≈ $65.44.",
+      "answers": [
+        {
+          "text": "$65.44",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$71.98",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$32.72",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$98.16",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Amelia purchased a tote bag for $30.80, which had a 10% GST included. What is the GST portion of the price Amelia paid?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "GST = 30.80 ÷ 11 = $2.80.",
+      "answers": [
+        {
+          "text": "$2.80",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$3.08",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$1.40",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$4.20",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Jack bought a pair of shoes for $1927.20, where the price includes a 10% GST. How much GST was included in the amount Jack paid?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "GST = 1927.20 ÷ 11 = $175.20.",
+      "answers": [
+        {
+          "text": "$175.20",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$192.72",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$87.60",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$262.80",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Calculate the GST payable on a pack of corn chips with a pre-GST price of $3.75.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "GST = 10% of 3.75 = $0.375, which rounds to $0.38.",
+      "answers": [
+        {
+          "text": "$0.38",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$0.34",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$0.75",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$0.19",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Calculate the GST payable on 30 cans of soft drink with a pre-GST price of $19.85.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "GST = 10% of 19.85 = $1.985, which rounds to $1.99.",
+      "answers": [
+        {
+          "text": "$1.99",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$1.80",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$3.97",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$0.99",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Calculate the GST payable on an Apple Watch with a pre-GST price of $429.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "GST = 10% of 429 = $42.90.",
+      "answers": [
+        {
+          "text": "$42.90",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$39",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$85.80",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$21.45",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Calculate the GST payable on a Samsung Galaxy Tablet with a pre-GST price of $379.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "GST = 10% of 379 = $37.90.",
+      "answers": [
+        {
+          "text": "$37.90",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$34.45",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$75.80",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$18.95",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "What is the final price of a bike with a pre-GST price of $129 after the 10% GST is added?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Final price = 129 × 1.1 = $141.90.",
+      "answers": [
+        {
+          "text": "$141.90",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$139",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$154.80",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$135.45",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "What is the final price of a basketball with a pre-GST price of $29 after the 10% GST is added?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Final price = 29 × 1.1 = $31.90.",
+      "answers": [
+        {
+          "text": "$31.90",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$39",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$34.80",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$30.45",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "What is the final price of a 4K UHD TV with a pre-GST price of $1448 after the 10% GST is added?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Final price = 1448 × 1.1 = $1592.80.",
+      "answers": [
+        {
+          "text": "$1592.80",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$1458",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$1737.60",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$1520.40",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "What is the final price of an iPhone with a pre-GST price of $1568 after the 10% GST is added?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Final price = 1568 × 1.1 = $1724.80.",
+      "answers": [
+        {
+          "text": "$1724.80",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$1578",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$1881.60",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$1646.40",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

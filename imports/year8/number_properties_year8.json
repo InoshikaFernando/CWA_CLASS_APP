@@ -1,0 +1,95 @@
+{
+  "subject": "maths",
+  "strand": "Number",
+  "topic": "Number Properties",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "What is the lowest common multiple of 15 and 12?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Multiples of 15: 15, 30, 45, 60… Multiples of 12: 12, 24, 36, 48, 60… The lowest in common is 60.",
+      "answers": [
+        {
+          "text": "60",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "90",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "180",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Which one of these is always even?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "An even number times any whole number is even. odd + even is odd, odd × odd is odd, and negative × positive can be either.",
+      "answers": [
+        {
+          "text": "even × even",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "negative × positive",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "odd + even",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "odd × odd",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Write the equivalent of 1783 (base 10) in base 6.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "1783 = 1×1296 + 2×216 + 1×36 + 3×6 + 1, so 12131 in base 6.",
+      "answers": [
+        {
+          "text": "12 131",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "12 415",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "12 215",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "12 315",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

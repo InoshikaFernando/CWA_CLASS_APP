@@ -1,0 +1,95 @@
+{
+  "subject": "maths",
+  "strand": "Geometry",
+  "topic": "Measurement",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "On a flight, Remi may take up to 23 kg of checked luggage and 7 kg of carry-on luggage. Her suitcase is 1.7 kg when empty and her carry-on bag is 600 g when empty. What is the total maximum, in kilograms, that Remi is allowed to pack inside her suitcase and carry-on bag?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Suitcase: 23 − 1.7 = 21.3 kg. Carry-on: 7 − 0.6 = 6.4 kg. Total = 27.7 kg.",
+      "answers": [
+        {
+          "text": "27.70 kg",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "28.24 kg",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "28.30 kg",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "30.00 kg",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "One bag of concrete pre-mix makes 0.01 m³ of concrete. A rectangular frame 0.1 m deep with side lengths of 2 m and 3 m is filled to the top. How many bags of pre-mix are needed?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Volume = 2 × 3 × 0.1 = 0.6 m³. Bags = 0.6 ÷ 0.01 = 60.",
+      "answers": [
+        {
+          "text": "60",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "12",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "20",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "A parcel company defines girth = 2 × (width + height), using the two shortest sides, and allows a maximum girth of 140 cm. Four model boxes are all 25 cm high: treehouse 20 cm wide × 60 cm long; car 35 cm × 70 cm; jet 45 cm × 60 cm; ferris wheel 55 cm × 55 cm. Which models are allowed to be delivered?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Girths: treehouse 2(20+25) = 90, car 2(35+25) = 120, jet 2(45+25) = 140 (exactly the maximum, so allowed), ferris wheel 2(55+25) = 160 — too big.",
+      "answers": [
+        {
+          "text": "jet, car and treehouse only",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "treehouse only",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "car and treehouse only",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "ferris wheel, jet, car and treehouse",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

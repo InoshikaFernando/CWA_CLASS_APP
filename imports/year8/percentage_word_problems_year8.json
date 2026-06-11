@@ -1,0 +1,356 @@
+{
+  "subject": "maths",
+  "strand": "Number",
+  "topic": "Percentage Word Problems",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "Mariam bought a smartphone and sold it at a loss of $150. The loss was 20% of the original value. How much did she pay for her phone?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "20% of the original is $150, so the original = 150 × 5 = $750.",
+      "answers": [
+        {
+          "text": "$750",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$300",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$187.50",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$600",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Koby spent $12 at lunchtime today. This represents 60% of his money. How much did he have at the beginning?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "60% = $12, so 10% = $2 and 100% = $20.",
+      "answers": [
+        {
+          "text": "$20",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$19.20",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$7.20",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$30",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "After Jacob spent 24% of his money, he still has $60 in his wallet. How much did Jacob have at the beginning?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "$60 is 76% of his money, so 60 ÷ 0.76 = $78.95 (to the nearest cent).",
+      "answers": [
+        {
+          "text": "$78.95",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$74.40",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$45.60",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$250",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "A laptop is discounted by 30% and sold for $1200. What was the original price?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "The sale price is 70% of the original: 1200 ÷ 0.7 = $1714.29.",
+      "answers": [
+        {
+          "text": "$1714.29",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$1560",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$840",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$4000",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "A calculator is sold for $44, which was marked up 30% on the original value. What was the original price of the calculator?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "$44 is 130% of the original: 44 ÷ 1.3 = $33.85 (to the nearest cent).",
+      "answers": [
+        {
+          "text": "$33.85",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$30.80",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$13.20",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$57.20",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "In a mathematics test, Hayden answered 6 questions incorrectly. If he received a score of 85%, how many questions were in the test?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "6 wrong = 15% of the test, so 1% = 0.4 questions and 100% = 40 questions.",
+      "answers": [
+        {
+          "text": "40",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "35",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "45",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "24",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "In a particular school there are 648 girls, which represents 60% of the students in the school. What is the population of the school?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "60% = 648, so 10% = 108 and 100% = 1080 students.",
+      "answers": [
+        {
+          "text": "1080",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "1037",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "389",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "972",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "The cost of all the items in Ravi's shopping cart is $52. The home delivery fee is an extra $13. What percentage of the total amount Ravi pays is the home delivery fee?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Total paid = 52 + 13 = $65. Fee percentage = 13/65 × 100 = 20%.",
+      "answers": [
+        {
+          "text": "20%",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "15%",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "25%",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "40%",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Weather forecasters use the formula R = (C/100 × A/100) × 100, where R is the chance of rain (%), C is the forecaster's confidence (%) and A is the percentage of the region's area predicted to have rain. Forecasters predict with 50% confidence that it will rain in 40% of a region's area. What is the chance of rain in the region?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "R = (50/100 × 40/100) × 100 = 0.5 × 0.4 × 100 = 20%.",
+      "answers": [
+        {
+          "text": "20%",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "40%",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "50%",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "90%",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Using the formula R = (C/100 × A/100) × 100 for the chance of rain: forecasters predict with 50% confidence that the chance of rain in a region is 30%. What percentage of the region's area do forecasters predict will have rain?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "30 = (50/100 × A/100) × 100 = A/2, so A = 60%.",
+      "answers": [
+        {
+          "text": "60%",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "15%",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "20%",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "80%",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "A household solar system is generating 2.167 kW of electricity. The household is using 0.772 kW and feeding 1.395 kW into the grid. What percentage of the electricity generated is being used in the household?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "0.772/2.167 × 100 ≈ 35.6%, which is closest to 36%.",
+      "answers": [
+        {
+          "text": "36%",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "28%",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "55%",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "64%",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Jenny is paid 3% annual interest on the $6 000 that she has in the bank. She is offered a bonus 1.5% (on top of the standard 3% interest rate) for three months on a deposit of $2 000 in an online account. She transfers $2 000 from her bank account into the online saver account. How much interest will she have made over the two accounts, in total, in the three month bonus interest period?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Bank: $4 000 at 3% for 3 months = 4000 × 0.03 ÷ 4 = $30. Online: $2 000 at 4.5% for 3 months = 2000 × 0.045 ÷ 4 = $22.50. Total = $52.50.",
+      "answers": [
+        {
+          "text": "$52.50",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$210",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$157.50",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$67.50",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

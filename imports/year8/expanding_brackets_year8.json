@@ -119,6 +119,528 @@
           "order": 3
         }
       ]
+    },
+    {
+      "question_text": "Expand 2(x − 8).",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Multiply each term by 2: 2 × x − 2 × 8 = 2x − 16.",
+      "answers": [
+        {
+          "text": "2x − 16",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "2x − 8",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2x + 16",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x − 16",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Expand and fully simplify 4(x − 4) − 2(x + 1).",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "4x − 16 − 2x − 2 = 2x − 18.",
+      "answers": [
+        {
+          "text": "2x − 18",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "2x − 14",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "6x − 18",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "2x + 18",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Expand 3(x − 6).",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "3 × x − 3 × 6 = 3x − 18.",
+      "answers": [
+        {
+          "text": "3x − 18",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "3x − 6",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "3x + 18",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x − 18",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Expand 2x(3 − 4x).",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "2x × 3 − 2x × 4x = 6x − 8x².",
+      "answers": [
+        {
+          "text": "6x − 8x²",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "6x − 4x²",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "6 − 8x²",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "6x + 8x²",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Expand and simplify 7 − 4(5 + 2x).",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "7 − 20 − 8x = −13 − 8x. Remember to multiply both terms by −4.",
+      "answers": [
+        {
+          "text": "−13 − 8x",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "−13 + 8x",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "27 + 8x",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "−12 − 8x",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "What is −2x(x − 3) simplified?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "−2x × x = −2x² and −2x × (−3) = +6x, so −2x² + 6x.",
+      "answers": [
+        {
+          "text": "−2x² + 6x",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "−2x − 3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "−2x² − 6x",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "−2x + 6x",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Expand −3(2x − y).",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "−3 × 2x = −6x and −3 × (−y) = +3y.",
+      "answers": [
+        {
+          "text": "−6x + 3y",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "−6x − 3y",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "6x − 3y",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "−6x + y",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Expand and simplify 5 − 2(x − 3).",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "5 − 2x + 6 = 11 − 2x. The −2 multiplies both x and −3.",
+      "answers": [
+        {
+          "text": "11 − 2x",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "2 − 2x",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "−1 − 2x",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "11 + 2x",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Expand 5(a + 4).",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "5 × a + 5 × 4 = 5a + 20.",
+      "answers": [
+        {
+          "text": "5a + 20",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "5a + 4",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "5a + 9",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "a + 20",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Expand and simplify 2m(3m − 4) + 3m.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "6m² − 8m + 3m = 6m² − 5m.",
+      "answers": [
+        {
+          "text": "6m² − 5m",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "6m² + 5m",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "6m² − 11m",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "5m² − 5m",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Expand and simplify a(b − a) − b(a − b).",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "ab − a² − ab + b² = b² − a².",
+      "answers": [
+        {
+          "text": "b² − a²",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "a² − b²",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2ab − a² − b²",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "0",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Expand and simplify (x + 7)(x + 3).",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "x² + 3x + 7x + 21 = x² + 10x + 21.",
+      "answers": [
+        {
+          "text": "x² + 10x + 21",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "x² + 21x + 10",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x² + 10x + 10",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x² + 4x + 21",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Expand and simplify (x + 4y)² − (x + 6y)(x − 6y).",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "(x + 4y)² = x² + 8xy + 16y² and (x + 6y)(x − 6y) = x² − 36y². Subtracting: 8xy + 16y² + 36y² = 8xy + 52y².",
+      "answers": [
+        {
+          "text": "8xy + 52y²",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "8xy − 20y²",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "52y² − 8xy",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "16y² + 8xy",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Expand and simplify (4x + 2)(5x − 7).",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "20x² − 28x + 10x − 14 = 20x² − 18x − 14.",
+      "answers": [
+        {
+          "text": "20x² − 18x − 14",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "20x² + 18x − 14",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "20x² − 38x − 14",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "20x² − 18x + 14",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Expand and simplify (5x − 3)(2x² − 3x + 2).",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "10x³ − 15x² + 10x − 6x² + 9x − 6 = 10x³ − 21x² + 19x − 6.",
+      "answers": [
+        {
+          "text": "10x³ − 21x² + 19x − 6",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "10x³ + 21x² + 19x − 6",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "10x³ − 21x² − 19x + 6",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "10x³ − 9x² + 19x − 6",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Expand and simplify (4x − 1)² − (−x + 2)².",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "(4x − 1)² = 16x² − 8x + 1 and (−x + 2)² = x² − 4x + 4. Subtracting: 15x² − 4x − 3.",
+      "answers": [
+        {
+          "text": "15x² − 4x − 3",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "15x² − 12x + 5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "17x² − 12x + 5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "15x² + 4x − 3",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Expand (x + y)(x − y).",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Difference of two squares: the +xy and −xy terms cancel, leaving x² − y².",
+      "answers": [
+        {
+          "text": "x² − y²",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "2x − 2y",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x² + 2xy − y²",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x² − 2xy + y²",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Expand and simplify (3x + 2)(2x − 5).",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "6x² − 15x + 4x − 10 = 6x² − 11x − 10.",
+      "answers": [
+        {
+          "text": "6x² − 11x − 10",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "6x² − 19x − 10",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "5x² − 4x − 7",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "5x² − 12x − 7",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
     }
   ]
 }

@@ -1,0 +1,95 @@
+{
+  "subject": "maths",
+  "strand": "Number",
+  "topic": "Rates and Speed",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "Andrew rode his bike for 3 1/2 hours and covered 126 km. What was his average speed in km/h?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Speed = distance ÷ time = 126 ÷ 3.5 = 36 km/h.",
+      "answers": [
+        {
+          "text": "36 km/h",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "44.1 km/h",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "41.5 km/h",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "40 km/h",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "A runner completes a 5 km run. For the first 2 km the runner has an average speed of 10 km/h; for the last 3 km the average speed is 8 km/h. How long does the runner take to complete the run?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "First 2 km: 2/10 h = 12 min. Last 3 km: 3/8 h = 22.5 min. Total = 34.5 min = 34 min 30 s.",
+      "answers": [
+        {
+          "text": "34 min 30 s",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "30 min",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "33 min",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "37 min 30 s",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Pace (min/km) can be calculated from speed: 10 km/h is a pace of 6 min/km. A runner is running at a speed of 12 km/h. What is the equivalent pace?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "60 minutes ÷ 12 km = 5.0 min/km.",
+      "answers": [
+        {
+          "text": "5.0 min/km",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "4.5 min/km",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "5.5 min/km",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "9.0 min/km",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

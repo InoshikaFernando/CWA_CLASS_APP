@@ -177,6 +177,35 @@
           "order": 3
         }
       ]
+    },
+    {
+      "question_text": "The width of a rectangle is x cm. The length is 1.5 cm more than the width. The perimeter of the rectangle is 17 cm. Find x.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Perimeter: 2(x + x + 1.5) = 17, so 4x + 3 = 17, 4x = 14 and x = 3.5.",
+      "answers": [
+        {
+          "text": "3.5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "4.25",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "3",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
     }
   ]
 }

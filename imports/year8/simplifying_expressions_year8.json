@@ -1,0 +1,443 @@
+{
+  "subject": "maths",
+  "strand": "Algebra",
+  "topic": "Simplifying Expressions",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "Which of the following algebraic expressions represents 2 less than 3 lots of n?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "\"3 lots of n\" is 3n; \"2 less than\" that is 3n − 2.",
+      "answers": [
+        {
+          "text": "3n − 2",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "3(n − 2)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2 − 3n",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "3 + n − 2",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Which of the following is the correct simplification of 12ab/24a²?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "12ab/24a² = (12/24) × (ab/a²) = (1/2) × (b/a) = b/(2a).",
+      "answers": [
+        {
+          "text": "b/(2a)",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "2ab",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2a/b",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "ab/2",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify 5x − 3y² − 8x − 4y².",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "5x − 8x = −3x and −3y² − 4y² = −7y².",
+      "answers": [
+        {
+          "text": "−3x − 7y²",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "3x − 7y²",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "−3x + 7y²",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "−3x − y²",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify 5s + 2m − 7s + 8m.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "5s − 7s = −2s and 2m + 8m = 10m.",
+      "answers": [
+        {
+          "text": "−2s + 10m",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "2s + 10m",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2s − 10m",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "−2s + 6m",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify 6d × dw.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "6 × d × d × w = 6d²w.",
+      "answers": [
+        {
+          "text": "6d²w",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "6dw",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "6d²w²",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "6d",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Which expression does ab/15 × 18/a simplify to?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "The a cancels: 18b/15 = 6b/5.",
+      "answers": [
+        {
+          "text": "6b/5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "a²b/15",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "18a²/15",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "18ab/15",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Which answer is a fully simplified form of 7p + 5p² − 3p?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Only the p terms combine: 7p − 3p = 4p, giving 4p + 5p². p and p² are not like terms.",
+      "answers": [
+        {
+          "text": "4p + 5p²",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "9p²",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "10p + 5p²",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "10p − 5p²",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Fully simplify 5mp + 2m − 7pm.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "5mp and −7pm are like terms: 5mp − 7mp = −2mp, leaving 2m − 2mp.",
+      "answers": [
+        {
+          "text": "2m − 2mp",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "2m + 2mp",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "−2m − 2mp",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "2m − 12mp",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Fully simplify 4ab × 3a.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "4 × 3 = 12 and a × a = a², so 12a²b.",
+      "answers": [
+        {
+          "text": "12a²b",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "7a²b",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "12ab",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "12ab²",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Fully simplify 10bc/15c.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "The c cancels and 10/15 = 2/3, so 2b/3.",
+      "answers": [
+        {
+          "text": "2b/3",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "2c/3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "3b/2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "2bc/3",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Write down an expression for the number of weeks in m days.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Each week has 7 days, so m days = m ÷ 7 weeks.",
+      "answers": [
+        {
+          "text": "m/7",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "7m",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "m − 7",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "7/m",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify 4k + 6k ÷ 2.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Division first: 6k ÷ 2 = 3k, then 4k + 3k = 7k.",
+      "answers": [
+        {
+          "text": "7k",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "5k",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "10k",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "3k",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify 3y × 4y².",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "3 × 4 = 12 and y × y² = y³, so 12y³.",
+      "answers": [
+        {
+          "text": "12y³",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "12y²",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "7y³",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "7y²",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify a²b × ab².",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "a² × a = a³ and b × b² = b³, so a³b³.",
+      "answers": [
+        {
+          "text": "a³b³",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "a²b²",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "a³b²",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "a²b³",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Fully simplify (−5mn) × (−7mp) × (2np).",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Signs: (−) × (−) × (+) = +. Numbers: 5 × 7 × 2 = 70. Letters: m², n², p². So 70m²n²p².",
+      "answers": [
+        {
+          "text": "70m²n²p²",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "−70m²n²p²",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "70mnp",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "35m²n²p²",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

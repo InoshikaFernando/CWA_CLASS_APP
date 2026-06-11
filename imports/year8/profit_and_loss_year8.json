@@ -1,0 +1,907 @@
+{
+  "subject": "maths",
+  "strand": "Number",
+  "topic": "Profit and Loss",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "Cost price: $400. Profit: 20%. What is the selling price?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Selling price = 400 × 1.20 = $480.",
+      "answers": [
+        {
+          "text": "$480",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$420",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$320",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$800",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Cost price: $800. Loss: 15%. What is the selling price?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Selling price = 800 × 0.85 = $680.",
+      "answers": [
+        {
+          "text": "$680",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$920",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$120",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$785",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Cost price: $500. Profit: 10%. What is the selling price?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Selling price = 500 × 1.10 = $550.",
+      "answers": [
+        {
+          "text": "$550",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$510",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$450",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$600",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Cost price: $1,000. Profit: 30%. What is the selling price?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Selling price = 1000 × 1.30 = $1300.",
+      "answers": [
+        {
+          "text": "$1300",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$1030",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$700",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$1330",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Cost price: $700. Profit: 12%. What is the selling price?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Selling price = 700 × 1.12 = $784.",
+      "answers": [
+        {
+          "text": "$784",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$712",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$616",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$788",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Cost price: $350. Loss: 8%. What is the selling price?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Selling price = 350 × 0.92 = $322.",
+      "answers": [
+        {
+          "text": "$322",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$378",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$342",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$28",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Selling price: $782. Profit: 15%. What is the cost price?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "The selling price is 115% of the cost price: 782 ÷ 1.15 = $680. (782 × 0.85 is the classic wrong method.)",
+      "answers": [
+        {
+          "text": "$680",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$664.70",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$899.30",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$767",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Selling price: $1,200. Profit: 25%. What is the cost price?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "1200 ÷ 1.25 = $960.",
+      "answers": [
+        {
+          "text": "$960",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$900",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$1500",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$1175",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Selling price: $600. Loss: 5%. What is the cost price?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "The selling price is 95% of the cost price: 600 ÷ 0.95 = $631.58.",
+      "answers": [
+        {
+          "text": "$631.58",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$630",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$570",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$605",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Selling price: $720. Loss: 10%. What was the original cost price?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "720 is 90% of the cost price: 720 ÷ 0.9 = $800.",
+      "answers": [
+        {
+          "text": "$800",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$792",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$648",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$730",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Emily sold a guitar for $750 and experienced a loss of 20%. What was the original cost price of the guitar?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "750 is 80% of the cost price: 750 ÷ 0.8 = $937.50.",
+      "answers": [
+        {
+          "text": "$937.50",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$900",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$600",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$770",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "James bought a bicycle for $400 and wants to sell it for a profit of 25%. What should be the selling price of the bicycle?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Selling price = 400 × 1.25 = $500.",
+      "answers": [
+        {
+          "text": "$500",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$425",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$300",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$525",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Jett bought a headphone set for $230 and sold it for $350. What was the result?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Selling price − cost price = 350 − 230 = $120 profit.",
+      "answers": [
+        {
+          "text": "Profit of $120",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "Loss of $120",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "Profit of $580",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "Loss of $230",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Lily bought a smartwatch for $540 and sold it for $380. What was the result?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Cost price − selling price = 540 − 380 = $160 loss.",
+      "answers": [
+        {
+          "text": "Loss of $160",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "Profit of $160",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "Loss of $920",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "Profit of $380",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Chloe bought a laptop for $460 and sold it for $510. Did Chloe make a profit or a loss? How much?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "510 − 460 = $50 profit.",
+      "answers": [
+        {
+          "text": "Profit of $50",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "Loss of $50",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "Profit of $150",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "Loss of $150",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Aryan bought an iPhone for $1760 and sold it for $1350. Did Aryan have a profit or a loss? How much?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "1760 − 1350 = $410 loss.",
+      "answers": [
+        {
+          "text": "Loss of $410",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "Profit of $410",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "Loss of $310",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "Loss of $510",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Leah bought a pair of shoes for $350 and sold them for $390. Did Leah make a profit or a loss? What is the amount?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "390 − 350 = $40 profit.",
+      "answers": [
+        {
+          "text": "Profit of $40",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "Loss of $40",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "Profit of $50",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "Loss of $50",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Nicholas bought a tablet for $600 and sold it for $575. Did Nicholas make a profit or a loss? How much?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "600 − 575 = $25 loss.",
+      "answers": [
+        {
+          "text": "Loss of $25",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "Profit of $25",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "Loss of $175",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "Profit of $175",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Anthony bought a headphone set for $245 and sold it for $260. Did Anthony make a profit or a loss? What is the amount?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "260 − 245 = $15 profit.",
+      "answers": [
+        {
+          "text": "Profit of $15",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "Loss of $15",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "Profit of $25",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "Loss of $25",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Tom bought a bicycle for $375 and made a profit of $75. What was the selling price of the bicycle?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Selling price = cost price + profit = 375 + 75 = $450.",
+      "answers": [
+        {
+          "text": "$450",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$300",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$425",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$475",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Jessica sold a dress for $200, with a loss of $30. What was the cost price of the dress?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Cost price = selling price + loss = 200 + 30 = $230.",
+      "answers": [
+        {
+          "text": "$230",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$170",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$260",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$215",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Emma bought a book for $120 and made a profit of $24. What was the selling price?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "120 + 24 = $144.",
+      "answers": [
+        {
+          "text": "$144",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$96",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$134",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$154",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Liam bought a jacket for $250 and sold it making a profit of $56. What was the selling price?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "250 + 56 = $306.",
+      "answers": [
+        {
+          "text": "$306",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$194",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$296",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$316",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Olivia sold a laptop for $750, with a loss of $75. What was the buying price?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Buying price = 750 + 75 = $825.",
+      "answers": [
+        {
+          "text": "$825",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$675",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$815",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$850",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Noah bought a chair for $150 and sold it making a profit of $37. What was the selling price?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "150 + 37 = $187.",
+      "answers": [
+        {
+          "text": "$187",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$113",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$177",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$197",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Jenny sold a mobile phone for $1450, with a profit of $180. What was the buying price?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Buying price = selling price − profit = 1450 − 180 = $1270.",
+      "answers": [
+        {
+          "text": "$1270",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$1630",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$1260",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$1280",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Lucas bought a painting for $120 and sold it at a loss of $95. What was the selling price?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Selling price = 120 − 95 = $25.",
+      "answers": [
+        {
+          "text": "$25",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$215",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$35",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$95",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Mia bought an electric scooter for $250 and sold it making a profit of $57. What was the selling price?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "250 + 57 = $307.",
+      "answers": [
+        {
+          "text": "$307",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$193",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$297",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$317",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Ethan bought a desk for $420 and sold it at a loss of $160. What was the selling price?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "420 − 160 = $260.",
+      "answers": [
+        {
+          "text": "$260",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$580",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$250",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$270",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Isabella sold a printer for $420, with a loss of $130. What was the buying price?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Buying price = 420 + 130 = $550.",
+      "answers": [
+        {
+          "text": "$550",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$290",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$540",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$560",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Oliver bought a camera for $680 and sold it making a profit of $75. What was the selling price?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "680 + 75 = $755.",
+      "answers": [
+        {
+          "text": "$755",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$605",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$745",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$765",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

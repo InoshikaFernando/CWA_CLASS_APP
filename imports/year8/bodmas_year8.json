@@ -1,0 +1,37 @@
+{
+  "subject": "maths",
+  "strand": "Algebra",
+  "topic": "BODMAS",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "32 − 3 × (7 − 8 × 2) =",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Inside the brackets first: 7 − 16 = −9. Then 32 − 3 × (−9) = 32 + 27 = 59.",
+      "answers": [
+        {
+          "text": "59",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "26",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "38",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

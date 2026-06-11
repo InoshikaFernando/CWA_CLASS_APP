@@ -1,0 +1,356 @@
+{
+  "subject": "maths",
+  "strand": "Number",
+  "topic": "Percentage Increase and Decrease",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "What is the percentage increase if a quantity rose from 420 m to 5 km?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "5 km = 5000 m. Increase = 4580 m, so 4580/420 × 100 ≈ 1090.48%.",
+      "answers": [
+        {
+          "text": "1090.48%",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "91.6%",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "1190.48%",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "109.05%",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "What is the percentage increase if a quantity rose from 23 hours to 1.6 days?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "1.6 days = 38.4 hours. Increase = 15.4 h, so 15.4/23 × 100 ≈ 66.96%.",
+      "answers": [
+        {
+          "text": "66.96%",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "40.1%",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "56.96%",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "6.7%",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "What is the percentage increase if a quantity rose from 24 cm to 30 cm?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Increase = 6 cm, so 6/24 × 100 = 25%. (6/30 = 20% is the wrong base.)",
+      "answers": [
+        {
+          "text": "25%",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "20%",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "6%",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "30%",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "What is the percentage increase if a quantity rose from 850 mL to 1 L?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "1 L = 1000 mL. Increase = 150 mL, so 150/850 × 100 ≈ 17.65%.",
+      "answers": [
+        {
+          "text": "17.65%",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "15%",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "21.65%",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "8.5%",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "What is the percentage decrease if a quantity reduced from 120 mm to 9 cm?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "9 cm = 90 mm. Decrease = 30 mm, so 30/120 × 100 = 25%.",
+      "answers": [
+        {
+          "text": "25%",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "33.33%",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "30%",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "12.5%",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "What is the percentage decrease if a quantity reduced from 8 m to 600 cm?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "600 cm = 6 m. Decrease = 2 m, so 2/8 × 100 = 25%.",
+      "answers": [
+        {
+          "text": "25%",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "33.33%",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "20%",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "75%",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "What is the percentage decrease if a price reduced from $180 to $150?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Decrease = $30, so 30/180 × 100 ≈ 16.67%.",
+      "answers": [
+        {
+          "text": "16.67%",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "20%",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "30%",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "83.33%",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "What is the percentage decrease if a time reduced from 1.5 hours to 70 minutes?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "1.5 hours = 90 minutes. Decrease = 20 min, so 20/90 × 100 ≈ 22.22%.",
+      "answers": [
+        {
+          "text": "22.22%",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "28.57%",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "20%",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "77.78%",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "What is the percentage decrease if a speed reduced from 60 km/h to 45 km/h?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Decrease = 15 km/h, so 15/60 × 100 = 25%.",
+      "answers": [
+        {
+          "text": "25%",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "33.33%",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "15%",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "45%",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "What is the percentage decrease if a length reduced from 15 cm to 120 mm?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "15 cm = 150 mm. Decrease = 30 mm, so 30/150 × 100 = 20%.",
+      "answers": [
+        {
+          "text": "20%",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "25%",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "30%",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "80%",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "The TMJ bakery has special pricing depending on the day of the week. Mon–Fri you receive 20% off specials, and Sat–Sun you receive 30% off. Sally bought a muffin on special on Saturday for $3.50. How much would she have paid if she bought it on special on Wednesday?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Saturday price is 70% of full price, so full price = 3.50 ÷ 0.7 = $5.00. Wednesday is 20% off: 5.00 × 0.8 = $4.00.",
+      "answers": [
+        {
+          "text": "$4.00",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$3.65",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$4.45",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$5.00",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Four performers' payments per show were increased for 2023 based on their 2022 payment: Nguyen $360 + 4%, Aislinn $350 + 6%, Kaylah $370 + 1%, Abdu $340 + 8%. Which performer received the greatest show payment in 2023?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Nguyen 360 × 1.04 = $374.40, Aislinn 350 × 1.06 = $371, Kaylah 370 × 1.01 = $373.70, Abdu 340 × 1.08 = $367.20. Nguyen is highest.",
+      "answers": [
+        {
+          "text": "Nguyen",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "Aislinn",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "Kaylah",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "Abdu",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}
