@@ -1,0 +1,66 @@
+{
+  "subject": "maths",
+  "strand": "Number",
+  "topic": "Ratio and Proportion",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "It takes 4 students 18 minutes to put away the tables at the end of lunch. How long would it take 9 students (working at the same rate)?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 3,
+      "explanation": "This is inverse proportion. Total work = 4 × 18 = 72 student-minutes. With 9 students: 72 ÷ 9 = 8 minutes.",
+      "answers": [
+        {
+          "text": "8 minutes",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "40.5 minutes",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "36 minutes",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "4.5 minutes",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "A junior salesperson sells 4 cars for $3 400; the senior sells 1 car for $800. A bonus of 15% of total sales is shared 5 : 2 with the senior getting the larger share. How much bonus does the junior receive?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 5,
+      "explanation": "Total sales = 3400 + 800 = $4200. Bonus = 15% × 4200 = $630. Junior gets the smaller 2 of 7 parts: 630 × 2/7 = $180.",
+      "answers": [
+        {
+          "text": "$180",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$450",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$630",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$90",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

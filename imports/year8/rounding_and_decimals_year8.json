@@ -1,0 +1,138 @@
+{
+  "subject": "maths",
+  "strand": "Number",
+  "topic": "Rounding and Decimals",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "Round 1.1300587 to 4 significant figures.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "The first four significant figures are 1, 1, 3, 0. The next digit is 0, so round down to 1.130.",
+      "answers": [
+        {
+          "text": "1.130",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "1.131",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "1.128",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "1.310",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Round 1.1300587 to 2 decimal places.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "The third decimal digit is 0, so round down: 1.13.",
+      "answers": [
+        {
+          "text": "1.13",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "1.12",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "1.14",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "1.11",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Does √13 give a terminating, non-terminating or recurring decimal?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "√13 ≈ 3.6055… is irrational, so its decimal goes on forever without repeating: non-terminating.",
+      "answers": [
+        {
+          "text": "Non-terminating",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "Terminating",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "Recurring",
+          "is_correct": false,
+          "order": 2
+        }
+      ]
+    },
+    {
+      "question_text": "Does 5/7 give a terminating, non-terminating or recurring decimal?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "5/7 = 0.714285714285… — the block 714285 repeats forever, so it is recurring.",
+      "answers": [
+        {
+          "text": "Recurring",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "Terminating",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "Non-terminating",
+          "is_correct": false,
+          "order": 2
+        }
+      ]
+    },
+    {
+      "question_text": "Does 495/990 give a terminating, non-terminating or recurring decimal?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "495/990 simplifies to 1/2 = 0.5, which stops, so it is terminating.",
+      "answers": [
+        {
+          "text": "Terminating",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "Recurring",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "Non-terminating",
+          "is_correct": false,
+          "order": 2
+        }
+      ]
+    }
+  ]
+}

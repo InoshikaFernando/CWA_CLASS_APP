@@ -1,0 +1,124 @@
+{
+  "subject": "maths",
+  "strand": "Algebra",
+  "topic": "Expanding Brackets",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "Expand and simplify (x − 1)(x + 5).",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "x·x + 5x − x − 5 = x² + 4x − 5.",
+      "answers": [
+        {
+          "text": "x² + 4x − 5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "x² − 4x − 5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x² + 4x + 5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x² + 6x − 5",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Expand and simplify (2x + 3)².",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "(2x + 3)(2x + 3) = 4x² + 6x + 6x + 9 = 4x² + 12x + 9.",
+      "answers": [
+        {
+          "text": "4x² + 12x + 9",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "4x² + 9",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "4x² + 6x + 9",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "2x² + 12x + 9",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Expand and simplify (2x − 3)(x + 7).",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "2x·x + 14x − 3x − 21 = 2x² + 11x − 21.",
+      "answers": [
+        {
+          "text": "2x² + 11x − 21",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "2x² − 11x − 21",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2x² + 11x + 21",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "2x² + 4x − 21",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Expand and simplify (x − 8)².",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "(x − 8)(x − 8) = x² − 8x − 8x + 64 = x² − 16x + 64.",
+      "answers": [
+        {
+          "text": "x² − 16x + 64",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "x² + 16x + 64",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x² − 64",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x² − 8x + 64",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

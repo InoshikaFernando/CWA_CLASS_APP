@@ -1,0 +1,66 @@
+{
+  "subject": "maths",
+  "strand": "Geometry",
+  "topic": "Angles",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "The interior angles of a triangle are in the ratio 2 : 3 : 7. Find the size of the obtuse angle.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 4,
+      "explanation": "Total parts = 12, and 180° ÷ 12 = 15° per part. The angles are 30°, 45° and 105°; the obtuse one is 7 × 15° = 105°.",
+      "answers": [
+        {
+          "text": "105°",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "45°",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "30°",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "75°",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "The three angles of a triangle are 2x + 30, 4x and 2x − 10 (in degrees). Find the size of the smallest angle.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Sum = 180: 8x + 20 = 180, so x = 20. The angles are 70°, 80° and 30°; the smallest is 30°.",
+      "answers": [
+        {
+          "text": "30°",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "70°",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "80°",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "20°",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

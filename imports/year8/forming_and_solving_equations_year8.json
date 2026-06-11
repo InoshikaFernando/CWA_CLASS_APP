@@ -1,0 +1,182 @@
+{
+  "subject": "maths",
+  "strand": "Algebra",
+  "topic": "Forming and Solving Equations",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "I think of a number, multiply it by 4 and add 6; the answer is 17. Find the original number.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "4n + 6 = 17, so 4n = 11 and n = 11/4.",
+      "answers": [
+        {
+          "text": "11/4",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "11/2",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "23/4",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "44",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "I think of a number, subtract 5 and multiply the result by 3; the answer is 15. Find the original number.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "3(n − 5) = 15, so n − 5 = 5 and n = 10.",
+      "answers": [
+        {
+          "text": "10",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "0",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "20",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "8",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Two triangles have equal perimeters. The first has sides 7x − 3, 5x + 1 and 6; the second has sides 3x + 2, 2x + 11 and 15. Find x.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 2,
+      "explanation": "12x + 4 = 5x + 28, so 7x = 24 and x = 24/7.",
+      "answers": [
+        {
+          "text": "24/7",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "7/24",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "24",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "4",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "A rectangle has sides 6 and 2x + 1, and an area of 40 cm². Find x.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 2,
+      "explanation": "6(2x + 1) = 40, so 12x + 6 = 40, 12x = 34 and x = 17/6.",
+      "answers": [
+        {
+          "text": "17/6",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "6/17",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "17",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "11/3",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "A rectangle has height 2y + 1 and base 5. Write a formula for its area A.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "A = base × height = 5(2y + 1) = 10y + 5.",
+      "answers": [
+        {
+          "text": "A = 10y + 5",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "A = 2y + 6",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "A = 10y + 1",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "A = 7y",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "The area of that rectangle is A = 10y + 5. Make y the subject.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 2,
+      "explanation": "Subtract 5: 10y = A − 5, then divide by 10: y = (A − 5)/10.",
+      "answers": [
+        {
+          "text": "y = (A − 5)/10",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "y = (A + 5)/10",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "y = (A − 5)/2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "y = A/10 − 5",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}

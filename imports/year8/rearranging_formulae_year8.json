@@ -1,0 +1,240 @@
+{
+  "subject": "maths",
+  "strand": "Algebra",
+  "topic": "Rearranging Formulae",
+  "year_level": 8,
+  "questions": [
+    {
+      "question_text": "Given F = a(b − c), make a the subject.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Divide both sides by (b − c): a = F/(b − c).",
+      "answers": [
+        {
+          "text": "a = F/(b − c)",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "a = F(b − c)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "a = Fb − c",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "a = (b − c)/F",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Given F = a(b − c), make b the subject.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 2,
+      "explanation": "Divide by a: F/a = b − c, then add c: b = F/a + c.",
+      "answers": [
+        {
+          "text": "b = F/a + c",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "b = F/a − c",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "b = Fa + c",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "b = (F − c)/a",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Make x the subject of mx + c = y.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Subtract c then divide by m: x = (y − c)/m.",
+      "answers": [
+        {
+          "text": "x = (y − c)/m",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "x = (y + c)/m",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x = (c − y)/m",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x = y/m − c",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Make x the subject of x/t − c = y.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 2,
+      "explanation": "Add c: x/t = y + c, then multiply by t: x = t(y + c).",
+      "answers": [
+        {
+          "text": "x = t(y + c)",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "x = t(y − c)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x = (y + c)/t",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x = ty + c",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Make x the subject of 2x − 1 = t.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Add 1 then divide by 2: x = (t + 1)/2.",
+      "answers": [
+        {
+          "text": "x = (t + 1)/2",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "x = (t − 1)/2",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x = 2(t + 1)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x = t/2 − 1",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Make x the subject of (x + t)/c = m.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Multiply by c: x + t = mc, then subtract t: x = mc − t.",
+      "answers": [
+        {
+          "text": "x = mc − t",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "x = mc + t",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x = (m − t)/c",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x = m/c − t",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Make x the subject of t + x = r².",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Subtract t from both sides: x = r² − t.",
+      "answers": [
+        {
+          "text": "x = r² − t",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "x = t − r²",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x = r² + t",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x = (r − t)²",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    },
+    {
+      "question_text": "Make x the subject of m(2x − 1) = t.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 2,
+      "explanation": "Divide by m: 2x − 1 = t/m, add 1: 2x = t/m + 1 = (t + m)/m, divide by 2: x = (t + m)/(2m).",
+      "answers": [
+        {
+          "text": "x = (t + m)/(2m)",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "x = (t − m)/(2m)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x = (t + 1)/(2m)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x = t/(2m) − 1",
+          "is_correct": false,
+          "order": 3
+        }
+      ]
+    }
+  ]
+}
