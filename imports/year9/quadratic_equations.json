@@ -177,6 +177,35 @@
           "order": 4
         }
       ]
+    },
+    {
+      "question_text": "Solve 3x² = 2x + 2, giving the answer in simplest surd form.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "3x² - 2x - 2 = 0, so x = (2 ± √(4 + 24))/6 = (2 ± 2√7)/6 = (1 ± √7)/3.",
+      "answers": [
+        {
+          "text": "x = (1 ± √7)/6",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x = (-1 ± √7)/3",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x = (2 ± √28)/3",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "x = (1 ± √7)/3",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
     }
   ]
 }

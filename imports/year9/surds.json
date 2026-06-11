@@ -670,6 +670,35 @@
           "order": 4
         }
       ]
+    },
+    {
+      "question_text": "Simplify √63 - √28.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "√63 = 3√7 and √28 = 2√7, so 3√7 - 2√7 = √7.",
+      "answers": [
+        {
+          "text": "√91",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "5√7",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "√7",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "√35",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
     }
   ]
 }

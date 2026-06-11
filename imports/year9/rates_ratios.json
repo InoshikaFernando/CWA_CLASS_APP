@@ -612,6 +612,64 @@
           "order": 4
         }
       ]
+    },
+    {
+      "question_text": "Simplify the ratio 25 cm² : 30 mm².",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "1 cm² = 100 mm², so 25 cm² = 2500 mm². Then 2500 : 30 = 250 : 3.",
+      "answers": [
+        {
+          "text": "25 : 3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "250 : 3",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "5 : 6",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "25 : 30",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "x varies directly as y and inversely as z. When y = 10 and z = 15, x = 8. Find x when y = 4 and z = 3.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "x = k·y/z. From 8 = k·10/15, k = 12. Then x = 12·4/3 = 16.",
+      "answers": [
+        {
+          "text": "16",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "12",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "20",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "1.6",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
     }
   ]
 }

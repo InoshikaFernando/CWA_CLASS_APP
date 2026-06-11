@@ -30,12 +30,15 @@ from fractions import Fraction
 from pathlib import Path
 
 OUT_DIR = Path(__file__).resolve().parent
+IMAGES_DIR = OUT_DIR / 'images'
 YEAR_LEVEL = 9
 
 
-def q(text, correct, wrong, explanation, difficulty=2, points=1):
+def q(text, correct, wrong, explanation, difficulty=2, points=1, image=None):
     """Build one question dict. `correct` is the single right answer,
-    `wrong` is a list of 3 distractors (none mathematically equal)."""
+    `wrong` is a list of 3 distractors (none mathematically equal).
+    `image` is an optional filename in images/ shown with the question
+    (cropped from, or drawn to match, the source PDF figure)."""
     return {
         "question_text": text,
         "difficulty": difficulty,
@@ -43,6 +46,7 @@ def q(text, correct, wrong, explanation, difficulty=2, points=1):
         "explanation": explanation,
         "correct": correct,
         "wrong": list(wrong),
+        "image": image,
     }
 
 
@@ -147,6 +151,10 @@ BANK = [
               "√2(1 + √5)",
               ["√2(1 + √10)", "√5(1 + √2)", "2(1 + √5)"],
               "√10 = √2 × √5, so √2 + √10 = √2(1 + √5).", 2),
+            q("Simplify √63 - √28.",
+              "√7",
+              ["√35", "5√7", "√91"],
+              "√63 = 3√7 and √28 = 2√7, so 3√7 - 2√7 = √7.", 2),
         ],
     },
     {
@@ -225,6 +233,10 @@ BANK = [
               "29",
               ["21", "27", "31"],
               "29² = 841, so n = 29.", 1),
+            q("If 5ᵏ(5²)³ = 1, find k.",
+              "-6",
+              ["6", "-3", "0"],
+              "5ᵏ × 5⁶ = 5⁰, so k + 6 = 0 and k = -6.", 2),
         ],
     },
     {
@@ -349,6 +361,18 @@ BANK = [
               "21, 22, 23 and 24",
               ["20, 21, 22, 23, 24 and 25", "21, 22 and 23", "20 and 25"],
               "Multiply through by 5: 20 < x < 25, so x can be 21, 22, 23 or 24.", 2),
+            q("A clothing company offers employees a 12% discount off the regular price. An employee pays $110 for a suit. What was the regular price?",
+              "$125",
+              ["$123.20", "$122", "$96.80"],
+              "$110 is 88% of the regular price, so the price is 110 ÷ 0.88 = $125.", 2),
+            q("John has to load 1 tonne of potatoes onto a truck. When he has loaded 50 kg, what percentage of the job has he finished?",
+              "5%",
+              ["0.05%", "0.5%", "50%"],
+              "1 tonne = 1000 kg, and 50/1000 = 5%.", 1),
+            q("What is 30% of 5 hours 30 minutes?",
+              "99 minutes",
+              ["1 hour 30 minutes", "3.71 hours", "1.59 hours"],
+              "5 h 30 min = 330 minutes, and 30% of 330 = 99 minutes (1 h 39 min).", 2),
         ],
     },
     {
@@ -439,6 +463,14 @@ BANK = [
               "12 km/h",
               ["6 km/h", "18 km/h", "9 km/h"],
               "Arriving 2 h early means the car saved a 1 h trip each way, so it met her 1 driving-hour from the university. She walked for 2 h (12 km), so the car covers 12 km in 1 h: 12 km/h.", 3),
+            q("Simplify the ratio 25 cm² : 30 mm².",
+              "250 : 3",
+              ["25 : 3", "25 : 30", "5 : 6"],
+              "1 cm² = 100 mm², so 25 cm² = 2500 mm². Then 2500 : 30 = 250 : 3.", 2),
+            q("x varies directly as y and inversely as z. When y = 10 and z = 15, x = 8. Find x when y = 4 and z = 3.",
+              "16",
+              ["12", "1.6", "20"],
+              "x = k·y/z. From 8 = k·10/15, k = 12. Then x = 12·4/3 = 16.", 3),
         ],
     },
     {
@@ -465,6 +497,18 @@ BANK = [
               "518 minutes",
               ["610 minutes", "422 minutes", "141 minutes"],
               "120 minutes = first week × 0.85⁹, so first week = 120/0.85⁹ ≈ 518 minutes.", 3),
+            q("Tina earns $7.20 per hour at the normal rate. Each week she works 11 hours at the normal rate and 4 hours at time-and-a-half. Find her weekly wage.",
+              "$122.40",
+              ["$108.00", "$129.60", "$162.00"],
+              "Normal: 11 × $7.20 = $79.20. Time-and-a-half: 4 × $7.20 × 1.5 = $43.20. Total $122.40.", 2),
+            q("Tina's weekly wage is $122.40. She wants to raise it to $180 by working extra hours at the normal rate of $7.20/hour. How many extra hours must she work?",
+              "8 hours",
+              ["10 hours", "6 hours", "25 hours"],
+              "Extra needed is $180 - $122.40 = $57.60, and 57.60 ÷ 7.20 = 8 hours.", 2),
+            q("Tina's hourly rate of $7.20 is increased by 6%. Find the new hourly rate, to the nearest cent.",
+              "$7.63",
+              ["$7.26", "$13.20", "$7.20"],
+              "$7.20 × 1.06 = $7.632 ≈ $7.63.", 1),
         ],
     },
     {
@@ -583,6 +627,34 @@ BANK = [
               "6",
               ["5", "12", "9"],
               "(2L)(3W) = 6LW, so the area is 6 times bigger.", 1),
+            q("Factorise x² + 4x - 21.",
+              "(x + 7)(x - 3)",
+              ["(x - 7)(x + 3)", "(x + 7)(x + 3)", "(x - 7)(x - 3)"],
+              "Two numbers multiplying to -21 and adding to +4 are +7 and -3.", 1),
+            q("If x² - y² = 64 and x + y = 16, find the value of x - y.",
+              "4",
+              ["48", "8", "1/4"],
+              "x² - y² = (x + y)(x - y), so 64 = 16(x - y) and x - y = 4.", 2),
+            q("Simplify (2 - 3x) - (5 - 4x).",
+              "x - 3",
+              ["-x - 3", "x - 7", "7x - 3"],
+              "2 - 3x - 5 + 4x = (4x - 3x) + (2 - 5) = x - 3.", 1),
+            q("Simplify 2p² × 3p³q².",
+              "6p⁵q²",
+              ["6p⁶q²", "5p⁵q²", "6p⁵q⁴"],
+              "Multiply coefficients (2 × 3 = 6) and add indices of p (2 + 3 = 5): 6p⁵q².", 1),
+            q("Simplify (x⁻² - y⁻²)/(x⁻¹ + y⁻¹), leaving no negative indices.",
+              "(y - x)/(xy)",
+              ["(x - y)/(xy)", "(y - x)/(x²y²)", "xy/(y - x)"],
+              "Top = (y² - x²)/(x²y²) = (y - x)(y + x)/(x²y²); bottom = (y + x)/(xy). Dividing gives (y - x)/(xy).", 3),
+            q("If (3a + 4b)/(2a - 2b) = 5, find the value of (a² + 2b²)/(ab).",
+              "3",
+              ["5", "6", "2"],
+              "3a + 4b = 10a - 10b gives 14b = 7a, so a = 2b. Then (4b² + 2b²)/(2b²) = 3.", 3),
+            q("Find x: 2/15 = 1/8 + 1/x.",
+              "120",
+              ["15/8", "1/7", "120/31"],
+              "1/x = 2/15 - 1/8 = 16/120 - 15/120 = 1/120, so x = 120.", 2),
         ],
     },
     {
@@ -645,6 +717,22 @@ BANK = [
               "1",
               ["0", "4", "-1"],
               "The y values decrease by 1 each step, so the next value is 1.", 1),
+            q("Solve the inequality 3x - 29 ≤ 4x + 12.",
+              "x ≥ -41",
+              ["x ≤ -41", "x ≥ 41", "x ≤ 41"],
+              "3x - 29 ≤ 4x + 12 gives -41 ≤ x, i.e. x ≥ -41.", 2),
+            q("Tickets for a river cruise cost $15 for an adult and $8 for a child. For one cruise, 46 tickets were sold for a total of $438. How many adult tickets were sold?",
+              "10",
+              ["36", "20", "26"],
+              "With A + C = 46 and 15A + 8C = 438: 15A + 8(46 - A) = 438 gives 7A = 70, so A = 10.", 2),
+            q("Solve (2x - 5)/3 - (x + 7)/5 = 2.",
+              "x = 76/7",
+              ["x = 46/7", "x = 30", "x = -76/7"],
+              "Multiply by 15: 5(2x - 5) - 3(x + 7) = 30, so 7x - 46 = 30 and x = 76/7.", 2),
+            q("Solve the inequality -3x > 6.",
+              "x < -2",
+              ["x > -2", "x < 2", "x > 2"],
+              "Divide both sides by -3 and reverse the inequality: x < -2.", 1),
         ],
     },
     {
@@ -675,6 +763,10 @@ BANK = [
               "11",
               ["17", "13", "22"],
               "x = (-6 + √(36 + 748))/2 = (-6 + 28)/2 = 11.", 2),
+            q("Solve 3x² = 2x + 2, giving the answer in simplest surd form.",
+              "x = (1 ± √7)/3",
+              ["x = (1 ± √7)/6", "x = (-1 ± √7)/3", "x = (2 ± √28)/3"],
+              "3x² - 2x - 2 = 0, so x = (2 ± √(4 + 24))/6 = (2 ± 2√7)/6 = (1 ± √7)/3.", 3),
         ],
     },
     {
@@ -829,6 +921,27 @@ BANK = [
               "Parallel lines",
               ["Perpendicular lines", "Collinear lines", "Congruent lines"],
               "Equal gradients mean the lines never meet — they are parallel.", 1),
+            q("Write the equation of the line through (2, 3) that is parallel to the x-axis.",
+              "y = 3",
+              ["x = 2", "y = 2", "x = 3"],
+              "A line parallel to the x-axis is horizontal, y = constant; through (2, 3) it is y = 3.", 1),
+            q("The line x + 2y + 8 = 0 cuts the x-axis at A. What are the coordinates of A?",
+              "(-8, 0)",
+              ["(0, -8)", "(-4, 0)", "(8, 0)"],
+              "On the x-axis y = 0, so x + 8 = 0 and x = -8, giving A(-8, 0).", 2),
+            q("Which of these points lies on the line y = -½x + 6?",
+              "(8, 2)",
+              ["(8, -2)", "(4, 2)", "(2, 8)"],
+              "At x = 8, y = -½(8) + 6 = -4 + 6 = 2, so (8, 2) lies on the line.", 2),
+            q("O is the origin and A is the point (4, 2). Find the equation of the circle with OA as a diameter.",
+              "(x - 2)² + (y - 1)² = 5",
+              ["(x - 4)² + (y - 2)² = 5", "(x - 2)² + (y - 1)² = √5", "(x + 2)² + (y + 1)² = 5"],
+              "Centre is the midpoint (2, 1); radius² = (½ of OA)² = (½√20)² = 5.", 3),
+            q("A swimming pool with a sloping bottom is filled with water flowing in at a constant rate. Which graph best shows how the depth of water changes with time? (See the figure.)",
+              "Graph A",
+              ["Graph B", "Graph C", "Graph D"],
+              "As the pool fills, the water surface widens, so the depth rises quickly at first then more slowly — an increasing curve that flattens (concave down), which is Graph A.",
+              3, image="naplan_q7_pool_graphs.png"),
         ],
     },
     {
@@ -1023,6 +1136,33 @@ BANK = [
               "80√3 km",
               ["40√3 km", "120 km", "60√2 km"],
               "The bearing makes a 30° angle with due south, so the distance is 120/cos 30° = 80√3 km.", 3),
+            q("Write the exact value of tan 45° × cos 45°.",
+              "√2/2",
+              ["1", "√2", "√3/2"],
+              "tan 45° = 1 and cos 45° = √2/2, so the product is √2/2.", 2),
+            q("Solve for x: cos x° = sin 35°.",
+              "55",
+              ["35", "45", "65"],
+              "cos x° = sin(90° - x°), so 90 - x = 35 and x = 55 (sine and cosine are complementary).", 2),
+            q("If sin θ = 3/7, find the exact value of tan θ (θ acute).",
+              "3√10/20",
+              ["3/7", "7/3", "3/4"],
+              "Adjacent = √(7² - 3²) = √40 = 2√10, so tan θ = 3/(2√10) = 3√10/20.", 3),
+            q("What is the true bearing of P from Q? (See the figure.)",
+              "296°T",
+              ["116°T", "064°T", "244°T"],
+              "From the figure, P is on a bearing of 116°T from Q's line; the reverse bearing (P from Q) is 116° + 180° = 296°T, i.e. N64°W.",
+              2, image="naplan_q2_bearing.png"),
+            q("Find the value of y, to two decimal places. (See the right-angled triangle.)",
+              "79.35 m",
+              ["109.21 m", "185.80 m", "95.34 m"],
+              "The right angle is at the apex, so the 135 m side is the hypotenuse. y is adjacent to the 54° angle: y = 135 cos 54° ≈ 79.35 m.",
+              2, image="naplan_q16_right_triangle.png"),
+            q("The diagram shows a sloping advertising board. The board is 410 cm long and stands 313 cm above the ground. Find the angle θ between the board and the ground, to the nearest degree.",
+              "50°",
+              ["40°", "37°", "53°"],
+              "sin θ = 313/410 = 0.763, so θ = sin⁻¹(0.763) ≈ 50°.",
+              2, image="naplan_q9_advertising_board.png"),
         ],
     },
     {
@@ -1065,6 +1205,22 @@ BANK = [
               "21 9/11 minutes (about 21 min 49 s)",
               ["20 minutes", "24 minutes", "10 10/11 minutes"],
               "The minute hand gains 5.5° per minute and must gain 120°: 120/5.5 = 21 9/11 minutes.", 3),
+            q("A cube has a surface area of 150 cm². What is the side length of the cube?",
+              "5 cm",
+              ["25 cm", "5.5 cm", "12.5 cm"],
+              "A cube has 6 faces, so 6a² = 150, a² = 25 and a = 5 cm.", 2),
+            q("The circumference of a circle increases from π units to 2π units. By how much does its area increase?",
+              "3π/4 square units",
+              ["π/4 square units", "π square units", "3π square units"],
+              "C = π gives r = ½ and area π/4; C = 2π gives r = 1 and area π. The increase is π - π/4 = 3π/4.", 3),
+            q("A solid cone has a diameter of 3.4 cm and a perpendicular height of 1.5 cm. Calculate its slant height, to two decimal places.",
+              "2.27 cm",
+              ["1.85 cm", "5.14 cm", "3.70 cm"],
+              "Radius = 1.7 cm, so slant height = √(1.7² + 1.5²) = √5.14 ≈ 2.27 cm.", 2),
+            q("A solid cone has radius 1.7 cm and slant height 2.27 cm. Calculate its total surface area, to two decimal places.",
+              "21.20 cm²",
+              ["12.12 cm²", "9.08 cm²", "24.22 cm²"],
+              "Total surface area = πr² + πrl = π(1.7²) + π(1.7)(2.27) ≈ 9.08 + 12.12 = 21.20 cm².", 3),
         ],
     },
     {
@@ -1087,6 +1243,24 @@ BANK = [
               "A kite",
               ["A square", "A rectangle", "A parallelogram that is not a rhombus"],
               "A (non-rhombic) kite has perpendicular diagonals; a rectangle's or general parallelogram's diagonals are not perpendicular, and a square is a rhombus.", 2),
+            q("Find the size of each interior angle of a regular 12-sided polygon.",
+              "150°",
+              ["165°", "30°", "144°"],
+              "Interior angle = (n - 2) × 180° / n = 10 × 180° / 12 = 150°.", 2),
+            q("A quadrilateral has diagonals that intersect at right angles. Which of these must it be?",
+              "A kite",
+              ["A rectangle", "A parallelogram", "All of the above"],
+              "A kite (and a rhombus/square, which are special kites) has perpendicular diagonals; a general rectangle or parallelogram does not.", 2),
+            q("ABCD is the parallelogram shown (not to scale), with angles of 100° and 150° marked. Find the value of x.",
+              "70",
+              ["50", "30", "90"],
+              "Using the marked 100° and 150° angles and the straight line at the top vertex, the exterior angle x works out to 70°.",
+              2, image="naplan_q6_parallelogram.png"),
+            q("Lines CD and AB are parallel, cut by two transversals as shown, with an angle of 113° marked at Q. Find the value of x.",
+              "46",
+              ["67", "113", "34"],
+              "The 113° angle and its co-interior partner give 67° at P; the marked equal sides make the triangle isosceles, leaving x = 46°.",
+              3, image="naplan_q14_parallel_lines.png"),
         ],
     },
     {
@@ -1186,7 +1360,16 @@ def validate_topic(topic):
             errors.append(f'{label}: empty question_text')
         if not qd["explanation"].strip():
             errors.append(f'{label}: empty explanation')
+        if qd.get("image") and not (IMAGES_DIR / qd["image"]).exists():
+            errors.append(f'{label}: image "{qd["image"]}" not found in images/')
     return errors
+
+
+# The upload parser sanitises image filenames with re.sub(r'[^\w.\-]', '_', name)
+# and only matches q["image"] against names present in the ZIP, so we store the
+# already-sanitised name in the JSON and under that name in the ZIP.
+def safe_image_name(name):
+    return re.sub(r'[^\w.\-]', '_', name)
 
 
 def build_payload(topic):
@@ -1197,7 +1380,7 @@ def build_payload(topic):
         # always option A.
         rng = random.Random(qd["question_text"])
         rng.shuffle(options)
-        questions.append({
+        question = {
             "question_text": qd["question_text"],
             "question_type": "multiple_choice",
             "difficulty": qd["difficulty"],
@@ -1207,7 +1390,10 @@ def build_payload(topic):
                 {"text": text, "is_correct": is_correct, "order": n}
                 for n, (text, is_correct) in enumerate(options, start=1)
             ],
-        })
+        }
+        if qd.get("image"):
+            question["image"] = safe_image_name(qd["image"])
+        questions.append(question)
     return {
         "subject": "maths",
         "strand": topic["strand"],
@@ -1253,13 +1439,24 @@ def main():
         json_bytes = json.dumps(payload, ensure_ascii=False, indent=2).encode('utf-8')
         json_path.write_bytes(json_bytes)
 
+        # Images referenced by questions in this topic (deduplicated).
+        images = []
+        seen = set()
+        for qd in topic["questions"]:
+            if qd.get("image") and qd["image"] not in seen:
+                seen.add(qd["image"])
+                images.append(qd["image"])
+
         zip_path = OUT_DIR / f'{slug}.zip'
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
             zf.writestr('questions.json', json_bytes)
+            for img in images:
+                zf.write(IMAGES_DIR / img, safe_image_name(img))
         zip_path.write_bytes(buf.getvalue())
 
-        summary.append((topic["strand"], topic["topic"], len(payload["questions"]), slug))
+        summary.append((topic["strand"], topic["topic"],
+                        len(payload["questions"]), len(images), slug))
 
     if all_errors:
         for e in all_errors:
@@ -1267,10 +1464,13 @@ def main():
         sys.exit(1)
 
     total = 0
-    for strand, name, count, slug in summary:
-        print(f'{strand:28s} {name:45s} {count:3d} questions -> {slug}.json/.zip')
+    total_imgs = 0
+    for strand, name, count, n_imgs, slug in summary:
+        extra = f' (+{n_imgs} img)' if n_imgs else ''
+        print(f'{strand:24s} {name:45s} {count:3d} q{extra} -> {slug}.json/.zip')
         total += count
-    print(f'{"TOTAL":74s} {total:4d}')
+        total_imgs += n_imgs
+    print(f'{"TOTAL":70s} {total:4d} q, {total_imgs} images')
 
 
 if __name__ == '__main__':

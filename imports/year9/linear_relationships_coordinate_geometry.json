@@ -1076,6 +1076,152 @@
           "order": 4
         }
       ]
+    },
+    {
+      "question_text": "Write the equation of the line through (2, 3) that is parallel to the x-axis.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "A line parallel to the x-axis is horizontal, y = constant; through (2, 3) it is y = 3.",
+      "answers": [
+        {
+          "text": "y = 2",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x = 2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x = 3",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "y = 3",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "The line x + 2y + 8 = 0 cuts the x-axis at A. What are the coordinates of A?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "On the x-axis y = 0, so x + 8 = 0 and x = -8, giving A(-8, 0).",
+      "answers": [
+        {
+          "text": "(-4, 0)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "(0, -8)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "(8, 0)",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "(-8, 0)",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Which of these points lies on the line y = -½x + 6?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "At x = 8, y = -½(8) + 6 = -4 + 6 = 2, so (8, 2) lies on the line.",
+      "answers": [
+        {
+          "text": "(4, 2)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "(8, -2)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "(2, 8)",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "(8, 2)",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "O is the origin and A is the point (4, 2). Find the equation of the circle with OA as a diameter.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Centre is the midpoint (2, 1); radius² = (½ of OA)² = (½√20)² = 5.",
+      "answers": [
+        {
+          "text": "(x - 2)² + (y - 1)² = 5",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "(x - 4)² + (y - 2)² = 5",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "(x + 2)² + (y + 1)² = 5",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "(x - 2)² + (y - 1)² = √5",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "A swimming pool with a sloping bottom is filled with water flowing in at a constant rate. Which graph best shows how the depth of water changes with time? (See the figure.)",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "As the pool fills, the water surface widens, so the depth rises quickly at first then more slowly — an increasing curve that flattens (concave down), which is Graph A.",
+      "answers": [
+        {
+          "text": "Graph A",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "Graph D",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "Graph C",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "Graph B",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "naplan_q7_pool_graphs.png"
     }
   ]
 }

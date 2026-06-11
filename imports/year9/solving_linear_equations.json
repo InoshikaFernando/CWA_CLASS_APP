@@ -409,6 +409,122 @@
           "order": 4
         }
       ]
+    },
+    {
+      "question_text": "Solve the inequality 3x - 29 ≤ 4x + 12.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "3x - 29 ≤ 4x + 12 gives -41 ≤ x, i.e. x ≥ -41.",
+      "answers": [
+        {
+          "text": "x ≤ -41",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x ≤ 41",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x ≥ -41",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "x ≥ 41",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Tickets for a river cruise cost $15 for an adult and $8 for a child. For one cruise, 46 tickets were sold for a total of $438. How many adult tickets were sold?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "With A + C = 46 and 15A + 8C = 438: 15A + 8(46 - A) = 438 gives 7A = 70, so A = 10.",
+      "answers": [
+        {
+          "text": "20",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "36",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "26",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "10",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Solve (2x - 5)/3 - (x + 7)/5 = 2.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Multiply by 15: 5(2x - 5) - 3(x + 7) = 30, so 7x - 46 = 30 and x = 76/7.",
+      "answers": [
+        {
+          "text": "x = -76/7",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x = 30",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x = 46/7",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "x = 76/7",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Solve the inequality -3x > 6.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Divide both sides by -3 and reverse the inequality: x < -2.",
+      "answers": [
+        {
+          "text": "x < 2",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x > 2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x < -2",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "x > -2",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
     }
   ]
 }

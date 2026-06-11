@@ -119,6 +119,124 @@
           "order": 4
         }
       ]
+    },
+    {
+      "question_text": "Find the size of each interior angle of a regular 12-sided polygon.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Interior angle = (n - 2) × 180° / n = 10 × 180° / 12 = 150°.",
+      "answers": [
+        {
+          "text": "165°",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "144°",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "150°",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "30°",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "A quadrilateral has diagonals that intersect at right angles. Which of these must it be?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "A kite (and a rhombus/square, which are special kites) has perpendicular diagonals; a general rectangle or parallelogram does not.",
+      "answers": [
+        {
+          "text": "A kite",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "All of the above",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "A rectangle",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "A parallelogram",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "ABCD is the parallelogram shown (not to scale), with angles of 100° and 150° marked. Find the value of x.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Using the marked 100° and 150° angles and the straight line at the top vertex, the exterior angle x works out to 70°.",
+      "answers": [
+        {
+          "text": "50",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "90",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "30",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "70",
+          "is_correct": true,
+          "order": 4
+        }
+      ],
+      "image": "naplan_q6_parallelogram.png"
+    },
+    {
+      "question_text": "Lines CD and AB are parallel, cut by two transversals as shown, with an angle of 113° marked at Q. Find the value of x.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "The 113° angle and its co-interior partner give 67° at P; the marked equal sides make the triangle isosceles, leaving x = 46°.",
+      "answers": [
+        {
+          "text": "46",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "67",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "34",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "113",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "naplan_q14_parallel_lines.png"
     }
   ]
 }

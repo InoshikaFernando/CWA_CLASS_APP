@@ -525,6 +525,183 @@
           "order": 4
         }
       ]
+    },
+    {
+      "question_text": "Write the exact value of tan 45° × cos 45°.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "tan 45° = 1 and cos 45° = √2/2, so the product is √2/2.",
+      "answers": [
+        {
+          "text": "√3/2",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "1",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "√2",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "√2/2",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Solve for x: cos x° = sin 35°.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "cos x° = sin(90° - x°), so 90 - x = 35 and x = 55 (sine and cosine are complementary).",
+      "answers": [
+        {
+          "text": "45",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "35",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "55",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "65",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "If sin θ = 3/7, find the exact value of tan θ (θ acute).",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Adjacent = √(7² - 3²) = √40 = 2√10, so tan θ = 3/(2√10) = 3√10/20.",
+      "answers": [
+        {
+          "text": "3/4",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "3/7",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "3√10/20",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "7/3",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "What is the true bearing of P from Q? (See the figure.)",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "From the figure, P is on a bearing of 116°T from Q's line; the reverse bearing (P from Q) is 116° + 180° = 296°T, i.e. N64°W.",
+      "answers": [
+        {
+          "text": "064°T",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "296°T",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "244°T",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "116°T",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "naplan_q2_bearing.png"
+    },
+    {
+      "question_text": "Find the value of y, to two decimal places. (See the right-angled triangle.)",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "The right angle is at the apex, so the 135 m side is the hypotenuse. y is adjacent to the 54° angle: y = 135 cos 54° ≈ 79.35 m.",
+      "answers": [
+        {
+          "text": "79.35 m",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "109.21 m",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "185.80 m",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "95.34 m",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "naplan_q16_right_triangle.png"
+    },
+    {
+      "question_text": "The diagram shows a sloping advertising board. The board is 410 cm long and stands 313 cm above the ground. Find the angle θ between the board and the ground, to the nearest degree.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "sin θ = 313/410 = 0.763, so θ = sin⁻¹(0.763) ≈ 50°.",
+      "answers": [
+        {
+          "text": "37°",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "50°",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "40°",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "53°",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "naplan_q9_advertising_board.png"
     }
   ]
 }

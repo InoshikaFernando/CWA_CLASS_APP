@@ -525,6 +525,35 @@
           "order": 4
         }
       ]
+    },
+    {
+      "question_text": "If 5ᵏ(5²)³ = 1, find k.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "5ᵏ × 5⁶ = 5⁰, so k + 6 = 0 and k = -6.",
+      "answers": [
+        {
+          "text": "-3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "6",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "-6",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "0",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
     }
   ]
 }

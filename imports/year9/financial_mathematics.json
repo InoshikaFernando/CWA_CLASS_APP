@@ -148,6 +148,93 @@
           "order": 4
         }
       ]
+    },
+    {
+      "question_text": "Tina earns $7.20 per hour at the normal rate. Each week she works 11 hours at the normal rate and 4 hours at time-and-a-half. Find her weekly wage.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Normal: 11 × $7.20 = $79.20. Time-and-a-half: 4 × $7.20 × 1.5 = $43.20. Total $122.40.",
+      "answers": [
+        {
+          "text": "$162.00",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$129.60",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$122.40",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "$108.00",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Tina's weekly wage is $122.40. She wants to raise it to $180 by working extra hours at the normal rate of $7.20/hour. How many extra hours must she work?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Extra needed is $180 - $122.40 = $57.60, and 57.60 ÷ 7.20 = 8 hours.",
+      "answers": [
+        {
+          "text": "6 hours",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "10 hours",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "25 hours",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "8 hours",
+          "is_correct": true,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Tina's hourly rate of $7.20 is increased by 6%. Find the new hourly rate, to the nearest cent.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "$7.20 × 1.06 = $7.632 ≈ $7.63.",
+      "answers": [
+        {
+          "text": "$7.63",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "$7.20",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$7.26",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "$13.20",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
     }
   ]
 }

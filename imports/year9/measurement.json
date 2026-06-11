@@ -264,6 +264,122 @@
           "order": 4
         }
       ]
+    },
+    {
+      "question_text": "A cube has a surface area of 150 cm². What is the side length of the cube?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "A cube has 6 faces, so 6a² = 150, a² = 25 and a = 5 cm.",
+      "answers": [
+        {
+          "text": "12.5 cm",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "5 cm",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "25 cm",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "5.5 cm",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "The circumference of a circle increases from π units to 2π units. By how much does its area increase?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "C = π gives r = ½ and area π/4; C = 2π gives r = 1 and area π. The increase is π - π/4 = 3π/4.",
+      "answers": [
+        {
+          "text": "3π square units",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "3π/4 square units",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "π/4 square units",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "π square units",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "A solid cone has a diameter of 3.4 cm and a perpendicular height of 1.5 cm. Calculate its slant height, to two decimal places.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Radius = 1.7 cm, so slant height = √(1.7² + 1.5²) = √5.14 ≈ 2.27 cm.",
+      "answers": [
+        {
+          "text": "3.70 cm",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2.27 cm",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "5.14 cm",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "1.85 cm",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "A solid cone has radius 1.7 cm and slant height 2.27 cm. Calculate its total surface area, to two decimal places.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Total surface area = πr² + πrl = π(1.7²) + π(1.7)(2.27) ≈ 9.08 + 12.12 = 21.20 cm².",
+      "answers": [
+        {
+          "text": "12.12 cm²",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "21.20 cm²",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "24.22 cm²",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "9.08 cm²",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
     }
   ]
 }

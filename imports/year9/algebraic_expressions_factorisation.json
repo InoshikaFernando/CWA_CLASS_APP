@@ -815,6 +815,209 @@
           "order": 4
         }
       ]
+    },
+    {
+      "question_text": "Factorise x² + 4x - 21.",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Two numbers multiplying to -21 and adding to +4 are +7 and -3.",
+      "answers": [
+        {
+          "text": "(x + 7)(x + 3)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "(x - 7)(x + 3)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "(x + 7)(x - 3)",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "(x - 7)(x - 3)",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "If x² - y² = 64 and x + y = 16, find the value of x - y.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "x² - y² = (x + y)(x - y), so 64 = 16(x - y) and x - y = 4.",
+      "answers": [
+        {
+          "text": "4",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "8",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "48",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "1/4",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify (2 - 3x) - (5 - 4x).",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "2 - 3x - 5 + 4x = (4x - 3x) + (2 - 5) = x - 3.",
+      "answers": [
+        {
+          "text": "7x - 3",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "-x - 3",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "x - 3",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "x - 7",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify 2p² × 3p³q².",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Multiply coefficients (2 × 3 = 6) and add indices of p (2 + 3 = 5): 6p⁵q².",
+      "answers": [
+        {
+          "text": "6p⁵q⁴",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "6p⁵q²",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "6p⁶q²",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "5p⁵q²",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Simplify (x⁻² - y⁻²)/(x⁻¹ + y⁻¹), leaving no negative indices.",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Top = (y² - x²)/(x²y²) = (y - x)(y + x)/(x²y²); bottom = (y + x)/(xy). Dividing gives (y - x)/(xy).",
+      "answers": [
+        {
+          "text": "(x - y)/(xy)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "(y - x)/(x²y²)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "(y - x)/(xy)",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "xy/(y - x)",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "If (3a + 4b)/(2a - 2b) = 5, find the value of (a² + 2b²)/(ab).",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "3a + 4b = 10a - 10b gives 14b = 7a, so a = 2b. Then (4b² + 2b²)/(2b²) = 3.",
+      "answers": [
+        {
+          "text": "3",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "5",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "6",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "question_text": "Find x: 2/15 = 1/8 + 1/x.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "1/x = 2/15 - 1/8 = 16/120 - 15/120 = 1/120, so x = 120.",
+      "answers": [
+        {
+          "text": "1/7",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "120",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "120/31",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "15/8",
+          "is_correct": false,
+          "order": 4
+        }
+      ]
     }
   ]
 }
