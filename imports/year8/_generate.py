@@ -24,9 +24,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 YEAR = 8
 
 
-def mc(text, options, correct_index, explanation, difficulty=1, points=1):
-    """Build a multiple_choice question. options = list of answer strings."""
-    return {
+def mc(text, options, correct_index, explanation, difficulty=1, points=1, image=None):
+    """Build a multiple_choice question. options = list of answer strings.
+
+    image: optional figure filename (basename under images/). When set it is
+    emitted as the question's "image" field — MathsQuestionParser pulls the
+    matching file from the uploaded ZIP and attaches it to the question."""
+    q = {
         "question_text": text,
         "question_type": "multiple_choice",
         "difficulty": difficulty,
@@ -37,6 +41,9 @@ def mc(text, options, correct_index, explanation, difficulty=1, points=1):
             for i, o in enumerate(options)
         ],
     }
+    if image:
+        q["image"] = image
+    return q
 
 
 TOPICS = [
@@ -1652,6 +1659,235 @@ NEW_TOPICS.append({
     ],
 })
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Batch 3 — June 2026: diagram questions recovered with figures.
+#
+# Previously skipped because they depend on a figure. Each figure was cropped
+# from the clean vector source PDF (Selective practice exam / Quantitative
+# Reasoning Test — no answer key printed on the figure) into images/<file>.png
+# and is bundled into the topic ZIP via the question's "image" field. Every
+# answer was read off the figure and computed independently.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _add(slug, qs):
+    """Append diagram questions to a topic (works for batch-1 or batch-2)."""
+    EXTRA_QUESTIONS.setdefault(slug, []).extend(qs)
+
+
+# ── Data and statistics: bar chart, pie charts, mosaic plot ──
+_add("data_and_statistics", [
+    mc("The bar chart shows the favourite subjects of the Year 8 students "
+       "interviewed. What percentage of students prefers Maths to all other "
+       "subjects in the survey?",
+       ["22.5%", "17.5%", "77.5%", "10.0%"], 0,
+       "Reading the bars: English 7, Maths 9, Science 7, Language 5, History 4, "
+       "Geography 4, Music 2, Art 2 — total 40. Maths = 9 ÷ 40 = 22.5%.",
+       difficulty=2, image="selective_q10_barchart.png"),
+    mc("The pie chart shows the votes for four candidates for school captain. "
+       "Which statement is true?",
+       ["Candidate A won with approximately 50% of the votes.",
+        "Only 90% of the students in the school voted.",
+        "Candidates C and D were tied for the winning number of votes.",
+        "Candidate B received twice as many votes as Candidates C and D combined."],
+       0,
+       "Candidate A's sector is about half the circle, so A won with roughly 50% "
+       "of the votes. A pie chart shows only proportions, not turnout, and D is "
+       "the smallest sector so it cannot be tied for the win.",
+       difficulty=2, image="selective_q34_piechart.png"),
+    mc("The pie chart shows how a student spends their time after school. "
+       "Which two activities in total take up half the student's time?",
+       ["playing video games and studying",
+        "exercising and watching favourite shows",
+        "exercising and studying",
+        "playing video games and watching favourite shows"], 0,
+       "Reading the 30°-tick sectors: studying = 150° and playing video games = "
+       "30°, together 180° — exactly half of the 360° circle.",
+       difficulty=2, image="quant_q11_12_pie.png"),
+    mc("On the after-school pie chart the student exercises for 55 minutes. "
+       "What is the total time the student spends on activities after school?",
+       ["5 h 30 min", "4 h 35 min", "4 h 58 min", "5 h 50 min"], 0,
+       "The exercising sector spans 60° (two 30° ticks) = 60/360 = 1/6 of the "
+       "time. So the total is 55 × 6 = 330 min = 5 h 30 min.",
+       difficulty=3, image="quant_q11_12_pie.png"),
+    mc("The mosaic plot shows favourite subjects of 160 students and the "
+       "teachers surveyed. What percentage of the students said PE?",
+       ["55%", "45%", "25%", "20%"], 0,
+       "In the students column PE runs from 45% to 100% on the scale, so PE = "
+       "55% of the students.",
+       difficulty=2, image="quant_q40_42_mosaic.png"),
+    mc("On the mosaic plot the column widths are proportional to the number of "
+       "people, with 160 students and (from the 4 : 1 width ratio) 40 teachers. "
+       "What percentage of all the people surveyed said English?",
+       ["17%", "28%", "34%", "55%"], 0,
+       "Students who said English: 10% × 160 = 16. Teachers who said English: "
+       "45% × 40 = 18. Total English = 34 of 200 people = 17%.",
+       difficulty=3, image="quant_q40_42_mosaic.png"),
+    mc("On the mosaic plot 20 more students are surveyed and added to the 160. "
+       "What is the greatest possible percentage of the students whose favourite "
+       "subject is Science?",
+       ["33%", "25%", "28%", "45%"], 0,
+       "Science was 25% × 160 = 40 students. At most all 20 new students pick "
+       "Science: 60 of 180 = 33%.",
+       difficulty=3, image="quant_q40_42_mosaic.png"),
+])
+
+# ── Coordinate geometry: line, parabola, reflection, gradient ──
+_add("coordinate_geometry", [
+    mc("This graph shows a straight line. Which equation does it have?",
+       ["x + y = 1", "x = y + 1", "x − y = 1", "y = x + 1"], 0,
+       "The line slopes downward (negative gradient), so it must have the form "
+       "x + y = c. Of the options only x + y = 1 has a negative gradient.",
+       difficulty=2, image="selective_q11_line.png"),
+    mc("What is the equation of this parabola?",
+       ["y = -x²/4 + 4", "y = -4x² + 4", "y = 4x² + 4", "y = x²/4 + 4"], 0,
+       "The parabola opens downward (negative leading coefficient) with vertex "
+       "(0, 4) and x-intercepts at ±4: 0 = -x²/4 + 4 gives x² = 16, x = ±4.",
+       difficulty=3, image="selective_q12_parabola.png"),
+    mc("The triangle (E = (-1, 4), F = (-1, 2), G = (2, 2)) is reflected over "
+       "the y-axis, then translated downward 3 units. What are the new "
+       "co-ordinates of F and G?",
+       ["F = (1, -1) ; G = (-2, -1)",
+        "F = (-1, 1) ; G = (-2, -1)",
+        "F = (1, -1) ; G = (-2, 1)",
+        "F = (-1, 1) ; G = (-2, 1)"], 0,
+       "Reflecting in the y-axis negates x: F(-1,2)→(1,2), G(2,2)→(-2,2). "
+       "Translating down 3 subtracts 3 from y: F(1,-1) and G(-2,-1).",
+       difficulty=3, image="selective_q19_reflection.png"),
+    mc("What is the gradient of this line?",
+       ["-2", "1/2", "2", "-1/2"], 0,
+       "The line passes through (0, 6) and (3, 0): gradient = (0 − 6)/(3 − 0) = -2.",
+       difficulty=2, image="selective_q45_gradient.png"),
+])
+
+# ── Angles: parallel lines cut by a transversal ──
+_add("angles", [
+    mc("Two parallel lines are cut by a transversal as shown. Find the value of "
+       "the pronumeral y.",
+       ["137°", "43°", "133°", "143°"], 0,
+       "y° is co-interior (allied) with the 43° angle, so y = 180 − 43 = 137°.",
+       difficulty=2, image="selective_q50_angles.png"),
+])
+
+# ── Measurement: nets, area, similar triangles, sectors, solids, volume ──
+_add("measurement", [
+    mc("Which of the figures A, B, C or D is a net of a rectangular solid "
+       "(a closed box)?",
+       ["D", "A", "B", "C"], 0,
+       "A net of a box needs exactly 6 faces that fold up without overlapping. "
+       "A has only 5 faces and C has 7; B has 6 but two faces fold onto the same "
+       "side. Only D folds into a closed box.",
+       difficulty=3, image="selective_q06_nets.png"),
+    mc("A 12 m by 7 m floor has a square left unshaded around a central feature. "
+       "What is the maximum number of floorboards 75 mm wide and 2 m long that "
+       "would be needed to cover the floor area?",
+       ["560", "150", "168", "1260"], 0,
+       "Each board covers 0.075 m × 2 m = 0.15 m². The floor is 12 × 7 = 84 m², "
+       "so at most 84 ÷ 0.15 = 560 boards.",
+       difficulty=3, image="selective_q07_floorplan.png"),
+    mc("In the figure the sloping top is a straight line. The left edge is 3, a "
+       "vertical 5 stands 2 along the base, and the base is split 2 then 4. "
+       "Calculate the value of x (the right-hand height).",
+       ["9", "15", "10", "7"], 0,
+       "The top rises 2 over the first 2 across (from 3 up to 5), a gradient of "
+       "1. Over the full base of 6 it rises 6, so x = 3 + 6 = 9.",
+       difficulty=3, image="selective_q13_findx.png"),
+    mc("A sector of a circle of radius 5 cm has a shaded angle of 144°. What is "
+       "the area of the shaded part of the region?",
+       ["10π cm²", "12π cm²", "25π cm²", "15π cm²"], 0,
+       "Sector area = (144/360) × π × 5² = 0.4 × 25π = 10π cm².",
+       difficulty=2, image="selective_q33_sector.png"),
+    mc("How many faces (sides) does this block of wood have?",
+       ["7", "5", "8", "9"], 0,
+       "The block is a prism whose cross-section is a pentagon (a square with a "
+       "triangular wedge below): 2 pentagonal ends + 5 rectangular faces = 7.",
+       difficulty=2, image="selective_q53_block.png"),
+    mc("Shape C (a 4 × 4 grid) has a whole area of 2 cm². What is the area of "
+       "the shading in shape D?",
+       ["1.25 cm²", "0.25 cm²", "2 cm²", "0.75 cm²"], 0,
+       "Each row of the 4 × 4 grid is 2 ÷ 4 = 0.5 cm². In D the top row is "
+       "unshaded, the second row is cut in half by a slant (0.25 cm² shaded), "
+       "and the bottom two rows are fully shaded (0.5 + 0.5). Total shaded = "
+       "0.25 + 0.5 + 0.5 = 1.25 cm² (slanting does not change area).",
+       difficulty=3, image="selective_q56_shaded.png"),
+    mc("A tiling uses regular hexagonal tiles and black diamond (rhombus) tiles. "
+       "The diamond tile has an area of 800 cm². What is the area of one "
+       "hexagonal tile?",
+       ["2400 cm²", "2000 cm²", "2800 cm²", "3200 cm²"], 0,
+       "A regular hexagon is 6 equilateral triangles; the diamond is 2 of the "
+       "same triangles. So the hexagon = 3 × the diamond = 3 × 800 = 2400 cm².",
+       difficulty=3, image="quant_q19_tiles.png"),
+    mc("A layered candle is a cylinder of height 12 cm and diameter 9 cm with a "
+       "volume of 763.4 cm³. The white wax sits above a 45° slanted plane that "
+       "runs from the top rim down to 3 cm up the far side. What is the volume "
+       "of the white wax?",
+       ["286.3 cm³", "254.5 cm³", "381.7 cm³", "572.6 cm³"], 0,
+       "A plane cutting a cylinder leaves a volume of πr² × (height at the "
+       "central axis). The slant is at 12 cm on one side and 3 cm on the other, "
+       "so 7.5 cm at the centre. White wax (above it) = πr² × (12 − 7.5) = "
+       "π × 4.5² × 4.5 = 286.3 cm³.",
+       difficulty=3, image="quant_q32_candle.png"),
+    mc("Using the relative-size chart, a microscopic object measures 7000 nm. "
+       "Which object is it most likely to be?",
+       ["red blood cell", "smallpox virus", "pollen", "frog egg"], 0,
+       "7000 nm = 7 µm, which on the scale sits between 1 µm and 10 µm — the "
+       "size of a red blood cell.",
+       difficulty=2, image="quant_q37_38_sizes.png"),
+])
+
+# ── Pythagoras' theorem: perimeter + diagonals of a rectangular field ──
+_add("pythagoras_theorem", [
+    mc("The diagram shows a rectangular field 40 m by 30 m with corners C, B, A, "
+       "D. If Bobby runs from A to B to D to C to A, how far did Bobby run?",
+       ["160 m", "170 m", "180 m", "140 m"], 0,
+       "A→B and D→C are the 30 m sides. B→D and C→A are diagonals: "
+       "√(40² + 30²) = 50 m each. Total = 30 + 50 + 30 + 50 = 160 m.",
+       difficulty=2, image="selective_q25_field.png"),
+])
+
+# ── Inequalities: intersection of two intervals on a number line ──
+_add("inequalities", [
+    mc("Two intervals are shown on the number line: a closed dot at -1 to an "
+       "open circle at 5, and an open circle at -1 to an open circle at 7. "
+       "Find the part they share (the intersection).",
+       ["{x : -1 < x < 5}", "{x : -1 < x ≤ 5}", "{x : -1 ≤ x ≤ 5}",
+        "{x : -1 ≤ x < 5}"], 0,
+       "The first interval is -1 ≤ x < 5, the second is -1 < x < 7. Both hold "
+       "for -1 < x < 5 (open at -1 because the second interval excludes it).",
+       difficulty=2, image="selective_q38_numberline.png"),
+])
+
+# ── Ratio and proportion: comparing sizes on the relative-size chart ──
+_add("ratio_and_proportion", [
+    mc("On the relative-size chart, how many times bigger than the flu virus is "
+       "the bacterium?",
+       ["10", "0.01", "100", "1000"], 0,
+       "The flu virus is about 100 nm and the bacterium about 1 µm = 1000 nm, "
+       "so the bacterium is 1000 ÷ 100 = 10 times bigger.",
+       difficulty=2, image="quant_q37_38_sizes.png"),
+])
+
+# ── Problem solving: average price, reading a parking sign ──
+_add("problem_solving", [
+    mc("Ravi's online shopping cart shows 3 items costing $14.40 in total. "
+       "What is the average cost per item?",
+       ["$4.80", "$5.20", "$5.80", "$7.20"], 0,
+       "Average = total ÷ number of items = 14.40 ÷ 3 = $4.80.",
+       difficulty=1, image="quant_q01_prices.png"),
+    mc("A car arrives at the street at 5 pm on a Monday. Using the parking "
+       "sign, how long is the car permitted to be parked on the street?",
+       ["1 h", "0 min", "5 min", "2 h"], 0,
+       "At 5 pm on a Monday the 1P rule applies (1-hour parking, 9:30 am – "
+       "7:30 pm, Mon–Fri), so the car may park for 1 hour.",
+       difficulty=2, image="quant_q07_08_parking.png"),
+    mc("Using the parking sign, which day has the longest total time when "
+       "parking is unrestricted?",
+       ["Sunday", "Tuesday", "Friday", "Saturday"], 0,
+       "Restricted hours: Mon–Fri 7:30 am – 11:30 pm (16 h → 8 h free), "
+       "Sat 7:30 am – 7:30 pm (12 h → 12 h free), Sun 7:30 am – 6:30 pm "
+       "(11 h → 13 h free). Sunday has the most unrestricted time.",
+       difficulty=3, image="quant_q07_08_parking.png"),
+])
+
 # ── batch-2 data end ──
 
 
@@ -1684,14 +1920,26 @@ def _validate(topic, q):
         f"{topic}: mathematically equal options {opts} in {q['question_text']!r}")
 
 
+IMAGES_DIR = os.path.join(HERE, "images")
+
+
 def main():
+    # Apply EXTRA_QUESTIONS to batch-1 topics, merge batch-2 topics, then apply
+    # any remaining EXTRA_QUESTIONS to those batch-2 topics (two passes so the
+    # diagram questions below can extend topics defined in either batch).
+    for t in TOPICS:
+        t["questions"].extend(EXTRA_QUESTIONS.pop(t["slug"], []))
+    TOPICS.extend(NEW_TOPICS)
     for t in TOPICS:
         t["questions"].extend(EXTRA_QUESTIONS.pop(t["slug"], []))
     assert not EXTRA_QUESTIONS, f"unmatched extension slugs: {list(EXTRA_QUESTIONS)}"
-    TOPICS.extend(NEW_TOPICS)
     for t in TOPICS:
         for q in t["questions"]:
             _validate(t["topic"], q)
+            img = q.get("image")
+            if img:
+                assert os.path.exists(os.path.join(IMAGES_DIR, img)), (
+                    f"{t['slug']}: referenced image not found: images/{img}")
 
     manifest = []
     for t in TOPICS:
@@ -1708,19 +1956,33 @@ def main():
         with open(json_path, "w", encoding="utf-8") as fh:
             fh.write(payload + "\n")
 
+        # Figures referenced by this topic's questions, bundled into the ZIP
+        # alongside questions.json (parser keys them by basename). A fixed
+        # timestamp keeps the ZIP bytes deterministic so regenerating only
+        # changes the archives whose content actually changed.
+        imgs = sorted({q["image"] for q in t["questions"] if q.get("image")})
         zip_path = os.path.join(HERE, f"{t['slug']}_year{YEAR}.zip")
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            zf.writestr("questions.json", payload)
+            def _add_zip(name, raw):
+                info = zipfile.ZipInfo(name, date_time=(2020, 1, 1, 0, 0, 0))
+                info.compress_type = zipfile.ZIP_DEFLATED
+                zf.writestr(info, raw)
+            _add_zip("questions.json", payload)
+            for im in imgs:
+                with open(os.path.join(IMAGES_DIR, im), "rb") as fh:
+                    _add_zip(im, fh.read())
 
-        manifest.append((t["topic"], len(t["questions"]),
+        manifest.append((t["topic"], len(t["questions"]), len(imgs),
                          os.path.basename(json_path), os.path.basename(zip_path)))
 
-    print(f"{'TOPIC':<34}{'Qs':<5}{'JSON':<40}ZIP")
-    total = 0
-    for topic, n, jp, zp in manifest:
+    print(f"{'TOPIC':<34}{'Qs':<5}{'Img':<5}{'JSON':<40}ZIP")
+    total = imgtotal = 0
+    for topic, n, ni, jp, zp in manifest:
         total += n
-        print(f"{topic:<34}{n:<5}{jp:<40}{zp}")
-    print(f"\nTotal: {len(manifest)} topics, {total} questions")
+        imgtotal += ni
+        print(f"{topic:<34}{n:<5}{ni:<5}{jp:<40}{zp}")
+    print(f"\nTotal: {len(manifest)} topics, {total} questions, "
+          f"{imgtotal} figure references")
 
 
 if __name__ == "__main__":

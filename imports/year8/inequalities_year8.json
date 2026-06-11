@@ -61,6 +61,36 @@
           "order": 3
         }
       ]
+    },
+    {
+      "question_text": "Two intervals are shown on the number line: a closed dot at -1 to an open circle at 5, and an open circle at -1 to an open circle at 7. Find the part they share (the intersection).",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "The first interval is -1 ≤ x < 5, the second is -1 < x < 7. Both hold for -1 < x < 5 (open at -1 because the second interval excludes it).",
+      "answers": [
+        {
+          "text": "{x : -1 < x < 5}",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "{x : -1 < x ≤ 5}",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "{x : -1 ≤ x ≤ 5}",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "{x : -1 ≤ x < 5}",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "selective_q38_numberline.png"
     }
   ]
 }

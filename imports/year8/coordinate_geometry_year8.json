@@ -90,6 +90,126 @@
           "order": 3
         }
       ]
+    },
+    {
+      "question_text": "This graph shows a straight line. Which equation does it have?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "The line slopes downward (negative gradient), so it must have the form x + y = c. Of the options only x + y = 1 has a negative gradient.",
+      "answers": [
+        {
+          "text": "x + y = 1",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "x = y + 1",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "x − y = 1",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "y = x + 1",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "selective_q11_line.png"
+    },
+    {
+      "question_text": "What is the equation of this parabola?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "The parabola opens downward (negative leading coefficient) with vertex (0, 4) and x-intercepts at ±4: 0 = -x²/4 + 4 gives x² = 16, x = ±4.",
+      "answers": [
+        {
+          "text": "y = -x²/4 + 4",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "y = -4x² + 4",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "y = 4x² + 4",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "y = x²/4 + 4",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "selective_q12_parabola.png"
+    },
+    {
+      "question_text": "The triangle (E = (-1, 4), F = (-1, 2), G = (2, 2)) is reflected over the y-axis, then translated downward 3 units. What are the new co-ordinates of F and G?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Reflecting in the y-axis negates x: F(-1,2)→(1,2), G(2,2)→(-2,2). Translating down 3 subtracts 3 from y: F(1,-1) and G(-2,-1).",
+      "answers": [
+        {
+          "text": "F = (1, -1) ; G = (-2, -1)",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "F = (-1, 1) ; G = (-2, -1)",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "F = (1, -1) ; G = (-2, 1)",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "F = (-1, 1) ; G = (-2, 1)",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "selective_q19_reflection.png"
+    },
+    {
+      "question_text": "What is the gradient of this line?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "The line passes through (0, 6) and (3, 0): gradient = (0 − 6)/(3 − 0) = -2.",
+      "answers": [
+        {
+          "text": "-2",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "1/2",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "-1/2",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "selective_q45_gradient.png"
     }
   ]
 }

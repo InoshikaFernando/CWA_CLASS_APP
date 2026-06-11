@@ -14,17 +14,24 @@ Sources:
 
 ## How to use
 
-Upload either the `.json` directly, or the `.zip` (which contains a single
-`questions.json` with the same content) via the classroom question-upload
-screen. `year_level` is set to `8`, so a Level with `level_number = 8` must
-exist.
+Upload either the `.json` directly, or the `.zip` via the classroom
+question-upload screen. `year_level` is set to `8`, so a Level with
+`level_number = 8` must exist.
 
-## Files (one per topic, 356 questions total)
+Each `.zip` contains `questions.json` (byte-identical to the standalone
+`.json`) **plus any figure images** referenced by that topic's questions.
+`MathsQuestionParser` reads each question's `image` field and attaches the
+matching file from the ZIP, so diagram questions must be uploaded via the
+`.zip`. The plain `.json` still uploads fine — questions just appear without
+their figure. Figures live in [`images/`](./images/) and are cropped from the
+clean vector source PDFs (no printed answer keys on the figures).
+
+## Files (one per topic, 383 questions total)
 
 | Topic | Strand | Qs | File |
 |-------|--------|----|------|
 | Rounding and Decimals | Number | 6 | `rounding_and_decimals_year8.{json,zip}` |
-| Ratio and Proportion | Number | 10 | `ratio_and_proportion_year8.{json,zip}` |
+| Ratio and Proportion | Number | 11 | `ratio_and_proportion_year8.{json,zip}` |
 | Fractions | Number | 3 | `fractions_year8.{json,zip}` |
 | Surds | Number | 4 | `surds_year8.{json,zip}` |
 | Number Properties | Number | 3 | `number_properties_year8.{json,zip}` |
@@ -32,7 +39,7 @@ exist.
 | GST | Number | 18 | `gst_year8.{json,zip}` |
 | Percentage Word Problems | Number | 12 | `percentage_word_problems_year8.{json,zip}` |
 | Profit and Loss | Number | 31 | `profit_and_loss_year8.{json,zip}` |
-| Problem Solving | Number | 18 | `problem_solving_year8.{json,zip}` |
+| Problem Solving | Number | 21 | `problem_solving_year8.{json,zip}` |
 | Rates and Speed | Number | 3 | `rates_and_speed_year8.{json,zip}` |
 | Rearranging Formulae | Algebra | 8 | `rearranging_formulae_year8.{json,zip}` |
 | Solving Linear Equations | Algebra | 94 | `solving_linear_equations_year8.{json,zip}` |
@@ -43,15 +50,15 @@ exist.
 | Algebraic Fractions | Algebra | 16 | `algebraic_fractions_year8.{json,zip}` |
 | Factorising | Algebra | 13 | `factorising_year8.{json,zip}` |
 | Substitution | Algebra | 4 | `substitution_year8.{json,zip}` |
-| Inequalities | Algebra | 2 | `inequalities_year8.{json,zip}` |
-| Coordinate Geometry | Algebra | 3 | `coordinate_geometry_year8.{json,zip}` |
+| Inequalities | Algebra | 3 | `inequalities_year8.{json,zip}` |
+| Coordinate Geometry | Algebra | 7 | `coordinate_geometry_year8.{json,zip}` |
 | BODMAS | Algebra | 1 | `bodmas_year8.{json,zip}` |
-| Angles | Geometry | 2 | `angles_year8.{json,zip}` |
-| Measurement | Geometry | 3 | `measurement_year8.{json,zip}` |
-| Pythagoras' Theorem | Geometry | 27 | `pythagoras_theorem_year8.{json,zip}` |
+| Angles | Geometry | 3 | `angles_year8.{json,zip}` |
+| Measurement | Geometry | 12 | `measurement_year8.{json,zip}` |
+| Pythagoras' Theorem | Geometry | 28 | `pythagoras_theorem_year8.{json,zip}` |
 | Trigonometry | Geometry | 2 | `trigonometry_year8.{json,zip}` |
 | Probability | Statistics and Probability | 3 | `probability_year8.{json,zip}` |
-| Data and Statistics | Statistics and Probability | 4 | `data_and_statistics_year8.{json,zip}` |
+| Data and Statistics | Statistics and Probability | 11 | `data_and_statistics_year8.{json,zip}` |
 
 All questions are `multiple_choice` with exactly one correct answer.
 Distractors were chosen so none is mathematically equal to the correct answer
@@ -63,69 +70,74 @@ mathematically equal to the correct answer (e.g. `√72` alongside `6√2`,
 `3/36` alongside `1/12`, `(3x + 12)(x − 1)` alongside `3(x + 4)(x − 1)`); those
 distractors were replaced with non-equivalent ones.
 
-## Not converted (depend on diagrams/figures not in the text)
+## Figures (diagram questions)
+
+27 previously-skipped diagram questions were recovered by cropping their figure
+from the source PDF into [`images/`](./images/) and bundling it into the topic
+ZIP (22 image files; the relative-size chart and a few pie/mosaic figures are
+shared by more than one question). Each figure's answer was read directly off
+the figure and computed independently:
+
+| Topic | Figure questions |
+|-------|------------------|
+| Data and Statistics | Selective Q10 (bar chart), Q34 (pie); Quantitative Q11–12 (pie), Q40–42 (mosaic plot) |
+| Measurement | Selective Q6 (net), Q7 (floorboards), Q13 (find *x*), Q33 (sector area), Q53 (faces of a solid), Q56 (shaded area); Quantitative Q19 (hexagon/diamond tiles), Q32 (layered candle), Q37 (relative size) |
+| Coordinate Geometry | Selective Q11 (line), Q12 (parabola), Q19 (reflection), Q45 (gradient) |
+| Problem Solving | Quantitative Q1 (average price), Q7–8 (parking sign) |
+| Angles | Selective Q50 (parallel lines) |
+| Pythagoras' Theorem | Selective Q25 (rectangular field) |
+| Inequalities | Selective Q38 (intervals on a number line) |
+| Ratio and Proportion | Quantitative Q38 (relative-size ratio) |
+
+## Still not converted
+
+These are the questions left out, with the specific reason. The diagram
+questions from the Selective and Quantitative exams that *could* be verified are
+now included (see **Figures** above); what remains either cannot be keyed with
+confidence or does not fit a single-answer multiple-choice item.
+
+### Cannot read a unique answer off the figure
+
+- **Quantitative Q13–14** (cutting-mat grid) — the paper being measured is
+  physically covered by the hand in the illustration, so its grid dimensions
+  cannot be recovered.
+- **Quantitative Q46–47** (wage-increase stacked area chart) — the five bands
+  are too close together to read an individual band's value (or rank a year) to
+  the ~1% precision the options demand.
+
+### Malformed / wrong format for single-answer MC
+
+- **Selective Q5** (parallel-lines relationship) — options A (`y = 180 − x`),
+  B (`x = 180 − y`) and C (`x + y = 180`) are algebraically identical, so there
+  is no unique correct answer.
+- **Quantitative Q6** (LAP logo, wedge changed to 45°) — a "which picture"
+  item; the two 45°-wedge options are equally plausible reorientations of the
+  original 90° wedge, so the keyed option cannot be determined with confidence.
+- **Exam Booklet Q28** (area of a rectangle) — an "All of the above" item whose
+  three expression options are all `2x + 20`; it depends on equal options, which
+  the single-distinct-answer format disallows.
+
+### Figures are answer-bearing scans (would need clean redraws)
+
+- **G8 Applications of Pythagoras pack** — cuboid `AG`, wedge (`CE`/`AC`) and
+  pyramid `BD` 3-D figures; Jodie's suitcase / walking-stick; "mark/name the
+  hypotenuse" and "state the theorem"; trapezium perimeter; "find *y* in exact
+  form" quadrilateral; "find *x*" rectangle with internal segments; the
+  pronumeral-from-diagram MCs and "mark Constance's working" / two-ships items.
+  The pages are scans with the worked solutions handwritten over the figures, so
+  cropping would leak the answer; these need redrawn clean figures.
+- **Exam Booklet Q38** (algebraic magic square) — grid extracted garbled.
+- **G8 Finance pack** — "which option offers better value?" comparison tables
+  (pages 9–10 are images).
 
 ### Batch 1 ("Year 8 Mid Year Exam" / "Theme 8 Revision")
 
-- Gradient and equation of a straight line (from a graph)
-- Charlie's race — fastest / average speed (distance–time graph)
-- Right-angled triangle "find x" (no side lengths given in text)
-- Area of a circle / surface area of a half-cylinder (no dimensions in text)
-- "Measure EF / angles / perimeter" construction task
-- "Find x" and "find the angle labelled" figures
-- Rotations on a coordinate grid
+The original source images for these were not available in this batch:
 
-### Selective practice exam
-
-- Q5 — angle relationship between parallel lines (figure)
-- Q6 — net of a rectangular solid (pictured nets)
-- Q7 — floorboards needed for the unshaded area (floor plan)
-- Q10 — favourite-subjects bar chart
-- Q11 — equation of a pictured straight-line graph
-- Q12 — equation of a pictured parabola
-- Q13 — "calculate the value of x" (unlabelled figure)
-- Q19 — reflection/translation of a triangle on a grid
-- Q25 — Bobby's run around a rectangular field (dimensions on figure)
-- Q33 — area of the shaded region
-- Q34 — school-captain pie chart
-- Q38 — intervals shown on a number line
-- Q45 — gradient of a pictured line
-- Q50 — "find the value of the pronumeral" (angle figure)
-- Q53 — sides of a pictured block of wood
-- Q56 — shaded areas in shapes C and D
-
-### Quantitative Reasoning Test
-
-- Q1 (item prices shown as images), Q6 (logo circles), Q7–8 (parking sign),
-  Q11–12 (pie chart), Q13–14 (cutting-mat grid), Q19 (hexagon/diamond tile
-  pattern), Q32 (layered-candle diagram), Q37–38 (relative-size chart),
-  Q40–42 (mosaic plot), Q46–47 (wage-increase chart)
-
-### Algebra G8 pack
-
-- Garden-rectangle perimeter question (side expressions only on the figure)
-
-### Year 8 Exam Booklet (Algebra)
-
-- Q28 — area of a pictured rectangle
-- Q38 — algebraic magic square (grid)
-
-### G8 Applications of Pythagoras pack
-
-- Cuboid AG questions b and c, the wedge (CE/AC) and pyramid BD questions
-  (labelled 3-D figures)
-- Jodie's suitcase / walking-stick question (dimensions on photo)
-- "Mark/name the hypotenuse" and "state the theorem" questions (figures)
-- Trapezium perimeter (construction shown on figure)
-- "Find y in exact form" quadrilateral (figure)
-- "Find x" rectangle with internal segments (figure)
-- Pronumeral-from-diagram MCs and "mark Constance's working" / two-ships
-  questions (figures)
-- Circle-the-irrational/rational-numbers lists (symbols unreadable in scan)
-
-### G8 Finance pack
-
-- "Which option offers better value?" comparison tables (pages 9–10 are images)
+- Gradient / equation of a straight line, Charlie's race speed (distance–time
+  graph), "find x" right-triangle with no side lengths in text, circle area /
+  half-cylinder surface area with no dimensions, "measure EF / angles /
+  perimeter" construction task, and rotations on a coordinate grid.
 
 ## Regenerating
 

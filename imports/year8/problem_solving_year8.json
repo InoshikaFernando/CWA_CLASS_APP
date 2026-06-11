@@ -525,6 +525,96 @@
           "order": 3
         }
       ]
+    },
+    {
+      "question_text": "Ravi's online shopping cart shows 3 items costing $14.40 in total. What is the average cost per item?",
+      "question_type": "multiple_choice",
+      "difficulty": 1,
+      "points": 1,
+      "explanation": "Average = total ÷ number of items = 14.40 ÷ 3 = $4.80.",
+      "answers": [
+        {
+          "text": "$4.80",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "$5.20",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "$5.80",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "$7.20",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "quant_q01_prices.png"
+    },
+    {
+      "question_text": "A car arrives at the street at 5 pm on a Monday. Using the parking sign, how long is the car permitted to be parked on the street?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "At 5 pm on a Monday the 1P rule applies (1-hour parking, 9:30 am – 7:30 pm, Mon–Fri), so the car may park for 1 hour.",
+      "answers": [
+        {
+          "text": "1 h",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "0 min",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "5 min",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "2 h",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "quant_q07_08_parking.png"
+    },
+    {
+      "question_text": "Using the parking sign, which day has the longest total time when parking is unrestricted?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Restricted hours: Mon–Fri 7:30 am – 11:30 pm (16 h → 8 h free), Sat 7:30 am – 7:30 pm (12 h → 12 h free), Sun 7:30 am – 6:30 pm (11 h → 13 h free). Sunday has the most unrestricted time.",
+      "answers": [
+        {
+          "text": "Sunday",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "Tuesday",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "Friday",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "Saturday",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "quant_q07_08_parking.png"
     }
   ]
 }

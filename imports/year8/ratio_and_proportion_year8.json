@@ -293,6 +293,36 @@
           "order": 3
         }
       ]
+    },
+    {
+      "question_text": "On the relative-size chart, how many times bigger than the flu virus is the bacterium?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "The flu virus is about 100 nm and the bacterium about 1 µm = 1000 nm, so the bacterium is 1000 ÷ 100 = 10 times bigger.",
+      "answers": [
+        {
+          "text": "10",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "0.01",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "100",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "1000",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "quant_q37_38_sizes.png"
     }
   ]
 }

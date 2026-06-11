@@ -119,6 +119,216 @@
           "order": 3
         }
       ]
+    },
+    {
+      "question_text": "The bar chart shows the favourite subjects of the Year 8 students interviewed. What percentage of students prefers Maths to all other subjects in the survey?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Reading the bars: English 7, Maths 9, Science 7, Language 5, History 4, Geography 4, Music 2, Art 2 — total 40. Maths = 9 ÷ 40 = 22.5%.",
+      "answers": [
+        {
+          "text": "22.5%",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "17.5%",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "77.5%",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "10.0%",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "selective_q10_barchart.png"
+    },
+    {
+      "question_text": "The pie chart shows the votes for four candidates for school captain. Which statement is true?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Candidate A's sector is about half the circle, so A won with roughly 50% of the votes. A pie chart shows only proportions, not turnout, and D is the smallest sector so it cannot be tied for the win.",
+      "answers": [
+        {
+          "text": "Candidate A won with approximately 50% of the votes.",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "Only 90% of the students in the school voted.",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "Candidates C and D were tied for the winning number of votes.",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "Candidate B received twice as many votes as Candidates C and D combined.",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "selective_q34_piechart.png"
+    },
+    {
+      "question_text": "The pie chart shows how a student spends their time after school. Which two activities in total take up half the student's time?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Reading the 30°-tick sectors: studying = 150° and playing video games = 30°, together 180° — exactly half of the 360° circle.",
+      "answers": [
+        {
+          "text": "playing video games and studying",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "exercising and watching favourite shows",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "exercising and studying",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "playing video games and watching favourite shows",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "quant_q11_12_pie.png"
+    },
+    {
+      "question_text": "On the after-school pie chart the student exercises for 55 minutes. What is the total time the student spends on activities after school?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "The exercising sector spans 60° (two 30° ticks) = 60/360 = 1/6 of the time. So the total is 55 × 6 = 330 min = 5 h 30 min.",
+      "answers": [
+        {
+          "text": "5 h 30 min",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "4 h 35 min",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "4 h 58 min",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "5 h 50 min",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "quant_q11_12_pie.png"
+    },
+    {
+      "question_text": "The mosaic plot shows favourite subjects of 160 students and the teachers surveyed. What percentage of the students said PE?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "In the students column PE runs from 45% to 100% on the scale, so PE = 55% of the students.",
+      "answers": [
+        {
+          "text": "55%",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "45%",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "25%",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "20%",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "quant_q40_42_mosaic.png"
+    },
+    {
+      "question_text": "On the mosaic plot the column widths are proportional to the number of people, with 160 students and (from the 4 : 1 width ratio) 40 teachers. What percentage of all the people surveyed said English?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Students who said English: 10% × 160 = 16. Teachers who said English: 45% × 40 = 18. Total English = 34 of 200 people = 17%.",
+      "answers": [
+        {
+          "text": "17%",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "28%",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "34%",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "55%",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "quant_q40_42_mosaic.png"
+    },
+    {
+      "question_text": "On the mosaic plot 20 more students are surveyed and added to the 160. What is the greatest possible percentage of the students whose favourite subject is Science?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Science was 25% × 160 = 40 students. At most all 20 new students pick Science: 60 of 180 = 33%.",
+      "answers": [
+        {
+          "text": "33%",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "25%",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "28%",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "45%",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "quant_q40_42_mosaic.png"
     }
   ]
 }

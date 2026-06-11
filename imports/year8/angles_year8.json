@@ -61,6 +61,36 @@
           "order": 3
         }
       ]
+    },
+    {
+      "question_text": "Two parallel lines are cut by a transversal as shown. Find the value of the pronumeral y.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "y° is co-interior (allied) with the 43° angle, so y = 180 − 43 = 137°.",
+      "answers": [
+        {
+          "text": "137°",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "43°",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "133°",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "143°",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "selective_q50_angles.png"
     }
   ]
 }

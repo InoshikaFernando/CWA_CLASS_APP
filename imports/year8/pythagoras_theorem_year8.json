@@ -786,6 +786,36 @@
           "order": 3
         }
       ]
+    },
+    {
+      "question_text": "The diagram shows a rectangular field 40 m by 30 m with corners C, B, A, D. If Bobby runs from A to B to D to C to A, how far did Bobby run?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "A→B and D→C are the 30 m sides. B→D and C→A are diagonals: √(40² + 30²) = 50 m each. Total = 30 + 50 + 30 + 50 = 160 m.",
+      "answers": [
+        {
+          "text": "160 m",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "170 m",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "180 m",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "140 m",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "selective_q25_field.png"
     }
   ]
 }

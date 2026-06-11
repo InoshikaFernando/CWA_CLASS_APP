@@ -90,6 +90,276 @@
           "order": 3
         }
       ]
+    },
+    {
+      "question_text": "Which of the figures A, B, C or D is a net of a rectangular solid (a closed box)?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "A net of a box needs exactly 6 faces that fold up without overlapping. A has only 5 faces and C has 7; B has 6 but two faces fold onto the same side. Only D folds into a closed box.",
+      "answers": [
+        {
+          "text": "D",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "A",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "B",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "C",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "selective_q06_nets.png"
+    },
+    {
+      "question_text": "A 12 m by 7 m floor has a square left unshaded around a central feature. What is the maximum number of floorboards 75 mm wide and 2 m long that would be needed to cover the floor area?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Each board covers 0.075 m × 2 m = 0.15 m². The floor is 12 × 7 = 84 m², so at most 84 ÷ 0.15 = 560 boards.",
+      "answers": [
+        {
+          "text": "560",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "150",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "168",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "1260",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "selective_q07_floorplan.png"
+    },
+    {
+      "question_text": "In the figure the sloping top is a straight line. The left edge is 3, a vertical 5 stands 2 along the base, and the base is split 2 then 4. Calculate the value of x (the right-hand height).",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "The top rises 2 over the first 2 across (from 3 up to 5), a gradient of 1. Over the full base of 6 it rises 6, so x = 3 + 6 = 9.",
+      "answers": [
+        {
+          "text": "9",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "15",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "10",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "7",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "selective_q13_findx.png"
+    },
+    {
+      "question_text": "A sector of a circle of radius 5 cm has a shaded angle of 144°. What is the area of the shaded part of the region?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "Sector area = (144/360) × π × 5² = 0.4 × 25π = 10π cm².",
+      "answers": [
+        {
+          "text": "10π cm²",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "12π cm²",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "25π cm²",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "15π cm²",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "selective_q33_sector.png"
+    },
+    {
+      "question_text": "How many faces (sides) does this block of wood have?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "The block is a prism whose cross-section is a pentagon (a square with a triangular wedge below): 2 pentagonal ends + 5 rectangular faces = 7.",
+      "answers": [
+        {
+          "text": "7",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "5",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "8",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "9",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "selective_q53_block.png"
+    },
+    {
+      "question_text": "Shape C (a 4 × 4 grid) has a whole area of 2 cm². What is the area of the shading in shape D?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "Each row of the 4 × 4 grid is 2 ÷ 4 = 0.5 cm². In D the top row is unshaded, the second row is cut in half by a slant (0.25 cm² shaded), and the bottom two rows are fully shaded (0.5 + 0.5). Total shaded = 0.25 + 0.5 + 0.5 = 1.25 cm² (slanting does not change area).",
+      "answers": [
+        {
+          "text": "1.25 cm²",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "0.25 cm²",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2 cm²",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "0.75 cm²",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "selective_q56_shaded.png"
+    },
+    {
+      "question_text": "A tiling uses regular hexagonal tiles and black diamond (rhombus) tiles. The diamond tile has an area of 800 cm². What is the area of one hexagonal tile?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "A regular hexagon is 6 equilateral triangles; the diamond is 2 of the same triangles. So the hexagon = 3 × the diamond = 3 × 800 = 2400 cm².",
+      "answers": [
+        {
+          "text": "2400 cm²",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "2000 cm²",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "2800 cm²",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "3200 cm²",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "quant_q19_tiles.png"
+    },
+    {
+      "question_text": "A layered candle is a cylinder of height 12 cm and diameter 9 cm with a volume of 763.4 cm³. The white wax sits above a 45° slanted plane that runs from the top rim down to 3 cm up the far side. What is the volume of the white wax?",
+      "question_type": "multiple_choice",
+      "difficulty": 3,
+      "points": 1,
+      "explanation": "A plane cutting a cylinder leaves a volume of πr² × (height at the central axis). The slant is at 12 cm on one side and 3 cm on the other, so 7.5 cm at the centre. White wax (above it) = πr² × (12 − 7.5) = π × 4.5² × 4.5 = 286.3 cm³.",
+      "answers": [
+        {
+          "text": "286.3 cm³",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "254.5 cm³",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "381.7 cm³",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "572.6 cm³",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "quant_q32_candle.png"
+    },
+    {
+      "question_text": "Using the relative-size chart, a microscopic object measures 7000 nm. Which object is it most likely to be?",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "7000 nm = 7 µm, which on the scale sits between 1 µm and 10 µm — the size of a red blood cell.",
+      "answers": [
+        {
+          "text": "red blood cell",
+          "is_correct": true,
+          "order": 0
+        },
+        {
+          "text": "smallpox virus",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "pollen",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "frog egg",
+          "is_correct": false,
+          "order": 3
+        }
+      ],
+      "image": "quant_q37_38_sizes.png"
     }
   ]
 }
