@@ -702,6 +702,366 @@
         }
       ],
       "image": "naplan_q9_advertising_board.png"
+    },
+    {
+      "question_text": "Find the length r in the right-angled triangle shown, to two decimal places.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "The 3-unit side is adjacent to the 39° angle and r is the hypotenuse: cos 39° = 3/r, so r = 3/cos 39° ≈ 3.86.",
+      "answers": [
+        {
+          "text": "1.89",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "3.86",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "4.77",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "2.43",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "trig42_q1.png"
+    },
+    {
+      "question_text": "Find the length c in the right-angled triangle shown, to two decimal places.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "c is opposite the 55° angle and 14 is the hypotenuse: sin 55° = c/14, so c = 14 sin 55° ≈ 11.47.",
+      "answers": [
+        {
+          "text": "11.47",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "8.03",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "17.09",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "19.99",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "trig42_q2.png"
+    },
+    {
+      "question_text": "Find the length u in the right-angled triangle shown, to two decimal places.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "The 23-unit side is adjacent to the 15° angle and u is the hypotenuse: cos 15° = 23/u, so u = 23/cos 15° ≈ 23.81.",
+      "answers": [
+        {
+          "text": "22.22",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "6.16",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "23.81",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "88.86",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "trig42_q3.png"
+    },
+    {
+      "question_text": "Find the length m in the right-angled triangle shown, to two decimal places.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "m is opposite the 49° angle and 6 is the hypotenuse: sin 49° = m/6, so m = 6 sin 49° ≈ 4.53.",
+      "answers": [
+        {
+          "text": "4.53",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "6.90",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "7.95",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "3.94",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "trig42_q4.png"
+    },
+    {
+      "question_text": "Find the length v in the right-angled triangle shown, to two decimal places.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "v is adjacent to the 61° angle and 34 is the hypotenuse: cos 61° = v/34, so v = 34 cos 61° ≈ 16.48.",
+      "answers": [
+        {
+          "text": "70.14",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "29.74",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "61.35",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "16.48",
+          "is_correct": true,
+          "order": 4
+        }
+      ],
+      "image": "trig42_q5.png"
+    },
+    {
+      "question_text": "Find the length a in the right-angled triangle shown, to two decimal places.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "a is opposite the 25° angle and 20 is adjacent: tan 25° = a/20, so a = 20 tan 25° ≈ 9.33.",
+      "answers": [
+        {
+          "text": "42.89",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "8.45",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "18.13",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "9.33",
+          "is_correct": true,
+          "order": 4
+        }
+      ],
+      "image": "trig42_q6.png"
+    },
+    {
+      "question_text": "Find the size of angle K in the right-angled triangle shown, to the nearest tenth of a degree.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "tan K = opposite/adjacent = 77/36, so K = tan⁻¹(77/36) ≈ 64.9°.",
+      "answers": [
+        {
+          "text": "41.5°",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "58.2°",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "64.9°",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "25.1°",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "trig42_q7.png"
+    },
+    {
+      "question_text": "Find the size of angle K in the right-angled triangle shown, to the nearest tenth of a degree.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "tan K = opposite/adjacent = 20/21, so K = tan⁻¹(20/21) ≈ 43.6°.",
+      "answers": [
+        {
+          "text": "38.7°",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "51.3°",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "43.6°",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "46.4°",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "trig42_q8.png"
+    },
+    {
+      "question_text": "Find the size of angle K in the right-angled triangle shown, to the nearest tenth of a degree.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "tan K = opposite/adjacent = 55/48, so K = tan⁻¹(55/48) ≈ 48.9°.",
+      "answers": [
+        {
+          "text": "36.8°",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "53.2°",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "48.9°",
+          "is_correct": true,
+          "order": 3
+        },
+        {
+          "text": "41.1°",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "trig42_q9.png"
+    },
+    {
+      "question_text": "Find the size of angle V in the right-angled triangle shown, to the nearest tenth of a degree.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "tan V = opposite/adjacent = 33/56, so V = tan⁻¹(33/56) ≈ 30.5°.",
+      "answers": [
+        {
+          "text": "30.5°",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "59.5°",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "25.8°",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "36.1°",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "trig42_q10.png"
+    },
+    {
+      "question_text": "Find the size of angle F in the right-angled triangle shown, to the nearest tenth of a degree.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "sin F = opposite/hypotenuse = 4/5, so F = sin⁻¹(4/5) ≈ 53.1°.",
+      "answers": [
+        {
+          "text": "41.8°",
+          "is_correct": false,
+          "order": 1
+        },
+        {
+          "text": "53.1°",
+          "is_correct": true,
+          "order": 2
+        },
+        {
+          "text": "48.6°",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "36.9°",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "trig42_q11.png"
+    },
+    {
+      "question_text": "Find the size of angle D in the right-angled triangle shown, to the nearest tenth of a degree.",
+      "question_type": "multiple_choice",
+      "difficulty": 2,
+      "points": 1,
+      "explanation": "tan D = opposite/adjacent = 9/40, so D = tan⁻¹(9/40) ≈ 12.7°.",
+      "answers": [
+        {
+          "text": "12.7°",
+          "is_correct": true,
+          "order": 1
+        },
+        {
+          "text": "77.3°",
+          "is_correct": false,
+          "order": 2
+        },
+        {
+          "text": "9.4°",
+          "is_correct": false,
+          "order": 3
+        },
+        {
+          "text": "20.6°",
+          "is_correct": false,
+          "order": 4
+        }
+      ],
+      "image": "trig42_q12.png"
     }
   ]
 }

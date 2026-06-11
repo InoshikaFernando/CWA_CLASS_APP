@@ -15,7 +15,7 @@ in [`images/`](images/) and are cropped from — or drawn to match — the sourc
 
 Regenerate with: `python imports/year9/_generate.py`
 
-## Topics & counts (286 questions, 16 topics, 6 diagram figures)
+## Topics & counts (298 questions, 16 topics, 18 diagram figures)
 
 | Strand | Topic | Questions | Files |
 |---|---|---:|---|
@@ -31,15 +31,16 @@ Regenerate with: `python imports/year9/_generate.py`
 | Algebra | Linear Relationships & Coordinate Geometry | 42 (+1 img) | `linear_relationships_coordinate_geometry.*` |
 | Algebra | Rational Expressions & Equations | 13 | `rational_expressions_equations.*` |
 | Measurement & Geometry | Pythagoras' Theorem | 13 | `pythagoras_theorem.*` |
-| Measurement & Geometry | Trigonometry | 24 (+3 img) | `trigonometry.*` |
+| Measurement & Geometry | Trigonometry | 36 (+15 img) | `trigonometry.*` |
 | Measurement & Geometry | Measurement | 13 | `measurement.*` |
 | Measurement & Geometry | Angles & Quadrilaterals | 8 (+2 img) | `angles_quadrilaterals.*` |
 | Statistics & Probability | Probability & Statistics | 8 | `probability_statistics.*` |
 
 ## Diagram figures (`images/`)
 
-Six questions carry a figure. The parser matches each question's `image`
-filename against a same-named file inside the ZIP.
+Eighteen questions carry a figure. The parser matches each question's `image`
+filename against a same-named file inside the ZIP. Figures are cropped from the
+source PDFs.
 
 | Image | Question | Source |
 |---|---|---|
@@ -49,6 +50,11 @@ filename against a same-named file inside the ZIP.
 | `naplan_q6_parallelogram.png` | Find x = 70° in parallelogram | G9 NAPLAN Section C Q6 |
 | `naplan_q14_parallel_lines.png` | Find x = 46° (parallel lines) | G9 NAPLAN Section A Q14 |
 | `naplan_q7_pool_graphs.png` | Depth-vs-time graph (Graph A) | G9 NAPLAN Section C Q7 |
+| `trig42_q1.png` … `trig42_q6.png` | Find the unknown side (SOHCAHTOA) | G9 Trig+Naplan §4.2 Q1–6 |
+| `trig42_q7.png` … `trig42_q12.png` | Find the unknown angle (SOHCAHTOA) | G9 Trig+Naplan §4.2 Q7–12 |
+
+The §4.2 worksheet's Q13–18 (sine rule and area-of-triangle questions) were left
+out as senior-level content beyond the Year 9 SOHCAHTOA core.
 
 ## Source PDFs
 
@@ -88,7 +94,7 @@ bundle their PNG figures, per the request to add diagrams.
 - **G9 Linear Equations Part 1**: Ex1, Ex3, Ex7, Ex9, P1 Q1–Q4, P2 Q10, P3 Q14 (slopes/intercepts of pictured lines, roof pitches, ski runs)
 - **G9 (1).pdf**: P5 Q9–11, P6 Q1–8, P7 Q4, Excel units 1–3 & 5–6 (~40 triangle drawings — which side is the hypotenuse is only in the figure)
 - **G9 2.pdf**: LR-Q1/Q2 (read/plot points), Q3 tables, Q8/Q10/Q11 (read graphs), Q14 (equations of drawn lines)
-- **Trig workbook**: p11 Q1–5, p14–15, section 4.2 Q1–18 (all "solve the pictured triangle")
+- **Trig workbook**: p11 Q1–5, p14–15 (pictured triangles with no extractable data). Section 4.2 **Q1–12 are now included** with cropped figures (see *Diagram figures*); Q13–18 (sine/area rule) left out as senior content.
 - **NAPLAN diagnostic (calculator)**: Q1, Q5, Q6, Q8, Q9, Q11, Q14, Q18, Q19, Q22, Q24, Q26, Q29, Q30, Q34, Q37, Q38, Q39 (nets, maps, histograms, composite shapes, travel graphs, fold diagrams)
 
 ### Garbled in PDF extraction (maths symbols lost, not confidently reconstructable)
