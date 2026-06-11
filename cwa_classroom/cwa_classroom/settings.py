@@ -381,7 +381,10 @@ else:
 # ---------------------------------------------------------------------------
 
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@wizardslearninghub.co.nz')
-DAILY_EMAIL_LIMIT = int(os.environ.get('DAILY_EMAIL_LIMIT', '90'))
+# Self-imposed daily send cap. 0 (the default) disables the cap entirely —
+# emails send directly via the backend with no queue throttling. Set a positive
+# integer to throttle (e.g. to stay under a provider's free-tier daily limit).
+DAILY_EMAIL_LIMIT = int(os.environ.get('DAILY_EMAIL_LIMIT', '0'))
 
 # Priority: Resend API (recommended) > SMTP (legacy) > Console (dev)
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')

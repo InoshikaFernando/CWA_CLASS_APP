@@ -101,10 +101,14 @@ def send_templated_email(
     cc = resolve_cc_email(school, department)
     reply_to = cc if cc else []
 
-    # Force-queue mode or daily-limit overflow: write to EmailQueue for background delivery
-    today = timezone.now().date()
-    sent_today = 0 if force_queue else EmailLog.objects.filter(status='sent', sent_at__date=today).count()
-    if force_queue or sent_today >= DAILY_EMAIL_LIMIT:
+    # Force-queue mode or daily-limit overflow: write to EmailQueue for background delivery.
+    # DAILY_EMAIL_LIMIT <= 0 means no cap — skip the count query and send directly.
+    over_limit = False
+    if not force_queue and DAILY_EMAIL_LIMIT > 0:
+        today = timezone.now().date()
+        sent_today = EmailLog.objects.filter(status='sent', sent_at__date=today).count()
+        over_limit = sent_today >= DAILY_EMAIL_LIMIT
+    if force_queue or over_limit:
         EmailQueue.objects.create(
             recipient=recipient_user,
             recipient_email=recipient_email,
