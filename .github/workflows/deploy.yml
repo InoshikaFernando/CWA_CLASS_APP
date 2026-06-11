@@ -26,6 +26,8 @@ jobs:
   deploy:
     name: Deploy over SSH
     runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.gate.outputs.configured }}
     steps:
       - uses: actions/checkout@v4
 
@@ -63,6 +65,10 @@ jobs:
   smoke:
     name: Post-deploy smoke (public)
     needs: deploy
+    # Only smoke when a deploy actually ran — until the secrets are set there's
+    # nothing newly deployed to test, and probing prod on every push would
+    # false-red if it's unreachable from the runner.
+    if: needs.deploy.outputs.configured == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
