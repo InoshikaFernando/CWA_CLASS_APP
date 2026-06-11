@@ -94,8 +94,12 @@ python manage.py runserver 0.0.0.0:8000
 printing "Starting development server" is not the same as a healthy app:
 
 ```bash
-curl -sS -o /dev/null -w "health:%{http_code}\n" http://localhost:8000/api/health/
+curl -sS http://localhost:8000/api/health/
 # Expected: 200, JSON body { "status": "ok", "version": "...", ... }
+curl -sS "http://localhost:8000/api/health/?deep=1"
+# Expected: 200 with a "checks" object — database/migrations/cache all "ok":true.
+# A 503 "degraded" here tells you exactly which dependency is broken before you
+# waste a smoketest run against it (e.g. unapplied migrations).
 curl -sS -o /dev/null -w "login:%{http_code}\n"  http://localhost:8000/accounts/login/
 # Expected: 200
 ```

@@ -13,11 +13,14 @@ bash scripts/deploy.sh
 ```
 
 That pulls `main`, installs deps, migrates, collects static, runs
-`check --deploy`, and restarts gunicorn. Verify with:
+`check --deploy`, restarts gunicorn, **and runs a deep health gate** that fails
+the deploy if the DB, migrations, or cache aren't healthy. Verify manually with:
 
 ```bash
-curl -s https://wizardslearninghub.co.nz/api/health/
-# Expect: {"status":"ok","version":"1.5.0", ...}  (version == the tag you shipped)
+curl -s https://wizardslearninghub.co.nz/api/health/            # shallow: version + liveness
+curl -s "https://wizardslearninghub.co.nz/api/health/?deep=1"   # deep: DB + migrations + cache
+# Shallow expect: {"status":"ok","version":"1.5.0", ...}  (version == the tag you shipped)
+# Deep expect:   adds "checks":{...}; HTTP 503 + "status":"degraded" if anything is wrong
 ```
 
 ---
@@ -181,6 +184,10 @@ pipefail`):
 5. `manage.py check --deploy` (warnings are non-fatal here).
 6. `systemctl restart cwa-gunicorn` and verify it's active — on failure it
    prints the last 20 journal lines and exits non-zero.
+7. **Deep health gate** — curls `https://<host>/api/health/?deep=1` (host
+   derived from `ALLOWED_HOSTS` in `/etc/cwa/cwa.env`). A non-200 (e.g. 503
+   `degraded` from a failed DB/migration/cache probe) aborts the deploy with
+   the failing check and the last journal lines.
 
 ### 2.3 Verify the deploy
 
