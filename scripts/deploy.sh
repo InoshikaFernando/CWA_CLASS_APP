@@ -51,5 +51,28 @@ else
     exit 1
 fi
 
+echo "==> Deep health check..."
+# A running process is not a working app. The deep probe checks DB
+# connectivity, unapplied migrations, and the cache backend; it returns
+# HTTP 503 'degraded' if any fails. Go through the real hostname over HTTPS
+# (prod ALLOWED_HOSTS excludes localhost, and Caddy only serves the domain).
+ENV_FILE="${ENV_FILE:-/etc/cwa/cwa.env}"
+HEALTH_DOMAIN="${HEALTH_DOMAIN:-$(grep -E '^ALLOWED_HOSTS=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | cut -d, -f1)}"
+if [[ -z "$HEALTH_DOMAIN" ]]; then
+    echo "    WARNING: could not determine hostname (no ALLOWED_HOSTS in ${ENV_FILE});"
+    echo "             skipping deep health gate. Service is running per systemctl."
+else
+    HEALTH_URL="https://${HEALTH_DOMAIN}/api/health/?deep=1"
+    HTTP_CODE=$(curl -sS -o /tmp/cwa-health.json -w '%{http_code}' "$HEALTH_URL" || echo 000)
+    if [[ "$HTTP_CODE" == "200" ]]; then
+        echo "    Healthy: $(cat /tmp/cwa-health.json)"
+    else
+        echo "ERROR: health check ${HEALTH_URL} returned HTTP ${HTTP_CODE} (expected 200)."
+        echo "       Body: $(cat /tmp/cwa-health.json 2>/dev/null)"
+        sudo journalctl -u "$SERVICE" --no-pager -n 20
+        exit 1
+    fi
+fi
+
 echo ""
 echo "==> Deploy complete."
