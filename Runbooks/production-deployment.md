@@ -170,6 +170,14 @@ and variables → Actions):
 | `DEPLOY_USER` | SSH user | `cwa` |
 | `DEPLOY_PATH` | repo path on the Droplet | `/home/cwa/CWA_CLASS_APP` |
 | `SMOKE_URL` | URL the post-deploy smoke hits | `https://wizardslearninghub.co.nz` |
+| `DEPLOY_ALERT_WEBHOOK` | Slack/Discord incoming-webhook URL for failure alerts | — (unset ⇒ no chat alert; GitHub still emails the run owner) |
+
+**Failure alerts.** If a deploy or the post-deploy smoke fails, the `notify-failure`
+job posts `🚨 CWA deploy FAILED on <branch> (<sha>) — <run-url>` to
+`DEPLOY_ALERT_WEBHOOK`. The payload carries both `text` (Slack) and `content`
+(Discord), so the same webhook URL works for either. Independently, GitHub emails
+the person whose merge triggered the run — turn on **Settings → Notifications →
+Actions → "Failed workflows only"** (and/or the GitHub mobile app) for that.
 
 The deploy user already has the needed `systemctl` sudo rights from
 `setup-app-prod.sh`. Until the secrets exist, merges to `main` keep the
