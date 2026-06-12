@@ -22,6 +22,12 @@
 #   ENV_FILE       default: /etc/cwa/cwa.env   (read for ALLOWED_HOSTS → Host header)
 #   HEALTH_SOCKET  default: (none) — if set, the health gate curls this unix
 #                  socket directly (works regardless of upstream TLS)
+#   WORKER         default: (none) — if set, the RQ worker unit is restarted
+#                  AFTER the web service so it picks up the new code. Without
+#                  this the worker keeps running stale code after a deploy and
+#                  background jobs (AI import, worksheets, homework) run old
+#                  logic. e.g. WORKER=cwa-rqworker-prod (prod) /
+#                  cwa-rqworker-test (test).
 
 set -euo pipefail
 
@@ -32,6 +38,7 @@ BRANCH="${DEPLOY_BRANCH:-main}"
 SERVICE="${SERVICE:-cwa-gunicorn}"
 ENV_FILE="${ENV_FILE:-/etc/cwa/cwa.env}"
 HEALTH_SOCKET="${HEALTH_SOCKET:-}"
+WORKER="${WORKER:-}"
 
 cd "$REPO_DIR"
 echo "==> Deploying ${REPO_DIR} (branch ${BRANCH}, service ${SERVICE})"
@@ -63,6 +70,26 @@ else
     echo "ERROR: ${SERVICE} failed to start!"
     sudo journalctl -u "$SERVICE" --no-pager -n 20
     exit 1
+fi
+
+# Restart the RQ worker AFTER the web service, so background jobs run the same
+# code we just deployed. Skipped (with a notice) if the unit doesn't exist yet.
+if [[ -n "$WORKER" ]]; then
+    if systemctl list-unit-files "${WORKER}.service" --no-legend | grep -q .; then
+        echo "==> Restarting worker ${WORKER}..."
+        sudo systemctl restart "$WORKER"
+        sleep 2
+        if systemctl is-active --quiet "$WORKER"; then
+            echo "    ${WORKER} is running."
+        else
+            echo "ERROR: ${WORKER} failed to start!"
+            sudo journalctl -u "$WORKER" --no-pager -n 20
+            exit 1
+        fi
+    else
+        echo "==> WARNING: WORKER=${WORKER} set but ${WORKER}.service not found — skipping."
+        echo "    Background jobs will NOT be processed until this unit exists."
+    fi
 fi
 
 echo "==> Deep health check..."
