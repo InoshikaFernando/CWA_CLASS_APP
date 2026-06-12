@@ -121,7 +121,7 @@ class HomeView(LoginRequiredMixin, View):
             # Individual students with no classroom: fall back to all year levels
             if is_individual and not classrooms.exists():
                 accessible_level_ids |= set(
-                    Level.objects.filter(level_number__lte=9).values_list('id', flat=True)
+                    Level.objects.filter(level_number__lt=100).values_list('id', flat=True)
                 )
 
             # Pre-fetch which topics have questions, keyed by (topic_id, level_id)
@@ -136,7 +136,7 @@ class HomeView(LoginRequiredMixin, View):
                 questions_exist.add((row['topic_id'], row['level_id']))
 
             year_data = []
-            for year in range(1, 10):
+            for year in range(1, 11):
                 try:
                     level = Level.objects.get(level_number=year)
                 except Level.DoesNotExist:
@@ -233,7 +233,7 @@ class StudentDashboardView(LoginRequiredMixin, View):
             try:
                 active_class = enrolled_classes.get(id=filter_class_id)
                 enrolled_level_ids = set(
-                    active_class.levels.filter(level_number__lte=8).values_list('id', flat=True)
+                    active_class.levels.filter(level_number__lt=100).values_list('id', flat=True)
                 )
             except ClassRoom.DoesNotExist:
                 enrolled_level_ids = set()
@@ -243,24 +243,24 @@ class StudentDashboardView(LoginRequiredMixin, View):
                     classrooms__students=request.user,
                     classrooms__subject_id=filter_subject_id,
                     classrooms__is_active=True,
-                    level_number__lte=8,
+                    level_number__lt=100,
                 ).values_list('id', flat=True)
             )
         else:
             enrolled_level_ids = set(
                 Level.objects.filter(
-                    classrooms__in=enrolled_classes, level_number__lte=8,
+                    classrooms__in=enrolled_classes, level_number__lt=100,
                 ).values_list('id', flat=True)
             )
 
-        # Fall back to all Year 1-8 levels if not in any classroom yet
+        # Fall back to all year levels if not in any classroom yet
         if not enrolled_level_ids and not filter_class_id and not filter_subject_id:
             enrolled_level_ids = set(
-                Level.objects.filter(level_number__lte=8).values_list('id', flat=True)
+                Level.objects.filter(level_number__lt=100).values_list('id', flat=True)
             )
 
         progress_grid = []
-        for year in range(1, 10):
+        for year in range(1, 11):
             try:
                 level = Level.objects.get(level_number=year)
             except Level.DoesNotExist:
@@ -962,7 +962,7 @@ class EditClassView(RoleRequiredMixin, View):
                 custom_levels = []
                 for dl in dept_levels:
                     if dl.level.subject_id == ds.subject_id:
-                        if dl.level.level_number <= 9:
+                        if dl.level.level_number < 100:
                             year_levels.append(dl.level)
                         else:
                             custom_levels.append(dl.level)
@@ -974,7 +974,7 @@ class EditClassView(RoleRequiredMixin, View):
         elif classroom.subject:
             # Fallback: single subject
             year_levels = list(Level.objects.filter(
-                subject=classroom.subject, school__isnull=True, level_number__lte=9,
+                subject=classroom.subject, school__isnull=True, level_number__lt=100,
             ).exclude(
                 level_number__gte=100, level_number__lt=200,
             ).order_by('level_number'))
@@ -2542,7 +2542,7 @@ class UploadQuestionsView(RoleRequiredMixin, View):
         ctx = {
             'subjects': AVAILABLE_SUBJECTS,
             'topics': Topic.objects.filter(is_active=True).select_related('subject'),
-            'levels': Level.objects.filter(level_number__lte=8),
+            'levels': Level.objects.filter(level_number__lt=100),
         }
         # Teachers must pick a classroom when uploading maths questions
         if request.user.is_any_teacher and not (
@@ -3819,7 +3819,7 @@ class HoDReportsView(RoleRequiredMixin, View):
             departments = Department.objects.filter(id__in=all_dept_ids, is_active=True)
 
         return render(request, 'hod/reports.html', {
-            'levels': Level.objects.filter(level_number__lte=8),
+            'levels': Level.objects.filter(level_number__lt=100),
             'topics': Topic.objects.filter(is_active=True, parent__isnull=True),
             'attendance_report_url': 'hod_attendance_report',
             'is_hod_only': is_hod_only,
@@ -5467,7 +5467,7 @@ class DepartmentLevelsAPIView(LoginRequiredMixin, View):
                         'display_name': dl.effective_display_name,
                         'description': dl.level.description,
                     }
-                    if dl.level.level_number <= 9:
+                    if dl.level.level_number < 100:
                         year_levels.append(entry)
                     else:
                         custom_levels.append(entry)

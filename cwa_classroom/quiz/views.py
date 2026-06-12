@@ -259,6 +259,8 @@ TIMES_TABLES_BY_YEAR = {
     6: list(range(1, 16)),
     7: list(range(1, 16)),
     8: list(range(1, 16)),
+    9: list(range(1, 16)),
+    10: list(range(1, 16)),
 }
 
 
@@ -303,7 +305,7 @@ class TimesTablesHomeView(LoginRequiredMixin, View):
         if request.user.is_student or request.user.is_individual_student:
             from classroom.models import ClassRoom
             classrooms = ClassRoom.objects.filter(students=request.user, is_active=True)
-            hub_levels = ClassroomLevel.objects.filter(classrooms__in=classrooms, level_number__lte=8)
+            hub_levels = ClassroomLevel.objects.filter(classrooms__in=classrooms, level_number__lt=100)
             if hub_levels.exists():
                 year = hub_levels.order_by('-level_number').first().level_number
 

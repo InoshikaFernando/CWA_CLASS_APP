@@ -72,8 +72,8 @@ class Command(BaseCommand):
         from classroom.models import Level
         self.stdout.write('\n--- Levels ---')
 
-        # Year 1–9
-        for year in range(1, 10):
+        # Year 1–10
+        for year in range(1, 11):
             _, created = Level.objects.get_or_create(
                 level_number=year,
                 defaults={'display_name': f'Year {year}'},
@@ -106,7 +106,7 @@ class Command(BaseCommand):
         from classroom.models import Subject, Topic, Level
         self.stdout.write('\n--- Subjects & Topics ---')
 
-        all_levels = Level.objects.filter(level_number__lte=9)
+        all_levels = Level.objects.filter(level_number__lt=100)
 
         active_subject_names = [name for name, _ in SUBJECTS]
         deactivated = Subject.objects.exclude(name__in=active_subject_names).update(is_active=False)
