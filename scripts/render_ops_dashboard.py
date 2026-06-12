@@ -2,9 +2,11 @@
 """Render the ops dashboard markdown + overall status.
 
 Inputs (file paths via argv):
-    1. metrics file  — KEY=VALUE lines from scripts/ops_metrics.sh
-    2. deploy JSON   — `gh run list` output for the deploy workflow (array)
-    3. ci JSON       — `gh run list` output for CI (array)
+    1. metrics file     — KEY=VALUE lines from scripts/ops_metrics.sh
+    2. deploy JSON      — `gh run list` for the TEST deploy workflow (array)
+    3. ci JSON          — `gh run list` for TEST CI (array)
+    4. prod deploy JSON — (optional) `gh run list` for the PROD deploy workflow
+    5. prod ci JSON     — (optional) `gh run list` for PROD/main CI
 
 Writes the dashboard body to ``dashboard.md`` and prints two lines to stdout:
     status=<ok|warn|crit>
@@ -55,10 +57,14 @@ def main():
     metrics_path = sys.argv[1] if len(sys.argv) > 1 else "metrics.env"
     deploy_path = sys.argv[2] if len(sys.argv) > 2 else "deploy.json"
     ci_path = sys.argv[3] if len(sys.argv) > 3 else "ci.json"
+    deploy_prod_path = sys.argv[4] if len(sys.argv) > 4 else "deploy_prod.json"
+    ci_prod_path = sys.argv[5] if len(sys.argv) > 5 else "ci_prod.json"
 
     m = read_metrics(metrics_path)
     deploys = read_json(deploy_path)
     ci = read_json(ci_path)
+    deploys_prod = read_json(deploy_prod_path)
+    ci_prod = read_json(ci_prod_path)
 
     mem_total = _int(m.get("MEM_TOTAL"))
     mem_avail = _int(m.get("MEM_AVAIL"))
@@ -68,12 +74,27 @@ def main():
     oom = _int(m.get("OOM_24H"))
     load1 = m.get("LOAD1", "?")
     nproc = _int(m.get("NPROC"), 1)
-    services = {
+    # Per-environment services (prod + test share the droplet); Redis + Caddy
+    # are shared infrastructure.
+    svc_test = {
         "Gunicorn (web)": m.get("SVC_GUNICORN", "unknown"),
         "RQ worker": m.get("SVC_WORKER", "unknown"),
+    }
+    svc_prod = {
+        "Gunicorn (web)": m.get("SVC_GUNICORN_PROD", "unknown"),
+        "RQ worker": m.get("SVC_WORKER_PROD", "unknown"),
+    }
+    svc_shared = {
         "Redis": m.get("SVC_REDIS", "unknown"),
         "Caddy": m.get("SVC_CADDY", "unknown"),
     }
+    # Flat view for health checks, labelled by environment.
+    services = {}
+    for name, st in svc_prod.items():
+        services[f"prod {name}"] = st
+    for name, st in svc_test.items():
+        services[f"test {name}"] = st
+    services.update(svc_shared)
 
     crit, warn = [], []
 
@@ -120,7 +141,7 @@ def main():
     swap_pct = round(swap_used / swap_total * 100) if swap_total else 0
 
     lines = []
-    lines.append(f"## {dot} CWA Ops Dashboard — TEST")
+    lines.append(f"## {dot} CWA Ops Dashboard — DROPLET (prod + test)")
     lines.append("")
     lines.append(f"_Auto-updated by the `ops-dashboard` workflow • last check `{m.get('COLLECTED_AT', 'n/a')}`_")
     lines.append("")
@@ -142,38 +163,51 @@ def main():
     lines.append(f"| Disk (/) | {disk_pct}% used — {m.get('DISK_AVAIL', '?')} free |")
     lines.append(f"| Load (1m) | {load1} on {nproc} cpu |")
     lines.append(f"| OOM kills (24h) | {'🔴 ' if oom else ''}{oom} |")
-    lines.append(f"| RQ queue (default / high) | {m.get('RQ_DEFAULT', '?')} / {m.get('RQ_HIGH', '?')} |")
+    lines.append(
+        f"| RQ queue (default / high) | prod `{m.get('RQ_DEFAULT_PROD', '?')} / {m.get('RQ_HIGH_PROD', '?')}` • "
+        f"test `{m.get('RQ_DEFAULT', '?')} / {m.get('RQ_HIGH', '?')}` |"
+    )
+    lines.append("")
+    lines.append("<sub>Resources are the whole droplet — prod + test + dev share one box.</sub>")
     lines.append("")
 
-    # Services
+    # Services — per-env (prod/test) plus shared infra.
     lines.append("### Services")
-    lines.append("| Service | Status |")
-    lines.append("|---|---|")
-    for name, st in services.items():
-        lines.append(f"| {name} | {svc_badge(st)} |")
+    lines.append("| Service | Prod | Test |")
+    lines.append("|---|---|---|")
+    for name in svc_prod:
+        lines.append(f"| {name} | {svc_badge(svc_prod[name])} | {svc_badge(svc_test[name])} |")
+    for name, st in svc_shared.items():
+        lines.append(f"| {name} _(shared)_ | {svc_badge(st)} | — |")
     lines.append("")
 
-    # Last deploy
-    lines.append("### Last test deploy")
-    if deploys:
-        d = deploys[0]
-        concl = d.get("conclusion") or d.get("status") or "?"
-        emoji = {"success": "🟢", "failure": "🔴", "cancelled": "⚪"}.get(concl, "⚪")
-        lines.append(f"{emoji} **{concl}** — {d.get('displayTitle', '')[:80]}")
-        lines.append(f"`{d.get('headSha', '')[:7]}` • {d.get('createdAt', '')} • [run]({d.get('url', '')})")
-    else:
-        lines.append("_No deploy runs found._")
-    lines.append("")
+    def render_deploy(heading, runs):
+        lines.append(f"### {heading}")
+        if runs:
+            d = runs[0]
+            concl = d.get("conclusion") or d.get("status") or "?"
+            emoji = {"success": "🟢", "failure": "🔴", "cancelled": "⚪"}.get(concl, "⚪")
+            lines.append(f"{emoji} **{concl}** — {d.get('displayTitle', '')[:80]}")
+            lines.append(f"`{d.get('headSha', '')[:7]}` • {d.get('createdAt', '')} • [run]({d.get('url', '')})")
+        else:
+            lines.append("_No deploy runs found._")
+        lines.append("")
 
-    # Recent CI failures
-    fails = [r for r in ci if r.get("conclusion") == "failure"][:5]
-    lines.append("### Recent CI failures (test)")
-    if fails:
-        for r in fails:
-            lines.append(f"- 🔴 [{r.get('displayTitle', '')[:70]}]({r.get('url', '')}) — {r.get('createdAt', '')}")
-    else:
-        lines.append("_None in the recent window._ 🟢")
-    lines.append("")
+    render_deploy("Last prod deploy", deploys_prod)
+    render_deploy("Last test deploy", deploys)
+
+    def render_ci_fails(heading, runs):
+        fails = [r for r in runs if r.get("conclusion") == "failure"][:5]
+        lines.append(f"### Recent CI failures ({heading})")
+        if fails:
+            for r in fails:
+                lines.append(f"- 🔴 [{r.get('displayTitle', '')[:70]}]({r.get('url', '')}) — {r.get('createdAt', '')}")
+        else:
+            lines.append("_None in the recent window._ 🟢")
+        lines.append("")
+
+    render_ci_fails("prod / main", ci_prod)
+    render_ci_fails("test", ci)
     lines.append("---")
     lines.append("<sub>Edit thresholds in `scripts/render_ops_dashboard.py`. This issue is rewritten automatically — don't edit by hand.</sub>")
 
@@ -182,7 +216,7 @@ def main():
 
     alert = ""
     if status == "crit":
-        alert = "🔴 CWA TEST ops: " + "; ".join(crit)
+        alert = "🔴 CWA droplet ops: " + "; ".join(crit)
     print(f"status={status}")
     print("alert=" + alert)
 

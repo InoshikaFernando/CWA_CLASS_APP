@@ -47,14 +47,21 @@ oom=$(journalctl --since '24 hours ago' -k --no-pager 2>/dev/null | grep -ic 'ou
 echo "OOM_24H=${oom:-0}"
 
 # --- Service health (active/inactive/failed/unknown) ---
+# Prod and test share this droplet. Gunicorn + RQ worker are per-environment;
+# Redis + Caddy are shared.
 svc() { systemctl is-active "$1" 2>/dev/null || echo unknown; }
 echo "SVC_GUNICORN=$(svc cwa-gunicorn-test.service)"
 echo "SVC_WORKER=$(svc cwa-rqworker-test.service)"
+echo "SVC_GUNICORN_PROD=$(svc cwa-gunicorn.service)"
+echo "SVC_WORKER_PROD=$(svc cwa-rqworker-prod.service)"
 echo "SVC_REDIS=$(svc redis-server.service)"
 echo "SVC_CADDY=$(svc caddy.service)"
 
-# --- RQ queue depth (best-effort; empty if redis-cli/DB differ) ---
+# --- RQ queue depth (best-effort; '?' if redis-cli absent). Test = Redis DB 1,
+# prod = Redis DB 0. ---
 echo "RQ_DEFAULT=$(redis-cli -n 1 llen rq:queue:default 2>/dev/null || echo '?')"
 echo "RQ_HIGH=$(redis-cli -n 1 llen rq:queue:high 2>/dev/null || echo '?')"
+echo "RQ_DEFAULT_PROD=$(redis-cli -n 0 llen rq:queue:default 2>/dev/null || echo '?')"
+echo "RQ_HIGH_PROD=$(redis-cli -n 0 llen rq:queue:high 2>/dev/null || echo '?')"
 
 echo "COLLECTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
