@@ -68,11 +68,17 @@ urlpatterns = [
     # --- AI tools (before core apps — core apps use root prefix) ---
     path('ai-import/', include('ai_import.urls', namespace='ai_import')),
 
+    # --- Background task queue (notifications dropdown) ---
+    path('tasks/', include('taskqueue.urls', namespace='taskqueue')),
+
     # --- Worksheets ---
     path('worksheets/', include('worksheets.urls', namespace='worksheets')),
 
     # --- Help & Documentation ---
     path('help/', include('help.urls', namespace='help')),
+
+    # --- User feedback & feature requests (CPP-321) ---
+    path('feedback/', include('feedback.urls', namespace='feedback')),
 
     # --- Core apps ---
     path('', include('classroom.urls')),

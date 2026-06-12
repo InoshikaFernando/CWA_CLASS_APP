@@ -43,6 +43,16 @@ def _create_homework(classroom, title="Test HW", due_offset_days=7, teacher=None
     )
 
 
+def _enrol_before(student, classroom, homework):
+    """Backdate the student's join date to before the homework's due date so
+    overdue/late status applies (the default joined_at = now lands after a
+    past-due homework, which would make the student a blameless late joiner)."""
+    from classroom.models import ClassStudent
+    ClassStudent.objects.filter(classroom=classroom, student=student).update(
+        joined_at=homework.due_date - timedelta(days=10),
+    )
+
+
 def _create_submission(homework, student, score=4, total=5, submitted_at=None):
     from homework.models import HomeworkSubmission
     sub = HomeworkSubmission.objects.create(
@@ -118,8 +128,9 @@ class TestParentHomeworkStatusBadges:
         assert_page_has_text(self.page, "Pending")
 
     def test_not_submitted_badge_shown_for_overdue_homework(self):
-        _create_homework(self.classroom, "Overdue HW", due_offset_days=-1,
-                         teacher=self.teacher)
+        hw = _create_homework(self.classroom, "Overdue HW", due_offset_days=-1,
+                              teacher=self.teacher)
+        _enrol_before(self.student, self.classroom, hw)
         self._goto_homework()
         assert_page_has_text(self.page, "Overdue HW")
         assert_page_has_text(self.page, "Not Submitted")
@@ -133,14 +144,15 @@ class TestParentHomeworkStatusBadges:
         assert_page_has_text(self.page, "Submitted HW")
         assert_page_has_text(self.page, "Submitted")
 
-    def test_late_badge_shown_for_submission_after_due(self):
-        hw = _create_homework(self.classroom, "Late HW", due_offset_days=-3,
+    def test_overdue_submission_badge_shown_for_submission_after_due(self):
+        hw = _create_homework(self.classroom, "Catch-up HW", due_offset_days=-3,
                               teacher=self.teacher)
+        _enrol_before(self.student, self.classroom, hw)
         _create_submission(hw, self.student, score=3, total=5,
                            submitted_at=timezone.now() - timedelta(hours=1))
         self._goto_homework()
-        assert_page_has_text(self.page, "Late HW")
-        assert_page_has_text(self.page, "Late")
+        assert_page_has_text(self.page, "Catch-up HW")
+        assert_page_has_text(self.page, "Overdue Submission")
 
     def test_score_displayed_after_submission(self):
         hw = _create_homework(self.classroom, "Scored HW", due_offset_days=5,

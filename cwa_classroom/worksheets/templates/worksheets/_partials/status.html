@@ -1,0 +1,37 @@
+{% if session.status == 'processing' %}
+  <div class="flex flex-col items-center text-center gap-4 py-6">
+    <svg class="animate-spin h-12 w-12 text-accent" viewBox="0 0 24 24" fill="none">
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+    </svg>
+    <div>
+      <p class="text-lg font-semibold text-gray-700">Extracting questions…</p>
+      <p class="text-sm text-gray-400 mt-1">AI is reading the worksheet and pulling out each question. This can take a minute or two — longer for larger worksheets.</p>
+    </div>
+  </div>
+{% elif session.status == 'failed' %}
+  <div class="flex flex-col items-center text-center gap-4 py-6">
+    <svg class="h-12 w-12 text-red-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+    </svg>
+    <div>
+      <p class="text-lg font-semibold text-red-600">Processing failed</p>
+      <p class="text-sm text-gray-500 mt-1">{{ session.error_message|default:"Something went wrong while processing your worksheet." }}</p>
+    </div>
+    <a href="{% url 'worksheets:upload' %}"
+       class="inline-flex items-center rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-dark transition">
+      Try again
+    </a>
+  </div>
+{% else %}
+  <div class="flex flex-col items-center text-center gap-4 py-6">
+    <svg class="h-12 w-12 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    <div>
+      <p class="text-lg font-semibold text-emerald-600">Done! Redirecting…</p>
+      <p class="text-sm text-gray-400 mt-1">Taking you to the preview.</p>
+    </div>
+    <a href="{% url 'worksheets:preview' session.id %}" class="text-sm text-accent underline">Click here if not redirected</a>
+  </div>
+{% endif %}

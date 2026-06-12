@@ -74,6 +74,7 @@
             {% csrf_token %}
             <input type="hidden" name="plan" value="{{ plan.slug }}">
             <button type="submit"
+                    onclick="this.disabled=true;this.textContent='Redirecting…';this.form.submit();"
                     class="w-full bg-primary hover:bg-primary-dark text-white text-sm font-semibold rounded-lg px-4 py-2 transition">
               Subscribe
             </button>

@@ -30,12 +30,39 @@
         get topicVal()    { return this.isNewTopic    ? this.topicNew.trim()    : this.topicSel; },
         get subtopicVal() { return this.isNewSubtopic ? this.subtopicNew.trim() : this.subtopicSel; },
         onTopicChange()   { this.subtopicSel = ''; this.subtopicNew = ''; },
+        // Apply a topic/subtopic pushed down from the global picker. Teachers
+        // can still change any question afterwards (this just sets the default).
+        applyGlobalTopic(d)    { this.topicSel = d.topicSel; this.topicNew = d.topicNew || ''; this.subtopicSel = ''; this.subtopicNew = ''; },
+        applyGlobalSubtopic(d) { this.subtopicSel = d.subtopicSel; this.subtopicNew = d.subtopicNew || ''; },
         init() {
           var subs = WS_SUBTOPICS[this.topicSel] || [];
           if (initSubtopic) {
             this.subtopicSel = subs.includes(initSubtopic) ? initSubtopic : '__new__';
             this.subtopicNew = subs.includes(initSubtopic) ? '' : initSubtopic;
           }
+        },
+      };
+    }
+
+    // Global picker — sets a default topic/subtopic for ALL questions at once.
+    // Optional: leave blank to set topics per-question. Changing it pushes the
+    // value to every question via a window event (questions stay overridable).
+    function wsGlobalTopicPicker() {
+      return {
+        topicSel: '', topicNew: '', subtopicSel: '', subtopicNew: '',
+        get isNewTopic()      { return this.topicSel === '__new__'; },
+        get isNewSubtopic()   { return this.subtopicSel === '__new__'; },
+        get currentSubtopics(){ return this.isNewTopic ? [] : (WS_SUBTOPICS[this.topicSel] || []); },
+        applyTopic() {
+          this.subtopicSel = ''; this.subtopicNew = '';
+          window.dispatchEvent(new CustomEvent('ws-global-topic', {
+            detail: { topicSel: this.topicSel, topicNew: this.topicNew },
+          }));
+        },
+        applySubtopic() {
+          window.dispatchEvent(new CustomEvent('ws-global-subtopic', {
+            detail: { subtopicSel: this.subtopicSel, subtopicNew: this.subtopicNew },
+          }));
         },
       };
     }
@@ -51,6 +78,56 @@
              class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
       <p class="text-xs text-gray-400 mt-1">This is the name teachers and students will see.</p>
     </div>
+
+    <!-- Global topic/subtopic — optional default applied to every question -->
+    {% if questions %}
+    <div x-data="wsGlobalTopicPicker()"
+         class="bg-primary/5 rounded-2xl border border-primary/20 shadow-sm p-5 space-y-2">
+      <div class="flex items-center gap-2">
+        <svg class="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/>
+        </svg>
+        <span class="text-sm font-semibold text-gray-700">Set topic for all questions</span>
+        <span class="text-xs text-gray-400">(optional — you can still change individual questions below)</span>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <!-- Global topic -->
+        <div>
+          <label class="text-xs text-gray-500 font-medium">Topic</label>
+          <div class="flex gap-1.5 mt-1">
+            <select x-model="topicSel" @change="applyTopic()" data-testid="global-topic"
+                    class="flex-1 rounded-md border border-gray-200 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary transition">
+              <option value="">— Set per question —</option>
+              <template x-for="t in WS_TOPICS" :key="t">
+                <option :value="t" x-text="t"></option>
+              </template>
+              <option value="__new__">＋ Add new topic…</option>
+            </select>
+            <input x-show="isNewTopic" x-model="topicNew" @input.debounce.400ms="applyTopic()" type="text"
+                   placeholder="New topic name"
+                   class="flex-1 rounded-md border border-primary/40 bg-primary/5 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary transition" />
+          </div>
+        </div>
+        <!-- Global subtopic (only when an existing topic is selected) -->
+        <div x-show="topicSel && !isNewTopic">
+          <label class="text-xs text-gray-500 font-medium">Subtopic</label>
+          <div class="flex gap-1.5 mt-1">
+            <select x-model="subtopicSel" @change="applySubtopic()"
+                    class="flex-1 rounded-md border border-gray-200 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary transition">
+              <option value="">— None —</option>
+              <template x-for="s in currentSubtopics" :key="s">
+                <option :value="s" x-text="s"></option>
+              </template>
+              <option value="__new__">＋ Add new subtopic…</option>
+            </select>
+            <input x-show="isNewSubtopic" x-model="subtopicNew" @input.debounce.400ms="applySubtopic()" type="text"
+                   placeholder="New subtopic name"
+                   class="flex-1 rounded-md border border-primary/40 bg-primary/5 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary transition" />
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
 
     <!-- Questions -->
     {% for q in questions %}
@@ -114,6 +191,8 @@
           <div x-data="wsTopicPicker($el)"
                data-topic="{{ q.topic|escapejs }}"
                data-subtopic="{{ q.subtopic|default:''|escapejs }}"
+               @ws-global-topic.window="applyGlobalTopic($event.detail)"
+               @ws-global-subtopic.window="applyGlobalSubtopic($event.detail)"
                class="space-y-2">
 
             <!-- Topic row -->

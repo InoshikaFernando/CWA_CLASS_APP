@@ -120,6 +120,7 @@
 
   {% if request.user.is_authenticated %}
   {% include "help/partials/help_widget.html" %}
+  {% include "feedback/_partials/feedback_launcher.html" %}
   {% endif %}
 
   {% block extra_js %}{% endblock %}

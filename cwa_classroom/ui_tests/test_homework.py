@@ -495,3 +495,129 @@ class TestHomeworkTeacherValidatesSubmission:
         student_name = enrolled_student.get_full_name() or enrolled_student.username
         expect(page.get_by_text(student_name)).to_be_visible()
         expect(page.get_by_text("3/3")).to_be_visible()
+
+
+# ===========================================================================
+# Overdue homework UI Tests
+# ---------------------------------------------------------------------------
+# Students can complete overdue homework; teachers see late work flagged as an
+# "Overdue Submission"; a student who joins after the due date is never shown
+# the work as overdue (but can still attempt it).
+# ===========================================================================
+
+def _set_join_date(student, classroom, joined_at):
+    from classroom.models import ClassStudent
+
+    ClassStudent.objects.filter(
+        classroom=classroom, student=student,
+    ).update(joined_at=joined_at)
+
+
+@pytest.fixture
+def overdue_homework_with_questions(db, classroom, teacher_user, topic, questions):
+    """A homework whose due date is already in the past, with real questions."""
+    from homework.models import Homework, HomeworkQuestion
+
+    hw = Homework.objects.create(
+        classroom=classroom,
+        created_by=teacher_user,
+        title="Quadratics Revision",
+        homework_type="topic",
+        num_questions=len(questions),
+        due_date=timezone.now() - timedelta(days=2),
+        max_attempts=3,
+    )
+    hw.topics.add(topic)
+    for i, q in enumerate(questions):
+        HomeworkQuestion.objects.create(homework=hw, question=q, order=i)
+    return hw
+
+
+class TestOverdueHomeworkUI:
+
+    @pytest.mark.django_db(transaction=True)
+    def test_enrolled_before_due_sees_overdue_badge_and_action(
+        self, page: Page, live_server, enrolled_student, classroom,
+        overdue_homework_with_questions,
+    ):
+        """A student enrolled before the due date sees the Overdue badge but
+        still gets an action button to complete the work."""
+        _set_join_date(
+            enrolled_student, classroom,
+            overdue_homework_with_questions.due_date - timedelta(days=10),
+        )
+        do_login(page, live_server.url, enrolled_student)
+        page.goto(f"{live_server.url}/homework/")
+        page.wait_for_load_state("networkidle")
+
+        expect(page.get_by_text("Overdue — Not Submitted")).to_be_visible()
+        take_link = page.locator(
+            f"a[href*='/homework/{overdue_homework_with_questions.pk}/take/']"
+        )
+        expect(take_link).to_be_visible()
+
+    @pytest.mark.django_db(transaction=True)
+    def test_student_can_open_overdue_take_page(
+        self, page: Page, live_server, enrolled_student, classroom,
+        overdue_homework_with_questions,
+    ):
+        """The take page opens for overdue homework instead of redirecting back
+        to the list (the past-due hard block was removed)."""
+        _set_join_date(
+            enrolled_student, classroom,
+            overdue_homework_with_questions.due_date - timedelta(days=10),
+        )
+        do_login(page, live_server.url, enrolled_student)
+        page.goto(
+            f"{live_server.url}/homework/{overdue_homework_with_questions.pk}/take/"
+        )
+        page.wait_for_load_state("networkidle")
+
+        assert f"/homework/{overdue_homework_with_questions.pk}/take/" in page.url
+
+    @pytest.mark.django_db(transaction=True)
+    def test_late_joiner_does_not_see_overdue(
+        self, page: Page, live_server, enrolled_student, classroom,
+        overdue_homework_with_questions,
+    ):
+        """A student who joined after the due date sees the homework but NOT as
+        overdue."""
+        _set_join_date(
+            enrolled_student, classroom,
+            overdue_homework_with_questions.due_date + timedelta(hours=2),
+        )
+        do_login(page, live_server.url, enrolled_student)
+        page.goto(f"{live_server.url}/homework/")
+        page.wait_for_load_state("networkidle")
+
+        expect(page.get_by_text("Quadratics Revision")).to_be_visible()
+        expect(page.get_by_text("Overdue — Not Submitted")).not_to_be_visible()
+
+    @pytest.mark.django_db(transaction=True)
+    def test_teacher_sees_overdue_submission_label(
+        self, page: Page, live_server, teacher_user, enrolled_student,
+        classroom, overdue_homework_with_questions,
+    ):
+        """A late submission from an on-time enrollee shows as 'Overdue
+        Submission' on the teacher detail page."""
+        from homework.models import HomeworkSubmission
+
+        _set_join_date(
+            enrolled_student, classroom,
+            overdue_homework_with_questions.due_date - timedelta(days=10),
+        )
+        sub = HomeworkSubmission.objects.create(
+            homework=overdue_homework_with_questions, student=enrolled_student,
+            attempt_number=1, score=2, total_questions=3, points=50.0,
+        )
+        HomeworkSubmission.objects.filter(pk=sub.pk).update(
+            submitted_at=overdue_homework_with_questions.due_date + timedelta(hours=3)
+        )
+
+        do_login(page, live_server.url, teacher_user)
+        page.goto(
+            f"{live_server.url}/homework/{overdue_homework_with_questions.pk}/"
+        )
+        page.wait_for_load_state("networkidle")
+
+        expect(page.get_by_text("Overdue Submission")).to_be_visible()

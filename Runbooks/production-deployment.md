@@ -5,20 +5,26 @@ are shipped after first install, and the day-2 operations (rollback, admin
 password reset, log access). The supporting scripts live in
 [`deploy/`](../deploy/) and [`scripts/`](../scripts/).
 
-## TL;DR (shipping a release)
+## TL;DR
+
+- **Test site:** every merge to `test` auto-deploys (`deploy-test.yml`).
+- **Production:** scheduled weekly release, Sunday ~03:00 NZ, of `main`
+  (`deploy-prod.yml`); also runnable manually. See § 2 for the full model.
+
+Both run the same script the manual path does:
 
 ```bash
-# On the Droplet, as the cwa user, from the repo root:
-bash scripts/deploy.sh
+# On the server, as the cwa user, from the repo root:
+DEPLOY_BRANCH=<test|main> bash scripts/deploy.sh
 ```
 
-That pulls `main`, installs deps, migrates, collects static, runs
+That pulls the branch, installs deps, migrates, collects static, runs
 `check --deploy`, restarts gunicorn, **and runs a deep health gate** that fails
 the deploy if the DB, migrations, or cache aren't healthy. Verify manually with:
 
 ```bash
-curl -s https://wizardslearninghub.co.nz/api/health/            # shallow: version + liveness
-curl -s "https://wizardslearninghub.co.nz/api/health/?deep=1"   # deep: DB + migrations + cache
+curl -s https://www.wizardslearninghub.co.nz/api/health/            # shallow: version + liveness
+curl -s "https://www.wizardslearninghub.co.nz/api/health/?deep=1"   # deep: DB + migrations + cache
 # Shallow expect: {"status":"ok","version":"1.5.0", ...}  (version == the tag you shipped)
 # Deep expect:   adds "checks":{...}; HTTP 503 + "status":"degraded" if anything is wrong
 ```
@@ -137,7 +143,7 @@ resolves.
 ### 1.4 Verify
 
 ```bash
-curl -s https://wizardslearninghub.co.nz/api/health/ | python3 -m json.tool
+curl -s https://www.wizardslearninghub.co.nz/api/health/ | python3 -m json.tool
 # status: ok, version matches settings.APP_VERSION
 ```
 
@@ -145,49 +151,115 @@ Then run the scripted liveness check from your workstation (prod-safe, no
 login required):
 
 ```bash
-cd cwa_classroom && python smoke_test.py https://wizardslearninghub.co.nz --public-only
+cd cwa_classroom && python smoke_test.py https://www.wizardslearninghub.co.nz --public-only
 ```
 
 ---
 
-## 2. Shipping a release
+## 2. Release model & shipping
 
-Releases ship on merge to `main`: the **Deploy to Production** workflow
-([`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)) SSHes to the
-Droplet and runs `scripts/deploy.sh`, then gates on a public smoke test of the
-live site. **CI must be green on `main` first** — see
-`github-ticket-implementation.md`.
+Two pipelines, matching the `test` → `main` branch flow:
 
-### 2.0 Enabling the automated deploy (one-time)
+| Branch | Trigger | What it does | Workflow |
+|--------|---------|--------------|----------|
+| `test` | **every push** (each merged PR) | deploys to the **test site** | [`deploy-test.yml`](../.github/workflows/deploy-test.yml) |
+| `main` | **scheduled — Sunday ~03:00 NZ** (+ manual) | **auto-merges `test` → `main`, then deploys to production** | [`deploy-prod.yml`](../.github/workflows/deploy-prod.yml) |
 
-The workflow no-ops until these repository secrets are set (Settings → Secrets
-and variables → Actions):
+So PRs land on `test` and deploy to the test site immediately. Once a week the
+prod job promotes the whole `test` branch into `main` (a `--no-ff` merge it
+pushes itself) and deploys the result to production — **no review PR, no manual
+step.** The deep health gate, the public smoke test, and the Sunday-morning
+timing are the only safety net; a `test → main` merge conflict aborts the
+release (nothing deploys). Both pipelines run `scripts/deploy.sh` over SSH and
+alert to `DEPLOY_ALERT_WEBHOOK` on failure.
+
+> **The prod schedule only fires from the default branch (`main`).** So
+> `deploy-prod.yml` must live on `main` — the initial `test` → `main`
+> reconciliation handles that. Need an off-schedule release (hotfix)? Use
+> **Actions → Deploy to Production → Run workflow** on `main`; it runs the same
+> promote-then-deploy.
+>
+> **Branch protection:** the promote step pushes to `main` with `GITHUB_TOKEN`.
+> If `main` forbids direct pushes, add a `RELEASE_TOKEN` secret (a PAT allowed
+> to bypass) — it's preferred over `GITHUB_TOKEN` when set. Without one, a
+> protected `main` will reject the auto-push and the release fails.
+>
+> Cron is UTC with no DST awareness: `0 15 * * 6` = Sun 03:00 NZST (winter) /
+> 04:00 NZDT (summer). Switch to `0 14 * * 6` for 03:00 in summer.
+
+### 2.0 Enabling the deploys (one-time)
+
+Each pipeline no-ops until its host secret is set (Settings → Secrets and
+variables → Actions), so adopting this never breaks CI.
+
+**Test site** (`deploy-test.yml`):
 
 | Secret | Purpose | Default if unset |
 |--------|---------|------------------|
-| `DEPLOY_HOST` | Droplet IP/hostname | — (required; absent ⇒ deploy skipped) |
-| `DEPLOY_SSH_KEY` | private key for the deploy user | — (required) |
+| `TEST_DEPLOY_HOST` | test server IP/hostname | — (required; absent ⇒ skipped) |
+| `TEST_DEPLOY_SSH_KEY` | private key for the test deploy user | — (required) |
+| `TEST_DEPLOY_USER` | SSH user | `cwa` |
+| `TEST_DEPLOY_PATH` | repo path on the test server | `/home/cwa/CWA_CLASS_APP` |
+| `TEST_SMOKE_URL` | URL the post-deploy smoke hits | `https://test.wizardslearninghub.co.nz` |
+
+**Production** (`deploy-prod.yml`):
+
+| Secret | Purpose | Default if unset |
+|--------|---------|------------------|
+| `DEPLOY_HOST` | prod Droplet IP/hostname | — (required; absent ⇒ skipped) |
+| `DEPLOY_SSH_KEY` | private key for the prod deploy user | — (required) |
 | `DEPLOY_USER` | SSH user | `cwa` |
 | `DEPLOY_PATH` | repo path on the Droplet | `/home/cwa/CWA_CLASS_APP` |
-| `SMOKE_URL` | URL the post-deploy smoke hits | `https://wizardslearninghub.co.nz` |
+| `SMOKE_URL` | URL the post-deploy smoke hits | `https://www.wizardslearninghub.co.nz` |
+| `RELEASE_TOKEN` | token to push `main` if it's branch-protected | — (falls back to `GITHUB_TOKEN`) |
+
+**Shared:**
+
+| Secret | Purpose | Default if unset |
+|--------|---------|------------------|
 | `DEPLOY_ALERT_WEBHOOK` | Slack/Discord incoming-webhook URL for failure alerts | — (unset ⇒ no chat alert; GitHub still emails the run owner) |
 
-**Failure alerts.** If a deploy or the post-deploy smoke fails, the `notify-failure`
-job posts `🚨 CWA deploy FAILED on <branch> (<sha>) — <run-url>` to
-`DEPLOY_ALERT_WEBHOOK`. The payload carries both `text` (Slack) and `content`
-(Discord), so the same webhook URL works for either. Independently, GitHub emails
-the person whose merge triggered the run — turn on **Settings → Notifications →
-Actions → "Failed workflows only"** (and/or the GitHub mobile app) for that.
-
 The deploy user already has the needed `systemctl` sudo rights from
-`setup-app-prod.sh`. Until the secrets exist, merges to `main` keep the
-workflow green (it prints a "not configured" notice) so you can adopt it
-without breaking CI.
+`setup-app-prod.sh` on each server.
 
-### 2.0a Manual deploy (fallback / before secrets are set)
+**Failure alerts.** If a deploy or the post-deploy smoke fails, the
+`notify-failure` job posts `🚨 CWA TEST/PROD deploy FAILED on <branch> (<sha>) —
+<run-url>` to `DEPLOY_ALERT_WEBHOOK`. The payload carries both `text` (Slack)
+and `content` (Discord), so the same webhook URL works for either. Independently,
+turn on **Settings → Notifications → Actions → "Failed workflows only"** for the
+built-in email/mobile push.
+
+### 2.0a Generating the deploy SSH key (`*_DEPLOY_SSH_KEY`)
+
+Each server's deploy job logs in as the `cwa` user with a private key held in
+the corresponding secret. Make a dedicated key per environment (don't reuse a
+personal key):
+
+```bash
+# one keypair per environment, e.g. test:
+ssh-keygen -t ed25519 -C "gha-cwa-deploy-test" -f ~/.ssh/cwa_deploy_test -N ""
+```
+
+This writes `~/.ssh/cwa_deploy_test` (private — paste into `TEST_DEPLOY_SSH_KEY`)
+and `~/.ssh/cwa_deploy_test.pub` (public — install on the server). Authorise the
+public key for `cwa`:
+
+```bash
+ssh-copy-id -i ~/.ssh/cwa_deploy_test.pub cwa@<test-host>
+# …or manually as root on the server:
+#   mkdir -p /home/cwa/.ssh && cat >> /home/cwa/.ssh/authorized_keys   # paste the .pub, Ctrl-D
+#   chown -R cwa:cwa /home/cwa/.ssh && chmod 700 /home/cwa/.ssh && chmod 600 /home/cwa/.ssh/authorized_keys
+```
+
+Verify: `ssh -i ~/.ssh/cwa_deploy_test cwa@<test-host> "echo ok"` prints `ok`
+without a password. Repeat with a separate key for prod (`DEPLOY_SSH_KEY`). The
+private key lives only in GitHub Secrets (encrypted, never printed in logs); if
+one ever leaks, remove that line from `authorized_keys` and rotate the secret.
+
+### 2.0b Manual deploy (fallback / before secrets are set)
 
 The script path still works by hand exactly as before — bump the version
-(§ 2.1) and run the script on the Droplet (§ 2.2). The automated workflow runs
+(§ 2.1) and run the script on the server (§ 2.2). The automated workflows run
 those same steps for you.
 
 ### 2.1 Bump the version (optional but recommended)
@@ -227,7 +299,7 @@ pipefail`):
 ### 2.3 Verify the deploy
 
 ```bash
-curl -s https://wizardslearninghub.co.nz/api/health/   # version == the tag you shipped
+curl -s https://www.wizardslearninghub.co.nz/api/health/   # version == the tag you shipped
 sudo journalctl -u cwa-gunicorn --no-pager -n 30       # no traceback on boot
 ```
 

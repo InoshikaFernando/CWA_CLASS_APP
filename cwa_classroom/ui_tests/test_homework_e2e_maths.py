@@ -169,10 +169,12 @@ class TestMathsHomeworkTakeAndResult:
 class TestMathsHomeworkAccessControl:
 
     @pytest.mark.django_db(transaction=True)
-    def test_past_due_blocks_take(
+    def test_past_due_homework_still_attemptable(
         self, page: Page, live_server, enrolled_student, classroom, teacher_user, topic, questions
     ):
-        """Taking a past-due homework redirects back to the student list with an error."""
+        """Past-due homework opens normally — the hard block was removed in the
+        per-student overdue change (SPEC_OVERDUE_HOMEWORK); only the attempt
+        cap gates access."""
         from homework.models import Homework, HomeworkQuestion
 
         hw = Homework.objects.create(
@@ -191,8 +193,8 @@ class TestMathsHomeworkAccessControl:
         do_login(page, live_server.url, enrolled_student)
         page.goto(f"{live_server.url}/homework/{hw.pk}/take/")
         page.wait_for_load_state("networkidle")
-        # Redirected away from take page
-        assert f"/homework/{hw.pk}/take/" not in page.url
+        # Stays on the take page instead of being redirected away
+        assert f"/homework/{hw.pk}/take/" in page.url
 
     @pytest.mark.django_db(transaction=True)
     def test_not_enrolled_student_gets_404(

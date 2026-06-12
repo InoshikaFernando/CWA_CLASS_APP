@@ -26,6 +26,7 @@ Usage:
 import logging
 
 from .models import AuditLog
+from .reverters import REVERTIBLE_ACTIONS
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,7 @@ def log_event(
             ip_address=ip,
             user_agent=ua,
             endpoint=endpoint,
+            is_revertible=action in REVERTIBLE_ACTIONS,
         )
     except Exception:
         # Never let audit logging break the application

@@ -207,25 +207,30 @@ merge your own PR with red or pending checks.
 
 ---
 
-## Step 9: Ship & verify on the environment
+## Step 9: Ship & verify on the test site
 
-After merge to `main`:
+PRs merge to `test`, and **every push to `test` auto-deploys to the test site**
+via [`deploy-test.yml`](../.github/workflows/deploy-test.yml). Production is a
+separate, scheduled release (Sunday ~03:00 NZ via
+[`deploy-prod.yml`](../.github/workflows/deploy-prod.yml)) — see
+[`production-deployment.md`](production-deployment.md) § 2.
 
-1. The **Deploy to Production** workflow
-   ([`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)) runs
-   `scripts/deploy.sh` on the Droplet and then a public smoke gate. Watch that
-   run with `mcp__github__actions_list` / `get_job_logs`. If deploy secrets
-   aren't configured yet it no-ops — fall back to the manual deploy in
-   [`production-deployment.md`](production-deployment.md) § 2.0a. Either way, do
+After your PR merges to `test`:
+
+1. Watch the **Deploy to Test** run (`mcp__github__actions_list` /
+   `get_job_logs`). It runs `scripts/deploy.sh` on the test server then a public
+   smoke gate. If deploy secrets aren't configured yet it no-ops. Either way, do
    **not** SSH-hotfix the server outside the sanctioned `scripts/deploy.sh` path.
-2. Once deployed, verify the version bumped and the app is healthy:
+2. Once deployed, verify the version bumped and the app is healthy on **test**:
    ```bash
-   curl -s "https://wizardslearninghub.co.nz/api/health/?deep=1"   # version + DB/migrations/cache
+   curl -s "https://test.wizardslearninghub.co.nz/api/health/?deep=1"   # version + DB/migrations/cache
    ```
-3. Prove the ticket's acceptance criteria on the deployed stack — drive Chrome
-   MCP against the live (or `dev.`) URL for UI changes, or exercise the
-   endpoint for backend changes. If it fails, it's your job to fix it via a
-   follow-up PR — never patch the server directly.
+3. Prove the ticket's acceptance criteria on the deployed **test** stack — drive
+   Chrome MCP against the test URL for UI changes, or exercise the endpoint for
+   backend changes. If it fails, it's your job to fix it via a follow-up PR —
+   never patch the server directly.
+4. The change rides the next weekly `test` → `main` release to production; the
+   prod deploy runs the same health + smoke gates.
 
 ---
 

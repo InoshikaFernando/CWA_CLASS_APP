@@ -1,0 +1,115 @@
+name: Ops Dashboard
+
+# Periodically snapshots the TEST droplet's health (RAM/swap, OOM kills, disk,
+# service status, RQ queue depth) plus the latest deploy + recent CI failures,
+# and rewrites a pinned "📊 Ops Dashboard" issue. Posts to DEPLOY_ALERT_WEBHOOK
+# (Slack/Discord) when something is critical (low RAM, OOM, a service down).
+#
+# Reuses the deploy secrets you already have:
+#   TEST_DEPLOY_HOST     — droplet IP / hostname  (REQUIRED — until set, this no-ops)
+#   TEST_DEPLOY_SSH_KEY  — private key for the deploy user
+#   TEST_DEPLOY_USER     — (optional) SSH user, default: cwa
+#   DEPLOY_ALERT_WEBHOOK — (optional) Discord/Slack webhook for critical alerts
+#
+# Cost note: this runs on a schedule. On a PRIVATE repo that bills Actions
+# minutes — every 30 min ≈ 48 runs/day (~1 min each). Dial the cron back (e.g.
+# hourly) if you want to spend fewer minutes. For real-time OOM alerts, a
+# droplet-side cron posting to the webhook is cheaper than polling from here.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"     # every 30 minutes
+  workflow_dispatch:
+
+concurrency:
+  group: ops-dashboard
+  cancel-in-progress: true
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  dashboard:
+    name: Snapshot droplet health → pinned issue
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check deploy secrets
+        id: gate
+        env:
+          TEST_DEPLOY_HOST: ${{ secrets.TEST_DEPLOY_HOST }}
+        run: |
+          if [ -z "$TEST_DEPLOY_HOST" ]; then
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::TEST_DEPLOY_HOST not set — ops dashboard is idle. Add the deploy secrets to enable it."
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Collect droplet metrics (SSH)
+        if: steps.gate.outputs.ok == 'true'
+        env:
+          HOST: ${{ secrets.TEST_DEPLOY_HOST }}
+          SSH_USER: ${{ secrets.TEST_DEPLOY_USER }}
+          KEY: ${{ secrets.TEST_DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes \
+            "${SSH_USER:-cwa}@${HOST}" 'bash -s' < scripts/ops_metrics.sh > metrics.env
+          echo "----- metrics -----"; cat metrics.env
+
+      - name: Gather deploy + CI status
+        if: steps.gate.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run list --workflow deploy-test.yml --branch test --limit 1 \
+            --json conclusion,status,displayTitle,headSha,createdAt,url > deploy.json || echo '[]' > deploy.json
+          gh run list --workflow ci.yml --branch test --limit 8 \
+            --json conclusion,displayTitle,createdAt,url > ci.json || echo '[]' > ci.json
+
+      - name: Render dashboard
+        if: steps.gate.outputs.ok == 'true'
+        id: render
+        run: |
+          python3 scripts/render_ops_dashboard.py metrics.env deploy.json ci.json >> "$GITHUB_OUTPUT"
+          echo "----- dashboard.md -----"; cat dashboard.md
+
+      - name: Update pinned dashboard issue
+        if: steps.gate.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          num=$(gh issue list --label ops-dashboard --state open --limit 1 --json number --jq '.[0].number // empty')
+          if [ -z "$num" ]; then
+            gh label create ops-dashboard --color 1d76db --description "Auto-updated ops dashboard" 2>/dev/null || true
+            url=$(gh issue create --title "📊 Ops Dashboard (test)" --label ops-dashboard --body-file dashboard.md)
+            echo "Created dashboard issue: $url"
+          else
+            gh issue edit "$num" --body-file dashboard.md
+            echo "Updated dashboard issue #$num"
+          fi
+
+      - name: Alert on critical status
+        if: steps.gate.outputs.ok == 'true' && steps.render.outputs.status == 'crit'
+        env:
+          WEBHOOK_URL: ${{ secrets.DEPLOY_ALERT_WEBHOOK }}
+          ALERT: ${{ steps.render.outputs.alert }}
+        run: |
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "::warning::Critical status but DEPLOY_ALERT_WEBHOOK not set — no chat alert sent."
+            exit 0
+          fi
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          MSG="${ALERT} — ${RUN_URL}"
+          # Send both Slack (text) and Discord (content) keys so either works.
+          printf '{"text": %s, "content": %s}' \
+            "$(jq -Rn --arg m "$MSG" '$m')" "$(jq -Rn --arg m "$MSG" '$m')" \
+            | curl -sS -X POST -H 'Content-Type: application/json' -d @- "$WEBHOOK_URL"

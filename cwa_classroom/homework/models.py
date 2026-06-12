@@ -99,6 +99,19 @@ class Homework(models.Model):
     def is_past_due(self):
         return timezone.now() > self.due_date
 
+    def is_overdue_for(self, joined_at):
+        """Whether this homework is *overdue* for a specific student.
+
+        Overdue is relative to the student, not just the clock: it only
+        applies when the homework is past due AND the student was already
+        enrolled on or before the due date. A student who joined the class
+        after the due date never sees it as overdue — for them it is just a
+        normal (still attemptable) assignment.
+        """
+        if not self.is_past_due:
+            return False
+        return joined_at is None or joined_at <= self.due_date
+
     @property
     def attempts_unlimited(self):
         return self.max_attempts is None
@@ -179,6 +192,18 @@ class HomeworkSubmission(models.Model):
         if self.submitted_at <= self.homework.due_date:
             return self.STATUS_ON_TIME
         return self.STATUS_LATE
+
+    def submission_status_for(self, joined_at):
+        """Submission status relative to a student's join date.
+
+        A student who joined the class after the due date can never submit
+        "late" — the deadline passed before they were a member — so their
+        submission is always reported as on time. Otherwise this falls back
+        to the plain ``submission_status`` comparison.
+        """
+        if joined_at is not None and joined_at > self.homework.due_date:
+            return self.STATUS_ON_TIME
+        return self.submission_status
 
     @property
     def percentage(self):
