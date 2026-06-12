@@ -96,47 +96,75 @@ class WorksheetUploadView(RoleRequiredMixin, View):
             messages.error(request, 'Only PDF files are supported.')
             return redirect('worksheets:upload')
 
+        # Default worksheet name from filename (strip .pdf)
+        worksheet_name = pdf_file.name
+        if worksheet_name.lower().endswith('.pdf'):
+            worksheet_name = worksheet_name[:-4]
+
+        # Persist the upload + create a PROCESSING session, then classify in the
+        # background (CPP-327) so the request returns immediately.
+        session = WorksheetUploadSession.objects.create(
+            user=request.user,
+            school=school,
+            pdf_filename=pdf_file.name,
+            pdf_file=pdf_file,
+            worksheet_name=worksheet_name,
+            status=WorksheetUploadSession.STATUS_PROCESSING,
+        )
+
+        from taskqueue.services import enqueue_task
+        from .tasks import process_worksheet_pdf
         try:
-            from classroom.models import Topic, Level
-            from .services import extract_and_classify_worksheet
-
-            existing_topics = list(Topic.objects.filter(
-                subject__slug='mathematics',
-            ).values('name', 'slug')[:100])
-            existing_levels = list(Level.objects.filter(
-                level_number__lte=12,
-            ).values('level_number', 'display_name'))
-
-            # Use worksheet-specific pipeline: extract PDF → AI classify → crop images
-            output = extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels)
-            result = output['result']
-            extracted_images = output['extracted_images']
-            page_count = output['page_count']
-
-            # Default worksheet name from filename (strip .pdf)
-            worksheet_name = pdf_file.name
-            if worksheet_name.lower().endswith('.pdf'):
-                worksheet_name = worksheet_name[:-4]
-
-            session = WorksheetUploadSession.objects.create(
-                user=request.user,
+            enqueue_task(
                 school=school,
-                pdf_filename=pdf_file.name,
-                worksheet_name=worksheet_name,
-                extracted_data=result,
-                extracted_images=extracted_images,
-                page_count=page_count,
-                tokens_used=result.get('usage', {}).get('total_tokens', 0),
+                user=request.user,
+                task_type='worksheet_pdf',
+                func=process_worksheet_pdf,
+                args=[session.pk],
+                queue='default',
             )
+        except Exception:
+            logger.exception('Failed to enqueue worksheet PDF for session %s', session.pk)
+            session.delete()
+            messages.error(
+                request,
+                'The background processing service is temporarily unavailable. '
+                'Please try again in a few minutes.',
+            )
+            return redirect('worksheets:upload')
 
+        return redirect('worksheets:processing', session_id=session.pk)
+
+
+class WorksheetProcessingView(RoleRequiredMixin, View):
+    """Interstitial page shown while the worksheet PDF is classified in the background."""
+    required_roles = TEACHER_ROLES
+
+    def get(self, request, session_id):
+        session = get_object_or_404(
+            WorksheetUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        if session.status == WorksheetUploadSession.STATUS_READY:
             return redirect('worksheets:preview', session_id=session.pk)
+        return render(request, 'worksheets/processing.html', {'session': session})
 
-        except ImportError:
-            messages.error(request, 'PDF processing library not installed. Please contact the administrator.')
-            return redirect('worksheets:upload')
-        except Exception as e:
-            messages.error(request, f'Error processing PDF: {str(e)}')
-            return redirect('worksheets:upload')
+
+class WorksheetStatusView(RoleRequiredMixin, View):
+    """HTMX poll endpoint: returns the status partial for a processing session.
+
+    On READY the partial sends an HX-Redirect to the preview page; on FAILED it
+    shows the error with a retry link.
+    """
+    required_roles = TEACHER_ROLES
+
+    def get(self, request, session_id):
+        session = get_object_or_404(
+            WorksheetUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        response = render(request, 'worksheets/_partials/status.html', {'session': session})
+        if session.status == WorksheetUploadSession.STATUS_READY:
+            response['HX-Redirect'] = reverse('worksheets:preview', args=[session.pk])
+        return response
 
 
 class WorksheetPreviewView(RoleRequiredMixin, View):
@@ -147,6 +175,12 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
         session = get_object_or_404(
             WorksheetUploadSession, pk=session_id, user=request.user, is_confirmed=False,
         )
+        # Not finished yet — bounce back to the processing page.
+        if session.status == WorksheetUploadSession.STATUS_PROCESSING:
+            return redirect('worksheets:processing', session_id=session.pk)
+        if session.status == WorksheetUploadSession.STATUS_FAILED:
+            messages.error(request, f'PDF processing failed: {session.error_message}')
+            return redirect('worksheets:upload')
         data = session.extracted_data
         questions = data.get('questions', [])
 

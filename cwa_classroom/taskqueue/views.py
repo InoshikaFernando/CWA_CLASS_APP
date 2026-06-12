@@ -8,7 +8,14 @@ from taskqueue.models import BackgroundTask
 TASK_TYPE_LABELS = {
     'ai_import_pdf': 'PDF question import',
     'homework_pdf': 'Homework PDF import',
+    'worksheet_pdf': 'Worksheet PDF import',
     'ai_grade': 'AI grading',
+}
+
+# Completed tasks that carry a session_id deep-link to a preview page.
+_PREVIEW_LINKS = {
+    'ai_import_pdf': 'ai_import:preview',
+    'worksheet_pdf': 'worksheets:preview',
 }
 
 
@@ -18,8 +25,9 @@ def _task_link(task):
         return None
     data = task.result_data or {}
     session_id = data.get('session_id')
-    if task.task_type == 'ai_import_pdf' and session_id:
-        return reverse('ai_import:preview', args=[session_id])
+    url_name = _PREVIEW_LINKS.get(task.task_type)
+    if url_name and session_id:
+        return reverse(url_name, args=[session_id])
     return None
 
 
