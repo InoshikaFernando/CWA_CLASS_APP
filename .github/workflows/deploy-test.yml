@@ -59,7 +59,7 @@ jobs:
           ssh-keyscan -H "$TEST_DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes \
             "${TEST_DEPLOY_USER:-cwa}@${TEST_DEPLOY_HOST}" \
-            "cd ${TEST_DEPLOY_PATH:-/home/cwa/CWA_CLASS_APP_TEST} && DEPLOY_BRANCH=test SERVICE=cwa-gunicorn-test ENV_FILE=/etc/cwa/cwa-test.env HEALTH_SOCKET=/run/cwa-test.sock bash scripts/deploy.sh"
+            "cd ${TEST_DEPLOY_PATH:-/home/cwa/CWA_CLASS_APP_TEST} && DEPLOY_BRANCH=test SERVICE=cwa-gunicorn-test WORKER=cwa-rqworker-test ENV_FILE=/etc/cwa/cwa-test.env HEALTH_SOCKET=/run/cwa-test.sock bash scripts/deploy.sh"
           # Runs in the TEST checkout: resets to origin/test, migrates, collects
           # static, restarts cwa-gunicorn-test, and runs the deep health gate
           # against /run/cwa-test.sock — exiting non-zero if unhealthy.

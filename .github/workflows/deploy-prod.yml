@@ -99,7 +99,7 @@ jobs:
           ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes \
             "${DEPLOY_USER:-cwa}@${DEPLOY_HOST}" \
-            "cd ${DEPLOY_PATH:-/home/cwa/CWA_CLASS_APP} && DEPLOY_BRANCH=main SERVICE=cwa-gunicorn ENV_FILE=/etc/cwa/cwa.env HEALTH_SOCKET=/run/cwa/gunicorn.sock bash scripts/deploy.sh"
+            "cd ${DEPLOY_PATH:-/home/cwa/CWA_CLASS_APP} && DEPLOY_BRANCH=main SERVICE=cwa-gunicorn WORKER=cwa-rqworker-prod ENV_FILE=/etc/cwa/cwa.env HEALTH_SOCKET=/run/cwa/gunicorn.sock bash scripts/deploy.sh"
           # Runs in the PROD checkout: resets to origin/main (now including the
           # merge), migrates, collects static, restarts cwa-gunicorn, and runs the
           # deep health gate against /run/cwa/gunicorn.sock — non-zero if unhealthy.
