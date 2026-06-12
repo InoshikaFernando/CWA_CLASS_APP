@@ -38,7 +38,7 @@ class DepartmentLevelsAPITestBase(TestCase):
 
         # Ensure year levels exist
         cls.year_levels = []
-        for i in range(1, 10):
+        for i in range(1, 11):
             lv, _ = Level.objects.get_or_create(
                 level_number=i,
                 defaults={'display_name': f'Year {i}', 'subject': cls.maths},
@@ -160,7 +160,7 @@ class AutoAssignmentTest(DepartmentLevelsAPITestBase):
         self.client.login(username='testadmin', password='password1!')
 
     def test_auto_assignment_on_maths_department(self):
-        """Creating a Maths department should auto-create DepartmentLevel rows for Year 1-9."""
+        """Creating a Maths department should auto-create DepartmentLevel rows for Year 1-10."""
         school2 = School.objects.create(
             name='School 2', slug='school-2', admin=self.admin_user,
         )
@@ -178,7 +178,7 @@ class AutoAssignmentTest(DepartmentLevelsAPITestBase):
                 defaults={'order': lv.level_number},
             )
         count = DepartmentLevel.objects.filter(department=new_dept).count()
-        self.assertEqual(count, 9)  # Year 1-9
+        self.assertEqual(count, 10)  # Year 1-10
 
     def test_auto_assignment_idempotent(self):
         """Running auto-assignment twice should not create duplicates."""
