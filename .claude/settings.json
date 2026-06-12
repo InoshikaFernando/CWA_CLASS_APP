@@ -5,5 +5,17 @@
       "Bash(python -m pytest brainbuzz/tests/ --tb=short -q)",
       "Bash(python manage.py create_sample_templates)"
     ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh"
+          }
+        ]
+      }
+    ]
   }
 }
