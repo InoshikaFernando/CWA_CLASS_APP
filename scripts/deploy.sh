@@ -41,7 +41,7 @@ git fetch origin "$BRANCH"
 git reset --hard "origin/${BRANCH}"
 
 echo "==> Installing dependencies..."
-"${VENV_DIR}/bin/pip" install -r requirements.txt --quiet
+"${VENV_DIR}/bin/pip" install -r "${APP_DIR}/requirements.txt" --quiet
 
 echo "==> Running migrations..."
 "${VENV_DIR}/bin/python" "${APP_DIR}/manage.py" migrate --noinput
