@@ -245,7 +245,7 @@
             </span>
             <span class="text-sm font-semibold text-gray-700">{{ t.get_full_name|default:t.username }}</span>
           </div>
-          {% if can_edit_fee %}
+          {% if is_hoi or is_hod or is_admin_user or is_institute_owner %}
           <form method="post" action="{% url 'class_teacher_remove' class_id=classroom.id teacher_id=t.id %}" class="inline"
                 onsubmit="return confirm('Remove {{ t.get_full_name|default:t.username }} from teaching this class?')">
             {% csrf_token %}

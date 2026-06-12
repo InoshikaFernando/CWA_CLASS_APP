@@ -260,9 +260,12 @@ class HomeworkDetailView(RoleRequiredMixin, View):
             best = HomeworkSubmission.get_best_submission(homework, student)
             attempt_count = HomeworkSubmission.get_attempt_count(homework, student)
 
+            # Judge lateness/overdue relative to when this student joined the
+            # class. A student who enrolled after the due date is never flagged
+            # as late or overdue — the deadline passed before they were a member.
             if best:
-                status = best.submission_status
-            elif homework.is_past_due:
+                status = best.submission_status_for(cs.joined_at)
+            elif homework.is_overdue_for(cs.joined_at):
                 status = HomeworkSubmission.STATUS_NOT_SUBMITTED
             else:
                 status = 'pending'
@@ -391,10 +394,14 @@ class StudentHomeworkListView(LoginRequiredMixin, View):
     template_name = 'homework/student_list.html'
 
     def get(self, request):
-        # Find classrooms the student belongs to
-        class_ids = ClassStudent.objects.filter(
+        # Find classrooms the student belongs to, keeping the join date per
+        # classroom so "overdue" can be judged relative to when this student
+        # actually enrolled (a late joiner never sees pre-join work as overdue).
+        memberships = ClassStudent.objects.filter(
             student=request.user, is_active=True
-        ).values_list('classroom_id', flat=True)
+        ).values_list('classroom_id', 'joined_at')
+        joined_at_by_class = {cid: joined for cid, joined in memberships}
+        class_ids = list(joined_at_by_class.keys())
 
         homework_qs = (
             Homework.objects
@@ -407,16 +414,18 @@ class StudentHomeworkListView(LoginRequiredMixin, View):
 
         rows = []
         for hw in homework_qs:
+            joined_at = joined_at_by_class.get(hw.classroom_id)
             best = HomeworkSubmission.get_best_submission(hw, request.user)
             attempt_count = HomeworkSubmission.get_attempt_count(hw, request.user)
+            # Overdue no longer blocks attempts — only the attempt cap does.
             can_attempt = (
-                not hw.is_past_due and
-                (hw.attempts_unlimited or attempt_count < hw.max_attempts)
+                hw.attempts_unlimited or attempt_count < hw.max_attempts
             )
+            is_overdue = hw.is_overdue_for(joined_at)
 
             if best:
-                status = best.submission_status
-            elif hw.is_past_due:
+                status = best.submission_status_for(joined_at)
+            elif is_overdue:
                 status = HomeworkSubmission.STATUS_NOT_SUBMITTED
             else:
                 status = 'pending'
@@ -426,6 +435,7 @@ class StudentHomeworkListView(LoginRequiredMixin, View):
                 'best_submission': best,
                 'attempt_count': attempt_count,
                 'can_attempt': can_attempt,
+                'is_overdue': is_overdue,
                 'status': status,
             })
 
@@ -443,9 +453,9 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
         if not homework.attempts_unlimited and attempt_count >= homework.max_attempts:
             messages.error(request, 'You have used all your attempts for this homework.')
             return redirect('homework:student_list')
-        if homework.is_past_due:
-            messages.error(request, 'This homework is past its due date.')
-            return redirect('homework:student_list')
+        # Past-due homework is intentionally still attemptable — students can
+        # complete overdue work; lateness is reflected in the submission status,
+        # not enforced as a hard block. Only the attempt cap gates access.
 
         hw_questions = list(homework.homework_questions.order_by('order'))
 
@@ -640,8 +650,23 @@ class StudentHomeworkResultView(LoginRequiredMixin, View):
                 'ctx': plugin.result_item_context(ans),
             })
 
+        # Lateness is judged relative to when this student joined the class, and
+        # retrying overdue homework is allowed (only the attempt cap gates it) —
+        # mirror StudentHomeworkListView so the result page stays consistent.
+        hw = submission.homework
+        joined_at = (
+            ClassStudent.objects
+            .filter(student=request.user, classroom=hw.classroom)
+            .values_list('joined_at', flat=True)
+            .first()
+        )
+        attempt_count = HomeworkSubmission.get_attempt_count(hw, request.user)
+        can_retry = hw.attempts_unlimited or attempt_count < hw.max_attempts
+
         return render(request, self.template_name, {
             'submission': submission,
+            'submission_status': submission.submission_status_for(joined_at),
+            'can_retry': can_retry,
             'review_items': review_items,
             # Legacy context var kept so any consumer that still iterates
             # `answers` keeps working.
@@ -667,22 +692,28 @@ def _check_student_enrolled(request, classroom):
         raise Http404
 
 
+# Above this many pending AI answers, grading is pushed to a background worker
+# so the student isn't blocked while several Claude calls run. Small batches
+# (mostly cache hits) stay synchronous for an instant result.
+AI_GRADE_ASYNC_THRESHOLD = 3
+
+
 def _trigger_ai_grading_for_submission(submission, request=None):
     """
     After a submission is saved, grade any answers with review_status='pending_ai'
     using the AI grading service (with caching).
-    """
-    from worksheets.grading_service import grade_extended_answer
-    from billing.entitlements import get_school_for_user
-    from django.utils import timezone
 
-    pending = list(
+    Small batches grade inline; larger batches are enqueued on the 'high' queue
+    so the student's request returns immediately (CPP-307d).
+    """
+    from billing.entitlements import get_school_for_user
+
+    pending_count = (
         submission.answers
         .filter(review_status=HomeworkStudentAnswer.REVIEW_PENDING_AI)
-        .select_related('question')
+        .count()
     )
-
-    if not pending:
+    if not pending_count:
         return
 
     school = None
@@ -691,6 +722,44 @@ def _trigger_ai_grading_for_submission(submission, request=None):
             school = get_school_for_user(request.user)
     except Exception:
         pass
+
+    if pending_count > AI_GRADE_ASYNC_THRESHOLD:
+        from taskqueue.services import enqueue_task
+        from .tasks import grade_submission_answers
+        try:
+            enqueue_task(
+                school=school,
+                user=submission.student,
+                task_type='ai_grade',
+                func=grade_submission_answers,
+                args=[submission.pk, school.pk if school else None],
+                queue='high',
+            )
+            return
+        except Exception:
+            # Queue unavailable — fall back to inline grading rather than
+            # 500-ing the student's submission or losing the pending answers.
+            import logging
+            logging.getLogger(__name__).exception(
+                'Failed to enqueue AI grading for submission %s; grading inline',
+                submission.pk,
+            )
+
+    grade_pending_answers(submission, school)
+
+
+def grade_pending_answers(submission, school):
+    """Grade all pending-AI answers on a submission inline (shared by sync + worker)."""
+    from worksheets.grading_service import grade_extended_answer
+    from django.utils import timezone
+
+    pending = list(
+        submission.answers
+        .filter(review_status=HomeworkStudentAnswer.REVIEW_PENDING_AI)
+        .select_related('question')
+    )
+    if not pending:
+        return
 
     for answer in pending:
         try:
@@ -746,7 +815,6 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
         return render(request, self.template_name, {'classrooms': classrooms})
 
     def post(self, request):
-        import threading
         from billing.entitlements import get_school_for_user
         from classroom.models import Topic, Level
 
@@ -811,33 +879,32 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
             request=request,
         )
 
-        # Run AI extraction in a background thread so the HTTP response returns immediately
-        def _process(session_id, pdf_bytes, existing_topics, existing_levels):
-            import django.db
-            from worksheets.services import extract_and_classify_worksheet
-            from io import BytesIO
-            try:
-                pdf_io = BytesIO(pdf_bytes)
-                pdf_io.name = session.pdf_filename
-                output = extract_and_classify_worksheet(pdf_io, existing_topics, existing_levels)
-                result = output['result']
-                HomeworkUploadSession.objects.filter(pk=session_id).update(
-                    extracted_data=result,
-                    extracted_images=output['extracted_images'],
-                    page_count=output['page_count'],
-                    tokens_used=result.get('usage', {}).get('total_tokens', 0),
-                    status=HomeworkUploadSession.STATUS_DONE,
-                )
-            except Exception as e:
-                HomeworkUploadSession.objects.filter(pk=session_id).update(
-                    status=HomeworkUploadSession.STATUS_ERROR,
-                    error_message=str(e),
-                )
-            finally:
-                django.db.connections.close_all()
-
-        t = threading.Thread(target=_process, args=(session.pk, pdf_bytes, existing_topics, existing_levels), daemon=True)
-        t.start()
+        # Enqueue AI extraction on the RQ queue so the response returns immediately
+        # and the job survives gunicorn worker restarts (CPP-307c). If the queue
+        # is unavailable, surface the error instead of leaving a stuck session.
+        from taskqueue.services import enqueue_task
+        from .tasks import process_homework_pdf
+        try:
+            enqueue_task(
+                school=school,
+                user=request.user,
+                task_type='homework_pdf',
+                func=process_homework_pdf,
+                args=[session.pk, existing_topics, existing_levels],
+                queue='default',
+            )
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                'Failed to enqueue homework PDF for session %s', session.pk,
+            )
+            session.delete()
+            messages.error(
+                request,
+                'The background processing service is temporarily unavailable. '
+                'Please try again in a few minutes.',
+            )
+            return redirect('homework:pdf_upload')
 
         return redirect('homework:pdf_processing', session_id=session.pk)
 

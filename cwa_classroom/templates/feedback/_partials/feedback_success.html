@@ -1,0 +1,20 @@
+{% comment %}
+Confirmation shown after a feedback item is created (CPP-322). Dispatches a
+`feedback-submitted` event so the launcher can auto-close the modal.
+{% endcomment %}
+<div class="text-center py-6" data-feedback-success="1"
+     x-init="$dispatch('feedback-submitted')">
+  <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-success-light">
+    <svg class="h-6 w-6 text-success" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
+    </svg>
+  </div>
+  <h3 class="text-base font-semibold text-gray-900">Thanks for your feedback!</h3>
+  <p class="mt-1 text-sm text-gray-500">
+    We've logged your {{ feedback.get_category_display|lower }} and the team will review it.
+  </p>
+  <button type="button" @click="open = false"
+          class="mt-5 px-4 py-2 rounded-lg text-sm font-medium bg-accent text-white hover:bg-accent-dark transition">
+    Close
+  </button>
+</div>

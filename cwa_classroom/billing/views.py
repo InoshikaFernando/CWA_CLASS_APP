@@ -393,13 +393,48 @@ class CheckoutSuccessView(View):
     """
     Handles Stripe's redirect after a successful checkout session.
     For pending registrations (no account yet), creates the account here.
-    For existing users, simply shows the success page.
+    For existing users, verifies the session with Stripe and activates
+    the subscription immediately (safety net if webhook is delayed).
     """
     def get(self, request):
         session_id = request.GET.get('session_id', '')
         if session_id and not request.user.is_authenticated:
             self._complete_pending_registration(request, session_id)
+        elif session_id and request.user.is_authenticated:
+            self._activate_from_session(request.user, session_id)
         return render(request, 'billing/success.html')
+
+    @staticmethod
+    def _activate_from_session(user, session_id):
+        """Verify checkout session with Stripe and activate if paid."""
+        try:
+            sub = user.subscription
+        except Subscription.DoesNotExist:
+            return
+        if sub.status == Subscription.STATUS_ACTIVE:
+            return
+        try:
+            stripe.api_key = settings.STRIPE_SECRET_KEY
+            session = stripe.checkout.Session.retrieve(session_id)
+            if session.payment_status in ('paid', 'no_payment_required'):
+                sub.status = Subscription.STATUS_ACTIVE
+                sub.stripe_subscription_id = session.subscription or sub.stripe_subscription_id
+                sub.trial_end = None
+                sub.current_period_start = timezone.now()
+                if session.metadata.get('package_id'):
+                    pkg = Package.objects.filter(id=session.metadata['package_id']).first()
+                    if pkg:
+                        sub.package = pkg
+                        user.package = pkg
+                        user.save(update_fields=['package'])
+                sub.save()
+                log_event(
+                    user=user, category='billing',
+                    action='subscription_activated_from_success_page',
+                    detail={'session_id': session_id},
+                )
+        except stripe.error.StripeError:
+            pass
 
     @staticmethod
     def _complete_pending_registration(request, stripe_session_id):
@@ -553,11 +588,12 @@ class InstitutePlanSelectView(LoginRequiredMixin, View):
         current_classes = ClassRoom.objects.filter(school=school, is_active=True).count()
         current_students = SchoolStudent.objects.filter(school=school, is_active=True).count()
 
+        active_sub = sub if sub and sub.is_active_or_trialing else None
         return render(request, 'billing/institute_plans.html', {
             'plans': plans,
             'school': school,
-            'subscription': sub,
-            'current_plan': sub.plan if sub else None,
+            'subscription': active_sub,
+            'current_plan': active_sub.plan if active_sub else None,
             'current_classes': current_classes,
             'current_students': current_students,
         })
@@ -707,6 +743,10 @@ class InstituteCheckoutView(LoginRequiredMixin, View):
         try:
             from billing.stripe_service import create_institute_checkout_session
             sub = get_school_subscription(school)
+            # Update plan on existing subscription so we don't create duplicates
+            if sub and sub.plan_id != plan.id:
+                sub.plan = plan
+                sub.save(update_fields=['plan'])
             # Only offer trial if the school hasn't used one before
             trial_days = plan.trial_days if (not sub or not sub.has_used_trial) else None
             session = create_institute_checkout_session(
@@ -725,15 +765,53 @@ class InstituteCheckoutView(LoginRequiredMixin, View):
 
 
 class InstituteCheckoutSuccessView(LoginRequiredMixin, View):
-    """Success page after Stripe Checkout for institute subscription."""
+    """Success page after Stripe Checkout for institute subscription.
+
+    Stripe redirects here with ?session_id=... after payment. We verify
+    the session with Stripe and activate the subscription immediately,
+    so the user doesn't depend on the webhook arriving first.
+    """
 
     def get(self, request):
         school = get_school_for_user(request.user)
         sub = get_school_subscription(school) if school else None
+
+        session_id = request.GET.get('session_id', '')
+        if session_id and sub and sub.status != SchoolSubscription.STATUS_ACTIVE:
+            self._activate_from_session(session_id, sub)
+            sub.refresh_from_db()
+
         return render(request, 'billing/institute_checkout_success.html', {
             'school': school,
             'subscription': sub,
         })
+
+    @staticmethod
+    def _activate_from_session(session_id, sub):
+        """Verify checkout session with Stripe and activate if paid."""
+        try:
+            stripe.api_key = settings.STRIPE_SECRET_KEY
+            session = stripe.checkout.Session.retrieve(session_id)
+            if session.payment_status in ('paid', 'no_payment_required'):
+                sub.status = SchoolSubscription.STATUS_ACTIVE
+                sub.stripe_subscription_id = session.subscription or sub.stripe_subscription_id
+                sub.trial_end = None
+                sub.current_period_start = timezone.now()
+                if session.metadata.get('plan_id'):
+                    from billing.models import InstitutePlan
+                    plan = InstitutePlan.objects.filter(
+                        id=session.metadata['plan_id'],
+                    ).first()
+                    if plan:
+                        sub.plan = plan
+                sub.save()
+                log_event(
+                    user=None, school=sub.school, category='billing',
+                    action='subscription_activated_from_success_page',
+                    detail={'session_id': session_id, 'plan_id': sub.plan_id},
+                )
+        except stripe.error.StripeError:
+            pass
 
 
 class InstituteChangePlanView(LoginRequiredMixin, View):
@@ -802,6 +880,62 @@ class InstituteCancelSubscriptionView(LoginRequiredMixin, View):
             messages.error(request, f'Could not cancel: {e}')
 
         return redirect('institute_subscription_dashboard')
+
+
+class IndividualCancelSubscriptionView(LoginRequiredMixin, View):
+    """Cancel an individual/student subscription at end of current period.
+
+    Mirrors InstituteCancelSubscriptionView but operates on the requesting
+    user's own one-to-one Subscription, so there is no cross-account vector.
+    Used from the individual student billing page (billing_history) and the
+    parent billing page.
+    """
+
+    def _billing_page(self, request):
+        from accounts.models import Role
+        if request.user.has_role(Role.PARENT):
+            return 'parent_billing'
+        return 'billing_history'
+
+    def post(self, request):
+        try:
+            sub = request.user.subscription
+        except Subscription.DoesNotExist:
+            sub = None
+
+        if not sub or not sub.stripe_subscription_id:
+            messages.error(request, 'No active subscription to cancel.')
+            return redirect(self._billing_page(request))
+
+        if sub.cancel_at_period_end:
+            messages.info(
+                request,
+                'Your subscription is already set to cancel at the end of the billing period.',
+            )
+            return redirect(self._billing_page(request))
+
+        try:
+            from billing.stripe_service import cancel_subscription
+            cancel_subscription(sub.stripe_subscription_id, at_period_end=True)
+            # Safety net: reflect the change locally in case the
+            # customer.subscription.updated webhook is delayed.
+            sub.cancel_at_period_end = True
+            sub.cancelled_at = timezone.now()
+            sub.save(update_fields=['cancel_at_period_end', 'cancelled_at', 'updated_at'])
+            log_event(
+                user=request.user, school=None, category='billing',
+                action='subscription_cancelled',
+                detail={'subscription_id': sub.id, 'stripe_subscription_id': sub.stripe_subscription_id},
+                request=request,
+            )
+            messages.success(
+                request,
+                'Your subscription will be cancelled at the end of the current billing period.',
+            )
+        except stripe.error.StripeError as e:
+            messages.error(request, f'Could not cancel: {e}')
+
+        return redirect(self._billing_page(request))
 
 
 class StripeBillingPortalView(LoginRequiredMixin, View):

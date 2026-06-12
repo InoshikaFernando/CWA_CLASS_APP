@@ -20,12 +20,16 @@ This avoids Pillow entirely and produces publication-quality crops.
 import base64
 import json
 import logging
+import os
 
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-SCREENSHOT_DPI = 150  # DPI used when rendering page screenshots sent to Claude
+# DPI for the page screenshots sent to Claude. 110 keeps text/diagrams legible
+# while cutting per-page image memory ~45% vs 150 — important on small droplets
+# where all page screenshots are held in memory at once (CPP: OOM mitigation).
+SCREENSHOT_DPI = int(os.environ.get('WORKSHEET_SCREENSHOT_DPI', '110'))
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +74,8 @@ def extract_worksheet_pages(doc):
             'pdf_w': page.rect.width,
             'pdf_h': page.rect.height,
         })
+        # Release the raw pixmap buffer promptly — the base64 is already kept.
+        pix = None
 
     return {'pages': pages, 'page_count': len(pages)}
 

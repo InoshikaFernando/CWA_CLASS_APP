@@ -345,7 +345,7 @@ def school(db, admin_user):
 
     # Cascade cleanup — deletes departments, classes, sessions, attendance, etc.
     # With parallel tests (-n auto), SQLite can have locking issues, so retry with backoff
-    def delete_with_retry(obj, max_retries=5):
+    def delete_with_retry(obj, max_retries=6):
         """Delete an object with exponential backoff retry for SQLite locking."""
         for attempt in range(max_retries):
             try:
@@ -353,11 +353,13 @@ def school(db, admin_user):
                     obj.delete()
                 return
             except OperationalError as e:
-                if "database table is locked" not in str(e):
+                # Match both "database table is locked" (in-memory shared cache)
+                # and "database is locked" (file-based WAL write contention).
+                if "is locked" not in str(e):
                     raise
                 if attempt == max_retries - 1:
                     raise
-                wait_time = (2 ** attempt) * 0.1  # Exponential backoff: 0.1s, 0.2s, 0.4s, 0.8s, 1.6s
+                wait_time = (2 ** attempt) * 0.1  # 0.1s, 0.2s, 0.4s, 0.8s, 1.6s, 3.2s
                 time_module.sleep(wait_time)
     
     delete_with_retry(school)

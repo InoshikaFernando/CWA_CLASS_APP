@@ -15,6 +15,8 @@ urlpatterns = [
     # Teacher: worksheet library
     path('', views.WorksheetListView.as_view(), name='list'),
     path('upload/', views.WorksheetUploadView.as_view(), name='upload'),
+    path('upload/<int:session_id>/processing/', views.WorksheetProcessingView.as_view(), name='processing'),
+    path('upload/<int:session_id>/status/', views.WorksheetStatusView.as_view(), name='status'),
     path('upload/<int:session_id>/preview/', views.WorksheetPreviewView.as_view(), name='preview'),
     path('upload/<int:session_id>/confirm/', views.WorksheetConfirmView.as_view(), name='confirm'),
     path('<int:pk>/', views.WorksheetDetailView.as_view(), name='detail'),

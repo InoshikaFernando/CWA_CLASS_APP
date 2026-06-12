@@ -924,9 +924,16 @@ class DjangoAdminURLTest(_SharedFixture):
         from django.contrib import admin as django_admin
         failures = []
         skipped = []
+        # Third-party admin apps whose pages require an external service that is
+        # not available in CI (e.g. django_rq's dashboard connects to Redis).
+        # These aren't ours to exercise here; skip their registered models.
+        EXTERNAL_SERVICE_ADMIN_APPS = {'django_rq'}
         for model, admin_instance in django_admin.site._registry.items():
             app = model._meta.app_label
             name = model._meta.model_name
+            if app in EXTERNAL_SERVICE_ADMIN_APPS:
+                skipped.append(f'/admin/{app}/{name}/')
+                continue
             for suffix in ['', 'add/']:
                 url = f'/admin/{app}/{name}/{suffix}'
                 try:

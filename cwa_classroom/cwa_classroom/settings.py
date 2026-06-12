@@ -25,8 +25,8 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # ---------------------------------------------------------------------------
 # App Version  (SemVer — bump manually on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.5.0'          # MAJOR.MINOR.PATCH
-APP_VERSION_DATE  = '2026-06-01'     # ISO date of this release
+APP_VERSION       = '1.5.5'          # MAJOR.MINOR.PATCH
+APP_VERSION_DATE  = '2026-06-11'     # ISO date of this release
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
@@ -59,6 +59,7 @@ INSTALLED_APPS = [
 
     # Third party
     'django_htmx',
+    'django_rq',
     'storages',
 
     # Project apps
@@ -93,12 +94,35 @@ INSTALLED_APPS = [
 
     # Lifecycle email notifications
     'notifications',
+
+    # Background task queue
+    'taskqueue',
+
+    # User feedback & feature requests (CPP-321)
+    'feedback',
 ]
+
+# ---------------------------------------------------------------------------
+# User feedback (CPP-321)
+# ---------------------------------------------------------------------------
+# Email of the product owner who owns the feedback triage queue. New feedback
+# is assigned to this user. Falls back to the first superuser when unset.
+FEEDBACK_OWNER_EMAIL = os.environ.get('FEEDBACK_OWNER_EMAIL', '')
 
 # ---------------------------------------------------------------------------
 # AI / Anthropic
 # ---------------------------------------------------------------------------
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
+
+# ---------------------------------------------------------------------------
+# Redis / RQ  (background task processing)
+# ---------------------------------------------------------------------------
+REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+RQ_QUEUES = {
+    'high':    {'URL': REDIS_URL},
+    'default': {'URL': REDIS_URL},
+    'low':     {'URL': REDIS_URL},
+}
 
 # ---------------------------------------------------------------------------
 # Coding — Piston sandboxed code execution

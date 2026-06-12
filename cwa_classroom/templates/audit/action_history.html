@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}My Action History{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto">
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="font-display text-2xl text-primary">My Action History</h1>
+    <span class="text-sm text-gray-500">{{ page.paginator.count }} action{{ page.paginator.count|pluralize }}</span>
+  </div>
+
+  {% if page.object_list %}
+  <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+        <tr>
+          <th class="px-5 py-3">Action</th>
+          <th class="px-5 py-3">Details</th>
+          <th class="px-5 py-3">School</th>
+          <th class="px-5 py-3">When</th>
+          <th class="px-5 py-3 text-right">Revert</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for entry in page.object_list %}
+        <tr class="{% if entry.reverted_at %}bg-amber-50/50{% endif %} hover:bg-slate-50 transition">
+          <td class="px-5 py-3">
+            <span class="font-medium text-gray-900">{{ entry.display_label }}</span>
+          </td>
+          <td class="px-5 py-3 text-gray-600 max-w-xs">
+            {% if entry.detail %}
+              {% for key, val in entry.detail.items %}
+                {% if key != 'old_fee' and key != 'new_fee' and key != 'class_student_id' %}
+                  {% if not forloop.first %}<span class="text-gray-300 mx-1">&middot;</span>{% endif %}
+                  <span class="text-xs">{{ val }}</span>
+                {% endif %}
+              {% endfor %}
+            {% else %}
+              <span class="text-gray-400">&mdash;</span>
+            {% endif %}
+          </td>
+          <td class="px-5 py-3 text-gray-500">
+            {% if entry.school %}{{ entry.school.name }}{% else %}&mdash;{% endif %}
+          </td>
+          <td class="px-5 py-3 text-gray-500 whitespace-nowrap">
+            {{ entry.created_at|timesince }} ago
+          </td>
+          <td class="px-5 py-3 text-right">
+            {% if entry.reverted_at %}
+              <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3"/>
+                </svg>
+                Reverted
+              </span>
+            {% elif entry.can_revert %}
+              <form method="post" action="{% url 'revert_action' entry.id %}" x-data="{ confirming: false }">
+                {% csrf_token %}
+                <button type="button" x-show="!confirming" @click="confirming = true"
+                        class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition focus:outline-none focus:ring-2 focus:ring-blue-300">
+                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3"/>
+                  </svg>
+                  {{ entry.revert_label }}
+                </button>
+                <span x-show="confirming" x-cloak class="inline-flex items-center gap-2">
+                  <span class="text-xs text-gray-500">Are you sure?</span>
+                  <button type="submit" class="px-2.5 py-1 rounded-lg text-xs font-medium text-white bg-red-500 hover:bg-red-600 transition">Yes, revert</button>
+                  <button type="button" @click="confirming = false" class="px-2.5 py-1 rounded-lg text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition">Cancel</button>
+                </span>
+              </form>
+            {% else %}
+              <span class="text-gray-300">&mdash;</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if page.has_other_pages %}
+  <div class="flex justify-center mt-6 gap-2">
+    {% if page.has_previous %}
+    <a href="?page={{ page.previous_page_number }}" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 transition">Previous</a>
+    {% endif %}
+    <span class="px-4 py-2 text-sm text-gray-500">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}
+    <a href="?page={{ page.next_page_number }}" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 transition">Next</a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="bg-white rounded-2xl border border-slate-200 p-12 text-center">
+    <svg class="w-12 h-12 mx-auto text-gray-300 mb-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    <p class="text-gray-500">No actions recorded yet.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
