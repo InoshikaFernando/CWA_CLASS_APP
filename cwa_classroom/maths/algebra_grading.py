@@ -87,7 +87,12 @@ def _to_fraction(num: str) -> Fraction:
     """Parse an int/decimal/simple-fraction coefficient token into a Fraction."""
     if "/" in num:
         top, bottom = num.split("/", 1)
-        return Fraction(top) / Fraction(bottom)
+        denominator = Fraction(bottom)
+        if denominator == 0:
+            # e.g. a student typing "1/0x" — treat as an unparseable answer
+            # (wrong) rather than letting ZeroDivisionError become an HTTP 500.
+            raise MathAnswerError(f"Division by zero in coefficient: {num!r}")
+        return Fraction(top) / denominator
     return Fraction(num)
 
 

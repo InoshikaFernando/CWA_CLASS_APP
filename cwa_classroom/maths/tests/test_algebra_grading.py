@@ -183,3 +183,14 @@ class TestDefensive:
     ])
     def test_empty_inputs_return_false(self, user, correct):
         assert is_algebraic_answer_correct(user, correct) is False
+
+    @pytest.mark.parametrize("answer", [
+        "1/0",        # bare division by zero
+        "1/0x + 2",   # zero-denominator coefficient on a term
+        "x/0",        # (unparseable) — must not raise
+        "1/0.0",      # decimal zero denominator
+    ])
+    def test_division_by_zero_is_wrong_not_a_crash(self, answer):
+        # A student typing a zero-denominator fraction must be marked wrong,
+        # never surface a ZeroDivisionError as an HTTP 500.
+        assert is_algebraic_answer_correct(answer, "2x^2 - 7x - 15") is False
