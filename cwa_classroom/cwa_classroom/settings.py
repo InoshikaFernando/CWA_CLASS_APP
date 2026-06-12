@@ -114,6 +114,13 @@ FEEDBACK_OWNER_EMAIL = os.environ.get('FEEDBACK_OWNER_EMAIL', '')
 # ---------------------------------------------------------------------------
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 
+# Claude pricing (USD per 1M tokens) used to estimate per-upload AI cost in the
+# usage ledger. Override via env when the model or list price changes.
+CLAUDE_INPUT_COST_PER_MTOK = float(
+    os.environ.get('CLAUDE_INPUT_COST_PER_MTOK', '3.0'))
+CLAUDE_OUTPUT_COST_PER_MTOK = float(
+    os.environ.get('CLAUDE_OUTPUT_COST_PER_MTOK', '15.0'))
+
 # ---------------------------------------------------------------------------
 # Redis / RQ  (background task processing)
 # ---------------------------------------------------------------------------

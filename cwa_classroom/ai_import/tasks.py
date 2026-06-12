@@ -66,6 +66,16 @@ def process_pdf_import(session_id):
             'tokens_used', 'status', 'error_message',
         ])
 
+        from taskqueue.models import AIUsageLog
+        from taskqueue.services import record_ai_usage
+        record_ai_usage(
+            school=session.school,
+            source=AIUsageLog.SOURCE_AI_IMPORT,
+            session_id=session.pk,
+            pages=extracted['page_count'],
+            usage=result.get('usage', {}),
+        )
+
         logger.info(
             'AI import session=%s processed: %s pages, %s questions',
             session_id, extracted['page_count'], len(result.get('questions', [])),
