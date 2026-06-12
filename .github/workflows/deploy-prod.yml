@@ -1,0 +1,119 @@
+name: Deploy to Production
+
+# Production is released on a schedule — every Sunday ~03:00 NZ time — NOT on
+# every merge to main. This gives a buffer to catch issues on the test site
+# before they reach prod. Runs scripts/deploy.sh over SSH, gates on a public
+# smoke test, and alerts to DEPLOY_ALERT_WEBHOOK on failure.
+#
+# NOTE: `schedule` only fires from the repository's DEFAULT branch (main), so
+# this file must be present on main for the weekly release to run. You can also
+# trigger a release manually (e.g. a hotfix) via "Run workflow".
+#
+# Cron is UTC and has no DST awareness. `0 15 * * 6` = Saturday 15:00 UTC =
+# Sunday 03:00 NZST (winter). During NZ daylight saving (NZDT, ~late Sep–early
+# Apr) that lands at 04:00; switch to `0 14 * * 6` if you want 03:00 in summer.
+#
+# Required repository secrets:
+#   DEPLOY_HOST          — prod server IP / hostname
+#   DEPLOY_SSH_KEY       — private key authorised for the deploy user on prod
+#   DEPLOY_USER          — (optional) SSH user, default: cwa
+#   DEPLOY_PATH          — (optional) repo path,  default: /home/cwa/CWA_CLASS_APP
+#   SMOKE_URL            — (optional) URL to smoke, default: https://wizardslearninghub.co.nz
+#   DEPLOY_ALERT_WEBHOOK — (optional) Slack/Discord incoming webhook for failure alerts
+#
+# Until DEPLOY_HOST is set the deploy step no-ops.
+
+on:
+  schedule:
+    - cron: "0 15 * * 6"     # Sat 15:00 UTC → Sun 03:00 NZST
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false      # never interrupt an in-flight deploy
+
+jobs:
+  deploy:
+    name: Deploy main → production
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.gate.outputs.configured }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check deploy secrets
+        id: gate
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          if [ -z "$DEPLOY_HOST" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::DEPLOY_HOST not set — skipping prod deploy. Add DEPLOY_HOST / DEPLOY_SSH_KEY to enable."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy
+        if: steps.gate.outputs.configured == 'true'
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes \
+            "${DEPLOY_USER:-cwa}@${DEPLOY_HOST}" \
+            "cd ${DEPLOY_PATH:-/home/cwa/CWA_CLASS_APP} && DEPLOY_BRANCH=main bash scripts/deploy.sh"
+          # deploy.sh resets the server to origin/main, migrates, collects
+          # static, restarts gunicorn, and runs the deep /api/health/?deep=1
+          # gate — exiting non-zero if the new build is unhealthy.
+
+  smoke:
+    name: Post-deploy smoke (public)
+    needs: deploy
+    if: needs.deploy.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Playwright + Chromium
+        run: |
+          pip install playwright==1.49.1
+          playwright install --with-deps chromium
+
+      - name: Public smoke test
+        env:
+          SMOKE_URL: ${{ secrets.SMOKE_URL }}
+        working-directory: cwa_classroom
+        run: |
+          URL="${SMOKE_URL:-https://wizardslearninghub.co.nz}"
+          echo "Smoke-testing ${URL} (public/liveness only)"
+          python smoke_test.py "$URL" --public-only
+
+  notify-failure:
+    name: Alert on failed deploy
+    needs: [deploy, smoke]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post failure to webhook
+        env:
+          WEBHOOK_URL: ${{ secrets.DEPLOY_ALERT_WEBHOOK }}
+        run: |
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "::notice::DEPLOY_ALERT_WEBHOOK not set — skipping chat alert (GitHub still emails the run owner)."
+            exit 0
+          fi
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          MSG="🚨 CWA PROD deploy FAILED on ${GITHUB_REF_NAME} (${GITHUB_SHA:0:7}) — ${RUN_URL}"
+          printf '{"text": %s, "content": %s}' "$(jq -Rn --arg m "$MSG" '$m')" "$(jq -Rn --arg m "$MSG" '$m')" \
+            | curl -sS -X POST -H 'Content-Type: application/json' -d @- "$WEBHOOK_URL"
