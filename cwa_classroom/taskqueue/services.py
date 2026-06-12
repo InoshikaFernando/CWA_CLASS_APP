@@ -38,7 +38,7 @@ def record_ai_usage(*, school, source, session_id, pages, usage):
         usage = usage or {}
         input_tokens = usage.get('input_tokens', 0) or 0
         output_tokens = usage.get('output_tokens', 0) or 0
-        return AIUsageLog.objects.create(
+        log = AIUsageLog.objects.create(
             school=school,
             source=source,
             session_id=session_id,
@@ -47,6 +47,16 @@ def record_ai_usage(*, school, source, session_id, pages, usage):
             output_tokens=output_tokens,
             est_cost_usd=estimate_cost_usd(input_tokens, output_tokens),
         )
+        # Per-call cost line — reuses values already in hand, so it's
+        # effectively free (no extra process / query). Shows up in the worker
+        # log after every AI call: `journalctl -u cwa-rqworker-test`.
+        logger.info(
+            'AI usage: source=%s session=%s pages=%s in=%s out=%s '
+            'cost=$%.5f ($%.4f/page)',
+            source, session_id, log.pages, log.input_tokens, log.output_tokens,
+            log.est_cost_usd, float(log.cost_per_page_usd or 0),
+        )
+        return log
     except Exception:
         logger.exception(
             'Failed to record AI usage (source=%s session=%s)', source, session_id)
