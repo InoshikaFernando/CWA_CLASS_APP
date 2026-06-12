@@ -63,6 +63,34 @@ class ProcessWorksheetPdfTaskTests(WorksheetAsyncTestBase):
         self.assertEqual(len(session.extracted_data['questions']), 2)
         self.assertEqual(result['questions'], 2)
 
+    @patch('worksheets.tasks.extract_and_classify_worksheet')
+    def test_success_records_ai_usage_ledger_row(self, mock_extract):
+        from decimal import Decimal
+
+        from taskqueue.models import AIUsageLog
+
+        session = self._session()
+        mock_extract.return_value = {
+            'result': {
+                'questions': [{'q': 1}],
+                'usage': {'input_tokens': 30_000, 'output_tokens': 15_000,
+                          'total_tokens': 45_000},
+            },
+            'extracted_images': {},
+            'page_count': 13,
+        }
+
+        process_worksheet_pdf(session.pk)
+
+        log = AIUsageLog.objects.get(session_id=session.pk)
+        self.assertEqual(log.source, AIUsageLog.SOURCE_WORKSHEET)
+        self.assertEqual(log.school_id, session.school_id)
+        self.assertEqual(log.pages, 13)
+        self.assertEqual(log.input_tokens, 30_000)
+        self.assertEqual(log.output_tokens, 15_000)
+        # 30k in @ $3/M + 15k out @ $15/M = 0.315
+        self.assertEqual(log.est_cost_usd, Decimal('0.31500'))
+
     @patch('worksheets.tasks.extract_and_classify_worksheet', side_effect=RuntimeError('ocr boom'))
     def test_failure_marks_failed_and_reraises(self, _mock):
         session = self._session()

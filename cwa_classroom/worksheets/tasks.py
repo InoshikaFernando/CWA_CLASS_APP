@@ -55,6 +55,16 @@ def process_worksheet_pdf(session_id):
             'tokens_used', 'status', 'error_message',
         ])
 
+        from taskqueue.models import AIUsageLog
+        from taskqueue.services import record_ai_usage
+        record_ai_usage(
+            school=session.school,
+            source=AIUsageLog.SOURCE_WORKSHEET,
+            session_id=session.pk,
+            pages=output['page_count'],
+            usage=result.get('usage', {}),
+        )
+
         logger.info(
             'Worksheet session=%s processed: %s pages, %s questions',
             session_id, output['page_count'], len(result.get('questions', [])),

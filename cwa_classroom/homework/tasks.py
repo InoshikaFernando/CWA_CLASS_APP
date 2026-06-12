@@ -40,6 +40,17 @@ def process_homework_pdf(session_id, existing_topics, existing_levels):
             tokens_used=result.get('usage', {}).get('total_tokens', 0),
             status=HomeworkUploadSession.STATUS_DONE,
         )
+
+        from taskqueue.models import AIUsageLog
+        from taskqueue.services import record_ai_usage
+        record_ai_usage(
+            school=session.school,
+            source=AIUsageLog.SOURCE_HOMEWORK,
+            session_id=session_id,
+            pages=output['page_count'],
+            usage=result.get('usage', {}),
+        )
+
         logger.info(
             'Homework PDF session=%s processed: %s pages',
             session_id, output['page_count'],

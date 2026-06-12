@@ -1,11 +1,66 @@
 import logging
+from decimal import Decimal, ROUND_HALF_UP
 
 import django_rq
+from django.conf import settings
 from django.utils import timezone
 
-from taskqueue.models import BackgroundTask
+from taskqueue.models import AIUsageLog, BackgroundTask
 
 logger = logging.getLogger(__name__)
+
+# Claude Sonnet 4 list pricing, USD per 1M tokens. Overridable via env so we can
+# track cost accurately if the model or pricing changes without a code deploy.
+_DEFAULT_INPUT_COST_PER_MTOK = 3.0
+_DEFAULT_OUTPUT_COST_PER_MTOK = 15.0
+_MILLION = Decimal(1_000_000)
+
+
+def estimate_cost_usd(input_tokens, output_tokens):
+    """Estimate the USD cost of a Claude call from its token counts."""
+    in_rate = Decimal(str(getattr(
+        settings, 'CLAUDE_INPUT_COST_PER_MTOK', _DEFAULT_INPUT_COST_PER_MTOK)))
+    out_rate = Decimal(str(getattr(
+        settings, 'CLAUDE_OUTPUT_COST_PER_MTOK', _DEFAULT_OUTPUT_COST_PER_MTOK)))
+    cost = (Decimal(int(input_tokens or 0)) / _MILLION) * in_rate \
+        + (Decimal(int(output_tokens or 0)) / _MILLION) * out_rate
+    return cost.quantize(Decimal('0.00001'), rounding=ROUND_HALF_UP)
+
+
+def record_ai_usage(*, school, source, session_id, pages, usage):
+    """Record one AI classification run in the usage/cost ledger.
+
+    ``usage`` is the dict returned by the classifier — expects ``input_tokens``
+    and ``output_tokens``. Never raises into the caller: usage accounting must
+    not be able to fail a PDF that already classified successfully.
+    """
+    try:
+        usage = usage or {}
+        input_tokens = usage.get('input_tokens', 0) or 0
+        output_tokens = usage.get('output_tokens', 0) or 0
+        log = AIUsageLog.objects.create(
+            school=school,
+            source=source,
+            session_id=session_id,
+            pages=pages or 0,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            est_cost_usd=estimate_cost_usd(input_tokens, output_tokens),
+        )
+        # Per-call cost line — reuses values already in hand, so it's
+        # effectively free (no extra process / query). Shows up in the worker
+        # log after every AI call: `journalctl -u cwa-rqworker-test`.
+        logger.info(
+            'AI usage: source=%s session=%s pages=%s in=%s out=%s '
+            'cost=$%.5f ($%.4f/page)',
+            source, session_id, log.pages, log.input_tokens, log.output_tokens,
+            log.est_cost_usd, float(log.cost_per_page_usd or 0),
+        )
+        return log
+    except Exception:
+        logger.exception(
+            'Failed to record AI usage (source=%s session=%s)', source, session_id)
+        return None
 
 
 def enqueue_task(*, school, user, task_type, func, args=None, kwargs=None,
