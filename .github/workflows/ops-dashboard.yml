@@ -78,12 +78,17 @@ jobs:
             --json conclusion,status,displayTitle,headSha,createdAt,url > deploy.json || echo '[]' > deploy.json
           gh run list --workflow ci.yml --branch test --limit 8 \
             --json conclusion,displayTitle,createdAt,url > ci.json || echo '[]' > ci.json
+          # Prod (main) deploy + CI for the prod side of the dashboard.
+          gh run list --workflow deploy-prod.yml --branch main --limit 1 \
+            --json conclusion,status,displayTitle,headSha,createdAt,url > deploy_prod.json || echo '[]' > deploy_prod.json
+          gh run list --workflow ci.yml --branch main --limit 8 \
+            --json conclusion,displayTitle,createdAt,url > ci_prod.json || echo '[]' > ci_prod.json
 
       - name: Render dashboard
         if: steps.gate.outputs.ok == 'true'
         id: render
         run: |
-          python3 scripts/render_ops_dashboard.py metrics.env deploy.json ci.json >> "$GITHUB_OUTPUT"
+          python3 scripts/render_ops_dashboard.py metrics.env deploy.json ci.json deploy_prod.json ci_prod.json >> "$GITHUB_OUTPUT"
           echo "----- dashboard.md -----"; cat dashboard.md
 
       - name: Update pinned dashboard issue
@@ -93,12 +98,13 @@ jobs:
         run: |
           set -euo pipefail
           num=$(gh issue list --label ops-dashboard --state open --limit 1 --json number --jq '.[0].number // empty')
+          TITLE="📊 Ops Dashboard (prod + test)"
           if [ -z "$num" ]; then
             gh label create ops-dashboard --color 1d76db --description "Auto-updated ops dashboard" 2>/dev/null || true
-            url=$(gh issue create --title "📊 Ops Dashboard (test)" --label ops-dashboard --body-file dashboard.md)
+            url=$(gh issue create --title "$TITLE" --label ops-dashboard --body-file dashboard.md)
             echo "Created dashboard issue: $url"
           else
-            gh issue edit "$num" --body-file dashboard.md
+            gh issue edit "$num" --title "$TITLE" --body-file dashboard.md
             echo "Updated dashboard issue #$num"
           fi
 
