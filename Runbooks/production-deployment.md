@@ -192,7 +192,7 @@ variables → Actions), so adopting this never breaks CI.
 | `TEST_DEPLOY_SSH_KEY` | private key for the test deploy user | — (required) |
 | `TEST_DEPLOY_USER` | SSH user | `cwa` |
 | `TEST_DEPLOY_PATH` | repo path on the test server | `/home/cwa/CWA_CLASS_APP` |
-| `TEST_SMOKE_URL` | URL the post-deploy smoke hits | `https://dev.wizardslearninghub.co.nz` |
+| `TEST_SMOKE_URL` | URL the post-deploy smoke hits | `https://test.wizardslearninghub.co.nz` |
 
 **Production** (`deploy-prod.yml`):
 

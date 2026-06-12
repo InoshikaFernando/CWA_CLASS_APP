@@ -425,7 +425,7 @@ login page, logs in as a sanitised user, and asserts that key pages
 cd cwa_classroom                      # smoke_test.py lives here, next to manage.py
 pip install playwright && playwright install chromium
 python smoke_test.py http://localhost:8000
-python smoke_test.py https://dev.wizardslearninghub.co.nz --headed --slow 300
+python smoke_test.py https://test.wizardslearninghub.co.nz --headed --slow 300
 python smoke_test.py https://wizardslearninghub.co.nz --public-only   # no login (prod-safe)
 ```
 

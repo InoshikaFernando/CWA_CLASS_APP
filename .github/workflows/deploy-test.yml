@@ -9,7 +9,7 @@ name: Deploy to Test
 #   TEST_DEPLOY_SSH_KEY  — private key authorised for the deploy user on test
 #   TEST_DEPLOY_USER     — (optional) SSH user, default: cwa
 #   TEST_DEPLOY_PATH     — (optional) repo path,  default: /home/cwa/CWA_CLASS_APP
-#   TEST_SMOKE_URL       — (optional) URL to smoke, default: https://dev.wizardslearninghub.co.nz
+#   TEST_SMOKE_URL       — (optional) URL to smoke, default: https://test.wizardslearninghub.co.nz
 #   DEPLOY_ALERT_WEBHOOK — (optional) Slack/Discord incoming webhook for failure alerts
 #
 # Until TEST_DEPLOY_HOST is set the deploy step no-ops (keeps test green).
@@ -86,7 +86,7 @@ jobs:
           TEST_SMOKE_URL: ${{ secrets.TEST_SMOKE_URL }}
         working-directory: cwa_classroom
         run: |
-          URL="${TEST_SMOKE_URL:-https://dev.wizardslearninghub.co.nz}"
+          URL="${TEST_SMOKE_URL:-https://test.wizardslearninghub.co.nz}"
           echo "Smoke-testing ${URL} (public/liveness only)"
           python smoke_test.py "$URL" --public-only
 
