@@ -47,3 +47,58 @@ class BackgroundTask(models.Model):
 
     def __str__(self):
         return f'{self.task_type} ({self.status}) — {self.school}'
+
+
+class AIUsageLog(models.Model):
+    """One row per AI classification run — the cost/usage ledger.
+
+    Records pages processed, input/output tokens and the estimated USD cost of
+    each Claude classification, tagged by which feature triggered it. Lets us
+    compute real $/page and margin per source instead of guessing.
+    """
+    SOURCE_WORKSHEET = 'worksheet'
+    SOURCE_AI_IMPORT = 'ai_import'
+    SOURCE_HOMEWORK = 'homework'
+    SOURCE_CHOICES = [
+        (SOURCE_WORKSHEET, 'Worksheet'),
+        (SOURCE_AI_IMPORT, 'AI Import'),
+        (SOURCE_HOMEWORK, 'Homework PDF'),
+    ]
+
+    school = models.ForeignKey(
+        'classroom.School',
+        on_delete=models.SET_NULL,
+        related_name='ai_usage_logs',
+        null=True, blank=True,
+        db_index=True,
+    )
+    source = models.CharField(
+        max_length=20, choices=SOURCE_CHOICES, db_index=True,
+    )
+    session_id = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text='PK of the upload session that produced this usage.',
+    )
+    pages = models.PositiveIntegerField(default=0)
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    est_cost_usd = models.DecimalField(
+        max_digits=10, decimal_places=5, default=0,
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.source} — {self.pages}p — ${self.est_cost_usd}'
+
+    @property
+    def total_tokens(self):
+        return self.input_tokens + self.output_tokens
+
+    @property
+    def cost_per_page_usd(self):
+        if not self.pages:
+            return None
+        return self.est_cost_usd / self.pages
