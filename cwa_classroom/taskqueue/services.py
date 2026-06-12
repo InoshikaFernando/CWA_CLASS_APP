@@ -9,13 +9,21 @@ logger = logging.getLogger(__name__)
 
 
 def enqueue_task(*, school, user, task_type, func, args=None, kwargs=None,
-                 queue='default'):
+                 queue='default', job_timeout=600):
+    """Enqueue a background task.
+
+    ``job_timeout`` (seconds) bounds how long RQ lets the work-horse run before
+    it kills it. Defaults to 10 minutes because AI PDF classification of large
+    documents routinely exceeds RQ's 180s default — too-short a timeout shows up
+    as 'killed horse pid' / 'Work-horse terminated unexpectedly' in the worker log.
+    """
     queue_instance = django_rq.get_queue(queue)
     # Separate RQ meta-params from the task function's kwargs to prevent
-    # callers from accidentally overriding our tracking callbacks.
+    # callers from accidentally overriding our tracking callbacks / timeout.
     rq_params = {
         'on_success': on_task_success,
         'on_failure': on_task_failure,
+        'job_timeout': job_timeout,
     }
     func_kwargs = {k: v for k, v in (kwargs or {}).items()
                    if k not in rq_params}
