@@ -21,6 +21,7 @@ import base64
 import json
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from django.conf import settings
 
@@ -37,6 +38,14 @@ SCREENSHOT_DPI = int(os.environ.get('WORKSHEET_SCREENSHOT_DPI', '150'))
 # multi-page worksheet can exceed a small cap and get its question list
 # truncated — i.e. only *some* questions come back. Keep this generous.
 WORKSHEET_MAX_TOKENS = int(os.environ.get('WORKSHEET_MAX_TOKENS', '32000'))
+
+# Parallel classification: a multi-page worksheet is split into page-chunks that
+# are classified concurrently. Each chunk generates a fraction of the output and
+# they run at the same time, so wall-clock ≈ the slowest chunk rather than the
+# sum — e.g. a 13-page worksheet drops from ~6 min to ~2 min.
+WORKSHEET_CHUNK_SIZE = int(os.environ.get('WORKSHEET_CHUNK_SIZE', '4'))   # pages per request
+WORKSHEET_MAX_PARALLEL = int(os.environ.get('WORKSHEET_MAX_PARALLEL', '4'))  # concurrent requests
+WORKSHEET_PAGE_CAP = int(os.environ.get('WORKSHEET_PAGE_CAP', '40'))      # hard ceiling on pages processed
 
 
 # ---------------------------------------------------------------------------
@@ -262,75 +271,68 @@ def _get_anthropic_client():
     )
 
 
-def classify_worksheet_questions(extracted_pages, existing_topics, existing_levels):
-    """
-    Send page screenshots to Claude and get structured questions with image bboxes.
-    """
-    client = _get_anthropic_client()
-
+def _build_system_prompt(existing_topics, existing_levels):
     topic_names = ', '.join(t['name'] for t in existing_topics) if existing_topics else 'None yet'
     level_names = ', '.join(
         f"Year {l['level_number']}" for l in existing_levels if l['level_number'] <= 12
     ) if existing_levels else 'Year 1–8'
-
-    system = (
+    return (
         WORKSHEET_SYSTEM_PROMPT
         + f"\n\nExisting topics in the system: {topic_names}"
         + f"\nAvailable year levels: {level_names}"
         + "\nMap to existing topics where possible."
     )
 
+
+def _classify_page_chunk(client, system, pages, total_page_count):
+    """Classify one chunk of pages in a single streamed Claude call.
+
+    Each page carries its absolute page_num label, so the returned image_bbox
+    page numbers are absolute — chunks can be merged without remapping. Raises
+    ValueError if no structured result comes back.
+    """
     content_blocks = [{
         "type": "text",
         "text": (
-            f"This is a {extracted_pages['page_count']}-page homework worksheet. "
-            "I'm sending each page as a screenshot. Please extract all questions "
-            "using the classify_worksheet_questions tool."
+            f"These pages are part of a {total_page_count}-page homework worksheet. "
+            "I'm sending each page as a screenshot. Extract ALL questions on these "
+            "pages using the classify_worksheet_questions tool."
         ),
     }]
-
-    for page in extracted_pages['pages'][:20]:  # cap at 20 pages
-        if page.get('screenshot'):
-            content_blocks.append({
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": "image/jpeg",
-                    "data": page['screenshot'],
-                },
-            })
-            content_blocks.append({
-                "type": "text",
-                "text": (
-                    f"[Page {page['page_num']} — {page['screenshot_w']}×{page['screenshot_h']} px. "
-                    f"image_bbox coordinates are in this pixel space. "
-                    f"Text: {page['text'][:600]}]"
-                ),
-            })
-
+    for page in pages:
+        content_blocks.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/jpeg",
+                "data": page['screenshot'],
+            },
+        })
+        content_blocks.append({
+            "type": "text",
+            "text": (
+                f"[Page {page['page_num']} — {page['screenshot_w']}×{page['screenshot_h']} px. "
+                f"image_bbox coordinates are in this pixel space. "
+                f"Text: {page['text'][:600]}]"
+            ),
+        })
     content_blocks.append({
         "type": "text",
         "text": (
-            "Extract ALL questions. For each question with a shape, diagram, graph, table, "
-            "ruler, or number line: set has_image=true and provide image_bbox [left, top, right, bottom] "
-            "in the page screenshot's pixel coordinates. "
+            "Extract ALL questions on these pages. For each question with a shape, diagram, "
+            "graph, table, ruler, or number line: set has_image=true and provide image_bbox "
+            "[left, top, right, bottom] in the page screenshot's pixel coordinates. "
             "Crop ONLY the visual — not the question text or answer options. "
             "Use the classify_worksheet_questions tool now."
         ),
     })
 
-    # Stream the request: a large (multi-page, many-question) classification can
-    # take several minutes to generate, which trips the SDK's read timeout on a
-    # plain non-streaming call (anthropic.APITimeoutError). Streaming keeps the
-    # connection alive as tokens arrive. get_final_message() returns the same
-    # Message object a non-streaming create() would.
+    # Stream so a long generation doesn't trip the SDK read timeout.
     with client.messages.stream(
         model="claude-sonnet-4-20250514",
         max_tokens=WORKSHEET_MAX_TOKENS,
         system=system,
         tools=[WORKSHEET_CLASSIFICATION_TOOL],
-        # Force the model to call the tool — avoids text-only responses that
-        # bypass the tool_use block and cause "no structured data" errors.
         tool_choice={"type": "tool", "name": "classify_worksheet_questions"},
         messages=[{"role": "user", "content": content_blocks}],
     ) as stream:
@@ -341,7 +343,6 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
         if block.type == 'tool_use' and block.name == 'classify_worksheet_questions':
             result = block.input
             break
-
     if not result:
         for block in response.content:
             if block.type == 'text':
@@ -350,29 +351,87 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
                     break
                 except json.JSONDecodeError:
                     pass
-
     if not result:
         stop_reason = getattr(response, 'stop_reason', 'unknown')
-        logger.error(
-            'classify_worksheet_questions: no structured result. '
-            'stop_reason=%s content_types=%s',
-            stop_reason,
-            [b.type for b in response.content],
-        )
+        logger.error('classify chunk: no structured result. stop_reason=%s', stop_reason)
         if stop_reason == 'max_tokens':
             raise ValueError(
-                'The worksheet is too large to process in one pass. '
-                'Try splitting it into smaller sections and uploading each separately.'
+                'A section of the worksheet is too dense to process in one chunk. '
+                'Try a smaller WORKSHEET_CHUNK_SIZE.'
             )
         raise ValueError("AI did not return structured question data. Please try again.")
 
+    result.setdefault('questions', [])
     result['usage'] = {
         'input_tokens': response.usage.input_tokens,
         'output_tokens': response.usage.output_tokens,
         'total_tokens': response.usage.input_tokens + response.usage.output_tokens,
     }
-
     return result
+
+
+def _merge_chunk_results(results):
+    """Merge per-chunk results: concatenate questions (already page-ordered),
+    pick the most common worksheet-level classification, sum token usage."""
+    from collections import Counter
+
+    def pick(field, default=None):
+        vals = [r.get(field) for r in results if r.get(field)]
+        return Counter(vals).most_common(1)[0][0] if vals else default
+
+    questions = []
+    for r in results:
+        questions.extend(r.get('questions', []))
+    input_t = sum(r.get('usage', {}).get('input_tokens', 0) for r in results)
+    output_t = sum(r.get('usage', {}).get('output_tokens', 0) for r in results)
+    return {
+        'year_level': pick('year_level'),
+        'subject': pick('subject', 'Mathematics'),
+        'strand': pick('strand', ''),
+        'topic': pick('topic', ''),
+        'questions': questions,
+        'usage': {
+            'input_tokens': input_t,
+            'output_tokens': output_t,
+            'total_tokens': input_t + output_t,
+        },
+    }
+
+
+def classify_worksheet_questions(extracted_pages, existing_topics, existing_levels):
+    """Send page screenshots to Claude and get structured questions with image bboxes.
+
+    Multi-page worksheets are split into page-chunks classified *concurrently*
+    (CPP: speed). Each chunk generates a fraction of the output and they run at
+    the same time, so wall-clock ≈ the slowest chunk rather than the sum. Single
+    short worksheets fall through to one call. Results are merged in page order.
+    """
+    client = _get_anthropic_client()
+    system = _build_system_prompt(existing_topics, existing_levels)
+
+    pages = [p for p in extracted_pages['pages'][:WORKSHEET_PAGE_CAP] if p.get('screenshot')]
+    if not pages:
+        raise ValueError("No page screenshots to classify.")
+    total = extracted_pages['page_count']
+
+    chunks = [pages[i:i + WORKSHEET_CHUNK_SIZE]
+              for i in range(0, len(pages), WORKSHEET_CHUNK_SIZE)]
+
+    # One chunk → no thread-pool overhead.
+    if len(chunks) == 1:
+        return _classify_page_chunk(client, system, chunks[0], total)
+
+    ordered = [None] * len(chunks)
+    with ThreadPoolExecutor(max_workers=min(WORKSHEET_MAX_PARALLEL, len(chunks))) as pool:
+        futures = {
+            pool.submit(_classify_page_chunk, client, system, chunk, total): idx
+            for idx, chunk in enumerate(chunks)
+        }
+        for fut in as_completed(futures):
+            ordered[futures[fut]] = fut.result()  # re-raises any chunk failure
+
+    logger.info('Classified %s pages across %s parallel chunks', len(pages), len(chunks))
+    return _merge_chunk_results(ordered)
 
 
 # ---------------------------------------------------------------------------
