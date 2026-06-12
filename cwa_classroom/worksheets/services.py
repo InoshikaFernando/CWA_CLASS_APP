@@ -319,7 +319,12 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
         ),
     })
 
-    response = client.messages.create(
+    # Stream the request: a large (multi-page, many-question) classification can
+    # take several minutes to generate, which trips the SDK's read timeout on a
+    # plain non-streaming call (anthropic.APITimeoutError). Streaming keeps the
+    # connection alive as tokens arrive. get_final_message() returns the same
+    # Message object a non-streaming create() would.
+    with client.messages.stream(
         model="claude-sonnet-4-20250514",
         max_tokens=WORKSHEET_MAX_TOKENS,
         system=system,
@@ -328,7 +333,8 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
         # bypass the tool_use block and cause "no structured data" errors.
         tool_choice={"type": "tool", "name": "classify_worksheet_questions"},
         messages=[{"role": "user", "content": content_blocks}],
-    )
+    ) as stream:
+        response = stream.get_final_message()
 
     result = None
     for block in response.content:

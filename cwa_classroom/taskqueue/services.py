@@ -55,12 +55,23 @@ def on_task_failure(job, connection, exc_type, exc_value, traceback):
     task = _update_task(job.id, BackgroundTask.FAILED, error_message=error_msg)
 
     if task and task.retry_count < BackgroundTask.MAX_RETRIES:
+        # Requeue first; only mark the task as retrying if it actually worked.
+        # RQ 2.x raises InvalidJobOperation if the job can't be requeued from the
+        # failure callback — in that case leave the task FAILED rather than
+        # stranding it in PENDING (and don't let the error escape the callback).
+        try:
+            job.requeue()
+        except Exception as exc:
+            logger.warning(
+                'Could not requeue job=%s for retry; leaving it failed: %s',
+                job.id, exc,
+            )
+            return
         task.retry_count += 1
         task.status = BackgroundTask.PENDING
         task.error_message = ''
         task.completed_at = None
         task.save(update_fields=['retry_count', 'status', 'error_message', 'completed_at'])
-        job.requeue()
         logger.info(
             'Retrying task=%s job=%s attempt=%s/%s',
             task.pk, job.id, task.retry_count, BackgroundTask.MAX_RETRIES,
