@@ -292,7 +292,10 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
         "text": "Please extract and classify ALL questions from this PDF. Include any context tables, data, or diagrams that belong with each question in the question_text. Use the classify_questions tool to return structured data.",
     })
 
-    response = client.messages.create(
+    # Stream the request so a long (multi-page) generation doesn't trip the SDK
+    # read timeout (anthropic.APITimeoutError). get_final_message() returns the
+    # same Message a non-streaming create() would.
+    with client.messages.stream(
         model="claude-sonnet-4-20250514",
         # Generous cap so a question-dense / multi-page PDF doesn't get its
         # extracted-question list truncated (override via AI_IMPORT_MAX_TOKENS).
@@ -300,7 +303,8 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
         system=system_prompt,
         tools=[CLASSIFICATION_TOOL],
         messages=[{"role": "user", "content": content_blocks}],
-    )
+    ) as stream:
+        response = stream.get_final_message()
 
     # Extract tool use result
     result = None
