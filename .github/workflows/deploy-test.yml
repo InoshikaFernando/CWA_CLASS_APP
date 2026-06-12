@@ -59,10 +59,10 @@ jobs:
           ssh-keyscan -H "$TEST_DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes \
             "${TEST_DEPLOY_USER:-cwa}@${TEST_DEPLOY_HOST}" \
-            "cd ${TEST_DEPLOY_PATH:-/home/cwa/CWA_CLASS_APP} && DEPLOY_BRANCH=test bash scripts/deploy.sh"
-          # deploy.sh resets the server to origin/test, migrates, collects
-          # static, restarts gunicorn, and runs the deep /api/health/?deep=1
-          # gate — exiting non-zero if the new build is unhealthy.
+            "cd ${TEST_DEPLOY_PATH:-/home/cwa/CWA_CLASS_APP_TEST} && DEPLOY_BRANCH=test SERVICE=cwa-gunicorn-test ENV_FILE=/etc/cwa/cwa-test.env HEALTH_SOCKET=/run/cwa-test.sock bash scripts/deploy.sh"
+          # Runs in the TEST checkout: resets to origin/test, migrates, collects
+          # static, restarts cwa-gunicorn-test, and runs the deep health gate
+          # against /run/cwa-test.sock — exiting non-zero if unhealthy.
 
   smoke:
     name: Post-deploy smoke (public)

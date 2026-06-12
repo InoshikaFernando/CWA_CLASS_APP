@@ -18,7 +18,12 @@ name: Ops Dashboard
 
 on:
   schedule:
-    - cron: "*/30 * * * *"     # every 30 minutes
+    - cron: "*/30 * * * *"     # every 30 minutes (the floor)
+  workflow_run:
+    # …and immediately after a deploy finishes, so the "last deploy" line isn't
+    # up to 30 min stale. Whichever fires first refreshes the dashboard.
+    workflows: ["Deploy to Test", "Deploy to Production"]
+    types: [completed]
   workflow_dispatch:
 
 concurrency:

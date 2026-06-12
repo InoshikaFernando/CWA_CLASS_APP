@@ -298,6 +298,23 @@ class TestBuilderQuestionsPagination(BuilderTestBase):
         resp = self.client.get(self._questions_url(page=9999))
         self.assertEqual(resp.status_code, 200)
 
+    def test_pagination_links_target_questions_endpoint(self):
+        # Regression: pagination must hit the questions endpoint (absolute
+        # path) rather than a relative "?page=" that resolves against the
+        # builder page URL — which returned the full page and reset filters.
+        resp = self.client.get(self._questions_url(subject='mathematics'))
+        content = resp.content.decode()
+        questions_url = reverse('worksheets:builder_questions')
+        self.assertIn(f'hx-get="{questions_url}?page=2', content)
+        self.assertNotIn('hx-get="?page=', content)
+
+    def test_pagination_links_preserve_filters(self):
+        # Active filters (e.g. subject) must be carried into the pagination
+        # link so the next page keeps the same subject/topic/subtopic.
+        resp = self.client.get(self._questions_url(subject='mathematics'))
+        content = resp.content.decode()
+        self.assertIn('subject=mathematics', content)
+
 
 # ---------------------------------------------------------------------------
 # WorksheetBuilderSaveView — CPP-284
