@@ -407,14 +407,20 @@ class WorksheetConfirmView(RoleRequiredMixin, View):
                 ).first()
 
                 if maths_q:
-                    WorksheetQuestion.objects.create(
+                    # get_or_create (not create): several extracted questions can
+                    # resolve to the SAME saved maths.Question — e.g. when their
+                    # question_text is identical because the distinguishing part is
+                    # an image. Linking it twice violates the (worksheet, subject,
+                    # content_id) unique constraint, so dedupe here. Only advance
+                    # the order counter when a new link was actually created.
+                    _, created = WorksheetQuestion.objects.get_or_create(
                         worksheet=worksheet,
-                        question=maths_q,
-                        order=order,
                         subject_slug='mathematics',
                         content_id=maths_q.id,
+                        defaults={'question': maths_q, 'order': order},
                     )
-                    order += 1
+                    if created:
+                        order += 1
 
             worksheet.refresh_question_count()
 

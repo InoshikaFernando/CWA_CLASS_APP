@@ -36,7 +36,7 @@ BASIC_FACTS_TOPIC_CONFIG = {
     "place-value-facts": {"start_level": 128, "level_count": 5},
 }
 
-YEAR_QUESTION_COUNTS = {1: 12, 2: 10, 3: 12, 4: 15, 5: 17, 6: 20, 7: 22, 8: 25, 9: 30}
+YEAR_QUESTION_COUNTS = {1: 12, 2: 10, 3: 12, 4: 15, 5: 17, 6: 20, 7: 22, 8: 25, 9: 30, 10: 35}
 
 TOPIC_SESSION_SLUGS = {
     "Measurements": "measurements",

@@ -1,33 +1,47 @@
 #!/usr/bin/env bash
 # deploy.sh
 # ---------
-# Deploy CWA Classroom on DigitalOcean app-prod.
-# Run from the repo root on the Droplet:
-#   bash scripts/deploy.sh
+# Deploy a CWA Classroom checkout. Designed to run from inside the checkout
+# you want to deploy (the current directory), so one script serves every
+# environment on the shared droplet (prod / test / dev) by passing env vars:
 #
-# What it does:
-#   1. Pulls latest code from the deploy branch
-#   2. Installs/updates Python dependencies
-#   3. Runs Django migrations
-#   4. Collects static files (WhiteNoise serves them)
-#   5. Restarts gunicorn via systemd
+#   cd /home/cwa/CWA_CLASS_APP      && DEPLOY_BRANCH=main SERVICE=cwa-gunicorn \
+#       ENV_FILE=/etc/cwa/cwa.env   HEALTH_SOCKET=/run/cwa/gunicorn.sock bash scripts/deploy.sh
+#   cd /home/cwa/CWA_CLASS_APP_TEST && DEPLOY_BRANCH=test SERVICE=cwa-gunicorn-test \
+#       ENV_FILE=/etc/cwa/cwa-test.env HEALTH_SOCKET=/run/cwa-test.sock bash scripts/deploy.sh
+#
+# What it does: pull branch → install deps → migrate → collectstatic →
+# check --deploy → restart the systemd service → deep health gate.
+#
+# Overridable knobs (all have prod defaults):
+#   REPO_DIR       default: the current directory
+#   VENV_DIR       default: $REPO_DIR/venv
+#   APP_DIR        default: $REPO_DIR/cwa_classroom
+#   DEPLOY_BRANCH  default: main
+#   SERVICE        default: cwa-gunicorn
+#   ENV_FILE       default: /etc/cwa/cwa.env   (read for ALLOWED_HOSTS → Host header)
+#   HEALTH_SOCKET  default: (none) — if set, the health gate curls this unix
+#                  socket directly (works regardless of upstream TLS)
 
 set -euo pipefail
 
-REPO_DIR="${REPO_DIR:-/home/cwa/CWA_CLASS_APP}"
-VENV_DIR="${REPO_DIR}/venv"
-APP_DIR="${REPO_DIR}/cwa_classroom"
+REPO_DIR="${REPO_DIR:-$(pwd)}"
+VENV_DIR="${VENV_DIR:-${REPO_DIR}/venv}"
+APP_DIR="${APP_DIR:-${REPO_DIR}/cwa_classroom}"
 BRANCH="${DEPLOY_BRANCH:-main}"
-SERVICE="cwa-gunicorn"
+SERVICE="${SERVICE:-cwa-gunicorn}"
+ENV_FILE="${ENV_FILE:-/etc/cwa/cwa.env}"
+HEALTH_SOCKET="${HEALTH_SOCKET:-}"
 
 cd "$REPO_DIR"
+echo "==> Deploying ${REPO_DIR} (branch ${BRANCH}, service ${SERVICE})"
 
 echo "==> Pulling latest from ${BRANCH}..."
 git fetch origin "$BRANCH"
 git reset --hard "origin/${BRANCH}"
 
 echo "==> Installing dependencies..."
-"${VENV_DIR}/bin/pip" install -r requirements.txt --quiet
+"${VENV_DIR}/bin/pip" install -r "${APP_DIR}/requirements.txt" --quiet
 
 echo "==> Running migrations..."
 "${VENV_DIR}/bin/python" "${APP_DIR}/manage.py" migrate --noinput
@@ -52,26 +66,27 @@ else
 fi
 
 echo "==> Deep health check..."
-# A running process is not a working app. The deep probe checks DB
-# connectivity, unapplied migrations, and the cache backend; it returns
-# HTTP 503 'degraded' if any fails. Go through the real hostname over HTTPS
-# (prod ALLOWED_HOSTS excludes localhost, and Caddy only serves the domain).
-ENV_FILE="${ENV_FILE:-/etc/cwa/cwa.env}"
+# A running process is not a working app. The deep probe checks DB, migrations,
+# and cache; it returns HTTP 503 'degraded' if any fails. We hit the app's own
+# gunicorn socket directly (HEALTH_SOCKET) with a Host header from ALLOWED_HOSTS,
+# so it works regardless of how/where TLS is terminated upstream.
 HEALTH_DOMAIN="${HEALTH_DOMAIN:-$(grep -E '^ALLOWED_HOSTS=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | cut -d, -f1)}"
-if [[ -z "$HEALTH_DOMAIN" ]]; then
-    echo "    WARNING: could not determine hostname (no ALLOWED_HOSTS in ${ENV_FILE});"
-    echo "             skipping deep health gate. Service is running per systemctl."
-else
-    HEALTH_URL="https://${HEALTH_DOMAIN}/api/health/?deep=1"
-    HTTP_CODE=$(curl -sS -o /tmp/cwa-health.json -w '%{http_code}' "$HEALTH_URL" || echo 000)
+if [[ -n "$HEALTH_SOCKET" && -n "$HEALTH_DOMAIN" ]]; then
+    HTTP_CODE=$(curl -sS --unix-socket "$HEALTH_SOCKET" \
+        -H "Host: ${HEALTH_DOMAIN}" \
+        -o /tmp/cwa-health.json -w '%{http_code}' \
+        "http://localhost/api/health/?deep=1" || echo 000)
     if [[ "$HTTP_CODE" == "200" ]]; then
         echo "    Healthy: $(cat /tmp/cwa-health.json)"
     else
-        echo "ERROR: health check ${HEALTH_URL} returned HTTP ${HTTP_CODE} (expected 200)."
+        echo "ERROR: health check via ${HEALTH_SOCKET} returned HTTP ${HTTP_CODE} (expected 200)."
         echo "       Body: $(cat /tmp/cwa-health.json 2>/dev/null)"
         sudo journalctl -u "$SERVICE" --no-pager -n 20
         exit 1
     fi
+else
+    echo "    (HEALTH_SOCKET or ALLOWED_HOSTS not set — skipping deep health gate;"
+    echo "     ${SERVICE} is running per systemctl.)"
 fi
 
 echo ""

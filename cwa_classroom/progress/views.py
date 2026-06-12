@@ -86,10 +86,10 @@ class StudentDashboardView(LoginRequiredMixin, View):
         from classroom.models import ClassRoom
         classrooms = ClassRoom.objects.filter(students=user, is_active=True)
         if classrooms.exists():
-            levels = Level.objects.filter(classrooms__in=classrooms, level_number__lte=8).distinct().order_by('level_number')
+            levels = Level.objects.filter(classrooms__in=classrooms, level_number__lt=100).distinct().order_by('level_number')
         else:
             # Student not in any classroom — show all available levels
-            levels = Level.objects.filter(level_number__lte=8).order_by('level_number')
+            levels = Level.objects.filter(level_number__lt=100).order_by('level_number')
 
         # Build progress grid: level → strand → subtopic → best result
         progress_grid = []
@@ -193,7 +193,7 @@ class StudentDetailProgressView(LoginRequiredMixin, View):
         if not classrooms.exists() and not (request.user.is_head_of_institute or request.user.is_institute_owner):
             return redirect('home')
 
-        levels = Level.objects.filter(classrooms__in=classrooms, level_number__lte=8).distinct().order_by('level_number')
+        levels = Level.objects.filter(classrooms__in=classrooms, level_number__lt=100).distinct().order_by('level_number')
         progress_grid = []
         for level in levels:
             progress_grid.append({

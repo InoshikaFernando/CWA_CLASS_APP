@@ -65,7 +65,7 @@ sudo -u "$APP_USER" git pull origin "$DEPLOY_BRANCH"
 echo "==> Creating venv and installing deps..."
 sudo -u "$APP_USER" python3 -m venv "${REPO_DIR}/venv"
 sudo -u "$APP_USER" "${REPO_DIR}/venv/bin/pip" install --upgrade pip
-sudo -u "$APP_USER" "${REPO_DIR}/venv/bin/pip" install -r requirements.txt
+sudo -u "$APP_USER" "${REPO_DIR}/venv/bin/pip" install -r "${REPO_DIR}/cwa_classroom/requirements.txt"
 sudo -u "$APP_USER" "${REPO_DIR}/venv/bin/pip" install gunicorn
 
 # ── systemd ──────────────────────────────────────────────────────────────────

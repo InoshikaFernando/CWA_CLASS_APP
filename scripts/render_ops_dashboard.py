@@ -113,6 +113,10 @@ def main():
 
     mem_used = mem_total - mem_avail if mem_total else 0
     mem_pct = round(mem_used / mem_total * 100) if mem_total else 0
+    mem_peak = _int(m.get("MEM_USED_PEAK"), mem_used)
+    mem_peak = max(mem_peak, mem_used)
+    peak_pct = round(mem_peak / mem_total * 100) if mem_total else 0
+    peak_at = m.get("MEM_USED_PEAK_AT", "") or ""
     swap_pct = round(swap_used / swap_total * 100) if swap_total else 0
 
     lines = []
@@ -131,7 +135,9 @@ def main():
     lines.append("### Resources")
     lines.append("| Metric | Value |")
     lines.append("|---|---|")
-    lines.append(f"| Memory | `{mem_bar(mem_pct)}` {mem_used}/{mem_total} MB ({mem_pct}%) — **{mem_avail} MB free** |")
+    peak_note = f" (at {peak_at})" if peak_at else ""
+    lines.append(f"| Memory (peak) | `{mem_bar(peak_pct)}` **{mem_peak}/{mem_total} MB ({peak_pct}%)**{peak_note} |")
+    lines.append(f"| Memory (now) | {mem_used}/{mem_total} MB ({mem_pct}%) — {mem_avail} MB free |")
     lines.append(f"| Swap | {swap_used}/{swap_total} MB ({swap_pct}%) |")
     lines.append(f"| Disk (/) | {disk_pct}% used — {m.get('DISK_AVAIL', '?')} free |")
     lines.append(f"| Load (1m) | {load1} on {nproc} cpu |")

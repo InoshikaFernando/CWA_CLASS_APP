@@ -77,10 +77,10 @@ def extract_pdf_content(pdf_file):
                 })
 
         # Render the full page as a screenshot (captures tables, charts, diagrams).
-        # 110 DPI keeps it legible for Claude while cutting per-page image memory
-        # ~45% vs 150 — all page screenshots are held in memory at once, which
-        # OOMs small droplets on large PDFs. Override via AI_IMPORT_SCREENSHOT_DPI.
-        dpi = int(os.environ.get('AI_IMPORT_SCREENSHOT_DPI', '110'))
+        # 150 DPI is the quality sweet spot — lower makes Claude miss questions
+        # (small text becomes illegible). Tune down via AI_IMPORT_SCREENSHOT_DPI
+        # only if memory is tight; the pixmap is freed below to limit the spike.
+        dpi = int(os.environ.get('AI_IMPORT_SCREENSHOT_DPI', '150'))
         pix = page.get_pixmap(dpi=dpi)
         page_img_bytes = pix.tobytes('jpeg')
         page_screenshot_b64 = base64.b64encode(page_img_bytes).decode('utf-8')
@@ -292,13 +292,19 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
         "text": "Please extract and classify ALL questions from this PDF. Include any context tables, data, or diagrams that belong with each question in the question_text. Use the classify_questions tool to return structured data.",
     })
 
-    response = client.messages.create(
+    # Stream the request so a long (multi-page) generation doesn't trip the SDK
+    # read timeout (anthropic.APITimeoutError). get_final_message() returns the
+    # same Message a non-streaming create() would.
+    with client.messages.stream(
         model="claude-sonnet-4-20250514",
-        max_tokens=8192,
+        # Generous cap so a question-dense / multi-page PDF doesn't get its
+        # extracted-question list truncated (override via AI_IMPORT_MAX_TOKENS).
+        max_tokens=int(os.environ.get('AI_IMPORT_MAX_TOKENS', '32000')),
         system=system_prompt,
         tools=[CLASSIFICATION_TOOL],
         messages=[{"role": "user", "content": content_blocks}],
-    )
+    ) as stream:
+        response = stream.get_final_message()
 
     # Extract tool use result
     result = None
