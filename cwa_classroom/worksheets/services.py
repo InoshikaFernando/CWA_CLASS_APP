@@ -26,10 +26,17 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-# DPI for the page screenshots sent to Claude. 110 keeps text/diagrams legible
-# while cutting per-page image memory ~45% vs 150 — important on small droplets
-# where all page screenshots are held in memory at once (CPP: OOM mitigation).
-SCREENSHOT_DPI = int(os.environ.get('WORKSHEET_SCREENSHOT_DPI', '110'))
+# DPI for the page screenshots sent to Claude. 150 is the quality sweet spot —
+# lower values make Claude miss questions (small text becomes illegible). Tune
+# down via WORKSHEET_SCREENSHOT_DPI only if memory is tight (all page screenshots
+# are held in memory at once); pixmaps are freed per page to limit the spike.
+SCREENSHOT_DPI = int(os.environ.get('WORKSHEET_SCREENSHOT_DPI', '150'))
+
+# Max output tokens for the classification call. Each extracted question is a
+# sizeable structured object (text, type, answers, bbox, rubric), so a dense
+# multi-page worksheet can exceed a small cap and get its question list
+# truncated — i.e. only *some* questions come back. Keep this generous.
+WORKSHEET_MAX_TOKENS = int(os.environ.get('WORKSHEET_MAX_TOKENS', '32000'))
 
 
 # ---------------------------------------------------------------------------
@@ -314,7 +321,7 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
 
     response = client.messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=16384,
+        max_tokens=WORKSHEET_MAX_TOKENS,
         system=system,
         tools=[WORKSHEET_CLASSIFICATION_TOOL],
         # Force the model to call the tool — avoids text-only responses that
