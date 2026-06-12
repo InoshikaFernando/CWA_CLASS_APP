@@ -219,6 +219,13 @@
 
   {% else %}
     <!-- Short answer / calculation -->
+    {% if question.answer_format == 'algebra' %}
+    <div class="flex flex-wrap items-center gap-2 mb-2">
+      <button type="button" id="exp-btn"
+              class="px-3 py-1.5 rounded-lg border-2 border-gray-200 bg-white font-semibold text-gray-700 hover:border-primary transition">x<sup>2</sup></button>
+      <span class="text-xs text-gray-500">Type powers with <kbd class="px-1 border border-gray-300 rounded">^</kbd> — e.g. 2x^2 - 7x - 15</span>
+    </div>
+    {% endif %}
     <div class="flex gap-3">
       <input type="text" id="text-answer-input"
              placeholder="Your answer..."
@@ -236,6 +243,15 @@
       document.getElementById('text-answer-input').addEventListener('keydown', e => {
         if (e.key === 'Enter') submitTextAnswer('{{ session_id }}', {{ question.id }});
       });
+      {% if question.answer_format == 'algebra' %}
+      document.getElementById('exp-btn').addEventListener('click', function () {
+        const f = document.getElementById('text-answer-input');
+        const s = f.selectionStart, e = f.selectionEnd;
+        f.value = f.value.slice(0, s) + '^' + f.value.slice(e);
+        f.focus();
+        f.selectionStart = f.selectionEnd = s + 1;
+      });
+      {% endif %}
     </script>
   {% endif %}
 

@@ -839,11 +839,9 @@ class WorksheetAnswerView(LoginRequiredMixin, View):
 
             else:
                 text_answer = request.POST.get('text_answer', '').strip()
-                correct_answers = [
-                    a.answer_text.strip().lower()
-                    for a in question.answers.filter(is_correct=True)
-                ]
-                if text_answer.lower() in correct_answers:
+                # Routes to algebra grading when question.answer_format == 'algebra',
+                # otherwise case/space-insensitive exact match.
+                if question.grade_text_answer(text_answer):
                     is_correct = True
                     points_earned = float(question.points)
 

@@ -197,9 +197,9 @@ class MathsPlugin(SubjectPlugin):
                 is_correct = (got_q == quot and got_r == rem)
         else:
             text_answer = post_data.get(f'answer_{q.id}', '').strip()
-            correct_answer = q.answers.filter(is_correct=True).first()
-            if correct_answer and text_answer.lower() == correct_answer.answer_text.lower():
-                is_correct = True
+            # Routes to algebra grading when q.answer_format == 'algebra',
+            # otherwise case/space-insensitive exact match.
+            is_correct = q.grade_text_answer(text_answer)
 
         return {
             'question_id': q.pk,                # legacy FK (written by the view)

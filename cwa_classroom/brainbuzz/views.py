@@ -192,6 +192,7 @@ def _session_state_payload(session: BrainBuzzSession, *, reveal_answer: bool = F
             'question_type': current_q.question_type,
             'image_url': current_q.image_url or '',
             'options': options,
+            'answer_format': current_q.answer_format,
             'correct_short_answer': (current_q.correct_short_answer or '') if reveal_answer else '',
             'time_limit_sec': current_q.time_limit_sec,
             'question_deadline': (
@@ -275,6 +276,17 @@ def _snapshot_maths_questions(session: BrainBuzzSession, topic_id: int, level_id
             q.question_type,
             q.question_type if q.question_type in dict(QUIZ_QUESTION_TYPE_CHOICES) else QUESTION_TYPE_MCQ,
         )
+        # For typed (short-answer / fill-blank) maths questions, carry the
+        # correct answer(s) across so they can actually be graded in BrainBuzz —
+        # previously hard-coded to None, which left them ungradeable. Multiple
+        # correct rows become pipe-separated alternatives.
+        correct_sa = None
+        if q.question_type in ('short_answer', 'fill_blank'):
+            correct_texts = [
+                a.answer_text.strip() for a in answers
+                if a.is_correct and (a.answer_text or '').strip()
+            ]
+            correct_sa = '|'.join(correct_texts) or None
         BrainBuzzSessionQuestion.objects.create(
             session=session,
             order=i,
@@ -282,7 +294,8 @@ def _snapshot_maths_questions(session: BrainBuzzSession, topic_id: int, level_id
             question_type=bb_type,
             options_json=options,
             image_url=q_image_url,
-            correct_short_answer=None,
+            correct_short_answer=correct_sa,
+            answer_format=getattr(q, 'answer_format', 'text'),
             time_limit_sec=session.time_per_question_sec,
             points_base=1000,
             source_model='MathsQuestion',
@@ -306,6 +319,7 @@ def _snapshot_quiz_questions(session: BrainBuzzSession, quiz) -> None:
             question_type=q.question_type if q.question_type in dict(QUIZ_QUESTION_TYPE_CHOICES) else QUESTION_TYPE_MCQ,
             options_json=options,
             correct_short_answer=q.correct_short_answer or None,
+            answer_format=q.answer_format,
             time_limit_sec=max(5, min(120, q.time_limit)),
             points_base=1000,
             source_model='BrainBuzzQuizQuestion',
@@ -1172,12 +1186,14 @@ def api_submit(request, join_code):
                     is_correct = True
                     break
     else:
-        # For short answer / fill blank: use flexible matching
+        # For short answer / fill blank: use flexible matching.
+        # answer_format='algebra' grades as a simplified polynomial.
         if short_answer and session_question.correct_short_answer:
             is_correct = is_short_answer_correct(
                 short_answer,
                 session_question.correct_short_answer,
-                case_sensitive=False
+                case_sensitive=False,
+                answer_format=session_question.answer_format,
             )
 
     # Calculate points using Kahoot-equivalent formula

@@ -3,6 +3,7 @@ CPP-277: short_answer partial — multi-line textarea.
 Context: question
 {% endcomment %}
 <div>
+  {% if question.answer_format == 'algebra' %}{% include "worksheets/partials/_exponent_helper.html" %}{% endif %}
   <textarea name="text_answer" required rows="3"
             placeholder="Write your answer here…"
             class="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm

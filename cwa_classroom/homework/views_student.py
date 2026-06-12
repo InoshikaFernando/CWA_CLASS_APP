@@ -413,6 +413,11 @@ class SubmitHomeworkAnswerView(LoginRequiredMixin, View):
             correct_ans = question.answers.filter(is_correct=True).first()
             if correct_ans:
                 correct_answer_text = correct_ans.answer_text
+        elif question.answer_format == 'algebra':
+            raw = (data.get('text_answer') or '').strip()
+            is_correct = question.grade_text_answer(raw)
+            correct_ans = question.answers.filter(is_correct=True).first()
+            correct_answer_text = correct_ans.answer_text if correct_ans else ''
         else:
             raw = (data.get('text_answer') or '').strip()
             correct_ans = question.answers.filter(is_correct=True).first()

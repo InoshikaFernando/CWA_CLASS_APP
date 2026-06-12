@@ -33,7 +33,7 @@ class QuestionAdmin(admin.ModelAdmin):
     fieldsets = (
         (None, {
             'fields': ('question_text', 'level', 'topic', 'department', 'school',
-                       'question_type', 'validation_type', 'difficulty', 'points'),
+                       'question_type', 'answer_format', 'validation_type', 'difficulty', 'points'),
         }),
         ('Grading', {
             'fields': ('grading_rubric', 'explanation'),

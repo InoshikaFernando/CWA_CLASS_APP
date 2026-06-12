@@ -110,37 +110,51 @@ def is_short_answer_correct(
     user_answer: str,
     correct_answers: str,
     case_sensitive: bool = False,
+    answer_format: str = "text",
 ) -> bool:
     """
     Check if short answer matches any of the correct answers.
-    
+
     Supports | separated alternatives in correct_answers.
     Performs normalization (trim, lowercase, whitespace) automatically.
-    
+
     Args:
         user_answer: Answer provided by student
         correct_answers: Correct answer(s), | separated (e.g., "python|py|3")
         case_sensitive: If False (default), performs case-insensitive match
-    
+        answer_format: "text" (default) for literal matching, or "algebra" to
+            grade as a simplified polynomial (e.g. expanding brackets). In
+            "algebra" mode the answer must be the fully simplified, expanded
+            form — un-combined like terms and un-expanded brackets are wrong
+            even when algebraically equal. See maths.algebra_grading.
+
     Returns:
         True if answer matches any of the accepted answers
-    
+
     Examples:
         >>> is_short_answer_correct("Python", "python")
         True
-        
+
         >>> is_short_answer_correct("  py  ", "python|py|python3")
         True
-        
+
         >>> is_short_answer_correct("ruby", "python|py")
         False
-        
+
         >>> is_short_answer_correct("Java", "javascript")
         False  # Not a substring match
+
+        >>> is_short_answer_correct("-7x + 2x^2 - 15", "2x^2 - 7x - 15", answer_format="algebra")
+        True
     """
     if not user_answer or not correct_answers:
         return False
-    
+
+    if answer_format == "algebra":
+        # Lazy import keeps scoring.py importable without the maths app loaded.
+        from maths.algebra_grading import is_algebraic_answer_correct
+        return is_algebraic_answer_correct(user_answer, correct_answers)
+
     # Normalize user answer
     if not case_sensitive:
         user_answer = normalize_short_answer(user_answer)
