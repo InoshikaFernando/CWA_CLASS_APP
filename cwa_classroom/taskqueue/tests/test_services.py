@@ -82,6 +82,29 @@ class EnqueueTaskTests(TestCase):
 
         mock_get_queue.assert_called_once_with('high')
 
+    @patch('taskqueue.services.django_rq.get_queue')
+    def test_enqueue_sets_generous_default_job_timeout(self, mock_get_queue):
+        mock_queue = MagicMock()
+        mock_queue.enqueue.return_value = MagicMock(id='rq-job-to')
+        mock_get_queue.return_value = mock_queue
+
+        enqueue_task(school=self.school, user=self.admin,
+                     task_type='ai_import_pdf', func=_dummy_task)
+
+        # Default is 10 min so large-PDF classification isn't killed at 180s.
+        self.assertEqual(mock_queue.enqueue.call_args.kwargs['job_timeout'], 600)
+
+    @patch('taskqueue.services.django_rq.get_queue')
+    def test_enqueue_honours_custom_job_timeout(self, mock_get_queue):
+        mock_queue = MagicMock()
+        mock_queue.enqueue.return_value = MagicMock(id='rq-job-to2')
+        mock_get_queue.return_value = mock_queue
+
+        enqueue_task(school=self.school, user=self.admin, task_type='ai_grade',
+                     func=_dummy_task, job_timeout=120)
+
+        self.assertEqual(mock_queue.enqueue.call_args.kwargs['job_timeout'], 120)
+
 
 class CallbackTests(TestCase):
     @classmethod

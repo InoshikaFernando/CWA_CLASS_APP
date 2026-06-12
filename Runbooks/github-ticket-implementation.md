@@ -223,7 +223,7 @@ After your PR merges to `test`:
    **not** SSH-hotfix the server outside the sanctioned `scripts/deploy.sh` path.
 2. Once deployed, verify the version bumped and the app is healthy on **test**:
    ```bash
-   curl -s "https://dev.wizardslearninghub.co.nz/api/health/?deep=1"   # version + DB/migrations/cache
+   curl -s "https://test.wizardslearninghub.co.nz/api/health/?deep=1"   # version + DB/migrations/cache
    ```
 3. Prove the ticket's acceptance criteria on the deployed **test** stack — drive
    Chrome MCP against the test URL for UI changes, or exercise the endpoint for

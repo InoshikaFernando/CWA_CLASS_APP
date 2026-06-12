@@ -23,8 +23,8 @@ That pulls the branch, installs deps, migrates, collects static, runs
 the deploy if the DB, migrations, or cache aren't healthy. Verify manually with:
 
 ```bash
-curl -s https://wizardslearninghub.co.nz/api/health/            # shallow: version + liveness
-curl -s "https://wizardslearninghub.co.nz/api/health/?deep=1"   # deep: DB + migrations + cache
+curl -s https://www.wizardslearninghub.co.nz/api/health/            # shallow: version + liveness
+curl -s "https://www.wizardslearninghub.co.nz/api/health/?deep=1"   # deep: DB + migrations + cache
 # Shallow expect: {"status":"ok","version":"1.5.0", ...}  (version == the tag you shipped)
 # Deep expect:   adds "checks":{...}; HTTP 503 + "status":"degraded" if anything is wrong
 ```
@@ -143,7 +143,7 @@ resolves.
 ### 1.4 Verify
 
 ```bash
-curl -s https://wizardslearninghub.co.nz/api/health/ | python3 -m json.tool
+curl -s https://www.wizardslearninghub.co.nz/api/health/ | python3 -m json.tool
 # status: ok, version matches settings.APP_VERSION
 ```
 
@@ -151,7 +151,7 @@ Then run the scripted liveness check from your workstation (prod-safe, no
 login required):
 
 ```bash
-cd cwa_classroom && python smoke_test.py https://wizardslearninghub.co.nz --public-only
+cd cwa_classroom && python smoke_test.py https://www.wizardslearninghub.co.nz --public-only
 ```
 
 ---
@@ -160,21 +160,29 @@ cd cwa_classroom && python smoke_test.py https://wizardslearninghub.co.nz --publ
 
 Two pipelines, matching the `test` → `main` branch flow:
 
-| Branch | Trigger | Deploys to | Workflow |
-|--------|---------|-----------|----------|
-| `test` | **every push** (each merged PR) | the **test site** | [`deploy-test.yml`](../.github/workflows/deploy-test.yml) |
-| `main` | **scheduled — Sunday ~03:00 NZ** (+ manual) | **production** | [`deploy-prod.yml`](../.github/workflows/deploy-prod.yml) |
+| Branch | Trigger | What it does | Workflow |
+|--------|---------|--------------|----------|
+| `test` | **every push** (each merged PR) | deploys to the **test site** | [`deploy-test.yml`](../.github/workflows/deploy-test.yml) |
+| `main` | **scheduled — Sunday ~03:00 NZ** (+ manual) | **auto-merges `test` → `main`, then deploys to production** | [`deploy-prod.yml`](../.github/workflows/deploy-prod.yml) |
 
-So PRs land on `test` and deploy to the test site immediately; production is
-released on a weekly cron, leaving a buffer to catch issues on test before they
-reach prod. Both pipelines run `scripts/deploy.sh` over SSH (with
-`DEPLOY_BRANCH` set to the right branch), gate on the deep health check + a
-public smoke test, and alert to `DEPLOY_ALERT_WEBHOOK` on failure.
+So PRs land on `test` and deploy to the test site immediately. Once a week the
+prod job promotes the whole `test` branch into `main` (a `--no-ff` merge it
+pushes itself) and deploys the result to production — **no review PR, no manual
+step.** The deep health gate, the public smoke test, and the Sunday-morning
+timing are the only safety net; a `test → main` merge conflict aborts the
+release (nothing deploys). Both pipelines run `scripts/deploy.sh` over SSH and
+alert to `DEPLOY_ALERT_WEBHOOK` on failure.
 
-> **The prod schedule only fires from the default branch (`main`).** Promote
-> `test` → `main` (a release PR, or your Sunday process) so `deploy-prod.yml`
-> lives on `main`. Need an off-schedule prod release (hotfix)? Use
-> **Actions → Deploy to Production → Run workflow** on `main`.
+> **The prod schedule only fires from the default branch (`main`).** So
+> `deploy-prod.yml` must live on `main` — the initial `test` → `main`
+> reconciliation handles that. Need an off-schedule release (hotfix)? Use
+> **Actions → Deploy to Production → Run workflow** on `main`; it runs the same
+> promote-then-deploy.
+>
+> **Branch protection:** the promote step pushes to `main` with `GITHUB_TOKEN`.
+> If `main` forbids direct pushes, add a `RELEASE_TOKEN` secret (a PAT allowed
+> to bypass) — it's preferred over `GITHUB_TOKEN` when set. Without one, a
+> protected `main` will reject the auto-push and the release fails.
 >
 > Cron is UTC with no DST awareness: `0 15 * * 6` = Sun 03:00 NZST (winter) /
 > 04:00 NZDT (summer). Switch to `0 14 * * 6` for 03:00 in summer.
@@ -192,7 +200,7 @@ variables → Actions), so adopting this never breaks CI.
 | `TEST_DEPLOY_SSH_KEY` | private key for the test deploy user | — (required) |
 | `TEST_DEPLOY_USER` | SSH user | `cwa` |
 | `TEST_DEPLOY_PATH` | repo path on the test server | `/home/cwa/CWA_CLASS_APP` |
-| `TEST_SMOKE_URL` | URL the post-deploy smoke hits | `https://dev.wizardslearninghub.co.nz` |
+| `TEST_SMOKE_URL` | URL the post-deploy smoke hits | `https://test.wizardslearninghub.co.nz` |
 
 **Production** (`deploy-prod.yml`):
 
@@ -202,7 +210,8 @@ variables → Actions), so adopting this never breaks CI.
 | `DEPLOY_SSH_KEY` | private key for the prod deploy user | — (required) |
 | `DEPLOY_USER` | SSH user | `cwa` |
 | `DEPLOY_PATH` | repo path on the Droplet | `/home/cwa/CWA_CLASS_APP` |
-| `SMOKE_URL` | URL the post-deploy smoke hits | `https://wizardslearninghub.co.nz` |
+| `SMOKE_URL` | URL the post-deploy smoke hits | `https://www.wizardslearninghub.co.nz` |
+| `RELEASE_TOKEN` | token to push `main` if it's branch-protected | — (falls back to `GITHUB_TOKEN`) |
 
 **Shared:**
 
@@ -290,7 +299,7 @@ pipefail`):
 ### 2.3 Verify the deploy
 
 ```bash
-curl -s https://wizardslearninghub.co.nz/api/health/   # version == the tag you shipped
+curl -s https://www.wizardslearninghub.co.nz/api/health/   # version == the tag you shipped
 sudo journalctl -u cwa-gunicorn --no-pager -n 30       # no traceback on boot
 ```
 
