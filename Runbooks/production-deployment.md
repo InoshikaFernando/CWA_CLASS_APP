@@ -23,8 +23,8 @@ That pulls the branch, installs deps, migrates, collects static, runs
 the deploy if the DB, migrations, or cache aren't healthy. Verify manually with:
 
 ```bash
-curl -s https://wizardslearninghub.co.nz/api/health/            # shallow: version + liveness
-curl -s "https://wizardslearninghub.co.nz/api/health/?deep=1"   # deep: DB + migrations + cache
+curl -s https://www.wizardslearninghub.co.nz/api/health/            # shallow: version + liveness
+curl -s "https://www.wizardslearninghub.co.nz/api/health/?deep=1"   # deep: DB + migrations + cache
 # Shallow expect: {"status":"ok","version":"1.5.0", ...}  (version == the tag you shipped)
 # Deep expect:   adds "checks":{...}; HTTP 503 + "status":"degraded" if anything is wrong
 ```
@@ -143,7 +143,7 @@ resolves.
 ### 1.4 Verify
 
 ```bash
-curl -s https://wizardslearninghub.co.nz/api/health/ | python3 -m json.tool
+curl -s https://www.wizardslearninghub.co.nz/api/health/ | python3 -m json.tool
 # status: ok, version matches settings.APP_VERSION
 ```
 
@@ -151,7 +151,7 @@ Then run the scripted liveness check from your workstation (prod-safe, no
 login required):
 
 ```bash
-cd cwa_classroom && python smoke_test.py https://wizardslearninghub.co.nz --public-only
+cd cwa_classroom && python smoke_test.py https://www.wizardslearninghub.co.nz --public-only
 ```
 
 ---
@@ -202,7 +202,7 @@ variables → Actions), so adopting this never breaks CI.
 | `DEPLOY_SSH_KEY` | private key for the prod deploy user | — (required) |
 | `DEPLOY_USER` | SSH user | `cwa` |
 | `DEPLOY_PATH` | repo path on the Droplet | `/home/cwa/CWA_CLASS_APP` |
-| `SMOKE_URL` | URL the post-deploy smoke hits | `https://wizardslearninghub.co.nz` |
+| `SMOKE_URL` | URL the post-deploy smoke hits | `https://www.wizardslearninghub.co.nz` |
 
 **Shared:**
 
@@ -290,7 +290,7 @@ pipefail`):
 ### 2.3 Verify the deploy
 
 ```bash
-curl -s https://wizardslearninghub.co.nz/api/health/   # version == the tag you shipped
+curl -s https://www.wizardslearninghub.co.nz/api/health/   # version == the tag you shipped
 sudo journalctl -u cwa-gunicorn --no-pager -n 30       # no traceback on boot
 ```
 

@@ -11,7 +11,7 @@ Usage:
 
     # Liveness-only (no login) — safe to run against PRODUCTION, which has
     # no sanitised test users:
-    python smoke_test.py https://wizardslearninghub.co.nz --public-only
+    python smoke_test.py https://www.wizardslearninghub.co.nz --public-only
 """
 import argparse
 import os

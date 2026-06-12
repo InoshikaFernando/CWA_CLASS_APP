@@ -18,7 +18,7 @@ name: Deploy to Production
 #   DEPLOY_SSH_KEY       — private key authorised for the deploy user on prod
 #   DEPLOY_USER          — (optional) SSH user, default: cwa
 #   DEPLOY_PATH          — (optional) repo path,  default: /home/cwa/CWA_CLASS_APP
-#   SMOKE_URL            — (optional) URL to smoke, default: https://wizardslearninghub.co.nz
+#   SMOKE_URL            — (optional) URL to smoke, default: https://www.wizardslearninghub.co.nz
 #   DEPLOY_ALERT_WEBHOOK — (optional) Slack/Discord incoming webhook for failure alerts
 #
 # Until DEPLOY_HOST is set the deploy step no-ops.
@@ -95,7 +95,7 @@ jobs:
           SMOKE_URL: ${{ secrets.SMOKE_URL }}
         working-directory: cwa_classroom
         run: |
-          URL="${SMOKE_URL:-https://wizardslearninghub.co.nz}"
+          URL="${SMOKE_URL:-https://www.wizardslearninghub.co.nz}"
           echo "Smoke-testing ${URL} (public/liveness only)"
           python smoke_test.py "$URL" --public-only
 
