@@ -5,13 +5,13 @@ Validates that the app, database, and migrations are working by logging
 in with sanitized test credentials and checking key pages load.
 
 Usage:
-    python smoke_test.py https://dev.wizardslearninghub.co.nz
-    python smoke_test.py https://dev.wizardslearninghub.co.nz --headed
-    python smoke_test.py https://dev.wizardslearninghub.co.nz --headed --slow 500
+    python smoke_test.py https://test.wizardslearninghub.co.nz
+    python smoke_test.py https://test.wizardslearninghub.co.nz --headed
+    python smoke_test.py https://test.wizardslearninghub.co.nz --headed --slow 500
 
     # Liveness-only (no login) — safe to run against PRODUCTION, which has
     # no sanitised test users:
-    python smoke_test.py https://wizardslearninghub.co.nz --public-only
+    python smoke_test.py https://www.wizardslearninghub.co.nz --public-only
 """
 import argparse
 import os
@@ -152,7 +152,7 @@ def run_smoke(base_url, headed=False, slow_mo=0, public_only=False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Smoke test a deployed CWA environment")
-    parser.add_argument("url", help="Base URL (e.g. https://dev.wizardslearninghub.co.nz)")
+    parser.add_argument("url", help="Base URL (e.g. https://test.wizardslearninghub.co.nz)")
     parser.add_argument("--headed", action="store_true", help="Show the browser window")
     parser.add_argument("--slow", type=int, default=0, help="Slow down actions by N ms")
     parser.add_argument("--public-only", action="store_true",
