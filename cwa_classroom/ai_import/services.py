@@ -76,11 +76,16 @@ def extract_pdf_content(pdf_file):
                     'ext': ext,
                 })
 
-        # Render the full page as a screenshot (captures tables, charts, diagrams)
-        # Use 150 DPI for good quality without being too large
-        pix = page.get_pixmap(dpi=150)
+        # Render the full page as a screenshot (captures tables, charts, diagrams).
+        # 110 DPI keeps it legible for Claude while cutting per-page image memory
+        # ~45% vs 150 — all page screenshots are held in memory at once, which
+        # OOMs small droplets on large PDFs. Override via AI_IMPORT_SCREENSHOT_DPI.
+        dpi = int(os.environ.get('AI_IMPORT_SCREENSHOT_DPI', '110'))
+        pix = page.get_pixmap(dpi=dpi)
         page_img_bytes = pix.tobytes('jpeg')
         page_screenshot_b64 = base64.b64encode(page_img_bytes).decode('utf-8')
+        pix = None
+        page_img_bytes = None
 
         pages.append({
             'page_num': page_num + 1,
