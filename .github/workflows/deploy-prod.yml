@@ -99,10 +99,10 @@ jobs:
           ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes \
             "${DEPLOY_USER:-cwa}@${DEPLOY_HOST}" \
-            "cd ${DEPLOY_PATH:-/home/cwa/CWA_CLASS_APP} && DEPLOY_BRANCH=main bash scripts/deploy.sh"
-          # deploy.sh resets the server to origin/main (now including the merge),
-          # migrates, collects static, restarts gunicorn, and runs the deep
-          # /api/health/?deep=1 gate — exiting non-zero if the build is unhealthy.
+            "cd ${DEPLOY_PATH:-/home/cwa/CWA_CLASS_APP} && DEPLOY_BRANCH=main SERVICE=cwa-gunicorn ENV_FILE=/etc/cwa/cwa.env HEALTH_SOCKET=/run/cwa/gunicorn.sock bash scripts/deploy.sh"
+          # Runs in the PROD checkout: resets to origin/main (now including the
+          # merge), migrates, collects static, restarts cwa-gunicorn, and runs the
+          # deep health gate against /run/cwa/gunicorn.sock — non-zero if unhealthy.
 
   smoke:
     name: Post-deploy smoke (public)
