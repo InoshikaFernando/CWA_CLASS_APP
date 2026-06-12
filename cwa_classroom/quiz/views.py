@@ -703,6 +703,9 @@ class MixedQuizView(LoginRequiredMixin, View):
                 if answer_id:
                     answer = Answer.objects.filter(id=answer_id, question=q).first()
                     is_correct = bool(answer and answer.is_correct)
+            elif q.answer_format == 'algebra':
+                raw = request.POST.get(f'text_{q.id}', '').strip()
+                is_correct = q.grade_text_answer(raw)
             else:
                 from quiz.basic_facts import check_answer as _ca
                 raw = request.POST.get(f'text_{q.id}', '').strip()
@@ -851,6 +854,11 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
                 is_correct = bool(nums) and product == q.target_number and all(_is_prime(x) for x in nums)
             except ValueError:
                 is_correct = False
+            correct_ans = q.answers.filter(is_correct=True).first()
+            correct_answer_text = correct_ans.answer_text if correct_ans else ''
+        elif q.answer_format == 'algebra':
+            raw = data.get('text_answer', '').strip()
+            is_correct = q.grade_text_answer(raw)
             correct_ans = q.answers.filter(is_correct=True).first()
             correct_answer_text = correct_ans.answer_text if correct_ans else ''
         else:

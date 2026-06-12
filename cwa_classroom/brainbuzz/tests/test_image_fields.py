@@ -78,6 +78,11 @@ class TestSnapshotMathsImageUrl(TestCase):
     def _run_snapshot(self, q_mock, answer_mocks):
         from brainbuzz.views import _snapshot_maths_questions
 
+        # The snapshot now reads answer_format off the source question; give the
+        # mock a realistic string so it isn't a MagicMock at insert time.
+        if not isinstance(getattr(q_mock, 'answer_format', None), str):
+            q_mock.answer_format = 'text'
+
         with patch('maths.models.Question') as MockQ, \
              patch('maths.models.Answer') as MockA:
             MockQ.objects.filter.return_value \

@@ -116,6 +116,23 @@ class Question(models.Model):
         ),
     )
 
+    # How a typed (short_answer / calculation) answer is matched.
+    ANSWER_FORMAT_TEXT = 'text'
+    ANSWER_FORMAT_ALGEBRA = 'algebra'
+    ANSWER_FORMAT_CHOICES = [
+        ('text', 'Text — exact match (case/space-insensitive)'),
+        ('algebra', 'Algebra — simplified polynomial (e.g. expand & simplify)'),
+    ]
+    answer_format = models.CharField(
+        max_length=10, choices=ANSWER_FORMAT_CHOICES, default='text',
+        help_text=(
+            'For short_answer / calculation questions. "Algebra" grades the answer as a '
+            'fully simplified, expanded polynomial — e.g. (2x+3)(x-5) must be entered as '
+            '"2x^2 - 7x - 15". Term order and spacing are ignored, but un-combined like '
+            'terms and un-expanded brackets are marked wrong even when algebraically equal.'
+        ),
+    )
+
     # Long-division and prime-factorisation question data
     dividend = models.PositiveIntegerField(null=True, blank=True, help_text="Long-division: number being divided")
     divisor = models.PositiveIntegerField(null=True, blank=True, help_text="Long-division: number dividing")
@@ -131,6 +148,35 @@ class Question(models.Model):
     def needs_grading(self):
         """True if this question requires AI or human grading (not instant auto-check)."""
         return self.validation_type in (self.VALIDATION_AI, self.VALIDATION_HUMAN)
+
+    def grade_text_answer(self, text_answer):
+        """Grade a typed short_answer / calculation answer against the stored
+        correct answers (the Answer rows with is_correct=True).
+
+        Routing is driven by ``answer_format``:
+          - 'text'    → case/space-insensitive exact match (legacy behaviour).
+          - 'algebra' → simplified-polynomial match (see maths.algebra_grading);
+                        any of the correct answers may be the canonical form, and
+                        each may itself list ``|`` separated acceptable forms.
+
+        Centralised here so every delivery surface (worksheets, the maths plugin)
+        grades identically. Returns a bool.
+        """
+        if not text_answer:
+            return False
+        correct = [
+            a.answer_text for a in self.answers.filter(is_correct=True)
+            if a.answer_text
+        ]
+        if not correct:
+            return False
+
+        if self.answer_format == self.ANSWER_FORMAT_ALGEBRA:
+            from maths.algebra_grading import is_algebraic_answer_correct
+            return any(is_algebraic_answer_correct(text_answer, c) for c in correct)
+
+        user = text_answer.strip().lower()
+        return any(user == c.strip().lower() for c in correct)
 
     class Meta:
         ordering = ['level', 'difficulty', 'created_at']

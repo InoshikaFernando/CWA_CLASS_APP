@@ -150,6 +150,23 @@ Receives ``ctx`` with keys: question, shuffled_answers (list of Answer).
 </script>
 
 {% else %}
+{% if q.answer_format == 'algebra' %}
+<div class="flex flex-wrap items-center gap-2 mb-2">
+  <button type="button" onclick="window.cwaInsertCaret('answer_{{ q.id }}')"
+          class="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm font-medium hover:bg-gray-50">x<sup>2</sup></button>
+  <span class="text-xs text-gray-500">Type powers with <kbd class="px-1 border border-gray-300 rounded">^</kbd> — e.g. 2x^2 - 7x - 15</span>
+</div>
+<script>
+  window.cwaInsertCaret = window.cwaInsertCaret || function (name) {
+    var f = document.getElementsByName(name)[0];
+    if (!f) return;
+    var s = f.selectionStart, e = f.selectionEnd;
+    f.value = f.value.slice(0, s) + '^' + f.value.slice(e);
+    f.focus();
+    f.selectionStart = f.selectionEnd = s + 1;
+  };
+</script>
+{% endif %}
 <input type="text" name="answer_{{ q.id }}"
        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
        placeholder="Type your answer...">
