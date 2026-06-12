@@ -9,6 +9,8 @@ name: Deploy to Production
 #   DEPLOY_USER     — (optional) SSH user, default: cwa
 #   DEPLOY_PATH     — (optional) repo path,  default: /home/cwa/CWA_CLASS_APP
 #   SMOKE_URL       — (optional) URL to smoke, default: https://wizardslearninghub.co.nz
+#   DEPLOY_ALERT_WEBHOOK — (optional) Slack or Discord incoming-webhook URL;
+#                          a failed deploy/smoke posts an alert to it.
 #
 # Until DEPLOY_HOST is set the deploy step no-ops (keeps main green); the smoke
 # job still runs as a liveness check.
@@ -90,3 +92,27 @@ jobs:
           URL="${SMOKE_URL:-https://wizardslearninghub.co.nz}"
           echo "Smoke-testing ${URL} (public/liveness only)"
           python smoke_test.py "$URL" --public-only
+
+  notify-failure:
+    name: Alert on failed deploy
+    needs: [deploy, smoke]
+    # Fires only when the deploy or the post-deploy smoke actually failed.
+    # If the deploy was skipped (secrets not set) nothing failed, so no alert.
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post failure to webhook
+        env:
+          WEBHOOK_URL: ${{ secrets.DEPLOY_ALERT_WEBHOOK }}
+        run: |
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "::notice::DEPLOY_ALERT_WEBHOOK not set — skipping chat alert (GitHub still emails the run owner)."
+            exit 0
+          fi
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          MSG="🚨 CWA deploy FAILED on ${GITHUB_REF_NAME} (${GITHUB_SHA:0:7}) — ${RUN_URL}"
+          # Slack incoming webhooks read "text"; Discord reads "content".
+          # Sending both keys makes one payload work for either provider.
+          printf '{"text": %s, "content": %s}' "$(jq -Rn --arg m "$MSG" '$m')" "$(jq -Rn --arg m "$MSG" '$m')" \
+            | curl -sS -X POST -H 'Content-Type: application/json' -d @- "$WEBHOOK_URL"
+
