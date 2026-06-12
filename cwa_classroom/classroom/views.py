@@ -136,7 +136,7 @@ class HomeView(LoginRequiredMixin, View):
                 questions_exist.add((row['topic_id'], row['level_id']))
 
             year_data = []
-            for year in range(1, 10):
+            for year in range(1, 11):
                 try:
                     level = Level.objects.get(level_number=year)
                 except Level.DoesNotExist:
@@ -962,7 +962,7 @@ class EditClassView(RoleRequiredMixin, View):
                 custom_levels = []
                 for dl in dept_levels:
                     if dl.level.subject_id == ds.subject_id:
-                        if dl.level.level_number <= 9:
+                        if dl.level.level_number < 100:
                             year_levels.append(dl.level)
                         else:
                             custom_levels.append(dl.level)
@@ -5467,7 +5467,7 @@ class DepartmentLevelsAPIView(LoginRequiredMixin, View):
                         'display_name': dl.effective_display_name,
                         'description': dl.level.description,
                     }
-                    if dl.level.level_number <= 9:
+                    if dl.level.level_number < 100:
                         year_levels.append(entry)
                     else:
                         custom_levels.append(entry)

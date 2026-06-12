@@ -112,8 +112,8 @@ class Command(BaseCommand):
 
     def _create_levels(self):
         from classroom.models import Level
-        # Year levels 1-8
-        for y in range(1, 9):
+        # Year levels 1-10
+        for y in range(1, 11):
             Level.objects.get_or_create(level_number=y, defaults={'display_name': f'Year {y}'})
         # Basic Facts levels
         bf_levels = [
