@@ -26,7 +26,10 @@ def _unseed(apps, schema_editor):
 class Migration(migrations.Migration):
     dependencies = [
         ('maths', '0031_question_grid_spec_alter_question_question_type'),
-        ('classroom', '0001_initial'),
+        # The seed needs the global Mathematics subject (created in
+        # classroom.0006) and the year Levels (linked by classroom.0007) to
+        # exist first; without this the seed silently no-ops on a fresh DB.
+        ('classroom', '0007_seed_topic_level_links'),
     ]
     operations = [
         migrations.RunPython(_seed, _unseed),

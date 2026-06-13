@@ -54,6 +54,15 @@ class DrawOnGridDataPropertyTests(TestCase):
         self.assertIsNone(self._q(question_type=Question.MULTIPLE_CHOICE,
                                   grid_spec=None).draw_on_grid_data)
 
+    def test_data_tolerates_malformed_shape_points(self):
+        # A spec that bypassed validate_grid_spec must not 500 the render:
+        # malformed shape points are simply dropped from the polygon.
+        spec = _spec()
+        spec['shape'] = {'points': [[2, 3], [99], 'x', [5, 5]]}
+        data = self._q(grid_spec=spec).draw_on_grid_data
+        self.assertIsNotNone(data)
+        self.assertEqual(len(data['dots']), 9 * 9)   # still renders the grid
+
 
 class DrawOnGridPartialTests(TestCase):
     @classmethod

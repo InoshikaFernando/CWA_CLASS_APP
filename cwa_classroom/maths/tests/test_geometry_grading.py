@@ -168,6 +168,17 @@ def test_malformed_payload_false(bad):
     assert grade_draw_on_grid(grid, bad) is False
 
 
+@pytest.mark.parametrize('spec', [
+    'not a dict', ['a', 'list'], None,
+    {'mode': 'segments'},                      # no target
+    {'mode': 'segments', 'target': ['list']},  # target not a dict
+    {'mode': 'points', 'target': 'x'},
+])
+def test_malformed_grid_spec_false(spec):
+    # A spec that bypassed clean() must grade False, never raise.
+    assert grade_draw_on_grid(spec, json.dumps({'segments': [_seg(4, 0, 4, 8)]})) is False
+
+
 def test_empty_target_false():
     # A misconfigured question with no target is never "correct".
     assert grade_draw_on_grid(_grid(target={'segments': []}),

@@ -44,9 +44,11 @@ MEASURE_UNIT = '°'
 
 
 def _get_topic(Topic, maths, name):
+    # Key on the unique (subject, slug) so a pre-existing topic with the same
+    # slug under a slightly different name doesn't trip the unique constraint.
     topic, _ = Topic.objects.get_or_create(
-        name=name, subject=maths,
-        defaults={'order': 99, 'is_active': True, 'slug': slugify(name)},
+        subject=maths, slug=slugify(name),
+        defaults={'name': name, 'order': 99, 'is_active': True},
     )
     return topic
 

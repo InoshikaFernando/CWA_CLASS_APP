@@ -349,8 +349,16 @@ class Question(models.Model):
             {'gx': x, 'gy': y, 'px': px(x), 'py': px(y)}
             for y in range(rows) for x in range(cols)
         ]
-        shape_points = (self.grid_spec.get('shape') or {}).get('points', [])
-        polygon = ' '.join(f'{px(x)},{px(y)}' for x, y in shape_points)
+        shape = self.grid_spec.get('shape')
+        shape_points = shape.get('points', []) if isinstance(shape, dict) else []
+        # Defensive: only well-formed integer [x, y] points reach the SVG, so a
+        # spec that bypassed validate_grid_spec can't 500 the take-item render.
+        polygon = ' '.join(
+            f'{px(p[0])},{px(p[1])}'
+            for p in shape_points
+            if isinstance(p, (list, tuple)) and len(p) == 2
+            and all(isinstance(c, int) for c in p)
+        )
         return {
             'cols': cols, 'rows': rows, 'pad': pad, 'step': step,
             'width': pad * 2 + (cols - 1) * step,

@@ -160,10 +160,15 @@ def grade_draw_on_grid(grid_spec, payload):
     Returns ``False`` on a malformed/empty payload or an empty target — never
     raises, so a bad submission is simply wrong, not a 500.
     """
-    if not grid_spec:
+    # Defensive against specs that bypassed Model.clean() (raw admin JSON,
+    # fixtures, bulk import): a non-dict grid_spec/target must not 500 the
+    # grade view — the docstring promises this never raises.
+    if not isinstance(grid_spec, dict):
         return False
     mode = grid_spec.get('mode') or 'segments'
-    target = grid_spec.get('target') or {}
+    target = grid_spec.get('target')
+    if not isinstance(target, dict):
+        return False
     allow_extra = bool(grid_spec.get('allow_extra'))
 
     try:
@@ -181,7 +186,7 @@ def grade_draw_on_grid(grid_spec, payload):
             target_key = 'expected_extra_segments' if mode == 'shape_complete' else 'segments'
             want = {_segment_key(s) for s in target.get(target_key, [])}
             got = {_segment_key(s) for s in data.get('segments', [])}
-    except (KeyError, TypeError, ValueError, IndexError):
+    except (AttributeError, KeyError, TypeError, ValueError, IndexError):
         return False
 
     if not want:
