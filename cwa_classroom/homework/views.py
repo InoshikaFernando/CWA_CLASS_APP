@@ -32,14 +32,29 @@ from .models import Homework, HomeworkQuestion, HomeworkStudentAnswer, HomeworkS
 # ---------------------------------------------------------------------------
 
 def _teacher_classrooms(user):
-    """Classrooms a user may assign homework to.
+    """Classrooms where the user is a class teacher.
 
-    A class teacher sees the classes they personally teach. School admins
-    (institute owner / head of institute / school admin) additionally see every
-    class in their school, and a head of department sees every class in the
-    department(s) they head. This mirrors the school-scoping used elsewhere
-    (see ``classroom.views_reports._get_all_school_ids``) so an owner who isn't
-    listed as a ClassTeacher still gets a populated dropdown.
+    This is the view/grade scope: monitoring submissions and grading answers
+    stay restricted to the class teacher. For the broader "who may *assign*
+    homework" scope (which also includes school admins and heads of
+    department), use :func:`_assignable_classrooms`.
+    """
+    class_ids = ClassTeacher.objects.filter(teacher=user).values_list('classroom_id', flat=True)
+    return ClassRoom.objects.filter(id__in=class_ids, is_active=True)
+
+
+def _assignable_classrooms(user):
+    """Classrooms a user may *assign* homework to.
+
+    A class teacher can assign to the classes they personally teach. School
+    admins (institute owner / head of institute / school admin) can additionally
+    assign to every class in their school, and a head of department to every
+    class in the department(s) they head. This mirrors the school-scoping used
+    elsewhere (see ``classroom.views_reports._get_all_school_ids``) so an owner
+    who isn't listed as a ClassTeacher still gets a populated dropdown.
+
+    Intentionally broader than :func:`_teacher_classrooms`: it grants the
+    ability to assign homework, not to view submissions or override grades.
     """
     from classroom.models import School, SchoolTeacher, Department
 
@@ -717,11 +732,23 @@ class StudentHomeworkResultView(LoginRequiredMixin, View):
 # ---------------------------------------------------------------------------
 
 def _check_teacher_owns_class(request, classroom):
+    """Gate viewing submissions / grading: class teacher (or superuser) only."""
     if request.user.is_superuser:
         return
-    # Accept the same scope the classroom dropdown offers: classes the user
-    # teaches, plus classes in any school/department they administer.
-    if not _teacher_classrooms(request.user).filter(pk=classroom.pk).exists():
+    if not ClassTeacher.objects.filter(teacher=request.user, classroom=classroom).exists():
+        from django.http import Http404
+        raise Http404
+
+
+def _check_can_assign_homework(request, classroom):
+    """Gate assigning homework: class teacher, school admin/owner/HoI, or dept head.
+
+    Broader than :func:`_check_teacher_owns_class` — it matches the
+    :func:`_assignable_classrooms` dropdown so an admin's selection is accepted.
+    """
+    if request.user.is_superuser:
+        return
+    if not _assignable_classrooms(request.user).filter(pk=classroom.pk).exists():
         from django.http import Http404
         raise Http404
 
@@ -848,7 +875,7 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
     template_name = 'homework/upload.html'
 
     def get(self, request):
-        classrooms = _teacher_classrooms(request.user)
+        classrooms = _assignable_classrooms(request.user)
         error = request.GET.get('error')
         if error:
             messages.error(request, f'Error processing PDF: {error}')
@@ -874,7 +901,7 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
         if classroom_id:
             try:
                 classroom = ClassRoom.objects.get(id=classroom_id)
-                _check_teacher_owns_class(request, classroom)
+                _check_can_assign_homework(request, classroom)
             except (ClassRoom.DoesNotExist, Exception):
                 classroom = None
 
@@ -1001,7 +1028,7 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
         from classroom.models import Topic, Level
         topics = Topic.objects.filter(subject__slug='mathematics').order_by('name')
         levels = Level.objects.filter(level_number__lte=12).order_by('level_number')
-        classrooms = _teacher_classrooms(request.user)
+        classrooms = _assignable_classrooms(request.user)
 
         for q in questions:
             q.setdefault('year_level', data.get('year_level'))
@@ -1053,7 +1080,7 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
         if classroom_id:
             try:
                 classroom = ClassRoom.objects.get(id=classroom_id)
-                _check_teacher_owns_class(request, classroom)
+                _check_can_assign_homework(request, classroom)
                 session.classroom = classroom
             except (ClassRoom.DoesNotExist, Exception):
                 pass
@@ -1132,7 +1159,7 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
         human_count = sum(1 for q in included if q.get('validation_type') == 'human_graded')
 
         from classroom.models import ClassRoom
-        classrooms = _teacher_classrooms(request.user)
+        classrooms = _assignable_classrooms(request.user)
 
         return render(request, self.template_name, {
             'session': session,
@@ -1163,7 +1190,7 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
         if classroom_id:
             try:
                 classroom = ClassRoom.objects.get(id=classroom_id)
-                _check_teacher_owns_class(request, classroom)
+                _check_can_assign_homework(request, classroom)
             except (ClassRoom.DoesNotExist, Exception):
                 pass
 

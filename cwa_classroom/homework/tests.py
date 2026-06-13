@@ -1824,10 +1824,12 @@ class LateJoinerOverdueTest(HomeworkTestBase):
 # Classroom scope for the PDF homework upload flow
 # ---------------------------------------------------------------------------
 
-class TeacherClassroomScopeTests(TestCase):
-    """``_teacher_classrooms`` must populate the homework classroom dropdown for
-    school owners/admins and heads of department, not only direct class teachers.
-    Regression: an institute owner with no ClassTeacher row saw an empty dropdown.
+class AssignableClassroomScopeTests(TestCase):
+    """``_assignable_classrooms`` must populate the PDF-homework classroom dropdown
+    for school owners/admins and heads of department, not only direct class
+    teachers. Regression: an institute owner with no ClassTeacher row saw an empty
+    dropdown. The narrower ``_teacher_classrooms`` (view/grade scope) must NOT be
+    broadened — admins should not gain access to submissions/grading this way.
     """
 
     @classmethod
@@ -1868,6 +1870,10 @@ class TeacherClassroomScopeTests(TestCase):
         )
 
     def _scope(self, user):
+        from homework.views import _assignable_classrooms
+        return set(_assignable_classrooms(user).values_list('id', flat=True))
+
+    def _view_scope(self, user):
         from homework.views import _teacher_classrooms
         return set(_teacher_classrooms(user).values_list('id', flat=True))
 
@@ -1889,3 +1895,12 @@ class TeacherClassroomScopeTests(TestCase):
         self.class_b.is_active = False
         self.class_b.save(update_fields=['is_active'])
         self.assertEqual(self._scope(self.owner), {self.class_a.id})
+
+    def test_view_scope_not_broadened_for_owner(self):
+        # Owner/HoD teach no class directly, so the view/grade scope stays empty
+        # even though they can assign homework. Guards against silently granting
+        # admins access to submissions and grade overrides.
+        self.assertEqual(self._view_scope(self.owner), set())
+        self.assertEqual(self._view_scope(self.hod), set())
+        # A plain class teacher's view scope is unchanged.
+        self.assertEqual(self._view_scope(self.teacher), {self.class_a.id})
