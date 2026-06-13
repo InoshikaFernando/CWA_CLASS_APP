@@ -17,7 +17,10 @@ from audit.models import AuditLog
 from classroom.models import ClassRoom, ClassStudent, ClassTeacher, Level, School, SchoolTeacher, Subject, Topic
 from maths.models import Answer, Question
 
-from .models import Homework, HomeworkQuestion, HomeworkStudentAnswer, HomeworkSubmission
+from .models import (
+    Homework, HomeworkQuestion, HomeworkStudentAnswer, HomeworkSubmission,
+    HomeworkUploadSession,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1904,3 +1907,120 @@ class AssignableClassroomScopeTests(TestCase):
         self.assertEqual(self._view_scope(self.hod), set())
         # A plain class teacher's view scope is unchanged.
         self.assertEqual(self._view_scope(self.teacher), {self.class_a.id})
+
+
+# ---------------------------------------------------------------------------
+# PDF homework: assign to multiple classes in one confirm step
+# ---------------------------------------------------------------------------
+
+class PDFConfirmMultiClassTests(TestCase):
+    """The PDF confirm step accepts multiple classes and creates one homework per
+    class, sharing the same extracted questions.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from classroom.models import Subject, Level
+        teacher_role, _ = Role.objects.get_or_create(
+            name='teacher', defaults={'display_name': 'Teacher'})
+
+        cls.owner = CustomUser.objects.create_user('owner_mc', 'owner_mc@test.com', 'pass1234')
+        cls.owner.roles.add(teacher_role)
+        cls.school = School.objects.create(name='MC School', slug='mc-school', admin=cls.owner)
+
+        cls.c1 = ClassRoom.objects.create(name='Class 1', code='MCLS0001', school=cls.school)
+        cls.c2 = ClassRoom.objects.create(name='Class 2', code='MCLS0002', school=cls.school)
+        cls.c3 = ClassRoom.objects.create(name='Class 3', code='MCLS0003', school=cls.school)
+
+        # Content fixtures used by _save_homework_pdf_questions.
+        cls.subject, _ = Subject.objects.get_or_create(slug='math-mc', defaults={'name': 'Mathematics'})
+        cls.level, _ = Level.objects.get_or_create(
+            level_number=505, defaults={'display_name': 'Yr5 MC'})
+        cls.topic = Topic.objects.create(subject=cls.subject, name='Addition', slug='addition-mc')
+
+    def _make_session(self):
+        return HomeworkUploadSession.objects.create(
+            user=self.owner, school=self.school, pdf_filename='hw.pdf',
+            status=HomeworkUploadSession.STATUS_DONE,
+            extracted_data={
+                'year_level': 505, 'subject': 'Mathematics', 'topic': 'Addition',
+                'questions': [
+                    {'question_text': '1+1?', 'include': True, 'question_type': 'short_answer'},
+                    {'question_text': '2+2?', 'include': True, 'question_type': 'short_answer'},
+                ],
+            },
+            extracted_images={},
+        )
+
+    def _post(self, session, **extra):
+        self.client.force_login(self.owner)
+        url = reverse('homework:pdf_confirm', kwargs={'session_id': session.pk})
+        payload = {'homework_title': 'Multi HW', 'due_date': '2099-12-31T23:59'}
+        payload.update(extra)
+        return self.client.post(url, payload)
+
+    def test_confirm_renders_multi_select(self):
+        session = self._make_session()
+        self.client.force_login(self.owner)
+        url = reverse('homework:pdf_confirm', kwargs={'session_id': session.pk})
+        resp = self.client.get(url)
+        self.assertContains(resp, 'name="classroom_ids"')
+        self.assertContains(resp, 'multiple')
+
+    def test_creates_one_homework_per_selected_class(self):
+        session = self._make_session()
+        resp = self._post(session, classroom_ids=[str(self.c1.id), str(self.c2.id)])
+        self.assertEqual(resp.status_code, 302)
+
+        hws = Homework.objects.filter(title='Multi HW')
+        self.assertEqual(hws.count(), 2)
+        self.assertEqual(
+            set(hws.values_list('classroom_id', flat=True)), {self.c1.id, self.c2.id})
+        for hw in hws:
+            self.assertEqual(hw.num_questions, 2)
+            self.assertEqual(HomeworkQuestion.objects.filter(homework=hw).count(), 2)
+
+        session.refresh_from_db()
+        self.assertTrue(session.is_confirmed)
+
+    def test_single_class_still_works(self):
+        session = self._make_session()
+        resp = self._post(session, classroom_ids=[str(self.c3.id)])
+        self.assertEqual(resp.status_code, 302)
+        hws = Homework.objects.filter(title='Multi HW')
+        self.assertEqual(hws.count(), 1)
+        self.assertEqual(hws.first().classroom_id, self.c3.id)
+
+    def test_requires_at_least_one_class(self):
+        session = self._make_session()
+        resp = self._post(session)  # no classroom_ids
+        self.assertEqual(resp.status_code, 302)  # redirected back to confirm
+        self.assertEqual(Homework.objects.filter(title='Multi HW').count(), 0)
+        session.refresh_from_db()
+        self.assertFalse(session.is_confirmed)
+
+    def test_session_classroom_fallback_when_no_ids_posted(self):
+        # Legacy/no-JS path: no classroom_ids submitted falls back to the
+        # session's pre-selected class (still re-checked against scope).
+        session = self._make_session()
+        session.classroom = self.c2
+        session.save(update_fields=['classroom'])
+        resp = self._post(session)  # no classroom_ids
+        self.assertEqual(resp.status_code, 302)
+        hws = Homework.objects.filter(title='Multi HW')
+        self.assertEqual(hws.count(), 1)
+        self.assertEqual(hws.first().classroom_id, self.c2.id)
+
+    def test_unauthorized_class_id_is_dropped(self):
+        other_admin = CustomUser.objects.create_user('oa_mc', 'oa_mc@test.com', 'pass1234')
+        other_school = School.objects.create(name='Other MC', slug='other-mc', admin=other_admin)
+        foreign = ClassRoom.objects.create(name='Foreign', code='MCLS9999', school=other_school)
+
+        session = self._make_session()
+        resp = self._post(session, classroom_ids=[str(self.c1.id), str(foreign.id)])
+        self.assertEqual(resp.status_code, 302)
+
+        hws = Homework.objects.filter(title='Multi HW')
+        self.assertEqual(hws.count(), 1)
+        self.assertEqual(hws.first().classroom_id, self.c1.id)
+        self.assertFalse(Homework.objects.filter(classroom=foreign).exists())
