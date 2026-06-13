@@ -1,0 +1,94 @@
+name: AI Usage Dashboard
+
+# Summarises the AI classification ledger (AIUsageLog) — pages, tokens, estimated
+# cost and $/page by source (worksheet / AI import / homework PDF) — and rewrites a
+# pinned "🤖 AI Generation Usage" issue, mirroring the Ops Dashboard.
+#
+# The data lives in the prod DB (only reachable from the droplet), so this SSHes to
+# the box and runs the prod app's `ai_usage_report` management command.
+#
+# Reuses the deploy secrets (prod + test share one droplet, so TEST_DEPLOY_HOST is
+# the box):
+#   TEST_DEPLOY_HOST     — droplet IP / hostname  (REQUIRED — until set, this no-ops)
+#   TEST_DEPLOY_SSH_KEY  — private key for the deploy user
+#   TEST_DEPLOY_USER     — (optional) SSH user, default: cwa
+#
+# Optional repo variables (Settings → Variables) override the prod paths/window:
+#   PROD_APP_DIR          — default /home/cwa/CWA_CLASS_APP
+#   PROD_ENV_FILE         — default /etc/cwa/cwa.env
+#   AI_USAGE_WINDOW_DAYS  — default 30
+#
+# Cost note: scheduled daily (~1 run/day). On a private repo that bills Actions
+# minutes this is cheap; bump the cron if you want it fresher.
+
+on:
+  schedule:
+    - cron: "23 6 * * *"     # daily, ~06:23 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: ai-usage-dashboard
+  cancel-in-progress: true
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  dashboard:
+    name: AI usage → pinned issue
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check deploy secrets
+        id: gate
+        env:
+          TEST_DEPLOY_HOST: ${{ secrets.TEST_DEPLOY_HOST }}
+        run: |
+          if [ -z "$TEST_DEPLOY_HOST" ]; then
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::TEST_DEPLOY_HOST not set — AI usage dashboard is idle. Add the deploy secrets to enable it."
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Render AI usage report (SSH → prod app)
+        if: steps.gate.outputs.ok == 'true'
+        env:
+          HOST: ${{ secrets.TEST_DEPLOY_HOST }}
+          SSH_USER: ${{ secrets.TEST_DEPLOY_USER }}
+          KEY: ${{ secrets.TEST_DEPLOY_SSH_KEY }}
+          APP_DIR: ${{ vars.PROD_APP_DIR }}
+          ENV_FILE: ${{ vars.PROD_ENV_FILE }}
+          WINDOW_DAYS: ${{ vars.AI_USAGE_WINDOW_DAYS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          APP_DIR="${APP_DIR:-/home/cwa/CWA_CLASS_APP}"
+          ENV_FILE="${ENV_FILE:-/etc/cwa/cwa.env}"
+          WINDOW_DAYS="${WINDOW_DAYS:-30}"
+          # Source the prod env (DB creds etc.) then run the report on the droplet.
+          REMOTE="set -a; . '${ENV_FILE}'; set +a; '${APP_DIR}/venv/bin/python' '${APP_DIR}/cwa_classroom/manage.py' ai_usage_report --days '${WINDOW_DAYS}' --format markdown"
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "${SSH_USER:-cwa}@${HOST}" "$REMOTE" > ai_usage.md
+          echo "----- ai_usage.md -----"; cat ai_usage.md
+          # Guard against overwriting the issue with an empty body if SSH/env failed.
+          test -s ai_usage.md
+
+      - name: Update pinned AI usage issue
+        if: steps.gate.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          num=$(gh issue list --label ai-usage-dashboard --state open --limit 1 --json number --jq '.[0].number // empty')
+          TITLE="🤖 AI Generation Usage (prod)"
+          if [ -z "$num" ]; then
+            gh label create ai-usage-dashboard --color 5319e7 --description "Auto-updated AI usage dashboard" 2>/dev/null || true
+            url=$(gh issue create --title "$TITLE" --label ai-usage-dashboard --body-file ai_usage.md)
+            echo "Created AI usage issue: $url"
+          else
+            gh issue edit "$num" --title "$TITLE" --body-file ai_usage.md
+            echo "Updated AI usage issue #$num"
+          fi
