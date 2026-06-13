@@ -328,6 +328,8 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
                 ('fill_blank', 'Fill in the Blank'),
                 ('calculation', 'Calculation'),
                 ('column_operation', 'Column Arithmetic'),
+                ('long_division', 'Long Division'),
+                ('extended_answer', 'Extended Answer (written)'),
             ],
         })
 
@@ -384,6 +386,16 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
                 operator = request.POST.get(f'{prefix}operator', q.get('operator', ''))
                 if operator:
                     q['operator'] = operator
+
+            # Long-division fields (only relevant for long_division)
+            if q['question_type'] == 'long_division':
+                for fld in ('dividend', 'divisor'):
+                    raw = request.POST.get(f'{prefix}{fld}', '').strip()
+                    if raw:
+                        try:
+                            q[fld] = int(raw)
+                        except ValueError:
+                            pass
 
             # Dynamic answers — collect all answer fields
             answers = []

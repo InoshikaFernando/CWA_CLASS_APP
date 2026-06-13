@@ -130,10 +130,23 @@ EXISTING LEVELS in the system: {level_names}
 Your task:
 1. Extract each question with its text, type, difficulty, answers
 2. For EACH question, classify: year_level, subject, strand, topic (PDFs may mix topics)
-3. If a question needs an embedded image (table, chart, diagram), set image_ref to the
-   embedded image reference (e.g. "page1_img1.png"). Only use embedded image refs, not screenshots.
+3. Attach an embedded image (set image_ref to e.g. "page1_img1.png") ONLY when the question
+   genuinely DEPENDS on a visual that cannot be written as text. Only use embedded image refs,
+   not screenshots.
 4. Do NOT embed table/chart data as text in the question — keep question_text concise and
    reference the image instead when the question depends on a visual.
+
+IMAGE NECESSITY (important — most questions need NO image):
+- Set image_ref to null whenever the question can be fully understood and answered from text alone
+  (plus any structured fields below). An image is needed ONLY when it carries information that
+  cannot be expressed in words: a data table, a chart/graph, a geometric figure, a number line,
+  a clock face, a picture/object to interpret, a map, etc.
+- Worksheets are full of decorative or scaffolding graphics that carry NO information — blank answer
+  boxes, grid/squared paper, working space, ruled lines, long-division brackets, column-arithmetic
+  grids, page borders. NEVER attach these.
+- If a graphic only shows HOW to lay out the working (long-division "bus stop" bracket, stacked
+  column arithmetic), transcribe it into the structured fields/text below and set image_ref to null.
+- When unsure, prefer NO image. A wrongly-attached image is worse than none.
 
 SPLIT MULTI-PART QUESTIONS (important):
 - When a single question contains multiple sub-parts labelled a), b), c) (or i, ii, iii / 1, 2, 3),
@@ -159,6 +172,13 @@ QUESTION TYPE RULES (important):
   IMPORTANT: only use "column_operation" when the problem is actually drawn stacked/vertical. If the
   SAME arithmetic is written inline on one horizontal line (e.g. "90 - 82 =" or "90 take away 82"),
   use "short_answer" instead. Division stays "long_division", never "column_operation".
+- If a DIVISION is drawn in the long-division "bus stop" layout — the divisor written to the LEFT of
+  a vertical bar and the dividend UNDER a horizontal bar (e.g. "47" outside, "611" under the bar) —
+  use question_type "long_division". Set "dividend" to the number under the bar (the number being
+  divided) and "divisor" to the number outside it. Set question_text to
+  "Solve using long division: {dividend} ÷ {divisor}". Do NOT concatenate the digits into one number
+  (e.g. never "47611"), and do NOT attach the layout image — the app draws the bracket. The answer
+  is computed automatically; do not generate answers.
 - If the correct answer is a NUMBER ONLY (digits, decimals, fractions like "14" or "3.5" or "2/3"),
   use question_type "short_answer" with just the correct answer. Do NOT generate wrong answers.
 - If the correct answer contains TEXT or WORDS (e.g. "Day 3 had the most sales", "True", "Red"),
@@ -214,7 +234,7 @@ CLASSIFICATION_TOOL = {
                         "question_text": {"type": "string"},
                         "question_type": {
                             "type": "string",
-                            "enum": ["multiple_choice", "true_false", "short_answer", "fill_blank", "calculation", "column_operation"],
+                            "enum": ["multiple_choice", "true_false", "short_answer", "fill_blank", "calculation", "column_operation", "long_division"],
                         },
                         "operands": {
                             "type": "array",
@@ -225,6 +245,14 @@ CLASSIFICATION_TOOL = {
                             "type": "string",
                             "enum": ["+", "-", "*"],
                             "description": "For column_operation only: the arithmetic operator.",
+                        },
+                        "dividend": {
+                            "type": "integer",
+                            "description": "For long_division only: the number being divided (under the bar), e.g. 611.",
+                        },
+                        "divisor": {
+                            "type": "integer",
+                            "description": "For long_division only: the number dividing (outside/left of the bar), e.g. 47.",
                         },
                         "difficulty": {"type": "integer", "enum": [1, 2, 3]},
                         "points": {"type": "integer", "default": 1},
@@ -434,6 +462,24 @@ def _compute_column_result(operands, operator):
         return result
     return None
 
+
+def _compute_long_division_answer(dividend, divisor):
+    """Canonical answer for a long-division question.
+
+    Returns "Q" when the division is exact, otherwise "Q r R" (matching the
+    seed-data format, e.g. "56 r 4"). Returns None on bad input.
+    """
+    try:
+        dividend = int(dividend)
+        divisor = int(divisor)
+    except (TypeError, ValueError):
+        return None
+    if divisor <= 0 or dividend < 0:
+        return None
+    quotient, remainder = divmod(dividend, divisor)
+    return str(quotient) if remainder == 0 else f"{quotient} r {remainder}"
+
+
 def _resolve_topic_for_question(q, default_data):
     """Resolve subject, strand, topic, level for a single question (per-question overrides)."""
     from classroom.models import Subject, Topic, Level
@@ -544,6 +590,28 @@ def save_questions_from_session(session, user, overrides=None):
         if image_ref == 'none' or image_ref == '':
             image_ref = None
 
+        # Self-rendering types draw their own layout from structured fields, so any
+        # attached worksheet graphic (division bracket, column grid) is just noise.
+        if q_type in ('column_operation', 'long_division'):
+            image_ref = None
+
+        # Long-division fields (bus-stop layout)
+        dividend = None
+        divisor = None
+        if q_type == 'long_division':
+            try:
+                dividend = int(q.get('dividend'))
+                divisor = int(q.get('divisor'))
+            except (TypeError, ValueError):
+                dividend = divisor = None
+            if not dividend or not divisor or divisor <= 0:
+                errors.append(
+                    f'Q{idx}: Invalid long_division '
+                    f'(dividend={q.get("dividend")!r}, divisor={q.get("divisor")!r})'
+                )
+                failed += 1
+                continue
+
         # Column-arithmetic fields (vertical/stacked operations)
         operands = None
         operator = ''
@@ -588,6 +656,8 @@ def save_questions_from_session(session, user, overrides=None):
                     existing.explanation = explanation
                     existing.operands = operands
                     existing.operator = operator
+                    existing.dividend = dividend
+                    existing.divisor = divisor
                     existing.save()
                     existing.answers.all().delete()
                     question = existing
@@ -602,6 +672,7 @@ def save_questions_from_session(session, user, overrides=None):
                         difficulty=difficulty, points=points,
                         explanation=explanation,
                         operands=operands, operator=operator,
+                        dividend=dividend, divisor=divisor,
                     )
                     inserted += 1
 
@@ -633,6 +704,15 @@ def save_questions_from_session(session, user, overrides=None):
                     MathsAnswer.objects.create(
                         question=question,
                         answer_text=str(result) if result is not None else '',
+                        is_correct=True,
+                        order=1,
+                    )
+                elif q_type == 'long_division':
+                    # Answer is computed from dividend/divisor — ignore AI arithmetic.
+                    ld_answer = _compute_long_division_answer(dividend, divisor)
+                    MathsAnswer.objects.create(
+                        question=question,
+                        answer_text=ld_answer or '',
                         is_correct=True,
                         order=1,
                     )
