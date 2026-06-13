@@ -78,18 +78,21 @@
                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
           </div>
 
-          <!-- Classroom -->
+          <!-- Classroom(s) -->
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">
-              Classroom <span class="text-red-500">*</span>
+              Classroom(s) <span class="text-red-500">*</span>
             </label>
-            <select name="classroom_id" required
+            <select name="classroom_ids" required multiple size="8"
                     class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="">— select classroom —</option>
               {% for cls in classrooms %}
-              <option value="{{ cls.id }}" {% if session.classroom_id == cls.id %}selected{% endif %}>{{ cls.name }}</option>
+              <option value="{{ cls.id }}" {% if cls.id == session.classroom_id %}selected{% endif %}>{{ cls.name }}</option>
               {% endfor %}
             </select>
+            <p class="text-xs text-gray-500 mt-1">
+              Hold Ctrl (Cmd on Mac) to select more than one class. A separate homework
+              is created for each class, sharing the same questions.
+            </p>
           </div>
 
           <!-- Due date -->
