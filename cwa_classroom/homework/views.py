@@ -4,7 +4,7 @@ import time as time_module
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
-from django.db.models import Max, Prefetch
+from django.db.models import Max, Prefetch, Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -32,9 +32,62 @@ from .models import Homework, HomeworkQuestion, HomeworkStudentAnswer, HomeworkS
 # ---------------------------------------------------------------------------
 
 def _teacher_classrooms(user):
-    """Return classrooms where the user is a teacher."""
+    """Classrooms where the user is a class teacher.
+
+    This is the view/grade scope: monitoring submissions and grading answers
+    stay restricted to the class teacher. For the broader "who may *assign*
+    homework" scope (which also includes school admins and heads of
+    department), use :func:`_assignable_classrooms`.
+    """
     class_ids = ClassTeacher.objects.filter(teacher=user).values_list('classroom_id', flat=True)
     return ClassRoom.objects.filter(id__in=class_ids, is_active=True)
+
+
+def _assignable_classrooms(user):
+    """Classrooms a user may *assign* homework to.
+
+    A class teacher can assign to the classes they personally teach. School
+    admins (institute owner / head of institute / school admin) can additionally
+    assign to every class in their school, and a head of department to every
+    class in the department(s) they head. This mirrors the school-scoping used
+    elsewhere (see ``classroom.views_reports._get_all_school_ids``) so an owner
+    who isn't listed as a ClassTeacher still gets a populated dropdown.
+
+    Intentionally broader than :func:`_teacher_classrooms`: it grants the
+    ability to assign homework, not to view submissions or override grades.
+    """
+    from classroom.models import School, SchoolTeacher, Department
+
+    if user.is_superuser:
+        return ClassRoom.objects.filter(is_active=True)
+
+    # Classes the user personally teaches.
+    taught_ids = set(
+        ClassTeacher.objects.filter(teacher=user).values_list('classroom_id', flat=True)
+    )
+
+    # Schools the user administers (owner / school admin via School.admin,
+    # head of institute via SchoolTeacher.role).
+    admin_school_ids = set(
+        School.objects.filter(admin=user, is_active=True).values_list('id', flat=True)
+    ) | set(
+        SchoolTeacher.objects.filter(
+            teacher=user, role='head_of_institute', is_active=True,
+        ).values_list('school_id', flat=True)
+    )
+
+    # Departments the user heads.
+    headed_dept_ids = set(
+        Department.objects.filter(head=user, is_active=True).values_list('id', flat=True)
+    )
+
+    scope = Q(id__in=taught_ids)
+    if admin_school_ids:
+        scope |= Q(school_id__in=admin_school_ids)
+    if headed_dept_ids:
+        scope |= Q(department_id__in=headed_dept_ids)
+
+    return ClassRoom.objects.filter(scope, is_active=True).distinct()
 
 
 # NOTE: _topics_with_questions() and _build_topic_groups() used to live here.
@@ -679,9 +732,23 @@ class StudentHomeworkResultView(LoginRequiredMixin, View):
 # ---------------------------------------------------------------------------
 
 def _check_teacher_owns_class(request, classroom):
+    """Gate viewing submissions / grading: class teacher (or superuser) only."""
     if request.user.is_superuser:
         return
     if not ClassTeacher.objects.filter(teacher=request.user, classroom=classroom).exists():
+        from django.http import Http404
+        raise Http404
+
+
+def _check_can_assign_homework(request, classroom):
+    """Gate assigning homework: class teacher, school admin/owner/HoI, or dept head.
+
+    Broader than :func:`_check_teacher_owns_class` — it matches the
+    :func:`_assignable_classrooms` dropdown so an admin's selection is accepted.
+    """
+    if request.user.is_superuser:
+        return
+    if not _assignable_classrooms(request.user).filter(pk=classroom.pk).exists():
         from django.http import Http404
         raise Http404
 
@@ -808,7 +875,7 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
     template_name = 'homework/upload.html'
 
     def get(self, request):
-        classrooms = _teacher_classrooms(request.user)
+        classrooms = _assignable_classrooms(request.user)
         error = request.GET.get('error')
         if error:
             messages.error(request, f'Error processing PDF: {error}')
@@ -834,7 +901,7 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
         if classroom_id:
             try:
                 classroom = ClassRoom.objects.get(id=classroom_id)
-                _check_teacher_owns_class(request, classroom)
+                _check_can_assign_homework(request, classroom)
             except (ClassRoom.DoesNotExist, Exception):
                 classroom = None
 
@@ -961,7 +1028,7 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
         from classroom.models import Topic, Level
         topics = Topic.objects.filter(subject__slug='mathematics').order_by('name')
         levels = Level.objects.filter(level_number__lte=12).order_by('level_number')
-        classrooms = _teacher_classrooms(request.user)
+        classrooms = _assignable_classrooms(request.user)
 
         for q in questions:
             q.setdefault('year_level', data.get('year_level'))
@@ -1013,7 +1080,7 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
         if classroom_id:
             try:
                 classroom = ClassRoom.objects.get(id=classroom_id)
-                _check_teacher_owns_class(request, classroom)
+                _check_can_assign_homework(request, classroom)
                 session.classroom = classroom
             except (ClassRoom.DoesNotExist, Exception):
                 pass
@@ -1092,7 +1159,7 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
         human_count = sum(1 for q in included if q.get('validation_type') == 'human_graded')
 
         from classroom.models import ClassRoom
-        classrooms = _teacher_classrooms(request.user)
+        classrooms = _assignable_classrooms(request.user)
 
         return render(request, self.template_name, {
             'session': session,
@@ -1123,7 +1190,7 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
         if classroom_id:
             try:
                 classroom = ClassRoom.objects.get(id=classroom_id)
-                _check_teacher_owns_class(request, classroom)
+                _check_can_assign_homework(request, classroom)
             except (ClassRoom.DoesNotExist, Exception):
                 pass
 
