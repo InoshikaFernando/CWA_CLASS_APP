@@ -17,7 +17,10 @@ from audit.models import AuditLog
 from classroom.models import ClassRoom, ClassStudent, ClassTeacher, Level, School, SchoolTeacher, Subject, Topic
 from maths.models import Answer, Question
 
-from .models import Homework, HomeworkQuestion, HomeworkStudentAnswer, HomeworkSubmission
+from .models import (
+    Homework, HomeworkQuestion, HomeworkStudentAnswer, HomeworkSubmission,
+    HomeworkUploadSession,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1818,3 +1821,274 @@ class LateJoinerOverdueTest(HomeworkTestBase):
         row = next(r for r in resp.context['student_rows']
                    if r['student'].id == self.student.id)
         self.assertEqual(row['status'], HomeworkSubmission.STATUS_NOT_SUBMITTED)
+
+
+# ---------------------------------------------------------------------------
+# Classroom scope for the PDF homework upload flow
+# ---------------------------------------------------------------------------
+
+class AssignableClassroomScopeTests(TestCase):
+    """``_assignable_classrooms`` must populate the PDF-homework classroom dropdown
+    for school owners/admins and heads of department, not only direct class
+    teachers. Regression: an institute owner with no ClassTeacher row saw an empty
+    dropdown. The narrower ``_teacher_classrooms`` (view/grade scope) must NOT be
+    broadened — admins should not gain access to submissions/grading this way.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from classroom.models import Department
+
+        teacher_role, _ = Role.objects.get_or_create(
+            name='teacher', defaults={'display_name': 'Teacher'})
+
+        # School owner: holds a teacher role (so the upload page is reachable)
+        # but is NOT listed as a ClassTeacher anywhere.
+        cls.owner = CustomUser.objects.create_user('owner', 'owner@test.com', 'pass1234')
+        cls.owner.roles.add(teacher_role)
+        cls.school = School.objects.create(name='Mathshub Melbourne', slug='mathshub-melb', admin=cls.owner)
+
+        # Plain teacher assigned to exactly one class.
+        cls.teacher = CustomUser.objects.create_user('teacher1', 'teacher1@test.com', 'pass1234')
+        cls.teacher.roles.add(teacher_role)
+
+        # Head of department.
+        cls.hod = CustomUser.objects.create_user('hod', 'hod@test.com', 'pass1234')
+        cls.hod.roles.add(teacher_role)
+        cls.dept = Department.objects.create(school=cls.school, name='Maths', head=cls.hod)
+
+        cls.class_a = ClassRoom.objects.create(
+            name='Year 5 Maths', code='SCOPEA01', school=cls.school, department=cls.dept,
+        )
+        cls.class_b = ClassRoom.objects.create(
+            name='Year 6 Maths', code='SCOPEB01', school=cls.school,
+        )
+        ClassTeacher.objects.create(classroom=cls.class_a, teacher=cls.teacher)
+
+        # A class in a different school the owner must not see.
+        other_admin = CustomUser.objects.create_user('other', 'other@test.com', 'pass1234')
+        cls.other_school = School.objects.create(name='Other', slug='other', admin=other_admin)
+        cls.class_other = ClassRoom.objects.create(
+            name='Other Class', code='SCOPEC01', school=cls.other_school,
+        )
+
+    def _scope(self, user):
+        from homework.views import _assignable_classrooms
+        return set(_assignable_classrooms(user).values_list('id', flat=True))
+
+    def _view_scope(self, user):
+        from homework.views import _teacher_classrooms
+        return set(_teacher_classrooms(user).values_list('id', flat=True))
+
+    def test_owner_sees_all_classes_in_their_school(self):
+        scope = self._scope(self.owner)
+        self.assertEqual(scope, {self.class_a.id, self.class_b.id})
+
+    def test_plain_teacher_sees_only_their_class(self):
+        self.assertEqual(self._scope(self.teacher), {self.class_a.id})
+
+    def test_hod_sees_only_their_department(self):
+        # class_a is in the Maths dept; class_b is not.
+        self.assertEqual(self._scope(self.hod), {self.class_a.id})
+
+    def test_owner_does_not_see_other_schools_classes(self):
+        self.assertNotIn(self.class_other.id, self._scope(self.owner))
+
+    def test_inactive_class_excluded(self):
+        self.class_b.is_active = False
+        self.class_b.save(update_fields=['is_active'])
+        self.assertEqual(self._scope(self.owner), {self.class_a.id})
+
+    def test_view_scope_matches_management_scope(self):
+        # Full management: the view/monitor/grade scope equals the assignment
+        # scope. An owner manages every class in their school; a HoD their
+        # department; a plain teacher only their own classes.
+        self.assertEqual(self._view_scope(self.owner), {self.class_a.id, self.class_b.id})
+        self.assertEqual(self._view_scope(self.hod), {self.class_a.id})
+        self.assertEqual(self._view_scope(self.teacher), {self.class_a.id})
+        # View scope and assignable scope are now identical for every role.
+        for u in (self.owner, self.hod, self.teacher):
+            self.assertEqual(self._view_scope(u), self._scope(u))
+
+
+# ---------------------------------------------------------------------------
+# PDF homework: assign to multiple classes in one confirm step
+# ---------------------------------------------------------------------------
+
+class PDFConfirmMultiClassTests(TestCase):
+    """The PDF confirm step accepts multiple classes and creates one homework per
+    class, sharing the same extracted questions.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from classroom.models import Subject, Level
+        teacher_role, _ = Role.objects.get_or_create(
+            name='teacher', defaults={'display_name': 'Teacher'})
+
+        cls.owner = CustomUser.objects.create_user('owner_mc', 'owner_mc@test.com', 'pass1234')
+        cls.owner.roles.add(teacher_role)
+        cls.school = School.objects.create(name='MC School', slug='mc-school', admin=cls.owner)
+
+        cls.c1 = ClassRoom.objects.create(name='Class 1', code='MCLS0001', school=cls.school)
+        cls.c2 = ClassRoom.objects.create(name='Class 2', code='MCLS0002', school=cls.school)
+        cls.c3 = ClassRoom.objects.create(name='Class 3', code='MCLS0003', school=cls.school)
+
+        # Content fixtures used by _save_homework_pdf_questions.
+        cls.subject, _ = Subject.objects.get_or_create(slug='math-mc', defaults={'name': 'Mathematics'})
+        cls.level, _ = Level.objects.get_or_create(
+            level_number=505, defaults={'display_name': 'Yr5 MC'})
+        cls.topic = Topic.objects.create(subject=cls.subject, name='Addition', slug='addition-mc')
+
+    def _make_session(self):
+        return HomeworkUploadSession.objects.create(
+            user=self.owner, school=self.school, pdf_filename='hw.pdf',
+            status=HomeworkUploadSession.STATUS_DONE,
+            extracted_data={
+                'year_level': 505, 'subject': 'Mathematics', 'topic': 'Addition',
+                'questions': [
+                    {'question_text': '1+1?', 'include': True, 'question_type': 'short_answer'},
+                    {'question_text': '2+2?', 'include': True, 'question_type': 'short_answer'},
+                ],
+            },
+            extracted_images={},
+        )
+
+    def _post(self, session, **extra):
+        self.client.force_login(self.owner)
+        url = reverse('homework:pdf_confirm', kwargs={'session_id': session.pk})
+        payload = {'homework_title': 'Multi HW', 'due_date': '2099-12-31T23:59'}
+        payload.update(extra)
+        return self.client.post(url, payload)
+
+    def test_confirm_renders_multi_select(self):
+        session = self._make_session()
+        self.client.force_login(self.owner)
+        url = reverse('homework:pdf_confirm', kwargs={'session_id': session.pk})
+        resp = self.client.get(url)
+        self.assertContains(resp, 'name="classroom_ids"')
+        self.assertContains(resp, 'multiple')
+
+    def test_creates_one_homework_per_selected_class(self):
+        session = self._make_session()
+        resp = self._post(session, classroom_ids=[str(self.c1.id), str(self.c2.id)])
+        self.assertEqual(resp.status_code, 302)
+
+        hws = Homework.objects.filter(title='Multi HW')
+        self.assertEqual(hws.count(), 2)
+        self.assertEqual(
+            set(hws.values_list('classroom_id', flat=True)), {self.c1.id, self.c2.id})
+        for hw in hws:
+            self.assertEqual(hw.num_questions, 2)
+            self.assertEqual(HomeworkQuestion.objects.filter(homework=hw).count(), 2)
+
+        session.refresh_from_db()
+        self.assertTrue(session.is_confirmed)
+
+    def test_single_class_still_works(self):
+        session = self._make_session()
+        resp = self._post(session, classroom_ids=[str(self.c3.id)])
+        self.assertEqual(resp.status_code, 302)
+        hws = Homework.objects.filter(title='Multi HW')
+        self.assertEqual(hws.count(), 1)
+        self.assertEqual(hws.first().classroom_id, self.c3.id)
+
+    def test_requires_at_least_one_class(self):
+        session = self._make_session()
+        resp = self._post(session)  # no classroom_ids
+        self.assertEqual(resp.status_code, 302)  # redirected back to confirm
+        self.assertEqual(Homework.objects.filter(title='Multi HW').count(), 0)
+        session.refresh_from_db()
+        self.assertFalse(session.is_confirmed)
+
+    def test_duplicate_questions_are_deduped(self):
+        # Two extracted questions with identical text resolve to the same
+        # maths.Question via get_or_create; the confirm step must dedupe them
+        # instead of raising IntegrityError on the (homework, content_id) key.
+        session = self._make_session()
+        session.extracted_data = {
+            'year_level': 505, 'subject': 'Mathematics', 'topic': 'Addition',
+            'questions': [
+                {'question_text': '1+1?', 'include': True, 'question_type': 'short_answer'},
+                {'question_text': '1+1?', 'include': True, 'question_type': 'short_answer'},
+            ],
+        }
+        session.save(update_fields=['extracted_data'])
+
+        resp = self._post(session, classroom_ids=[str(self.c1.id), str(self.c2.id)])
+        self.assertEqual(resp.status_code, 302)
+
+        hws = Homework.objects.filter(title='Multi HW')
+        self.assertEqual(hws.count(), 2)
+        for hw in hws:
+            self.assertEqual(HomeworkQuestion.objects.filter(homework=hw).count(), 1)
+            self.assertEqual(hw.num_questions, 1)
+
+    def test_session_classroom_fallback_when_no_ids_posted(self):
+        # Legacy/no-JS path: no classroom_ids submitted falls back to the
+        # session's pre-selected class (still re-checked against scope).
+        session = self._make_session()
+        session.classroom = self.c2
+        session.save(update_fields=['classroom'])
+        resp = self._post(session)  # no classroom_ids
+        self.assertEqual(resp.status_code, 302)
+        hws = Homework.objects.filter(title='Multi HW')
+        self.assertEqual(hws.count(), 1)
+        self.assertEqual(hws.first().classroom_id, self.c2.id)
+
+    def test_owner_can_monitor_and_open_created_homework(self):
+        # Reproduces the reported issue: after assigning, the owner (a school
+        # admin with no ClassTeacher row) must see the class in the monitor and
+        # be able to open the homework — not "not assigned to any classes" / 404.
+        session = self._make_session()
+        self._post(session, classroom_ids=[str(self.c1.id)])
+        hw = Homework.objects.filter(title='Multi HW', classroom=self.c1).first()
+        self.assertIsNotNone(hw)
+
+        self.client.force_login(self.owner)
+        mon = self.client.get(reverse('homework:teacher_monitor'))
+        self.assertEqual(mon.status_code, 200)
+        self.assertContains(mon, self.c1.name)
+        self.assertNotContains(mon, 'not assigned to any classes')
+
+        detail = self.client.get(reverse('homework:teacher_detail', kwargs={'homework_id': hw.id}))
+        self.assertEqual(detail.status_code, 200)
+
+    def test_resubmit_confirmed_session_redirects_not_404(self):
+        # Re-submitting an already-confirmed upload (back button / double-click)
+        # should redirect to the created homework, not raise a 404.
+        session = self._make_session()
+        first = self._post(session, classroom_ids=[str(self.c1.id)])
+        self.assertEqual(first.status_code, 302)
+        hw = Homework.objects.filter(title='Multi HW', classroom=self.c1).first()
+        self.assertIsNotNone(hw)
+
+        # Second submit of the same (now confirmed) session.
+        second = self._post(session, classroom_ids=[str(self.c1.id)])
+        self.assertEqual(second.status_code, 302)
+        self.assertIn(reverse('homework:teacher_detail', kwargs={'homework_id': hw.id}), second.url)
+        # No extra homework created.
+        self.assertEqual(Homework.objects.filter(title='Multi HW', classroom=self.c1).count(), 1)
+
+    def test_get_confirmed_session_redirects(self):
+        session = self._make_session()
+        session.is_confirmed = True
+        session.save(update_fields=['is_confirmed'])
+        self.client.force_login(self.owner)
+        url = reverse('homework:pdf_confirm', kwargs={'session_id': session.pk})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 302)  # redirected, not 404
+
+    def test_unauthorized_class_id_is_dropped(self):
+        other_admin = CustomUser.objects.create_user('oa_mc', 'oa_mc@test.com', 'pass1234')
+        other_school = School.objects.create(name='Other MC', slug='other-mc', admin=other_admin)
+        foreign = ClassRoom.objects.create(name='Foreign', code='MCLS9999', school=other_school)
+
+        session = self._make_session()
+        resp = self._post(session, classroom_ids=[str(self.c1.id), str(foreign.id)])
+        self.assertEqual(resp.status_code, 302)
+
+        hws = Homework.objects.filter(title='Multi HW')
+        self.assertEqual(hws.count(), 1)
+        self.assertEqual(hws.first().classroom_id, self.c1.id)
+        self.assertFalse(Homework.objects.filter(classroom=foreign).exists())

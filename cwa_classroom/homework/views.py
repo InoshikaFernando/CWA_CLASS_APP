@@ -4,7 +4,7 @@ import time as time_module
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
-from django.db.models import Max, Prefetch
+from django.db.models import Max, Prefetch, Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -32,9 +32,56 @@ from .models import Homework, HomeworkQuestion, HomeworkStudentAnswer, HomeworkS
 # ---------------------------------------------------------------------------
 
 def _teacher_classrooms(user):
-    """Return classrooms where the user is a teacher."""
-    class_ids = ClassTeacher.objects.filter(teacher=user).values_list('classroom_id', flat=True)
-    return ClassRoom.objects.filter(id__in=class_ids, is_active=True)
+    """Classrooms a user manages for homework — view, monitor, assign, and grade.
+
+    A plain class teacher manages the classes they personally teach. School
+    admins (institute owner / head of institute / school admin) additionally
+    manage every class in their school, and a head of department every class in
+    the department(s) they head. This mirrors the school-scoping used elsewhere
+    (see ``classroom.views_reports._get_all_school_ids``) so an owner who isn't
+    listed as a ClassTeacher can still see and run homework for their school.
+
+    Note the scope only *widens* for admin/HoD roles; a plain teacher still sees
+    only their own classes.
+    """
+    from classroom.models import School, SchoolTeacher, Department
+
+    if user.is_superuser:
+        return ClassRoom.objects.filter(is_active=True)
+
+    # Classes the user personally teaches.
+    taught_ids = set(
+        ClassTeacher.objects.filter(teacher=user).values_list('classroom_id', flat=True)
+    )
+
+    # Schools the user administers (owner / school admin via School.admin,
+    # head of institute via SchoolTeacher.role).
+    admin_school_ids = set(
+        School.objects.filter(admin=user, is_active=True).values_list('id', flat=True)
+    ) | set(
+        SchoolTeacher.objects.filter(
+            teacher=user, role='head_of_institute', is_active=True,
+        ).values_list('school_id', flat=True)
+    )
+
+    # Departments the user heads.
+    headed_dept_ids = set(
+        Department.objects.filter(head=user, is_active=True).values_list('id', flat=True)
+    )
+
+    scope = Q(id__in=taught_ids)
+    if admin_school_ids:
+        scope |= Q(school_id__in=admin_school_ids)
+    if headed_dept_ids:
+        scope |= Q(department_id__in=headed_dept_ids)
+
+    return ClassRoom.objects.filter(scope, is_active=True).distinct()
+
+
+# Assigning homework uses the same scope as managing it. Kept as a named alias
+# so the PDF-upload call sites read clearly.
+def _assignable_classrooms(user):
+    return _teacher_classrooms(user)
 
 
 # NOTE: _topics_with_questions() and _build_topic_groups() used to live here.
@@ -679,11 +726,20 @@ class StudentHomeworkResultView(LoginRequiredMixin, View):
 # ---------------------------------------------------------------------------
 
 def _check_teacher_owns_class(request, classroom):
+    """Gate managing a class's homework (view, monitor, grade) to its class
+    teacher plus school admins/owner/HoI and the department head, matching the
+    :func:`_teacher_classrooms` scope.
+    """
     if request.user.is_superuser:
         return
-    if not ClassTeacher.objects.filter(teacher=request.user, classroom=classroom).exists():
+    if not _teacher_classrooms(request.user).filter(pk=classroom.pk).exists():
         from django.http import Http404
         raise Http404
+
+
+# Assigning homework uses the same scope as managing it.
+def _check_can_assign_homework(request, classroom):
+    return _check_teacher_owns_class(request, classroom)
 
 
 def _check_student_enrolled(request, classroom):
@@ -808,7 +864,7 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
     template_name = 'homework/upload.html'
 
     def get(self, request):
-        classrooms = _teacher_classrooms(request.user)
+        classrooms = _assignable_classrooms(request.user)
         error = request.GET.get('error')
         if error:
             messages.error(request, f'Error processing PDF: {error}')
@@ -834,7 +890,7 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
         if classroom_id:
             try:
                 classroom = ClassRoom.objects.get(id=classroom_id)
-                _check_teacher_owns_class(request, classroom)
+                _check_can_assign_homework(request, classroom)
             except (ClassRoom.DoesNotExist, Exception):
                 classroom = None
 
@@ -961,7 +1017,7 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
         from classroom.models import Topic, Level
         topics = Topic.objects.filter(subject__slug='mathematics').order_by('name')
         levels = Level.objects.filter(level_number__lte=12).order_by('level_number')
-        classrooms = _teacher_classrooms(request.user)
+        classrooms = _assignable_classrooms(request.user)
 
         for q in questions:
             q.setdefault('year_level', data.get('year_level'))
@@ -1013,7 +1069,7 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
         if classroom_id:
             try:
                 classroom = ClassRoom.objects.get(id=classroom_id)
-                _check_teacher_owns_class(request, classroom)
+                _check_can_assign_homework(request, classroom)
                 session.classroom = classroom
             except (ClassRoom.DoesNotExist, Exception):
                 pass
@@ -1077,11 +1133,26 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
     required_roles = TEACHER_ROLES
     template_name = 'homework/upload_confirm.html'
 
-    def get(self, request, session_id):
+    def _session_or_redirect(self, request, session_id):
+        """Fetch the upload session, or redirect if it was already submitted.
+
+        Re-submitting (back button / double-click) an already-confirmed session
+        otherwise 404s on the ``is_confirmed=False`` filter. Send the user to the
+        homework that was created instead of showing a raw 404.
+        """
         from .models import HomeworkUploadSession
-        session = get_object_or_404(
-            HomeworkUploadSession, pk=session_id, user=request.user, is_confirmed=False,
-        )
+        session = get_object_or_404(HomeworkUploadSession, pk=session_id, user=request.user)
+        if session.is_confirmed:
+            messages.info(request, 'This upload has already been submitted.')
+            if session.homework_id:
+                return None, redirect('homework:teacher_detail', homework_id=session.homework_id)
+            return None, redirect('homework:teacher_monitor')
+        return session, None
+
+    def get(self, request, session_id):
+        session, redirect_response = self._session_or_redirect(request, session_id)
+        if redirect_response:
+            return redirect_response
         data = session.extracted_data
         included = [q for q in data.get('questions', []) if q.get('include', True)]
         excluded_count = len(data.get('questions', [])) - len(included)
@@ -1092,7 +1163,7 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
         human_count = sum(1 for q in included if q.get('validation_type') == 'human_graded')
 
         from classroom.models import ClassRoom
-        classrooms = _teacher_classrooms(request.user)
+        classrooms = _assignable_classrooms(request.user)
 
         return render(request, self.template_name, {
             'session': session,
@@ -1106,29 +1177,46 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
         })
 
     def post(self, request, session_id):
-        from .models import HomeworkUploadSession
         from billing.entitlements import get_school_for_user
 
-        session = get_object_or_404(
-            HomeworkUploadSession, pk=session_id, user=request.user, is_confirmed=False,
-        )
+        session, redirect_response = self._session_or_redirect(request, session_id)
+        if redirect_response:
+            return redirect_response
 
         hw_title = request.POST.get('homework_title', '').strip() or session.homework_title or session.pdf_filename
         due_date_str = request.POST.get('due_date', '')
         max_attempts_str = request.POST.get('max_attempts', '')
-        classroom_id = request.POST.get('classroom_id', '')
 
-        # Classroom — required
-        classroom = session.classroom
-        if classroom_id:
+        # Classroom(s) — required. The confirm step is a multi-select
+        # (name="classroom_ids"); fall back to the legacy single field and the
+        # session's pre-selected classroom so older requests still work.
+        submitted_ids = request.POST.getlist('classroom_ids')
+        if not submitted_ids:
+            single = request.POST.get('classroom_id', '')
+            if single:
+                submitted_ids = [single]
+
+        id_set = set()
+        for cid in submitted_ids:
             try:
-                classroom = ClassRoom.objects.get(id=classroom_id)
-                _check_teacher_owns_class(request, classroom)
-            except (ClassRoom.DoesNotExist, Exception):
-                pass
+                id_set.add(int(cid))
+            except (TypeError, ValueError):
+                continue
 
-        if not classroom:
-            messages.error(request, 'Please select a classroom.')
+        assignable = _assignable_classrooms(request.user)
+        if id_set:
+            # Filter to classes the user may actually assign to, so tampered or
+            # stale ids are dropped rather than trusted.
+            classrooms = list(assignable.filter(id__in=id_set))
+        elif session.classroom and assignable.filter(pk=session.classroom_id).exists():
+            # Legacy fallback — still re-checked against current scope in case the
+            # user lost access between upload and confirm.
+            classrooms = [session.classroom]
+        else:
+            classrooms = []
+
+        if not classrooms:
+            messages.error(request, 'Please select at least one classroom.')
             return redirect('homework:pdf_confirm', session_id=session.pk)
 
         if not due_date_str:
@@ -1164,87 +1252,112 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
 
         school = get_school_for_user(request.user)
 
+        created = []  # (homework, classroom) pairs, one per selected class
         with transaction.atomic():
-            # 1. Save questions to maths.Question + maths.Answer
+            # 1. Save questions once — they are shared across every class's homework.
             saved_questions = _save_homework_pdf_questions(questions_data, data, request.user, school, session)
 
             if not saved_questions:
                 messages.error(request, 'Failed to save questions. Please try again.')
                 return redirect('homework:pdf_preview', session_id=session.pk)
 
-            # 2. Create Homework record
-            homework = Homework.objects.create(
-                classroom=classroom,
-                created_by=request.user,
-                title=hw_title,
-                homework_type='pdf_upload',
-                num_questions=len(saved_questions),
-                due_date=due_date,
-                max_attempts=max_attempts,
-            )
+            # Two extracted questions can resolve to the same maths.Question via
+            # get_or_create (identical text/topic/level). Drop duplicates so we
+            # don't insert two HomeworkQuestion rows with the same content_id,
+            # which violates the (homework, subject_slug, content_id) unique key.
+            seen_ids = set()
+            unique_questions = []
+            for q in saved_questions:
+                if q.pk not in seen_ids:
+                    seen_ids.add(q.pk)
+                    unique_questions.append(q)
+            saved_questions = unique_questions
 
-            # 3. Link HomeworkQuestions
-            # bulk_create bypasses save(), so set content_id and subject_slug explicitly
-            # — otherwise the back-compat logic in save() never fires and every row
-            # gets content_id=0, causing a unique-constraint violation on the second row.
-            HomeworkQuestion.objects.bulk_create([
-                HomeworkQuestion(
-                    homework=homework,
-                    question=q,
-                    subject_slug='mathematics',
-                    content_id=q.pk,
-                    order=i,
+            # 2. One Homework per selected class, each linking the same questions.
+            for classroom in classrooms:
+                homework = Homework.objects.create(
+                    classroom=classroom,
+                    created_by=request.user,
+                    title=hw_title,
+                    homework_type='pdf_upload',
+                    num_questions=len(saved_questions),
+                    due_date=due_date,
+                    max_attempts=max_attempts,
                 )
-                for i, q in enumerate(saved_questions, 1)
-            ])
+                # bulk_create bypasses save(), so set content_id and subject_slug
+                # explicitly — otherwise the back-compat logic never fires and every
+                # row gets content_id=0, violating the unique constraint.
+                HomeworkQuestion.objects.bulk_create([
+                    HomeworkQuestion(
+                        homework=homework,
+                        question=q,
+                        subject_slug='mathematics',
+                        content_id=q.pk,
+                        order=i,
+                    )
+                    for i, q in enumerate(saved_questions, 1)
+                ])
+                created.append((homework, classroom))
 
-            # 4. Mark session confirmed
+            # 3. Mark session confirmed, linking the first homework created.
             session.is_confirmed = True
-            session.homework = homework
+            session.homework = created[0][0]
             session.save(update_fields=['is_confirmed', 'homework'])
 
-        # Notify students
-        homework_url = reverse('homework:student_take', kwargs={'homework_id': homework.id})
-        due_str = homework.due_date.strftime('%d %b %Y')
-        active_students = (
-            ClassStudent.objects
-            .filter(classroom=classroom, is_active=True)
-            .select_related('student')
-        )
-        for cs in active_students:
-            create_notification(
-                user=cs.student,
-                message=(
-                    f'New homework "{homework.title}" has been assigned in '
-                    f'{classroom.name}. Due: {due_str}.'
-                ),
-                notification_type='homework_assigned',
-                link=homework_url,
+        # Notify students and log an audit entry, per class.
+        for homework, classroom in created:
+            homework_url = reverse('homework:student_take', kwargs={'homework_id': homework.id})
+            due_str = homework.due_date.strftime('%d %b %Y')
+            active_students = (
+                ClassStudent.objects
+                .filter(classroom=classroom, is_active=True)
+                .select_related('student')
+            )
+            for cs in active_students:
+                create_notification(
+                    user=cs.student,
+                    message=(
+                        f'New homework "{homework.title}" has been assigned in '
+                        f'{classroom.name}. Due: {due_str}.'
+                    ),
+                    notification_type='homework_assigned',
+                    link=homework_url,
+                )
+
+            log_event(
+                user=request.user,
+                school=school,
+                category='data_change',
+                action='homework_pdf_created',
+                detail={
+                    'homework_id': homework.id,
+                    'title': hw_title,
+                    'session_id': session.pk,
+                    'classroom_id': classroom.id,
+                    'classroom_name': classroom.name,
+                    'question_count': len(saved_questions),
+                    'due_date': str(due_date),
+                    'max_attempts': max_attempts,
+                },
+                request=request,
             )
 
-        log_event(
-            user=request.user,
-            school=school,
-            category='data_change',
-            action='homework_pdf_created',
-            detail={
-                'homework_id': homework.id,
-                'title': hw_title,
-                'session_id': session.pk,
-                'classroom_id': classroom.id,
-                'classroom_name': classroom.name,
-                'question_count': len(saved_questions),
-                'due_date': str(due_date),
-                'max_attempts': max_attempts,
-            },
-            request=request,
-        )
+        if len(created) == 1:
+            homework, classroom = created[0]
+            messages.success(
+                request,
+                f'Homework "{homework.title}" created with {len(saved_questions)} questions '
+                f'and assigned to {classroom.name}.',
+            )
+            return redirect('homework:teacher_detail', homework_id=homework.id)
 
+        class_names = ', '.join(classroom.name for _, classroom in created)
         messages.success(
             request,
-            f'Homework "{homework.title}" created with {len(saved_questions)} questions and assigned to {classroom.name}.',
+            f'Homework "{hw_title}" created with {len(saved_questions)} questions and '
+            f'assigned to {len(created)} classes: {class_names}.',
         )
-        return redirect('homework:teacher_detail', homework_id=homework.id)
+        return redirect('homework:teacher_monitor')
 
 
 def _save_homework_pdf_questions(questions_data, global_data, user, school, session):

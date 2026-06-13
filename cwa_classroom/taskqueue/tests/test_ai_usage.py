@@ -84,3 +84,33 @@ def test_usage_report_command_runs():
     # Should not raise and should aggregate both sources.
     call_command('ai_usage_report')
     call_command('ai_usage_report', '--days', '7')
+
+
+def test_usage_report_markdown_includes_cost_per_page():
+    from io import StringIO
+
+    # worksheet: 20k in + 10k out = $0.06 + $0.15 = $0.21 over 10 pages -> $0.021/page
+    record_ai_usage(
+        school=None, source='worksheet', session_id=1, pages=10,
+        usage={'input_tokens': 20_000, 'output_tokens': 10_000},
+    )
+    out = StringIO()
+    call_command('ai_usage_report', '--format', 'markdown', stdout=out)
+    md = out.getvalue()
+
+    # Markdown table with a $/page column and a totals row.
+    assert '| Source | Pages | Input tok | Output tok | Cost (USD) | $/page |' in md
+    assert '| Worksheet |' in md
+    assert '**Total**' in md
+    assert '$0.0210' in md          # $/page for the single source
+    assert 'AI Generation Usage' in md
+
+
+def test_usage_report_markdown_handles_no_data():
+    from io import StringIO
+
+    out = StringIO()
+    call_command('ai_usage_report', '--days', '1', '--format', 'markdown', stdout=out)
+    md = out.getvalue()
+    assert 'no usage recorded' in md
+    assert '**Total**' in md
