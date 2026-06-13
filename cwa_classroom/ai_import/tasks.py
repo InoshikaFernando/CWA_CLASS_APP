@@ -6,7 +6,7 @@ self-contained (load everything from the DB via the session id).
 """
 import logging
 
-from .services import classify_questions, extract_pdf_content
+from .services import classify_questions, crop_figure_boxes, extract_pdf_content
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +49,10 @@ def process_pdf_import(session_id):
         for page in extracted['pages']:
             for img in page['images']:
                 extracted_images[img['ref']] = img['base64']
+
+        # Crop drawn figures (shapes/diagrams with no embedded raster) out of the
+        # page screenshots; these join the image pool and save like any other.
+        extracted_images.update(crop_figure_boxes(extracted, result))
 
         # Preserve any pre-set classroom selection stored at enqueue time.
         existing = session.extracted_data or {}
