@@ -17,7 +17,9 @@ from ai_import.services import (
     MAX_EMBEDDED_IMAGE_DIM,
     _build_classification_prompt,
     _downscale_embedded_image,
+    _snap_box_to_figures,
     classify_questions,
+    crop_figure_boxes,
 )
 
 
@@ -145,3 +147,73 @@ class ClassifyBatchingTests(SimpleTestCase):
         result, batches = self._run(8)
         self.assertEqual(len(batches), 1)
         self.assertEqual(len(result['questions']), 8)
+
+
+class SnapBoxToFiguresTests(SimpleTestCase):
+    """_snap_box_to_figures refines an AI box onto detected vector-figure bounds."""
+
+    def test_no_regions_returns_box_unchanged(self):
+        box = [10, 10, 40, 40]
+        self.assertEqual(_snap_box_to_figures(box, []), box)
+
+    def test_non_overlapping_region_ignored(self):
+        box = [10, 10, 40, 40]
+        # Region far away (bottom-right) — no overlap, box kept.
+        self.assertEqual(_snap_box_to_figures(box, [[70, 70, 90, 90]]), box)
+
+    def test_too_loose_box_shrinks_to_figure(self):
+        # Box runs from 10% to 90% down the page (grabbing the next question),
+        # but the figure only occupies 12–40%. Snap should pull the bottom up.
+        snapped = _snap_box_to_figures([5, 10, 60, 90], [[12, 12, 50, 40]])
+        # Padded figure bounds (pad=2): [10, 10, 52, 42].
+        self.assertAlmostEqual(snapped[3], 42, places=5)
+        self.assertLess(snapped[3], 90)
+
+    def test_too_tight_box_expands_to_figure(self):
+        # Box clips the figure (only its lower half); snap expands to full figure.
+        snapped = _snap_box_to_figures([20, 30, 45, 38], [[12, 12, 50, 40]])
+        self.assertLessEqual(snapped[1], 12)   # top expanded up to (padded) figure top
+        self.assertGreaterEqual(snapped[2], 50)
+
+    def test_clamped_to_page_bounds(self):
+        snapped = _snap_box_to_figures([0, 0, 100, 100], [[1, 1, 99, 50]])
+        self.assertGreaterEqual(snapped[0], 0)
+        self.assertLessEqual(snapped[2], 100)
+
+    def test_tiny_fragment_does_not_collapse_crop(self):
+        # A fragmented figure (one small overlapping speck) vs a large model box:
+        # snapping would shrink it to a sliver, so the model box is kept.
+        box = [5, 70, 95, 88]            # a wide number-line box
+        fragment = [34, 77, 36, 82]      # one stray tick the clusterer split off
+        self.assertEqual(_snap_box_to_figures(box, [fragment]), box)
+
+
+class CropUsesFigureRegionsTests(SimpleTestCase):
+    """crop_figure_boxes snaps to figure_regions when extraction provides them."""
+
+    @staticmethod
+    def _screenshot_b64(w, h):
+        buf = io.BytesIO()
+        Image.new('RGB', (w, h), (255, 255, 255)).save(buf, format='JPEG')
+        return base64.b64encode(buf.getvalue()).decode('utf-8')
+
+    def test_crop_snaps_to_region(self):
+        # 1000x1000 page. Loose box covers the bottom 90%, but the figure region
+        # is only the top quarter. Crop must follow the (padded) region, not the box.
+        page = {'page_num': 1, 'screenshot': self._screenshot_b64(1000, 1000),
+                'figure_regions': [[10, 10, 50, 30]]}
+        q = {'image_page': 1, 'image_box': {'x1': 5, 'y1': 5, 'x2': 60, 'y2': 95}}
+        crops = crop_figure_boxes({'pages': [page]}, {'questions': [q]})
+        img = Image.open(io.BytesIO(base64.b64decode(crops[q['image_ref']])))
+        # Padded region [8,8,52,32] of 1000px → ~440 wide x ~240 tall, NOT 550x900.
+        self.assertLess(img.size[1], 400)
+        self.assertAlmostEqual(img.size[0], 440, delta=4)
+        self.assertAlmostEqual(img.size[1], 240, delta=4)
+
+    def test_no_regions_keeps_model_box(self):
+        # Without figure_regions the model box is honoured exactly (back-compat).
+        page = {'page_num': 1, 'screenshot': self._screenshot_b64(1000, 1000)}
+        q = {'image_page': 1, 'image_box': {'x1': 0, 'y1': 0, 'x2': 50, 'y2': 50}}
+        crops = crop_figure_boxes({'pages': [page]}, {'questions': [q]})
+        img = Image.open(io.BytesIO(base64.b64decode(crops[q['image_ref']])))
+        self.assertEqual(img.size, (500, 500))

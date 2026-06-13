@@ -48,6 +48,35 @@ def _downscale_embedded_image(img_bytes, ext):
     except Exception:
         return img_bytes, ext
 
+
+def _page_figure_regions(page):
+    """Bounding boxes (percent of page) of clustered vector drawings on a page.
+
+    Used to snap an AI-supplied figure crop onto the actual drawn figure, so a
+    slightly-off box doesn't clip the diagram or swallow a neighbouring question.
+    Page-sized clusters (borders / full-page rules) and tiny specks are dropped.
+    Best-effort: returns [] if PyMuPDF can't provide drawings.
+    """
+    try:
+        pw, ph = page.rect.width, page.rect.height
+        if pw <= 0 or ph <= 0:
+            return []
+        regions = []
+        for r in page.cluster_drawings():
+            w, h = r.width, r.height
+            area_frac = (w * h) / (pw * ph)
+            if area_frac > 0.80:
+                continue  # page border / full-page decoration, not a figure
+            if (w / pw) < 0.02 and (h / ph) < 0.02:
+                continue  # speck (stray dot / single glyph stroke)
+            regions.append([
+                r.x0 / pw * 100, r.y0 / ph * 100,
+                r.x1 / pw * 100, r.y1 / ph * 100,
+            ])
+        return regions
+    except Exception:
+        return []
+
 def get_pdf_page_count(pdf_file):
     """Cheaply count pages in a PDF without rendering screenshots.
 
@@ -127,6 +156,7 @@ def extract_pdf_content(pdf_file):
             'text': text,
             'images': images,
             'screenshot': page_screenshot_b64,
+            'figure_regions': _page_figure_regions(page),
         })
 
     doc.close()
@@ -562,6 +592,48 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
 # Figure cropping (drawn diagrams with no embedded raster image)
 # ---------------------------------------------------------------------------
 
+# Padding (percent of page, per side) added around a detected figure so axis
+# labels / numbers sitting just outside the vector drawing aren't clipped.
+FIGURE_CROP_PAD_PCT = float(os.environ.get('AI_IMPORT_FIGURE_CROP_PAD', '2.0'))
+
+
+def _boxes_overlap(a, b):
+    """True if two [x1, y1, x2, y2] boxes share any area."""
+    return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+
+
+def _snap_box_to_figures(box, regions):
+    """Refine an AI figure box to the actual drawn-figure bounds.
+
+    `box` and `regions` entries are [x1, y1, x2, y2] in percent of the page.
+    Returns the padded union of the drawing clusters that overlap `box` — this
+    both expands a too-tight box to include the whole figure and shrinks a
+    too-loose one back off neighbouring text. If no cluster overlaps, returns
+    `box` unchanged (the model's box is then the only signal we have).
+    """
+    overlapping = [r for r in regions if _boxes_overlap(box, r)]
+    if not overlapping:
+        return box
+    pad = FIGURE_CROP_PAD_PCT
+    snapped = [
+        max(0.0, min(r[0] for r in overlapping) - pad),
+        max(0.0, min(r[1] for r in overlapping) - pad),
+        min(100.0, max(r[2] for r in overlapping) + pad),
+        min(100.0, max(r[3] for r in overlapping) + pad),
+    ]
+
+    # Guard against fragmented clusters: when cluster_drawings splits a figure
+    # (e.g. a number line into separate ticks), the overlapping pieces can be far
+    # smaller than the real figure. If snapping would collapse the crop to a
+    # sliver of the model's box, the detection is unreliable — trust the box.
+    def _area(b):
+        return max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
+
+    if _area(snapped) < 0.20 * _area(box):
+        return box
+    return snapped
+
+
 def crop_figure_boxes(extracted_content, result):
     """Crop drawn figures from page screenshots and register them as images.
 
@@ -618,6 +690,14 @@ def crop_figure_boxes(extracted_content, result):
         lo_y, hi_y = sorted((y1, y2))
         lo_x, hi_x = max(0.0, lo_x), min(100.0, hi_x)
         lo_y, hi_y = max(0.0, lo_y), min(100.0, hi_y)
+
+        # Snap to the actual drawn-figure bounds when we detected vector clusters
+        # on the page — corrects boxes that clip the figure or grab adjacent text.
+        regions = page.get('figure_regions')
+        if regions:
+            lo_x, lo_y, hi_x, hi_y = _snap_box_to_figures(
+                [lo_x, lo_y, hi_x, hi_y], regions)
+
         if hi_x - lo_x < 1 or hi_y - lo_y < 1:
             continue  # degenerate / empty box
 
