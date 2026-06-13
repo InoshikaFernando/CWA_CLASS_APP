@@ -225,6 +225,14 @@ if _DB_ENGINE == 'sqlite':
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db.sqlite3',
+            # Playwright LiveServer runs the server in a separate thread from the
+            # test, so both can hit SQLite at once. Without a busy timeout SQLite
+            # raises "database is locked" immediately instead of waiting for the
+            # lock to clear — the source of intermittent UI-test flakes in CI.
+            'OPTIONS': {
+                'timeout': 20,
+                'init_command': 'PRAGMA journal_mode=WAL;',
+            },
         },
     }
 elif _DB_ENGINE == 'postgres':
