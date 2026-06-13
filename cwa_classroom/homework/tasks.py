@@ -30,7 +30,10 @@ def process_homework_pdf(session_id, existing_topics, existing_levels):
             session.pdf_file.close()
         pdf_io.name = session.pdf_filename
 
-        output = extract_and_classify_worksheet(pdf_io, existing_topics, existing_levels)
+        output = extract_and_classify_worksheet(
+            pdf_io, existing_topics, existing_levels,
+            shape_naming=session.shape_naming,
+        )
         result = output['result']
 
         HomeworkUploadSession.objects.filter(pk=session_id).update(

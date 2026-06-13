@@ -109,6 +109,7 @@ class WorksheetUploadView(RoleRequiredMixin, View):
             pdf_filename=pdf_file.name,
             pdf_file=pdf_file,
             worksheet_name=worksheet_name,
+            shape_naming=request.POST.get('shape_naming') == 'on',
             status=WorksheetUploadSession.STATUS_PROCESSING,
         )
 
