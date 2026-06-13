@@ -149,6 +149,22 @@ Receives ``ctx`` with keys: question, shuffled_answers (list of Answer).
 })();
 </script>
 
+{% elif q.question_type == 'measure' %}
+{% comment %}
+Measure: render the generated true-scale figure, then a numeric box with the
+unit as a suffix (like "a is [ ] °" on the paper). The grader strips the unit,
+so the student types just the number.
+{% endcomment %}
+{% if q.measure_figure_svg %}
+<div class="measure-figure mb-4 max-w-[16rem] text-gray-900">{{ q.measure_figure_svg|safe }}</div>
+{% endif %}
+<div class="flex items-center gap-2">
+  <input type="text" id="answer_{{ q.id }}" name="answer_{{ q.id }}" inputmode="decimal"
+         class="w-28 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+         placeholder="Measure…" aria-label="Measured value">
+  {% if q.answer_unit %}<span class="text-gray-700 font-medium" aria-hidden="true">{{ q.answer_unit }}</span>{% endif %}
+</div>
+
 {% else %}
 {% if q.question_type == 'column_operation' and q.column_inline %}
 <p class="font-mono text-2xl font-bold text-gray-800 mb-2">{{ q.column_inline }} =</p>

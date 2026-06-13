@@ -49,6 +49,7 @@ class Question(models.Model):
     LONG_DIVISION = 'long_division'
     PRIME_FACTORIZATION = 'prime_factorization'
     COLUMN_OPERATION = 'column_operation'
+    MEASURE = 'measure'
 
     QUESTION_TYPES = [
         ('multiple_choice', 'Multiple Choice'),
@@ -60,6 +61,7 @@ class Question(models.Model):
         ('long_division', 'Long Division'),
         ('prime_factorization', 'Prime Factorization'),
         ('column_operation', 'Column Arithmetic'),
+        ('measure', 'Measure (angle/scale, tolerance-graded)'),
     ]
 
     # Validation mode — how student answers are graded
@@ -144,6 +146,21 @@ class Question(models.Model):
     operands = models.JSONField(null=True, blank=True, help_text="Column arithmetic: list of numbers top-to-bottom, e.g. [90, 82]")
     operator = models.CharField(max_length=1, blank=True, default='', help_text="Column arithmetic operator: '+', '-' or '*'")
 
+    # Measure question data (read an angle/scale and type the value; graded within a tolerance band).
+    # Generic on purpose — serves "measure the angle", "read the scale", "estimate the length", etc.
+    numeric_answer = models.DecimalField(
+        max_digits=10, decimal_places=3, null=True, blank=True,
+        help_text="Measure: the true value to be measured (e.g. 135 for a 135° angle).",
+    )
+    answer_tolerance = models.DecimalField(
+        max_digits=10, decimal_places=3, null=True, blank=True,
+        help_text="Measure: accepted ± band. 135 ± 2 marks 133–137 correct. NULL or 0 = exact match.",
+    )
+    answer_unit = models.CharField(
+        max_length=10, blank=True, default='',
+        help_text="Measure: unit shown in the answer box, e.g. '°', 'cm', 'g'.",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -209,6 +226,24 @@ class Question(models.Model):
                     )
                 })
 
+        # Measure questions are graded by numeric tolerance, not answer options.
+        if self.question_type == self.MEASURE:
+            if self.numeric_answer is None:
+                raise ValidationError({
+                    'numeric_answer': (
+                        'Measure questions require a numeric answer '
+                        '(the true value the student must measure).'
+                    )
+                })
+            # Guard on pk: answers can only exist for a saved question.
+            if self.pk and self.answers.exists():
+                raise ValidationError({
+                    'question_type': (
+                        'Measure questions are graded by numeric tolerance '
+                        'and must not have answer options.'
+                    )
+                })
+
     @property
     def long_division_step_count(self):
         """Number of subtraction blocks needed to long-divide dividend by divisor."""
@@ -231,6 +266,27 @@ class Question(models.Model):
             return None
         quotient, remainder = divmod(self.dividend, self.divisor)
         return str(quotient) if remainder == 0 else f"{quotient} r {remainder}"
+
+    @property
+    def measure_figure_svg(self):
+        """Inline SVG of the angle to measure, generated from ``numeric_answer``.
+
+        Only angle questions (degree unit) get a generated figure — drawing an
+        angle for a length/mass "measure" question (unit cm, g, …) would be
+        misleading, so those render no figure (the author supplies an image or
+        describes the scale in the question text). Returns '' when there's
+        nothing to draw, so templates can render it unconditionally. Bridges the
+        pure ``maths.svg_geometry`` helper into templates without per-view
+        context plumbing — the same way the long-division / prime-factorisation
+        render helpers live on the model.
+        """
+        if self.question_type != self.MEASURE or self.numeric_answer is None:
+            return ''
+        unit = (self.answer_unit or '').strip().lower()
+        if '°' not in unit and unit not in ('deg', 'degree', 'degrees'):
+            return ''
+        from maths.svg_geometry import angle_svg
+        return angle_svg(self.numeric_answer)
 
     @property
     def prime_factorization_rows(self):
