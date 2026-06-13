@@ -130,9 +130,18 @@ EXISTING LEVELS in the system: {level_names}
 Your task:
 1. Extract each question with its text, type, difficulty, answers
 2. For EACH question, classify: year_level, subject, strand, topic (PDFs may mix topics)
-3. Attach an embedded image (set image_ref to e.g. "page1_img1.png") ONLY when the question
-   genuinely DEPENDS on a visual that cannot be written as text. Only use embedded image refs,
-   not screenshots.
+3. Attach a visual to a question ONLY when it genuinely DEPENDS on one that cannot be written
+   as text (see IMAGE NECESSITY below). When a visual IS needed, attach it in ONE of two ways:
+   a. If the visual IS one of the embedded images listed in the input (e.g. "page1_img1.png"),
+      set image_ref to that reference and leave image_page/image_box null. Only use embedded
+      image refs — never full-page screenshots.
+   b. If the visual is DRAWN into the page and has no embedded image reference (most shapes,
+      geometry figures and number lines are like this), leave image_ref null and instead set
+      image_page to the page it is on and image_box to its bounding box as percentages of that
+      page (see the image_box field description). Box the figure tightly.
+   Do NOT invent or reuse an embedded image_ref that does not actually depict this question's
+   visual — if no embedded image matches but a visual is genuinely needed, use approach (b).
+   If a question has no visual, leave image_ref, image_page, and image_box all null.
 4. Do NOT embed table/chart data as text in the question — keep question_text concise and
    reference the image instead when the question depends on a visual.
 
@@ -198,6 +207,20 @@ ANSWER BLANK FORMATTING (important):
 
 For difficulty, use: 1 (Easy), 2 (Medium), 3 (Hard)
 
+ACCURACY — VERIFY EVERY ANSWER BEFORE RETURNING IT:
+Do NOT guess answers. Re-derive each answer from the numbers and figures actually
+shown in the question, then check it.
+- For computational questions (arithmetic, long multiplication/division, missing-digit
+  puzzles, etc.) work the problem out fully and confirm your answer reproduces EVERY
+  value shown in the image — including any partial products, carried digits, or
+  worked-solution steps. If a worked solution is visible (e.g. the partial products in a
+  long-multiplication grid), the answer MUST be consistent with all of it; if it is not,
+  recompute until it is.
+- The explanation must describe the SAME numbers as the answer. Never let the answer and
+  the explanation disagree with each other or with the figure.
+- If you cannot determine the correct answer with confidence, leave the answer text empty
+  rather than inventing one.
+
 Map to existing topics where possible. If no match, suggest a new topic name.
 Set default year_level, subject, strand, topic at the top level, then override per-question only if different.
 
@@ -259,7 +282,21 @@ CLASSIFICATION_TOOL = {
                         "explanation": {"type": "string", "description": "Brief explanation of the answer"},
                         "image_ref": {
                             "type": "string",
-                            "description": "Reference to an embedded image (e.g. page1_img1.png). Only set if this question needs a visual. Null if no image needed.",
+                            "description": "Reference to an EMBEDDED image (e.g. page1_img1.png) listed in the input. Set only when the question's visual is one of those embedded images. Null otherwise.",
+                        },
+                        "image_page": {
+                            "type": "integer",
+                            "description": "1-based page number the visual is on. Set ONLY when the question needs a drawn figure (shape, geometric diagram, number line, hand-drawn grid) that is NOT an embedded image — i.e. image_ref is null. Null otherwise.",
+                        },
+                        "image_box": {
+                            "type": "object",
+                            "description": "Bounding box of the drawn figure, as PERCENTAGES of the page (0-100). Origin (0,0) is the page's top-left; x1,y1 = top-left corner of the box, x2,y2 = bottom-right corner. Set ONLY together with image_page when image_ref is null. Box the figure tightly — exclude the question text and any neighbouring questions. Null otherwise.",
+                            "properties": {
+                                "x1": {"type": "number"},
+                                "y1": {"type": "number"},
+                                "x2": {"type": "number"},
+                                "y2": {"type": "number"},
+                            },
                         },
                         "year_level": {
                             "type": "integer",
@@ -388,11 +425,18 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
     # Stream the request so a long (multi-page) generation doesn't trip the SDK
     # read timeout (anthropic.APITimeoutError). get_final_message() returns the
     # same Message a non-streaming create() would.
+    #
+    # Default to Opus (far stronger arithmetic — it reliably solves the
+    # missing-digit / worked-solution questions that Sonnet 4 guessed wrong) with
+    # adaptive thinking so it works each computation out before answering. Override
+    # the model via AI_IMPORT_MODEL (must be a model that supports adaptive
+    # thinking — Opus/Sonnet 4.6+).
     with client.messages.stream(
-        model="claude-sonnet-4-20250514",
+        model=os.environ.get('AI_IMPORT_MODEL', 'claude-opus-4-8'),
         # Generous cap so a question-dense / multi-page PDF doesn't get its
         # extracted-question list truncated (override via AI_IMPORT_MAX_TOKENS).
         max_tokens=int(os.environ.get('AI_IMPORT_MAX_TOKENS', '32000')),
+        thinking={"type": "adaptive"},
         system=system_prompt,
         tools=[CLASSIFICATION_TOOL],
         messages=[{"role": "user", "content": content_blocks}],
@@ -430,6 +474,92 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
     }
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Figure cropping (drawn diagrams with no embedded raster image)
+# ---------------------------------------------------------------------------
+
+def crop_figure_boxes(extracted_content, result):
+    """Crop drawn figures from page screenshots and register them as images.
+
+    The classifier returns image_page + image_box (percentages of the page) for
+    questions whose visual is drawn into the page rather than an embedded raster
+    image. For each such question we crop the box out of that page's rendered
+    screenshot, rewrite the question's image_ref to a generated filename, and
+    return {ref: base64_png} so the crops join the embedded-image pool and save
+    through the normal image path.
+
+    Questions that already point at a real embedded image_ref are left untouched.
+    Mutates the question dicts in `result` in place.
+    """
+    import io
+
+    from PIL import Image
+
+    pages = {
+        p['page_num']: p
+        for p in extracted_content.get('pages', [])
+        if p.get('page_num') is not None
+    }
+    crops = {}
+    decoded = {}  # page_num -> PIL Image, so each screenshot is decoded only once
+
+    for idx, q in enumerate(result.get('questions', []), 1):
+        # An embedded image already covers this question — prefer it (raster
+        # fidelity beats a screenshot crop).
+        if q.get('image_ref'):
+            q.pop('image_page', None)
+            q.pop('image_box', None)
+            continue
+
+        box = q.get('image_box')
+        page_num = q.get('image_page')
+        # Clear the transient box fields regardless of outcome so they never
+        # get persisted on the session / shown in the editor.
+        q.pop('image_box', None)
+        q.pop('image_page', None)
+        if not box or not page_num:
+            continue
+
+        try:
+            page = pages.get(int(page_num))
+            x1, y1 = float(box['x1']), float(box['y1'])
+            x2, y2 = float(box['x2']), float(box['y2'])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not page or not page.get('screenshot'):
+            continue
+
+        # Normalise corner order and clamp to the page.
+        lo_x, hi_x = sorted((x1, x2))
+        lo_y, hi_y = sorted((y1, y2))
+        lo_x, hi_x = max(0.0, lo_x), min(100.0, hi_x)
+        lo_y, hi_y = max(0.0, lo_y), min(100.0, hi_y)
+        if hi_x - lo_x < 1 or hi_y - lo_y < 1:
+            continue  # degenerate / empty box
+
+        try:
+            img = decoded.get(int(page_num))
+            if img is None:
+                img = Image.open(io.BytesIO(base64.b64decode(page['screenshot'])))
+                decoded[int(page_num)] = img
+            w, h = img.size
+            crop = img.crop((
+                int(lo_x / 100 * w), int(lo_y / 100 * h),
+                int(hi_x / 100 * w), int(hi_y / 100 * h),
+            ))
+            buf = io.BytesIO()
+            crop.save(buf, format='PNG')
+        except Exception:
+            # A bad box / unreadable screenshot shouldn't sink the whole import.
+            continue
+
+        ref = f'page{int(page_num)}_figure{idx}.png'
+        crops[ref] = base64.b64encode(buf.getvalue()).decode('utf-8')
+        q['image_ref'] = ref
+
+    return crops
 
 
 # ---------------------------------------------------------------------------
@@ -676,24 +806,16 @@ def save_questions_from_session(session, user, overrides=None):
                     )
                     inserted += 1
 
-                # Save image if referenced
+                # Save image if referenced — write through the storage backend
+                # (ImageField.save) so the file lands on S3/Spaces in prod as well
+                # as local media. The field's upload_to='questions/' is prepended
+                # automatically, so the name here is year{N}/{topic_slug}/{file}.
                 if image_ref and image_ref in session.extracted_images:
-                    # Build per-question image path: media/questions/year{N}/{topic_slug}/{filename}
-                    img_dir = os.path.join(
-                        str(settings.MEDIA_ROOT), 'questions',
-                        f'year{year_level}', topic_slug,
-                    )
-                    os.makedirs(img_dir, exist_ok=True)
+                    from django.core.files.base import ContentFile
 
-                    img_b64 = session.extracted_images[image_ref]
-                    img_bytes = base64.b64decode(img_b64)
-                    img_path = os.path.join(img_dir, image_ref)
-                    with open(img_path, 'wb') as f:
-                        f.write(img_bytes)
-                    # Set relative path from MEDIA_ROOT
-                    question.image = os.path.join(
-                        'questions', f'year{year_level}', topic_slug, image_ref,
-                    )
+                    img_bytes = base64.b64decode(session.extracted_images[image_ref])
+                    name = f'year{year_level}/{topic_slug}/{image_ref}'
+                    question.image.save(name, ContentFile(img_bytes), save=False)
                     question.save(update_fields=['image'])
                     images_saved += 1
 
