@@ -15,6 +15,39 @@ from django.utils import timezone
 # PDF Extraction (PyMuPDF / fitz)
 # ---------------------------------------------------------------------------
 
+# Claude rejects images whose longest side exceeds 2000px in a *many-image*
+# request (the case for any multi-page PDF), and downsizes anything over ~1568px
+# for vision regardless. Capping embedded images here both avoids an HTTP 400 on
+# PDFs that embed full-page scans and trims wasted input tokens. Tune via
+# AI_IMPORT_MAX_IMAGE_DIM.
+MAX_EMBEDDED_IMAGE_DIM = int(os.environ.get('AI_IMPORT_MAX_IMAGE_DIM', '1568'))
+
+
+def _downscale_embedded_image(img_bytes, ext):
+    """Shrink an embedded image so its longest side <= MAX_EMBEDDED_IMAGE_DIM.
+
+    Returns (bytes, ext). Leaves the image untouched if it's already small
+    enough, or if PIL can't decode it (better to send the original than drop it).
+    PNGs stay PNG; everything else re-encodes to JPEG to keep the payload small.
+    """
+    try:
+        import io
+
+        from PIL import Image
+
+        im = Image.open(io.BytesIO(img_bytes))
+        if max(im.size) <= MAX_EMBEDDED_IMAGE_DIM:
+            return img_bytes, ext
+        im.thumbnail((MAX_EMBEDDED_IMAGE_DIM, MAX_EMBEDDED_IMAGE_DIM))
+        buf = io.BytesIO()
+        if ext == 'png':
+            im.save(buf, format='PNG')
+            return buf.getvalue(), 'png'
+        im.convert('RGB').save(buf, format='JPEG', quality=85)
+        return buf.getvalue(), 'jpeg'
+    except Exception:
+        return img_bytes, ext
+
 def get_pdf_page_count(pdf_file):
     """Cheaply count pages in a PDF without rendering screenshots.
 
@@ -70,6 +103,7 @@ def extract_pdf_content(pdf_file):
             if base_image:
                 img_bytes = base_image['image']
                 ext = base_image.get('ext', 'png')
+                img_bytes, ext = _downscale_embedded_image(img_bytes, ext)
                 ref = f'page{page_num + 1}_img{img_idx + 1}.{ext}'
                 images.append({
                     'ref': ref,
@@ -185,7 +219,7 @@ QUESTION TYPE RULES (important):
   a vertical bar and the dividend UNDER a horizontal bar (e.g. "47" outside, "611" under the bar) —
   use question_type "long_division". Set "dividend" to the number under the bar (the number being
   divided) and "divisor" to the number outside it. Set question_text to
-  "Solve using long division: {dividend} ÷ {divisor}". Do NOT concatenate the digits into one number
+  "Solve using long division: {{dividend}} ÷ {{divisor}}". Do NOT concatenate the digits into one number
   (e.g. never "47611"), and do NOT attach the layout image — the app draws the bracket. The answer
   is computed automatically; do not generate answers.
 - If the correct answer is a NUMBER ONLY (digits, decimals, fractions like "14" or "3.5" or "2/3"),
@@ -356,37 +390,30 @@ def _normalize_answer_blank(question_text):
     return question_text
 
 
-def classify_questions(extracted_content, existing_topics, existing_levels):
+def _classify_page_batch(client, system_prompt, pages, total_page_count):
+    """Run one Claude classification request over a batch of extracted pages.
+
+    Pages keep their real (global) page_num in the screenshot labels and embedded
+    image refs, so image_page / image_ref the model returns stay valid for the
+    whole document regardless of which batch a page fell in.
+
+    Returns the raw tool-result dict with a 'usage' sub-dict. Raises ValueError
+    if the model returns no structured data.
     """
-    Send extracted PDF content to Claude API for classification.
+    first_pg = pages[0]['page_num']
+    last_pg = pages[-1]['page_num']
 
-    Args:
-        extracted_content: Output from extract_pdf_content()
-        existing_topics: List of dicts [{'name': str, 'slug': str}]
-        existing_levels: List of dicts [{'level_number': int, 'display_name': str}]
-
-    Returns:
-        {
-            'year_level': int,
-            'subject': str,
-            'strand': str,
-            'topic': str,
-            'questions': [...],
-            'usage': {'input_tokens': int, 'output_tokens': int, 'total_tokens': int},
-        }
-    """
-    client = _get_anthropic_client()
-    system_prompt = _build_classification_prompt(existing_topics, existing_levels)
-
-    # Build message content — send page screenshots so AI can see tables/charts/diagrams
-    content_blocks = []
-    content_blocks.append({
+    content_blocks = [{
         "type": "text",
-        "text": f"Here is a {extracted_content['page_count']}-page PDF. I'm sending each page as a screenshot so you can see all tables, charts, and diagrams. The extracted text is also provided for accuracy.",
-    })
+        "text": (
+            f"Here is a {total_page_count}-page PDF (this message covers pages "
+            f"{first_pg}–{last_pg}). I'm sending each page as a screenshot so "
+            f"you can see all tables, charts, and diagrams. The extracted text is "
+            f"also provided for accuracy."
+        ),
+    }]
 
-    # Send page screenshots (limit to first 20 pages to stay within token budget)
-    for page in extracted_content['pages'][:20]:
+    for page in pages:
         # Page screenshot — captures everything including tables, charts, diagrams
         if page.get('screenshot'):
             content_blocks.append({
@@ -419,7 +446,7 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
 
     content_blocks.append({
         "type": "text",
-        "text": "Please extract and classify ALL questions from this PDF. Include any context tables, data, or diagrams that belong with each question in the question_text. Use the classify_questions tool to return structured data.",
+        "text": "Please extract and classify ALL questions from these pages. Include any context tables, data, or diagrams that belong with each question in the question_text. Use the classify_questions tool to return structured data.",
     })
 
     # Stream the request so a long (multi-page) generation doesn't trip the SDK
@@ -463,17 +490,72 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
     if not result:
         raise ValueError("AI did not return structured question data. Please try again.")
 
-    # Safety net for ANSWER BLANK FORMATTING: ensure a missing left operand renders as a blank.
-    for q in result.get('questions', []):
-        q['question_text'] = _normalize_answer_blank(q.get('question_text', ''))
-
     result['usage'] = {
         'input_tokens': response.usage.input_tokens,
         'output_tokens': response.usage.output_tokens,
         'total_tokens': response.usage.input_tokens + response.usage.output_tokens,
     }
-
     return result
+
+
+def classify_questions(extracted_content, existing_topics, existing_levels):
+    """
+    Send extracted PDF content to Claude API for classification.
+
+    Long PDFs are split into batches of AI_IMPORT_PAGE_CHUNK pages (default 20)
+    so nothing past page 20 is silently dropped; each batch is classified and the
+    questions are merged. Top-level classification (year_level/subject/strand/
+    topic) comes from the first batch — per-question overrides cover the rest.
+
+    Args:
+        extracted_content: Output from extract_pdf_content()
+        existing_topics: List of dicts [{'name': str, 'slug': str}]
+        existing_levels: List of dicts [{'level_number': int, 'display_name': str}]
+
+    Returns:
+        {
+            'year_level': int,
+            'subject': str,
+            'strand': str,
+            'topic': str,
+            'questions': [...],
+            'usage': {'input_tokens': int, 'output_tokens': int, 'total_tokens': int},
+        }
+    """
+    client = _get_anthropic_client()
+    system_prompt = _build_classification_prompt(existing_topics, existing_levels)
+
+    pages = extracted_content.get('pages', [])
+    total = extracted_content.get('page_count', len(pages))
+    chunk_size = max(1, int(os.environ.get('AI_IMPORT_PAGE_CHUNK', '20')))
+    batches = [pages[i:i + chunk_size] for i in range(0, len(pages), chunk_size)]
+
+    merged = None
+    in_tok = out_tok = 0
+    for batch in batches:
+        if not batch:
+            continue
+        result = _classify_page_batch(client, system_prompt, batch, total)
+        in_tok += result['usage']['input_tokens']
+        out_tok += result['usage']['output_tokens']
+        if merged is None:
+            merged = result
+        else:
+            merged.setdefault('questions', []).extend(result.get('questions', []))
+
+    if merged is None:
+        raise ValueError("AI did not return structured question data. Please try again.")
+
+    # Safety net for ANSWER BLANK FORMATTING: ensure a missing left operand renders as a blank.
+    for q in merged.get('questions', []):
+        q['question_text'] = _normalize_answer_blank(q.get('question_text', ''))
+
+    merged['usage'] = {
+        'input_tokens': in_tok,
+        'output_tokens': out_tok,
+        'total_tokens': in_tok + out_tok,
+    }
+    return merged
 
 
 # ---------------------------------------------------------------------------
