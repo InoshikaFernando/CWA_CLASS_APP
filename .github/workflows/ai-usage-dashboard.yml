@@ -80,6 +80,7 @@ jobs:
         if: steps.gate.outputs.ok == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           num=$(gh issue list --label ai-usage-dashboard --state open --limit 1 --json number --jq '.[0].number // empty')
