@@ -83,6 +83,30 @@ def normalize_notation(text: str) -> str:
     return s
 
 
+def fold_exponents(text: str) -> str:
+    """Canonicalise exponent notation for *exact-match* (non-algebra) grading.
+
+    Folds the three ways a student might type a power onto one form by mapping
+    unicode superscripts to ASCII digits and removing the ``^`` / ``**`` markers
+    entirely, so ``cm^2`` == ``cm²`` == ``cm**2`` == ``cm2``. Also lowercases and
+    trims. This lets the x² button be useful on ordinary maths answers (areas,
+    volumes, indices) without the teacher's stored answer having to match the
+    exact notation the student typed.
+
+    NOTE: this is for the literal-match path only. Algebra questions keep the
+    ``^`` (see is_algebraic_answer_correct) because the polynomial parser needs it.
+
+    >>> fold_exponents("2 CM^2")
+    '2cm2'
+    >>> fold_exponents("2cm²") == fold_exponents("2 cm^2") == fold_exponents("2cm2")
+    True
+    """
+    s = text.lower()
+    s = re.sub(rf"[{_SUPERSCRIPTS}]+", lambda m: m.group(0).translate(_SUPERSCRIPT_MAP), s)
+    s = s.replace("**", "").replace("^", "")
+    return re.sub(r"\s+", "", s)
+
+
 def _to_fraction(num: str) -> Fraction:
     """Parse an int/decimal/simple-fraction coefficient token into a Fraction."""
     if "/" in num:

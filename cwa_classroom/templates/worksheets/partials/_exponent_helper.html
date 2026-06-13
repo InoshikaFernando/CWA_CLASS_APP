@@ -1,9 +1,11 @@
 {% comment %}
-Exponent input helper for algebra-graded questions.
-Renders a small toolbar above the answer field. The "x²" button inserts a "^"
-at the caret of the sibling text_answer input/textarea, so students can type
-powers without a special keyboard (e.g. 2x^2 - 7x - 15). Self-contained: the
-button finds its field via the DOM, so multiple questions on one page are fine.
+Exponent input helper for any typed maths answer (areas like cm^2, indices,
+algebra, …). Renders a small toolbar above the answer field. The "x²" button
+inserts a "^" at the caret of the sibling text_answer input/textarea, so
+students can type powers without a special keyboard. Grading is exponent-
+insensitive (cm^2 == cm² == cm2) via maths.algebra_grading.fold_exponents.
+Self-contained: the button finds its field via the DOM, so multiple questions
+on one page are fine.
 {% endcomment %}
 <div class="mb-2 flex flex-wrap items-center gap-2">
   <button type="button"
@@ -26,6 +28,6 @@ button finds its field via the DOM, so multiple questions on one page are fine.
   </button>
   <span class="text-xs text-gray-500">
     Type powers with <kbd class="rounded border border-gray-300 bg-gray-100 px-1">^</kbd>
-    — e.g. <code class="rounded bg-gray-100 px-1">2x^2 - 7x - 15</code>. Combine like terms and expand brackets.
+    — e.g. <code class="rounded bg-gray-100 px-1">cm^2</code> or <code class="rounded bg-gray-100 px-1">x^2</code>
   </span>
 </div>
