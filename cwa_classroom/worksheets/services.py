@@ -141,7 +141,16 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                         "question_type": {
                             "type": "string",
                             "enum": ["multiple_choice", "true_false", "short_answer",
-                                     "fill_blank", "calculation", "extended_answer"],
+                                     "fill_blank", "calculation", "extended_answer",
+                                     "long_division"],
+                        },
+                        "dividend": {
+                            "type": "integer",
+                            "description": "For long_division only: the number being divided (under the bar), e.g. 611.",
+                        },
+                        "divisor": {
+                            "type": "integer",
+                            "description": "For long_division only: the number dividing (outside/left of the bar), e.g. 47.",
                         },
                         "validation_type": {
                             "type": "string",
@@ -252,6 +261,22 @@ Rules:
 5. For multiple choice, list ALL provided answer options including the correct one.
 6. Write explanations that help students understand why they got it wrong.
 7. Do NOT skip questions even if they look simple.
+8. LONG DIVISION: if a division is drawn in the "bus stop" layout — the divisor written
+   to the LEFT of a vertical bar and the dividend UNDER a horizontal bar (e.g. "47" outside,
+   "611" under the bar) — set question_type="long_division", "dividend" to the number under
+   the bar and "divisor" to the number outside it, and question_text to
+   "Solve using long division: {dividend} ÷ {divisor}". Do NOT concatenate the digits into
+   one number (never "47611") and set has_image=false — the app draws the bracket itself.
+   The answer is computed automatically; leave answers=[].
+
+IMAGE NECESSITY (set has_image=true ONLY when a visual carries information):
+- has_image=true ONLY when the question genuinely depends on a visual that cannot be written
+  as text: a shape to identify, a diagram/figure, a graph/chart, a data table, a number line,
+  a ruler/protractor reading, a clock face, a coordinate plane, a picture to interpret.
+- has_image=false for decorative or scaffolding graphics that carry NO information — blank
+  answer boxes, working space, grid/squared paper, ruled lines, long-division brackets,
+  column/stacked-arithmetic grids, page borders. Transcribe the maths into text/fields instead.
+- When unsure, prefer has_image=false. A wrongly-attached image is worse than none.
 
 Choosing validation_type per question:
 - auto        → MCQ, T/F, short numeric answers, fill-in-the-blank. The system can check
