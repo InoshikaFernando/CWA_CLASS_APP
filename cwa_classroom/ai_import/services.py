@@ -772,6 +772,26 @@ def _compute_long_division_answer(dividend, divisor):
     return str(quotient) if remainder == 0 else f"{quotient} r {remainder}"
 
 
+def _resolve_image_ref(image_ref, extracted_images):
+    """Match an AI-supplied image_ref to a real key in extracted_images.
+
+    The model often returns the ref without its extension (e.g. "page3_img1" when
+    the stored key is "page3_img1.png"), which would otherwise silently drop a
+    perfectly good embedded figure. Tries an exact match first, then falls back to
+    matching on the extension-less stem. Returns the real key, or None if nothing
+    matches.
+    """
+    if not image_ref or not extracted_images:
+        return None
+    if image_ref in extracted_images:
+        return image_ref
+    stem = image_ref.rsplit('.', 1)[0]
+    for key in extracted_images:
+        if key.rsplit('.', 1)[0] == stem:
+            return key
+    return None
+
+
 def _resolve_topic_for_question(q, default_data):
     """Resolve subject, strand, topic, level for a single question (per-question overrides)."""
     from classroom.models import Subject, Topic, Level
@@ -972,11 +992,12 @@ def save_questions_from_session(session, user, overrides=None):
                 # (ImageField.save) so the file lands on S3/Spaces in prod as well
                 # as local media. The field's upload_to='questions/' is prepended
                 # automatically, so the name here is year{N}/{topic_slug}/{file}.
-                if image_ref and image_ref in session.extracted_images:
+                resolved_ref = _resolve_image_ref(image_ref, session.extracted_images)
+                if resolved_ref:
                     from django.core.files.base import ContentFile
 
-                    img_bytes = base64.b64decode(session.extracted_images[image_ref])
-                    name = f'year{year_level}/{topic_slug}/{image_ref}'
+                    img_bytes = base64.b64decode(session.extracted_images[resolved_ref])
+                    name = f'year{year_level}/{topic_slug}/{resolved_ref}'
                     question.image.save(name, ContentFile(img_bytes), save=False)
                     question.save(update_fields=['image'])
                     images_saved += 1

@@ -17,6 +17,7 @@ from ai_import.services import (
     MAX_EMBEDDED_IMAGE_DIM,
     _build_classification_prompt,
     _downscale_embedded_image,
+    _resolve_image_ref,
     _snap_box_to_figures,
     classify_questions,
     crop_figure_boxes,
@@ -75,6 +76,31 @@ class DownscaleEmbeddedImageTests(SimpleTestCase):
         out, ext = _downscale_embedded_image(b'not an image', 'png')
         self.assertEqual(out, b'not an image')
         self.assertEqual(ext, 'png')
+
+
+class ResolveImageRefTests(SimpleTestCase):
+    """_resolve_image_ref tolerates the extension the model often omits."""
+
+    POOL = {'page3_img1.png': 'b64a', 'page5_img1.jpeg': 'b64b', 'page21_figure74.png': 'b64c'}
+
+    def test_exact_match(self):
+        self.assertEqual(_resolve_image_ref('page3_img1.png', self.POOL), 'page3_img1.png')
+
+    def test_missing_extension_resolves_to_real_key(self):
+        # Regression: the model returns "page3_img1"; the pool key is "...png".
+        self.assertEqual(_resolve_image_ref('page3_img1', self.POOL), 'page3_img1.png')
+        self.assertEqual(_resolve_image_ref('page5_img1', self.POOL), 'page5_img1.jpeg')
+
+    def test_wrong_extension_resolves_by_stem(self):
+        self.assertEqual(_resolve_image_ref('page5_img1.png', self.POOL), 'page5_img1.jpeg')
+
+    def test_crop_ref_matches(self):
+        self.assertEqual(_resolve_image_ref('page21_figure74', self.POOL), 'page21_figure74.png')
+
+    def test_unknown_ref_returns_none(self):
+        self.assertIsNone(_resolve_image_ref('page9_img1', self.POOL))
+        self.assertIsNone(_resolve_image_ref(None, self.POOL))
+        self.assertIsNone(_resolve_image_ref('page3_img1', {}))
 
 
 class _FakeUsage:
