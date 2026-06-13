@@ -65,6 +65,15 @@ class GradeTextAnswerRoutingTests(TestCase):
         q2 = self._question('text', ['2x^2 - 7x - 15'])
         self.assertFalse(q2.grade_text_answer('-7x + 2x^2 - 15'))
 
+    def test_text_format_is_exponent_insensitive(self):
+        # The x² button is available on all typed maths answers, so a unit answer
+        # must match however the power is typed (cm^2 / cm² / cm2).
+        q = self._question('text', ['12 cm²'], question_type=Question.CALCULATION)
+        for ans in ['12 cm^2', '12cm2', '12 cm 2', '12CM²', '12 cm**2']:
+            self.assertTrue(q.grade_text_answer(ans), ans)
+        self.assertFalse(q.grade_text_answer('12 cm'))   # missing the power
+        self.assertFalse(q.grade_text_answer('13 cm^2'))  # wrong value
+
     # ── Defensive ───────────────────────────────────────────────────────────
     def test_empty_and_missing(self):
         q = self._question('algebra', ['2x^2 - 7x - 15'])

@@ -419,12 +419,13 @@ class SubmitHomeworkAnswerView(LoginRequiredMixin, View):
             correct_ans = question.answers.filter(is_correct=True).first()
             correct_answer_text = correct_ans.answer_text if correct_ans else ''
         else:
+            from maths.algebra_grading import fold_exponents
             raw = (data.get('text_answer') or '').strip()
             correct_ans = question.answers.filter(is_correct=True).first()
             if correct_ans:
                 correct_answer_text = correct_ans.answer_text
                 alts = [a.strip() for a in correct_ans.answer_text.split(',')]
-                is_correct = raw.lower() in [a.lower() for a in alts]
+                is_correct = fold_exponents(raw) in [fold_exponents(a) for a in alts]
                 if not is_correct:
                     try:
                         is_correct = abs(float(raw) - float(alts[0])) <= 0.05
