@@ -4,6 +4,7 @@ AI Import services: PDF extraction (PyMuPDF) and AI classification (Claude API).
 import base64
 import json
 import os
+import re
 import tempfile
 
 from django.conf import settings
@@ -156,6 +157,16 @@ QUESTION TYPE RULES (important):
 - For true/false questions, use "true_false" type.
 - For fill-in-the-blank, use "fill_blank" type.
 
+ANSWER BLANK FORMATTING (important):
+- When a question is an equation where the student fills in a missing value, ALWAYS represent
+  the missing value with a blank line of underscores ("______"). Never leave a dangling operator.
+- If the missing value is on the left of the equals sign, write the blank before the "=".
+  Example: a question shown as "= 8,005 + 408" must be written as "______ = 8,005 + 408".
+- If the missing value is on the right or in the middle, put the blank in that position.
+  Examples: "8,005 + 408 = ______", "8,005 + ______ = 8,413".
+- Apply this to question_text. Do NOT put the answer itself into the blank — the answer goes in
+  the answers array as usual.
+
 For difficulty, use: 1 (Easy), 2 (Medium), 3 (Hard)
 
 Map to existing topics where possible. If no match, suggest a new topic name.
@@ -238,6 +249,27 @@ CLASSIFICATION_TOOL = {
         "required": ["year_level", "subject", "strand", "topic", "questions"],
     },
 }
+
+
+# Matches a question_text that begins with an "=" (optionally after whitespace),
+# i.e. the answer/left operand is missing. Captures any leading whitespace to preserve it.
+_LEADING_EQUALS_RE = re.compile(r'^(\s*)=')
+
+
+def _normalize_answer_blank(question_text):
+    """
+    Safety net for the ANSWER BLANK FORMATTING prompt rule: if a question starts with
+    an "=" (the left side of the equation is blank), prepend an underscore blank so the
+    student sees "______ = 8,005 + 408" instead of a dangling "= 8,005 + 408".
+
+    Idempotent and conservative — only touches text whose first non-space char is "=".
+    """
+    if not question_text:
+        return question_text
+    if _LEADING_EQUALS_RE.match(question_text):
+        # Keep any leading whitespace, insert the blank, then a space before the "=".
+        return _LEADING_EQUALS_RE.sub(r'\1______ =', question_text, count=1)
+    return question_text
 
 
 def classify_questions(extracted_content, existing_topics, existing_levels):
@@ -339,6 +371,10 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
 
     if not result:
         raise ValueError("AI did not return structured question data. Please try again.")
+
+    # Safety net for ANSWER BLANK FORMATTING: ensure a missing left operand renders as a blank.
+    for q in result.get('questions', []):
+        q['question_text'] = _normalize_answer_blank(q.get('question_text', ''))
 
     result['usage'] = {
         'input_tokens': response.usage.input_tokens,
