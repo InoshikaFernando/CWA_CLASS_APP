@@ -174,6 +174,73 @@ class ClassifyBatchingTests(SimpleTestCase):
         self.assertEqual(len(batches), 1)
         self.assertEqual(len(result['questions']), 8)
 
+    def test_each_batch_questions_keep_their_own_defaults(self):
+        # Batch 1 default topic = Number, batch 2 = Geometry; each batch's
+        # questions omit per-question topic. After merge, batch-2 questions must
+        # carry Geometry, not inherit batch-1's Number.
+        calls = {'n': 0}
+
+        def fake_batch(client, system_prompt, pages, total_page_count):
+            calls['n'] += 1
+            topic = 'Number' if calls['n'] == 1 else 'Geometry'
+            return {
+                'year_level': 5, 'subject': 'Mathematics', 'strand': 'N', 'topic': topic,
+                'questions': [
+                    {'question_text': f'p{p["page_num"]}', 'question_type': 'short_answer',
+                     'difficulty': 1, 'answers': []}
+                    for p in pages
+                ],
+                'usage': {'input_tokens': 1, 'output_tokens': 1, 'total_tokens': 2},
+            }
+
+        extracted = {
+            'page_count': 25,
+            'pages': [{'page_num': n, 'text': '', 'images': [], 'screenshot': ''}
+                      for n in range(1, 26)],
+            'all_text': '',
+        }
+        orig = (services._classify_page_batch, services._get_anthropic_client,
+                services._build_classification_prompt)
+        services._classify_page_batch = fake_batch
+        services._get_anthropic_client = lambda: object()
+        services._build_classification_prompt = lambda t, l: 'sys'
+        try:
+            result = classify_questions(extracted, [], [])
+        finally:
+            (services._classify_page_batch, services._get_anthropic_client,
+             services._build_classification_prompt) = orig
+
+        topics = [q['topic'] for q in result['questions']]
+        self.assertEqual(topics[:20], ['Number'] * 20)   # batch 1 (pages 1-20)
+        self.assertEqual(topics[20:], ['Geometry'] * 5)  # batch 2 (pages 21-25)
+
+    def test_explicit_per_question_field_not_overwritten(self):
+        # A per-question topic the model DID set must survive the default stamping.
+        def fake_batch(client, system_prompt, pages, total_page_count):
+            return {
+                'year_level': 5, 'subject': 'Mathematics', 'strand': 'N', 'topic': 'Number',
+                'questions': [
+                    {'question_text': 'q', 'question_type': 'short_answer', 'difficulty': 1,
+                     'answers': [], 'topic': 'Fractions'}
+                ],
+                'usage': {'input_tokens': 1, 'output_tokens': 1, 'total_tokens': 2},
+            }
+
+        extracted = {'page_count': 1, 'pages': [{'page_num': 1, 'text': '', 'images': [],
+                                                 'screenshot': ''}], 'all_text': ''}
+        orig = (services._classify_page_batch, services._get_anthropic_client,
+                services._build_classification_prompt)
+        services._classify_page_batch = fake_batch
+        services._get_anthropic_client = lambda: object()
+        services._build_classification_prompt = lambda t, l: 'sys'
+        try:
+            result = classify_questions(extracted, [], [])
+        finally:
+            (services._classify_page_batch, services._get_anthropic_client,
+             services._build_classification_prompt) = orig
+
+        self.assertEqual(result['questions'][0]['topic'], 'Fractions')
+
 
 class SnapBoxToFiguresTests(SimpleTestCase):
     """_snap_box_to_figures refines an AI box onto detected vector-figure bounds."""

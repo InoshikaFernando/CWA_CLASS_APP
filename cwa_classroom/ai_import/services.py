@@ -568,6 +568,17 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
         result = _classify_page_batch(client, system_prompt, batch, total)
         in_tok += result['usage']['input_tokens']
         out_tok += result['usage']['output_tokens']
+
+        # Stamp each batch's questions with THAT batch's top-level defaults before
+        # merging. Each batch is classified independently and the model only sets
+        # per-question fields when they differ from its (per-batch) default, so
+        # without this a later batch's questions would inherit the first batch's
+        # year/subject/strand/topic at save time and be mis-classified.
+        for q in result.get('questions', []):
+            for field in ('year_level', 'subject', 'strand', 'topic'):
+                if not q.get(field) and result.get(field) is not None:
+                    q[field] = result[field]
+
         if merged is None:
             merged = result
         else:
