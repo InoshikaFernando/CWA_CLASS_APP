@@ -1144,11 +1144,26 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
     required_roles = TEACHER_ROLES
     template_name = 'homework/upload_confirm.html'
 
-    def get(self, request, session_id):
+    def _session_or_redirect(self, request, session_id):
+        """Fetch the upload session, or redirect if it was already submitted.
+
+        Re-submitting (back button / double-click) an already-confirmed session
+        otherwise 404s on the ``is_confirmed=False`` filter. Send the user to the
+        homework that was created instead of showing a raw 404.
+        """
         from .models import HomeworkUploadSession
-        session = get_object_or_404(
-            HomeworkUploadSession, pk=session_id, user=request.user, is_confirmed=False,
-        )
+        session = get_object_or_404(HomeworkUploadSession, pk=session_id, user=request.user)
+        if session.is_confirmed:
+            messages.info(request, 'This upload has already been submitted.')
+            if session.homework_id:
+                return None, redirect('homework:teacher_detail', homework_id=session.homework_id)
+            return None, redirect('homework:teacher_monitor')
+        return session, None
+
+    def get(self, request, session_id):
+        session, redirect_response = self._session_or_redirect(request, session_id)
+        if redirect_response:
+            return redirect_response
         data = session.extracted_data
         included = [q for q in data.get('questions', []) if q.get('include', True)]
         excluded_count = len(data.get('questions', [])) - len(included)
@@ -1173,12 +1188,11 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
         })
 
     def post(self, request, session_id):
-        from .models import HomeworkUploadSession
         from billing.entitlements import get_school_for_user
 
-        session = get_object_or_404(
-            HomeworkUploadSession, pk=session_id, user=request.user, is_confirmed=False,
-        )
+        session, redirect_response = self._session_or_redirect(request, session_id)
+        if redirect_response:
+            return redirect_response
 
         hw_title = request.POST.get('homework_title', '').strip() or session.homework_title or session.pdf_filename
         due_date_str = request.POST.get('due_date', '')
