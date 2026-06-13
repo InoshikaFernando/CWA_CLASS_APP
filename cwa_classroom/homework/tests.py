@@ -2034,6 +2034,31 @@ class PDFConfirmMultiClassTests(TestCase):
         self.assertEqual(hws.count(), 1)
         self.assertEqual(hws.first().classroom_id, self.c2.id)
 
+    def test_resubmit_confirmed_session_redirects_not_404(self):
+        # Re-submitting an already-confirmed upload (back button / double-click)
+        # should redirect to the created homework, not raise a 404.
+        session = self._make_session()
+        first = self._post(session, classroom_ids=[str(self.c1.id)])
+        self.assertEqual(first.status_code, 302)
+        hw = Homework.objects.filter(title='Multi HW', classroom=self.c1).first()
+        self.assertIsNotNone(hw)
+
+        # Second submit of the same (now confirmed) session.
+        second = self._post(session, classroom_ids=[str(self.c1.id)])
+        self.assertEqual(second.status_code, 302)
+        self.assertIn(reverse('homework:teacher_detail', kwargs={'homework_id': hw.id}), second.url)
+        # No extra homework created.
+        self.assertEqual(Homework.objects.filter(title='Multi HW', classroom=self.c1).count(), 1)
+
+    def test_get_confirmed_session_redirects(self):
+        session = self._make_session()
+        session.is_confirmed = True
+        session.save(update_fields=['is_confirmed'])
+        self.client.force_login(self.owner)
+        url = reverse('homework:pdf_confirm', kwargs={'session_id': session.pk})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 302)  # redirected, not 404
+
     def test_unauthorized_class_id_is_dropped(self):
         other_admin = CustomUser.objects.create_user('oa_mc', 'oa_mc@test.com', 'pass1234')
         other_school = School.objects.create(name='Other MC', slug='other-mc', admin=other_admin)
