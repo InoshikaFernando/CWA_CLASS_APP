@@ -324,6 +324,41 @@ class Question(models.Model):
         return angle_svg(self.numeric_answer)
 
     @property
+    def draw_on_grid_data(self):
+        """SVG-ready render data for a draw_on_grid question, or None.
+
+        Maps the ``grid_spec`` (grid-index coords) to pixel coordinates the
+        take-item template draws: the dot lattice (each dot carries its grid
+        index for the click-to-draw JS), the shape polygon, and the canvas
+        size. Returns None when there's nothing renderable, so templates guard
+        with a single check. Kept on the model — like the long-division /
+        prime-factorisation render helpers — so no per-view plumbing is needed.
+        """
+        if self.question_type != self.DRAW_ON_GRID or not self.grid_spec:
+            return None
+        grid = self.grid_spec.get('grid') or {}
+        cols, rows = grid.get('cols'), grid.get('rows')
+        if not (isinstance(cols, int) and isinstance(rows, int) and cols > 0 and rows > 0):
+            return None
+        pad, step = 20, 36
+
+        def px(x):
+            return pad + x * step
+
+        dots = [
+            {'gx': x, 'gy': y, 'px': px(x), 'py': px(y)}
+            for y in range(rows) for x in range(cols)
+        ]
+        shape_points = (self.grid_spec.get('shape') or {}).get('points', [])
+        polygon = ' '.join(f'{px(x)},{px(y)}' for x, y in shape_points)
+        return {
+            'cols': cols, 'rows': rows, 'pad': pad, 'step': step,
+            'width': pad * 2 + (cols - 1) * step,
+            'height': pad * 2 + (rows - 1) * step,
+            'dots': dots, 'polygon': polygon,
+        }
+
+    @property
     def prime_factorization_rows(self):
         """Rows for the ladder rendering. First row shows target_number, last row shows 1.
         Intermediate rows are blank inputs the student fills in.
