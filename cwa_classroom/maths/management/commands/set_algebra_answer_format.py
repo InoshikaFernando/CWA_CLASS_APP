@@ -50,11 +50,9 @@ class Command(BaseCommand):
             help='Write the changes. Without this the command only reports (dry run).',
         )
 
-    def _subtree_topic_ids(self, term, excludes):
-        """Topic ids whose name contains `term`, plus all descendants, minus
-        any topic whose name contains one of the `excludes` terms."""
-        roots = list(Topic.objects.filter(name__icontains=term).values_list('id', flat=True))
-        ids, frontier = set(), list(roots)
+    def _with_descendants(self, seed_ids):
+        """seed_ids plus every descendant topic id (breadth-first)."""
+        ids, frontier = set(), list(seed_ids)
         while frontier:
             ids.update(frontier)
             frontier = list(
@@ -62,12 +60,20 @@ class Command(BaseCommand):
                 .exclude(id__in=ids)
                 .values_list('id', flat=True)
             )
+        return ids
+
+    def _subtree_topic_ids(self, term, excludes):
+        """Topic ids in the subtree(s) rooted at topics whose name contains
+        `term`, minus the subtree(s) of any topic whose name contains one of the
+        `excludes` terms (excluding a topic prunes its descendants too)."""
+        roots = Topic.objects.filter(name__icontains=term).values_list('id', flat=True)
+        ids = self._with_descendants(list(roots))
         if excludes:
             ex = Q()
             for term_ in excludes:
                 ex |= Q(name__icontains=term_)
-            excluded = set(Topic.objects.filter(id__in=ids).filter(ex).values_list('id', flat=True))
-            ids -= excluded
+            ex_roots = Topic.objects.filter(id__in=ids).filter(ex).values_list('id', flat=True)
+            ids -= self._with_descendants(list(ex_roots))
         return ids
 
     def handle(self, *args, **opts):

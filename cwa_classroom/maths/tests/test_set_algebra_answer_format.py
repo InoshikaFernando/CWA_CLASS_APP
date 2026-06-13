@@ -23,6 +23,11 @@ class SetAlgebraAnswerFormatTests(TestCase):
         cls.factorising = Topic.objects.create(
             name='Factorising Algebra', slug='alg-fact', subject=subject, parent=cls.algebra,
         )
+        # A child of Factorising whose own name does NOT contain "Factorising" —
+        # used to prove that excluding a topic prunes its descendants too.
+        cls.diff_squares = Topic.objects.create(
+            name='Difference of Squares', slug='alg-dos', subject=subject, parent=cls.factorising,
+        )
         cls.fractions = Topic.objects.create(name='Fractions', slug='fractions', subject=subject)
 
         def make(topic, qtype):
@@ -36,6 +41,7 @@ class SetAlgebraAnswerFormatTests(TestCase):
         cls.q_quad_typed = make(cls.quadratic, 'short_answer')      # should flag
         cls.q_quad_mcq = make(cls.quadratic, 'multiple_choice')     # not typed → skip
         cls.q_fact_typed = make(cls.factorising, 'short_answer')    # flag unless excluded
+        cls.q_dos_typed = make(cls.diff_squares, 'short_answer')    # descendant of Factorising
         cls.q_root_calc = make(cls.algebra, 'calculation')          # should flag
         cls.q_fractions = make(cls.fractions, 'short_answer')       # not algebra → skip
 
@@ -45,7 +51,7 @@ class SetAlgebraAnswerFormatTests(TestCase):
     def test_dry_run_changes_nothing(self):
         out = StringIO()
         call_command('set_algebra_answer_format', stdout=out)
-        self.assertIn('Typed questions to flag as algebra: 3', out.getvalue())
+        self.assertIn('Typed questions to flag as algebra: 4', out.getvalue())
         for q in (self.q_quad_typed, self.q_fact_typed, self.q_root_calc):
             self.assertEqual(self._format(q), 'text')  # nothing written
 
@@ -54,6 +60,7 @@ class SetAlgebraAnswerFormatTests(TestCase):
         self.assertEqual(self._format(self.q_quad_typed), 'algebra')
         self.assertEqual(self._format(self.q_root_calc), 'algebra')
         self.assertEqual(self._format(self.q_fact_typed), 'algebra')
+        self.assertEqual(self._format(self.q_dos_typed), 'algebra')  # descendant included
         # MCQ in an algebra topic is untouched (answer_format is irrelevant there)
         self.assertEqual(self._format(self.q_quad_mcq), 'text')
         # Non-algebra topic untouched
@@ -68,6 +75,8 @@ class SetAlgebraAnswerFormatTests(TestCase):
         # Factorise sub-topic excluded — keeps text (its bracket answers would
         # otherwise be mis-graded by the polynomial grader).
         self.assertEqual(self._format(self.q_fact_typed), 'text')
+        # ...and so does its descendant, even though its own name doesn't match.
+        self.assertEqual(self._format(self.q_dos_typed), 'text')
 
     def test_term_narrows_scope(self):
         call_command('set_algebra_answer_format', '--apply', '--term', 'Quadratic')
