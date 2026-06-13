@@ -1200,11 +1200,14 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
             except (TypeError, ValueError):
                 continue
 
+        assignable = _assignable_classrooms(request.user)
         if id_set:
             # Filter to classes the user may actually assign to, so tampered or
             # stale ids are dropped rather than trusted.
-            classrooms = list(_assignable_classrooms(request.user).filter(id__in=id_set))
-        elif session.classroom:
+            classrooms = list(assignable.filter(id__in=id_set))
+        elif session.classroom and assignable.filter(pk=session.classroom_id).exists():
+            # Legacy fallback — still re-checked against current scope in case the
+            # user lost access between upload and confirm.
             classrooms = [session.classroom]
         else:
             classrooms = []

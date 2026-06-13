@@ -1999,6 +1999,18 @@ class PDFConfirmMultiClassTests(TestCase):
         session.refresh_from_db()
         self.assertFalse(session.is_confirmed)
 
+    def test_session_classroom_fallback_when_no_ids_posted(self):
+        # Legacy/no-JS path: no classroom_ids submitted falls back to the
+        # session's pre-selected class (still re-checked against scope).
+        session = self._make_session()
+        session.classroom = self.c2
+        session.save(update_fields=['classroom'])
+        resp = self._post(session)  # no classroom_ids
+        self.assertEqual(resp.status_code, 302)
+        hws = Homework.objects.filter(title='Multi HW')
+        self.assertEqual(hws.count(), 1)
+        self.assertEqual(hws.first().classroom_id, self.c2.id)
+
     def test_unauthorized_class_id_is_dropped(self):
         other_admin = CustomUser.objects.create_user('oa_mc', 'oa_mc@test.com', 'pass1234')
         other_school = School.objects.create(name='Other MC', slug='other-mc', admin=other_admin)
