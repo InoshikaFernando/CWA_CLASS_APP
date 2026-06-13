@@ -32,29 +32,17 @@ from .models import Homework, HomeworkQuestion, HomeworkStudentAnswer, HomeworkS
 # ---------------------------------------------------------------------------
 
 def _teacher_classrooms(user):
-    """Classrooms where the user is a class teacher.
+    """Classrooms a user manages for homework — view, monitor, assign, and grade.
 
-    This is the view/grade scope: monitoring submissions and grading answers
-    stay restricted to the class teacher. For the broader "who may *assign*
-    homework" scope (which also includes school admins and heads of
-    department), use :func:`_assignable_classrooms`.
-    """
-    class_ids = ClassTeacher.objects.filter(teacher=user).values_list('classroom_id', flat=True)
-    return ClassRoom.objects.filter(id__in=class_ids, is_active=True)
+    A plain class teacher manages the classes they personally teach. School
+    admins (institute owner / head of institute / school admin) additionally
+    manage every class in their school, and a head of department every class in
+    the department(s) they head. This mirrors the school-scoping used elsewhere
+    (see ``classroom.views_reports._get_all_school_ids``) so an owner who isn't
+    listed as a ClassTeacher can still see and run homework for their school.
 
-
-def _assignable_classrooms(user):
-    """Classrooms a user may *assign* homework to.
-
-    A class teacher can assign to the classes they personally teach. School
-    admins (institute owner / head of institute / school admin) can additionally
-    assign to every class in their school, and a head of department to every
-    class in the department(s) they head. This mirrors the school-scoping used
-    elsewhere (see ``classroom.views_reports._get_all_school_ids``) so an owner
-    who isn't listed as a ClassTeacher still gets a populated dropdown.
-
-    Intentionally broader than :func:`_teacher_classrooms`: it grants the
-    ability to assign homework, not to view submissions or override grades.
+    Note the scope only *widens* for admin/HoD roles; a plain teacher still sees
+    only their own classes.
     """
     from classroom.models import School, SchoolTeacher, Department
 
@@ -88,6 +76,12 @@ def _assignable_classrooms(user):
         scope |= Q(department_id__in=headed_dept_ids)
 
     return ClassRoom.objects.filter(scope, is_active=True).distinct()
+
+
+# Assigning homework uses the same scope as managing it. Kept as a named alias
+# so the PDF-upload call sites read clearly.
+def _assignable_classrooms(user):
+    return _teacher_classrooms(user)
 
 
 # NOTE: _topics_with_questions() and _build_topic_groups() used to live here.
@@ -732,25 +726,20 @@ class StudentHomeworkResultView(LoginRequiredMixin, View):
 # ---------------------------------------------------------------------------
 
 def _check_teacher_owns_class(request, classroom):
-    """Gate viewing submissions / grading: class teacher (or superuser) only."""
-    if request.user.is_superuser:
-        return
-    if not ClassTeacher.objects.filter(teacher=request.user, classroom=classroom).exists():
-        from django.http import Http404
-        raise Http404
-
-
-def _check_can_assign_homework(request, classroom):
-    """Gate assigning homework: class teacher, school admin/owner/HoI, or dept head.
-
-    Broader than :func:`_check_teacher_owns_class` — it matches the
-    :func:`_assignable_classrooms` dropdown so an admin's selection is accepted.
+    """Gate managing a class's homework (view, monitor, grade) to its class
+    teacher plus school admins/owner/HoI and the department head, matching the
+    :func:`_teacher_classrooms` scope.
     """
     if request.user.is_superuser:
         return
-    if not _assignable_classrooms(request.user).filter(pk=classroom.pk).exists():
+    if not _teacher_classrooms(request.user).filter(pk=classroom.pk).exists():
         from django.http import Http404
         raise Http404
+
+
+# Assigning homework uses the same scope as managing it.
+def _check_can_assign_homework(request, classroom):
+    return _check_teacher_owns_class(request, classroom)
 
 
 def _check_student_enrolled(request, classroom):

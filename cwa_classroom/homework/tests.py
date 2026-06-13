@@ -1899,14 +1899,16 @@ class AssignableClassroomScopeTests(TestCase):
         self.class_b.save(update_fields=['is_active'])
         self.assertEqual(self._scope(self.owner), {self.class_a.id})
 
-    def test_view_scope_not_broadened_for_owner(self):
-        # Owner/HoD teach no class directly, so the view/grade scope stays empty
-        # even though they can assign homework. Guards against silently granting
-        # admins access to submissions and grade overrides.
-        self.assertEqual(self._view_scope(self.owner), set())
-        self.assertEqual(self._view_scope(self.hod), set())
-        # A plain class teacher's view scope is unchanged.
+    def test_view_scope_matches_management_scope(self):
+        # Full management: the view/monitor/grade scope equals the assignment
+        # scope. An owner manages every class in their school; a HoD their
+        # department; a plain teacher only their own classes.
+        self.assertEqual(self._view_scope(self.owner), {self.class_a.id, self.class_b.id})
+        self.assertEqual(self._view_scope(self.hod), {self.class_a.id})
         self.assertEqual(self._view_scope(self.teacher), {self.class_a.id})
+        # View scope and assignable scope are now identical for every role.
+        for u in (self.owner, self.hod, self.teacher):
+            self.assertEqual(self._view_scope(u), self._scope(u))
 
 
 # ---------------------------------------------------------------------------
@@ -2033,6 +2035,24 @@ class PDFConfirmMultiClassTests(TestCase):
         hws = Homework.objects.filter(title='Multi HW')
         self.assertEqual(hws.count(), 1)
         self.assertEqual(hws.first().classroom_id, self.c2.id)
+
+    def test_owner_can_monitor_and_open_created_homework(self):
+        # Reproduces the reported issue: after assigning, the owner (a school
+        # admin with no ClassTeacher row) must see the class in the monitor and
+        # be able to open the homework — not "not assigned to any classes" / 404.
+        session = self._make_session()
+        self._post(session, classroom_ids=[str(self.c1.id)])
+        hw = Homework.objects.filter(title='Multi HW', classroom=self.c1).first()
+        self.assertIsNotNone(hw)
+
+        self.client.force_login(self.owner)
+        mon = self.client.get(reverse('homework:teacher_monitor'))
+        self.assertEqual(mon.status_code, 200)
+        self.assertContains(mon, self.c1.name)
+        self.assertNotContains(mon, 'not assigned to any classes')
+
+        detail = self.client.get(reverse('homework:teacher_detail', kwargs={'homework_id': hw.id}))
+        self.assertEqual(detail.status_code, 200)
 
     def test_resubmit_confirmed_session_redirects_not_404(self):
         # Re-submitting an already-confirmed upload (back button / double-click)
