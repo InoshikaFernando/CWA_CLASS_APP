@@ -79,18 +79,25 @@ class Command(BaseCommand):
 
     def _render_table(self, rows, tot, window):
         self.stdout.write(f'AI usage — {window}')
-        header = f'{"source":<12}{"pages":>8}{"in_tok":>12}{"out_tok":>12}{"cost_usd":>12}{"$/page":>10}'
+        header = (
+            f'{"source":<12}{"pages":>8}{"in_tok":>12}{"out_tok":>12}{"cost_usd":>12}'
+            f'{"$/page":>10}{"100pg":>12}{"500pg":>12}{"1000pg":>12}'
+        )
         self.stdout.write(header)
         self.stdout.write('-' * len(header))
         for r in rows:
+            pp = r['per_page']
             self.stdout.write(
                 f'{r["source"]:<12}{r["pages"]:>8}{r["input_tokens"]:>12}'
-                f'{r["output_tokens"]:>12}{r["cost"]:>12.4f}{r["per_page"]:>10.4f}'
+                f'{r["output_tokens"]:>12}{r["cost"]:>12.4f}{pp:>10.4f}'
+                f'{pp * 100:>12.2f}{pp * 500:>12.2f}{pp * 1000:>12.2f}'
             )
         self.stdout.write('-' * len(header))
+        tpp = tot['per_page']
         self.stdout.write(
             f'{"TOTAL":<12}{tot["pages"]:>8}{tot["input_tokens"]:>12}'
-            f'{tot["output_tokens"]:>12}{tot["cost"]:>12.4f}{tot["per_page"]:>10.4f}'
+            f'{tot["output_tokens"]:>12}{tot["cost"]:>12.4f}{tpp:>10.4f}'
+            f'{tpp * 100:>12.2f}{tpp * 500:>12.2f}{tpp * 1000:>12.2f}'
         )
 
     def _render_markdown(self, rows, tot, window):
@@ -104,19 +111,23 @@ class Command(BaseCommand):
             f'_Auto-updated by the `ai-usage-dashboard` workflow • generated `{now}`_',
             f'_Window: **{window}** • cost estimated at ${in_rate}/Mtok in, ${out_rate}/Mtok out_',
             '',
-            '| Source | Pages | Input tok | Output tok | Cost (USD) | $/page |',
-            '|---|--:|--:|--:|--:|--:|',
+            '| Source | Pages | Input tok | Output tok | Cost (USD) | $/page | 100 pages | 500 pages | 1000 pages |',
+            '|---|--:|--:|--:|--:|--:|--:|--:|--:|',
         ]
         for r in rows:
+            pp = r['per_page']
             lines.append(
                 f'| {r["label"]} | {r["pages"]:,} | {r["input_tokens"]:,} | '
-                f'{r["output_tokens"]:,} | ${r["cost"]:.4f} | ${r["per_page"]:.4f} |'
+                f'{r["output_tokens"]:,} | ${r["cost"]:.4f} | ${pp:.4f} | '
+                f'${pp * 100:.2f} | ${pp * 500:.2f} | ${pp * 1000:.2f} |'
             )
         if not rows:
-            lines.append('| _no usage recorded_ | 0 | 0 | 0 | $0.0000 | $0.0000 |')
+            lines.append('| _no usage recorded_ | 0 | 0 | 0 | $0.0000 | $0.0000 | $0.00 | $0.00 | $0.00 |')
+        tpp = tot['per_page']
         lines.append(
             f'| **Total** | **{tot["pages"]:,}** | **{tot["input_tokens"]:,}** | '
-            f'**{tot["output_tokens"]:,}** | **${tot["cost"]:.4f}** | **${tot["per_page"]:.4f}** |'
+            f'**{tot["output_tokens"]:,}** | **${tot["cost"]:.4f}** | **${tpp:.4f}** | '
+            f'**${tpp * 100:.2f}** | **${tpp * 500:.2f}** | **${tpp * 1000:.2f}** |'
         )
         lines += [
             '',
