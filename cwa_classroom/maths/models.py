@@ -48,6 +48,7 @@ class Question(models.Model):
     EXTENDED_ANSWER = 'extended_answer'
     LONG_DIVISION = 'long_division'
     PRIME_FACTORIZATION = 'prime_factorization'
+    COLUMN_OPERATION = 'column_operation'
 
     QUESTION_TYPES = [
         ('multiple_choice', 'Multiple Choice'),
@@ -58,6 +59,7 @@ class Question(models.Model):
         ('extended_answer', 'Extended Answer (written proof/explanation)'),
         ('long_division', 'Long Division'),
         ('prime_factorization', 'Prime Factorization'),
+        ('column_operation', 'Column Arithmetic'),
     ]
 
     # Validation mode — how student answers are graded
@@ -137,6 +139,10 @@ class Question(models.Model):
     dividend = models.PositiveIntegerField(null=True, blank=True, help_text="Long-division: number being divided")
     divisor = models.PositiveIntegerField(null=True, blank=True, help_text="Long-division: number dividing")
     target_number = models.PositiveIntegerField(null=True, blank=True, help_text="Prime-factorization: number to factorise")
+
+    # Column-arithmetic question data (vertical/stacked addition, subtraction, multiplication)
+    operands = models.JSONField(null=True, blank=True, help_text="Column arithmetic: list of numbers top-to-bottom, e.g. [90, 82]")
+    operator = models.CharField(max_length=1, blank=True, default='', help_text="Column arithmetic operator: '+', '-' or '*'")
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -242,6 +248,78 @@ class Question(models.Model):
             rows.append({'show_number': False, 'number': None, 'number_input': True, 'prime_input': True})
         rows.append({'show_number': True, 'number': 1, 'number_input': False, 'prime_input': False})
         return rows
+
+    @property
+    def column_result(self):
+        """Computed answer for a column-arithmetic question, or None if not applicable."""
+        ops = self.operands or []
+        if not ops or not self.operator:
+            return None
+        try:
+            nums = [int(o) for o in ops]
+        except (TypeError, ValueError):
+            return None
+        if not nums:
+            return None
+        if self.operator == '+':
+            return sum(nums)
+        if self.operator == '-':
+            result = nums[0]
+            for n in nums[1:]:
+                result -= n
+            return result
+        if self.operator in ('*', '×', 'x'):
+            result = 1
+            for n in nums:
+                result *= n
+            return result
+        return None
+
+    @property
+    def column_arithmetic(self):
+        """Render structure for the column-arithmetic widget.
+
+        Returns a dict with:
+          width    — number of digit columns (max of widest operand and the result)
+          rows     — list of right-aligned digit-string lists (one per operand), blanks left-padded
+          operator — display symbol: '+', '−' or '×'
+          cols     — range(width) for template iteration
+        Returns None if this isn't a valid column-arithmetic question.
+        """
+        ops = self.operands or []
+        result = self.column_result
+        if not ops or not self.operator or result is None:
+            return None
+        try:
+            nums = [int(o) for o in ops]
+        except (TypeError, ValueError):
+            return None
+        width = max([len(str(abs(n))) for n in nums] + [len(str(abs(result)))])
+
+        def pad(n):
+            s = str(abs(n))
+            return [''] * (width - len(s)) + list(s)
+
+        symbol = {'+': '+', '-': '−', '*': '×', '×': '×', 'x': '×'}.get(self.operator, self.operator)
+        return {
+            'width': width,
+            'rows': [pad(n) for n in nums],
+            'operator': symbol,
+            'cols': range(width),
+        }
+
+    @property
+    def column_inline(self):
+        """Single-line form of the problem, e.g. "90 − 82".
+
+        Renderers that don't draw the stacked grid (mixed quiz, homework,
+        worksheet preview) show this so the numbers are still visible — the
+        grid renderer presents the operands visually instead.
+        """
+        ca = self.column_arithmetic
+        if not ca:
+            return ''
+        return f" {ca['operator']} ".join(str(int(o)) for o in self.operands)
 
 
 class Answer(models.Model):

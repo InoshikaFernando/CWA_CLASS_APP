@@ -327,6 +327,7 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
                 ('short_answer', 'Short Answer'),
                 ('fill_blank', 'Fill in the Blank'),
                 ('calculation', 'Calculation'),
+                ('column_operation', 'Column Arithmetic'),
             ],
         })
 
@@ -368,6 +369,21 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
             # Image ref
             img_ref = request.POST.get(f'{prefix}image_ref', '')
             q['image_ref'] = img_ref if img_ref and img_ref != 'none' else None
+
+            # Column-arithmetic fields (only relevant for column_operation)
+            if q['question_type'] == 'column_operation':
+                raw_operands = request.POST.get(f'{prefix}operands', '')
+                operands = []
+                for tok in raw_operands.replace(',', ' ').split():
+                    try:
+                        operands.append(int(tok))
+                    except ValueError:
+                        pass
+                if operands:
+                    q['operands'] = operands
+                operator = request.POST.get(f'{prefix}operator', q.get('operator', ''))
+                if operator:
+                    q['operator'] = operator
 
             # Dynamic answers — collect all answer fields
             answers = []

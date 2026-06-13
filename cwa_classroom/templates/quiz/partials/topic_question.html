@@ -200,6 +200,77 @@
       })();
     </script>
 
+  {% elif question.question_type == 'column_operation' and question.column_arithmetic %}
+    {% with ca=question.column_arithmetic %}
+    <p class="text-sm text-gray-500 mb-4">Use the small amber boxes to carry or borrow as you work, then write your answer in the blue boxes below the line.</p>
+
+    <div class="ca-wrap font-mono text-2xl leading-none mb-6 inline-block">
+      <!-- Carry / borrow working row (scratch space, not marked) -->
+      <div class="ca-carry flex">
+        <span class="w-10 inline-block"></span>{# operator gutter #}
+        {% for c in ca.cols %}
+          <input type="text" maxlength="2" inputmode="numeric"
+                 data-ca="carry" data-col="{{ c }}"
+                 aria-label="carry or borrow column {{ c }}"
+                 class="w-10 h-7 text-center bg-amber-50 border-2 border-amber-200
+                        focus:border-primary focus:bg-white focus:outline-none rounded text-amber-600 font-bold text-sm" />
+        {% endfor %}
+      </div>
+
+      <!-- Operand rows (operator sign sits in the gutter on the last row) -->
+      {% for row in ca.rows %}
+      <div class="ca-operand flex items-center mt-1">
+        <span class="w-10 inline-flex items-center justify-center font-bold text-gray-800">{% if forloop.last %}{{ ca.operator }}{% endif %}</span>
+        {% for d in row %}
+          <span class="w-10 h-10 inline-flex items-center justify-center font-bold text-gray-800">{{ d }}</span>
+        {% endfor %}
+      </div>
+      {% endfor %}
+
+      <!-- Rule + answer row -->
+      <div class="ca-answer flex border-t-2 border-gray-800 pt-1 mt-1">
+        <span class="w-10 inline-block"></span>
+        {% for c in ca.cols %}
+          <input type="text" maxlength="1" inputmode="numeric"
+                 data-ca="answer" data-col="{{ c }}"
+                 aria-label="answer digit column {{ c }}"
+                 class="ca-answer-cell w-10 h-10 text-center bg-blue-50 border-2 border-blue-200
+                        focus:border-primary focus:bg-white focus:outline-none rounded font-bold text-blue-700" />
+        {% endfor %}
+      </div>
+    </div>
+
+    <input type="hidden" id="text-answer-input" />
+    <button type="button"
+            class="block bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition"
+            onclick="submitColumnOperation('{{ session_id }}', {{ question.id }})">
+      Submit
+    </button>
+
+    <script>
+      function submitColumnOperation(sessionId, questionId) {
+        const cells = [...document.querySelectorAll('[data-ca="answer"]')];
+        // Join answer digits left→right, drop leading zeros (e.g. "08" → "8").
+        // An all-blank submission stays empty (graded wrong) — it must NOT become
+        // "0", or it would falsely match a zero-result question.
+        const answer = cells.map(c => c.value.trim()).join('').replace(/^0+(?=\d)/, '');
+        document.getElementById('text-answer-input').value = answer;
+        _submitAndAdvance(sessionId, {
+          session_id: sessionId, question_id: questionId, text_answer: answer,
+        });
+      }
+      // Auto-advance focus across answer cells
+      document.querySelectorAll('[data-ca="answer"]').forEach((el, i, arr) => {
+        el.addEventListener('input', e => {
+          if (el.value && i < arr.length - 1) arr[i+1].focus();
+        });
+        el.addEventListener('keydown', e => {
+          if (e.key === 'Backspace' && !el.value && i > 0) arr[i-1].focus();
+        });
+      });
+    </script>
+    {% endwith %}
+
   {% elif question.question_type == 'drag_drop' %}
     <p class="text-sm text-gray-500 mb-3">Drag the tiles into the correct order.</p>
     <ul id="sortable-list" class="space-y-2">
