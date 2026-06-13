@@ -49,6 +49,81 @@ def grade_measure(question, raw):
     return abs(value - target) <= tolerance
 
 
+_GRID_MODES = ('segments', 'points', 'shape_complete')
+_TARGET_KEY_FOR_MODE = {
+    'segments': 'segments',
+    'shape_complete': 'expected_extra_segments',
+    'points': 'points',
+}
+
+
+def validate_grid_spec(grid_spec):
+    """Validate a ``draw_on_grid`` ``grid_spec``; raise ``ValueError`` if invalid.
+
+    Pure and framework-agnostic (no Django import) so it can be reused by the
+    model's ``clean()`` AND by the JSON-bank importer before bulk-create, so a
+    malformed spec can't slip in through either path. Checks structure, a known
+    ``mode``, a non-empty ``target`` for that mode, and that every coordinate
+    (shape + target) is an integer inside the declared grid.
+    """
+    if not isinstance(grid_spec, dict):
+        raise ValueError('grid_spec must be a JSON object.')
+
+    grid = grid_spec.get('grid')
+    if not isinstance(grid, dict):
+        raise ValueError("grid_spec.grid must be an object with 'cols' and 'rows'.")
+    cols, rows = grid.get('cols'), grid.get('rows')
+    if not (isinstance(cols, int) and isinstance(rows, int) and cols > 0 and rows > 0):
+        raise ValueError('grid_spec.grid.cols and .rows must be positive integers.')
+
+    if not isinstance(grid_spec.get('shape'), dict):
+        raise ValueError('grid_spec.shape must be an object.')
+
+    mode = grid_spec.get('mode')
+    if mode not in _GRID_MODES:
+        raise ValueError(f'grid_spec.mode must be one of {_GRID_MODES}.')
+
+    target = grid_spec.get('target')
+    if not isinstance(target, dict):
+        raise ValueError('grid_spec.target must be an object.')
+
+    def _check_point(p):
+        if not (isinstance(p, (list, tuple)) and len(p) == 2):
+            raise ValueError(f'Point must be [x, y]; got {p!r}.')
+        x, y = p
+        if not (isinstance(x, int) and isinstance(y, int)):
+            raise ValueError(f'Point coordinates must be integers; got {p!r}.')
+        if not (0 <= x < cols and 0 <= y < rows):
+            raise ValueError(f'Point {p!r} is outside the {cols}x{rows} grid.')
+
+    def _check_segment(s):
+        if not isinstance(s, dict):
+            raise ValueError(f'Segment must be an object; got {s!r}.')
+        try:
+            pts = [(s['x1'], s['y1']), (s['x2'], s['y2'])]
+        except (KeyError, TypeError):
+            raise ValueError(f'Segment must have x1, y1, x2, y2; got {s!r}.')
+        for p in pts:
+            _check_point(list(p))
+        if pts[0] == pts[1]:
+            raise ValueError(f'Segment endpoints must differ; got {s!r}.')
+
+    # Shape points (if present) must be in-bounds too.
+    for p in grid_spec['shape'].get('points', []):
+        _check_point(p)
+
+    key = _TARGET_KEY_FOR_MODE[mode]
+    items = target.get(key)
+    if not isinstance(items, list) or not items:
+        raise ValueError(f"grid_spec.target.{key} must be a non-empty list for mode '{mode}'.")
+    if mode == 'points':
+        for p in items:
+            _check_point(p)
+    else:
+        for s in items:
+            _check_segment(s)
+
+
 def _segment_key(seg):
     """Canonical, order-independent key for a grid segment.
 

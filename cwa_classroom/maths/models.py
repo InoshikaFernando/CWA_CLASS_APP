@@ -260,6 +260,25 @@ class Question(models.Model):
                     )
                 })
 
+        # Draw-on-grid questions are graded by set comparison of grid marks.
+        if self.question_type == self.DRAW_ON_GRID:
+            if not self.grid_spec:
+                raise ValidationError({
+                    'grid_spec': 'Draw-on-grid questions require a grid_spec.'
+                })
+            from maths.geometry_grading import validate_grid_spec
+            try:
+                validate_grid_spec(self.grid_spec)
+            except ValueError as exc:
+                raise ValidationError({'grid_spec': str(exc)})
+            if self.pk and self.answers.exists():
+                raise ValidationError({
+                    'question_type': (
+                        'Draw-on-grid questions are graded by the drawn marks '
+                        'and must not have answer options.'
+                    )
+                })
+
     @property
     def long_division_step_count(self):
         """Number of subtraction blocks needed to long-divide dividend by divisor."""
