@@ -1083,8 +1083,10 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
         data['strand'] = request.POST.get('strand', data.get('strand', ''))
         data['subject'] = request.POST.get('subject', data.get('subject', 'Mathematics'))
 
-        questions = data.get('questions', [])
-        for idx, q in enumerate(questions):
+        original_questions = data.get('questions', [])
+
+        def _apply_question_fields(q, idx):
+            """Apply this question's posted form fields onto the dict q (in place)."""
             prefix = f'q_{idx}_'
             q['include'] = request.POST.get(f'{prefix}include') == 'on'
             q['question_text'] = request.POST.get(f'{prefix}text', q.get('question_text', ''))
@@ -1134,6 +1136,27 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
                     })
             if answers:
                 q['answers'] = answers
+            return q
+
+        # `question_order` (CSV of indices) is present when the teacher inserted
+        # questions via "Add question below" — it carries the display order and any
+        # new indices (>= len(original)). Without it, fall back to the simple 1:1 pass.
+        order_raw = request.POST.get('question_order', '').strip()
+        if order_raw:
+            order = [int(x) for x in order_raw.split(',') if x.strip().isdigit()]
+            rebuilt = []
+            for i in order:
+                base = original_questions[i] if 0 <= i < len(original_questions) else {}
+                _apply_question_fields(base, i)
+                # Drop a newly-added question the teacher left blank.
+                if not (0 <= i < len(original_questions)) and not base.get('question_text', '').strip():
+                    continue
+                rebuilt.append(base)
+            questions = rebuilt
+        else:
+            questions = original_questions
+            for idx, q in enumerate(questions):
+                _apply_question_fields(q, idx)
 
         data['questions'] = questions
         session.extracted_data = data
