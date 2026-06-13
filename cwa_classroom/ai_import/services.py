@@ -134,6 +134,20 @@ Your task:
 4. Do NOT embed table/chart data as text in the question — keep question_text concise and
    reference the image instead when the question depends on a visual.
 
+SPLIT MULTI-PART QUESTIONS (important):
+- When a single question contains multiple sub-parts labelled a), b), c) (or i, ii, iii / 1, 2, 3),
+  emit ONE separate question per sub-part. Do NOT keep them combined in a single question_text
+  with a single combined answer.
+- Carry the shared instruction/stem into every split question so each one stands alone.
+  Example: the source "Simplify the following: a) 5 × y  b) x × y × 4  c) 2 × p × 7 × q" with
+  answers "a) 5y  b) 4xy  c) 14pq" must become THREE questions:
+    1. question_text "Simplify: 5 × y", answer "5y"
+    2. question_text "Simplify: x × y × 4", answer "4xy"
+    3. question_text "Simplify: 2 × p × 7 × q", answer "14pq"
+- Match each sub-part to its own answer. Never produce an answer like "a) 5y b) 4xy c) 14pq".
+- Only keep parts together when they genuinely cannot be answered independently (e.g. part b
+  explicitly depends on the result of part a); in that rare case, note the dependency in the text.
+
 QUESTION TYPE RULES (important):
 - If the correct answer is a NUMBER ONLY (digits, decimals, fractions like "14" or "3.5" or "2/3"),
   use question_type "short_answer" with just the correct answer. Do NOT generate wrong answers.
