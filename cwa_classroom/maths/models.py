@@ -268,6 +268,20 @@ class Question(models.Model):
         return str(quotient) if remainder == 0 else f"{quotient} r {remainder}"
 
     @property
+    def measure_figure_svg(self):
+        """Inline SVG of the angle to measure, generated from ``numeric_answer``.
+
+        Returns '' when there's no value (so templates can render it
+        unconditionally). Bridges the pure ``maths.svg_geometry`` helper into
+        templates without per-view context plumbing — the same way the
+        long-division / prime-factorisation render helpers live on the model.
+        """
+        if self.question_type != self.MEASURE or self.numeric_answer is None:
+            return ''
+        from maths.svg_geometry import angle_svg
+        return angle_svg(self.numeric_answer)
+
+    @property
     def prime_factorization_rows(self):
         """Rows for the ladder rendering. First row shows target_number, last row shows 1.
         Intermediate rows are blank inputs the student fills in.
