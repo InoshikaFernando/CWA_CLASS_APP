@@ -16,7 +16,8 @@ class BackgroundTaskAdmin(admin.ModelAdmin):
 class AIUsageLogAdmin(admin.ModelAdmin):
     list_display = [
         'created_at', 'source', 'school', 'pages',
-        'input_tokens', 'output_tokens', 'est_cost_usd',
+        'input_tokens', 'output_tokens', 'total_tokens', 'est_cost_usd',
+        'cost_per_page_display',
     ]
     list_filter = ['source', 'created_at']
     search_fields = ['school__name', 'session_id']
@@ -26,3 +27,8 @@ class AIUsageLogAdmin(admin.ModelAdmin):
     ]
     raw_id_fields = ['school']
     date_hierarchy = 'created_at'
+
+    @admin.display(description='$/page', ordering='est_cost_usd')
+    def cost_per_page_display(self, obj):
+        cpp = obj.cost_per_page_usd
+        return f'${cpp:.4f}' if cpp is not None else '—'
