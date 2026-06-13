@@ -10,6 +10,8 @@
 
   <link href="{% static 'css/google-fonts-full.css' %}" rel="stylesheet" />
   <script src="{% static 'js/tailwind.min.js' %}"></script>
+  <!-- Live superscript formatting for maths answer inputs (y^2 → y²) -->
+  <script defer src="{% static 'js/maths_exponent.js' %}"></script>
   <script>
     tailwind.config = {
       theme: {
