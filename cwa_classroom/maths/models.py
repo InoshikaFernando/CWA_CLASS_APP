@@ -50,6 +50,7 @@ class Question(models.Model):
     PRIME_FACTORIZATION = 'prime_factorization'
     COLUMN_OPERATION = 'column_operation'
     MEASURE = 'measure'
+    DRAW_ON_GRID = 'draw_on_grid'
 
     QUESTION_TYPES = [
         ('multiple_choice', 'Multiple Choice'),
@@ -62,6 +63,7 @@ class Question(models.Model):
         ('prime_factorization', 'Prime Factorization'),
         ('column_operation', 'Column Arithmetic'),
         ('measure', 'Measure (angle/scale, tolerance-graded)'),
+        ('draw_on_grid', 'Draw on Grid (symmetry / reflection / plot)'),
     ]
 
     # Validation mode — how student answers are graded
@@ -159,6 +161,20 @@ class Question(models.Model):
     answer_unit = models.CharField(
         max_length=10, blank=True, default='',
         help_text="Measure: unit shown in the answer box, e.g. '°', 'cm', 'g'.",
+    )
+
+    # Draw-on-grid question data: a single JSON document describing the dot grid,
+    # the shape, the interaction mode, and the correct target set. Coordinates are
+    # integer grid indices (not pixels) so the figure is scale-independent. See
+    # docs/specs/CPP-330_interactive_geometry_questions.md §3.4 for the schema:
+    #   {"grid": {"cols", "rows"}, "shape": {...},
+    #    "mode": "segments"|"points"|"shape_complete",
+    #    "target": {"segments"|"points"|"expected_extra_segments": [...]},
+    #    "allow_extra": bool}
+    # Schema validation lives in Question.clean() (CPP-338).
+    grid_spec = models.JSONField(
+        null=True, blank=True,
+        help_text="draw_on_grid only. Dot grid + shape + correct target set (grid-index coords).",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
